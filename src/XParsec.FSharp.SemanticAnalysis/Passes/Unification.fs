@@ -46,8 +46,8 @@ module Unification =
     /// Rebuild a type definition's typar scope from the registry entry's
     /// `TypeParams`, so a field type containing `'name` resolves to the same
     /// root the registry already holds.
-    let private scopeOfTypeParams (typeParams: EqArray<string * TypeVar>) : Dictionary<string, TypeVar> =
-        let d = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+    let private scopeOfTypeParams (typeParams: EqArray<string * TyVarId>) : Dictionary<string, TyVarId> =
+        let d = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
         for (n, tv) in typeParams do
             if not (d.ContainsKey n) then
@@ -76,7 +76,7 @@ module Unification =
     [<NoEquality; NoComparison>]
     type private TypeMembersFill =
         {
-            TypeParams: EqArray<string * TypeVar>
+            TypeParams: EqArray<string * TyVarId>
             Members: TypeMemberInfo[]
             ThisKey: NodeKey
             MkSelfType: EqArray<SemType> -> SemType
@@ -113,7 +113,7 @@ module Unification =
     let private generaliseMemberTypars
         (ctx: PassContext)
         (outerLevel: int)
-        (classTypars: EqArray<string * TypeVar>)
+        (classTypars: EqArray<string * TyVarId>)
         (mInfo: TypeMemberInfo)
         : unit =
         match mInfo.Type with
@@ -132,11 +132,11 @@ module Unification =
             // (`Holder<'T>(v)` unifies the return through a fresh instantiation), so
             // a stale snapshot would miss it and the `'T` in the member signature
             // would be wrongly generalised into a (dangling) method typar.
-            let fixedRoots = HashSet<TypeVar>(HashIdentity.Reference)
+            let fixedRoots = HashSet<TyVarId>()
 
             for (_, ptv) in classTypars do
                 match zonk ctx.Store (TyVar ptv) with
-                | TyVar r -> fixedRoots.Add(UnionFind.find ctx.Store r) |> ignore
+                | TyVar r -> fixedRoots.Add((UnionFind.find ctx.Store r).Id) |> ignore
                 | _ -> ()
 
             // The pre-recompute registration order: the leading `DeclaredTyparCount`
@@ -160,7 +160,7 @@ module Unification =
                         let root = UnionFind.find ctx.Store r
 
                         if (ctx.Store.Link root).IsNone then
-                            Some(name, root)
+                            Some(name, root.Id)
                         else
                             None
                     | _ -> None
@@ -172,15 +172,15 @@ module Unification =
             // synthetic name. Key the known names by root identity so the canonical
             // ORDER can be re-labelled with real names, synthesising `M%d` only for a
             // root with no registered name. First registration wins (source order).
-            let knownNames = Dictionary<TypeVar, string>(HashIdentity.Reference)
+            let knownNames = Dictionary<TyVarId, string>()
 
             for (name, ptv) in pre do
                 match zonk ctx.Store (TyVar ptv) with
                 | TyVar r ->
                     let root = UnionFind.find ctx.Store r
 
-                    if not (knownNames.ContainsKey root) then
-                        knownNames.[root] <- name
+                    if not (knownNames.ContainsKey root.Id) then
+                        knownNames.[root.Id] <- name
                 | _ -> ()
 
             // The ONE ordering implementation: declared-first (source order), then
@@ -223,9 +223,9 @@ module Unification =
             // declaration's prototype typars, so a generic member body
             // mentioning `'a` shares identity with them.
             let thisTv = ctx.NewTypeVar()
-            ctx.Store.SetLevel(thisTv, ctx.CurrentLevel)
+            ctx.Store.SetLevel(UnionFind.find ctx.Store thisTv, ctx.CurrentLevel)
             let selfArgs = EqArray.ofSeq (seq { for (_, ptv) in fc.TypeParams -> TyVar ptv })
-            ctx.Store.SetLink(thisTv, ValueSome(fc.MkSelfType selfArgs))
+            ctx.Store.SetLink(UnionFind.find ctx.Store thisTv, ValueSome(fc.MkSelfType selfArgs))
             ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
 
             // Static member bodies never see `this` / ctor params
@@ -277,7 +277,7 @@ module Unification =
 
                             match mInfoOpt with
                             | Some mInfo when not mInfo.MethodTypeParams.IsEmpty ->
-                                let seed = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+                                let seed = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
                                 for (n, ptv) in mInfo.MethodTypeParams do
                                     seed.[n] <- ptv
@@ -294,7 +294,7 @@ module Unification =
                                 // typars would vanish in nested scopes (mirror the
                                 // class-typar persistence above).
                                 let memberEnclosing =
-                                    Dictionary<string, TypeVar>(classScope, System.StringComparer.Ordinal)
+                                    Dictionary<string, TyVarId>(classScope, System.StringComparer.Ordinal)
 
                                 for (n, ptv) in mInfo.MethodTypeParams do
                                     memberEnclosing.[n] <- ptv
@@ -383,7 +383,7 @@ module Unification =
 
                                     if not mInfo.MethodTypeParams.IsEmpty then
                                         let extended =
-                                            Dictionary<string, TypeVar>(savedMScope, System.StringComparer.Ordinal)
+                                            Dictionary<string, TyVarId>(savedMScope, System.StringComparer.Ordinal)
 
                                         for (n, ptv) in mInfo.MethodTypeParams do
                                             extended.[n] <- ptv
@@ -400,11 +400,11 @@ module Unification =
                                         if
                                             mInfo.Kind = ClassMemberKind.Method && not mInfo.MethodTypeParams.IsEmpty
                                         then
-                                            let fixedRoots = HashSet<TypeVar>(HashIdentity.Reference)
+                                            let fixedRoots = HashSet<TyVarId>()
 
                                             for (_, ptv) in fc.TypeParams do
                                                 match zonk ctx.Store (TyVar ptv) with
-                                                | TyVar r -> fixedRoots.Add(UnionFind.find ctx.Store r) |> ignore
+                                                | TyVar r -> fixedRoots.Add((UnionFind.find ctx.Store r).Id) |> ignore
                                                 | _ -> ()
 
                                             let seed = EqArray.toList mInfo.MethodTypeParams
@@ -418,21 +418,21 @@ module Unification =
                                                         let dRoot = UnionFind.find ctx.Store r
 
                                                         if (ctx.Store.Link dRoot).IsNone then
-                                                            Some(name, dRoot)
+                                                            Some(name, dRoot.Id)
                                                         else
                                                             None
                                                     | _ -> None
                                                 )
 
-                                            let knownNames = Dictionary<TypeVar, string>(HashIdentity.Reference)
+                                            let knownNames = Dictionary<TyVarId, string>()
 
                                             for (name, ptv) in seed do
                                                 match zonk ctx.Store (TyVar ptv) with
                                                 | TyVar r ->
                                                     let kRoot = UnionFind.find ctx.Store r
 
-                                                    if not (knownNames.ContainsKey kRoot) then
-                                                        knownNames.[kRoot] <- name
+                                                    if not (knownNames.ContainsKey kRoot.Id) then
+                                                        knownNames.[kRoot.Id] <- name
                                                 | _ -> ()
 
                                             mInfo.Generalized <-
@@ -637,8 +637,8 @@ module Unification =
         match info.BaseType with
         | ValueSome parentTy ->
             let baseTv = ctx.NewTypeVar()
-            ctx.Store.SetLevel(baseTv, ctx.CurrentLevel)
-            ctx.Store.SetLink(baseTv, ValueSome parentTy)
+            ctx.Store.SetLevel(UnionFind.find ctx.Store baseTv, ctx.CurrentLevel)
+            ctx.Store.SetLink(UnionFind.find ctx.Store baseTv, ValueSome parentTy)
             ctx.Bindings.TypeVar.Set(info.BaseKey, baseTv)
         | ValueNone -> ()
 
@@ -1150,7 +1150,7 @@ module Unification =
             let root = UnionFind.find ctx.Store lv
 
             match ctx.Store.Link root with
-            | ValueNone -> unify ctx key (TyVar root) (defaultListTy elemTy)
+            | ValueNone -> unify ctx key (TyVar root.Id) (defaultListTy elemTy)
             | ValueSome target ->
                 match zonk ctx.Store target with
                 | TyRecord(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy
@@ -1272,7 +1272,7 @@ module Unification =
     /// `M(int)` / `M(int)` collide. Anchored at the duplicate's own `DeclKey`, matching
     /// fsc's declaration-time timing.
     let private checkDuplicateMembers (ctx: PassContext) : unit =
-        let checkHost (typeParams: EqArray<string * TypeVar>) (members: TypeMemberInfo[]) =
+        let checkHost (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
             let seen = HashSet<_>(HashIdentity.Structural)
 
             for m in members do

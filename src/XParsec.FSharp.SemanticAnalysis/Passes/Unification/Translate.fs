@@ -18,23 +18,23 @@ module internal UnificationTranslate =
 
     /// Fresh unkeyed TypeVar — for intermediate "result" TyVars not tied to
     /// a CST node's NodeKey.
-    let freshTyVar (ctx: PassContext) : TypeVar =
+    let freshTyVar (ctx: PassContext) : TyVarId =
         let tv = ctx.NewTypeVar()
-        ctx.Store.SetLevel(tv, ctx.CurrentLevel)
+        ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
         tv
 
     /// Overwrites any prior entry — callers that need "get or allocate"
     /// (e.g. forward-referenced let-rec siblings) must go through `tvOf`.
-    let freshTv (ctx: PassContext) (key: NodeKey) : TypeVar =
+    let freshTv (ctx: PassContext) (key: NodeKey) : TyVarId =
         let tv = ctx.NewTypeVar()
-        ctx.Store.SetLevel(tv, ctx.CurrentLevel)
+        ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
         ctx.Bindings.TypeVar.Set(key, tv)
         tv
 
     /// Get-or-allocate: fresh-allocates if missing — happens for binding-site
     /// patterns not yet visited by inferPat, including forward references
     /// inside `let rec` groups.
-    let tvOf (ctx: PassContext) (key: NodeKey) : TypeVar =
+    let tvOf (ctx: PassContext) (key: NodeKey) : TyVarId =
         match ctx.Bindings.TypeVar.TryGetValue key with
         | ValueSome tv -> tv
         | ValueNone -> freshTv ctx key
@@ -240,7 +240,7 @@ module internal UnificationTranslate =
                         }
 
                     let tv = ctx.NewTypeVar()
-                    ctx.Store.SetLevel(tv, ctx.CurrentLevel)
+                    ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
                     ctx.Resolution.TyparScope.[name] <- tv
                     TyVar tv
                 else
@@ -248,7 +248,7 @@ module internal UnificationTranslate =
                     // generalisation at binding-group exit picks it up;
                     // memoise so later occurrences share identity.
                     let tv = ctx.NewTypeVar()
-                    ctx.Store.SetLevel(tv, ctx.CurrentLevel)
+                    ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
                     ctx.Resolution.TyparScope.[name] <- tv
                     TyVar tv
         | Type.VarType(Typar.Anon _) ->
@@ -328,13 +328,13 @@ module internal UnificationTranslate =
                 // store face through `tryResolveExternalTypeStamped`, which has no
                 // by-name fallback.
                 ctx.Store.SetLink(
-                    tv,
+                    UnionFind.find ctx.Store tv,
                     ValueSome(
                         resolveBareTypeName ctx carrierTok (fun name -> tryResolveExternalType ctx name EqArray.empty)
                     )
                 )
 
-                ctx.Store.SetUnits(tv, ValueSome mt)
+                ctx.Store.SetUnits(UnionFind.find ctx.Store tv, ValueSome mt)
                 TyVar tv
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
@@ -805,8 +805,8 @@ module internal UnificationTranslate =
                             DeclKey = NodeKey.ofToken declTok NodeKind.TypeVarRef
                         }
 
-                    if not (ctx.Store.Constraints.Items root.Id |> List.exists (fun e -> e.Kind = sc.Kind)) then
-                        ctx.Store.Constraints.Prepend(root.Id, sc)
+                    if not (ctx.Store.Constraints.Items root |> List.exists (fun e -> e.Kind = sc.Kind)) then
+                        ctx.Store.Constraints.Prepend(root, sc)
                 | false, _ ->
                     ctx.Diagnostics.Add
                         {
@@ -873,7 +873,7 @@ module internal UnificationTranslate =
             info.Status <- AbbreviationStatus.InProgress
             let savedScope = ctx.Resolution.TyparScope
             let savedStrict = ctx.Resolution.TyparScopeStrict
-            let scope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+            let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
             for (n, tv) in info.TypeParams do
                 if not (scope.ContainsKey n) then
@@ -917,7 +917,7 @@ module internal UnificationTranslate =
             let arg = args.[i]
             let protoRoot = UnionFind.find ctx.Store protoTv
 
-            for c in ctx.Store.Constraints.Items protoRoot.Id do
+            for c in ctx.Store.Constraints.Items protoRoot do
                 match checkConstraint ctx c arg with
                 | Satisfied -> ()
                 | Violated ->

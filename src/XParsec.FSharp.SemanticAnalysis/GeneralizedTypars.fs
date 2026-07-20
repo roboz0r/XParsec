@@ -7,7 +7,7 @@ open System.Collections.Generic
 /// before every consumer — `Inline`, `InferGeneralize`, `Elaborate`) so the
 /// four historically-duplicated "first-appearance typar" walks share a single
 /// traversal. Free of any Unification-pass dependency: needs only `SemType` /
-/// `TypeVar` / `UnionFind`, all earlier compile units.
+/// `TyVarId` / `UnionFind`, all earlier compile units.
 module SemTypeWalk =
 
     /// THE one SemType typar-collector: invoke `onVar` at every `TyVar` leaf with
@@ -17,7 +17,7 @@ module SemTypeWalk =
     /// composite forms recurse via the shared `SemType.iterChildren` skeleton,
     /// left-to-right — the type-level computations included (a fresh method var
     /// can live in any child).
-    let iterSemTypeVars (onVar: TypeVar -> unit) (t: SemType) : unit =
+    let iterSemTypeVars (onVar: TyVarId -> unit) (t: SemType) : unit =
         let rec walk (t: SemType) : unit =
             match t with
             | TyVar tv -> onVar tv
@@ -30,15 +30,15 @@ module SemTypeWalk =
     /// a typar, so recurse into its target instead of collecting it. Built on
     /// `iterSemTypeVars`. Shared by `Inline.quantifiedTypars` and
     /// `Elaborate.mkMethodQuantEnv`'s dependent-typar fixpoint.
-    let collectLinkedRoots (store: TypeStore) (acc: ResizeArray<TypeVar>) (seen: HashSet<TypeVar>) (t: SemType) : unit =
-        let rec onVar (tv: TypeVar) =
+    let collectLinkedRoots (store: TypeStore) (acc: ResizeArray<TyVarId>) (seen: HashSet<TyVarId>) (t: SemType) : unit =
+        let rec onVar (tv: TyVarId) =
             let root = UnionFind.find store tv
 
             match store.Link root with
             | ValueSome target -> iterSemTypeVars onVar target
             | ValueNone ->
-                if seen.Add root then
-                    acc.Add root
+                if seen.Add root.Id then
+                    acc.Add root.Id
 
         iterSemTypeVars onVar t
 
@@ -54,7 +54,7 @@ module SemTypeWalk =
 /// open signature, and the type scheme must all derive their typar order from a
 /// single source, because F# treats this order as an ABI surface (the data analog
 /// of F#'s `PlaceTyparsInDeclarationOrder` + `freeInTypeLeftToRight`).
-type GeneralizedTypars = private | GeneralizedTypars of (string * TypeVar)[]
+type GeneralizedTypars = private | GeneralizedTypars of (string * TyVarId)[]
 
 /// Same-file companion so it can construct the private case. `canonical` is the
 /// sole producer; everything else is read-only projection.
@@ -71,7 +71,7 @@ module GeneralizedTypars =
     /// over the inferred tail only, so emitted names stay consistent.
     ///
     /// Only UNLINKED roots are collected (a `TyVar` whose union-find root has no
-    /// `.Link`), mirroring `InferGeneralize.iterTypeVarRoots` /
+    /// `.Link`), mirroring `InferGeneralize.iterTyVarIdRoots` /
     /// `generaliseMemberTypars`. `zonkedTy` is ALREADY zonked by the caller — this
     /// pass never zonks, keeping the file free of any Unification-pass dependency.
     ///
@@ -89,22 +89,22 @@ module GeneralizedTypars =
     /// have two orders to compare — out of scope and against the erasure design.
     let canonical
         (store: TypeStore)
-        (declared: (string * TypeVar) list)
-        (fixedRoots: HashSet<TypeVar>)
-        (knownNames: IReadOnlyDictionary<TypeVar, string>)
+        (declared: (string * TyVarId) list)
+        (fixedRoots: HashSet<TyVarId>)
+        (knownNames: IReadOnlyDictionary<TyVarId, string>)
         (zonkedTy: SemType)
         : GeneralizedTypars =
-        let result = ResizeArray<string * TypeVar>()
-        // Reference identity: roots are compared / deduped / excluded by union-find
-        // representative, never by structural equality.
-        let seen = HashSet<TypeVar>(HashIdentity.Reference)
+        let result = ResizeArray<string * TyVarId>()
+        // Roots are compared / deduped / excluded by union-find representative id —
+        // dense per-file ids, so structural int equality IS representative identity.
+        let seen = HashSet<TyVarId>()
 
         // 1. Declared typars first, in given order, by their union-find roots.
         for (name, tv) in declared do
             let root = UnionFind.find store tv
 
-            if seen.Add root then
-                result.Add(name, root)
+            if seen.Add root.Id then
+                result.Add(name, root.Id)
 
         // 2. Remaining free roots of `zonkedTy` in first-left-to-right-appearance
         //    order — the shared `SemTypeWalk.iterSemTypeVars` skeleton with this
@@ -115,24 +115,28 @@ module GeneralizedTypars =
         |> SemTypeWalk.iterSemTypeVars (fun tv ->
             let root = UnionFind.find store tv
 
-            if (store.Link root).IsNone && not (fixedRoots.Contains root) && seen.Add root then
+            if
+                (store.Link root).IsNone
+                && not (fixedRoots.Contains root.Id)
+                && seen.Add root.Id
+            then
                 // Prefer the registered source name (a real `'a` F# keeps in the
                 // emitted GenericParam); synthesise a method-scoped `M%d` only for a
                 // genuinely body-inferred root, bumping the index only when minted so
                 // synthetic indices stay dense.
-                match knownNames.TryGetValue root with
-                | true, n -> result.Add(n, root)
+                match knownNames.TryGetValue root.Id with
+                | true, n -> result.Add(n, root.Id)
                 | _ ->
-                    result.Add(sprintf "M%d" inferredCount, root)
+                    result.Add(sprintf "M%d" inferredCount, root.Id)
                     inferredCount <- inferredCount + 1
         )
 
         GeneralizedTypars(result.ToArray())
 
-    /// The ONE position→index materialization: `roots.[i]`'s `TypeVar` ↦
+    /// The ONE position→index materialization: `roots.[i]`'s `TyVarId` ↦
     /// `TyTypar(TyparAxis.Method, i)`. Callers use this to rewrite a body's typar
     /// identities to frozen method markers.
-    let methodEnv (GeneralizedTypars roots) : (TypeVar * SemType) list =
+    let methodEnv (GeneralizedTypars roots) : (TyVarId * SemType) list =
         [
             for i in 0 .. roots.Length - 1 -> (snd roots.[i], TyTypar(TyparAxis.Method, i))
         ]
@@ -146,7 +150,7 @@ module GeneralizedTypars =
     /// the SAME relative order is still canonical — this mints no new order — so the
     /// invariant holds. Used by Elaborate to align the carrier's roots with the roots
     /// the member's frozen signature / body actually reference.
-    let refreshRoots (f: TypeVar -> TypeVar voption) (GeneralizedTypars roots) : GeneralizedTypars =
+    let refreshRoots (f: TyVarId -> TyVarId voption) (GeneralizedTypars roots) : GeneralizedTypars =
         GeneralizedTypars(
             roots
             |> Array.choose (fun (n, tv) ->
@@ -156,7 +160,7 @@ module GeneralizedTypars =
             )
         )
 
-    let toArray (GeneralizedTypars roots) : (string * TypeVar)[] = roots
+    let toArray (GeneralizedTypars roots) : (string * TyVarId)[] = roots
 
     let names (GeneralizedTypars roots) : string[] = Array.map fst roots
 

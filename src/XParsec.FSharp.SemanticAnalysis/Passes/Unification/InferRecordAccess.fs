@@ -150,7 +150,7 @@ module internal UnificationInferRecordAccess =
         (ctx: PassContext)
         (diagKey: NodeKey)
         (typeName: string)
-        (typeParams: EqArray<string * TypeVar>)
+        (typeParams: EqArray<string * TyVarId>)
         (args: EqArray<SemType>)
         (members: TypeMemberInfo[])
         (memberName: string)
@@ -184,7 +184,7 @@ module internal UnificationInferRecordAccess =
     and tryTyparInterfaceMember
         (ctx: PassContext)
         (diagKey: NodeKey)
-        (root: TypeVar)
+        (root: Rep)
         (memberName: string)
         : SemType voption =
         let rec scan (cs: SemanticConstraint list) : SemType voption =
@@ -221,7 +221,7 @@ module internal UnificationInferRecordAccess =
                     | _ -> scan rest
                 | _ -> scan rest
 
-        scan (ctx.Store.Constraints.Items root.Id)
+        scan (ctx.Store.Constraints.Items root)
 
     and resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
         // Commit a resolved external instance member `m` whose signature is written
@@ -411,7 +411,7 @@ module internal UnificationInferRecordAccess =
                         ResultTv = resultTv
                     }
 
-                ctx.Store.Pda.Prepend(root.Id, access)
+                ctx.Store.Pda.Prepend(root, access)
                 TyVar resultTv
         // `arr.Length` on a rank-1 intrinsic array resolves to the core
         // `GetArrayLength` inline function (scheme `'T[] -> int`), grounding the

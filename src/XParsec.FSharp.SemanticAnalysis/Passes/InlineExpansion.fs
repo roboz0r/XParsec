@@ -215,7 +215,7 @@ module InlineExpansion =
                 | TyVar tv, act ->
                     let r = UnionFind.find store tv
 
-                    match roots |> Array.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
+                    match roots |> Array.tryFindIndex (fun x -> x = r) with
                     | Some i ->
                         match result.[i] with
                         | ValueNone -> result.[i] <- ValueSome act
@@ -286,7 +286,7 @@ module InlineExpansion =
                 (fun i v ->
                     match v with
                     | ValueSome t -> t
-                    | ValueNone -> TyVar roots.[i]
+                    | ValueNone -> TyVar roots.[i].Id
                 )
                 result
 
@@ -339,8 +339,8 @@ module InlineExpansion =
     /// is no node-identity to preserve by skipping it.
     let run
         (ctx: PassContext)
-        (decls: (TDecl * (TypeVar * SemType) list) list)
-        : (TDecl * (TypeVar * SemType) list) list =
+        (decls: (TDecl * (TyVarId * SemType) list) list)
+        : (TDecl * (TyVarId * SemType) list) list =
 
         let provider = ctx.Provider
 

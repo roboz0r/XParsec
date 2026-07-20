@@ -143,10 +143,10 @@ let tests =
                     let v0b = asTyVar "m0b" m0b
                     let v1 = asTyVar "m1" m1
 
-                    Expect.isTrue (System.Object.ReferenceEquals(v0a, v0b)) "same method index 0 → same TyVar"
-                    Expect.isFalse (System.Object.ReferenceEquals(v0a, v1)) "distinct method index → distinct TyVar"
-                    Expect.equal (store.Level v0a) level "fresh method var stamped at level"
-                    Expect.equal (store.Level v1) level "fresh method var stamped at level"
+                    Expect.isTrue (v0a = v0b) "same method index 0 → same TyVar"
+                    Expect.isFalse (v0a = v1) "distinct method index → distinct TyVar"
+                    Expect.equal (store.Level(UnionFind.find store v0a)) level "fresh method var stamped at level"
+                    Expect.equal (store.Level(UnionFind.find store v1)) level "fresh method var stamped at level"
                 | other -> failtestf "unexpected instantiate result: %A" other
             }
 

@@ -14,7 +14,7 @@ let tests =
         [
             test "fresh TypeVar is its own root" {
                 let tv = store.NewTypeVar()
-                Expect.isTrue (System.Object.ReferenceEquals(UnionFind.find store tv, tv)) "self-root"
+                Expect.isTrue ((UnionFind.find store tv).Id = tv) "self-root"
             }
 
             test "union puts two vars in the same class" {
@@ -53,7 +53,7 @@ let tests =
                 store.SetParent(d, ValueSome c)
 
                 let root = UnionFind.find store d
-                Expect.isTrue (System.Object.ReferenceEquals(root, a)) "found a"
+                Expect.isTrue (root.Id = a) "found a"
                 Expect.equal (store.Parent d) (ValueSome a) "d compressed"
                 Expect.equal (store.Parent c) (ValueSome a) "c compressed"
                 Expect.equal (store.Parent b) (ValueSome a) "b compressed"
@@ -67,7 +67,7 @@ let tests =
                 UnionFind.union store a c
 
                 let rootC = UnionFind.find store c
-                Expect.isTrue (System.Object.ReferenceEquals(rootC, a)) "c's root is a"
+                Expect.isTrue (rootC.Id = a) "c's root is a"
                 Expect.equal (store.Rank a) 1 "rank stays 1"
             }
         ]

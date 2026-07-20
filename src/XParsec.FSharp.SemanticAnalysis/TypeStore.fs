@@ -1,5 +1,18 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+/// A `TyVarId` KNOWN to be its union-find representative. The only producer is
+/// `UnionFind.find`. The root-authoritative store cells
+/// (`Link` / `Level` / `Units` and the obligation side-tables) take a `Rep`, so
+/// "read authoritative state off a non-root" stops type-checking — enforces "call `find` first"
+/// Structure (`Parent` / `Rank`) and the write-once `Region` legitimately touch non-roots and
+/// stay on raw `TyVarId`.
+[<Struct>]
+type Rep =
+    private
+    | Rep of root: TyVarId
+
+    member this.Id = let (Rep id) = this in id
+
 /// The `union` merge combinator for the one deferred-constraint payload family whose
 /// join is non-trivial. Each family's combinator is baked into its owning
 /// `PayloadList` / `BoundTable` at construction (below), so the union seam
@@ -21,50 +34,50 @@ module internal PayloadJoin =
         acc
 
 /// The **storage core** every deferred-constraint payload family shares: a grow-only
-/// per-representative list keyed by the metavar's id. The backing dictionary is
-/// PRIVATE — the only writes are `Set`/`Prepend`/`Append`/`Join`, so a family has no
-/// off-seam setter once its node slot is gone (the single-mutation-seam guarantee).
-/// Payload lives only under the representative id; `Join` folds a `union` loser's
-/// items into the winner via the family's `combine` (fixed at construction), order
-/// preserved so diagnostics stay deterministic.
+/// per-representative list keyed by the metavar's representative id. Every method takes
+/// a `Rep`, so payload can only be read/written under a proven root. The backing
+/// dictionary is PRIVATE — the only writes are `Set`/`Prepend`/`Append`/`Join`, so a
+/// family has no off-seam setter once its node slot is gone (the single-mutation-seam
+/// guarantee). `Join` folds a `union` loser's items into the winner via the family's
+/// `combine` (fixed at construction), order preserved so diagnostics stay deterministic.
 [<Sealed>]
 type PayloadList<'T>(combine: 'T list -> 'T list -> 'T list) =
     let table = System.Collections.Generic.Dictionary<int, 'T list>()
 
-    let at (root: TyVarId) : 'T list =
-        match table.TryGetValue(int root) with
+    let at (root: Rep) : 'T list =
+        match table.TryGetValue(int root.Id) with
         | true, xs -> xs
         | _ -> []
 
     /// Every item accrued under `root`, in insertion / merge order.
-    member _.Items(root: TyVarId) : 'T list = at root
+    member _.Items(root: Rep) : 'T list = at root
 
-    member _.IsEmpty(root: TyVarId) : bool = List.isEmpty (at root)
+    member _.IsEmpty(root: Rep) : bool = List.isEmpty (at root)
 
     /// Replace `root`'s items; an empty list drops the entry so an ungrounded-but-empty
     /// root leaves no residue. THE single write path.
-    member _.Set(root: TyVarId, items: 'T list) : unit =
+    member _.Set(root: Rep, items: 'T list) : unit =
         if List.isEmpty items then
-            table.Remove(int root) |> ignore
+            table.Remove(int root.Id) |> ignore
         else
-            table.[int root] <- items
+            table.[int root.Id] <- items
 
     /// Accrue `item` at the head (`item :: node.slot`).
-    member this.Prepend(root: TyVarId, item: 'T) : unit = this.Set(root, item :: at root)
+    member this.Prepend(root: Rep, item: 'T) : unit = this.Set(root, item :: at root)
 
     /// Accrue `item` at the tail (`node.slot @ [item]`).
-    member this.Append(root: TyVarId, item: 'T) : unit = this.Set(root, at root @ [ item ])
+    member this.Append(root: Rep, item: 'T) : unit = this.Set(root, at root @ [ item ])
 
     /// The `union` join: fold `loser`'s items into `winner` via the family's baked
     /// `combine` (winnerItems → loserItems → joined), then empty `loser`. The
     /// combinator is a construction-time property of the family, so no caller
     /// re-specifies the merge order. Associative/idempotent set-union in spirit.
-    member this.Join(winner: TyVarId, loser: TyVarId) : unit =
+    member this.Join(winner: Rep, loser: Rep) : unit =
         let l = at loser
 
         if not (List.isEmpty l) then
             this.Set(winner, combine (at winner) l)
-            table.Remove(int loser) |> ignore
+            table.Remove(int loser.Id) |> ignore
 
 /// A payload family whose items DISCHARGE ONE AT A TIME through a shared reference
 /// identity — SRTP bounds and deferred dot-accesses. Wraps the grow-only
@@ -80,49 +93,46 @@ type BoundTable<'T when 'T: not struct>(combine: 'T list -> 'T list -> 'T list) 
 
     let solved = System.Collections.Generic.HashSet<'T>(HashIdentity.Reference)
 
-    member _.Items(root: TyVarId) : 'T list = items.Items root
+    member _.Items(root: Rep) : 'T list = items.Items root
 
     /// The still-undischarged items under `root`, in insertion / merge order.
-    member _.Live(root: TyVarId) : 'T list =
+    member _.Live(root: Rep) : 'T list =
         items.Items root |> List.filter (fun x -> not (solved.Contains x))
 
-    member _.IsEmpty(root: TyVarId) : bool = items.IsEmpty root
-    member _.Prepend(root: TyVarId, item: 'T) : unit = items.Prepend(root, item)
+    member _.IsEmpty(root: Rep) : bool = items.IsEmpty root
+    member _.Prepend(root: Rep, item: 'T) : unit = items.Prepend(root, item)
 
-    member _.Join(winner: TyVarId, loser: TyVarId) : unit = items.Join(winner, loser)
+    member _.Join(winner: Rep, loser: Rep) : unit = items.Join(winner, loser)
 
     /// Record `item` as discharged so `Live` skips it from now on.
     member _.Solve(item: 'T) : unit = solved.Add item |> ignore
 
     member _.IsSolved(item: 'T) : bool = solved.Contains item
 
-/// The metavar **arena** for one file: the single authority that mints `TypeVar`
-/// handles with dense, monotone ids, and the owner of the id-indexed structural
+/// The metavar **arena** for one file: the single authority that mints `TyVarId`s
+/// with dense, monotone ids, and the owner of the id-indexed structural
 /// arrays (union-find `parent`/`rank`, the root-authoritative `level`/`link`/`units`,
-/// the write-once `region`) plus the deferred-constraint side-tables. The node is a
-/// thin handle carrying only its `Id`; every former slot is read/written HERE. Grow-only
-/// per file; ids are never reused, so a `TyVarId` is a stable array index. One instance
-/// lives on each `PassContext`.
+/// the write-once `region`) plus the deferred-constraint side-tables. A metavar IS
+/// its `TyVarId`; every slot is read/written HERE, id-indexed. Grow-only per file;
+/// ids are never reused, so a `TyVarId` is a stable array index. One instance lives
+/// on each `PassContext`.
 [<Sealed>]
 type TypeStore() =
     let mutable nextId = 0
     let mutable capacity = 0
-    // Union-find structure. `parent.[i] = i` marks a ROOT (the former
-    // `TypeVar.Parent : TypeVar voption` `ValueNone ≡ self` convention); any other
-    // entry points one step up the tree, path-compressed by `find`.
+    // Union-find structure. `parent.[i] = i` marks a ROOT (the `ValueNone ≡ self`
+    // convention `find` / `union` read); any other entry points one step up the
+    // tree, path-compressed by `find`.
     let mutable parent: int[] = Array.empty
     let mutable rank: int[] = Array.empty
-    // Authoritative ON THE ROOT (`UnionFind.find` first): Rémy level, the solution
-    // link, and the measure carrier.
+    // Authoritative ON THE ROOT (a `Rep` from `UnionFind.find`): Rémy level, the
+    // solution link, and the measure carrier.
     let mutable level: int[] = Array.empty
     let mutable link: SemType voption[] = Array.empty
     let mutable units: MeasureTerm voption[] = Array.empty
     // Write-once region id — NOT migrated on union (unlike the root-authoritative
-    // slots), so it stays a plain per-node cell.
+    // slots), so it stays a plain per-node cell keyed by raw `TyVarId`.
     let mutable region: RegionId[] = Array.empty
-    // id -> handle, so `find` / `union` still RETURN the root `TypeVar` node the
-    // reference-identity call sites expect.
-    let mutable nodes: TypeVar[] = Array.empty
 
     // Amortized-doubling copy-grow of one parallel arena array. Written ONCE and
     // shared by every slot below, not duplicated per array.
@@ -142,83 +152,83 @@ type TypeStore() =
             link <- growStore link capacity newCap ValueNone
             units <- growStore units capacity newCap ValueNone
             region <- growStore region capacity newCap RegionId.Unknown
-            nodes <- growStore nodes capacity newCap Unchecked.defaultof<TypeVar>
             capacity <- newCap
 
-    /// Mint a fresh metavar handle carrying the next dense id. THE single
-    /// construction seam — every `TypeVar` in a file is born here so its id
-    /// indexes this store. A fresh var is its own union-find root (`parent.[id] = id`)
-    /// at level 0, unlinked, un-measured, region-unknown.
-    member _.NewTypeVar() : TypeVar =
+    /// Mint a fresh metavar carrying the next dense id. THE single construction
+    /// seam — every `TyVarId` in a file is born here so its id indexes this store.
+    /// A fresh var is its own union-find root (`parent.[id] = id`) at level 0,
+    /// unlinked, un-measured, region-unknown.
+    member _.NewTypeVar() : TyVarId =
         let id = nextId
         ensureCapacity (id + 1)
-        let tv = TypeVar(LanguagePrimitives.Int32WithMeasure<tyVarId> id)
         parent.[id] <- id
         rank.[id] <- 0
         level.[id] <- 0
         link.[id] <- ValueNone
         units.[id] <- ValueNone
         region.[id] <- RegionId.Unknown
-        nodes.[id] <- tv
         nextId <- nextId + 1
-        tv
+        LanguagePrimitives.Int32WithMeasure<tyVarId> id
 
     /// Count of metavars minted so far (the dense id upper bound).
     member _.Count = nextId
 
-    /// The root `TypeVar` handle for a dense id — how `find` / `union` recover the
-    /// node from the `parent` array.
-    member _.Node(id: TyVarId) : TypeVar = nodes.[int id]
+    // --- Union-find structure. Owned by `UnionFind`; do not poke elsewhere. Keyed by
+    //     raw `TyVarId` because `find` legitimately walks non-roots. ---
 
-    // --- Union-find structure. Owned by `UnionFind`; do not poke elsewhere. ---
-
-    /// `ValueNone` ≡ `tv` is its own root, preserving the exact convention the
-    /// `find` / `union` algorithm reads off the former `TypeVar.Parent` slot.
-    member _.Parent(tv: TypeVar) : TypeVar voption =
-        let i = int tv.Id
+    /// `ValueNone` ≡ `tv` is its own root, the convention the `find` / `union`
+    /// algorithm reads off the `parent` array.
+    member _.Parent(tv: TyVarId) : TyVarId voption =
+        let i = int tv
         let p = parent.[i]
-        if p = i then ValueNone else ValueSome nodes.[p]
 
-    member _.SetParent(tv: TypeVar, p: TypeVar voption) : unit =
-        parent.[int tv.Id] <-
+        if p = i then
+            ValueNone
+        else
+            ValueSome(LanguagePrimitives.Int32WithMeasure<tyVarId> p)
+
+    member _.SetParent(tv: TyVarId, p: TyVarId voption) : unit =
+        parent.[int tv] <-
             match p with
-            | ValueSome r -> int r.Id
-            | ValueNone -> int tv.Id
+            | ValueSome r -> int r
+            | ValueNone -> int tv
 
-    member _.Rank(tv: TypeVar) : int = rank.[int tv.Id]
-    member _.SetRank(tv: TypeVar, r: int) : unit = rank.[int tv.Id] <- r
+    member _.Rank(tv: TyVarId) : int = rank.[int tv]
+    member _.SetRank(tv: TyVarId, r: int) : unit = rank.[int tv] <- r
 
-    // --- Authoritative on the union-find root (`UnionFind.find` first). ---
+    // --- Authoritative on the union-find root: a `Rep` (from `UnionFind.find`) is the
+    //     only key, so a stale non-root read cannot be written. ---
 
     /// Let-depth at which the root was minted (Rémy's levels). `union` propagates
     /// `min` of the two roots' levels to the survivor; `occursAndAdjust` lowers a
     /// reachable level; generalisation quantifies roots whose level exceeds the
     /// enclosing scope.
-    member _.Level(tv: TypeVar) : int = level.[int tv.Id]
-    member _.SetLevel(tv: TypeVar, v: int) : unit = level.[int tv.Id] <- v
+    member _.Level(r: Rep) : int = level.[int r.Id]
+    member _.SetLevel(r: Rep, v: int) : unit = level.[int r.Id] <- v
 
     /// The solution / substitution reached from this root; `ValueNone` while free.
-    member _.Link(tv: TypeVar) : SemType voption = link.[int tv.Id]
-    member _.SetLink(tv: TypeVar, v: SemType voption) : unit = link.[int tv.Id] <- v
+    member _.Link(r: Rep) : SemType voption = link.[int r.Id]
+    member _.SetLink(r: Rep, v: SemType voption) : unit = link.[int r.Id] <- v
 
     /// Measure constraint on the root when it is a numeric type. `ValueNone` for the
     /// overwhelming majority (function types, tuples, non-numeric values); merged on
     /// union by `mergeUnits`. `headZonk` / `substituteWith` STOP following `Link` at a
     /// measure-bearing root so the measure rides on the returned `TyVar`.
-    member _.Units(tv: TypeVar) : MeasureTerm voption = units.[int tv.Id]
-    member _.SetUnits(tv: TypeVar, v: MeasureTerm voption) : unit = units.[int tv.Id] <- v
+    member _.Units(r: Rep) : MeasureTerm voption = units.[int r.Id]
+    member _.SetUnits(r: Rep, v: MeasureTerm voption) : unit = units.[int r.Id] <- v
 
-    // --- Write-once region id; NOT migrated on union. ---
+    // --- Write-once region id; NOT migrated on union, so any node has one valid cell
+    //     and it stays keyed by raw `TyVarId`. ---
 
-    member _.Region(tv: TypeVar) : RegionId = region.[int tv.Id]
-    member _.SetRegion(tv: TypeVar, r: RegionId) : unit = region.[int tv.Id] <- r
+    member _.Region(tv: TyVarId) : RegionId = region.[int tv]
+    member _.SetRegion(tv: TyVarId, r: RegionId) : unit = region.[int tv] <- r
 
-    /// SRTP member-trait bounds, keyed by representative id — the store home of the
+    /// SRTP member-trait bounds, keyed by representative — the store home of the
     /// former `TypeVar.SrtpBounds` slot. Grow-only + `solved` replaces the shared
     /// `MemberSignature.Resolved` dedup flag. `union` join carries `loser @ winner`.
     member val Srtp = BoundTable<MemberSignature>(fun winner loser -> loser @ winner) with get
 
-    /// Type-parameter constraints, keyed by representative id — the store home of the
+    /// Type-parameter constraints, keyed by representative — the store home of the
     /// former `TypeVar.Constraints` slot. A `[<Struct>]` `SemanticConstraint` carries
     /// no reference identity, and `drainConstraints`' compositional `propagateToFreeArgs`
     /// depends on value independence, so this family keeps its per-drain remainder
@@ -227,13 +237,13 @@ type TypeStore() =
     member val Constraints = PayloadList<SemanticConstraint>(PayloadJoin.constraintsByKind) with get
 
     /// Deferred dot-accesses parked on a still-free receiver, keyed by representative
-    /// id — the store home of the former `TypeVar.PendingDotAccess` slot. Grow-only +
+    /// — the store home of the former `TypeVar.PendingDotAccess` slot. Grow-only +
     /// `solved`: an access resolved once the receiver grounds is recorded, so a
     /// re-drain and the leftover-unresolved check see only the live (unsolved) ones.
     /// `union` join carries `loser @ winner`.
     member val Pda = BoundTable<DeferredMemberAccess>(fun winner loser -> loser @ winner) with get
 
-    /// Default-constraint chains (`default ^T : …`), keyed by representative id — the
+    /// Default-constraint chains (`default ^T : …`), keyed by representative — the
     /// store home of the former `TypeVar.Defaults` slot. Generalisation consumes a
     /// TyVar's chain WHOLESALE (clearing it when a default fires or nothing is left to
     /// chase), so this family keeps its per-tv clear (through `Set`) rather than a
@@ -244,9 +254,84 @@ type TypeStore() =
     /// representative — one associative set-union join per family, each via the
     /// combinator baked into its table (Constraints dedup by `Kind`; SRTP / pending
     /// dot-accesses `loser @ winner`; defaults `winner @ loser`). Payload lives only
-    /// under the representative id. THE single payload-merge seam for `UnionFind.union`.
-    member this.MergePayloads(winner: TyVarId, loser: TyVarId) : unit =
+    /// under the representative. THE single payload-merge seam for `UnionFind.union`.
+    member this.MergePayloads(winner: Rep, loser: Rep) : unit =
         this.Constraints.Join(winner, loser)
         this.Srtp.Join(winner, loser)
         this.Pda.Join(winner, loser)
         this.Defaults.Join(winner, loser)
+
+/// Union-find over the per-file `TypeStore`. `find` is the SOLE producer of `Rep`
+/// (the private case above is unconstructible outside this file), so every
+/// root-authoritative read is gated behind a real path-compression walk. Lives here
+/// (rather than a separate unit) precisely so `find` can mint `Rep`.
+module UnionFind =
+
+    /// Iterative rather than recursive to avoid stack pressure on long chains.
+    /// Path-compresses, then hands back the root WRAPPED as a `Rep`.
+    let find (store: TypeStore) (tv: TyVarId) : Rep =
+        let mutable root = tv
+        let mutable continueLoop = true
+
+        while continueLoop do
+            match store.Parent root with
+            | ValueNone -> continueLoop <- false
+            | ValueSome p -> root <- p
+
+        let mutable cursor = tv
+
+        while cursor <> root do
+            match store.Parent cursor with
+            | ValueNone ->
+                // Unreachable post-phase-1; defensive terminate.
+                cursor <- root
+            | ValueSome next ->
+                store.SetParent(cursor, ValueSome root)
+                cursor <- next
+
+        Rep root
+
+    /// Does NOT resolve Link / Units / Constraints / SrtpBounds — the caller
+    /// (Unification) handles compatibility checks and on-unified callbacks.
+    /// The surviving root inherits `min` of the two roots' Levels so the
+    /// representative remains authoritative for Rémy's level-based
+    /// generalisation.
+    let union (store: TypeStore) (a: TyVarId) (b: TyVarId) : unit =
+        let rootA = find store a
+        let rootB = find store b
+
+        if rootA <> rootB then
+            let mergedLevel = min (store.Level rootA) (store.Level rootB)
+
+            let survivor =
+                if store.Rank rootA.Id < store.Rank rootB.Id then
+                    store.SetParent(rootA.Id, ValueSome rootB.Id)
+                    rootB
+                elif store.Rank rootA.Id > store.Rank rootB.Id then
+                    store.SetParent(rootB.Id, ValueSome rootA.Id)
+                    rootA
+                else
+                    store.SetParent(rootB.Id, ValueSome rootA.Id)
+                    store.SetRank(rootA.Id, store.Rank rootA.Id + 1)
+                    rootA
+
+            store.SetLevel(survivor, mergedLevel)
+
+    let inSameClass (store: TypeStore) (a: TyVarId) (b: TyVarId) : bool = find store a = find store b
+
+    /// Follow union-find roots + `.Link` to the concrete *head* of a type: the
+    /// shared core of the union-find walk. Resolves only the head constructor —
+    /// nested type arguments are left untouched (`Unification.zonk` layers the
+    /// recursive argument rebuild on top of this; `Inline` needs only the head).
+    /// A root carrying a `Units` measure stops the follow so the measure rides on
+    /// the returned `TyVar`, matching `zonk`. The single home of the root-following
+    /// walk, so every caller shares it rather than re-deriving the chase.
+    let rec headZonk (store: TypeStore) (t: SemType) : SemType =
+        match t with
+        | TyVar tv ->
+            let root = find store tv
+
+            match store.Link root with
+            | ValueSome target when (store.Units root).IsNone -> headZonk store target
+            | _ -> TyVar root.Id
+        | _ -> t

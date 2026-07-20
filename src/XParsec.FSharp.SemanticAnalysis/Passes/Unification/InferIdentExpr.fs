@@ -89,7 +89,7 @@ module internal UnificationInferIdentExpr =
             let headName = ctx.NameOf li.Idents.[0]
             let tailName = ctx.NameOf li.Idents.[1]
 
-            let tryStaticMember (typeParams: EqArray<string * TypeVar>) (members: TypeMemberInfo[]) =
+            let tryStaticMember (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
                 match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = tailName) with
                 | Some m ->
                     let _, subst = freshNamedInstance ctx typeParams
@@ -253,7 +253,7 @@ module internal UnificationInferIdentExpr =
             | ValueSome className ->
                 let memberName = ctx.NameOf memberTok
 
-                let resolve (typeParams: EqArray<string * TypeVar>) (members: TypeMemberInfo[]) =
+                let resolve (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
                     match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
                     | Some m ->
                         let _, subst = freshNamedInstance ctx typeParams

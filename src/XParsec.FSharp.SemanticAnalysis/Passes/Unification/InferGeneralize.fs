@@ -20,22 +20,22 @@ module internal UnificationInferGeneralize =
     /// own bespoke walks. A thin wrapper now: it delegates the traversal to the
     /// shared `SemTypeWalk.iterSemTypeVars`, supplying only the `find`-then-`onRoot`
     /// leaf policy.
-    let iterTypeVarRoots (store: TypeStore) (onRoot: TypeVar -> unit) (t: SemType) : unit =
+    let iterTypeVarRoots (store: TypeStore) (onRoot: Rep -> unit) (t: SemType) : unit =
         t |> SemTypeWalk.iterSemTypeVars (fun tv -> onRoot (UnionFind.find store tv))
 
     /// Non-quantified TyVars are left alone — they're free w.r.t. the
     /// surrounding scope and must keep their identity. `scheme.Body` is
     /// already zonked by `generalise`, so we don't follow Links here.
     let instantiate (ctx: PassContext) (scheme: TypeScheme) : SemType =
-        let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
-        let freshOf = Dictionary<TypeVar, TypeVar>(HashIdentity.Reference)
+        let subst = Dictionary<TyVarId, SemType>()
+        let freshOf = Dictionary<TyVarId, TyVarId>()
 
         for q in scheme.Quantified do
             let qRoot = UnionFind.find ctx.Store q
             let fresh = ctx.NewTypeVar()
-            ctx.Store.SetLevel(fresh, ctx.CurrentLevel)
-            subst.[qRoot] <- TyVar fresh
-            freshOf.[qRoot] <- fresh
+            ctx.Store.SetLevel(UnionFind.find ctx.Store fresh, ctx.CurrentLevel)
+            subst.[qRoot.Id] <- TyVar fresh
+            freshOf.[qRoot.Id] <- fresh
 
         // EVERY quantified root is freshened per call in the
         // constraint substitution, INCLUDING purely PHANTOM quantified roots (e.g.
@@ -52,7 +52,7 @@ module internal UnificationInferGeneralize =
         // inference in `drainConstraints` does not ground the ORIGINAL surface var
         // and leave the FRESH return copy un-instantiated → an unresolved TyVar at
         // freeze. Seeding from the FULL `subst` covers both.
-        let constraintSubst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+        let constraintSubst = Dictionary<TyVarId, SemType>()
 
         for kv in subst do
             constraintSubst.[kv.Key] <- kv.Value
@@ -71,7 +71,7 @@ module internal UnificationInferGeneralize =
         // instance across all constraints that mention it. (Quantified roots —
         // surface AND phantom — are already in `constraintSubst` from the full
         // `subst` seed above, so the `quantifiedRoots` guard skips them here.)
-        let quantifiedRoots = HashSet<TypeVar>(freshOf.Keys, HashIdentity.Reference)
+        let quantifiedRoots = HashSet<TyVarId>(freshOf.Keys)
 
         for (_, c) in scheme.Constraints do
             match c.Kind with
@@ -83,19 +83,19 @@ module internal UnificationInferGeneralize =
                     (fun root ->
                         if
                             (ctx.Store.Link root).IsNone
-                            && not (quantifiedRoots.Contains root)
-                            && not (constraintSubst.ContainsKey root)
+                            && not (quantifiedRoots.Contains root.Id)
+                            && not (constraintSubst.ContainsKey root.Id)
                         then
                             let fresh = ctx.NewTypeVar()
-                            ctx.Store.SetLevel(fresh, ctx.CurrentLevel)
-                            constraintSubst.[root] <- TyVar fresh
+                            ctx.Store.SetLevel(UnionFind.find ctx.Store fresh, ctx.CurrentLevel)
+                            constraintSubst.[root.Id] <- TyVar fresh
                     )
             | _ -> ()
 
         for (qTv, c) in scheme.Constraints do
             let qRoot = UnionFind.find ctx.Store qTv
 
-            match freshOf.TryGetValue qRoot with
+            match freshOf.TryGetValue qRoot.Id with
             | true, fresh ->
                 let c =
                     match c.Kind with
@@ -132,7 +132,7 @@ module internal UnificationInferGeneralize =
         | TyVar tv ->
             let root = UnionFind.find store tv
 
-            if not (List.isEmpty (store.Pda.Live root.Id)) then
+            if not (List.isEmpty (store.Pda.Live root)) then
                 true
             else
                 match store.Link root with
@@ -150,30 +150,30 @@ module internal UnificationInferGeneralize =
     /// instantiation is re-stamped with fresh defaults on the next call to
     /// its `Instantiate` closure.
     let applyDefaults (store: TypeStore) (zonkedTy: SemType) (outerLevel: int) : unit =
-        let visited = HashSet<TypeVar>(HashIdentity.Reference)
+        let visited = HashSet<TyVarId>()
 
-        let rec collect (t: SemType) : ResizeArray<TypeVar> =
-            let acc = ResizeArray<TypeVar>()
+        let rec collect (t: SemType) : ResizeArray<TyVarId> =
+            let acc = ResizeArray<TyVarId>()
 
             let rec go (t: SemType) =
                 match t with
                 | TyVar tv ->
                     let root = UnionFind.find store tv
 
-                    if visited.Add root then
+                    if visited.Add root.Id then
                         if
                             store.Level root > outerLevel
                             && (store.Link root).IsNone
-                            && not (store.Defaults.IsEmpty root.Id)
+                            && not (store.Defaults.IsEmpty root)
                         then
-                            acc.Add root
+                            acc.Add root.Id
                             // Follow the default-target graph: a chained default
                             // (`default ^T3 : ^T1`) names another TyVar that may be
                             // an *intermediate* result var (the inner `a + b` of
                             // `a + b + c`) not reachable from the binding's surface
                             // type. Without this it never becomes a candidate and the
                             // tail of the chain never grounds.
-                            for target in store.Defaults.Items root.Id do
+                            for target in store.Defaults.Items root do
                                 go target
 
                         match store.Link root with
@@ -196,9 +196,10 @@ module internal UnificationInferGeneralize =
                 | ValueNone -> ValueNone
             | _ -> ValueSome t
 
-        let tryDefault (tv: TypeVar) : bool =
+        let tryDefault (tv: TyVarId) : bool =
+            let root = UnionFind.find store tv
             let mutable fired = false
-            let defaults = store.Defaults.Items tv.Id
+            let defaults = store.Defaults.Items root
             // A target that resolves only to a still-free TyVar is *deferrable*:
             // a chained default like `default ^T2 : ^T3` can't fire until ^T3 is
             // itself defaulted (e.g. to `int`) on a later pass. We must keep such
@@ -216,7 +217,7 @@ module internal UnificationInferGeneralize =
                         // a `concrete` transitively containing tv; linking
                         // through would create an infinite type. Skip on
                         // occurs — the default is unsatisfiable.
-                        store.SetLink(tv, ValueSome concrete)
+                        store.SetLink(root, ValueSome concrete)
                         fired <- true
                     | ValueSome _ -> () // resolved but occurs-unsafe — permanently dead
                     | ValueNone -> anyDeferrable <- true // target still free — retry next pass
@@ -226,7 +227,7 @@ module internal UnificationInferGeneralize =
             // links; `while changed` only re-iterates while some default *fires*,
             // so each TyVar is retried a bounded number of times.
             if fired || not anyDeferrable then
-                store.Defaults.Set(tv.Id, [])
+                store.Defaults.Set(root, [])
 
             fired
 
@@ -236,7 +237,9 @@ module internal UnificationInferGeneralize =
             changed <- false
 
             for tv in candidates do
-                if (store.Link tv).IsNone && not (store.Defaults.IsEmpty tv.Id) then
+                let root = UnionFind.find store tv
+
+                if (store.Link root).IsNone && not (store.Defaults.IsEmpty root) then
                     if tryDefault tv then
                         changed <- true
 
@@ -244,14 +247,11 @@ module internal UnificationInferGeneralize =
     /// in `ctx.ListLiterals` (`ValueNone` if none). The shared "look up a registered
     /// literal by its root" primitive behind both `prepareListLiterals` and the for-in
     /// `pinListLiteralToVesper` — the differing flip *policy* stays at each call site.
-    let tryListLiteralElem (ctx: PassContext) (root: TypeVar) : SemType voption =
+    let tryListLiteralElem (ctx: PassContext) (root: TyVarId) : SemType voption =
         let mutable result = ValueNone
 
         for (lv, elem) in ctx.ListLiterals do
-            if
-                result.IsNone
-                && System.Object.ReferenceEquals(UnionFind.find ctx.Store lv, root)
-            then
+            if result.IsNone && (UnionFind.find ctx.Store lv).Id = root then
                 result <- ValueSome elem
 
         result
@@ -269,18 +269,18 @@ module internal UnificationInferGeneralize =
         if ctx.ListLiterals.Count = 0 then
             ()
         else
-            let seen = HashSet<TypeVar>(HashIdentity.Reference)
+            let seen = HashSet<TyVarId>()
 
             let rec walk (t: SemType) =
                 match t with
                 | TyVar tv ->
                     let root = UnionFind.find ctx.Store tv
 
-                    if seen.Add root then
+                    if seen.Add root.Id then
                         match ctx.Store.Link root with
                         | ValueSome target -> walk target
                         | ValueNone ->
-                            match tryListLiteralElem ctx root with
+                            match tryListLiteralElem ctx root.Id with
                             | ValueSome elemTy when ctx.Store.Level root > outerLevel ->
                                 match zonk ctx.Store elemTy with
                                 | TyVar _ ->
@@ -307,12 +307,12 @@ module internal UnificationInferGeneralize =
         // `int` (the unbound `^T3` from external-symbol Instantiate).
         applyDefaults store zonkedTy outerLevel
 
-        let quantified = ResizeArray<TypeVar>()
-        let seen = HashSet<TypeVar>(HashIdentity.Reference)
+        let quantified = ResizeArray<TyVarId>()
+        let seen = HashSet<TyVarId>()
 
-        let addRoot (root: TypeVar) =
-            if store.Level root > outerLevel && (store.Link root).IsNone && seen.Add(root) then
-                quantified.Add(root)
+        let addRoot (root: Rep) =
+            if store.Level root > outerLevel && (store.Link root).IsNone && seen.Add(root.Id) then
+                quantified.Add(root.Id)
 
         zonkedTy |> iterTypeVarRoots store addRoot
 
@@ -327,7 +327,7 @@ module internal UnificationInferGeneralize =
         let mutable i = 0
 
         while i < quantified.Count do
-            for c in store.Constraints.Items quantified.[i].Id do
+            for c in store.Constraints.Items(UnionFind.find store quantified.[i]) do
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target -> iterTypeVarRoots store addRoot (zonk store target)
                 | _ -> ()
@@ -339,7 +339,7 @@ module internal UnificationInferGeneralize =
         let constraints =
             [
                 for tv in quantified do
-                    for c in store.Constraints.Items tv.Id -> tv, c
+                    for c in store.Constraints.Items(UnionFind.find store tv) -> tv, c
             ]
 
         TypeScheme(List.ofSeq quantified, zonkedTy, constraints)

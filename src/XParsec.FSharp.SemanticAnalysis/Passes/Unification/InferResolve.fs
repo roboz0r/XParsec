@@ -27,22 +27,23 @@ module internal UnificationInferResolve =
 
     let freshNamedInstance
         (ctx: PassContext)
-        (typeParams: EqArray<string * TypeVar>)
-        : EqArray<SemType> * Dictionary<TypeVar, SemType> =
-        let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+        (typeParams: EqArray<string * TyVarId>)
+        : EqArray<SemType> * Dictionary<TyVarId, SemType> =
+        let subst = Dictionary<TyVarId, SemType>()
         let acc = ResizeArray<SemType>(typeParams.Length)
 
         for (_, tp) in typeParams do
             let fresh = ctx.NewTypeVar()
-            ctx.Store.SetLevel(fresh, ctx.CurrentLevel)
+            let freshRoot = UnionFind.find ctx.Store fresh
+            ctx.Store.SetLevel(freshRoot, ctx.CurrentLevel)
             let protoRoot = UnionFind.find ctx.Store tp
             // Copy prototype constraints onto the fresh instance so
             // every use site re-evaluates satisfaction independently
             // (a `Set<int>` and a `Set<int -> int>` each get their own
             // copy of `'a : comparison`).
-            ctx.Store.Constraints.Set(fresh.Id, ctx.Store.Constraints.Items protoRoot.Id)
+            ctx.Store.Constraints.Set(freshRoot, ctx.Store.Constraints.Items protoRoot)
             let asTy = TyVar fresh
-            subst.[protoRoot] <- asTy
+            subst.[protoRoot.Id] <- asTy
             acc.Add asTy
 
         EqArray.ofResizeArray acc, subst

@@ -179,7 +179,11 @@ let tests =
                 let key = NodeKey.ofSource 0 NodeKind.PatIdent
                 let accepted = UnificationEngine.tryCoerceUpcast ctx key actual target
                 Expect.isTrue accepted "the union slot accepts the value"
-                Expect.equal (ctx.Store.Link tv) ValueNone "the actual's typar is left free (no pin)"
+
+                Expect.equal
+                    (ctx.Store.Link(UnionFind.find ctx.Store tv))
+                    ValueNone
+                    "the actual's typar is left free (no pin)"
             }
 
             test "equality on (int | string) is Satisfied — every member is equatable" {

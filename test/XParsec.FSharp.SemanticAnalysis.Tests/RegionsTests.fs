@@ -70,8 +70,8 @@ let private regionOf (input: string) (name: string) : RegionId option =
     | ValueSome tv ->
         let root = UnionFind.find ctx.Store tv
 
-        if (ctx.Store.Region root).Raw >= 0 then
-            Some(ctx.Store.Region root)
+        if (ctx.Store.Region root.Id).Raw >= 0 then
+            Some(ctx.Store.Region root.Id)
         else
             None
     | ValueNone -> None
@@ -288,8 +288,8 @@ let tests =
                         | ValueSome tv ->
                             let root = UnionFind.find ctx.Store tv
 
-                            if (ctx.Store.Region root).Raw >= 0 then
-                                Some(k, ctx.Store.Region root)
+                            if (ctx.Store.Region root.Id).Raw >= 0 then
+                                Some(k, ctx.Store.Region root.Id)
                             else
                                 None
                         | ValueNone -> None
@@ -398,8 +398,8 @@ let tests =
                     | ValueSome tv ->
                         let root = UnionFind.find ctx.Store tv
 
-                        if (ctx.Store.Region root).Raw >= 0 then
-                            Some(ctx.Store.Region root)
+                        if (ctx.Store.Region root.Id).Raw >= 0 then
+                            Some(ctx.Store.Region root.Id)
                         else
                             None
                     | ValueNone -> None
@@ -442,8 +442,8 @@ let tests =
                     | ValueSome tv ->
                         let root = UnionFind.find ctx.Store tv
 
-                        if (ctx.Store.Region root).Raw >= 0 then
-                            Some(ctx.Store.Region root)
+                        if (ctx.Store.Region root.Id).Raw >= 0 then
+                            Some(ctx.Store.Region root.Id)
                         else
                             None
                     | ValueNone -> None

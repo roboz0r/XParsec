@@ -290,7 +290,7 @@ let tests =
                 match fieldTy with
                 | TyVar fieldTv ->
                     let fieldRoot = UnionFind.find ctx.Store fieldTv
-                    Expect.isTrue (System.Object.ReferenceEquals(tparRoot, fieldRoot)) "field shares typar root"
+                    Expect.isTrue (tparRoot = fieldRoot) "field shares typar root"
                 | other -> failtestf "expected TyVar, got %A" other
             }
 

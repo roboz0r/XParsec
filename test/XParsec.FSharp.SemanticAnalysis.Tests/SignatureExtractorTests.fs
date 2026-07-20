@@ -837,7 +837,7 @@ let tests =
                 match ExternalSymbols.instantiateSymbol store sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyConst(k, _))) when SymbolKeyOps.simpleName k = DisplayName "bool" ->
                     Expect.isTrue
-                        (store.Constraints.Items a.Id
+                        (store.Constraints.Items(UnionFind.find store a)
                          |> List.exists (fun c -> c.Kind = SemanticConstraintKind.Equality))
                         "the fresh TyVar minted for 'T carries Equality in the store's constraint table"
                 | other -> failtestf "expected ('T -> 'T -> bool) over a fresh TyVar; got %A" other
@@ -894,7 +894,7 @@ let tests =
 
                 match ExternalSymbols.instantiateSymbol store sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyVar _)) ->
-                    match store.Srtp.Items a.Id with
+                    match store.Srtp.Items(UnionFind.find store a) with
                     | [ bound ] ->
                         Expect.equal bound.MemberName "op_Addition" "the stamped bound names the compiled member"
                         Expect.equal bound.ArgTypes.Length 2 "the stamped bound keeps both args"

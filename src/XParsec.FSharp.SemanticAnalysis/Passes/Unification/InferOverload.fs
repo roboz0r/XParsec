@@ -53,13 +53,13 @@ module UnificationInferOverload =
     type private TrialBindings =
         {
             MethodTypars: Dictionary<int, SemType>
-            CallerVars: Dictionary<TypeVar, SemType>
+            CallerVars: Dictionary<TyVarId, SemType>
         }
 
         static member Create() =
             {
                 MethodTypars = Dictionary()
-                CallerVars = Dictionary(HashIdentity.Reference)
+                CallerVars = Dictionary()
             }
 
     /// The bindings-accumulating structural matcher and the SOLE overload FILTER: the SAME
@@ -145,18 +145,18 @@ module UnificationInferOverload =
         (store: TypeStore)
         (canon: SymbolKey -> SymbolKey)
         (binds: TrialBindings)
-        (tv: TypeVar)
+        (tv: TyVarId)
         (other: SemType)
         : bool =
         let root = UnionFind.find store tv
 
-        match binds.CallerVars.TryGetValue root with
+        match binds.CallerVars.TryGetValue root.Id with
         | true, bound -> matchTypes store canon binds bound other
         | _ ->
             match other with
-            | TyVar tv2 when System.Object.ReferenceEquals(UnionFind.find store tv2, root) -> true
+            | TyVar tv2 when UnionFind.find store tv2 = root -> true
             | _ ->
-                binds.CallerVars.[root] <- other
+                binds.CallerVars.[root.Id] <- other
                 true
 
     /// Flattens the tupled signature back to N parameters. The `argSig` length — the
@@ -378,7 +378,7 @@ module UnificationInferOverload =
     /// (so the trial matcher binds them like external `openSignature`'s method vars).
     let userMemberParams
         (ctx: PassContext)
-        (typeParams: EqArray<string * TypeVar>)
+        (typeParams: EqArray<string * TyVarId>)
         (args: EqArray<SemType>)
         (m: TypeMemberInfo)
         : SemType list =
@@ -387,8 +387,8 @@ module UnificationInferOverload =
     /// Positional `TyVar root → axis index` map for a typar list, following any committed
     /// `Link` (mirrors `Elaborate.mkTyparEnv`). Used to freeze a member's parameter typars
     /// back to their self-describing `FTTypar(axis, i)` placeholders.
-    let private frozenAxisEnv (store: TypeStore) (typars: EqArray<string * TypeVar>) : Dictionary<TypeVar, int> =
-        let d = Dictionary<TypeVar, int>(HashIdentity.Reference)
+    let private frozenAxisEnv (store: TypeStore) (typars: EqArray<string * TyVarId>) : Dictionary<TyVarId, int> =
+        let d = Dictionary<TyVarId, int>()
 
         for i in 0 .. typars.Length - 1 do
             let (_, ptv) = typars.[i]
@@ -409,7 +409,7 @@ module UnificationInferOverload =
     /// distinct by construction.
     let freezeUserMemberArgSig
         (store: TypeStore)
-        (declTypars: EqArray<string * TypeVar>)
+        (declTypars: EqArray<string * TyVarId>)
         (m: TypeMemberInfo)
         : EqArray<FrozenType> =
         let declEnv = frozenAxisEnv store declTypars
@@ -420,10 +420,10 @@ module UnificationInferOverload =
             | TyVar tv ->
                 let root = UnionFind.find store tv
 
-                match declEnv.TryGetValue root with
+                match declEnv.TryGetValue root.Id with
                 | true, i -> FTTypar(TyparAxis.Declaring, i)
                 | _ ->
-                    match methodEnv.TryGetValue root with
+                    match methodEnv.TryGetValue root.Id with
                     | true, j -> FTTypar(TyparAxis.Method, j)
                     | _ -> FTUnknown ""
             | _ -> FTUnknown ""
@@ -446,7 +446,7 @@ module UnificationInferOverload =
     let frozenUserMemberKey
         (store: TypeStore)
         (declKey: TypeKey)
-        (declTypars: EqArray<string * TypeVar>)
+        (declTypars: EqArray<string * TyVarId>)
         (m: TypeMemberInfo)
         : SymbolKey =
         SymbolKeyOps.memberKey
@@ -462,7 +462,7 @@ module UnificationInferOverload =
     /// (distinct param types / arity) mints a distinct key and coexists.
     let memberSignatureKey
         (store: TypeStore)
-        (declTypars: EqArray<string * TypeVar>)
+        (declTypars: EqArray<string * TyVarId>)
         (m: TypeMemberInfo)
         : struct (string * bool * MemberKind * EqArray<FrozenType> * int) =
         struct (m.Name,
@@ -488,7 +488,7 @@ module UnificationInferOverload =
     /// call-site diagnostics stay separate.
     let resolveMember
         (ctx: PassContext)
-        (typeParams: EqArray<string * TypeVar>)
+        (typeParams: EqArray<string * TyVarId>)
         (args: EqArray<SemType>)
         (members: TypeMemberInfo[])
         (memberName: string)

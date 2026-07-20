@@ -168,7 +168,7 @@ module FrozenTypeBridge =
         | true, v -> v
         | _ ->
             let tv = store.NewTypeVar()
-            store.SetLevel(tv, level)
+            store.SetLevel(UnionFind.find store tv, level)
             let v = TyVar tv
             cache.[j] <- v
             v

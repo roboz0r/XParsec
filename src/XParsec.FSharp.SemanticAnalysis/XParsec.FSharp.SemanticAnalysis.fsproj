@@ -17,7 +17,6 @@
     <Compile Include="SemTypeWalks.fs" />
     <Compile Include="TypeStore.fs" />
     <Compile Include="FrozenTypeBridge.fs" />
-    <Compile Include="UnionFind.fs" />
     <Compile Include="GeneralizedTypars.fs" />
     <Compile Include="SymbolKeyOps.fs" />
     <Compile Include="SemTypeOps.fs" />

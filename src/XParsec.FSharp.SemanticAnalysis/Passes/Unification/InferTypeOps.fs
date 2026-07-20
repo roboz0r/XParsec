@@ -189,7 +189,7 @@ module internal UnificationInferTypeOps =
         // Otherwise the ordinary annotation reconciliation.
         match tryTypeFormatLiteral ctx key inner annTy with
         | ValueSome fmt ->
-            ctx.Store.SetLink(freshTv ctx (CstKeys.ofExpr inner), ValueSome fmt)
+            ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr inner)), ValueSome fmt)
             annTy
         | ValueNone ->
             let innerTy = infer ctx inner

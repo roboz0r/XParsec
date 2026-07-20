@@ -41,10 +41,10 @@ module NameResolutionMemberRegistration =
         // Pat.NamedSimple at the same offset.
         let addParam (id: SyntaxToken) (annotation: Type<SyntaxToken> voption) =
             let tv = ctx.NewTypeVar()
-            ctx.Store.SetLevel(tv, 0)
+            ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
 
             match annotation with
-            | ValueSome t -> ctx.Store.SetLink(tv, ValueSome(translateType ctx t))
+            | ValueSome t -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome(translateType ctx t))
             | ValueNone -> ()
 
             results.Add(ClassCtorParamInfo(ctx.NameOf id, TyVar tv, NodeKey.ofToken id NodeKind.PatIdent))
@@ -267,7 +267,7 @@ module NameResolutionMemberRegistration =
 
         let addMember mName kind isStatic isOverride (mKey: NodeKey) : TypeMemberInfo =
             let tv = ctx.NewTypeVar()
-            ctx.Store.SetLevel(tv, 0)
+            ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
             let cmi = TypeMemberInfo(mName, kind, isStatic, TyVar tv, mKey)
             cmi.IsOverride <- isOverride
             memberInfos.Add cmi
@@ -520,7 +520,7 @@ module NameResolutionMemberRegistration =
                         match bindingsOfPat ctx b.headPat with
                         | [ (name, key) ] ->
                             let tv = ctx.NewTypeVar()
-                            ctx.Store.SetLevel(tv, 0)
+                            ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
                             acc.Add(ClassPreambleEntry.Let(ClassLetInfo(name, TyVar tv, key, b, isRec.IsSome)))
                         | _ -> diagnose "Only simple `let x = …` bindings are supported in a class preamble"
                 | ValueNone -> ()
@@ -715,12 +715,12 @@ module NameResolutionMemberRegistration =
     /// lands as an opaque `TyConst`.
     let rec private translateInheritArg
         (ctx: PassContext)
-        (typarScope: Map<string, TypeVar>)
+        (typarScope: Map<string, TyVarId>)
         (t: Type<SyntaxToken>)
         : SemType =
         let freshTv () =
             let tv = ctx.NewTypeVar()
-            ctx.Store.SetLevel(tv, 0)
+            ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
             TyVar tv
 
         match t with
@@ -790,7 +790,7 @@ module NameResolutionMemberRegistration =
     /// classes land with the provider catalogue).
     let private resolveInheritParent
         (ctx: PassContext)
-        (typarScope: Map<string, TypeVar>)
+        (typarScope: Map<string, TyVarId>)
         (t: Type<SyntaxToken>)
         : SemType voption =
         let rec head (t: Type<SyntaxToken>) : (LongIdent<SyntaxToken> * SemType list) voption =
@@ -1017,7 +1017,7 @@ module NameResolutionMemberRegistration =
     /// bare name does not address an arity-overloaded union / record, so a name lookup
     /// here would drop the whole `with member …` block of either.
     let private registerNominalMember (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
-        let extract (declKey: NodeKey) (typeParams: EqArray<string * TypeVar>) elems =
+        let extract (declKey: NodeKey) (typeParams: EqArray<string * TyVarId>) elems =
             let typarNames = [ for (n, _) in typeParams -> n ]
 
             {|

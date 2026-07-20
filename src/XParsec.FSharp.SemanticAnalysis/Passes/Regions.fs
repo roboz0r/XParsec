@@ -154,7 +154,7 @@ module Regions =
 
             match store.Link root with
             | ValueSome target -> resolveLink store target
-            | ValueNone -> TyVar root
+            | ValueNone -> TyVar root.Id
         | _ -> t
 
     /// Does this type represent an allocation we should track? Primitive
@@ -282,7 +282,7 @@ module Regions =
     let private stampTyVar (ctx: PassContext) (key: NodeKey) (r: RegionId) : unit =
         if r.Raw >= 0 then
             match ctx.Bindings.TypeVar.TryGetValue key with
-            | ValueSome tv -> ctx.Store.SetRegion(UnionFind.find ctx.Store tv, r)
+            | ValueSome tv -> ctx.Store.SetRegion((UnionFind.find ctx.Store tv).Id, r)
             | ValueNone -> ()
 
     let rec private inferRegion (s: State) (ctx: PassContext) (e: TExpr) : RegionId =
@@ -785,9 +785,9 @@ module Regions =
         for kv in ctx.Bindings.TypeVar.AsDictionary() do
             let tv = UnionFind.find ctx.Store kv.Value
 
-            if (ctx.Store.Region tv).Raw >= 0 && (ctx.Store.Region tv).Raw < state.Length then
-                ctx.Bindings.Escape.Set(kv.Key, state.[(ctx.Store.Region tv).Raw])
-                ctx.Bindings.Repr.Set(kv.Key, repr.[(ctx.Store.Region tv).Raw])
+            if (ctx.Store.Region tv.Id).Raw >= 0 && (ctx.Store.Region tv.Id).Raw < state.Length then
+                ctx.Bindings.Escape.Set(kv.Key, state.[(ctx.Store.Region tv.Id).Raw])
+                ctx.Bindings.Repr.Set(kv.Key, repr.[(ctx.Store.Region tv.Id).Raw])
 
     /// Fold the codegen stack/heap verdict for every binder: `ClosureRepr.Stack` iff the
     /// binder is both frame-confined by lifetime (`Axis 1` `EscapeState.LocalStack`)

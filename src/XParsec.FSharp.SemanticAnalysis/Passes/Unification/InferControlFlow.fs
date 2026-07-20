@@ -105,7 +105,7 @@ module internal UnificationInferControlFlow =
     let private pinListLiteralToVesper (ctx: PassContext) (key: NodeKey) (srcTy: SemType) : unit =
         match zonk ctx.Store srcTy with
         | TyVar tv ->
-            match tryListLiteralElem ctx (UnionFind.find ctx.Store tv) with
+            match tryListLiteralElem ctx (UnionFind.find ctx.Store tv).Id with
             | ValueSome elemTy -> unify ctx key srcTy (TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy))
             | ValueNone -> ()
         | _ -> ()
@@ -355,7 +355,7 @@ module internal UnificationInferControlFlow =
         unify ctx key endTy ctx.Intrinsics.Int
         let varKey = CstKeys.ofForToVar ident
         let varTv = freshTv ctx varKey
-        ctx.Store.SetLink(varTv, ValueSome ctx.Intrinsics.Int)
+        ctx.Store.SetLink(UnionFind.find ctx.Store varTv, ValueSome ctx.Intrinsics.Int)
         let bodyTy = infer ctx body
         unify ctx key bodyTy ctx.Intrinsics.Unit
         ctx.Intrinsics.Unit
@@ -551,7 +551,7 @@ module internal UnificationInferControlFlow =
     /// dispatch via `constrained. <E> callvirt`. The element type is `Current`'s type.
     and tryConstrainedTyparEnumerator
         (ctx: PassContext)
-        (tv: TypeVar)
+        (tv: TyVarId)
         : (SemType * ForInEnumMembers * bool * bool) voption =
         let rec scan (cs: SemanticConstraint list) =
             match cs with
@@ -585,7 +585,7 @@ module internal UnificationInferControlFlow =
                     | _ -> scan rest
                 | _ -> scan rest
 
-        scan (ctx.Store.Constraints.Items tv.Id)
+        scan (ctx.Store.Constraints.Items(UnionFind.find ctx.Store tv))
 
     /// Rung-3: resolve `for x in s` where the source `s` is a *generic typar*
     /// constrained to a project-local seq interface (`'S :> ISeq` / `'S :> IStructSeq<'E>`)
@@ -593,7 +593,7 @@ module internal UnificationInferControlFlow =
     /// (Wall B's machinery) for such an interface, resolves the enumerator `E`'s walk
     /// members, and produces a `Pattern` descriptor whose `GetEnumerator` (and, when
     /// `E` is itself a typar, `MoveNext`/`Current`) dispatch via `constrained. callvirt`.
-    and tryTyparSeqSource (ctx: PassContext) (tv: TypeVar) : (SemType * ForInEnumerator) voption =
+    and tryTyparSeqSource (ctx: PassContext) (tv: TyVarId) : (SemType * ForInEnumerator) voption =
         let rec scan (cs: SemanticConstraint list) =
             match cs with
             | [] -> ValueNone
@@ -629,7 +629,7 @@ module internal UnificationInferControlFlow =
                     | _ -> scan rest
                 | _ -> scan rest
 
-        scan (ctx.Store.Constraints.Items tv.Id)
+        scan (ctx.Store.Constraints.Items(UnionFind.find ctx.Store tv))
 
     /// `srcTy` is either `IEnumerable<'T>` itself, an external class that
     /// implements it (the directly-implemented interface set the metadata layer

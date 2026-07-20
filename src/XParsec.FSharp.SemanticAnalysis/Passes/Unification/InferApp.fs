@@ -120,9 +120,9 @@ module internal UnificationInferApp =
                 // Typar identity = the union-find ROOT (reference-stable); a free
                 // `TyVar`'s `resolveStep` re-wraps a fresh `TyVar` each call, so compare
                 // the underlying roots, not the wrappers.
-                let rootOf (t: SemType) : TypeVar voption =
+                let rootOf (t: SemType) : TyVarId voption =
                     match resolveStep ctx.Store t with
-                    | TyVar tv -> ValueSome(UnionFind.find ctx.Store tv)
+                    | TyVar tv -> ValueSome((UnionFind.find ctx.Store tv).Id)
                     | _ -> ValueNone
 
                 for (lamKey, dom) in lambdaSlots do
@@ -133,7 +133,7 @@ module internal UnificationInferApp =
                         for i in 0 .. resArgs.Length - 1 do
                             if ValueOption.isNone found then
                                 match rootOf resArgs.[i] with
-                                | ValueSome r when System.Object.ReferenceEquals(r, domRoot) -> found <- ValueSome i
+                                | ValueSome r when r = domRoot -> found <- ValueSome i
                                 | _ -> ()
 
                         match found with
@@ -358,7 +358,7 @@ module internal UnificationInferApp =
                             | ValueSome(fnTy, fmtTy, _) ->
                                 // Stamp the function node so Elaborate threads the
                                 // curried result type through the App chain.
-                                ctx.Store.SetLink(freshTv ctx fnKey, ValueSome fnTy)
+                                ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome fnTy)
 
                                 let mutable currTy = fnTy
 
@@ -368,7 +368,11 @@ module internal UnificationInferApp =
                                     let argTy =
                                         if i = idx then
                                             // The format literal types as the PrintfFormat, not `string`.
-                                            ctx.Store.SetLink(freshTv ctx (CstKeys.ofExpr a), ValueSome fmtTy)
+                                            ctx.Store.SetLink(
+                                                UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr a)),
+                                                ValueSome fmtTy
+                                            )
+
                                             fmtTy
                                         else
                                             infer ctx a

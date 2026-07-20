@@ -1,7 +1,10 @@
 # Unification store redesign — sketch + integration path
 
-Status: **integration steps 1–3 + 6 have LANDED** (2026-07-19, three frozen-output-identical
+Status: **integration steps 1–3 + 6 have LANDED** (2026-07-19, frozen-output-identical
 commits on `semantic-analysis`); steps 4 (interning) and 5 (caching) remain, **paused before 5**.
+A follow-up beyond those steps also landed — the thin `TypeVar` handle was **collapsed to the
+raw `SemType.TyVar of TyVarId`** (⟨OPEN A⟩ resolved to *raw id*) and root reads were made
+correct-by-construction with a `Rep` type; see "Landed vs remaining" and ⟨OPEN A⟩ below.
 Open decisions are marked ⟨OPEN⟩. The "Current state" and "Target data structures" sections
 below are now largely *history* — the target is built. See "Integration path" for the
 per-step landed/remaining status.
@@ -9,17 +12,24 @@ per-step landed/remaining status.
 ## Landed vs remaining (fresh-session handoff)
 
 - **Landed:** dense `TyVarId`; per-file `TypeStore` arena (union-find `parent`/`rank`,
-  root-authoritative `level`/`link`/`units`, write-once `region`, plus an id→handle `Node`
-  table so `find`/`union` still return the root `TypeVar`); the four deferred-constraint
+  root-authoritative `level`/`link`/`units`, write-once `region`); the four deferred-constraint
   families as store side-tables (`Constraints`/`Defaults` grow-only lists; `Srtp`/`Pda`
   = `BoundTable`, grow-only + reference-keyed `solved`); `migrateBounds` and
-  `MemberSignature.Resolved` **deleted**; `TypeVar` is a bare `Id` handle.
+  `MemberSignature.Resolved` **deleted**.
+- **Handle collapse + `Rep` (follow-up, landed):** the sealed `TypeVar` class AND the id→handle
+  `Node` array are **deleted** — `SemType.TyVar of TyVarId` carries the id directly, `find`/`union`
+  operate on `TyVarId` with structural equality, and the ~two dozen `HashIdentity.Reference`
+  metavar-keyed dictionaries/sets became plain structural `TyVarId` keys. A `[<Struct>] Rep =
+  private Rep of TyVarId` (private case in `TypeStore.fs`; sole producer `UnionFind.find`, moved
+  into that file) now gates `Link`/`Level`/`Units` and the side-tables — a non-root authoritative
+  read is a compile error. `Parent`/`Rank` and write-once `Region` stay keyed by raw `TyVarId`.
 - **Step-2 finding (important):** "make the node's setters *private to the store module* so
   the compiler enforces the one seam" is **not achievable standalone** here — `TypeVar` is in
   the mutually-recursive `SemType` block, there are no `.fsi` files, and it is one assembly,
   so F#'s only true "one writer" enforcement is **deleting the field** (step 3). The seam
   therefore became compiler-proven *per family, as each slot was deleted* — steps 2 and 3
-  are inseparable here, and that is how they landed.
+  are inseparable here, and that is how they landed. (The later `Rep` collapse adds the dual
+  guarantee on the *read* side: an authoritative read now also cannot be spelled off a non-root.)
 - **⟨OPEN B⟩ resolved by outcome:** `Srtp`/`Pda` went **grow-only + `solved`**; but
   `Constraints` and `Defaults` **kept consumption** (remainder writeback / wholesale clear,
   now routed through the store) — a struct `SemanticConstraint` has no reference identity and
@@ -106,7 +116,10 @@ side-table and cache can key by `int` instead of hashing object identity. This i
 biggest perf lever and it is independent of rollback.
 
 Challenge: rewriting `SemType.TyVar of TyVarId` outright (clean result, but ripples through `SemType`,
-`freeze`, every `Infer*` pass)
+`freeze`, every `Infer*` pass). **DONE** — the collapse landed as a follow-up; the ripple was
+mechanical (`.Id` projection at the id-keying sites) and the one real hazard it surfaced was two
+`ReferenceEquals`-on-`TyVarId` sites in `Engine.fs` that boxed to always-false and silently dropped
+a `union` loser's deferred-obligation payload (now `=`).
 
 ### 2. `TypeStore` — the arena (parallel arrays, id-indexed)
 
@@ -219,16 +232,21 @@ performance payoff and must be benchmark-gated — do them together.
 
 ## Open decisions
 
-- ⟨OPEN A⟩ thin-handle `TypeVar {Id}` vs raw `SemType.TyVar of TyVarId`. **Lean: handle.** The
-  arena's *home* is settled (per-file `PassContext`); the intern pool's home is separate and
-  compilation-scoped — see step 4's two-level split.
+- ⟨OPEN A⟩ thin-handle `TypeVar {Id}` vs raw `SemType.TyVar of TyVarId`. **RESOLVED: raw id.**
+  The handle bought nothing once the arena existed — it was a heap box around a 4-byte int plus a
+  parallel `Node` array of pure indirection, and the `HashIdentity.Reference` sites it "kept
+  working" were simpler and faster as structural int keys. Collapsed to `SemType.TyVar of TyVarId`;
+  a `Rep` type recovers the one thing reference identity gave for free (root-vs-non-root
+  discipline) as a compile-time gate. The arena's *home* is settled (per-file `PassContext`); the
+  intern pool's home is separate and compilation-scoped — see step 4's two-level split.
 - ⟨OPEN B⟩ grow-only sets + `solved` table vs trailed consumption. **RESOLVED (mixed):**
   `Srtp`/`Pda` grow-only + `solved`; `Constraints`/`Defaults` kept consumption (struct/no-ref-identity
   and wholesale-clear respectively) — full grow-only for those belongs to Phase B's solver.
 - ⟨OPEN D⟩ trail vs semi-persistent — **defer; no rollback requirement in scope.**
 - ⟨OPEN E⟩ does `Region` ever need special handling, or is it write-once? **RESOLVED:**
   write-once — it landed as a plain store array cell (`store.Region`/`SetRegion`), NOT folded
-  into the union join.
+  into the union join, and (post-`Rep`) stays keyed by raw `TyVarId` rather than `Rep`: it is not
+  migrated on union, so every node has one valid cell and a non-root read is legitimate.
 - ⟨OPEN F⟩ cache-invalidation granularity: global generation stamp vs per-var dependency.
   **Lean: generation stamp first.**
 
@@ -239,10 +257,11 @@ performance payoff and must be benchmark-gated — do them together.
 - **Preserve near-constant `find`** — path compression on the `parent` array (no rollback to
   fight it now that trials are out of scope).
 - **Dense arrays grow** — amortized doubling; ids never reused within a pass.
-- **Reference-identity call sites** (`HashIdentity.Reference`, e.g.
-  `EngineCore.mkNamedTypeSubst:225`, `InferOverload.TrialBindings`) move to id-keying in
-  lockstep with step 1, or keep working on handles (acceptable interim while the handle
-  retains identity).
+- **Reference-identity call sites** (formerly `HashIdentity.Reference`, e.g.
+  `EngineCore.mkNamedTypeSubst`, `InferOverload.TrialBindings`) — **DONE:** all flipped to
+  structural `TyVarId` keying when the handle collapsed; no metavar `HashIdentity.Reference`
+  remains (the one surviving reference-keyed set, `BoundTable.solved`, keys the obligation
+  *items*, not vars — intrinsic to the item and untouched).
 - **Caching is the sharp edge** — a stale cache entry is a correctness bug, so step 5 must be
   gated on both benchmarks (does it pay?) and invalidation tests (is it sound?). If a cache
   can't be shown to pay, it doesn't land; the arena + interning stand on their own.

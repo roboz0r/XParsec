@@ -79,8 +79,9 @@ module internal UnificationInferLiterals =
             let diagKey = NodeKey.ofToken t NodeKind.ExprConst
             let mt = translateMeasure ctx diagKey m
             let tv = freshTyVar ctx
-            ctx.Store.SetLink(tv, ValueSome carrier)
-            ctx.Store.SetUnits(tv, ValueSome mt)
+            let root = UnionFind.find ctx.Store tv
+            ctx.Store.SetLink(root, ValueSome carrier)
+            ctx.Store.SetUnits(root, ValueSome mt)
             TyVar tv
 
     /// Reads `Units` straight off the root — does NOT use `resolveStep`,
@@ -100,13 +101,14 @@ module internal UnificationInferLiterals =
 
             match store.Link root with
             | ValueSome link -> link
-            | ValueNone -> TyVar root
+            | ValueNone -> TyVar root.Id
         | other -> other
 
-    let freshTyVarWith (ctx: PassContext) (carrier: SemType) (units: MeasureTerm voption) : TypeVar =
+    let freshTyVarWith (ctx: PassContext) (carrier: SemType) (units: MeasureTerm voption) : TyVarId =
         let tv = freshTyVar ctx
-        ctx.Store.SetLink(tv, ValueSome carrier)
-        ctx.Store.SetUnits(tv, units)
+        let root = UnionFind.find ctx.Store tv
+        ctx.Store.SetLink(root, ValueSome carrier)
+        ctx.Store.SetUnits(root, units)
         tv
 
     let isComparisonOp (name: string) : bool =

@@ -120,9 +120,9 @@ module Inline =
     /// `thawBody` re-mints a fresh `TyVar` cell per frozen typar leaf BEFORE the
     /// splice, so by the time this runs the template's typars are roots again — this
     /// unit's roots. It never sees a `TyTypar`.
-    let quantifiedTypars (store: TypeStore) (declTy: SemType) : TypeVar[] =
-        let acc = ResizeArray<TypeVar>()
-        let seen = HashSet<TypeVar>(HashIdentity.Reference)
+    let quantifiedTypars (store: TypeStore) (declTy: SemType) : TyVarId[] =
+        let acc = ResizeArray<TyVarId>()
+        let seen = HashSet<TyVarId>()
         SemTypeWalk.collectLinkedRoots store acc seen declTy
         acc.ToArray()
 
@@ -130,14 +130,14 @@ module Inline =
     /// `TyVar` root with no Link (the producer's, pre-freeze; a freshly minted one
     /// of this unit's, post-`thawBody`); chase to the union-find root and swap.
     /// Roots absent from `subst` stay abstract.
-    let rec private substType (store: TypeStore) (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
+    let rec private substType (store: TypeStore) (subst: Dictionary<TyVarId, SemType>) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
             let root = UnionFind.find store tv
 
-            match subst.TryGetValue root with
+            match subst.TryGetValue root.Id with
             | true, repl -> repl
-            | _ -> TyVar root
+            | _ -> TyVar root.Id
         // Pure child recursion (`mapChildren` routes `TyOr` through the smart
         // constructor: substituting a typar member can collapse / reorder the set).
         | t -> SemType.mapChildren (substType store subst) t
@@ -158,7 +158,7 @@ module Inline =
     /// would only be a lossy `=` that drops the identity's declaring namespace.
     let rec private staticOptTypesMatch (store: TypeStore) (a: SemType) (b: SemType) : bool =
         match a, b with
-        | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find store x, UnionFind.find store y)
+        | TyVar x, TyVar y -> UnionFind.find store x = UnionFind.find store y
         | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 (staticOptTypesMatch store) xs ys
         | TyFun(a1, r1), TyFun(a2, r2) -> staticOptTypesMatch store a1 a2 && staticOptTypesMatch store r1 r2
         | TyTuple xs, TyTuple ys -> EqArray.forall2 (staticOptTypesMatch store) xs ys
@@ -212,7 +212,7 @@ module Inline =
     let rec private substMapper
         (ctx: PassContext)
         (declined: ResizeArray<UnresolvedTrait>)
-        (subst: Dictionary<TypeVar, SemType>)
+        (subst: Dictionary<TyVarId, SemType>)
         : TastWalk.Mapper =
         let sub = substType ctx.Store subst
 
@@ -321,7 +321,7 @@ module Inline =
         match decl with
         | TDecl.Let(_, value, _, declTy) ->
             let typars = quantifiedTypars ctx.Store declTy
-            let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+            let subst = Dictionary<TyVarId, SemType>()
 
             typars
             |> Array.iteri (fun i tv ->

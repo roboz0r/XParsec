@@ -20,8 +20,8 @@ module ResolvedTypes =
     /// to `acc`. Same chase-through-Link semantics as `Unification.zonk`.
     let private addFreeRoots
         (store: TypeStore)
-        (allowed: HashSet<TypeVar>)
-        (acc: HashSet<TypeVar>)
+        (allowed: HashSet<TyVarId>)
+        (acc: HashSet<TyVarId>)
         (t: SemType)
         : unit =
         let rec go t =
@@ -32,8 +32,8 @@ module ResolvedTypes =
                 match store.Link root with
                 | ValueSome target -> go target
                 | ValueNone ->
-                    if not (allowed.Contains root) then
-                        acc.Add(root) |> ignore
+                    if not (allowed.Contains root.Id) then
+                        acc.Add(root.Id) |> ignore
             // A still-free var can hide in any child (the type-level computations
             // included); leaves hold none.
             | t -> SemType.iterChildren go t
@@ -44,8 +44,8 @@ module ResolvedTypes =
     /// the list of newly-added roots so the caller can pop them after the
     /// binding's body walk. Skip-if-already-present so outer-scope
     /// quantifieds aren't accidentally popped by an inner let.
-    let private pushScheme (ctx: PassContext) (binding: TPat) (allowed: HashSet<TypeVar>) : ResizeArray<TypeVar> =
-        let added = ResizeArray<TypeVar>()
+    let private pushScheme (ctx: PassContext) (binding: TPat) (allowed: HashSet<TyVarId>) : ResizeArray<TyVarId> =
+        let added = ResizeArray<TyVarId>()
 
         match binding with
         | TPat.NamedSimple(key, _, _) ->
@@ -54,14 +54,14 @@ module ResolvedTypes =
                 for tv in scheme.Quantified do
                     let root = UnionFind.find ctx.Store tv
 
-                    if allowed.Add root then
-                        added.Add root
+                    if allowed.Add root.Id then
+                        added.Add root.Id
             | ValueNone -> ()
         | _ -> ()
 
         added
 
-    let private popScheme (allowed: HashSet<TypeVar>) (added: ResizeArray<TypeVar>) : unit =
+    let private popScheme (allowed: HashSet<TyVarId>) (added: ResizeArray<TyVarId>) : unit =
         for tv in added do
             allowed.Remove tv |> ignore
 
@@ -70,7 +70,7 @@ module ResolvedTypes =
     /// quantified roots are allowed only inside the binding's value (not its
     /// body); `Format` visits each hole's `Ty` (a per-hole side type the
     /// default walker doesn't surface).
-    let private buildIter (ctx: PassContext) (allowed: HashSet<TypeVar>) (acc: HashSet<TypeVar>) : TastWalk.Iter =
+    let private buildIter (ctx: PassContext) (allowed: HashSet<TyVarId>) (acc: HashSet<TyVarId>) : TastWalk.Iter =
         { TastWalk.identityIter with
             VisitExpr =
                 fun it e ->
@@ -126,8 +126,8 @@ module ResolvedTypes =
         | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> k
         | _ -> NodeKey(0UL)
 
-    let private walkDecl (ctx: PassContext) (allowed: HashSet<TypeVar>) (d: TDecl) : unit =
-        let acc = HashSet<TypeVar>(HashIdentity.Reference)
+    let private walkDecl (ctx: PassContext) (allowed: HashSet<TyVarId>) (d: TDecl) : unit =
+        let acc = HashSet<TyVarId>()
         let iter = buildIter ctx allowed acc
 
         match d with
@@ -155,7 +155,7 @@ module ResolvedTypes =
                 }
 
     let run (ctx: PassContext) (tast: TastFile) : unit =
-        let allowed = HashSet<TypeVar>(HashIdentity.Reference)
+        let allowed = HashSet<TyVarId>()
 
         for d in tast.Decls do
             walkDecl ctx allowed d

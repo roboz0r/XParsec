@@ -102,12 +102,12 @@ module NameResolutionTypeRegistration =
     /// Mint a prototype TyVar per declared typar name. Stored on the registry
     /// entry and substituted out at every use site, so two instantiations share
     /// no variables.
-    let mkTypeParams (store: TypeStore) (names: string list) : EqArray<string * TypeVar> =
+    let mkTypeParams (store: TypeStore) (names: string list) : EqArray<string * TyVarId> =
         EqArray.ofSeq (
             seq {
                 for n in names ->
                     let tv = store.NewTypeVar()
-                    store.SetLevel(tv, 0)
+                    store.SetLevel(UnionFind.find store tv, 0)
                     n, tv
             }
         )
@@ -651,10 +651,10 @@ module NameResolutionTypeRegistration =
     /// the source names its header declares — so a `'a` written anywhere in the
     /// declaration's structure resolves to the SAME TyVar the registry holds, and an
     /// undeclared one is diagnosed rather than silently minted (`TyparScopeStrict`).
-    let underTyparScope (ctx: PassContext) (typeParams: EqArray<string * TypeVar>) (f: unit -> 'a) : 'a =
+    let underTyparScope (ctx: PassContext) (typeParams: EqArray<string * TyVarId>) (f: unit -> 'a) : 'a =
         let savedScope = ctx.Resolution.TyparScope
         let savedStrict = ctx.Resolution.TyparScopeStrict
-        let scope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+        let scope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
         for (n, tv) in typeParams do
             if not (scope.ContainsKey n) then

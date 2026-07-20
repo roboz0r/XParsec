@@ -1556,7 +1556,7 @@ module ExternalSymbols =
                     sym.TyparArity
                     (fun _ ->
                         let tv = store.NewTypeVar()
-                        store.SetLevel(tv, level)
+                        store.SetLevel(UnionFind.find store tv, level)
                         tv
                     )
 
@@ -1573,14 +1573,15 @@ module ExternalSymbols =
                             DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
                         }
 
-                    store.Constraints.Prepend(freshTvs.[i].Id, cstr)
+                    store.Constraints.Prepend(UnionFind.find store freshTvs.[i], cstr)
                 | _ -> ()
 
             // Defaults accumulate newest-last so source order is preserved when
             // generalisation later walks the list for the first concrete shape.
             for c in constraints do
                 match c with
-                | ExternalConstraint.Default(i, target) -> store.Defaults.Append(freshTvs.[i].Id, inst target fresh)
+                | ExternalConstraint.Default(i, target) ->
+                    store.Defaults.Append(UnionFind.find store freshTvs.[i], inst target fresh)
                 | _ -> ()
 
             for c in constraints do
@@ -1594,7 +1595,7 @@ module ExternalSymbols =
                         }
 
                     for i in idxs do
-                        store.Srtp.Prepend(freshTvs.[i].Id, sig_)
+                        store.Srtp.Prepend(UnionFind.find store freshTvs.[i], sig_)
                 | _ -> ()
 
             for c in constraints do
@@ -1606,7 +1607,7 @@ module ExternalSymbols =
                             DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
                         }
 
-                    store.Constraints.Prepend(freshTvs.[i].Id, cstr)
+                    store.Constraints.Prepend(UnionFind.find store freshTvs.[i], cstr)
                 | _ -> ()
 
             inst scheme fresh

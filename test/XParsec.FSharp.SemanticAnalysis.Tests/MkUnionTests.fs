@@ -100,7 +100,7 @@ let tests =
             test "zonk collapses a union when a member resolves to another member" {
                 let store = TypeStore()
                 let tv = store.NewTypeVar()
-                store.SetLink(tv, ValueSome tString)
+                store.SetLink(UnionFind.find store tv, ValueSome tString)
                 // `'a | string` with `'a ↦ string` — a raw pre-resolution union.
                 let u = rawOr [ TyVar tv; tString ]
                 Expect.equal (Unification.zonk store u) tString "('a | string)[a:=string] ≡ string"
@@ -109,7 +109,7 @@ let tests =
             test "zonk keeps distinct resolved members and re-canonicalises" {
                 let store = TypeStore()
                 let tv = store.NewTypeVar()
-                store.SetLink(tv, ValueSome tInt)
+                store.SetLink(UnionFind.find store tv, ValueSome tInt)
                 let u = rawOr [ TyVar tv; tString ]
 
                 Expect.equal

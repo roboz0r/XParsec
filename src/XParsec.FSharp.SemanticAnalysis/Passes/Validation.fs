@@ -32,7 +32,7 @@ module Validation =
     /// free TyVars via the unification of LHS and RHS types.
     let rec private hasFreeTyVar
         (store: TypeStore)
-        (quantified: System.Collections.Generic.HashSet<TypeVar>)
+        (quantified: System.Collections.Generic.HashSet<TyVarId>)
         (t: SemType)
         : bool =
         match t with
@@ -41,7 +41,7 @@ module Validation =
 
             match store.Link root with
             | ValueSome target -> hasFreeTyVar store quantified target
-            | ValueNone -> not (quantified.Contains root)
+            | ValueNone -> not (quantified.Contains root.Id)
         // A compound holds a free var iff any child does; leaves hold none.
         | t -> SemType.existsChild (hasFreeTyVar store quantified) t
 
@@ -151,14 +151,14 @@ module Validation =
         | _ -> ()
 
     let private checkUnresolvedDotAccesses (ctx: PassContext) : unit =
-        let seenRoots = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
+        let seenRoots = System.Collections.Generic.HashSet<TyVarId>()
 
         for kv in ctx.Bindings.TypeVar.AsDictionary() do
             let root = UnionFind.find ctx.Store kv.Value
 
-            let pending = ctx.Store.Pda.Live root.Id
+            let pending = ctx.Store.Pda.Live root
 
-            if seenRoots.Add(root) && not (List.isEmpty pending) then
+            if seenRoots.Add(root.Id) && not (List.isEmpty pending) then
                 for d in pending do
                     ctx.Diagnostics.Add
                         {
@@ -185,11 +185,11 @@ module Validation =
         // var — `let f (state: 'State) = let mutable acc = state` is sound. Collect
         // every scheme-quantified root up front so `hasFreeTyVar` can exclude them;
         // only a free root no scheme owns is the classic value-restriction hole.
-        let quantified = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
+        let quantified = System.Collections.Generic.HashSet<TyVarId>()
 
         for kv in ctx.Bindings.Scheme.AsDictionary() do
             for q in kv.Value.Quantified do
-                quantified.Add(UnionFind.find ctx.Store q) |> ignore
+                quantified.Add((UnionFind.find ctx.Store q).Id) |> ignore
 
         // Iterate every binding-site self-entry (kv.Key = rb.BindingSite)
         // whose binding is mutable. NameResolution writes one self-entry

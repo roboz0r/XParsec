@@ -28,7 +28,7 @@ module UnificationEngine =
         | TyVar tv ->
             let root = UnionFind.find store tv
 
-            store.Constraints.Items root.Id
+            store.Constraints.Items root
             |> List.tryPick (fun c ->
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
@@ -71,7 +71,7 @@ module UnificationEngine =
         | Resolved of
             name: string *
             memberNoun: string *
-            subst: Dictionary<TypeVar, SemType> *
+            subst: Dictionary<TyVarId, SemType> *
             lookup: (string -> SemType voption)
         /// A project-local class: member lookup walks the inheritance chain, so
         /// it can't be expressed as the single `subst` + `lookup` pair the
@@ -372,7 +372,7 @@ module UnificationEngine =
             unify ctx key c1.Extends c2.Extends
             unify ctx key c1.WhenTrue c2.WhenTrue
             unify ctx key c1.WhenFalse c2.WhenFalse
-        | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
+        | TyVar tv1, TyVar tv2 when tv1 = tv2 -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find ctx.Store tv1
             let r2 = UnionFind.find ctx.Store tv2
@@ -380,21 +380,17 @@ module UnificationEngine =
             let unitsB = ctx.Store.Units r2
             let linkA = ctx.Store.Link r1
             let linkB = ctx.Store.Link r2
-            UnionFind.union ctx.Store r1 r2
+            UnionFind.union ctx.Store r1.Id r2.Id
             // After union, exactly one of r1/r2 still has Parent = ValueNone.
-            let newRoot = UnionFind.find ctx.Store r1
+            let newRoot = UnionFind.find ctx.Store r1.Id
 
-            let merged =
-                if System.Object.ReferenceEquals(newRoot, r1) then
-                    r2
-                else
-                    r1
+            let merged = if newRoot = r1 then r2 else r1
 
             // Fold the loser's deferred-constraint payload into the surviving
             // representative — one associative set-union join per family (each family's
             // merge order is baked into its store table), replacing the former bespoke
             // `migrateBounds`. Payload lives only under the rep id.
-            ctx.Store.MergePayloads(newRoot.Id, merged.Id)
+            ctx.Store.MergePayloads(newRoot, merged)
             mergeUnits ctx key newRoot unitsA unitsB
             // If both sides carried links, unify them so the carriers agree.
             match linkA, linkB with
@@ -411,12 +407,12 @@ module UnificationEngine =
         | other, TyVar tv ->
             let root = UnionFind.find ctx.Store tv
 
-            if occursAndAdjust ctx.Store root other then
+            if occursAndAdjust ctx.Store root.Id other then
                 ctx.Error(
                     key,
                     sprintf
                         "Occurs check: cannot construct infinite type %A = %A"
-                        (zonk ctx.Store (TyVar root))
+                        (zonk ctx.Store (TyVar root.Id))
                         (zonk ctx.Store other)
                 )
             else
@@ -499,13 +495,13 @@ module UnificationEngine =
     /// Fire all three on-link callbacks for a root whose `Link` just resolved
     /// to `t`: deferred dot-accesses, type-parameter constraints, and SRTP
     /// member-trait bounds.
-    and private drainAll (ctx: PassContext) (key: NodeKey) (root: TypeVar) (t: SemType) : unit =
+    and private drainAll (ctx: PassContext) (key: NodeKey) (root: Rep) (t: SemType) : unit =
         drainPendingDotAccess ctx root t
         drainConstraints ctx key root t
         drainSrtpBounds ctx key root t
 
-    and private drainPendingDotAccess (ctx: PassContext) (root: TypeVar) (linkTarget: SemType) : unit =
-        let pending = ctx.Store.Pda.Live root.Id
+    and private drainPendingDotAccess (ctx: PassContext) (root: Rep) (linkTarget: SemType) : unit =
+        let pending = ctx.Store.Pda.Live root
 
         if not (List.isEmpty pending) then
             // Every resolving branch discharges the whole snapshot up front — so a
@@ -808,12 +804,12 @@ module UnificationEngine =
     /// during union-find collapse). For compound `Defer` outcomes, copy the
     /// constraint onto each still-free arg so the next Link on any of them
     /// re-evaluates the rule compositionally.
-    and private drainConstraints (ctx: PassContext) (key: NodeKey) (root: TypeVar) (linkTarget: SemType) : unit =
-        if ctx.Store.Constraints.IsEmpty root.Id then
+    and private drainConstraints (ctx: PassContext) (key: NodeKey) (root: Rep) (linkTarget: SemType) : unit =
+        if ctx.Store.Constraints.IsEmpty root then
             ()
         else
-            let cs = ctx.Store.Constraints.Items root.Id
-            ctx.Store.Constraints.Set(root.Id, [])
+            let cs = ctx.Store.Constraints.Items root
+            ctx.Store.Constraints.Set(root, [])
             let mutable remaining = []
 
             for c in cs do
@@ -890,7 +886,7 @@ module UnificationEngine =
                     remaining <- c :: remaining
                     propagateToFreeArgs ctx c linkTarget
 
-            ctx.Store.Constraints.Set(root.Id, List.rev remaining)
+            ctx.Store.Constraints.Set(root, List.rev remaining)
 
     /// When a compound shape is partially resolved, the parent constraint is
     /// satisfied iff every component supports it, so a still-free component
@@ -905,7 +901,7 @@ module UnificationEngine =
             match resolveStep ctx.Store t with
             | TyVar tv ->
                 let root = UnionFind.find ctx.Store tv
-                addConstraintByKind ctx.Store root c
+                addConstraintByKind ctx.Store root.Id c
             | t -> SemType.iterChildren walk t
 
         walk t
@@ -1021,8 +1017,8 @@ module UnificationEngine =
     /// Diagnostics use `key` — the user's call site, threaded through from
     /// the caller — so "Type X has no static member Y" points there rather
     /// than at the prelude's `(+)` declaration.
-    and private drainSrtpBounds (ctx: PassContext) (key: NodeKey) (root: TypeVar) (linkTarget: SemType) : unit =
-        let bounds = ctx.Store.Srtp.Live root.Id
+    and private drainSrtpBounds (ctx: PassContext) (key: NodeKey) (root: Rep) (linkTarget: SemType) : unit =
+        let bounds = ctx.Store.Srtp.Live root
 
         if List.isEmpty bounds then
             ()

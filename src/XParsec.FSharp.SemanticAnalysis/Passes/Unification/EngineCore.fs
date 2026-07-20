@@ -26,7 +26,7 @@ module UnificationEngineCore =
 
             match store.Link root with
             | ValueSome t' when (store.Units root).IsNone -> t'
-            | _ -> TyVar root
+            | _ -> TyVar root.Id
         | _ -> t
 
     /// Erase reference-type nullability (`T | null → T`) throughout `t`: drop the
@@ -114,16 +114,21 @@ module UnificationEngineCore =
     /// short-circuit on occurs-fail leaves some reachable TyVars unadjusted,
     /// but a failed unification produces a diagnostic and there's nothing
     /// to generalise after; adjusting them would be wasted work.
-    let rec occursAndAdjust (store: TypeStore) (target: TypeVar) (t: SemType) : bool =
+    let rec occursAndAdjust (store: TypeStore) (target: TyVarId) (t: SemType) : bool =
         match resolveStep store t with
         | TyVar tv ->
             let root = UnionFind.find store tv
 
-            if System.Object.ReferenceEquals(root, target) then
+            if root.Id = target then
                 true
             else
-                if store.Level root > store.Level target then
-                    store.SetLevel(root, store.Level target)
+                // `target` is a representative at every call site (its own root), so this
+                // `find` is O(1)/idempotent — it only satisfies the `Rep`-keyed authoritative
+                // level accessors.
+                let targetRoot = UnionFind.find store target
+
+                if store.Level root > store.Level targetRoot then
+                    store.SetLevel(root, store.Level targetRoot)
 
                 false
         // Pure child descent — a metavar buried in ANY child (the type-level
@@ -135,7 +140,7 @@ module UnificationEngineCore =
     let mergeUnits
         (ctx: PassContext)
         (key: NodeKey)
-        (newRoot: TypeVar)
+        (newRoot: Rep)
         (unitsA: MeasureTerm voption)
         (unitsB: MeasureTerm voption)
         : unit =
@@ -154,12 +159,12 @@ module UnificationEngineCore =
     /// returned unchanged (followed through union-find but not their
     /// `Link`s — that's `zonk`'s job). Public so Elaborate can reuse the same
     /// substitution when reading field types off a generic receiver.
-    let rec substituteWith (store: TypeStore) (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
+    let rec substituteWith (store: TypeStore) (subst: Dictionary<TyVarId, SemType>) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
             let root = UnionFind.find store tv
 
-            match subst.TryGetValue root with
+            match subst.TryGetValue root.Id with
             | true, target -> target
             | false, _ ->
                 // Field / case-arg types stored on the registry are
@@ -172,7 +177,7 @@ module UnificationEngineCore =
                 // the `Units` on the root.
                 match store.Link root with
                 | ValueSome target when (store.Units root).IsNone -> substituteWith store subst target
-                | _ -> TyVar root
+                | _ -> TyVar root.Id
         // Pure child recursion (`mapChildren` routes `TyOr` through the smart
         // constructor: substituting a typar member can collapse / reorder the set).
         | t -> SemType.mapChildren (substituteWith store subst) t
@@ -184,16 +189,16 @@ module UnificationEngineCore =
     /// generic receiver in a field-chain.
     let mkNamedTypeSubst
         (store: TypeStore)
-        (typeParams: EqArray<string * TypeVar>)
+        (typeParams: EqArray<string * TyVarId>)
         (args: EqArray<SemType>)
-        : Dictionary<TypeVar, SemType> =
-        let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
+        : Dictionary<TyVarId, SemType> =
+        let subst = Dictionary<TyVarId, SemType>()
 
         if typeParams.Length = args.Length then
             let mutable i = 0
 
             for (_, tp) in typeParams do
-                subst.[UnionFind.find store tp] <- args.[i]
+                subst.[(UnionFind.find store tp).Id] <- args.[i]
                 i <- i + 1
 
         subst
@@ -208,7 +213,7 @@ module UnificationEngineCore =
     /// built once.
     let instantiateMember
         (store: TypeStore)
-        (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>)
+        (typeParams: EqArray<string * TyVarId>, args: EqArray<SemType>)
         (ty: SemType)
         : SemType =
         substituteWith store (mkNamedTypeSubst store typeParams args) ty
@@ -217,16 +222,20 @@ module UnificationEngineCore =
     /// present. Both per-use freshening paths (`freshConstrainedTyVar` here and
     /// `UnificationInferGeneralize.instantiate`'s scheme re-stamp) apply this
     /// dedup so a use site never accumulates duplicate SRTP / equality bounds.
-    let addConstraintByKind (store: TypeStore) (tv: TypeVar) (c: SemanticConstraint) : unit =
-        if not (store.Constraints.Items tv.Id |> List.exists (fun e -> e.Kind = c.Kind)) then
-            store.Constraints.Prepend(tv.Id, c)
+    let addConstraintByKind (store: TypeStore) (tv: TyVarId) (c: SemanticConstraint) : unit =
+        // Callers pass a representative (a fresh var or a `find` root); resolve to the
+        // `Rep` the constraint table keys on. Idempotent on an already-root `tv`.
+        let root = UnionFind.find store tv
+
+        if not (store.Constraints.Items root |> List.exists (fun e -> e.Kind = c.Kind)) then
+            store.Constraints.Prepend(root, c)
 
     /// Mint a fresh instance TyVar at the current level carrying a deduped copy
     /// of `constraints`, so the use site re-evaluates SRTP / equality
     /// satisfaction against its own substitution rather than the shared prototype.
-    let freshConstrainedTyVar (ctx: PassContext) (constraints: SemanticConstraint list) : TypeVar =
+    let freshConstrainedTyVar (ctx: PassContext) (constraints: SemanticConstraint list) : TyVarId =
         let fresh = ctx.NewTypeVar()
-        ctx.Store.SetLevel(fresh, ctx.CurrentLevel)
+        ctx.Store.SetLevel(UnionFind.find ctx.Store fresh, ctx.CurrentLevel)
 
         for c in constraints do
             addConstraintByKind ctx.Store fresh c
@@ -252,8 +261,8 @@ module UnificationEngineCore =
     /// `instantiateMember`.
     let instantiateMemberCall
         (ctx: PassContext)
-        (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>)
-        (methodTypars: EqArray<string * TypeVar>)
+        (typeParams: EqArray<string * TyVarId>, args: EqArray<SemType>)
+        (methodTypars: EqArray<string * TyVarId>)
         (ty: SemType)
         : SemType =
         let subst = mkNamedTypeSubst ctx.Store typeParams args
@@ -265,10 +274,10 @@ module UnificationEngineCore =
             // instance var. If it already links to a concrete type or is shadowed
             // by a declaring-axis arg, leave the existing mapping — substituteWith
             // follows the link / arg as before.
-            if (ctx.Store.Link root).IsNone && not (subst.ContainsKey root) then
+            if (ctx.Store.Link root).IsNone && not (subst.ContainsKey root.Id) then
                 // Re-stamp constraints (SRTP / equality bounds) onto the fresh
                 // instance so each site re-evaluates satisfaction independently.
-                subst.[root] <- TyVar(freshConstrainedTyVar ctx (ctx.Store.Constraints.Items root.Id))
+                subst.[root.Id] <- TyVar(freshConstrainedTyVar ctx (ctx.Store.Constraints.Items root))
 
         substituteWith ctx.Store subst ty
 

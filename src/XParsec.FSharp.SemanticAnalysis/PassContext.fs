@@ -55,7 +55,7 @@ type PassContextBindings =
         /// bindings. Compound destructuring heads and lambda parameters do NOT get
         /// schemes.
         Scheme: SideTable<TypeScheme>
-        TypeVar: SideTable<TypeVar>
+        TypeVar: SideTable<TyVarId>
         Escape: SideTable<EscapeState>
         /// Axis-2 representation verdict per region (a `RegionRepr`), keyed by the
         /// same binder / anon `NodeKey` as `Escape`. Populated by `Regions.run`
@@ -83,7 +83,7 @@ type PassContextBindings =
         /// binding's headPat NodeKey. Elaborate's free-function method-typar minter
         /// reads this to order method typars declared-first (the F# rule); absent
         /// when the binding declared no typars.
-        DeclaredTypars: SideTable<(string * TypeVar) list>
+        DeclaredTypars: SideTable<(string * TyVarId) list>
         /// Declared accessibility of each top-level EXPORTED entity (type / module
         /// value / inline value), keyed by its `SymbolKey`. Captured by `Elaborate`
         /// from the CST `access` tokens (classified token-free); snapshotted into
@@ -178,7 +178,7 @@ type PassContextResolution =
         /// Per-signature type-parameter scope: each signature opens its own scope
         /// and restores the prior one on exit. Anonymous typars (`_`) never enter
         /// the scope — they're fresh per occurrence.
-        mutable TyparScope: Dictionary<string, TypeVar>
+        mutable TyparScope: Dictionary<string, TyVarId>
         /// Prototype TyVars (keyed by source name) for the *next* binding's own
         /// `<'C, …>` typars: `inferBinding` mints a fresh scope for a binding's
         /// declared typars, but when this seed is set it reuses the prototype TyVar
@@ -187,7 +187,7 @@ type PassContextResolution =
         /// typars flowing into the inferred signature are the same roots `Elaborate`
         /// surfaces and codegen installs as the ambient `!!i` set. `ValueNone` ⇒ the
         /// binding gets fresh typars.
-        mutable BindingTyparSeed: Dictionary<string, TypeVar> voption
+        mutable BindingTyparSeed: Dictionary<string, TyVarId> voption
         /// The enclosing type's type-parameter scope (class / union typars), kept in
         /// scope across a member-body walk and its nested `let`s. `inferBinding` mints
         /// a *fresh* scope per binding (so sibling bindings' `'a`s stay distinct),
@@ -198,7 +198,7 @@ type PassContextResolution =
         /// typars first (the binding's own `<'a>` typars seed after, shadowing on a
         /// name clash). Set by `fillTypeMembers` / `fillSecondaryCtors`; `ValueNone`
         /// for a non-member binding.
-        mutable EnclosingTypars: Dictionary<string, TypeVar> voption
+        mutable EnclosingTypars: Dictionary<string, TyVarId> voption
         /// When true, `translateType` rejects any `'a` not already present in
         /// `TyparScope` rather than introducing it implicitly. Used by the type-defn
         /// fill-in walk: implicit free typars in a record / DU declaration aren't
@@ -454,7 +454,7 @@ module PassContextResolution =
             OpenScope = ambient
             AmbientOpenScope = ambient
             EnclosingHolder = ValueNone
-            TyparScope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+            TyparScope = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
             BindingTyparSeed = ValueNone
             EnclosingTypars = ValueNone
             TyparScopeStrict = false
@@ -485,7 +485,7 @@ module PassContextResolution =
 /// which warns when `Root` zonks to a non-`dynamic` shape (the `default : dynamic`
 /// did NOT fire — an unchecked assertion). `Key` is the `?` node's key, used both
 /// to attribute the warning and to match a suppressing `(d?foo : T)` ascription.
-type DynamicEscapeSite = { Root: TypeVar; Key: NodeKey }
+type DynamicEscapeSite = { Root: TyVarId; Key: NodeKey }
 
 /// The fixed set of Vesper.Core inline *access* intrinsics — the array/string/index
 /// read+write lowering (`arr.[i]`, `arr.[i] <- v`, `arr.Length`, `s.[i]`, an
@@ -740,7 +740,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// Typar.Anon`. Reference identity: the exact node stored at the wildcard position
     /// of a declared annotation's type. Query it as it appears in the *un-zonked* type
     /// (zonking a resolved hole to its inferred fill would erase the marker).
-    member val private inferenceHoles = HashSet<TypeVar>(HashIdentity.Reference) with get
+    member val private inferenceHoles = HashSet<TyVarId>() with get
 
     /// Mark `key`'s type as source-declared (see `declaredTypeSites`), given the
     /// annotation's translated type `annTy`. A BARE `_` (`let x : _ = …`, `(x : _)`) is
@@ -762,11 +762,11 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     member this.IsTypeDeclared(key: NodeKey) : bool = this.declaredTypeSites.ContainsKey key
 
     /// Mark `tv` as a `_`-wildcard inference hole (see `inferenceHoles`). Idempotent.
-    member this.MarkInferenceHole(tv: TypeVar) = this.inferenceHoles.Add tv |> ignore
+    member this.MarkInferenceHole(tv: TyVarId) = this.inferenceHoles.Add tv |> ignore
 
     /// Whether `tv` is a `_`-wildcard hole — an INFERRED position inside an otherwise
     /// declared annotation type. Check the TyVar as stored in the un-zonked type.
-    member this.IsInferenceHole(tv: TypeVar) : bool = this.inferenceHoles.Contains tv
+    member this.IsInferenceHole(tv: TyVarId) : bool = this.inferenceHoles.Contains tv
 
     /// Whether `ty` — read from the LIVE (pre-freeze) TyVar graph, e.g.
     /// `TyVar ctx.Bindings.TypeVar.[key]` — carries any `_`-wildcard hole. Distinguishes
@@ -776,7 +776,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// so a resolved `Box<_>` (`_` pinned to `int`) still reports its hole. Elaborate zonks
     /// holes away, so this must run against the pre-zonk graph, not the frozen TAST.
     member this.HasInferenceHoleIn(ty: SemType) : bool =
-        let seen = HashSet<TypeVar>(HashIdentity.Reference)
+        let seen = HashSet<TyVarId>()
 
         let rec walk t =
             match t with
@@ -785,7 +785,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
                 if not (seen.Add tv) then
                     false
                 else
-                    match this.Store.Link tv with
+                    match this.Store.Link(UnionFind.find this.Store tv) with
                     | ValueSome inner -> walk inner
                     | ValueNone -> false
             | TyClass(_, args)
@@ -831,7 +831,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
 
     /// Mint a fresh metavar through this file's arena — the `ctx`-level construction
     /// seam every inference / name-resolution site routes through.
-    member this.NewTypeVar() : TypeVar = this.Store.NewTypeVar()
+    member this.NewTypeVar() : TyVarId = this.Store.NewTypeVar()
 
     /// Current let-depth (Rémy's levels). Push on entering a binding group's
     /// RHSes, pop after typing them; generalisation uses the pre-push value as
@@ -844,7 +844,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `Unification.resolveListLiterals` after the walk: a still-free literal links
     /// to the default list, a flipped one has its element reconciled. Programs that
     /// declare their own `list` abbrev never register here (they resolve eagerly).
-    member val ListLiterals = ResizeArray<TypeVar * SemType>() with get
+    member val ListLiterals = ResizeArray<TyVarId * SemType>() with get
 
     /// `recv?name` dynamic-access sites, enqueued by `inferDynamicLookup` and swept
     /// post-settle by `DynamicEscape.run`. A site whose `Root` zonks to a concrete

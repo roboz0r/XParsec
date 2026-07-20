@@ -392,8 +392,8 @@ module SemType =
 /// in the union-find graph; they are simply no longer "free" with respect
 /// to the outer scope.
 [<Sealed>]
-type TypeScheme(quantified: TypeVar list, body: SemType, constraints: (TypeVar * SemanticConstraint) list) =
-    new(quantified: TypeVar list, body: SemType) = TypeScheme(quantified, body, [])
+type TypeScheme(quantified: TyVarId list, body: SemType, constraints: (TyVarId * SemanticConstraint) list) =
+    new(quantified: TyVarId list, body: SemType) = TypeScheme(quantified, body, [])
     member _.Quantified = quantified
     member _.Body = body
     /// Constraints captured at generalisation time. Each entry pairs the

@@ -234,11 +234,13 @@ and FTConditionalPayload =
         WhenFalse: FrozenType
     }
 
-/// Mutually recursive with TypeVar — every TyVar is a pointer into the
+/// Every `TyVar` is a dense `TyVarId` index into the per-file `TypeStore`
 /// union-find graph. Will grow to include generics, units.
 type SemType =
-    /// Call UnionFind.find then read the representative's Link to dereference.
-    | TyVar of TypeVar
+    /// Call `UnionFind.find` then read the representative's `Link` to dereference.
+    /// The payload is the raw `TyVarId` — the store keys every metavar cell by it,
+    /// so `SemType` is fully value-comparable (no reference-identity leaf).
+    | TyVar of TyVarId
     /// A nominal constant in two roles, both carrying a qualified `SymbolKey`
     /// identity (like `TyRecord`/`TyUnion`/`TyClass` — an intrinsic is no longer the
     /// one identity class that drops its namespace): (a) an argless primitive /
@@ -526,28 +528,17 @@ and [<Struct>] SemanticConstraint =
         DeclKey: NodeKey
     }
 
-/// One element of a TypeVar's `PendingDotAccess` list. `MemberName` is the
+/// One element of a TyVar's `PendingDotAccess` list. `MemberName` is the
 /// field-or-member name in `receiver.X`; `UseKey` is the access expression's
 /// NodeKey (used for diagnostics); `ResultTv` is the access expression's own
-/// TyVar — unified with the field/member's declared type when the receiver
+/// TyVar id — unified with the field/member's declared type when the receiver
 /// resolves.
 and [<NoEquality; NoComparison>] DeferredMemberAccess =
     {
         MemberName: string
         UseKey: NodeKey
-        ResultTv: TypeVar
+        ResultTv: TyVarId
     }
-
-and [<Sealed>] TypeVar(id: TyVarId) =
-    /// Dense, monotone, per-file identity minted by `TypeStore.NewTypeVar` — the
-    /// arena's array / side-table key AND the sole state on the node: the former
-    /// mutable slots (`Link` / `Units` / `Region` / `Parent` / `Rank` / `Level`) all
-    /// live in `TypeStore`, id-indexed. The node stays a thin HANDLE with reference
-    /// identity (NOT collapsed to `SemType.TyVar of TyVarId`) so the pervasive
-    /// `HashIdentity.Reference` keying keeps working and `UnionFind.find` can still
-    /// return the root handle looked up from the store's id table. Immutable and
-    /// never reused within a file.
-    member _.Id: TyVarId = id
 
 module MeasureTerm =
     let empty = MeasureTerm.Empty

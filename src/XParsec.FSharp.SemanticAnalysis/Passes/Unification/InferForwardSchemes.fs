@@ -47,11 +47,11 @@ module internal UnificationInferForwardSchemes =
                                 | true, proto -> proto
                                 | _ ->
                                     let tv = ctx.NewTypeVar()
-                                    ctx.Store.SetLevel(tv, ctx.CurrentLevel)
+                                    ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
                                     tv
                             | ValueNone ->
                                 let tv = ctx.NewTypeVar()
-                                ctx.Store.SetLevel(tv, ctx.CurrentLevel)
+                                ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
                                 tv
 
                         ctx.Resolution.TyparScope.[n] <- tv
@@ -94,7 +94,7 @@ module internal UnificationInferForwardSchemes =
                 if (ctx.Bindings.Scheme.TryGetValue key).IsNone then
                     let savedScope = ctx.Resolution.TyparScope
                     let savedStrict = ctx.Resolution.TyparScopeStrict
-                    ctx.Resolution.TyparScope <- Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+                    ctx.Resolution.TyparScope <- Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
                     ctx.Resolution.TyparScopeStrict <- false
                     let outerLevel = ctx.CurrentLevel
 

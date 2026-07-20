@@ -235,7 +235,7 @@ module internal UnificationInferExternalCall =
             }
         )
 
-        ctx.Store.SetLink(freshTv ctx fnKey, ValueSome memberSig)
+        ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome memberSig)
         let resultTy = TyVar(freshTyVar ctx)
 
         // The applied `arg -> result` spine coerces against the member signature: an `obj`
@@ -396,7 +396,7 @@ module internal UnificationInferExternalCall =
         // external nominal, a typar, a primitive), which declines to the existing path.
         let localHost
             (recvTy: SemType)
-            : struct (TypeKey * EqArray<string * TypeVar> * EqArray<SemType> * TypeMemberInfo[]) voption =
+            : struct (TypeKey * EqArray<string * TyVarId> * EqArray<SemType> * TypeMemberInfo[]) voption =
             match resolveStep ctx.Store recvTy with
             | TyClass(key, args) ->
                 match TypeRegistry.tryClassByKey ctx.Types key with

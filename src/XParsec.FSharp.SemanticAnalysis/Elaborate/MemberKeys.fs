@@ -20,7 +20,7 @@ module LocalMemberKeys =
     type NominalMember =
         {
             DeclKey: TypeKey
-            DeclTypars: EqArray<string * TypeVar>
+            DeclTypars: EqArray<string * TyVarId>
             Member: TypeMemberInfo
         }
 
@@ -31,7 +31,7 @@ module LocalMemberKeys =
     /// delegates here so the walk is spelled once). `ValueNone` when no local nominal by
     /// that key carries the member.
     let tryNominalMemberWithTypars (ctx: PassContext) (typeKey: TypeKey) (memberName: string) : NominalMember voption =
-        let pick (key: TypeKey) (typeParams: EqArray<string * TypeVar>) (members: TypeMemberInfo[]) =
+        let pick (key: TypeKey) (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
             match members |> Array.tryFind (fun m -> m.Name = memberName) with
             | Some m ->
                 ValueSome

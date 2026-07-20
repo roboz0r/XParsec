@@ -66,12 +66,12 @@ let rec private typarLeavesIn (t: FrozenType) : FrozenType list =
         FrozenType.iterChildren (fun c -> acc.AddRange(typarLeavesIn c)) t
         List.ofSeq acc
 
-/// Every `TypeVar` root in a `SemType`, in first-occurrence pre-order.
-let rec private semRootsOf (store: TypeStore) (t: SemType) : TypeVar list =
+/// Every metavar root (`TyVarId`) in a `SemType`, in first-occurrence pre-order.
+let rec private semRootsOf (store: TypeStore) (t: SemType) : TyVarId list =
     match t with
-    | TyVar tv -> [ UnionFind.find store tv ]
+    | TyVar tv -> [ (UnionFind.find store tv).Id ]
     | t ->
-        let acc = ResizeArray<TypeVar>()
+        let acc = ResizeArray<TyVarId>()
         SemType.iterChildren (fun c -> acc.AddRange(semRootsOf store c)) t
         List.ofSeq acc
 
@@ -91,13 +91,13 @@ let private collectTys (d: TDeclG<'ty, 'tok>) : 'ty list =
 
     List.ofSeq acc
 
-/// Dedupe `TypeVar`s by REFERENCE — a `TypeVar` is a mutable cell, and cell identity
-/// is what these tests are about.
-let private distinctCells (tvs: TypeVar list) : TypeVar list =
-    let acc = ResizeArray<TypeVar>()
+/// Dedupe metavar roots by id — a `TyVarId` is the metavar's identity, and cell
+/// identity is what these tests are about.
+let private distinctCells (tvs: TyVarId list) : TyVarId list =
+    let acc = ResizeArray<TyVarId>()
 
     for tv in tvs do
-        if not (acc |> Seq.exists (fun seen -> System.Object.ReferenceEquals(seen, tv))) then
+        if not (acc |> Seq.exists (fun seen -> seen = tv)) then
             acc.Add tv
 
     List.ofSeq acc
@@ -430,38 +430,38 @@ let tests =
                     cLeaves.Head
                     "…so the two frozen leaves are structurally EQUAL across units. That is not a bug: a frozen typar leaf is only ever interpreted against the template carrying it, exactly as FTTypar(Declaring, 0) is."
 
+                // A `TyVarId` indexes ONE store, so cross-store id comparison is meaningless
+                // after the handle collapse — two units' cells are distinguishable only within a
+                // single id space. So route the consumer's own inference AND both thaws through
+                // ONE store: a NodeKey-keyed conflation would then surface as a REUSED (colliding)
+                // id rather than hide behind separate object identities. Each `thawBody` still
+                // builds its OWN decl-scoped cache (design constraint: one cache per thawed decl),
+                // so the two same-keyed thaws must still mint independent cells in that one store.
+                let ctx, tast = analyseWithCtx consumer
+                let store = ctx.Store
+
                 // The consumer's own live inference cells, before anything is thawed into it.
                 let consumerOwnCells =
-                    let ctx, tast = analyseWithCtx consumer
-
                     tast.Decls
                     |> EqArray.toList
                     |> List.collect collectTys
-                    |> List.collect (semRootsOf ctx.Store)
+                    |> List.collect (semRootsOf store)
                     |> distinctCells
-
-                // Each body is thawed with its OWN decl-scoped cache (design constraint: one
-                // cache per thawed decl). Despite the identical binder key, the two thaws mint
-                // independent cells — nothing is keyed by NodeKey in any shared table.
-                let pStore = TypeStore()
 
                 let pCells =
-                    Inline.thawBody pStore pDecl
+                    Inline.thawBody store pDecl
                     |> collectTys
-                    |> List.collect (semRootsOf pStore)
+                    |> List.collect (semRootsOf store)
                     |> distinctCells
-
-                let cStore = TypeStore()
 
                 let cCells =
-                    Inline.thawBody cStore cDecl
+                    Inline.thawBody store cDecl
                     |> collectTys
-                    |> List.collect (semRootsOf cStore)
+                    |> List.collect (semRootsOf store)
                     |> distinctCells
 
-                let disjointFrom (xs: TypeVar list) (ys: TypeVar list) =
-                    ys
-                    |> List.filter (fun y -> xs |> List.exists (fun x -> System.Object.ReferenceEquals(x, y)))
+                let disjointFrom (xs: TyVarId list) (ys: TyVarId list) =
+                    ys |> List.filter (fun y -> xs |> List.exists (fun x -> x = y))
 
                 Expect.equal
                     pCells.Length

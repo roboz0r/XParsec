@@ -20,50 +20,51 @@ least-upper-bound, not equality.
 
 ## Storage
 
-The live definitions are in [`SemanticInfo.fs`](../SemanticInfo.fs); read them
-there. `TypeVar` is a **thin handle** — it carries only its dense, immutable
-identity, and all metavar state lives id-indexed on the per-file `TypeStore`
-(one instance per `PassContext`):
-
-```fsharp
-[<Sealed>]
-type TypeVar(id: TyVarId) =
-    member _.Id: TyVarId = id   // dense, monotone, per-file; never reused
-```
+The live definitions are in [`SemanticInfo.fs`](../SemanticInfo.fs) and
+[`TypeStore.fs`](../TypeStore.fs); read them there. A metavar **IS** its
+`TyVarId` — a dense, monotone, per-file `int<tyVarId>` minted by
+`TypeStore.NewTypeVar`; `SemType.TyVar` carries that id directly, with no heap
+box. All metavar state lives id-indexed on the per-file `TypeStore` (one instance
+per `PassContext`).
 
 `TypeStore` holds, keyed by `TyVarId`:
 
-- **Union-find + root-authoritative cells** — parallel arrays grown together by
-  amortized doubling: `parent`/`rank` (structure; `parent.[i] = i` marks a root),
-  and `level`/`link`/`units` (Rémy level, the solution, the measure). `region` is a
-  write-once cell. Every read/write goes through a store accessor —
-  `store.Parent`/`SetParent`, `Link`/`SetLink`, `Level`/`SetLevel`,
-  `Units`/`SetUnits`, `Region`/`SetRegion` — the **single mutation seam**.
-- **Deferred-obligation side-tables** — keyed by the *representative* id:
-  `store.Constraints` and `store.Defaults` (grow-only lists), `store.Srtp` and
-  `store.Pda` (grow-only lists + a reference-keyed `solved` set). These replace the
-  former on-node `Constraints` / `Defaults` / `SrtpBounds` / `PendingDotAccess` slots.
+- **Union-find structure + region** — `parent`/`rank` parallel arrays
+  (`parent.[i] = i` marks a root), read/written via `store.Parent`/`SetParent`,
+  `Rank`/`SetRank` on a **raw `TyVarId`** (`find` legitimately walks non-roots).
+  Plus the write-once `region` cell (`store.Region`/`SetRegion`, raw `TyVarId` — not
+  migrated on union, so every node has one valid cell).
+- **Root-authoritative cells** — `level`/`link`/`units` (Rémy level, the solution,
+  the measure) and the deferred-obligation side-tables `store.Constraints` /
+  `Defaults` (grow-only lists) / `Srtp` / `Pda` (grow-only lists + a reference-keyed
+  `solved` set; they replace the former on-node `Constraints`/`Defaults`/`SrtpBounds`/
+  `PendingDotAccess` slots). These are meaningful ONLY on the union-find
+  representative, and the accessors enforce it: they take a **`Rep`**, not a raw
+  `TyVarId`.
 
-A `store.Node : TyVarId -> TypeVar` table lets `UnionFind.find` / `union` still
-return the root **handle** that the reference-identity call sites depend on.
-
-**`level` / `link` / `units` and every side-table are authoritative only on the
-union-find representative — call `UnionFind.find store` before reading.** That is
-the single easiest mistake to make against this type.
+**The representative invariant is correct-by-construction, not a convention.**
+`Rep` is a `[<Struct>]` single-case wrapper over a `TyVarId` whose case is `private`
+to `TypeStore.fs`; the SOLE producer is `UnionFind.find` (which lives in that file
+precisely so it can mint one). A root-authoritative read/write therefore *cannot* be
+spelled without a value that provably came from `find` — "read
+`link`/`level`/`units`/an obligation off a non-root" stops type-checking rather than
+silently returning a stale or empty cell. Project `rep.Id` to key a `TyVarId` table
+or rebuild a `SemType` (`TyVar rep.Id`).
 
 A few choices worth noting:
 
-- **Handle, not raw id.** `TypeVar` stays a sealed class with reference identity
-  (each `store.NewTypeVar()` is its own variable) rather than collapsing to
-  `SemType.TyVar of TyVarId`, so the ~dozen `HashIdentity.Reference` keying sites
-  keep working and `find` can hand back a node.
+- **Raw id, not a boxed handle.** `SemType.TyVar of TyVarId` — the id *is* the
+  handle, so `SemType` is fully value-comparable (no reference-identity leaf) and the
+  metavar-keyed dictionaries key by the dense int structurally. Within one file ids
+  are unique, so structural int equality IS variable identity: a `TypeStore` is
+  per-`PassContext` = per file, and `freeze` erases every surviving `TyVar`, so ids
+  from two files never meet in one table.
 - **Dense arrays, not per-object slots.** State is id-indexed store arrays —
-  cache-friendly, and the immutable parts are internable — rather than a
-  payload-heavy mutable node. `voption` cells (`link` / `units`) avoid per-entry
-  heap allocation on the hot path.
-- **Union-find in the store, not on the node.** `parent` / `rank` are store arrays;
-  `find` walks and path-compresses them and `union` rewires them, both parameterised
-  on the store. No `Dictionary<TypeVar, _>` indirection — the id *is* the index.
+  cache-friendly, and the immutable parts are internable. `voption` cells (`link` /
+  `units`) avoid per-entry heap allocation on the hot path.
+- **Union-find in the store.** `parent` / `rank` are store arrays; `find` walks and
+  path-compresses them (handing back a `Rep`) and `union` rewires them. The id *is*
+  the index — no `Dictionary` indirection.
 
 ## Deferred obligations (the on-unified callbacks)
 

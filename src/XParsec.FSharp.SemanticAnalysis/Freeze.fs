@@ -45,12 +45,12 @@ module Freeze =
     /// One root belongs to at most one scheme (an inner binding cannot quantify a
     /// root that is free in its environment), so the map needs no precedence rule and
     /// does not depend on enumeration order.
-    let private schemeBinders (ctx: PassContext) : Dictionary<TypeVar, struct (NodeKey * int)> =
-        let map = Dictionary<TypeVar, struct (NodeKey * int)>(HashIdentity.Reference)
+    let private schemeBinders (ctx: PassContext) : Dictionary<TyVarId, struct (NodeKey * int)> =
+        let map = Dictionary<TyVarId, struct (NodeKey * int)>()
 
         for KeyValue(binder, scheme) in ctx.Bindings.Scheme.AsDictionary() do
             scheme.Quantified
-            |> Seq.iteri (fun i tv -> map.[UnionFind.find ctx.Store tv] <- struct (binder, i))
+            |> Seq.iteri (fun i tv -> map.[(UnionFind.find ctx.Store tv).Id] <- struct (binder, i))
 
         map
 
@@ -119,7 +119,7 @@ module Freeze =
     /// map it has always been.
     let private freezeTy
         (store: TypeStore)
-        (binders: Dictionary<TypeVar, struct (NodeKey * int)>)
+        (binders: Dictionary<TyVarId, struct (NodeKey * int)>)
         (t: SemType)
         : FrozenType =
         let onVar (v: SemType) : FrozenType =
@@ -127,7 +127,7 @@ module Freeze =
             | TyVar tv ->
                 // Key on the union-find ROOT: two `TyVar` nodes in the same class are
                 // the same typar and must land on the same leaf.
-                match binders.TryGetValue(UnionFind.find store tv) with
+                match binders.TryGetValue((UnionFind.find store tv).Id) with
                 | true, struct (binder, index) -> FTLocalTypar(binder, index)
                 // No scheme quantified it ⇒ a genuine metavar leak, already an
                 // error-severity `ResolvedTypes` diagnostic on this decl. Degrade

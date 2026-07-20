@@ -137,7 +137,7 @@ module UnificationInfer =
                 // `ElaborateExpr.translateExpr` (file: ElaborateExpr.fs).
                 failwithf "infer: TODO %A" e
 
-        ctx.Store.SetLink(nodeTv, ValueSome inferredTy)
+        ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome inferredTy)
         inferredTy
 
     /// The disposal capability's `Dispose` member key — the §5.0-resolved disposable
@@ -331,7 +331,7 @@ module UnificationInfer =
         // One typar scope per binding signature: explicit `<'a>` typars seed
         // it first so later implicit `'a` mentions share the same TyVar.
         let savedScope = ctx.Resolution.TyparScope
-        ctx.Resolution.TyparScope <- Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
+        ctx.Resolution.TyparScope <- Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
         // Inherit the lexically-enclosing binding's typars (lowest priority) so a
         // named typar inside a *nested* `let` resolves to the same TyVar as the
@@ -425,7 +425,11 @@ module UnificationInfer =
                         // annotation's format type onto the literal node.
                         match tryTypeFormatLiteral ctx (CstKeys.ofBinding b) b.expr annTy with
                         | ValueSome fmt ->
-                            ctx.Store.SetLink(freshTv ctx (CstKeys.ofExpr b.expr), ValueSome fmt)
+                            ctx.Store.SetLink(
+                                UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr b.expr)),
+                                ValueSome fmt
+                            )
+
                             annTy
                         | ValueNone ->
                             let bodyTy = infer ctx b.expr

@@ -10,12 +10,21 @@ history for that part.
 **Phase A substrate — the arena is landed** (three commits on `semantic-analysis`, each
 frozen-output-identical, corpus/IL/JS goldens unchanged):
 
-1. Dense `TyVarId` + per-file `TypeStore` arena; every `TypeVar` minted through one factory.
+1. Dense `TyVarId` + per-file `TypeStore` arena; every metavar minted through one factory.
 2. The four deferred-constraint families (`SrtpBounds`/`Constraints`/`PendingDotAccess`/
    `Defaults`) moved into `TypeStore` side-tables; `EngineCore.migrateBounds` and
    `MemberSignature.Resolved` **deleted**; join-on-`union` replaces hand-migration.
 3. The structural slots (`Parent`/`Rank`/`Level`/`Link`/`Units`/`Region`) moved into
-   `TypeStore` arrays; `TypeVar` is now a **bare handle** carrying only its `Id`.
+   `TypeStore` arrays; the `TypeVar` node became a bare `Id` handle.
+4. **The handle collapsed to the raw id** — `TypeVar` (the sealed class) and the store's
+   id→handle `Node` array are **deleted**; `SemType.TyVar of TyVarId` carries the id directly,
+   so `SemType` is fully value-comparable and the ~two dozen `HashIdentity.Reference`
+   metavar-keyed dictionaries/sets became plain structural `TyVarId` keys.
+5. **Root-authoritative reads made correct-by-construction** — a `[<Struct>] Rep = private Rep
+   of TyVarId` (private case in `TypeStore.fs`, sole producer `UnionFind.find`, which now lives
+   in that file) gates `Link`/`Level`/`Units` and the four side-tables: reading an authoritative
+   cell off a non-root no longer type-checks (preserve-5 below, formerly a doc comment).
+   Structure (`Parent`/`Rank`) and write-once `Region` stay keyed by raw `TyVarId`.
 
 **Where a fresh session picks up:** the arena is complete. The remaining Phase A steps are
 **interning** (store-plan step 4 — hash-cons resolved *ground* SemTypes; lands the two-level
@@ -83,10 +92,11 @@ one is a regression, not a simplification.
    symmetric `unify` (`SemanticInfo.fs:907`+, `TyOr`; `FTOr` mirror at `:733`).
 2. **Intrinsics by key identity, never stringly** (`TyConst`/`FTConst`, `IntrinsicTypePatterns`).
 3. **Rémy levels** for generalization: `min`-on-union, occurs-lowering, quantify level >
-   enclosing scope (`TypeVar.Level` `:1191`; `UnionFind.union` `:42`; `TypeScheme` `:1931`).
-4. **Measures as abelian-group equality on union** (`TypeVar.Units` `:1173`; `MeasureTerm`).
+   enclosing scope (`store.Level` on a `Rep`; `UnionFind.union`; `TypeScheme`).
+4. **Measures as abelian-group equality on union** (`store.Units` on a `Rep`; `MeasureTerm`).
 5. **Freeze contract**: post-freeze tree has no `TyVar`; **key on the union-find root** when
-   equating vars (`Freeze.fs:123`). A residual unlinked `TyVar` is tolerated → `FTUnknown`.
+   equating vars (`Freeze.fs`) — now type-enforced: the root-authoritative accessors take a
+   `Rep` only `find` can mint. A residual unlinked `TyVar` is tolerated → `FTLocalTypar`/`FTUnknown`.
 6. **Read-only dispatch — the unifier never trial-unifies *today*.** Operands are ground at
    dispatch, so disjunctive/overload dispatch decides via the *read-only* overload filter
    (`codegen-by-key-plan` deferral), and the substitution is never speculatively mutated-then-
@@ -105,15 +115,15 @@ one is a regression, not a simplification.
 - **`type TyVarId = int<tyVarId>`** — dense, monotone, measure-tagged id (erased to `int`;
   type-separated from `NodeKey`/`RegionId`/array indices). The right *spelling* of the id.
 - **`SemType`** becomes a pure, interned (hash-consed) value: structural equality ⇒ id compare;
-  resolved types are memoizable. The `TyVar` case holds a **thin handle** `TypeVar { Id: TyVarId }`
-  during migration (reference identity retained so the ~dozen `HashIdentity.Reference` sites in
-  Elaborate/Freeze/Inline/GeneralizedTypars/PassContext/Validation/Unification keep compiling
-  while they flip to id-keying one at a time). Collapsing to raw `SemType.TyVar of TyVarId` is an
-  **optional final** step, not the first move (⟨OPEN A⟩ in the store plan — lean: handle).
+  resolved types are memoizable. The `TyVar` case now holds the **raw `TyVarId`**
+  (`SemType.TyVar of TyVarId`): the migration's thin-handle step is done — the sealed `TypeVar`
+  class is deleted, ⟨OPEN A⟩ resolved to *raw id* (not handle), and the `HashIdentity.Reference`
+  metavar sites flipped to structural id-keying wholesale.
 - **`TypeStore`** — the arena: `parent`/`rank`/`level`/`solution`/`units` as `TyVarId`-indexed
   arrays; payload families as side-tables under the representative id. `find`/`union`/`zonk`
-  become array ops. Grow-only per file. Backing representation (flat vs rollback-capable) is a
-  swappable implementation detail — see below.
+  become array ops. Grow-only per file. A `[<Struct>] Rep` (private case, minted only by `find`)
+  gates the root-authoritative accessors so a non-root read is a compile error. Backing
+  representation (flat vs rollback-capable) is a swappable implementation detail — see below.
 
 ### Rollback substrate (⟨OPEN D⟩)
 

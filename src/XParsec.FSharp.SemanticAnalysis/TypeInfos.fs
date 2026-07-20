@@ -85,7 +85,7 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     /// by body inference (lookups are by name / root identity, so its order is
     /// irrelevant). It is NOT the final ABI order — that lives in `Generalized`,
     /// written post-inference. `DeclaredTyparCount` still splits the explicit prefix.
-    member val MethodTypeParams: EqArray<string * TypeVar> = EqArray.empty with get, set
+    member val MethodTypeParams: EqArray<string * TyVarId> = EqArray.empty with get, set
     /// Canonical (post-inference) method typars — the ABI order, correct-by-construction.
     /// Written ONCE by `generaliseMemberTypars` (regular methods) or the abstract-signature
     /// path (abstract methods). `MethodTypeParams` above is only the pre-inference identity seed.
@@ -104,7 +104,7 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     /// class can call a member before it is generalised). Order-irrelevant here —
     /// `instantiateMemberCall` freshens by union-find root. Faithfully reproduces the
     /// pre-split read of `MethodTypeParams` (which was seed-then-canonical).
-    member this.EffectiveMethodTypars: EqArray<string * TypeVar> =
+    member this.EffectiveMethodTypars: EqArray<string * TyVarId> =
         if GeneralizedTypars.count this.Generalized > 0 then
             EqArray.ofArray (GeneralizedTypars.toArray this.Generalized)
         else
@@ -188,7 +188,7 @@ type IInterfaceImplHost =
     /// nominal type's key can only ever be a type key, so no consumer narrows.
     abstract member TypeKey: TypeKey
     abstract member DeclKey: NodeKey
-    abstract member TypeParams: EqArray<string * TypeVar>
+    abstract member TypeParams: EqArray<string * TyVarId>
     /// Source-text name bound to `this` inside member / impl bodies (`"this"` unless
     /// an `as`-binder renamed it). Used by NameResolution to seed the body scope.
     abstract member ThisName: string
@@ -210,7 +210,7 @@ type IInterfaceImplHost =
 type RecordTypeInfo
     (
         name: string,
-        typeParams: EqArray<string * TypeVar>,
+        typeParams: EqArray<string * TyVarId>,
         fields: RecordFieldInfo[],
         declKey: NodeKey,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
@@ -304,7 +304,7 @@ type RecordTypeInfo
 type UnionTypeInfo
     (
         name: string,
-        typeParams: EqArray<string * TypeVar>,
+        typeParams: EqArray<string * TyVarId>,
         cases: UnionCaseInfo[],
         declKey: NodeKey,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
@@ -394,7 +394,7 @@ type UnionTypeInfo
 /// member-inline harvest; it is never emitted.
 [<Sealed>]
 type IntrinsicAbbrevInfo
-    (name: string, typeParams: EqArray<string * TypeVar>, declKey: NodeKey, key: TypeKey, selfKey: SymbolKey) =
+    (name: string, typeParams: EqArray<string * TyVarId>, declKey: NodeKey, key: TypeKey, selfKey: SymbolKey) =
     member val Name = name
     /// Stable project-local nominal identity, minted by `stampLocalTypeKey` at
     /// registration to match a use-site key. Never emitted (the abbrev is intrinsic).
@@ -493,7 +493,7 @@ type AbbreviationStatus =
 type AbbreviationInfo
     (
         name: string,
-        typeParams: EqArray<string * TypeVar>,
+        typeParams: EqArray<string * TyVarId>,
         rhsCst: Type<SyntaxToken>,
         declKey: NodeKey,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
@@ -611,7 +611,7 @@ type ClassSecondaryCtorInfo(declKey: NodeKey, parms: ClassCtorParamInfo[], body:
 type ClassTypeInfo
     (
         name: string,
-        typeParams: EqArray<string * TypeVar>,
+        typeParams: EqArray<string * TyVarId>,
         ctorParams: ClassCtorParamInfo[],
         members: TypeMemberInfo[],
         declKey: NodeKey,
