@@ -1,0 +1,18 @@
+import { float32ToString as $Vesper_StructuralPrinter_float32ToString } from "./Vesper.Printf.mjs";
+const negI = (x) => ((-(x)) | 0);
+const negL = (x) => (BigInt.asIntN(64, -(x)));
+const negF = (x) => (-(x));
+const negG = (x) => (Math.fround(-(x)));
+const negS = (x) => ((-(x)) << 24 >> 24);
+const negH = (x) => ((-(x)) << 16 >> 16);
+console.log(negI(5));
+console.log(negI(-5));
+console.log(negI(-2147483648));
+console.log(String(negL(1000000000000n)));
+console.log(String(negL(-9223372036854775808n)));
+console.log(negF(2.5).toFixed(6));
+console.log($Vesper_StructuralPrinter_float32ToString(negG(2.5)));
+console.log(((_s6) => ((_s6) | 0))(negS(100)));
+console.log(((_s8) => ((_s8) | 0))(negS(-128)));
+console.log(((_s10) => ((_s10) | 0))(negH(30000)));
+console.log(((_s12) => ((_s12) | 0))(negH(-32768)));

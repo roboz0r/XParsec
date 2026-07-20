@@ -457,6 +457,13 @@ let private compileContract
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract defaultManifests (ProjectInfo.defaults assemblyName) input
 
+/// The conformance corpus names programs with hyphens (`arith-byte`); an assembly name
+/// has to be an identifier the emitted module can carry. Single-sourced (rather than
+/// duplicated into the corpus runner and the byte-identity gate) so the gate's digest is
+/// provably of the SAME PE the corpus run judges — the two cannot drift apart.
+let conformanceAssemblyName (program: string) : string =
+    "Conformance_" + program.Replace("-", "_")
+
 /// Like `compileSource` but drives the **self-host** front end
 /// (`analyseForSelfHost`): a bare-program `[]` / `::` defaults to the Vesper
 /// cons-list, not FSharp.Core's `list` — the same posture a BCL-only package

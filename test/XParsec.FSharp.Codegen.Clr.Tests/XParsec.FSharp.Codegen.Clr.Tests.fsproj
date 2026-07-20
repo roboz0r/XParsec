@@ -21,6 +21,7 @@
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
     <Compile Include="MetadataStructure.fs" />
+    <Compile Include="ClrStructuralDigest.fs" />
     <Compile Include="ClrDriverTests.fs" />
     <Compile Include="PrintfHappyPathTests.fs" />
     <Compile Include="PrintfPartialTests.fs" />
@@ -71,6 +72,7 @@
     <Compile Include="PackageBuildTests.fs" />
     <Compile Include="PackageBuildTriage.fs" />
     <Compile Include="ConformanceTyparsTests.fs" />
+    <Compile Include="ConformanceByteIdentityTests.fs" />
     <Compile Include="OptionTests.fs" />
     <Compile Include="ResultTests.fs" />
     <Compile Include="ChoiceTests.fs" />

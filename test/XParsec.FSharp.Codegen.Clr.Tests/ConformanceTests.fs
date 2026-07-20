@@ -10,12 +10,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // The CLR's obligations over the shared corpus (`test/Codegen.Conformance/`). This
 // file is the whole of the CLR's participation: the loader, the goldens, and every
 // assertion live in `Codegen.Common.Tests`, so a corpus program added there is picked
-// up here with no edit.
-
-/// The corpus names programs with hyphens (`arith-byte`); an assembly name has to be
-/// an identifier the emitted module can carry.
-let private assemblyName (program: string) : string =
-    "Conformance_" + program.Replace("-", "_")
+// up here with no edit. The corpus→assembly-name derivation lives in `TestHelpers`
+// (`conformanceAssemblyName`), shared with the byte-identity gate so the two never drift.
 
 let private clrBackend: Backend =
     {
@@ -32,7 +28,7 @@ let private clrBackend: Backend =
         // surface as such rather than masquerade as a runtime fault.
         CompileAndRun =
             fun name src ->
-                let _, artifact = compileSource (assemblyName name) src
+                let _, artifact = compileSource (conformanceAssemblyName name) src
                 let bytes = Codegen.toBytes artifact
 
                 // Every corpus program's PE goes through the metadata assertions. Like

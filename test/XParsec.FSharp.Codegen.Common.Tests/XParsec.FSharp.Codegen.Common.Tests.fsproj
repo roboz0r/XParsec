@@ -19,6 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Conformance.fs" />
+    <Compile Include="Goldens.fs" />
     <Compile Include="OperatorClauses.fs" />
   </ItemGroup>
   <ItemGroup>
