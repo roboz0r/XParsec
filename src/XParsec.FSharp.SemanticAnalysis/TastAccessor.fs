@@ -406,3 +406,10 @@ module TastAccessor =
         | TDeclG.Let _ -> DeclShape.Let
         | TDeclG.Expression _ -> DeclShape.Expression
         | TDeclG.Type _ -> DeclShape.Type
+
+    /// The `type`-declaration payload of a `Type` decl (its `Kind`, `Key`, `Name`, …).
+    /// Guard with `declKind` = `DeclShape.Type` first; `failwith` on any other shape.
+    let declType (d: DeclId) : Frozen.TTypeDecl =
+        match d with
+        | TDeclG.Type td -> td
+        | _ -> failwith "TastAccessor.declType: not a Type decl"

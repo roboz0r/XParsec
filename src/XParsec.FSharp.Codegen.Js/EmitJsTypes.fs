@@ -307,8 +307,10 @@ module EmitJsTypes =
             parts
 
         for decl in tast.Decls do
-            match decl with
-            | TDeclG.Type td ->
+            match TastAccessor.declKind decl with
+            | DeclShape.Type ->
+                let td = TastAccessor.declType decl
+
                 match td.Kind with
                 // The JS backend has no value-type concept — a `[<Struct>]` record
                 // (`valueKind = Struct`) emits as an ordinary reference object, a
