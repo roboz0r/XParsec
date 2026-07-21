@@ -306,6 +306,31 @@ module TastAccessor =
 
         acc.ToArray()
 
+    /// The scalar payload of an `ExternalMember` node, minus the `ty`/`tok` that
+    /// `exprTy`/`exprTok` already carry. `Receiver` is a payload sub-expression named
+    /// by role (the member's target), not a positional `exprChildren` entry.
+    [<Struct>]
+    type ExternalMemberView =
+        {
+            Receiver: ExprId voption
+            Key: SymbolKey
+            MemberName: string
+            Storage: MemberStorage
+        }
+
+    /// The payload view of an `ExternalMember` node. Guard with `exprKind` =
+    /// `ExprShape.ExternalMember` first; `failwith` on any other shape.
+    let exprExternalMember (e: ExprId) : ExternalMemberView =
+        match e with
+        | TExprG.ExternalMember(receiver = receiver; key = key; memberName = memberName; storage = storage) ->
+            {
+                Receiver = receiver
+                Key = key
+                MemberName = memberName
+                Storage = storage
+            }
+        | _ -> failwith "TastAccessor.exprExternalMember: not an ExternalMember node"
+
     /// The shape tag of a pattern node.
     let patKind (p: PatId) : PatShape =
         match p with

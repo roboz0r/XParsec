@@ -159,8 +159,10 @@ module JsExternalMembers =
         elif argCount = 1 then
             [ build argExpr ]
         else
-            match argExpr with
-            | TExprG.Tuple(elems, _, _) when elems.Length = argCount -> [ for el in elems -> build el ]
+            let elems = TastAccessor.exprChildren argExpr
+
+            match TastAccessor.exprKind argExpr with
+            | ExprShape.Tuple when elems.Length = argCount -> [ for el in elems -> build el ]
             | _ ->
                 failwithf
                     "EmitJs: external attached member expects %d tupled arguments but the argument is not a literal %d-tuple"
@@ -187,24 +189,30 @@ module JsExternalMembers =
         (spine: (Frozen.TExpr * FrozenType * SyntaxToken) list)
         (loc: JsLoc voption)
         : JsExpr voption =
-        match head with
-        | TExprG.ExternalMember(ValueSome recv, key, memberName, MemberStorage.Method, _, _) when
-            classFlagsOf provider (declKey key)
-            |> ValueOption.exists (fun flags -> flags.MemberLowering = MemberLowering.AttachedNative)
-            ->
-            match spine with
-            | (argExpr, _, _) :: rest ->
-                let call =
-                    attachedCall
-                        (build recv)
-                        memberName
-                        (attachedMemberArgs build (memberArgCount key memberName) argExpr)
-                        loc
+        match TastAccessor.exprKind head with
+        | ExprShape.ExternalMember ->
+            let em = TastAccessor.exprExternalMember head
 
-                rest
-                |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) call
-                |> ValueSome
-            | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 spine element
+            match em.Receiver with
+            | ValueSome recv when
+                em.Storage = MemberStorage.Method
+                && (classFlagsOf provider (declKey em.Key)
+                    |> ValueOption.exists (fun flags -> flags.MemberLowering = MemberLowering.AttachedNative))
+                ->
+                match spine with
+                | (argExpr, _, _) :: rest ->
+                    let call =
+                        attachedCall
+                            (build recv)
+                            em.MemberName
+                            (attachedMemberArgs build (memberArgCount em.Key em.MemberName) argExpr)
+                            loc
+
+                    rest
+                    |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) call
+                    |> ValueSome
+                | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 spine element
+            | _ -> ValueNone
         | _ -> ValueNone
 
     /// A METHOD on an `AttachMembers` type extracted as a VALUE (`let f = box.get`):
@@ -224,8 +232,8 @@ module JsExternalMembers =
         (loc: JsLoc voption)
         : JsExpr =
         let recvJs, spill =
-            match recv with
-            | TExprG.Var _ -> build recv, ValueNone
+            match TastAccessor.exprKind recv with
+            | ExprShape.Var -> build recv, ValueNone
             | _ ->
                 let tmp = "_recv" + string (TastWalk.exprTok recv).StartIndex
                 JsExpr.Identifier(tmp, ValueNone), ValueSome(tmp, build recv)
