@@ -58,11 +58,11 @@ module EmitCall =
             | _ -> ValueNone
 
         let rec collect (acc: Frozen.TExpr list) (e: Frozen.TExpr) : Frozen.TExpr list option =
-            match e with
-            | TExprG.UnionCons(_, args, _, _) ->
-                match args with
-                | EqTwo(x, rest) -> collect (x :: acc) rest
-                | EqEmpty -> Some(List.rev acc)
+            match TastAccessor.exprKind e with
+            | ExprShape.UnionCons ->
+                match TastAccessor.exprChildren e with
+                | [| x; rest |] -> collect (x :: acc) rest
+                | [||] -> Some(List.rev acc)
                 | _ -> None
             | _ -> None
 
@@ -128,15 +128,15 @@ module EmitCall =
 
         List.ofSeq actualTys
 
-    /// Lower a `TExprG.App` chain. The head dispatch is shape-by-shape:
-    /// - `TExprG.External(name, key, _)` — a provider-resolved call. The
+    /// Lower an `App` chain. The head dispatch is shape-by-shape:
+    /// - an `External` node (compiled name + key) — a provider-resolved call. The
     ///   recipe's generic instantiation is read from the head's full curried
     ///   type. `key` (the Elaborate-stamped `SymbolKey.ValueKey`) lets codegen
     ///   route by identity, not name.
-    /// - `TExprG.Var k` where `env.StaticMethods.ContainsKey k` — a top-level
+    /// - a `Var` node whose binding is in `env.StaticMethods` — a top-level
     ///   function emitted as a static method; generic instantiations are
     ///   recovered by matching declared param types against the actual arg types.
-    /// - `TExprG.ExternalMember(receiver, key, name, false, memberTy)` — an
+    /// - an `ExternalMember` node (`MemberStorage.Method`) — an
     ///   external method call; tupled per .NET convention, so the call consumes
     ///   one spine element (the arg list) and the param count comes from the
     ///   key's `argSig` length.
@@ -145,9 +145,9 @@ module EmitCall =
     let buildAppCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         let head, spineArgs = TastWalk.collectSpine [] e
 
-        match head with
-        | TExprG.External(name, _, _, _) when
-            name = RuntimeNames.arrayOfListName
+        match TastAccessor.exprKind head with
+        | ExprShape.External when
+            (TastAccessor.exprExternal head).CompiledName = RuntimeNames.arrayOfListName
             && tryEmitArrayLiteral recur env b (typeOfExpr e) spineArgs
             ->
             // Handled in the guard: an `[| … |]` literal lowered to
@@ -156,7 +156,10 @@ module EmitCall =
             // only commits when the spine arg is the literal cons-chain ElaborateExpr
             // builds; any other shape falls through to the recipe path below.
             ()
-        | TExprG.External(name, key, _, _) ->
+        | ExprShape.External ->
+            let ext = TastAccessor.exprExternal head
+            let name = ext.CompiledName
+            let key = ext.Key
             // The recipe reads its generic instantiation from the head's full
             // curried type. `key` is the resolved `SymbolKey.ValueKey` stamped
             // by Elaborate when the front-end resolved the name through the symbol
@@ -238,7 +241,8 @@ module EmitCall =
                 foldInvoke recur env b funcTy rest
             | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
-        | TExprG.Var(k, _, _) when env.StaticMethods.ContainsKey k ->
+        | ExprShape.Var when env.StaticMethods.ContainsKey(TastAccessor.exprVarBinding head) ->
+            let k = TastAccessor.exprVarBinding head
             // A top-level function emitted as a static method: `call` it with
             // the first `ParamArity` args (always present — a non-saturated use would
             // have escaped to a closure, see `collectStaticFns`), then `Invoke`
@@ -336,7 +340,12 @@ module EmitCall =
 
             foldInvoke recur env b sm.ResultTy rest
 
-        | TExprG.ExternalMember(receiver, key, name, MemberStorage.Method, memberTy, _) ->
+        | ExprShape.ExternalMember when (TastAccessor.exprExternalMember head).Storage = MemberStorage.Method ->
+            let em = TastAccessor.exprExternalMember head
+            let receiver = em.Receiver
+            let key = em.Key
+            let name = em.MemberName
+            let memberTy = typeOfExpr head
             // An external instance/static method call: push the receiver (instance
             // only) beneath the arguments, then `call` (static) / `callvirt`
             // (instance) the keyed member ref. A .NET method is tupled
@@ -344,7 +353,7 @@ module EmitCall =
             // single spine element — the argument list — and the parameter count
             // comes from the chosen key's `argSig` length (authoritative: `memberTy`
             // alone can't tell a flattened 2-param method from a genuine single
-            // `(int*int)` param). A literal `TExprG.Tuple` argument is pushed
+            // `(int*int)` param). A literal `Tuple` argument is pushed
             // element-wise (no tuple object is constructed).
             let isStatic = ValueOption.isNone receiver
 
@@ -373,9 +382,9 @@ module EmitCall =
 
             match receiver with
             | ValueSome r when receiverIsStruct ->
-                match r with
-                | TExprG.Var(binding, _, _) when env.Slots.ContainsKey binding ->
-                    b.Add(ILInstr.Ldloca env.Slots.[binding])
+                match TastAccessor.exprKind r with
+                | ExprShape.Var when env.Slots.ContainsKey(TastAccessor.exprVarBinding r) ->
+                    b.Add(ILInstr.Ldloca env.Slots.[TastAccessor.exprVarBinding r])
                 | _ ->
                     recur env b r
                     let tmp = b.Local(typeOfExpr r)
@@ -393,9 +402,9 @@ module EmitCall =
                         // pushed element-wise. The value→`obj` box for an `obj`
                         // parameter is an explicit `Upcast` node from Elaborate (which
                         // wraps the tuple element-wise), so push each element raw.
-                        match argExpr with
-                        | TExprG.Tuple(elems, _, _) when elems.Length = argCount ->
-                            for el in elems do
+                        match TastAccessor.exprKind argExpr with
+                        | ExprShape.Tuple when (TastAccessor.exprChildren argExpr).Length = argCount ->
+                            for el in TastAccessor.exprChildren argExpr do
                                 recur env b el
 
                             argCount
