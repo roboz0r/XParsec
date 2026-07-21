@@ -38,8 +38,10 @@ open XParsec.FSharp.Parser
 // dedicated `Binders` column, not its 64-bit content key. Every distinct NodeKey a
 // simple binder introduces (`NamedSimple.binding`, `ForTo.var`) is interned to a
 // `BinderId`; the cross-references that named a definition by content key during
-// analysis — `Var.binding` and the seven `Map<NodeKey,_>` side tables — name it by that
-// id in the pool form. `ofPools` resolves each id back through `Binders` to the retained
+// analysis — `Var.binding` and six of the seven `Map<NodeKey,_>` side tables — name it
+// by that id in the pool form. (The seventh, `FunVerdicts`, is keyed by a lambda-EXPRESSION
+// key, not a binder, and takes the lambda id space — its dense id is the lambda's
+// `ExprPoolId`.) `ofPools` resolves each id back through `Binders` to the retained
 // NodeKey, so the round-trip exercises the remap rather than copying the keys back
 // verbatim: a reference or side-table key that resolves to no interned binder faults
 // here, which is the gate that keeps the enumeration honest. (Kind is not stored — its
@@ -151,13 +153,18 @@ type FrozenPools =
         /// column references resolve against, not a re-pointing of `Pats`.
         Binders: BinderPoolEntry[]
         File: Frozen.TastFile
-        /// The seven `Map<NodeKey,_>` side tables of `File`, re-keyed by `BinderId` (a
-        /// sparse association — a binder appears iff the map held it). `ofPools` rebuilds
-        /// each map from its dense form.
+        /// Six of the seven `Map<NodeKey,_>` side tables of `File`, re-keyed by `BinderId`
+        /// (a sparse association — a binder appears iff the map held it). `ofPools`
+        /// rebuilds each map from its dense form.
         ModuleMembers: (BinderId * ModuleBindingInfo)[]
         TopLevelNames: (BinderId * string)[]
         ClosureReprs: (BinderId * ClosureRepr)[]
-        FunVerdicts: (BinderId * FunVerdict)[]
+        /// The one side table keyed by a lambda-EXPRESSION `NodeKey` (a source lambda's
+        /// `TastWalk.lambdaKey`, kind `ExprLambda`) rather than a binder, so it is re-keyed
+        /// onto the lambda id space — a lambda's dense id IS its `ExprPoolId` (positional:
+        /// every `Lambda` expr is already pooled), off the binder pool. `ofPools` inverts
+        /// through `TastWalk.lambdaKey` on the pooled `Lambda` node.
+        FunVerdicts: (ExprPoolId * FunVerdict)[]
         GenericFnSchemes: (BinderId * FrozenConstraint list)[]
         BindingValReprs: (BinderId * Frozen.ValRepr)[]
         BindingTyparArities: (BinderId * int)[]
@@ -182,6 +189,13 @@ module TastPools =
         // so nothing re-derives which nodes bind.
         let binders = ResizeArray<BinderPoolEntry>()
         let binderIds = System.Collections.Generic.Dictionary<NodeKey, BinderId>()
+
+        // The lambda id space: a source lambda's dense id IS its `ExprPoolId` (positional
+        // — every `Lambda` expr is already in `Exprs`). `FunVerdicts`, the one side table
+        // keyed by a lambda-EXPRESSION key rather than a binder, resolves against this map;
+        // it is recorded under the SAME `TastWalk.lambdaKey` codegen looks the verdict up
+        // by, so the pool key space matches the DU lookup key by construction.
+        let lambdaIds = System.Collections.Generic.Dictionary<NodeKey, ExprPoolId>()
 
         let internBinder (k: NodeKey) : unit =
             match binderIds.TryGetValue k with
@@ -228,6 +242,12 @@ module TastPools =
                     Node = e
                 }
 
+            // A lambda's positional identity is this very slot; stamp the map so
+            // `FunVerdicts` (lambda-expression-keyed) resolves onto it.
+            match TastAccessor.exprKind e with
+            | ExprShape.Lambda -> lambdaIds.[TastWalk.lambdaKey e] <- ExprPoolId id
+            | _ -> ()
+
             ExprPoolId id
 
         let poolDecl (d: Frozen.TDecl) : DeclPoolId =
@@ -262,6 +282,13 @@ module TastPools =
             | true, id -> id
             | false, _ -> failwithf "TastPools.toPools: %O references a binder no NamedSimple/ForTo node introduced" k
 
+        // The lambda-key analogue: a `FunVerdicts` key that names no pooled lambda is the
+        // honest failure a lambda-keyed entry naming no pooled lambda should be.
+        let lambdaIdOf (k: NodeKey) : ExprPoolId =
+            match lambdaIds.TryGetValue k with
+            | true, id -> id
+            | false, _ -> failwithf "TastPools.toPools: FunVerdicts key %O names no pooled lambda" k
+
         // Second pass: now the enumeration is complete, route each `Var`'s reference edge
         // to its binder's dense id.
         let exprArr =
@@ -275,8 +302,11 @@ module TastPools =
                 | _ -> entry
             )
 
-        let remapSideTable (m: Map<NodeKey, 'v>) : (BinderId * 'v)[] =
-            m |> Map.toArray |> Array.map (fun (k, v) -> binderIdOf k, v)
+        // One generic remap over the side tables, parameterized by the key resolver: the
+        // binder-keyed tables pass `binderIdOf`, `FunVerdicts` passes `lambdaIdOf`. A second
+        // resolver, not a second remap, so the two id spaces share one enumeration.
+        let remapSideTable (resolve: NodeKey -> 'id) (m: Map<NodeKey, 'v>) : ('id * 'v)[] =
+            m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 
         {
             Exprs = exprArr
@@ -285,13 +315,13 @@ module TastPools =
             Roots = roots
             Binders = binders.ToArray()
             File = file
-            ModuleMembers = remapSideTable file.ModuleMembers
-            TopLevelNames = remapSideTable file.TopLevelNames
-            ClosureReprs = remapSideTable file.ClosureReprs
-            FunVerdicts = remapSideTable file.FunVerdicts
-            GenericFnSchemes = remapSideTable file.GenericFnSchemes
-            BindingValReprs = remapSideTable file.BindingValReprs
-            BindingTyparArities = remapSideTable file.BindingTyparArities
+            ModuleMembers = remapSideTable binderIdOf file.ModuleMembers
+            TopLevelNames = remapSideTable binderIdOf file.TopLevelNames
+            ClosureReprs = remapSideTable binderIdOf file.ClosureReprs
+            FunVerdicts = remapSideTable lambdaIdOf file.FunVerdicts
+            GenericFnSchemes = remapSideTable binderIdOf file.GenericFnSchemes
+            BindingValReprs = remapSideTable binderIdOf file.BindingValReprs
+            BindingTyparArities = remapSideTable binderIdOf file.BindingTyparArities
         }
 
     // ── the inverse: rebuild the DU trees from the pools ────────────────────
@@ -589,6 +619,11 @@ module TastPools =
         // tables both invert through.
         let binderKey (BinderId i) : NodeKey = pools.Binders.[i].Key
 
+        // The inverse of the lambda id space: a lambda's `ExprPoolId` back to the `NodeKey`
+        // codegen looks its verdict up under — `TastWalk.lambdaKey` on the pooled `Lambda`
+        // node, the same construction `toPools` keyed it by.
+        let lambdaKeyOf (ExprPoolId i) : NodeKey = TastWalk.lambdaKey pools.Exprs.[i].Node
+
         let rec fromPat (PatPoolId i) : Frozen.TPat =
             let entry = pools.Pats.[i]
             let ps = entry.PatChildren |> Array.map fromPat
@@ -612,16 +647,18 @@ module TastPools =
         // Rebuild a side table from its dense form, resolving each `BinderId` back to its
         // NodeKey. Reconstructing the maps here (rather than retaining `File`'s) is what
         // makes the round-trip prove the key remap, not just the decl trees.
-        let rebuildSideTable (dense: (BinderId * 'v)[]) : Map<NodeKey, 'v> =
-            dense |> Array.map (fun (bid, v) -> binderKey bid, v) |> Map.ofArray
+        // One generic rebuild, parameterized by the inverse key resolver: the binder-keyed
+        // tables pass `binderKey`, `FunVerdicts` passes `lambdaKeyOf`.
+        let rebuildSideTable (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) : Map<NodeKey, 'v> =
+            dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
         { pools.File with
             Decls = decls
-            ModuleMembers = rebuildSideTable pools.ModuleMembers
-            TopLevelNames = rebuildSideTable pools.TopLevelNames
-            ClosureReprs = rebuildSideTable pools.ClosureReprs
-            FunVerdicts = rebuildSideTable pools.FunVerdicts
-            GenericFnSchemes = rebuildSideTable pools.GenericFnSchemes
-            BindingValReprs = rebuildSideTable pools.BindingValReprs
-            BindingTyparArities = rebuildSideTable pools.BindingTyparArities
+            ModuleMembers = rebuildSideTable binderKey pools.ModuleMembers
+            TopLevelNames = rebuildSideTable binderKey pools.TopLevelNames
+            ClosureReprs = rebuildSideTable binderKey pools.ClosureReprs
+            FunVerdicts = rebuildSideTable lambdaKeyOf pools.FunVerdicts
+            GenericFnSchemes = rebuildSideTable binderKey pools.GenericFnSchemes
+            BindingValReprs = rebuildSideTable binderKey pools.BindingValReprs
+            BindingTyparArities = rebuildSideTable binderKey pools.BindingTyparArities
         }

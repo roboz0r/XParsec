@@ -211,8 +211,14 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 > two-pass `toPools` (enumerate binders, then resolve references — a `Var` may name a binder
 > pooled after it) and a `failwith`-on-miss resolver that proved every reference/side-table key
 > resolves to a simple binder over the whole corpus. `ofPools` rebuilds `Var.binding` and the
-> side tables through the binder pool, so the round-trip gate exercises the remap. B.k+3…B.k+7
-> are untouched. A
+> side tables through the binder pool, so the round-trip gate exercises the remap. **B.k+3 has
+> landed**: the one lambda-*expression*-keyed side table `FunVerdicts` moved off the binder pool
+> onto a lambda id space (a lambda's dense id is its `ExprPoolId`), fixing B.k+2's vacuous
+> binder-remap of it (`FunVerdicts` is empty across the corpus, so that pass proved nothing); the
+> generic remap/rebuild pair is now parameterized by a key resolver (`binderIdOf` for the six
+> binder tables, `lambdaIdOf` for `FunVerdicts`), and a focused unit test injects a synthetic
+> verdict keyed by a real frozen lambda to exercise the otherwise-unreachable path. The
+> codegen-facing `lambdaKey` rewire stays deferred to B.k+5. B.k+4…B.k+7 are untouched. A
 > `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
 > `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 
@@ -325,7 +331,19 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 - **B.k+2 Dense-id remap.** Assign pool ids; remap side-table keys and references
   (`Var.binding`, …) to dense ids in the pool form. *Gate: id resolution round-trips.*
 - **B.k+3 Stamp lambda ids.** Pool lambda / lambda-body nodes carry their dense id inline; the
-  0.2 helper reads it. *Gate: goldens hold.*
+  0.2 helper reads it. *Gate: goldens hold.* **Refined scope (confirmed):** of the seven side
+  tables, only `FunVerdicts` is keyed by a lambda-*expression* NodeKey (`ofToken … ExprLambda`,
+  read via `TastWalk.lambdaKey`); the other six — `ClosureReprs` included — are binder-keyed and
+  B.k+2 homed them correctly. B.k+2 routed `FunVerdicts` through the *binder* pool too, which is
+  the WRONG home and only passed because `FunVerdicts` is **empty across the whole corpus** (the
+  value-struct/stack-closure path is not yet emittable). B.k+3 fixes the pool form: introduce a
+  lambda id space (a lambda's dense id is its `ExprPoolId` — positional), re-key pool-form
+  `FunVerdicts` onto it (off the binder pool), `ofPools` inverting through the pooled lambda node,
+  with the same fault-on-miss discipline. The codegen-facing rewire (`lambdaKey`/
+  `synthLambdaBodyKey` reading a dense id off a pool handle) stays deferred to **B.k+5** — codegen
+  is DU-backed until then. Because the corpus never populates `FunVerdicts`, the gate is a focused
+  unit test that injects a synthetic verdict keyed by a real frozen lambda's `lambdaKey`, plus the
+  corpus round-trip staying green.
 - **B.k+4 Naming integers in pools.** Pool binders carry offset / `NameIndex`; the 0.3 helper
   reads pool data. *Gate: goldens hold.*
 - **B.k+5 Flip the backing.** Point the accessor at the pools; `freeze` stops materializing

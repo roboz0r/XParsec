@@ -71,6 +71,9 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
 /// duplicated key would desync the rebuilt map from the original.
 let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
     let binderKey (BinderId i) = pools.Binders.[i].Key
+    // `FunVerdicts` is keyed by the lambda id space, not the binder pool; invert through
+    // the pooled lambda node exactly as `ofPools` does.
+    let lambdaKeyOf (ExprPoolId i) = TastWalk.lambdaKey pools.Exprs.[i].Node
 
     for entry in pools.Exprs do
         match entry.Shape with
@@ -84,21 +87,22 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
             | ValueNone -> failtest "a Var pool entry carries no resolved binder id"
         | _ -> ()
 
-    // Each dense side table is the source map re-keyed by `BinderId`: same cardinality,
-    // and every dense key resolves to a NodeKey the source map holds.
-    let checkTable (name: string) (dense: (BinderId * 'v)[]) (source: Map<NodeKey, 'v>) =
+    // Each dense side table is the source map re-keyed onto its id space: same cardinality,
+    // and every dense key resolves (through the given resolver) to a NodeKey the source map
+    // holds.
+    let checkTable (name: string) (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) (source: Map<NodeKey, 'v>) =
         Expect.equal dense.Length source.Count (name + " dense form covers the source map 1:1")
 
-        for (bid, _) in dense do
-            Expect.isTrue (Map.containsKey (binderKey bid) source) (name + " dense key resolves to a source binder")
+        for (id, _) in dense do
+            Expect.isTrue (Map.containsKey (resolve id) source) (name + " dense key resolves to a source key")
 
-    checkTable "ModuleMembers" pools.ModuleMembers frozen.ModuleMembers
-    checkTable "TopLevelNames" pools.TopLevelNames frozen.TopLevelNames
-    checkTable "ClosureReprs" pools.ClosureReprs frozen.ClosureReprs
-    checkTable "FunVerdicts" pools.FunVerdicts frozen.FunVerdicts
-    checkTable "GenericFnSchemes" pools.GenericFnSchemes frozen.GenericFnSchemes
-    checkTable "BindingValReprs" pools.BindingValReprs frozen.BindingValReprs
-    checkTable "BindingTyparArities" pools.BindingTyparArities frozen.BindingTyparArities
+    checkTable "ModuleMembers" binderKey pools.ModuleMembers frozen.ModuleMembers
+    checkTable "TopLevelNames" binderKey pools.TopLevelNames frozen.TopLevelNames
+    checkTable "ClosureReprs" binderKey pools.ClosureReprs frozen.ClosureReprs
+    checkTable "FunVerdicts" lambdaKeyOf pools.FunVerdicts frozen.FunVerdicts
+    checkTable "GenericFnSchemes" binderKey pools.GenericFnSchemes frozen.GenericFnSchemes
+    checkTable "BindingValReprs" binderKey pools.BindingValReprs frozen.BindingValReprs
+    checkTable "BindingTyparArities" binderKey pools.BindingTyparArities frozen.BindingTyparArities
 
 let private checkProgram (src: string) =
     let pools, frozen = poolsFor src
@@ -142,4 +146,85 @@ let tests =
         [
             for name, src in programs do
                 test name { checkProgram src }
+        ]
+
+// The corpus never populates `FunVerdicts` (the value-struct / stack-closure emit path
+// is not yet reachable), so the round-trip gate above never exercises the lambda id
+// space. These inject a synthetic verdict keyed by a real frozen lambda's `lambdaKey` and
+// drive the path directly: `FunVerdicts` is re-keyed onto the lambda's `ExprPoolId` (off
+// the binder pool), `ofPools` inverts back to the original lambda `NodeKey`, and a key
+// naming no pooled lambda faults.
+
+/// The first `Lambda` expr pool entry's DU node — the frozen lambda to key the verdict on.
+let private firstLambdaNode (pools: FrozenPools) : Frozen.TExpr =
+    pools.Exprs
+    |> Array.pick (fun e ->
+        match e.Shape with
+        | ExprShape.Lambda -> Some e.Node
+        | _ -> None
+    )
+
+[<Tests>]
+let funVerdictLambdaKeyTests =
+    testList
+        "TastPools re-keys FunVerdicts onto the lambda id space"
+        [
+            test "a lambda-keyed verdict pools by ExprPoolId and inverts to its NodeKey" {
+                let _, frozen = poolsFor "let f = fun x -> x + 1\n"
+                let lamKey = TastWalk.lambdaKey (firstLambdaNode (TastPools.toPools frozen))
+
+                let verdict: FunVerdict =
+                    {
+                        Arity = 1
+                        ResultTyparPos = ValueNone
+                    }
+
+                let injected =
+                    { frozen with
+                        FunVerdicts = Map.ofList [ lamKey, verdict ]
+                    }
+
+                let pools = TastPools.toPools injected
+
+                // (a) the pool-form table is keyed by that lambda's `ExprPoolId`.
+                Expect.equal pools.FunVerdicts.Length 1 "one pooled verdict"
+                let (ExprPoolId i, v) = pools.FunVerdicts.[0]
+                Expect.equal v verdict "pooled verdict value preserved"
+                Expect.equal pools.Exprs.[i].Shape ExprShape.Lambda "verdict id names a Lambda entry"
+
+                Expect.equal
+                    (TastWalk.lambdaKey pools.Exprs.[i].Node)
+                    lamKey
+                    "verdict's ExprPoolId is the keyed lambda's"
+
+                // (b) `ofPools` reconstructs the map under the ORIGINAL lambda NodeKey.
+                let rebuilt = TastPools.ofPools pools
+                Expect.equal rebuilt.FunVerdicts.Count 1 "one rebuilt verdict"
+
+                Expect.equal
+                    (Map.tryFind lamKey rebuilt.FunVerdicts)
+                    (Some verdict)
+                    "verdict rebuilt under its lambda key"
+            }
+
+            test "a FunVerdicts key naming no pooled lambda faults in toPools" {
+                let _, frozen = poolsFor "let f = fun x -> x + 1\n"
+
+                let verdict: FunVerdict =
+                    {
+                        Arity = 1
+                        ResultTyparPos = ValueNone
+                    }
+
+                // An `ExprLambda` key at an offset no lambda token carries — a lambda-keyed
+                // entry naming no pooled lambda, the honest failure the resolver surfaces.
+                let bogus = NodeKey.ofSource 1_000_000 NodeKind.ExprLambda
+
+                let injected =
+                    { frozen with
+                        FunVerdicts = Map.ofList [ bogus, verdict ]
+                    }
+
+                Expect.throws (fun () -> TastPools.toPools injected |> ignore) "unresolved lambda-keyed verdict faults"
+            }
         ]
