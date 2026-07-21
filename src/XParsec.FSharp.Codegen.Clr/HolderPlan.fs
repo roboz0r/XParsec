@@ -204,19 +204,23 @@ module HolderPlan =
             let mutable seenMainCode = false
 
             for d in lowered do
-                match d with
-                | TDeclG.Expression _ -> seenMainCode <- true
-                | TDeclG.Let(TPatG.NamedSimple(k, _, _), _, _, _) ->
-                    match programByKey.TryGetValue k with
-                    | true, mv -> (if seenMainCode then main else cctor).Add mv
-                    | _ ->
-                        // Not a program value: a static fn / named-holder value runs
-                        // in a method (no Main effect); anything else is a residue
-                        // Main local whose init runs in `Main`.
-                        if not (staticFnKeys.Contains k || moduleValueKeys.Contains k) then
-                            seenMainCode <- true
-                | TDeclG.Let _ -> seenMainCode <- true // residue destructuring `let` → `Main`
-                | TDeclG.Type _ -> ()
+                match TastAccessor.declKind d with
+                | DeclShape.Expression -> seenMainCode <- true
+                | DeclShape.Let ->
+                    // A simple (`NamedSimple`) binder yields `ValueSome`; any other
+                    // pattern (a residue destructuring `let`) yields `ValueNone`.
+                    match TastAccessor.patBinder (TastAccessor.declLet d).Binding with
+                    | ValueSome k ->
+                        match programByKey.TryGetValue k with
+                        | true, mv -> (if seenMainCode then main else cctor).Add mv
+                        | _ ->
+                            // Not a program value: a static fn / named-holder value runs
+                            // in a method (no Main effect); anything else is a residue
+                            // Main local whose init runs in `Main`.
+                            if not (staticFnKeys.Contains k || moduleValueKeys.Contains k) then
+                                seenMainCode <- true
+                    | ValueNone -> seenMainCode <- true // residue destructuring `let` → `Main`
+                | DeclShape.Type -> ()
 
             List.ofSeq cctor, List.ofSeq main
 
