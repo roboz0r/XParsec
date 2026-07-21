@@ -355,6 +355,17 @@ module TastAccessor =
         | TExprG.ILIntrinsic(opCode = opCode) -> opCode
         | _ -> failwith "TastAccessor.exprILIntrinsicOpCode: not an ILIntrinsic node"
 
+    /// The type operand `<T>` an `ILIntrinsic` node carries — the element type of
+    /// `newarr`/`ldelem`/`stelem`/`ldobj`, the boxed type of `box`, the zeroed type of
+    /// `ilzero` — or `ValueNone` for the type-free arithmetic/`throw`/reinterpret
+    /// opcodes. Carried separately from the `args` (`exprChildren`) and the result `ty`
+    /// (`exprTy`). Guard with `exprKind` = `ExprShape.ILIntrinsic` first; `failwith` on
+    /// any other shape.
+    let exprILIntrinsicTypeOperand (e: ExprId) : FrozenType voption =
+        match e with
+        | TExprG.ILIntrinsic(typeOperand = typeOperand) -> typeOperand
+        | _ -> failwith "TastAccessor.exprILIntrinsicTypeOperand: not an ILIntrinsic node"
+
     /// The scalar payload of a `Lambda` node, minus the `ty`/`tok` that
     /// `exprTy`/`exprTok` already carry. `Body` is the sole `exprChildren` entry; the
     /// `Param` pattern is not an expression child.
@@ -771,6 +782,26 @@ module TastAccessor =
         match e with
         | TExprG.Format(sink = sink; segments = segments) -> { Sink = sink; Segments = segments }
         | _ -> failwith "TastAccessor.exprFormat: not a Format node"
+
+    /// The tested-against type `T` of a `TypeTest` node (`e :? T`) — the `isinst`
+    /// operand. Distinct from `exprTy`, which is always `bool` (the test's result). The
+    /// tested `source` is the sole `exprChildren` entry. Guard with `exprKind` =
+    /// `ExprShape.TypeTest` first; `failwith` on any other shape.
+    let exprTypeTestTestTy (e: ExprId) : FrozenType =
+        match e with
+        | TExprG.TypeTest(testTy = testTy) -> testTy
+        | _ -> failwith "TastAccessor.exprTypeTestTestTy: not a TypeTest node"
+
+    /// The fallback (dynamic) default expression of a `StaticOptimization` node — the
+    /// branch F# selects when no type-specialized clause's constraints hold. It is also
+    /// the only branch codegen emits: reaching a backend unresolved means inline
+    /// expansion never pinned an operand type. The clause bodies and this default share
+    /// `exprTy`. Guard with `exprKind` = `ExprShape.StaticOptimization` first; `failwith`
+    /// on any other shape.
+    let exprStaticOptimizationDefault (e: ExprId) : ExprId =
+        match e with
+        | TExprG.StaticOptimization(defaultExpr = defaultExpr) -> defaultExpr
+        | _ -> failwith "TastAccessor.exprStaticOptimizationDefault: not a StaticOptimization node"
 
     /// The shape tag of a pattern node.
     let patKind (p: PatId) : PatShape =
