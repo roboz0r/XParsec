@@ -140,7 +140,9 @@ module JsFlatFns =
                 | ArgGroupG.GUnit _ when isLone -> []
                 | ArgGroupG.GUnit _
                 | ArgGroupG.GSimple _ -> [ JsExpr.Identifier(pn, ValueNone) ]
-                | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) ->
+                | ArgGroupG.GTuple pat when TastAccessor.patKind pat = PatShape.Tuple ->
+                    let items = TastAccessor.patChildren pat
+
                     [
                         for j in 0 .. items.Length - 1 -> indexMember (JsExpr.Identifier(pn, ValueNone)) j
                     ]
