@@ -198,9 +198,15 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 > `exprILIntrinsicTypeOperand`, `exprTypeTestTestTy`, `exprStaticOptimizationDefault`,
 > `patTypeTestTestTy`, `declExpressionTy`, plus an `exprTryWith`/`TryWithView` mirroring
 > `exprMatch`) — all reused across both backends, no JS churn. The 0.2 `TastWalk.lambdaKey`
-> recompute sites (`EmitClosures`, `ClosureVerdictRewrite`) stay as-is until B.k+3. The pool
-> steps (B.k+1…B.k+7) are untouched. A `GeneralizedTypars.unsafeOfNames` concession made in
-> A.4 is tracked in `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
+> recompute sites (`EmitClosures`, `ClosureVerdictRewrite`) stay as-is until B.k+3. **B.k+1 has
+> landed**: `TastPools.fs` (`FrozenPools` — per-domain arrays of shape-tagged id-records, child
+> edges as dense ids, non-child payload riding the retained DU node) plus `TastPools.toPools`/
+> `ofPools`, produced by `Freeze.buildPools` alongside the DU (both coexist, accessor still
+> DU-backed, nothing reads the pools yet). Interconversion is proven codegen-invariant over the
+> full CLR corpus (`ConformanceRoundTripByteIdentityTests` now judges `ofPools (toPools frozen)`
+> against direct codegen per program) plus an SA-project smoke set. B.k+2…B.k+7 are untouched. A
+> `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
+> `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 
 ### Phase 0 — scaffolding & de-risking (no behavior change)
 
@@ -319,8 +325,10 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
   *reads*: the handful of node-**construction** sites the B.2…B.k migration left as
   `Frozen.TExpr.*`/`Frozen.TPat.*`/`Frozen.TDecl.*` (the `buildUse` dispose synthetic; the
   `buildEta` eta lambdas and decl rebuilds; the `ClosureVerdictRewrite` retype rebuilds) cannot
-  ride a dense-id handle unchanged — this step needs a construction seam (or to lower those
-  sites to emit directly, as the JS backend does) alongside flipping the read backing.
+  ride a dense-id handle unchanged. **Decision: lower those sites to emit directly** (as the JS
+  backend already does), NOT a construction seam — the SA-built pool is IMMUTABLE, produced once
+  by `Freeze` and never appended to by a backend. So flipping the read backing here is paired
+  with rewriting each CLR construction site to emit its lowered form without minting a frozen node.
 - **B.k+6 Serialize pools directly.** Replace A's DU flatten/thaw with pool (de)serialization;
   intern `FrozenType`/keys for size. *Gate: round-trip + size regression check.*
 - **B.k+7 Remove dead DU paths.** Delete the DU thaw and any now-unused DU plumbing. *Gate:

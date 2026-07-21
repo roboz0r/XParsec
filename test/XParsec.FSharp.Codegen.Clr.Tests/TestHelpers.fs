@@ -457,13 +457,27 @@ let private compileContract
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract defaultManifests (ProjectInfo.defaults assemblyName) input
 
-/// The two CLR artifacts a frozen-cache round-trip must reconcile: codegen from the
-/// DIRECT frozen tree and from `thaw (flatten direct)`. The freeze runs ONCE and
-/// `Codegen.compile` runs twice against the SAME provider / `withCore` project /
-/// `defaultManifests` as `compileSource`, so the two artifacts differ only by the
-/// round-trip — proving flatten/thaw is codegen-invariant. `compileContract` fuses
-/// freeze + compile and hides the frozen tree, so this reaches past it.
-let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: string) : ClrArtifact * ClrArtifact =
+/// The CLR artifacts a frozen-tree round-trip must reconcile against the DIRECT
+/// codegen: the frozen-cache `thaw (flatten frozen)` and the id-pool
+/// `TastPools.ofPools (TastPools.toPools frozen)`. Both are codegen-INVARIANT
+/// obligations over the same tree, so they share the whole parse → analyse → freeze
+/// prefix and differ only by the round-trip applied.
+type ConformanceRoundTripArtifacts =
+    {
+        /// Codegen from the direct frozen tree.
+        Direct: ClrArtifact
+        /// Codegen from `thaw (flatten frozen)` (the serialization round-trip).
+        ThawRoundTripped: ClrArtifact
+        /// Codegen from `ofPools (toPools frozen)` (the id-pool round-trip).
+        PoolRoundTripped: ClrArtifact
+    }
+
+/// Produce the round-trip artifacts a frozen-tree gate reconciles. The freeze runs
+/// ONCE and `Codegen.compile` runs against the SAME provider / `withCore` project /
+/// `defaultManifests` as `compileSource` for every variant, so an artifact differs from
+/// `Direct` only by the round-trip it went through. `compileContract` fuses freeze +
+/// compile and hides the frozen tree, so this reaches past it.
+let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: string) : ConformanceRoundTripArtifacts =
     let project = ProjectInfo.defaults assemblyName
     let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile input
@@ -472,9 +486,15 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
         Pipeline.analyseSemWithContextFor project.AssemblyName provider input lexed file
 
     let frozen = Freeze.run ctx tast
-    let roundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
+    let thawRoundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
+    let poolRoundTripped = TastPools.ofPools (TastPools.toPools frozen)
     let cored = withCore project
-    Codegen.compile provider cored frozen, Codegen.compile provider cored roundTripped
+
+    {
+        Direct = Codegen.compile provider cored frozen
+        ThawRoundTripped = Codegen.compile provider cored thawRoundTripped
+        PoolRoundTripped = Codegen.compile provider cored poolRoundTripped
+    }
 
 /// The conformance corpus names programs with hyphens (`arith-byte`); an assembly name
 /// has to be an identifier the emitted module can carry. Single-sourced (rather than

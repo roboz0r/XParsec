@@ -14,6 +14,7 @@
     <Compile Include="CompressionTests.fs" />
     <Compile Include="HashingTests.fs" />
     <Compile Include="FrozenCacheTests.fs" />
+    <Compile Include="TastPoolsTests.fs" />
     <Compile Include="SymbolKeyTests.fs" />
     <Compile Include="UnionFindTests.fs" />
     <Compile Include="CstKeysTests.fs" />

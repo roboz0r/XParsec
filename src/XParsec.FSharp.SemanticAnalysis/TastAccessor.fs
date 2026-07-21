@@ -306,6 +306,66 @@ module TastAccessor =
 
         acc.ToArray()
 
+    /// The immediate child *patterns* an expression owns directly, in source order —
+    /// the binders (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
+    /// (`Match`/`TryWith`) that are part of THIS node. They are NOT reachable through
+    /// `exprChildren` (which yields only sub-expressions), so a generic walk that must
+    /// reach every sub-pattern — pool construction, binder discovery — follows this
+    /// alongside `exprChildren`. Only the six binder/arm shapes own patterns; every
+    /// other yields none. The match is exhaustive with no catch-all for the same reason
+    /// `exprChildren` is: a new `TExprG` case that carried a pattern would fail to
+    /// compile here rather than silently escape the walk. `ForTo`'s loop variable is a
+    /// `NodeKey`, not a pattern, so it is not a pat child (see `exprForTo`).
+    let exprPatChildren (e: ExprId) : PatId[] =
+        let acc = ResizeArray<PatId>()
+
+        match e with
+        | TExprG.Const _
+        | TExprG.Var _
+        | TExprG.External _
+        | TExprG.App _
+        | TExprG.IfThenElse _
+        | TExprG.Tuple _
+        | TExprG.Sequential _
+        | TExprG.While _
+        | TExprG.ForTo _
+        | TExprG.TryFinally _
+        | TExprG.Assignment _
+        | TExprG.Null _
+        | TExprG.Range _
+        | TExprG.RecordCons _
+        | TExprG.RecordClone _
+        | TExprG.FieldGet _
+        | TExprG.FieldSet _
+        | TExprG.UnionCons _
+        | TExprG.New _
+        | TExprG.MethodCall _
+        | TExprG.PropertyGet _
+        | TExprG.StaticMethodCall _
+        | TExprG.StaticPropertyGet _
+        | TExprG.StaticFieldGet _
+        | TExprG.StaticFieldSet _
+        | TExprG.ExternalMember _
+        | TExprG.Format _
+        | TExprG.ILIntrinsic _
+        | TExprG.StaticOptimization _
+        | TExprG.Upcast _
+        | TExprG.Downcast _
+        | TExprG.TypeTest _
+        | TExprG.TraitCall _ -> ()
+        | TExprG.Lambda(param = param) -> acc.Add param
+        | TExprG.Let(binding = binding) -> acc.Add binding
+        | TExprG.Use(binding = binding) -> acc.Add binding
+        | TExprG.ForIn(pat = pat) -> acc.Add pat
+        | TExprG.Match(arms = arms) ->
+            for arm in arms do
+                acc.Add arm.Pat
+        | TExprG.TryWith(arms = arms) ->
+            for arm in arms do
+                acc.Add arm.Pat
+
+        acc.ToArray()
+
     /// The constant value carried by a `Const` node. Guard with `exprKind` =
     /// `ExprShape.Const` first; `failwith` on any other shape.
     let exprConstValue (e: ExprId) : TConstValue =
