@@ -180,7 +180,7 @@ module internal NominalEmit =
                     else
                         toEntity (asm.FieldDef(FieldKey.ClassStaticField(td.Key, sl.Name)))
 
-            // The `(arity, paramTys, handle)` list lets a `TExprG.New` call site
+            // The `(arity, paramTys, handle)` list lets a `New` call site
             // pick the matching overload; the declared param types carry
             // declaring-typar markers so a generic call site can mint a
             // `MemberRef` on the instantiated `TypeSpec`.

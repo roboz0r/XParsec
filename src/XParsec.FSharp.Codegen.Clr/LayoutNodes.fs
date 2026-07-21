@@ -23,8 +23,10 @@ module internal LayoutNodes =
         let structEnums = ResizeArray()
 
         for d in decls do
-            match d with
-            | TDeclG.Type td ->
+            match TastAccessor.declKind d with
+            | DeclShape.Type ->
+                let td = TastAccessor.declType d
+
                 match td.Kind with
                 | TTypeKindG.Interface methods -> interfaces.Add(td, EqArray.toList methods)
                 | TTypeKindG.Union(cases, members, interfaces) ->

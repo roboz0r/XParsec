@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// whose contract body `Passes.InlineExpansion` splices by `SymbolKey` at every
 /// saturated use site — including the `App` its own pre-freeze eta mints for an
 /// operator used as a VALUE (`List.fold (+) 0 xs`). Inline IL reaches codegen only as
-/// the `TExprG.ILIntrinsic` a contract's per-primitive `when ^T : …` clause carries.
+/// the `ILIntrinsic` node a contract's per-primitive `when ^T : …` clause carries.
 module EmitLower =
 
     let typeOfExpr = TastLower.typeOfExpr

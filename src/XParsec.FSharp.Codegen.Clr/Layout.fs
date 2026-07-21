@@ -38,8 +38,10 @@ module internal Layout =
         let refStructNsNames =
             [
                 for d in tast.Decls do
-                    match d with
-                    | TDeclG.Type td ->
+                    match TastAccessor.declKind d with
+                    | DeclShape.Type ->
+                        let td = TastAccessor.declType d
+
                         match td.Kind with
                         | TTypeKindG.Class c when c.ValueKind = ClassValueKind.RefStruct ->
                             Emit.typeKeyNsName td.TypeKey
