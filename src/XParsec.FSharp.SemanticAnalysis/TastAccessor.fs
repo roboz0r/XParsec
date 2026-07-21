@@ -668,6 +668,57 @@ module TastAccessor =
         | TExprG.While(cond = cond; body = body) -> { Cond = cond; Body = body }
         | _ -> failwith "TastAccessor.exprWhile: not a While node"
 
+    /// The scalar payload of a `ForTo` node (`for Var = StartExpr to EndExpr do Body`),
+    /// minus the `identTok`/`ty`/`tok` the node also carries. `StartExpr`/`EndExpr`/`Body`
+    /// are the three `exprChildren` entries, named by role; `Var` is the loop binder.
+    [<Struct>]
+    type ForToView =
+        {
+            Var: NodeKey
+            StartExpr: ExprId
+            EndExpr: ExprId
+            Body: ExprId
+        }
+
+    /// The payload view of a `ForTo` node. Guard with `exprKind` = `ExprShape.ForTo`
+    /// first; `failwith` on any other shape.
+    let exprForTo (e: ExprId) : ForToView =
+        match e with
+        | TExprG.ForTo(var = var; startExpr = startExpr; endExpr = endExpr; body = body) ->
+            {
+                Var = var
+                StartExpr = startExpr
+                EndExpr = endExpr
+                Body = body
+            }
+        | _ -> failwith "TastAccessor.exprForTo: not a ForTo node"
+
+    /// The scalar payload of a `ForIn` node (`for Pat in Source do Body`), minus the
+    /// `ty`/`tok` the node also carries. `Source`/`Body` are the two `exprChildren`
+    /// entries; `Pat` is a pattern (not an expression child) and `Enumerator` records
+    /// how the source yields its enumerator (the front-end resolution codegen dispatches on).
+    [<Struct>]
+    type ForInView =
+        {
+            Pat: PatId
+            Source: ExprId
+            Body: ExprId
+            Enumerator: Frozen.ForInEnumerator
+        }
+
+    /// The payload view of a `ForIn` node. Guard with `exprKind` = `ExprShape.ForIn`
+    /// first; `failwith` on any other shape.
+    let exprForIn (e: ExprId) : ForInView =
+        match e with
+        | TExprG.ForIn(pat = pat; source = source; body = body; enumerator = enumerator) ->
+            {
+                Pat = pat
+                Source = source
+                Body = body
+                Enumerator = enumerator
+            }
+        | _ -> failwith "TastAccessor.exprForIn: not a ForIn node"
+
     /// The scalar payload of a `Use` node (`use Binding = Value in Body`), minus the
     /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Value`/`Body` are the two
     /// `exprChildren` entries; `Binding` is a pattern (not an expression child) and

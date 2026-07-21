@@ -655,26 +655,7 @@ module EmitJs =
         let recur = buildTailBody ctx selfKey paramNames
 
         match e with
-        | TExprG.IfThenElse(cond, thenE, elseE, _, _) ->
-            [ JsStatement.If(buildExpr ctx cond, recur thenE, recur elseE) ]
         | InlinableLet reduced -> recur reduced
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            let binding = localBinding k body (binderName ctx.Source k) (buildExpr ctx value)
-            binding :: recur body
-        // `let _ = value in body` — discard the value (effects only); body stays in tail
-        // position. A pure value drops away (see `buildExpr`).
-        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) when isPureValue value -> recur body
-        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) -> buildStatements ctx value @ recur body
-        | TExprG.Sequential(xs, _, _) when xs.Length > 0 ->
-            let n = xs.Length
-
-            let init =
-                [
-                    for i in 0 .. n - 2 do
-                        yield! buildStatements ctx xs.[i]
-                ]
-
-            init @ recur xs.[n - 1]
         | TailSelfCall selfKey arity args ->
             // `_tc<i>` temporaries: evaluate every new argument before any write-back,
             // so a self-call arg that mentions a parameter reads its pre-iteration
@@ -687,7 +668,43 @@ module EmitJs =
                 for i, name in List.indexed paramNames -> JsStatement.Assign(name, JsExpr.Identifier(tmp i, ValueNone))
             ]
             @ [ JsStatement.Continue ]
-        | _ -> [ JsStatement.Return(buildExpr ctx e) ]
+        | _ ->
+            match TastAccessor.exprKind e with
+            | ExprShape.IfThenElse ->
+                let i = TastAccessor.exprIfThenElse e
+                [ JsStatement.If(buildExpr ctx i.Cond, recur i.ThenExpr, recur i.ElseExpr) ]
+            | ExprShape.Let ->
+                let l = TastAccessor.exprLet e
+
+                match TastAccessor.patKind l.Binding with
+                | PatShape.NamedSimple ->
+                    let k = (TastAccessor.patBinder l.Binding).Value
+
+                    let binding =
+                        localBinding k l.Body (binderName ctx.Source k) (buildExpr ctx l.Value)
+
+                    binding :: recur l.Body
+                // `let _ = value in body` — discard the value (effects only); body stays in tail
+                // position. A pure value drops away (see `buildExpr`).
+                | PatShape.Wildcard when isPureValue l.Value -> recur l.Body
+                | PatShape.Wildcard -> buildStatements ctx l.Value @ recur l.Body
+                | _ -> [ JsStatement.Return(buildExpr ctx e) ]
+            | ExprShape.Sequential ->
+                let xs = TastAccessor.exprChildren e
+
+                if xs.Length > 0 then
+                    let n = xs.Length
+
+                    let init =
+                        [
+                            for i in 0 .. n - 2 do
+                                yield! buildStatements ctx xs.[i]
+                        ]
+
+                    init @ recur xs.[n - 1]
+                else
+                    [ JsStatement.Return(buildExpr ctx e) ]
+            | _ -> [ JsStatement.Return(buildExpr ctx e) ]
 
     /// Curry `base` over `args` — one unary `Call` per argument, in source order
     /// (`base(a)(b)…`). Shared by the `MethodCall` / `StaticMethodCall` lowerings.
@@ -732,95 +749,115 @@ module EmitJs =
     /// recursive binding (`let rec`) can recognise its own tail calls; any other
     /// value is a plain `buildExpr`.
     and emitBound (ctx: WalkCtx) (k: NodeKey) (value: Frozen.TExpr) : JsExpr =
-        match value with
-        | TExprG.Lambda _ -> emitFunction ctx (ValueSome k) value
+        match TastAccessor.exprKind value with
+        | ExprShape.Lambda -> emitFunction ctx (ValueSome k) value
         | _ -> buildExpr ctx value
 
     /// An expression in statement position. `Sequential` flattens; a `let` binder
     /// becomes a `const`; anything else is one `ExpressionStatement`.
     and buildStatements (ctx: WalkCtx) (e: Frozen.TExpr) : JsStatement list =
         match e with
-        | TExprG.Sequential(xs, _, _) ->
-            [
-                for x in xs do
-                    yield! buildStatements ctx x
-            ]
         // Pure, immutable binder: substitute away so synthetic operand lets don't
         // surface as `const`s. A mutable binder is excluded (see `buildExpr`).
         | InlinableLet reduced -> buildStatements ctx reduced
-        // A mutable binder emits a reassignable `let`; an immutable one a `const`.
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            let binding = localBinding k body (binderName ctx.Source k) (emitBound ctx k value)
-            binding :: buildStatements ctx body
-        // `let _ = value in body` — emit the discarded value as its own statement(s)
-        // (effects only), then the body. A pure value drops away (see `buildExpr`).
-        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) when isPureValue value -> buildStatements ctx body
-        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) -> buildStatements ctx value @ buildStatements ctx body
-        // `while cond do body` as a bare loop statement (no IIFE wrapper needed here).
-        | TExprG.While(cond, body, _, _) -> [ JsStatement.While(buildExpr ctx cond, buildStatements ctx body) ]
-        // `for i = a to b do body` — F# evaluates `b` once, so hoist the limit into a
-        // `const` before the loop; the JS `for` then counts `i` from `a` up to that
-        // limit inclusive. (JS numbers are doubles, so the CLR overflow-at-MaxValue
-        // dance the IL backend needs is unnecessary — `i <= limit` is safe.)
-        | TExprG.ForTo(var, _, startExpr, endExpr, body, _, _) ->
-            let name = binderName ctx.Source var
-            let limit = "_lim" + string (TastWalk.exprTok e).StartIndex
+        | _ ->
+            match TastAccessor.exprKind e with
+            | ExprShape.Sequential ->
+                [
+                    for x in TastAccessor.exprChildren e do
+                        yield! buildStatements ctx x
+                ]
+            | ExprShape.Let ->
+                let l = TastAccessor.exprLet e
 
-            [
-                JsStatement.Const(limit, buildExpr ctx endExpr)
-                JsStatement.For(
-                    name,
-                    buildExpr ctx startExpr,
-                    JsExpr.Identifier(limit, ValueNone),
-                    buildStatements ctx body
-                )
-            ]
-        // `for x in source do body` — lower to a JS `for…of`, which drives the source's
-        // own `Symbol.iterator` at runtime. Only the `Interface` enumerator (a source
-        // typed `IEnumerable<'T>`) reaches JS codegen, and it carries no member keys (the
-        // CLR backend mints the `IEnumerator` interface slots itself; JS defers to the
-        // iterator protocol), so there is nothing to resolve — `for…of` over the source is
-        // the whole lowering. A duck-typed `Pattern` enumerator never type-checks against
-        // the BCL-free JS provider, so it is unsupported here.
-        | TExprG.ForIn(pat, source, body, enumerator, _ty, _tok) ->
-            match enumerator with
-            | ForInEnumeratorG.Interface ->
-                match pat with
-                // Simple/wildcard binder: `for (const x of src)` directly.
-                | TPatG.NamedSimple _
-                | TPatG.Wildcard _ ->
-                    let name = patBinderName ctx "_forin" pat
-                    [ JsStatement.ForOf(name, buildExpr ctx source, buildStatements ctx body) ]
-                // Destructuring binder — `for (k, v) in map` over `[K,V]` pairs: bind a
-                // fresh loop temp and reuse `compileMatchPattern` (the SAME lowering
-                // `let (k, v) = …` uses) to deconstruct it into the body head. The binder
-                // must be irrefutable — a `Some test` means a nested refutable sub-pattern,
-                // which a `for … in` binder cannot express, so reject it rather than emit
-                // the binds without the guard.
-                | TPatG.Tuple(_, _, tok) ->
-                    let tmp = "_forin" + string tok.StartIndex
+                match TastAccessor.patKind l.Binding with
+                // A mutable binder emits a reassignable `let`; an immutable one a `const`.
+                | PatShape.NamedSimple ->
+                    let k = (TastAccessor.patBinder l.Binding).Value
 
-                    match compileMatchPattern ctx (JsExpr.Identifier(tmp, ValueNone)) pat with
-                    | None, binds ->
+                    let binding =
+                        localBinding k l.Body (binderName ctx.Source k) (emitBound ctx k l.Value)
+
+                    binding :: buildStatements ctx l.Body
+                // `let _ = value in body` — emit the discarded value as its own statement(s)
+                // (effects only), then the body. A pure value drops away (see `buildExpr`).
+                | PatShape.Wildcard when isPureValue l.Value -> buildStatements ctx l.Body
+                | PatShape.Wildcard -> buildStatements ctx l.Value @ buildStatements ctx l.Body
+                | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
+            // `while cond do body` as a bare loop statement (no IIFE wrapper needed here).
+            | ExprShape.While ->
+                let w = TastAccessor.exprWhile e
+                [ JsStatement.While(buildExpr ctx w.Cond, buildStatements ctx w.Body) ]
+            // `for i = a to b do body` — F# evaluates `b` once, so hoist the limit into a
+            // `const` before the loop; the JS `for` then counts `i` from `a` up to that
+            // limit inclusive. (JS numbers are doubles, so the CLR overflow-at-MaxValue
+            // dance the IL backend needs is unnecessary — `i <= limit` is safe.)
+            | ExprShape.ForTo ->
+                let ft = TastAccessor.exprForTo e
+                let name = binderName ctx.Source ft.Var
+                let limit = "_lim" + string (TastWalk.exprTok e).StartIndex
+
+                [
+                    JsStatement.Const(limit, buildExpr ctx ft.EndExpr)
+                    JsStatement.For(
+                        name,
+                        buildExpr ctx ft.StartExpr,
+                        JsExpr.Identifier(limit, ValueNone),
+                        buildStatements ctx ft.Body
+                    )
+                ]
+            // `for x in source do body` — lower to a JS `for…of`, which drives the source's
+            // own `Symbol.iterator` at runtime. Only the `Interface` enumerator (a source
+            // typed `IEnumerable<'T>`) reaches JS codegen, and it carries no member keys (the
+            // CLR backend mints the `IEnumerator` interface slots itself; JS defers to the
+            // iterator protocol), so there is nothing to resolve — `for…of` over the source is
+            // the whole lowering. A duck-typed `Pattern` enumerator never type-checks against
+            // the BCL-free JS provider, so it is unsupported here.
+            | ExprShape.ForIn ->
+                let fi = TastAccessor.exprForIn e
+
+                match fi.Enumerator with
+                | ForInEnumeratorG.Interface ->
+                    match TastAccessor.patKind fi.Pat with
+                    // Simple/wildcard binder: `for (const x of src)` directly.
+                    | PatShape.NamedSimple
+                    | PatShape.Wildcard ->
+                        let name = patBinderName ctx "_forin" fi.Pat
+
                         [
-                            JsStatement.ForOf(tmp, buildExpr ctx source, binds @ buildStatements ctx body)
+                            JsStatement.ForOf(name, buildExpr ctx fi.Source, buildStatements ctx fi.Body)
                         ]
-                    | Some _, _ -> failwithf "EmitJs: refutable `for … in` binder pattern is unsupported %A" pat
-                | other -> failwithf "EmitJs: unsupported `for … in` binder pattern %A" other
-            | ForInEnumeratorG.Pattern _ ->
-                failwith
-                    "EmitJs: duck-typed `for...in` (Pattern enumerator) is unsupported on JS; only IEnumerable<'T> sources lower to `for...of`"
-        // `use x = value in body` — park the binder in a `const`, run the body inside a
-        // `try`, and dispose the binder in the `finally` (the IL backend's exception
-        // region, lowered to JS `try/finally`). The body keeps statement position.
-        | TExprG.Use(binding, value, body, dispose, _ty, _tok) ->
-            let name = useBinderName ctx binding
+                    // Destructuring binder — `for (k, v) in map` over `[K,V]` pairs: bind a
+                    // fresh loop temp and reuse `compileMatchPattern` (the SAME lowering
+                    // `let (k, v) = …` uses) to deconstruct it into the body head. The binder
+                    // must be irrefutable — a `Some test` means a nested refutable sub-pattern,
+                    // which a `for … in` binder cannot express, so reject it rather than emit
+                    // the binds without the guard.
+                    | PatShape.Tuple ->
+                        let tmp = "_forin" + string (TastAccessor.patTok fi.Pat).StartIndex
 
-            [
-                JsStatement.Const(name, buildExpr ctx value)
-                JsStatement.TryFinally(buildStatements ctx body, disposeStmts ctx dispose name)
-            ]
-        | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
+                        match compileMatchPattern ctx (JsExpr.Identifier(tmp, ValueNone)) fi.Pat with
+                        | None, binds ->
+                            [
+                                JsStatement.ForOf(tmp, buildExpr ctx fi.Source, binds @ buildStatements ctx fi.Body)
+                            ]
+                        | Some _, _ -> failwithf "EmitJs: refutable `for … in` binder pattern is unsupported %A" fi.Pat
+                    | _ -> failwithf "EmitJs: unsupported `for … in` binder pattern %A" fi.Pat
+                | ForInEnumeratorG.Pattern _ ->
+                    failwith
+                        "EmitJs: duck-typed `for...in` (Pattern enumerator) is unsupported on JS; only IEnumerable<'T> sources lower to `for...of`"
+            // `use x = value in body` — park the binder in a `const`, run the body inside a
+            // `try`, and dispose the binder in the `finally` (the IL backend's exception
+            // region, lowered to JS `try/finally`). The body keeps statement position.
+            | ExprShape.Use ->
+                let u = TastAccessor.exprUse e
+                let name = useBinderName ctx u.Binding
+
+                [
+                    JsStatement.Const(name, buildExpr ctx u.Value)
+                    JsStatement.TryFinally(buildStatements ctx u.Body, disposeStmts ctx u.Dispose name)
+                ]
+            | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
     /// The JS binder name for a single-binder loop/scope pattern (`use x = …`,
     /// `for x in …`). A wildcard binder has no source name, so it gets a fresh
@@ -828,10 +865,10 @@ module EmitJs =
     /// the body can't name it. Only simple/wildcard binders are supported; a
     /// destructuring binder (e.g. a tuple pattern) is rejected.
     and private patBinderName (ctx: WalkCtx) (prefix: string) (binding: Frozen.TPat) : string =
-        match binding with
-        | TPatG.NamedSimple(k, _, _) -> binderName ctx.Source k
-        | TPatG.Wildcard(_, tok) -> prefix + string tok.StartIndex
-        | other -> failwithf "EmitJs: unsupported single binder pattern %A" other
+        match TastAccessor.patKind binding with
+        | PatShape.NamedSimple -> binderName ctx.Source (TastAccessor.patBinder binding).Value
+        | PatShape.Wildcard -> prefix + string (TastAccessor.patTok binding).StartIndex
+        | _ -> failwithf "EmitJs: unsupported single binder pattern %A" binding
 
     and private useBinderName (ctx: WalkCtx) (binding: Frozen.TPat) : string = patBinderName ctx "_use" binding
 
