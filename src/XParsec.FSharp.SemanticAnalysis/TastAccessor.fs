@@ -921,6 +921,15 @@ module TastAccessor =
             }
         | _ -> failwith "TastAccessor.patEnumCase: not an EnumCase pattern"
 
+    /// The tested-against type `T` of a `TypeTestAs` pattern (`:? T as x`) — the
+    /// `isinst` operand. Distinct from `patTy`, which is the scrutinee's (matched)
+    /// type. The bound inner sub-pattern (the `as`-name) is `patChildren.[0]`. Guard
+    /// with `patKind` = `PatShape.TypeTestAs` first; `failwith` on any other shape.
+    let patTypeTestTestTy (p: PatId) : FrozenType =
+        match p with
+        | TPatG.TypeTestAs(testTy = testTy) -> testTy
+        | _ -> failwith "TastAccessor.patTypeTestTestTy: not a TypeTestAs pattern"
+
     /// The shape tag of a declaration node.
     let declKind (d: DeclId) : DeclShape =
         match d with

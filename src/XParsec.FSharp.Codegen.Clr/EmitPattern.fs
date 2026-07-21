@@ -83,15 +83,15 @@ module EmitPattern =
         (b: IlBuilder)
         (srcSlot: int)
         (ty: FrozenType)
-        (items: EqArray<Frozen.TPat>)
+        (items: Frozen.TPat[])
         (recur: int -> Frozen.TPat -> unit)
         : unit =
         let refs = env.Provider.ValueTupleRefs(tupleElemTys ty)
 
         items
-        |> EqArray.iteri (fun i subPat ->
-            match subPat with
-            | TPatG.Wildcard _ -> ()
+        |> Array.iteri (fun i subPat ->
+            match TastAccessor.patKind subPat with
+            | PatShape.Wildcard -> ()
             | _ ->
                 let fldSlot = b.Local(typeOfPat subPat)
                 b.Add(ILInstr.Ldloc srcSlot)
@@ -154,10 +154,14 @@ module EmitPattern =
             b.Add(ILInstr.Stloc fldSlot)
             buildMatchTest env b fldSlot nextLabel subPat
 
-        match pat with
-        | TPatG.Wildcard _ -> ()
-        | TPatG.NamedSimple(binding, _, _) -> env.Slots.[binding] <- scrutSlot
-        | TPatG.EnumCase(enumKey, caseName, _, _) ->
+        match TastAccessor.patKind pat with
+        | PatShape.Wildcard -> ()
+        | PatShape.NamedSimple -> env.Slots.[(TastAccessor.patBinder pat).Value] <- scrutSlot
+        | PatShape.EnumCase ->
+            let enumCase = TastAccessor.patEnumCase pat
+            let enumKey = enumCase.EnumKey
+            let caseName = enumCase.CaseName
+
             // v1 = equality only; binds nothing (a named case is a singleton). The
             // comparison depends on the enum's repr:
             //  * NUMERIC (5a): load the scrutinee (an enum value) and the case's
@@ -203,13 +207,14 @@ module EmitPattern =
                 b.Add(ILInstr.Ldloc scrutSlot)
                 b.Add loadCase
                 b.Add(ILInstr.BneUn nextLabel)
-        | TPatG.Null _ ->
+        | PatShape.Null ->
             // `null` pattern: match only a null scrutinee. A non-null value
             // (`brtrue`) skips the arm; null falls through to the body. Binds
             // nothing.
             b.Add(ILInstr.Ldloc scrutSlot)
             b.Add(ILInstr.Brtrue nextLabel)
-        | TPatG.Const(value, _, _) ->
+        | PatShape.Const ->
+            let value = TastAccessor.patConstValue pat
             b.Add(ILInstr.Ldloc scrutSlot)
 
             match value with
@@ -223,7 +228,9 @@ module EmitPattern =
             | other -> failwithf "Emit: match on constant %A is out of scope" other
 
             b.Add(ILInstr.BneUn nextLabel)
-        | TPatG.Union(caseName, subPats, ty, _) ->
+        | PatShape.Union ->
+            let caseName = TastAccessor.patUnionCaseName pat
+            let ty = TastAccessor.patTy pat
             // Local union table keys by the nominal `TypeKey`; the external union
             // provider lookups take the qualified compiled name derived from it.
             let key, tyArgs = nominalShape "union pattern" ty
@@ -275,13 +282,15 @@ module EmitPattern =
             b.Add(ILInstr.LdcI4 tagValue)
             b.Add(ILInstr.BneUn nextLabel)
 
-            subPats
-            |> EqArray.iteri (fun i subPat ->
-                match subPat with
-                | TPatG.Wildcard _ -> ()
+            TastAccessor.patChildren pat
+            |> Array.iteri (fun i subPat ->
+                match TastAccessor.patKind subPat with
+                | PatShape.Wildcard -> ()
                 | _ -> extractField (fieldRef i) subPat
             )
-        | TPatG.Record(fields, ty, _) ->
+        | PatShape.Record ->
+            let fields = TastAccessor.patRecordFields pat
+            let ty = TastAccessor.patTy pat
             // A record pattern never fails on shape (no tag to compare): for each
             // named sub-pattern, `ldfld` the field into a fresh local and recurse
             // — only the sub-patterns themselves can branch to `nextLabel`. A
@@ -292,8 +301,8 @@ module EmitPattern =
             match env.Records.TryGetValue(SymbolKey.Type key) with
             | true, r ->
                 for (fieldName, subPat) in fields do
-                    match subPat with
-                    | TPatG.Wildcard _ -> ()
+                    match TastAccessor.patKind subPat with
+                    | PatShape.Wildcard -> ()
                     | _ ->
                         match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
                         | Some(_, handle, _) ->
@@ -309,12 +318,20 @@ module EmitPattern =
                             extractField fieldRef subPat
                         | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
             | false, _ -> failwithf "Emit: no emitted record for pattern on '%A'" key
-        | TPatG.Tuple(items, ty, _) ->
+        | PatShape.Tuple ->
             // A tuple pattern never fails on shape (a `ValueTuple`n` has no tag):
             // decompose each element and recurse — only the sub-patterns can branch
             // to `nextLabel`, exactly like the union / record arms above.
-            destructureTuple env b scrutSlot ty items (fun s p -> buildMatchTest env b s nextLabel p)
-        | TPatG.TypeTestAs(testTy, inner, _, _) ->
+            destructureTuple
+                env
+                b
+                scrutSlot
+                (TastAccessor.patTy pat)
+                (TastAccessor.patChildren pat)
+                (fun s p -> buildMatchTest env b s nextLabel p)
+        | PatShape.TypeTestAs ->
+            let testTy = TastAccessor.patTypeTestTestTy pat
+            let inner = (TastAccessor.patChildren pat).[0]
             // `:? T as x` → `isinst T` then a null check: a non-`T` value yields
             // null (`brfalse` skips the arm). On a match the cast-down value is
             // stored to a `T`-typed local; for a value-type target the `isinst`
@@ -341,7 +358,8 @@ module EmitPattern =
                 b.Add(ILInstr.Ldloc castSlot)
                 b.Add(ILInstr.Brfalse nextLabel)
                 buildMatchTest env b castSlot nextLabel inner
-        | TPatG.Or(alts, _, _) ->
+        | PatShape.Or ->
+            let alts = TastAccessor.patChildren pat
             // `p1 | … | pn`: test each alternative against the same scrutinee, in
             // order. The first that matches falls through to `matchedLabel` (the
             // arm body); a failing alternative branches to the next alternative's
@@ -354,7 +372,7 @@ module EmitPattern =
             let n = alts.Length
 
             alts
-            |> EqArray.iteri (fun i alt ->
+            |> Array.iteri (fun i alt ->
                 if i = n - 1 then
                     buildMatchTest env b scrutSlot nextLabel alt
                 else
@@ -374,12 +392,13 @@ module EmitPattern =
     /// the match arm does); a `Tuple` `ldfld`s each `ValueTuple`n` `Item` field into
     /// a fresh local and recurses; `Wildcard` / `Const` bind nothing.
     let rec bindPattern (env: EmitEnv) (b: IlBuilder) (srcSlot: int) (pat: Frozen.TPat) : unit =
-        match pat with
-        | TPatG.Wildcard _ -> ()
-        | TPatG.Const _ -> () // irrefutable in a binding position — no compare, no bind
-        | TPatG.NamedSimple(binding, _, _) -> env.Slots.[binding] <- srcSlot
-        | TPatG.Tuple(items, ty, _) -> destructureTuple env b srcSlot ty items (bindPattern env b)
-        | other -> failwithf "Emit: destructuring pattern is out of scope: %A" other
+        match TastAccessor.patKind pat with
+        | PatShape.Wildcard -> ()
+        | PatShape.Const -> () // irrefutable in a binding position — no compare, no bind
+        | PatShape.NamedSimple -> env.Slots.[(TastAccessor.patBinder pat).Value] <- srcSlot
+        | PatShape.Tuple ->
+            destructureTuple env b srcSlot (TastAccessor.patTy pat) (TastAccessor.patChildren pat) (bindPattern env b)
+        | _ -> failwithf "Emit: destructuring pattern is out of scope: %A" pat
 
     /// The fallthrough a `match` reaches when no arm matched — `throw new
     /// System.Exception("…")`. An exhaustive match never reaches it at runtime,
