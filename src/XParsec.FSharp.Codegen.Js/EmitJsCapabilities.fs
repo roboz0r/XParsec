@@ -176,15 +176,10 @@ module EmitJsCapabilities =
         (imports: JsImports)
         (e: Frozen.TExpr)
         : struct (Frozen.TExpr * (JsExpr -> JsLoc voption -> JsExpr)) voption =
-        match TastAccessor.exprKind e with
-        | ExprShape.ExternalMember ->
-            let em = TastAccessor.exprExternalMember e
-
-            match em.Receiver with
-            | ValueSome recv when em.Storage.IsValueMember ->
-                tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
-                |> ValueOption.map (fun emit -> struct (recv, emit))
-            | _ -> ValueNone
+        match e with
+        | JsExternalMembers.InstanceExternalMember(recv, em) when em.Storage.IsValueMember ->
+            tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
+            |> ValueOption.map (fun emit -> struct (recv, emit))
         | _ -> ValueNone
 
     /// The APPLIED form — `src.GetEnumerator()` / `e.MoveNext()` / `e.Dispose()`: an `App`
@@ -203,16 +198,12 @@ module EmitJsCapabilities =
         (spine: (Frozen.TExpr * FrozenType * SyntaxToken) list)
         (loc: JsLoc voption)
         : JsExpr voption =
-        match TastAccessor.exprKind head, spine with
-        | ExprShape.ExternalMember, [ (arg, _, _) ] when
-            TastAccessor.exprKind arg = ExprShape.Const
+        match head, spine with
+        | JsExternalMembers.InstanceExternalMember(recv, em), [ (arg, _, _) ] when
+            em.Storage = MemberStorage.Method
+            && TastAccessor.exprKind arg = ExprShape.Const
             && TastAccessor.exprConstValue arg = TConstValue.Unit
             ->
-            let em = TastAccessor.exprExternalMember head
-
-            match em.Receiver with
-            | ValueSome recv when em.Storage = MemberStorage.Method ->
-                tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
-                |> ValueOption.map (fun emit -> emit (build recv) loc)
-            | _ -> ValueNone
+            tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
+            |> ValueOption.map (fun emit -> emit (build recv) loc)
         | _ -> ValueNone

@@ -26,6 +26,24 @@ module JsExternalMembers =
     let declKey (key: SymbolKey) : TypeKey =
         SymbolKeyOps.declTypeKeyOf "EmitJs: member node" key
 
+    /// An `ExternalMember` node reached with an INSTANCE receiver → that receiver and the
+    /// member's payload view. `ValueNone` for a static member (`ValueNone` receiver) or any
+    /// non-`ExternalMember` node. The shared prologue of every instance-external-member
+    /// recognizer (`tryAttachedCall`, `EmitJsCapabilities.CapabilityRead`/`tryCapabilityCall`);
+    /// each site adds its own `Storage` guard (a value-member read vs. a `Method` call).
+    [<return: Struct>]
+    let (|InstanceExternalMember|_|)
+        (e: Frozen.TExpr)
+        : struct (Frozen.TExpr * TastAccessor.ExternalMemberView) voption =
+        match TastAccessor.exprKind e with
+        | ExprShape.ExternalMember ->
+            let em = TastAccessor.exprExternalMember e
+
+            match em.Receiver with
+            | ValueSome recv -> ValueSome(struct (recv, em))
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
     /// Instance method → `<Type>__<member>`; instance property getter →
     /// `<Type>__get_<Prop>`; static member → `<Type>_<member>`.
     let mangledName (typeName: string) (isStatic: bool) (isProperty: bool) (memberName: string) : string =
@@ -189,30 +207,25 @@ module JsExternalMembers =
         (spine: (Frozen.TExpr * FrozenType * SyntaxToken) list)
         (loc: JsLoc voption)
         : JsExpr voption =
-        match TastAccessor.exprKind head with
-        | ExprShape.ExternalMember ->
-            let em = TastAccessor.exprExternalMember head
+        match head with
+        | InstanceExternalMember(recv, em) when
+            em.Storage = MemberStorage.Method
+            && (classFlagsOf provider (declKey em.Key)
+                |> ValueOption.exists (fun flags -> flags.MemberLowering = MemberLowering.AttachedNative))
+            ->
+            match spine with
+            | (argExpr, _, _) :: rest ->
+                let call =
+                    attachedCall
+                        (build recv)
+                        em.MemberName
+                        (attachedMemberArgs build (memberArgCount em.Key em.MemberName) argExpr)
+                        loc
 
-            match em.Receiver with
-            | ValueSome recv when
-                em.Storage = MemberStorage.Method
-                && (classFlagsOf provider (declKey em.Key)
-                    |> ValueOption.exists (fun flags -> flags.MemberLowering = MemberLowering.AttachedNative))
-                ->
-                match spine with
-                | (argExpr, _, _) :: rest ->
-                    let call =
-                        attachedCall
-                            (build recv)
-                            em.MemberName
-                            (attachedMemberArgs build (memberArgCount em.Key em.MemberName) argExpr)
-                            loc
-
-                    rest
-                    |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) call
-                    |> ValueSome
-                | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 spine element
-            | _ -> ValueNone
+                rest
+                |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) call
+                |> ValueSome
+            | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 spine element
         | _ -> ValueNone
 
     /// A METHOD on an `AttachMembers` type extracted as a VALUE (`let f = box.get`):
