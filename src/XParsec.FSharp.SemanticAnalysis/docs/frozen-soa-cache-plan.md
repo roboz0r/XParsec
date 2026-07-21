@@ -237,10 +237,20 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 > from columns, proven codegen-invariant over the CLR corpus. The one remaining DU residue is
 > deliberate and known: `FrozenPools.File` still holds the source `Frozen.TastFile` (for the side
 > tables / `InlineBodies` / diagnostics — its `.Decls` are re-authored by `ofPools`), and a `Type`
-> decl's member bodies + `InlineBodies` are carried opaquely (not pooled). Part (B) — flip the
-> accessor to read columns, rewire `binderName`/`lambdaKey`, lower the CLR construction sites, then
-> sever the `File`/DU residue — is next. The accessor and both backends stay DU-backed until then.
-> B.k+6/B.k+7 untouched. A
+> decl's member bodies + `InlineBodies` are carried opaquely (not pooled). **Part (B) — the flip —
+> is DEFERRED to a separate effort (decision).** It is the project's crux, not a mechanical step:
+> the CLR backend's eta-bridging (`bridgeStaticFnEscapes`) and `ClosureVerdictRewrite` are
+> CLR-specific TAST→TAST pre-passes that MINT new nodes `discoverClosures` must then walk (the JS
+> backend has no analogue — its native-curried model needs neither), so a pool-backed emit cannot
+> simply read them. The agreed future architecture: the SA-built pool stays the IMMUTABLE,
+> backend-neutral canonical artifact, and the **CLR backend derives its OWN working DU/pool from it
+> (via `ofPools` or a projection) for its backend-specific lowering** — rather than forcing those
+> rewrites onto the shared pool or reimplementing closure emission at the emit site. Under that
+> design the accessor flip, the `binderName`/`lambdaKey` pool-read rewires, and the `File`/DU
+> severance all land together in the dedicated flip effort (overlapping B.k+6/B.k+7). Until then the
+> accessor and both backends stay DU-backed. What THIS arc banks: the pools are built, fully
+> columnar, interconvertible, and proven codegen-invariant over the corpus — the substrate the flip
+> and the direct pool serialization (B.k+6) build on. B.k+6/B.k+7 untouched. A
 > `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
 > `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 
@@ -378,16 +388,23 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
   and DROP the `Node`. `ofPools` then rebuilds the DU from columns alone; the corpus round-trip
   (which runs `ofPools (toPools frozen)` per program) proves the columns are Node-sufficient. Done
   as its own commit(s), one domain at a time (exprs first, then pats+decls+binder pool), DU still
-  coexisting. **(B) Flip proper** (below) follows once the pools are self-contained.
-- **B.k+5 Flip the backing.** Point the accessor at the pools; `freeze` stops materializing
-  the DU. *Gate: goldens hold — the projection payoff.* NB the read-only accessor covers only
-  *reads*: the handful of node-**construction** sites the B.2…B.k migration left as
-  `Frozen.TExpr.*`/`Frozen.TPat.*`/`Frozen.TDecl.*` (the `buildUse` dispose synthetic; the
-  `buildEta` eta lambdas and decl rebuilds; the `ClosureVerdictRewrite` retype rebuilds) cannot
-  ride a dense-id handle unchanged. **Decision: lower those sites to emit directly** (as the JS
-  backend already does), NOT a construction seam — the SA-built pool is IMMUTABLE, produced once
-  by `Freeze` and never appended to by a backend. So flipping the read backing here is paired
-  with rewriting each CLR construction site to emit its lowered form without minting a frozen node.
+  coexisting. **(A) is LANDED** (commits `f0b81afe` exprs, `cf3b4956` pats+decls+binder) — every
+  domain is struct-of-arrays, no pooled tree node retains a DU `Node`, proven codegen-invariant
+  over the CLR corpus. **(B) the flip is DEFERRED** to a dedicated effort (see below).
+- **B.k+5 Flip the backing — DEFERRED (decision).** Point the accessor at the pools; `freeze`
+  stops materializing the DU. *Gate: goldens hold — the projection payoff.* The blocker is the
+  CLR-specific node-**construction** sites (`buildUse` dispose synthetic; `buildEta` /
+  `bridgeStaticFnEscapes` eta lambdas + decl rebuilds; `ClosureVerdictRewrite` retype rebuilds):
+  the two closure passes are TAST→TAST rewrites that MINT new nodes `discoverClosures` must walk,
+  and the JS backend has NO analogue (its native-curried model needs neither), so a pool-backed
+  emit cannot read them and there is no JS precedent to port. **Superseding the earlier
+  "lower-to-emit-directly" call:** the SA pool stays the IMMUTABLE, backend-neutral canonical
+  artifact, and the **CLR backend derives its own working DU/pool from it (via `ofPools` or a
+  projection) for its backend-specific lowering** — not a construction seam into the shared pool,
+  and not a reimplementation of closure emission at the emit site. The accessor flip, the
+  `binderName`/`lambdaKey` pool-read rewires, and the `File`/DU severance all land together in
+  this deferred effort (overlapping B.k+6/B.k+7). `buildUse`/`lambdaKey`/`synthLambdaBodyKey` and
+  the closure passes stay DU-backed as-is until then.
 - **B.k+6 Serialize pools directly.** Replace A's DU flatten/thaw with pool (de)serialization;
   intern `FrozenType`/keys for size. *Gate: round-trip + size regression check.*
 - **B.k+7 Remove dead DU paths.** Delete the DU thaw and any now-unused DU plumbing. *Gate:
