@@ -427,6 +427,291 @@ module TastAccessor =
             }
         | _ -> failwith "TastAccessor.exprIfThenElse: not an IfThenElse node"
 
+    /// The scalar payload of an `External` node, minus the `ty`/`tok` that
+    /// `exprTy`/`exprTok` already carry.
+    [<Struct>]
+    type ExternalView =
+        {
+            CompiledName: string
+            Key: SymbolKey voption
+        }
+
+    /// The payload view of an `External` node. Guard with `exprKind` =
+    /// `ExprShape.External` first; `failwith` on any other shape.
+    let exprExternal (e: ExprId) : ExternalView =
+        match e with
+        | TExprG.External(compiledName = compiledName; key = key) ->
+            {
+                CompiledName = compiledName
+                Key = key
+            }
+        | _ -> failwith "TastAccessor.exprExternal: not an External node"
+
+    /// The scalar payload of an `App` node (`fn arg`), minus the `ty`/`tok` that
+    /// `exprTy`/`exprTok` already carry — the same two nodes `exprChildren` yields, named
+    /// by role.
+    [<Struct>]
+    type AppView = { Fn: ExprId; Arg: ExprId }
+
+    /// The payload view of an `App` node. Guard with `exprKind` = `ExprShape.App` first;
+    /// `failwith` on any other shape.
+    let exprApp (e: ExprId) : AppView =
+        match e with
+        | TExprG.App(fn = fn; arg = arg) -> { Fn = fn; Arg = arg }
+        | _ -> failwith "TastAccessor.exprApp: not an App node"
+
+    /// The (field-name, value-expression) pairs a `RecordCons` literal assigns, in source
+    /// order — the labels `exprChildren` drops. Guard with `exprKind` =
+    /// `ExprShape.RecordCons` first; `failwith` on any other shape.
+    let exprRecordConsFields (e: ExprId) : (string * ExprId)[] =
+        match e with
+        | TExprG.RecordCons(fields = fields) -> EqArray.toArray fields
+        | _ -> failwith "TastAccessor.exprRecordConsFields: not a RecordCons node"
+
+    /// The scalar payload of a `RecordClone` node (`{ source with … }`), minus the
+    /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Overrides` are the
+    /// (field-name, replacement) pairs — the labels `exprChildren` drops.
+    [<Struct>]
+    type RecordCloneView =
+        {
+            Source: ExprId
+            Overrides: (string * ExprId)[]
+        }
+
+    /// The payload view of a `RecordClone` node. Guard with `exprKind` =
+    /// `ExprShape.RecordClone` first; `failwith` on any other shape.
+    let exprRecordClone (e: ExprId) : RecordCloneView =
+        match e with
+        | TExprG.RecordClone(source = source; overrides = overrides) ->
+            {
+                Source = source
+                Overrides = EqArray.toArray overrides
+            }
+        | _ -> failwith "TastAccessor.exprRecordClone: not a RecordClone node"
+
+    /// The scalar payload of a `FieldGet` node (`receiver.FieldName`), minus the
+    /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Receiver` is the sole
+    /// `exprChildren` entry, named by role.
+    [<Struct>]
+    type FieldGetView = { Receiver: ExprId; FieldName: string }
+
+    /// The payload view of a `FieldGet` node. Guard with `exprKind` =
+    /// `ExprShape.FieldGet` first; `failwith` on any other shape.
+    let exprFieldGet (e: ExprId) : FieldGetView =
+        match e with
+        | TExprG.FieldGet(receiver = receiver; fieldName = fieldName) ->
+            {
+                Receiver = receiver
+                FieldName = fieldName
+            }
+        | _ -> failwith "TastAccessor.exprFieldGet: not a FieldGet node"
+
+    /// The scalar payload of a `FieldSet` node (`receiver.FieldName <- value`), minus the
+    /// `ty`/`tok` that `exprTy`/`exprTok` already carry — the two nodes `exprChildren`
+    /// yields, named by role, plus the field label.
+    [<Struct>]
+    type FieldSetView =
+        {
+            Receiver: ExprId
+            FieldName: string
+            Value: ExprId
+        }
+
+    /// The payload view of a `FieldSet` node. Guard with `exprKind` =
+    /// `ExprShape.FieldSet` first; `failwith` on any other shape.
+    let exprFieldSet (e: ExprId) : FieldSetView =
+        match e with
+        | TExprG.FieldSet(receiver = receiver; fieldName = fieldName; value = value) ->
+            {
+                Receiver = receiver
+                FieldName = fieldName
+                Value = value
+            }
+        | _ -> failwith "TastAccessor.exprFieldSet: not a FieldSet node"
+
+    /// The union case name a `UnionCons` node constructs. Its `args` are the node's
+    /// `exprChildren` and its `ty` is `exprTy`. Guard with `exprKind` =
+    /// `ExprShape.UnionCons` first; `failwith` on any other shape.
+    let exprUnionConsCaseName (e: ExprId) : string =
+        match e with
+        | TExprG.UnionCons(caseName = caseName) -> caseName
+        | _ -> failwith "TastAccessor.exprUnionConsCaseName: not a UnionCons node"
+
+    /// The class name a `New` node constructs. Its `args` are the node's `exprChildren`
+    /// and its `ty` is `exprTy`. Guard with `exprKind` = `ExprShape.New` first; `failwith`
+    /// on any other shape.
+    let exprNewClassName (e: ExprId) : string =
+        match e with
+        | TExprG.New(className = className) -> className
+        | _ -> failwith "TastAccessor.exprNewClassName: not a New node"
+
+    /// The scalar payload of a `PropertyGet` node — the receiver and the resolved member
+    /// key, minus the `via`/`ty`/`tok` the node also carries. `Receiver` is the sole
+    /// `exprChildren` entry, named by role.
+    [<Struct>]
+    type PropertyGetView = { Receiver: ExprId; Key: SymbolKey }
+
+    /// The payload view of a `PropertyGet` node. Guard with `exprKind` =
+    /// `ExprShape.PropertyGet` first; `failwith` on any other shape.
+    let exprPropertyGet (e: ExprId) : PropertyGetView =
+        match e with
+        | TExprG.PropertyGet(receiver = receiver; key = key) -> { Receiver = receiver; Key = key }
+        | _ -> failwith "TastAccessor.exprPropertyGet: not a PropertyGet node"
+
+    /// The scalar payload of a `MethodCall` node — the receiver, the resolved member key,
+    /// and the argument expressions, minus the `via`/`ty`/`tok` the node also carries.
+    /// `Args` is ONLY the `args` field materialized — NOT `exprChildren` (which merges the
+    /// receiver in ahead of the args).
+    [<Struct>]
+    type MethodCallView =
+        {
+            Receiver: ExprId
+            Key: SymbolKey
+            Args: ExprId[]
+        }
+
+    /// The payload view of a `MethodCall` node. Guard with `exprKind` =
+    /// `ExprShape.MethodCall` first; `failwith` on any other shape.
+    let exprMethodCall (e: ExprId) : MethodCallView =
+        match e with
+        | TExprG.MethodCall(receiver = receiver; key = key; args = args) ->
+            {
+                Receiver = receiver
+                Key = key
+                Args = EqArray.toArray args
+            }
+        | _ -> failwith "TastAccessor.exprMethodCall: not a MethodCall node"
+
+    /// The resolved member key of a `StaticPropertyGet` node. Guard with `exprKind` =
+    /// `ExprShape.StaticPropertyGet` first; `failwith` on any other shape.
+    let exprStaticPropertyGetKey (e: ExprId) : SymbolKey =
+        match e with
+        | TExprG.StaticPropertyGet(key = key) -> key
+        | _ -> failwith "TastAccessor.exprStaticPropertyGetKey: not a StaticPropertyGet node"
+
+    /// The scalar payload of a `StaticFieldGet` node — the declaring class key and the
+    /// backing-field name, minus the `ty`/`tok` the node also carries. Guard with
+    /// `exprKind` = `ExprShape.StaticFieldGet` first; `failwith` on any other shape.
+    [<Struct>]
+    type StaticFieldGetView = { Key: SymbolKey; FieldName: string }
+
+    /// The payload view of a `StaticFieldGet` node. Guard with `exprKind` =
+    /// `ExprShape.StaticFieldGet` first; `failwith` on any other shape.
+    let exprStaticFieldGet (e: ExprId) : StaticFieldGetView =
+        match e with
+        | TExprG.StaticFieldGet(declKey = declKey; fieldName = fieldName) -> { Key = declKey; FieldName = fieldName }
+        | _ -> failwith "TastAccessor.exprStaticFieldGet: not a StaticFieldGet node"
+
+    /// The scalar payload of a `StaticFieldSet` node — the declaring class key, the
+    /// backing-field name, and the stored value, minus the `ty`/`tok` the node also
+    /// carries. `Value` is the sole `exprChildren` entry, named by role.
+    [<Struct>]
+    type StaticFieldSetView =
+        {
+            Key: SymbolKey
+            FieldName: string
+            Value: ExprId
+        }
+
+    /// The payload view of a `StaticFieldSet` node. Guard with `exprKind` =
+    /// `ExprShape.StaticFieldSet` first; `failwith` on any other shape.
+    let exprStaticFieldSet (e: ExprId) : StaticFieldSetView =
+        match e with
+        | TExprG.StaticFieldSet(declKey = declKey; fieldName = fieldName; value = value) ->
+            {
+                Key = declKey
+                FieldName = fieldName
+                Value = value
+            }
+        | _ -> failwith "TastAccessor.exprStaticFieldSet: not a StaticFieldSet node"
+
+    /// The resolved member key of a `StaticMethodCall` node. Its `args` are the node's
+    /// `exprChildren`. Guard with `exprKind` = `ExprShape.StaticMethodCall` first;
+    /// `failwith` on any other shape.
+    let exprStaticMethodCallKey (e: ExprId) : SymbolKey =
+        match e with
+        | TExprG.StaticMethodCall(key = key) -> key
+        | _ -> failwith "TastAccessor.exprStaticMethodCallKey: not a StaticMethodCall node"
+
+    /// The scalar payload of a `Match` node — the scrutinee and the arms, minus the
+    /// `ty`/`tok` the node also carries. `Arms` is the `arms` field materialized (a
+    /// composite carrier, not an `exprChildren` entry — `exprChildren` descends into arm
+    /// bodies/guards, dropping the arm identity a consumer needs).
+    [<Struct>]
+    type MatchView =
+        {
+            Scrutinee: ExprId
+            Arms: Frozen.TMatchArm[]
+        }
+
+    /// The payload view of a `Match` node. Guard with `exprKind` = `ExprShape.Match` first;
+    /// `failwith` on any other shape.
+    let exprMatch (e: ExprId) : MatchView =
+        match e with
+        | TExprG.Match(scrutinee = scrutinee; arms = arms) ->
+            {
+                Scrutinee = scrutinee
+                Arms = EqArray.toArray arms
+            }
+        | _ -> failwith "TastAccessor.exprMatch: not a Match node"
+
+    /// The scalar payload of a `While` node (`while Cond do Body`), minus the `ty`/`tok`
+    /// that `exprTy`/`exprTok` already carry — the two nodes `exprChildren` yields, named
+    /// by role.
+    [<Struct>]
+    type WhileView = { Cond: ExprId; Body: ExprId }
+
+    /// The payload view of a `While` node. Guard with `exprKind` = `ExprShape.While` first;
+    /// `failwith` on any other shape.
+    let exprWhile (e: ExprId) : WhileView =
+        match e with
+        | TExprG.While(cond = cond; body = body) -> { Cond = cond; Body = body }
+        | _ -> failwith "TastAccessor.exprWhile: not a While node"
+
+    /// The scalar payload of a `Use` node (`use Binding = Value in Body`), minus the
+    /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Value`/`Body` are the two
+    /// `exprChildren` entries; `Binding` is a pattern (not an expression child) and
+    /// `Dispose` the resolved disposal path.
+    [<Struct>]
+    type UseView =
+        {
+            Binding: PatId
+            Value: ExprId
+            Body: ExprId
+            Dispose: Disposal
+        }
+
+    /// The payload view of a `Use` node. Guard with `exprKind` = `ExprShape.Use` first;
+    /// `failwith` on any other shape.
+    let exprUse (e: ExprId) : UseView =
+        match e with
+        | TExprG.Use(binding = binding; value = value; body = body; dispose = dispose) ->
+            {
+                Binding = binding
+                Value = value
+                Body = body
+                Dispose = dispose
+            }
+        | _ -> failwith "TastAccessor.exprUse: not a Use node"
+
+    /// The scalar payload of a `Format` node — the sink and the interleaved
+    /// literal/hole segments, minus the `ty`/`tok` the node also carries. Both are
+    /// composite carriers whose sub-expressions `exprChildren` descends into; a consumer
+    /// dispatching on the sink or replaying the segments reads them here.
+    [<Struct>]
+    type FormatView =
+        {
+            Sink: Frozen.FormatSink
+            Segments: EqArray<Frozen.FormatSeg>
+        }
+
+    /// The payload view of a `Format` node. Guard with `exprKind` = `ExprShape.Format`
+    /// first; `failwith` on any other shape.
+    let exprFormat (e: ExprId) : FormatView =
+        match e with
+        | TExprG.Format(sink = sink; segments = segments) -> { Sink = sink; Segments = segments }
+        | _ -> failwith "TastAccessor.exprFormat: not a Format node"
+
     /// The shape tag of a pattern node.
     let patKind (p: PatId) : PatShape =
         match p with

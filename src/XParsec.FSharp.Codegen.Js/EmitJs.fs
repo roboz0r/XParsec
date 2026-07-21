@@ -43,14 +43,15 @@ module EmitJs =
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
         let loc = locOf ctx (TastWalk.exprTok e)
 
-        match e with
-        | TExprG.Const(value, _, _) -> constExpr value loc
+        match TastAccessor.exprKind e with
+        | ExprShape.Const -> constExpr (TastAccessor.exprConstValue e) loc
 
         // A bare reference to a local module FUNCTION is a value-use (an escape): it
         // wraps the flat function in an inline curried adapter so a higher-order
         // consumer (or a partial application) sees the SOURCE-shaped currying. A simple
         // single-arg / lone-unit function needs no adapter (flat == curried there).
-        | TExprG.Var(k, _, _) ->
+        | ExprShape.Var ->
+            let k = TastAccessor.exprVarBinding e
             let ident = JsExpr.Identifier(binderName ctx.Source k, loc)
 
             match ctx.CompiledFns.TryGetValue k with
@@ -60,53 +61,64 @@ module EmitJs =
         // An external module function — imported from its package's JS runtime module.
         // A value-use of a multi-arg / tupled external function gets the same curried
         // adapter (its producer emits flat); a saturated call flattens at the `App` arm.
-        | TExprG.External(compiledName, key, _, _) ->
-            let alias =
-                JsExpr.Identifier(JsImports.addRef ctx.Imports compiledName (externalValueRef ctx.Provider key), loc)
+        | ExprShape.External ->
+            let ext = TastAccessor.exprExternal e
 
-            match JsFlatFns.externalGroups ctx.Provider key with
+            let alias =
+                JsExpr.Identifier(
+                    JsImports.addRef ctx.Imports ext.CompiledName (externalValueRef ctx.Provider ext.Key),
+                    loc
+                )
+
+            match JsFlatFns.externalGroups ctx.Provider ext.Key with
             | ValueSome groups when JsFlatFns.needsAdapter groups ->
                 JsFlatFns.curryAdapter alias groups (TastWalk.exprTok e).StartIndex loc
             | _ -> alias
 
-        | TExprG.IfThenElse(cond, thenE, elseE, _, _) ->
-            JsExpr.Conditional(buildExpr ctx cond, buildExpr ctx thenE, buildExpr ctx elseE, loc)
+        | ExprShape.IfThenElse ->
+            let i = TastAccessor.exprIfThenElse e
+            JsExpr.Conditional(buildExpr ctx i.Cond, buildExpr ctx i.ThenExpr, buildExpr ctx i.ElseExpr, loc)
 
         // A `Sequential` in expression position is a comma expression (top-level it
         // expands to statements via `buildStatements`).
-        | TExprG.Sequential(xs, _, _) -> JsExpr.Sequence([ for x in xs -> buildExpr ctx x ], loc)
+        | ExprShape.Sequential -> JsExpr.Sequence([ for x in TastAccessor.exprChildren e -> buildExpr ctx x ], loc)
 
         // A tuple `(a, b, …)` is a JS array `[a, b, …]`; a pattern reads elements by index.
-        | TExprG.Tuple(items, _, _) -> JsExpr.Array([ for x in items -> buildExpr ctx x ], loc)
+        | ExprShape.Tuple -> JsExpr.Array([ for x in TastAccessor.exprChildren e -> buildExpr ctx x ], loc)
 
-        // Pure `let` in expression position: substitute into uses (collapse operator
-        // templates). A *mutable* binder (assigned in the body) is excluded — it must
-        // stay a real binding so its writes land; it falls to the IIFE arm, where the
-        // arrow parameter is the (reassignable) mutable cell.
-        | InlinableLet reduced -> buildExpr ctx reduced
+        | ExprShape.Let ->
+            match e with
+            // Pure `let` in expression position: substitute into uses (collapse operator
+            // templates). A *mutable* binder (assigned in the body) is excluded — it must
+            // stay a real binding so its writes land; it falls to the IIFE arm, where the
+            // arrow parameter is the (reassignable) mutable cell.
+            | InlinableLet reduced -> buildExpr ctx reduced
+            | _ ->
+                let l = TastAccessor.exprLet e
 
-        // Non-pure (or mutable) `let` in expression position: JS has no let-expression,
-        // so lowers to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once,
-        // and (for a mutable binder) reassignable as the arrow parameter.
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            let name = binderName ctx.Source k
+                match TastAccessor.patKind l.Binding with
+                // Non-pure (or mutable) `let` in expression position: JS has no let-expression,
+                // so lowers to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once,
+                // and (for a mutable binder) reassignable as the arrow parameter.
+                | PatShape.NamedSimple ->
+                    let name = binderName ctx.Source (TastAccessor.patBinder l.Binding).Value
 
-            JsExpr.Call(
-                JsExpr.Arrow([ name ], JsFnBody.Expr(buildExpr ctx body), ValueNone),
-                [ buildExpr ctx value ],
-                loc
-            )
+                    JsExpr.Call(
+                        JsExpr.Arrow([ name ], JsFnBody.Expr(buildExpr ctx l.Body), ValueNone),
+                        [ buildExpr ctx l.Value ],
+                        loc
+                    )
 
-        // `let _ = value in body` — a Wildcard binder discards the value, kept only for
-        // its effects (`let _ = renderInto buf` over `|> ignore`, which leaves a bare
-        // recipe value). A pure value contributes nothing, so drop it; otherwise a comma
-        // sequence evaluates `value` then yields `body` (JS has no let-expression).
-        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) when isPureValue value -> buildExpr ctx body
-        | TExprG.Let(TPatG.Wildcard _, value, body, _, _) ->
-            JsExpr.Sequence([ buildExpr ctx value; buildExpr ctx body ], loc)
+                // `let _ = value in body` — a Wildcard binder discards the value, kept only for
+                // its effects (`let _ = renderInto buf` over `|> ignore`, which leaves a bare
+                // recipe value). A pure value contributes nothing, so drop it; otherwise a comma
+                // sequence evaluates `value` then yields `body` (JS has no let-expression).
+                | PatShape.Wildcard when isPureValue l.Value -> buildExpr ctx l.Body
+                | PatShape.Wildcard -> JsExpr.Sequence([ buildExpr ctx l.Value; buildExpr ctx l.Body ], loc)
+                | _ -> failwithf "EmitJs: unsupported expression %A" e
 
         // Anonymous lambda — no binder key, so no self-tail-call analysis applies.
-        | TExprG.Lambda _ -> emitFunction ctx ValueNone e
+        | ExprShape.Lambda -> emitFunction ctx ValueNone e
 
         // Application. A SATURATED call to a module function (local or external)
         // collapses its whole spine into a single FLAT call (`f(a, b)`, tuple groups
@@ -114,7 +126,8 @@ module EmitJs =
         // calls. Everything else — closures, members, under-applied module functions —
         // keeps the curried `f(a)(b)` shape (one unary call per `App`); an under-applied
         // module function reaches its head's curried adapter through this fallback.
-        | TExprG.App(fn, arg, _, _) ->
+        | ExprShape.App ->
+            let av = TastAccessor.exprApp e
             let head, spine = TastWalk.collectSpine [] e
 
             // Flat dispatch: a capability-protocol member call (`tryCapabilityCall` —
@@ -141,15 +154,21 @@ module EmitJs =
                     let identAt name =
                         JsExpr.Identifier(name, locOf ctx (TastWalk.exprTok head))
 
-                    match head with
-                    | TExprG.Var(k, _, _) ->
+                    match TastAccessor.exprKind head with
+                    | ExprShape.Var ->
+                        let k = TastAccessor.exprVarBinding head
+
                         match ctx.CompiledFns.TryGetValue k with
                         | true, cf -> ValueSome(identAt (binderName ctx.Source k), cf.Groups)
                         | _ -> ValueNone
-                    | TExprG.External(compiledName, key, _, _) ->
-                        JsFlatFns.externalGroups ctx.Provider key
+                    | ExprShape.External ->
+                        let ext = TastAccessor.exprExternal head
+
+                        JsFlatFns.externalGroups ctx.Provider ext.Key
                         |> ValueOption.map (fun groups ->
-                            identAt (JsImports.addRef ctx.Imports compiledName (externalValueRef ctx.Provider key)),
+                            identAt (
+                                JsImports.addRef ctx.Imports ext.CompiledName (externalValueRef ctx.Provider ext.Key)
+                            ),
                             groups
                         )
                     | _ -> ValueNone
@@ -157,14 +176,14 @@ module EmitJs =
                 match flatHead with
                 | ValueSome(callee, groups) when List.length spine >= List.length groups ->
                     JsFlatFns.emitFlatCall (buildExpr ctx) callee groups spine loc
-                | _ -> JsExpr.Call(buildExpr ctx fn, [ buildExpr ctx arg ], loc)
+                | _ -> JsExpr.Call(buildExpr ctx av.Fn, [ buildExpr ctx av.Arg ], loc)
 
         // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args
         // reordered from source order to the class's *declaration*-order
         // positional constructor.
-        | TExprG.RecordCons(srcFields, ty, _) ->
-            let info = recordInfoOf ctx "RecordCons" ty
-            let srcMap = Map.ofSeq srcFields.Underlying
+        | ExprShape.RecordCons ->
+            let info = recordInfoOf ctx "RecordCons" (TastAccessor.exprTy e)
+            let srcMap = Map.ofSeq (TastAccessor.exprRecordConsFields e)
 
             let args =
                 [
@@ -180,9 +199,10 @@ module EmitJs =
         // override if listed, else reads `<src>.field`. `<src>` is read once per
         // copied field, so a bare `Var` is spliced inline; any other source is bound
         // once through an IIFE binder (avoids re-evaluating / duplicating it).
-        | TExprG.RecordClone(source, overrides, ty, _) ->
-            let info = recordInfoOf ctx "RecordClone" ty
-            let overrideMap = Map.ofSeq overrides.Underlying
+        | ExprShape.RecordClone ->
+            let rc = TastAccessor.exprRecordClone e
+            let info = recordInfoOf ctx "RecordClone" (TastAccessor.exprTy e)
+            let overrideMap = Map.ofSeq rc.Overrides
 
             let argsFrom (srcRef: JsExpr) =
                 [
@@ -192,8 +212,9 @@ module EmitJs =
                         | None -> JsExpr.Member(srcRef, JsExpr.Identifier(f, ValueNone), false, ValueNone)
                 ]
 
-            match source with
-            | TExprG.Var _ -> JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), argsFrom (buildExpr ctx source), loc)
+            match TastAccessor.exprKind rc.Source with
+            | ExprShape.Var ->
+                JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), argsFrom (buildExpr ctx rc.Source), loc)
             | _ ->
                 let sName = "_rc" + string (TastWalk.exprTok e).StartIndex
 
@@ -204,21 +225,24 @@ module EmitJs =
                         loc
                     )
 
-                JsExpr.Call(JsExpr.Arrow([ sName ], JsFnBody.Expr newExpr, ValueNone), [ buildExpr ctx source ], loc)
+                JsExpr.Call(JsExpr.Arrow([ sName ], JsFnBody.Expr newExpr, ValueNone), [ buildExpr ctx rc.Source ], loc)
 
         // `r.X` → `r.X` — a member access on the record's like-named property
         // (the emitted class stores each field under its source field name).
-        | TExprG.FieldGet(receiver, fieldName, _, _) ->
-            JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(fieldName, ValueNone), false, loc)
+        | ExprShape.FieldGet ->
+            let fg = TastAccessor.exprFieldGet e
+            JsExpr.Member(buildExpr ctx fg.Receiver, JsExpr.Identifier(fg.FieldName, ValueNone), false, loc)
 
         // `r.X <- v` → `(r.X = v)` — a mutable (`val mutable`) instance-field write,
         // the field analogue of the mutable-local `Assignment` arm. Unit-typed in F#,
         // so the yielded value is unused; in statement position `buildStatements`
         // wraps it as an expression statement.
-        | TExprG.FieldSet(receiver, fieldName, value, _, _) ->
+        | ExprShape.FieldSet ->
+            let fs = TastAccessor.exprFieldSet e
+
             JsExpr.Assign(
-                JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(fieldName, ValueNone), false, loc),
-                buildExpr ctx value,
+                JsExpr.Member(buildExpr ctx fs.Receiver, JsExpr.Identifier(fs.FieldName, ValueNone), false, loc),
+                buildExpr ctx fs.Value,
                 loc
             )
 
@@ -226,9 +250,9 @@ module EmitJs =
         // args already arrive in declaration (field) order, so — unlike a record
         // literal — no reordering is needed; the subclass constructor stores them
         // positionally under the case's field names.
-        | TExprG.UnionCons(caseName, args, ty, _) ->
-            let info = unionInfoOf ctx "UnionCons" ty
-            let c = unionCaseFromInfo info "UnionCons" caseName
+        | ExprShape.UnionCons ->
+            let info = unionInfoOf ctx "UnionCons" (TastAccessor.exprTy e)
+            let c = unionCaseFromInfo info "UnionCons" (TastAccessor.exprUnionConsCaseName e)
 
             // A local union's class is in this file; an external union's case class is
             // imported from its home module (no local re-emit).
@@ -237,12 +261,14 @@ module EmitJs =
                 | ValueSome asm -> JsExpr.Identifier(JsImports.addTypeRef ctx.Imports asm c.ClassName, loc)
                 | ValueNone -> JsExpr.Identifier(c.ClassName, ValueNone)
 
-            JsExpr.New(callee, [ for a in args -> buildExpr ctx a ], loc)
+            JsExpr.New(callee, [ for a in TastAccessor.exprChildren e -> buildExpr ctx a ], loc)
 
         // External exception construction → `new <exn repr>(msg)`. The repr is sourced
         // from the `inherit` chain via `exnReprOf`; only the leading message arg is kept
         // (`Error` has no slot for further args). Non-`exn`-subtype external `New` fails loudly.
-        | TExprG.New(className, _, args, ty, _) ->
+        | ExprShape.New ->
+            let ty = TastAccessor.exprTy e
+            let args = TastAccessor.exprChildren e
             // A locally-emitted class constructs by its emitted name with positional
             // args (the ctor stores each into the like-named field). Resolved before
             // the external `exn`-repr path.
@@ -281,13 +307,17 @@ module EmitJs =
             | ValueNone, ValueNone ->
                 match JsExternalMembers.exnReprOf ctx.Provider ty with
                 | ValueSome repr ->
-                    let errArgs = if args.IsEmpty then [] else [ buildExpr ctx args.[0] ]
+                    let errArgs =
+                        if Array.isEmpty args then
+                            []
+                        else
+                            [ buildExpr ctx args.[0] ]
 
                     JsExpr.New(JsExpr.Identifier(repr, ValueNone), errArgs, loc)
                 | ValueNone ->
                     failwithf
                         "EmitJs (Step 8): construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
-                        className
+                        (TastAccessor.exprNewClassName e)
 
         // A member access through a LOCAL interface slot (`(r :> IRank).Rank`): the impl
         // is an ATTACHED method on the receiver's class (the plain-attached partition), so
@@ -297,25 +327,32 @@ module EmitJs =
         // `CallVia` — see `WalkCtx.LocalInterfaces`). An interface-impl PROPERTY emits as a
         // zero-arg attached method, so its read is the same member access called with no
         // args.
-        | TExprG.PropertyGet(receiver, key, _, _, _) when ctx.LocalInterfaces.Contains(JsExternalMembers.declKey key) ->
-            JsExpr.Call(attachedAccess ctx loc receiver key, [], loc)
-
-        | TExprG.MethodCall(receiver, key, _, args, _, _) when
-            ctx.LocalInterfaces.Contains(JsExternalMembers.declKey key)
+        | ExprShape.PropertyGet when
+            ctx.LocalInterfaces.Contains(JsExternalMembers.declKey (TastAccessor.exprPropertyGet e).Key)
             ->
-            JsExpr.Call(attachedAccess ctx loc receiver key, [ for a in args -> buildExpr ctx a ], loc)
+            let pg = TastAccessor.exprPropertyGet e
+            JsExpr.Call(attachedAccess ctx loc pg.Receiver pg.Key, [], loc)
+
+        | ExprShape.MethodCall when
+            ctx.LocalInterfaces.Contains(JsExternalMembers.declKey (TastAccessor.exprMethodCall e).Key)
+            ->
+            let mc = TastAccessor.exprMethodCall e
+            JsExpr.Call(attachedAccess ctx loc mc.Receiver mc.Key, [ for a in mc.Args -> buildExpr ctx a ], loc)
 
         // Member access on a local record/union: each member is a free receiver-first function.
-        | TExprG.PropertyGet(receiver, key, _, _, _) ->
-            JsExpr.Call(Members.localFn ctx key false true ValueNone, [ buildExpr ctx receiver ], loc)
+        | ExprShape.PropertyGet ->
+            let pg = TastAccessor.exprPropertyGet e
+            JsExpr.Call(Members.localFn ctx pg.Key false true ValueNone, [ buildExpr ctx pg.Receiver ], loc)
 
-        | TExprG.MethodCall(receiver, key, _, args, _, _) ->
+        | ExprShape.MethodCall ->
+            let mc = TastAccessor.exprMethodCall e
+
             let withRecv =
-                JsExpr.Call(Members.localFn ctx key false false ValueNone, [ buildExpr ctx receiver ], loc)
+                JsExpr.Call(Members.localFn ctx mc.Key false false ValueNone, [ buildExpr ctx mc.Receiver ], loc)
 
-            applyArgs ctx withRecv args
+            applyArgs ctx withRecv (EqArray.ofArray mc.Args)
 
-        | TExprG.StaticPropertyGet(key, _, _) -> Members.localFn ctx key true true loc
+        | ExprShape.StaticPropertyGet -> Members.localFn ctx (TastAccessor.exprStaticPropertyGetKey e) true true loc
 
         // An enum-case reference `E.Ci` → a property read on the frozen object map.
         // `StaticFieldGet` is the general static-field carrier (a class `static let`
@@ -324,15 +361,24 @@ module EmitJs =
         // enum arm). A non-enum key is a class `static let` backing field, stored as a
         // property on the emitted class object (`ClassName.field`) — the store analogue
         // is `StaticFieldSet`.
-        | TExprG.StaticFieldGet(enumKey, caseName, FTEnum _, _) -> enumCaseAccess ctx enumKey caseName loc
-        | TExprG.StaticFieldGet(declKey, fieldName, _, _) -> staticFieldRef ctx declKey fieldName loc
+        | ExprShape.StaticFieldGet ->
+            let sfg = TastAccessor.exprStaticFieldGet e
+
+            match TastAccessor.exprTy e with
+            | FTEnum _ -> enumCaseAccess ctx sfg.Key sfg.FieldName loc
+            | _ -> staticFieldRef ctx sfg.Key sfg.FieldName loc
 
         // `x <- v` on a `static let mutable` backing field → `(ClassName.field = v)`.
         // Unit-typed like `FieldSet`; the yielded value is unused in statement position.
-        | TExprG.StaticFieldSet(declKey, fieldName, value, _, _) ->
-            JsExpr.Assign(staticFieldRef ctx declKey fieldName loc, buildExpr ctx value, loc)
+        | ExprShape.StaticFieldSet ->
+            let sfs = TastAccessor.exprStaticFieldSet e
+            JsExpr.Assign(staticFieldRef ctx sfs.Key sfs.FieldName loc, buildExpr ctx sfs.Value, loc)
 
-        | TExprG.StaticMethodCall(key, args, _, _) -> applyArgs ctx (Members.localFn ctx key true false loc) args
+        | ExprShape.StaticMethodCall ->
+            applyArgs
+                ctx
+                (Members.localFn ctx (TastAccessor.exprStaticMethodCallKey e) true false loc)
+                (EqArray.ofArray (TastAccessor.exprChildren e))
 
         // A member on an external type. The declaring type's provider flags × the
         // receiver's presence pick the lowering — the whole dispatch in one table:
@@ -354,97 +400,104 @@ module EmitJs =
         // are folded in the `App` arm. Same convention as the `LocalInterfaces` arm above and
         // `emitIteratorMethod`: an interface property is a zero-arg method, so the read is the
         // call.
-        | CapabilityRead ctx.Capabilities ctx.Imports (recv, emit) -> emit (buildExpr ctx recv) loc
-
-        | TExprG.ExternalMember(receiver, key, memberName, storage, _, _) ->
-            let declKey = JsExternalMembers.declKey key
-            // JS has no field/property distinction at access — both are a value member
-            // (the `get_`-style mangled import); only a `Method` is an arrow. (A `Field`
-            // here would gain only `readonly` fidelity, not yet modelled.)
-            let isProperty = storage.IsValueMember
-
-            match JsExternalMembers.classFlagsOf ctx.Provider declKey, receiver with
-            | ValueSome {
-                            MemberLowering = MemberLowering.ErasedBare
-                        },
-              ValueSome _ ->
-                failwithf
-                    "EmitJs (Step 9b): erased grouping type member '%s' has an instance receiver, but a synthetic free-function-overload type carries only static members"
-                    memberName
-            | ValueSome {
-                            MemberLowering = MemberLowering.ErasedBare
-                            ImportForm = form
-                        },
-              ValueNone -> JsExternalMembers.erasedGroupingRef ctx.Provider ctx.Imports declKey memberName form loc
-            | ValueSome {
-                            MemberLowering = MemberLowering.AttachedNative
-                        },
-              ValueSome r when isProperty ->
-                // A manifest Property is a JS DATA property — native access is a plain
-                // member READ `recv.prop`, NOT a zero-arg call. (Contrast the LOCAL
-                // interface-impl property path, which emits `Call(attachedAccess, [])`
-                // because Vesper compiles interface properties as zero-arg methods; a
-                // TS property is genuinely a data slot, not a method.)
-                JsExternalMembers.attachedMember (buildExpr ctx r) memberName loc
-            | ValueSome {
-                            MemberLowering = MemberLowering.AttachedNative
-                        },
-              ValueSome r ->
-                JsExternalMembers.etaWrapAttachedMethod
-                    (buildExpr ctx)
-                    r
-                    key
-                    memberName
-                    (TastWalk.exprTok e).StartIndex
-                    loc
+        | ExprShape.ExternalMember ->
+            match e with
+            | CapabilityRead ctx.Capabilities ctx.Imports (recv, emit) -> emit (buildExpr ctx recv) loc
             | _ ->
-                JsExternalMembers.mangledMemberAccess
-                    ctx.Provider
-                    ctx.Imports
-                    (buildExpr ctx)
-                    declKey
-                    receiver
-                    memberName
-                    isProperty
-                    loc
+                let em = TastAccessor.exprExternalMember e
+                let declKey = JsExternalMembers.declKey em.Key
+                // JS has no field/property distinction at access — both are a value member
+                // (the `get_`-style mangled import); only a `Method` is an arrow. (A `Field`
+                // here would gain only `readonly` fidelity, not yet modelled.)
+                let isProperty = em.Storage.IsValueMember
+
+                match JsExternalMembers.classFlagsOf ctx.Provider declKey, em.Receiver with
+                | ValueSome {
+                                MemberLowering = MemberLowering.ErasedBare
+                            },
+                  ValueSome _ ->
+                    failwithf
+                        "EmitJs (Step 9b): erased grouping type member '%s' has an instance receiver, but a synthetic free-function-overload type carries only static members"
+                        em.MemberName
+                | ValueSome {
+                                MemberLowering = MemberLowering.ErasedBare
+                                ImportForm = form
+                            },
+                  ValueNone ->
+                    JsExternalMembers.erasedGroupingRef ctx.Provider ctx.Imports declKey em.MemberName form loc
+                | ValueSome {
+                                MemberLowering = MemberLowering.AttachedNative
+                            },
+                  ValueSome r when isProperty ->
+                    // A manifest Property is a JS DATA property — native access is a plain
+                    // member READ `recv.prop`, NOT a zero-arg call. (Contrast the LOCAL
+                    // interface-impl property path, which emits `Call(attachedAccess, [])`
+                    // because Vesper compiles interface properties as zero-arg methods; a
+                    // TS property is genuinely a data slot, not a method.)
+                    JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc
+                | ValueSome {
+                                MemberLowering = MemberLowering.AttachedNative
+                            },
+                  ValueSome r ->
+                    JsExternalMembers.etaWrapAttachedMethod
+                        (buildExpr ctx)
+                        r
+                        em.Key
+                        em.MemberName
+                        (TastWalk.exprTok e).StartIndex
+                        loc
+                | _ ->
+                    JsExternalMembers.mangledMemberAccess
+                        ctx.Provider
+                        ctx.Imports
+                        (buildExpr ctx)
+                        declKey
+                        em.Receiver
+                        em.MemberName
+                        isProperty
+                        loc
 
         // `match scrut with …` → an IIFE binding the scrutinee once, then testing each
         // arm in order and `return`ing the first whose pattern (+ guard) matches; an
         // unmatched value `throw`s. Sequential test (not `switch(tag)`) so it covers
         // guards, constants, nested patterns, and non-union scrutinees uniformly.
-        | TExprG.Match(scrutinee, arms, _, _) ->
+        | ExprShape.Match ->
+            let m = TastAccessor.exprMatch e
             let mv = "_m" + string (TastWalk.exprTok e).StartIndex
             let access = JsExpr.Identifier(mv, ValueNone)
 
             let body =
                 [
-                    for arm in arms do
+                    for arm in m.Arms do
                         yield! buildMatchArm ctx access arm
                     yield matchFailure
                 ]
 
-            JsExpr.Call(JsExpr.Arrow([ mv ], JsFnBody.Block body, loc), [ buildExpr ctx scrutinee ], loc)
+            JsExpr.Call(JsExpr.Arrow([ mv ], JsFnBody.Block body, loc), [ buildExpr ctx m.Scrutinee ], loc)
 
         // A mutable-local / array-element write `lhs <- rhs` → the JS assignment
         // expression `(lhs = rhs)`. Unit-typed in F#, so its yielded value is unused;
         // in statement position `buildStatements` wraps it as an expression statement.
-        | TExprG.Assignment(lhs, rhs, _, _) -> JsExpr.Assign(buildExpr ctx lhs, buildExpr ctx rhs, loc)
+        | ExprShape.Assignment ->
+            let a = TastAccessor.exprAssignment e
+            JsExpr.Assign(buildExpr ctx a.Lhs, buildExpr ctx a.Rhs, loc)
 
         // `while cond do body` in expression position. JS `while` is a statement, so it
         // lowers to a zero-arg IIFE `(() => { while (<cond>) { <body> } })()` that yields
         // `undefined` (the F# `unit` result). Statement position keeps the bare loop —
         // see `buildStatements`.
-        | TExprG.While(cond, body, _, _) ->
-            let loop = JsStatement.While(buildExpr ctx cond, buildStatements ctx body)
+        | ExprShape.While ->
+            let w = TastAccessor.exprWhile e
+            let loop = JsStatement.While(buildExpr ctx w.Cond, buildStatements ctx w.Body)
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block [ loop ], loc), [], loc)
 
         // `for i = a to b do body` in expression position — same IIFE wrapper as `while`;
         // `buildStatements` produces the hoisted-limit `const` + the `for` statement.
-        | TExprG.ForTo _ -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
+        | ExprShape.ForTo -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
 
         // `for x in source do body` in expression position — same IIFE wrapper as `for…to`
         // (the loop yields `unit`); `buildStatements` produces the `for…of`.
-        | TExprG.ForIn _ -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
+        | ExprShape.ForIn -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
 
         // `use x = value in body` in expression position. JS `try/finally` is a
         // statement, so it lowers to a zero-arg IIFE that parks the binder, `return`s
@@ -452,77 +505,84 @@ module EmitJs =
         // a single expression (`Sequential` becomes a comma expression, a nested `let`
         // its own IIFE), so returning `buildExpr ctx body` preserves the result through
         // the disposal in the `finally`.
-        | TExprG.Use(binding, value, body, dispose, _ty, _tok) ->
-            let name = useBinderName ctx binding
+        | ExprShape.Use ->
+            let u = TastAccessor.exprUse e
+            let name = useBinderName ctx u.Binding
 
             let tryFinally =
-                JsStatement.TryFinally([ JsStatement.Return(buildExpr ctx body) ], disposeStmts ctx dispose name)
+                JsStatement.TryFinally([ JsStatement.Return(buildExpr ctx u.Body) ], disposeStmts ctx u.Dispose name)
 
-            let block = [ JsStatement.Const(name, buildExpr ctx value); tryFinally ]
+            let block = [ JsStatement.Const(name, buildExpr ctx u.Value); tryFinally ]
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block block, loc), [], loc)
 
         // `e :> obj` (value→`obj` box, synthesised at Elaborate for an `obj` parameter/field).
         // JS is dynamically typed — every value is already a boxed `obj` — so the box is a
         // no-op; emit the source verbatim. The downcast `e :?> T` is likewise identity (no
         // runtime nominal type to check).
-        | TExprG.Upcast(source, _, _)
-        | TExprG.Downcast(source, _, _) -> buildExpr ctx source
+        | ExprShape.Upcast
+        | ExprShape.Downcast -> buildExpr ctx (TastAccessor.exprChildren e).[0]
 
         // The tokenful array intrinsics — `Array.zeroCreate` / `arr.[i]` / `arr.[i] <- v`
         // / `arr.Length`, desugared to `newarr`/`ldelem`/`stelem`/`ldlen` (the same
         // mnemonics the CLR backend reads; they are target-neutral, the element-type
         // operand is dropped on JS). They reach the backend because their inline bodies
         // live in `ops-platform.js.fs` (`array.fs`'s `zeroCreate` for `newarr`).
-        | TExprG.ILIntrinsic("newarr", _, args, _, _) ->
-            // `Array.zeroCreate count` → `Array(count).fill(null)`: a *dense* array (not
-            // the sparse `new Array(count)`), so `Object.keys` / iteration observe every
-            // slot. Unset slots read as `null`, not the element type's zero — the JS
-            // zero-init erasure corner (callers fill before reading).
-            match args with
-            | EqOne count ->
-                let alloc =
-                    JsExpr.Call(JsExpr.Identifier("Array", ValueNone), [ buildExpr ctx count ], ValueNone)
+        | ExprShape.ILIntrinsic ->
+            match TastAccessor.exprILIntrinsicOpCode e with
+            | "newarr" ->
+                // `Array.zeroCreate count` → `Array(count).fill(null)`: a *dense* array (not
+                // the sparse `new Array(count)`), so `Object.keys` / iteration observe every
+                // slot. Unset slots read as `null`, not the element type's zero — the JS
+                // zero-init erasure corner (callers fill before reading).
+                match TastAccessor.exprChildren e with
+                | [| count |] ->
+                    let alloc =
+                        JsExpr.Call(JsExpr.Identifier("Array", ValueNone), [ buildExpr ctx count ], ValueNone)
 
-                let fill =
-                    JsExpr.Member(alloc, JsExpr.Identifier("fill", ValueNone), false, ValueNone)
+                    let fill =
+                        JsExpr.Member(alloc, JsExpr.Identifier("fill", ValueNone), false, ValueNone)
 
-                JsExpr.Call(fill, [ JsExpr.Identifier("null", ValueNone) ], loc)
-            | _ -> failwith "EmitJs: 'newarr' expects one operand (the element count)"
+                    JsExpr.Call(fill, [ JsExpr.Identifier("null", ValueNone) ], loc)
+                | _ -> failwith "EmitJs: 'newarr' expects one operand (the element count)"
 
-        // `arr.[i]` → `arr[i]` (a computed member read).
-        | TExprG.ILIntrinsic("ldelem", _, args, _, _) ->
-            match args with
-            | EqTwo(arr, idx) -> JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, loc)
-            | _ -> failwith "EmitJs: 'ldelem' expects two operands (array, index)"
+            // `arr.[i]` → `arr[i]` (a computed member read).
+            | "ldelem" ->
+                match TastAccessor.exprChildren e with
+                | [| arr; idx |] -> JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, loc)
+                | _ -> failwith "EmitJs: 'ldelem' expects two operands (array, index)"
 
-        // `arr.[i] <- v` → `(arr[i] = v)` (a computed-member assignment expression).
-        | TExprG.ILIntrinsic("stelem", _, args, _, _) ->
-            match args with
-            | EqThree(arr, idx, value) ->
-                let target = JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, ValueNone)
-                JsExpr.Assign(target, buildExpr ctx value, loc)
-            | _ -> failwith "EmitJs: 'stelem' expects three operands (array, index, value)"
+            // `arr.[i] <- v` → `(arr[i] = v)` (a computed-member assignment expression).
+            | "stelem" ->
+                match TastAccessor.exprChildren e with
+                | [| arr; idx; value |] ->
+                    let target = JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, ValueNone)
+                    JsExpr.Assign(target, buildExpr ctx value, loc)
+                | _ -> failwith "EmitJs: 'stelem' expects three operands (array, index, value)"
 
-        // `arr.Length` → `arr.length`.
-        | TExprG.ILIntrinsic("ldlen", _, args, _, _) ->
-            match args with
-            | EqOne arr -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
-            | _ -> failwith "EmitJs: 'ldlen' expects one operand (the array)"
+            // `arr.Length` → `arr.length`.
+            | "ldlen" ->
+                match TastAccessor.exprChildren e with
+                | [| arr |] -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
+                | _ -> failwith "EmitJs: 'ldlen' expects one operand (the array)"
 
-        // The empty-string identity intrinsic `(# "" x : 'U #)` — FSharp.Core's
-        // erasing reinterpret (`retype`, the primitive `dynamic` enter/exit builds on).
-        // It has NO runtime effect: emit the lone operand verbatim, re-typed (the CLR
-        // emits nothing likewise). Handled before the generic `$N`-template expander,
-        // which would (correctly) reject an operand-bearing template with no hole.
-        | TExprG.ILIntrinsic("", _, args, _, _) when args.Length = 1 -> buildExpr ctx args.[0]
+            // The empty-string identity intrinsic `(# "" x : 'U #)` — FSharp.Core's
+            // erasing reinterpret (`retype`, the primitive `dynamic` enter/exit builds on).
+            // It has NO runtime effect: emit the lone operand verbatim, re-typed (the CLR
+            // emits nothing likewise). Handled before the generic `$N`-template expander,
+            // which would (correctly) reject an operand-bearing template with no hole.
+            | "" when (TastAccessor.exprChildren e).Length = 1 -> buildExpr ctx (TastAccessor.exprChildren e).[0]
 
-        | TExprG.ILIntrinsic(opCode, _, args, _, _) ->
-            JsExpr.Raw(EmitJsFormat.expandTemplate buildExpr ctx opCode (EqArray.toList args), loc)
+            | opCode ->
+                JsExpr.Raw(
+                    EmitJsFormat.expandTemplate buildExpr ctx opCode (List.ofArray (TastAccessor.exprChildren e)),
+                    loc
+                )
 
-        | TExprG.Format(sink, segments, _, _) ->
-            let arg = EmitJsFormat.buildFormatArg buildExpr ctx segments
+        | ExprShape.Format ->
+            let fv = TastAccessor.exprFormat e
+            let arg = EmitJsFormat.buildFormatArg buildExpr ctx fv.Segments
 
-            match sink with
+            match fv.Sink with
             | FormatSinkG.ToStdOut true -> JsExpr.Call(console "log", [ arg ], loc)
             | FormatSinkG.ToStdErr true -> JsExpr.Call(console "error", [ arg ], loc)
             // `sprintf` (`State = unit`, `Residue = string`): the spliced concatenation
@@ -530,7 +590,7 @@ module EmitJs =
             | FormatSinkG.ToString -> arg
             | other -> failwithf "EmitJs: unsupported format sink %A" other
 
-        | other -> failwithf "EmitJs: unsupported expression %A" other
+        | _ -> failwithf "EmitJs: unsupported expression %A" e
 
     /// Build one `match` arm's statements: when the pattern matches (and the guard,
     /// if any, passes) the arm `return`s its body. An always-matching arm
