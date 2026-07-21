@@ -306,6 +306,13 @@ module TastAccessor =
 
         acc.ToArray()
 
+    /// The constant value carried by a `Const` node. Guard with `exprKind` =
+    /// `ExprShape.Const` first; `failwith` on any other shape.
+    let exprConstValue (e: ExprId) : TConstValue =
+        match e with
+        | TExprG.Const(value = value) -> value
+        | _ -> failwith "TastAccessor.exprConstValue: not a Const node"
+
     /// The scalar payload of an `ExternalMember` node, minus the `ty`/`tok` that
     /// `exprTy`/`exprTok` already carry. `Receiver` is a payload sub-expression named
     /// by role (the member's target), not a positional `exprChildren` entry.

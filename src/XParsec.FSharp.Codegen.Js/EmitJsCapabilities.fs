@@ -176,10 +176,15 @@ module EmitJsCapabilities =
         (imports: JsImports)
         (e: Frozen.TExpr)
         : struct (Frozen.TExpr * (JsExpr -> JsLoc voption -> JsExpr)) voption =
-        match e with
-        | TExprG.ExternalMember(ValueSome recv, key, memberName, storage, _, _) when storage.IsValueMember ->
-            tryCapabilitySlot caps imports (JsExternalMembers.declKey key) memberName
-            |> ValueOption.map (fun emit -> struct (recv, emit))
+        match TastAccessor.exprKind e with
+        | ExprShape.ExternalMember ->
+            let em = TastAccessor.exprExternalMember e
+
+            match em.Receiver with
+            | ValueSome recv when em.Storage.IsValueMember ->
+                tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
+                |> ValueOption.map (fun emit -> struct (recv, emit))
+            | _ -> ValueNone
         | _ -> ValueNone
 
     /// The APPLIED form — `src.GetEnumerator()` / `e.MoveNext()` / `e.Dispose()`: an `App`
@@ -198,9 +203,16 @@ module EmitJsCapabilities =
         (spine: (Frozen.TExpr * FrozenType * SyntaxToken) list)
         (loc: JsLoc voption)
         : JsExpr voption =
-        match head, spine with
-        | TExprG.ExternalMember(ValueSome recv, key, memberName, MemberStorage.Method, _, _),
-          [ TExprG.Const(TConstValue.Unit, _, _), _, _ ] ->
-            tryCapabilitySlot caps imports (JsExternalMembers.declKey key) memberName
-            |> ValueOption.map (fun emit -> emit (build recv) loc)
+        match TastAccessor.exprKind head, spine with
+        | ExprShape.ExternalMember, [ (arg, _, _) ] when
+            TastAccessor.exprKind arg = ExprShape.Const
+            && TastAccessor.exprConstValue arg = TConstValue.Unit
+            ->
+            let em = TastAccessor.exprExternalMember head
+
+            match em.Receiver with
+            | ValueSome recv when em.Storage = MemberStorage.Method ->
+                tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
+                |> ValueOption.map (fun emit -> emit (build recv) loc)
+            | _ -> ValueNone
         | _ -> ValueNone
