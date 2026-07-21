@@ -15,24 +15,27 @@ open XParsec.FSharp.Parser
 // the DU trees — `toPools`/`ofPools` round-trip a `Frozen.TastFile` — proven over the
 // corpus.
 //
-// Layout decision (the one load-bearing one): an entry is the *tag column* (`Shape`)
-// plus the *dense child-id columns* (`ExprChildren` / `PatChildren`) plus a reference
-// to the verbatim source DU node. Only the tree CHILD EDGES are turned into ids; the
-// heterogeneous non-child payload (keys, strings, `FrozenType`, tokens, `NodeKey`
-// references) is NOT re-listed here — it rides on the retained `Node`, exactly as the
-// DU holds it. This is the "array of id-records" reading of the plan's fixed-width
-// id-records: O(1) id-indexable, and it reuses the accessor's child enumeration
-// (`TastAccessor.exprChildren`/`exprPatChildren`/`patChildren`) for the forward
-// direction rather than re-deriving the tree spine or the ~38-case field inventory
-// that `Tast.fs`/`FrozenCodec` already own. `ofPools` rebuilds each node from that
-// same node as the STRUCTURAL TEMPLATE (its scalars + its composite-carrier shape —
-// which arm carries a guard, which hole is starred) with the child SUBTREES supplied
-// by the pool ids, so the reconstruction genuinely exercises the child columns. The
-// uniform fields (`Shape`, and `ty`/`tok` reachable off `Node`) are kept out on the
-// entry rather than buried, so the later columnar-SoA split can pull dense columns out
-// without disturbing this shape. Child columns are filled in the accessor's
-// enumeration order, and `ofPools` consumes them in that same order — the coupling the
-// round-trip test guards.
+// Layout: the EXPRESSION pool is struct-of-arrays — parallel dense columns indexed by
+// `ExprPoolId` (`ExprShapes`/`ExprTys`/`ExprToks`, the child-id columns
+// `ExprChildren`/`ExprPatChildren`, the sparse `ExprVarBinder`) plus `ExprPayloads`, a
+// typed side array carrying ONLY each node's residual scalars — its fields MINUS the
+// `ty`/`tok`, the child expr/pat ids, and the `Var` binder id, all of which live in the
+// columns. So the expr pool holds NO DU node: the whole `TExprG` subtree dissolves into
+// columns, which is the point — a retained node drags its entire nested body along with
+// it, so freeze could never stop materializing the DU. The pat and decl pools still
+// retain their `Node` (a later slice extracts them); an expr's `ExprPatChildren` still
+// reference that Node-backed pat pool, which is fine while the domains stage separately.
+//
+// A payload case that is a COMPOSITE carrier (`Match`/`TryWith` arms, `Format`
+// segments, `StaticOptimization` clauses, `Range` step, `RecordCons`/`RecordClone`
+// fields, `ExternalMember` receiver) records just enough STRUCTURE — per-arm guard
+// flags, per-segment kind, per-clause constraints, presence flags — to redistribute the
+// FLAT child columns back into their nested shape, since the node that once held that
+// shape is gone. Both directions reuse the accessor's child enumeration
+// (`TastAccessor.exprChildren`/`exprPatChildren`) and consume it in that same order —
+// the coupling the round-trip test guards — rather than re-deriving the tree spine. The
+// `ExprPayloads` build (`exprPayload`) and consume (`substituteExpr`) are inverse
+// per-case matches, each exhaustive so a new `TExprG`/`ExprShape` case fails to compile.
 //
 // Identity, too, goes positional: a binder's identity after freeze IS its slot in a
 // dedicated `Binders` column, not its 64-bit content key. Every distinct NodeKey a
@@ -67,25 +70,139 @@ type DeclPoolId = | DeclPoolId of int
 [<Struct>]
 type BinderId = | BinderId of int
 
-/// One expression pool entry. `ExprChildren` are the ids of the immediate child
-/// expressions in `TastAccessor.exprChildren` order; `PatChildren` the ids of the
-/// patterns this node owns (`TastAccessor.exprPatChildren` order). `Node` is the
-/// verbatim source DU node — the payload/`ty`/`tok`/composite-shape template that the
-/// backing flip later dissolves into dense columns.
-[<Struct>]
-type ExprPoolEntry =
-    {
-        Shape: ExprShape
-        ExprChildren: ExprPoolId[]
-        PatChildren: PatPoolId[]
-        /// For a `Var` node, the dense id of the binder its `binding` NodeKey names —
-        /// the reference edge routed to positional identity. `ValueNone` for every
-        /// other shape (which carry no binder reference). `ofPools` reconstructs
-        /// `Var.binding` from THIS, not from the retained `Node`, so the round-trip
-        /// exercises the remap rather than copying the content key back verbatim.
-        VarBinder: BinderId voption
-        Node: Frozen.TExpr
-    }
+/// The residual, EXPRESSION-FREE shape of a `Format` node's sink — its kind plus the
+/// non-expr data (`ToWriter`/`ToStdOut`/`ToStdErr`'s trailing-newline flag). The sink's
+/// own sub-expression (`ToWriter`'s writer, `ToBuilder`'s builder) rides `ExprChildren`
+/// ahead of the segment children, so it is NOT re-listed here.
+[<RequireQualifiedAccess>]
+type FormatSinkShape =
+    | ToStdOut of newline: bool
+    | ToStdErr of newline: bool
+    | ToWriter of newline: bool
+    | ToBuilder
+    | ToString
+
+/// The residual, EXPRESSION-FREE shape of one `Format` segment — its kind plus non-expr
+/// data (a `Lit`'s text; a hole's `HoleSpec`, itself a leaf carrying no sub-expression;
+/// a `DynHole`'s width/precision presence flags). Every sub-expression a segment holds
+/// (a hole's value, a dyn-hole's width/precision/value, a callback's residue) rides
+/// `ExprChildren` in `exprChildren` order; the presence flags re-nest it.
+[<RequireQualifiedAccess>]
+type FormatSegShape =
+    | Lit of string
+    | Hole of Frozen.HoleSpec
+    | DynHole of hasWidth: bool * hasPrecision: bool * spec: Frozen.HoleSpec
+    | CallbackHole of Frozen.HoleSpec
+
+/// The residual payload of a frozen expression node — one case per `ExprShape`, carrying
+/// ONLY the fields left after the columnar split drops `ty`/`tok` (the `ExprTys`/`ExprToks`
+/// columns), the child expr ids (`ExprChildren`), the owned pat ids (`ExprPatChildren`),
+/// and the `Var` binder id (`ExprVarBinder`). Mirrors `FrozenCodec.writeExpr` for what each
+/// case carries beyond those. A composite carrier (`Match`/`TryWith`/`Range`/`RecordCons`/
+/// `RecordClone`/`Format`/`StaticOptimization`/`ExternalMember`) additionally records the
+/// STRUCTURE needed to redistribute the flat child columns back into their nested shape.
+/// Exhaustive: a new `TExprG` case fails to compile at `exprPayload`/`substituteExpr`.
+[<RequireQualifiedAccess>]
+type ExprPayload =
+    | Const of TConstValue
+    | Var
+    | External of
+        {|
+            CompiledName: string
+            Key: SymbolKey voption
+        |}
+    | Lambda
+    | App
+    | Let
+    | Use of Disposal
+    | IfThenElse
+    | Tuple
+    | Sequential
+    | While
+    /// The loop binder + its `identTok` (neither the node's `tok` nor a `Var`-column
+    /// binder — the `var` names its own binder, which is interned so references resolve).
+    | ForTo of
+        {|
+            Var: NodeKey
+            IdentTok: SyntaxToken
+        |}
+    | ForIn of Frozen.ForInEnumerator
+    /// One flag per arm: whether the arm carries a guard. The scrutinee is the first
+    /// child; each arm's guard (when present) and body follow in `exprChildren` order,
+    /// its pat in `exprPatChildren` order. Arm count is the array length.
+    | Match of guardPresent: bool[]
+    /// As `Match`, but the guarded body is the first child (no scrutinee).
+    | TryWith of guardPresent: bool[]
+    | TryFinally
+    | Assignment
+    | Null
+    /// Whether the optional `step` is present (start is the first child, stop the last).
+    | Range of hasStep: bool
+    /// The field names, in source order; the values are the child expressions.
+    | RecordCons of fieldNames: string[]
+    /// The override field names, in source order; the source is the first child and each
+    /// override value follows.
+    | RecordClone of overrideNames: string[]
+    | FieldGet of fieldName: string
+    | FieldSet of fieldName: string
+    | UnionCons of caseName: string
+    | New of
+        {|
+            ClassName: string
+            Key: SymbolKey voption
+        |}
+    | MethodCall of
+        {|
+            Key: SymbolKey
+            Via: CallVia<FrozenType>
+        |}
+    | PropertyGet of
+        {|
+            Key: SymbolKey
+            Via: CallVia<FrozenType>
+        |}
+    | StaticMethodCall of SymbolKey
+    | StaticPropertyGet of SymbolKey
+    | StaticFieldGet of
+        {|
+            DeclKey: SymbolKey
+            FieldName: string
+        |}
+    | StaticFieldSet of
+        {|
+            DeclKey: SymbolKey
+            FieldName: string
+        |}
+    | ExternalMember of
+        {|
+            HasReceiver: bool
+            Key: SymbolKey
+            MemberName: string
+            Storage: MemberStorage
+        |}
+    | Format of
+        {|
+            Sink: FormatSinkShape
+            Segments: FormatSegShape[]
+        |}
+    | ILIntrinsic of
+        {|
+            OpCode: string
+            TypeOperand: FrozenType voption
+        |}
+    /// The per-clause constraints, in source order; each clause's body is a child and the
+    /// `defaultExpr` is the last child. Clause count is the array length.
+    | StaticOptimization of clauseConstraints: EqArray<Frozen.TStaticOptConstraint>[]
+    | Upcast
+    | Downcast
+    | TypeTest of testTy: FrozenType
+    /// The receiver TYPE (a `FrozenType`, not a sub-expression) + member name; the args
+    /// are the child expressions.
+    | TraitCall of
+        {|
+            Receiver: FrozenType
+            MemberName: string
+        |}
 
 /// One pattern pool entry. `PatChildren` are the ids of the immediate sub-patterns
 /// (`TastAccessor.patChildren` order); patterns own no child expressions. `Node` is
@@ -140,9 +257,9 @@ type DeclPoolEntry =
     }
 
 /// The frozen-only companion `Freeze` produces alongside the `Frozen.TastFile` DU: the
-/// three dense node columns (indexable by the matching `*PoolId`) and the decl roots
-/// the file's `Decls` pooled to, in source order. Kept OFF `TastFileG` — that record is
-/// shared with the `SemType` instantiation, which has no pools.
+/// expr struct-of-arrays columns plus the pat/decl node columns (indexable by the matching
+/// `*PoolId`) and the decl roots the file's `Decls` pooled to, in source order. Kept OFF
+/// `TastFileG` — that record is shared with the `SemType` instantiation, which has no pools.
 ///
 /// `File` retains the source file VERBATIM as the carrier for everything the tree pools
 /// do not (yet) hold — the side tables, `InlineBodies`, diagnostics. Its `Decls` are
@@ -159,7 +276,21 @@ type DeclPoolEntry =
 /// every referenced binder rather than trivially copying `File`'s maps.
 type FrozenPools =
     {
-        Exprs: ExprPoolEntry[]
+        /// The expression pool as struct-of-arrays: these columns are parallel, each
+        /// indexed by `ExprPoolId`. `ExprShapes` is the tag column; `ExprTys`/`ExprToks`
+        /// the node's `ty`/`tok`; `ExprChildren` the immediate child-expr ids in
+        /// `TastAccessor.exprChildren` order; `ExprPatChildren` the owned pat ids in
+        /// `TastAccessor.exprPatChildren` order; `ExprVarBinder` the `Var` reference id
+        /// (`ValueSome` only at a `Var`); `ExprPayloads` the residual per-case payload.
+        /// No DU node is retained — the columns are Node-sufficient, which the round-trip
+        /// gate proves.
+        ExprShapes: ExprShape[]
+        ExprTys: FrozenType[]
+        ExprToks: SyntaxToken[]
+        ExprChildren: ExprPoolId[][]
+        ExprPatChildren: PatPoolId[][]
+        ExprVarBinder: BinderId voption[]
+        ExprPayloads: ExprPayload[]
         Pats: PatPoolEntry[]
         Decls: DeclPoolEntry[]
         /// The pool ids of `File.Decls`, in source order — the entry points for a pool
@@ -181,7 +312,8 @@ type FrozenPools =
         /// `TastWalk.lambdaKey`, kind `ExprLambda`) rather than a binder, so it is re-keyed
         /// onto the lambda id space — a lambda's dense id IS its `ExprPoolId` (positional:
         /// every `Lambda` expr is already pooled), off the binder pool. `ofPools` inverts
-        /// through `TastWalk.lambdaKey` on the pooled `Lambda` node.
+        /// by recomputing that key from the lambda's `ExprToks` column (the same
+        /// `NodeKey.ofToken … ExprLambda` `TastWalk.lambdaKey` computes), the Node now gone.
         FunVerdicts: (ExprPoolId * FunVerdict)[]
         GenericFnSchemes: (BinderId * FrozenConstraint list)[]
         BindingValReprs: (BinderId * Frozen.ValRepr)[]
@@ -191,13 +323,130 @@ type FrozenPools =
 [<RequireQualifiedAccess>]
 module TastPools =
 
+    /// The residual payload of a frozen expression node — its fields MINUS `ty`/`tok`, the
+    /// child expr ids (`exprChildren`), the owned pat ids (`exprPatChildren`), and the `Var`
+    /// binder id. The exact inverse of `substituteExpr`, mirroring `FrozenCodec.writeExpr`
+    /// for what each case emits beyond those. Exhaustive on the DU with no catch-all, so a
+    /// new `TExprG` case fails to compile here.
+    let private exprPayload (e: Frozen.TExpr) : ExprPayload =
+        match e with
+        | TExprG.Const(value = value) -> ExprPayload.Const value
+        | TExprG.Var _ -> ExprPayload.Var
+        | TExprG.External(compiledName = compiledName; key = key) ->
+            ExprPayload.External
+                {|
+                    CompiledName = compiledName
+                    Key = key
+                |}
+        | TExprG.Lambda _ -> ExprPayload.Lambda
+        | TExprG.App _ -> ExprPayload.App
+        | TExprG.Let _ -> ExprPayload.Let
+        | TExprG.Use(dispose = dispose) -> ExprPayload.Use dispose
+        | TExprG.IfThenElse _ -> ExprPayload.IfThenElse
+        | TExprG.Tuple _ -> ExprPayload.Tuple
+        | TExprG.Sequential _ -> ExprPayload.Sequential
+        | TExprG.While _ -> ExprPayload.While
+        | TExprG.ForTo(var = var; identTok = identTok) -> ExprPayload.ForTo {| Var = var; IdentTok = identTok |}
+        | TExprG.ForIn(enumerator = enumerator) -> ExprPayload.ForIn enumerator
+        | TExprG.Match(arms = arms) ->
+            ExprPayload.Match(arms |> EqArray.toArray |> Array.map (fun arm -> arm.Guard.IsSome))
+        | TExprG.TryWith(arms = arms) ->
+            ExprPayload.TryWith(arms |> EqArray.toArray |> Array.map (fun arm -> arm.Guard.IsSome))
+        | TExprG.TryFinally _ -> ExprPayload.TryFinally
+        | TExprG.Assignment _ -> ExprPayload.Assignment
+        | TExprG.Null _ -> ExprPayload.Null
+        | TExprG.Range(step = step) -> ExprPayload.Range step.IsSome
+        | TExprG.RecordCons(fields = fields) -> ExprPayload.RecordCons(fields |> EqArray.toArray |> Array.map fst)
+        | TExprG.RecordClone(overrides = overrides) ->
+            ExprPayload.RecordClone(overrides |> EqArray.toArray |> Array.map fst)
+        | TExprG.FieldGet(fieldName = fieldName) -> ExprPayload.FieldGet fieldName
+        | TExprG.FieldSet(fieldName = fieldName) -> ExprPayload.FieldSet fieldName
+        | TExprG.UnionCons(caseName = caseName) -> ExprPayload.UnionCons caseName
+        | TExprG.New(className = className; key = key) -> ExprPayload.New {| ClassName = className; Key = key |}
+        | TExprG.MethodCall(key = key; via = via) -> ExprPayload.MethodCall {| Key = key; Via = via |}
+        | TExprG.PropertyGet(key = key; via = via) -> ExprPayload.PropertyGet {| Key = key; Via = via |}
+        | TExprG.StaticMethodCall(key = key) -> ExprPayload.StaticMethodCall key
+        | TExprG.StaticPropertyGet(key = key) -> ExprPayload.StaticPropertyGet key
+        | TExprG.StaticFieldGet(declKey = declKey; fieldName = fieldName) ->
+            ExprPayload.StaticFieldGet
+                {|
+                    DeclKey = declKey
+                    FieldName = fieldName
+                |}
+        | TExprG.StaticFieldSet(declKey = declKey; fieldName = fieldName) ->
+            ExprPayload.StaticFieldSet
+                {|
+                    DeclKey = declKey
+                    FieldName = fieldName
+                |}
+        | TExprG.ExternalMember(receiver = receiver; key = key; memberName = memberName; storage = storage) ->
+            ExprPayload.ExternalMember
+                {|
+                    HasReceiver = receiver.IsSome
+                    Key = key
+                    MemberName = memberName
+                    Storage = storage
+                |}
+        | TExprG.Format(sink = sink; segments = segments) ->
+            let sink' =
+                match sink with
+                | FormatSinkG.ToStdOut newline -> FormatSinkShape.ToStdOut newline
+                | FormatSinkG.ToStdErr newline -> FormatSinkShape.ToStdErr newline
+                | FormatSinkG.ToWriter(newline = newline) -> FormatSinkShape.ToWriter newline
+                | FormatSinkG.ToBuilder _ -> FormatSinkShape.ToBuilder
+                | FormatSinkG.ToString -> FormatSinkShape.ToString
+
+            let segments' =
+                segments
+                |> EqArray.toArray
+                |> Array.map (fun seg ->
+                    match seg with
+                    | FormatSegG.Lit s -> FormatSegShape.Lit s
+                    | FormatSegG.Hole(spec, _) -> FormatSegShape.Hole spec
+                    | FormatSegG.DynHole hole ->
+                        FormatSegShape.DynHole(hole.Width.IsSome, hole.Precision.IsSome, hole.Spec)
+                    | FormatSegG.CallbackHole(spec, _) -> FormatSegShape.CallbackHole spec
+                )
+
+            ExprPayload.Format {| Sink = sink'; Segments = segments' |}
+        | TExprG.ILIntrinsic(opCode = opCode; typeOperand = typeOperand) ->
+            ExprPayload.ILIntrinsic
+                {|
+                    OpCode = opCode
+                    TypeOperand = typeOperand
+                |}
+        | TExprG.StaticOptimization(clauses = clauses) ->
+            ExprPayload.StaticOptimization(clauses |> EqArray.toArray |> Array.map (fun clause -> clause.Constraints))
+        | TExprG.Upcast _ -> ExprPayload.Upcast
+        | TExprG.Downcast _ -> ExprPayload.Downcast
+        | TExprG.TypeTest(testTy = testTy) -> ExprPayload.TypeTest testTy
+        | TExprG.TraitCall(receiver = receiver; memberName = memberName) ->
+            ExprPayload.TraitCall
+                {|
+                    Receiver = receiver
+                    MemberName = memberName
+                |}
+
     /// Pool the frozen tree of `file.Decls`, assigning each reachable node a dense id
     /// and recording its child edges as ids. Post-order: a node's children are pooled
     /// (and so given lower ids) before the node itself is recorded, so every child id a
     /// column names already resolves. The child enumeration is the accessor's — no
     /// tree-shape knowledge is duplicated here.
     let toPools (file: Frozen.TastFile) : FrozenPools =
-        let exprs = ResizeArray<ExprPoolEntry>()
+        // The expression pool as parallel column builders (struct-of-arrays); all are
+        // appended together per node so they stay index-aligned by `ExprPoolId`.
+        let exprShapes = ResizeArray<ExprShape>()
+        let exprTys = ResizeArray<FrozenType>()
+        let exprToks = ResizeArray<SyntaxToken>()
+        let exprChildrenCol = ResizeArray<ExprPoolId[]>()
+        let exprPatChildrenCol = ResizeArray<PatPoolId[]>()
+        let exprPayloads = ResizeArray<ExprPayload>()
+
+        // Each `Var`'s expr id + its binding NodeKey, captured in pass 1 and resolved to a
+        // `BinderId` in pass 2 — a `Var` may name a binder pooled after it (a forward /
+        // mutually-recursive reference), so the enumeration must complete first.
+        let varBindings = ResizeArray<struct (int * NodeKey)>()
+
         let pats = ResizeArray<PatPoolEntry>()
         let decls = ResizeArray<DeclPoolEntry>()
 
@@ -259,23 +508,20 @@ module TastPools =
 
             let exprKids = TastAccessor.exprChildren e |> Array.map poolExpr
             let patKids = TastAccessor.exprPatChildren e |> Array.map poolPat
-            let id = exprs.Count
+            let id = exprShapes.Count
 
-            exprs.Add
-                {
-                    Shape = TastAccessor.exprKind e
-                    ExprChildren = exprKids
-                    PatChildren = patKids
-                    // Resolved in a second pass — a `Var` may name a binder pooled after
-                    // it (a forward/mutually-recursive reference), so the enumeration must
-                    // be complete before any reference resolves.
-                    VarBinder = ValueNone
-                    Node = e
-                }
+            exprShapes.Add(TastAccessor.exprKind e)
+            exprTys.Add(TastAccessor.exprTy e)
+            exprToks.Add(TastAccessor.exprTok e)
+            exprChildrenCol.Add exprKids
+            exprPatChildrenCol.Add patKids
+            exprPayloads.Add(exprPayload e)
 
-            // A lambda's positional identity is this very slot; stamp the map so
-            // `FunVerdicts` (lambda-expression-keyed) resolves onto it.
+            // A `Var`'s binder reference resolves in pass 2 (see `varBindings`); a lambda's
+            // positional identity is this very slot, stamped so `FunVerdicts`
+            // (lambda-expression-keyed) resolves onto it.
             match TastAccessor.exprKind e with
+            | ExprShape.Var -> varBindings.Add(struct (id, TastAccessor.exprVarBinding e))
             | ExprShape.Lambda -> lambdaIds.[TastWalk.lambdaKey e] <- ExprPoolId id
             | _ -> ()
 
@@ -321,17 +567,12 @@ module TastPools =
             | false, _ -> failwithf "TastPools.toPools: FunVerdicts key %O names no pooled lambda" k
 
         // Second pass: now the enumeration is complete, route each `Var`'s reference edge
-        // to its binder's dense id.
-        let exprArr =
-            exprs.ToArray()
-            |> Array.map (fun entry ->
-                match entry.Shape with
-                | ExprShape.Var ->
-                    { entry with
-                        VarBinder = ValueSome(binderIdOf (TastAccessor.exprVarBinding entry.Node))
-                    }
-                | _ -> entry
-            )
+        // to its binder's dense id — the sparse `ExprVarBinder` column (`ValueNone` at
+        // every non-`Var` slot).
+        let exprVarBinder: BinderId voption[] = Array.create exprShapes.Count ValueNone
+
+        for (struct (id, key)) in varBindings do
+            exprVarBinder.[id] <- ValueSome(binderIdOf key)
 
         // One generic remap over the side tables, parameterized by the key resolver: the
         // binder-keyed tables pass `binderIdOf`, `FunVerdicts` passes `lambdaIdOf`. A second
@@ -340,7 +581,13 @@ module TastPools =
             m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 
         {
-            Exprs = exprArr
+            ExprShapes = exprShapes.ToArray()
+            ExprTys = exprTys.ToArray()
+            ExprToks = exprToks.ToArray()
+            ExprChildren = exprChildrenCol.ToArray()
+            ExprPatChildren = exprPatChildrenCol.ToArray()
+            ExprVarBinder = exprVarBinder
+            ExprPayloads = exprPayloads.ToArray()
             Pats = pats.ToArray()
             Decls = decls.ToArray()
             Roots = roots
@@ -357,17 +604,20 @@ module TastPools =
 
     // ── the inverse: rebuild the DU trees from the pools ────────────────────
     //
-    // Each `substitute*` takes the pool entry's `Node` as the structural template and
-    // the ALREADY-REBUILT child subtrees, and re-authors the node with the template's
-    // scalars and the supplied children. The children are consumed in the exact order
-    // `TastAccessor.exprChildren`/`exprPatChildren`/`patChildren` enumerated them
-    // (`nextE`/`nextP` are order cursors) — the one coupling the round-trip gate proves.
-    // Each match is exhaustive with no catch-all, so a new `TExprG`/`TPatG`/`TDeclG`
-    // case fails to compile here.
+    // `substituteExpr` re-authors a node from its columns — `ty`/`tok`, the resolved
+    // `Var` binder, the `ExprPayload` residual scalars/structure — and the ALREADY-REBUILT
+    // child subtrees, with NO template node (the expr pool holds none). The children are
+    // consumed in the exact order `TastAccessor.exprChildren`/`exprPatChildren` enumerated
+    // them (`nextE`/`nextP` are order cursors) — the one coupling the round-trip gate
+    // proves. The match on `ExprPayload` is exhaustive with no catch-all (the inverse of
+    // `exprPayload`), so a new shape fails to compile here. `substitutePat`/`substituteDecl`
+    // still take a template `Node` — the pat and decl pools retain theirs this pass.
 
     let private substituteExpr
-        (node: Frozen.TExpr)
+        (ty: FrozenType)
+        (tok: SyntaxToken)
         (varBinding: NodeKey voption)
+        (payload: ExprPayload)
         (es: Frozen.TExpr[])
         (ps: Frozen.TPat[])
         : Frozen.TExpr =
@@ -384,71 +634,64 @@ module TastPools =
             pi <- pi + 1
             x
 
-        match node with
-        // `binding` is re-supplied from the dense id, NOT read off the template `node`:
-        // that is what makes the round-trip exercise the reference remap.
-        | TExprG.Var(ty = ty; tok = tok) ->
+        match payload with
+        // `binding` is supplied from the dense id, so the round-trip exercises the remap.
+        | ExprPayload.Var ->
             match varBinding with
             | ValueSome k -> TExprG.Var(k, ty, tok)
             | ValueNone -> failwith "TastPools.ofPools: a Var entry carries no resolved binder id"
-        | TExprG.Const _
-        | TExprG.External _
-        | TExprG.Null _
-        | TExprG.StaticPropertyGet _
-        | TExprG.StaticFieldGet _ -> node
-        | TExprG.Lambda(_, _, ty, tok) ->
+        | ExprPayload.Const value -> TExprG.Const(value, ty, tok)
+        | ExprPayload.External p -> TExprG.External(p.CompiledName, p.Key, ty, tok)
+        | ExprPayload.Null -> TExprG.Null(ty, tok)
+        | ExprPayload.StaticPropertyGet key -> TExprG.StaticPropertyGet(key, ty, tok)
+        | ExprPayload.StaticFieldGet p -> TExprG.StaticFieldGet(p.DeclKey, p.FieldName, ty, tok)
+        | ExprPayload.Lambda ->
             let param = nextP ()
             let body = nextE ()
             TExprG.Lambda(param, body, ty, tok)
-        | TExprG.App(_, _, ty, tok) ->
+        | ExprPayload.App ->
             let fn = nextE ()
             let arg = nextE ()
             TExprG.App(fn, arg, ty, tok)
-        | TExprG.Let(_, _, _, ty, tok) ->
+        | ExprPayload.Let ->
             let binding = nextP ()
             let value = nextE ()
             let body = nextE ()
             TExprG.Let(binding, value, body, ty, tok)
-        | TExprG.Use(_, _, _, dispose, ty, tok) ->
+        | ExprPayload.Use dispose ->
             let binding = nextP ()
             let value = nextE ()
             let body = nextE ()
             TExprG.Use(binding, value, body, dispose, ty, tok)
-        | TExprG.IfThenElse(_, _, _, ty, tok) ->
+        | ExprPayload.IfThenElse ->
             let cond = nextE ()
             let thenExpr = nextE ()
             let elseExpr = nextE ()
             TExprG.IfThenElse(cond, thenExpr, elseExpr, ty, tok)
-        | TExprG.Tuple(_, ty, tok) -> TExprG.Tuple(EqArray.ofArray es, ty, tok)
-        | TExprG.Sequential(_, ty, tok) -> TExprG.Sequential(EqArray.ofArray es, ty, tok)
-        | TExprG.While(_, _, ty, tok) ->
+        | ExprPayload.Tuple -> TExprG.Tuple(EqArray.ofArray es, ty, tok)
+        | ExprPayload.Sequential -> TExprG.Sequential(EqArray.ofArray es, ty, tok)
+        | ExprPayload.While ->
             let cond = nextE ()
             let body = nextE ()
             TExprG.While(cond, body, ty, tok)
-        | TExprG.ForTo(var, identTok, _, _, _, ty, tok) ->
+        | ExprPayload.ForTo p ->
             let startExpr = nextE ()
             let endExpr = nextE ()
             let body = nextE ()
-            TExprG.ForTo(var, identTok, startExpr, endExpr, body, ty, tok)
-        | TExprG.ForIn(_, _, _, enumerator, ty, tok) ->
+            TExprG.ForTo(p.Var, p.IdentTok, startExpr, endExpr, body, ty, tok)
+        | ExprPayload.ForIn enumerator ->
             let pat = nextP ()
             let source = nextE ()
             let body = nextE ()
             TExprG.ForIn(pat, source, body, enumerator, ty, tok)
-        | TExprG.Match(_, arms, ty, tok) ->
+        | ExprPayload.Match guardPresent ->
             let scrutinee = nextE ()
 
             let arms' =
-                arms
-                |> EqArray.toArray
-                |> Array.map (fun arm ->
+                guardPresent
+                |> Array.map (fun hasGuard ->
                     let pat = nextP ()
-
-                    let guard =
-                        match arm.Guard with
-                        | Some _ -> Some(nextE ())
-                        | None -> None
-
+                    let guard = if hasGuard then Some(nextE ()) else None
                     let body = nextE ()
 
                     {
@@ -460,20 +703,14 @@ module TastPools =
                 |> EqArray.ofArray
 
             TExprG.Match(scrutinee, arms', ty, tok)
-        | TExprG.TryWith(_, arms, ty, tok) ->
+        | ExprPayload.TryWith guardPresent ->
             let body = nextE ()
 
             let arms' =
-                arms
-                |> EqArray.toArray
-                |> Array.map (fun arm ->
+                guardPresent
+                |> Array.map (fun hasGuard ->
                     let pat = nextP ()
-
-                    let guard =
-                        match arm.Guard with
-                        | Some _ -> Some(nextE ())
-                        | None -> None
-
+                    let guard = if hasGuard then Some(nextE ()) else None
                     let armBody = nextE ()
 
                     {
@@ -485,128 +722,109 @@ module TastPools =
                 |> EqArray.ofArray
 
             TExprG.TryWith(body, arms', ty, tok)
-        | TExprG.TryFinally(_, _, ty, tok) ->
+        | ExprPayload.TryFinally ->
             let body = nextE ()
             let cleanup = nextE ()
             TExprG.TryFinally(body, cleanup, ty, tok)
-        | TExprG.Assignment(_, _, ty, tok) ->
+        | ExprPayload.Assignment ->
             let lhs = nextE ()
             let rhs = nextE ()
             TExprG.Assignment(lhs, rhs, ty, tok)
-        | TExprG.Range(_, step, _, ty, tok) ->
+        | ExprPayload.Range hasStep ->
             let startExpr = nextE ()
-
-            let step' =
-                match step with
-                | Some _ -> Some(nextE ())
-                | None -> None
-
+            let step' = if hasStep then Some(nextE ()) else None
             let stopExpr = nextE ()
             TExprG.Range(startExpr, step', stopExpr, ty, tok)
-        | TExprG.RecordCons(fields, ty, tok) ->
+        | ExprPayload.RecordCons fieldNames ->
             let fields' =
-                fields
-                |> EqArray.toArray
-                |> Array.map (fun (name, _) -> (name, nextE ()))
-                |> EqArray.ofArray
+                fieldNames |> Array.map (fun name -> (name, nextE ())) |> EqArray.ofArray
 
             TExprG.RecordCons(fields', ty, tok)
-        | TExprG.RecordClone(_, overrides, ty, tok) ->
+        | ExprPayload.RecordClone overrideNames ->
             let source = nextE ()
 
             let overrides' =
-                overrides
-                |> EqArray.toArray
-                |> Array.map (fun (name, _) -> (name, nextE ()))
-                |> EqArray.ofArray
+                overrideNames |> Array.map (fun name -> (name, nextE ())) |> EqArray.ofArray
 
             TExprG.RecordClone(source, overrides', ty, tok)
-        | TExprG.FieldGet(_, fieldName, ty, tok) ->
+        | ExprPayload.FieldGet fieldName ->
             let receiver = nextE ()
             TExprG.FieldGet(receiver, fieldName, ty, tok)
-        | TExprG.FieldSet(_, fieldName, _, ty, tok) ->
+        | ExprPayload.FieldSet fieldName ->
             let receiver = nextE ()
             let value = nextE ()
             TExprG.FieldSet(receiver, fieldName, value, ty, tok)
-        | TExprG.UnionCons(caseName, _, ty, tok) -> TExprG.UnionCons(caseName, EqArray.ofArray es, ty, tok)
-        | TExprG.New(className, key, _, ty, tok) -> TExprG.New(className, key, EqArray.ofArray es, ty, tok)
-        | TExprG.MethodCall(_, key, via, _, ty, tok) ->
+        | ExprPayload.UnionCons caseName -> TExprG.UnionCons(caseName, EqArray.ofArray es, ty, tok)
+        | ExprPayload.New p -> TExprG.New(p.ClassName, p.Key, EqArray.ofArray es, ty, tok)
+        | ExprPayload.MethodCall p ->
             let receiver = nextE ()
             // The remaining `es` (after the receiver) are exactly the args, in order.
             let args = es.[ei..] |> EqArray.ofArray
-            TExprG.MethodCall(receiver, key, via, args, ty, tok)
-        | TExprG.PropertyGet(_, key, via, ty, tok) ->
+            TExprG.MethodCall(receiver, p.Key, p.Via, args, ty, tok)
+        | ExprPayload.PropertyGet p ->
             let receiver = nextE ()
-            TExprG.PropertyGet(receiver, key, via, ty, tok)
-        | TExprG.StaticMethodCall(key, _, ty, tok) -> TExprG.StaticMethodCall(key, EqArray.ofArray es, ty, tok)
-        | TExprG.StaticFieldSet(declKey, fieldName, _, ty, tok) ->
+            TExprG.PropertyGet(receiver, p.Key, p.Via, ty, tok)
+        | ExprPayload.StaticMethodCall key -> TExprG.StaticMethodCall(key, EqArray.ofArray es, ty, tok)
+        | ExprPayload.StaticFieldSet p ->
             let value = nextE ()
-            TExprG.StaticFieldSet(declKey, fieldName, value, ty, tok)
-        | TExprG.ExternalMember(receiver, key, memberName, storage, ty, tok) ->
-            let receiver' =
-                match receiver with
-                | ValueSome _ -> ValueSome(nextE ())
-                | ValueNone -> ValueNone
-
-            TExprG.ExternalMember(receiver', key, memberName, storage, ty, tok)
-        | TExprG.Format(sink, segments, ty, tok) ->
+            TExprG.StaticFieldSet(p.DeclKey, p.FieldName, value, ty, tok)
+        | ExprPayload.ExternalMember p ->
+            let receiver' = if p.HasReceiver then ValueSome(nextE ()) else ValueNone
+            TExprG.ExternalMember(receiver', p.Key, p.MemberName, p.Storage, ty, tok)
+        | ExprPayload.Format p ->
+            // The sink child (writer / builder) is consumed BEFORE the segment children —
+            // the order `exprChildren` yields, which the segment loop then continues.
             let sink' =
-                match sink with
-                | FormatSinkG.ToWriter(_, newline) -> FormatSinkG.ToWriter(nextE (), newline)
-                | FormatSinkG.ToBuilder _ -> FormatSinkG.ToBuilder(nextE ())
-                | FormatSinkG.ToStdOut _
-                | FormatSinkG.ToStdErr _
-                | FormatSinkG.ToString -> sink
+                match p.Sink with
+                | FormatSinkShape.ToWriter newline -> FormatSinkG.ToWriter(nextE (), newline)
+                | FormatSinkShape.ToBuilder -> FormatSinkG.ToBuilder(nextE ())
+                | FormatSinkShape.ToStdOut newline -> FormatSinkG.ToStdOut newline
+                | FormatSinkShape.ToStdErr newline -> FormatSinkG.ToStdErr newline
+                | FormatSinkShape.ToString -> FormatSinkG.ToString
 
             let segments' =
-                segments
-                |> EqArray.toArray
+                p.Segments
                 |> Array.map (fun seg ->
                     match seg with
-                    | FormatSegG.Lit _ -> seg
-                    | FormatSegG.Hole(spec, _) -> FormatSegG.Hole(spec, nextE ())
-                    | FormatSegG.DynHole hole ->
-                        let width =
-                            match hole.Width with
-                            | ValueSome _ -> ValueSome(nextE ())
-                            | ValueNone -> ValueNone
-
-                        let precision =
-                            match hole.Precision with
-                            | ValueSome _ -> ValueSome(nextE ())
-                            | ValueNone -> ValueNone
-
+                    | FormatSegShape.Lit s -> FormatSegG.Lit s
+                    | FormatSegShape.Hole spec -> FormatSegG.Hole(spec, nextE ())
+                    | FormatSegShape.DynHole(hasWidth, hasPrecision, spec) ->
+                        let width = if hasWidth then ValueSome(nextE ()) else ValueNone
+                        let precision = if hasPrecision then ValueSome(nextE ()) else ValueNone
                         let value = nextE ()
 
                         FormatSegG.DynHole
-                            { hole with
+                            {
                                 Width = width
                                 Precision = precision
+                                Spec = spec
                                 Value = value
                             }
-                    | FormatSegG.CallbackHole(spec, _) -> FormatSegG.CallbackHole(spec, nextE ())
+                    | FormatSegShape.CallbackHole spec -> FormatSegG.CallbackHole(spec, nextE ())
                 )
                 |> EqArray.ofArray
 
             TExprG.Format(sink', segments', ty, tok)
-        | TExprG.ILIntrinsic(opCode, typeOperand, _, ty, tok) ->
-            TExprG.ILIntrinsic(opCode, typeOperand, EqArray.ofArray es, ty, tok)
-        | TExprG.StaticOptimization(clauses, _, ty, tok) ->
+        | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
+        | ExprPayload.StaticOptimization clauseConstraints ->
             let clauses' =
-                clauses
-                |> EqArray.toArray
-                |> Array.map (fun clause -> { clause with Body = nextE () })
+                clauseConstraints
+                |> Array.map (fun constraints ->
+                    {
+                        Constraints = constraints
+                        Body = nextE ()
+                    }
+                )
                 |> EqArray.ofArray
 
             let defaultExpr = nextE ()
             TExprG.StaticOptimization(clauses', defaultExpr, ty, tok)
-        | TExprG.Upcast(_, ty, tok) -> TExprG.Upcast(nextE (), ty, tok)
-        | TExprG.Downcast(_, ty, tok) -> TExprG.Downcast(nextE (), ty, tok)
-        | TExprG.TypeTest(_, testTy, ty, tok) ->
+        | ExprPayload.Upcast -> TExprG.Upcast(nextE (), ty, tok)
+        | ExprPayload.Downcast -> TExprG.Downcast(nextE (), ty, tok)
+        | ExprPayload.TypeTest testTy ->
             let source = nextE ()
             TExprG.TypeTest(source, testTy, ty, tok)
-        | TExprG.TraitCall(receiver, memberName, _, ty, tok) ->
-            TExprG.TraitCall(receiver, memberName, EqArray.ofArray es, ty, tok)
+        | ExprPayload.TraitCall p -> TExprG.TraitCall(p.Receiver, p.MemberName, EqArray.ofArray es, ty, tok)
 
     let private substitutePat (node: Frozen.TPat) (ps: Frozen.TPat[]) : Frozen.TPat =
         let mutable pi = 0
@@ -651,9 +869,11 @@ module TastPools =
         let binderKey (BinderId i) : NodeKey = pools.Binders.[i].Key
 
         // The inverse of the lambda id space: a lambda's `ExprPoolId` back to the `NodeKey`
-        // codegen looks its verdict up under — `TastWalk.lambdaKey` on the pooled `Lambda`
-        // node, the same construction `toPools` keyed it by.
-        let lambdaKeyOf (ExprPoolId i) : NodeKey = TastWalk.lambdaKey pools.Exprs.[i].Node
+        // codegen looks its verdict up under. With the Node gone, recompute that key from
+        // the lambda's `ExprToks` column — the same `NodeKey.ofToken … ExprLambda`
+        // `TastWalk.lambdaKey` computes, and the construction `toPools` keyed it by.
+        let lambdaKeyOf (ExprPoolId i) : NodeKey =
+            NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda
 
         let rec fromPat (PatPoolId i) : Frozen.TPat =
             let entry = pools.Pats.[i]
@@ -661,11 +881,10 @@ module TastPools =
             substitutePat entry.Node ps
 
         let rec fromExpr (ExprPoolId i) : Frozen.TExpr =
-            let entry = pools.Exprs.[i]
-            let es = entry.ExprChildren |> Array.map fromExpr
-            let ps = entry.PatChildren |> Array.map fromPat
-            let varBinding = entry.VarBinder |> ValueOption.map binderKey
-            substituteExpr entry.Node varBinding es ps
+            let es = pools.ExprChildren.[i] |> Array.map fromExpr
+            let ps = pools.ExprPatChildren.[i] |> Array.map fromPat
+            let varBinding = pools.ExprVarBinder.[i] |> ValueOption.map binderKey
+            substituteExpr pools.ExprTys.[i] pools.ExprToks.[i] varBinding pools.ExprPayloads.[i] es ps
 
         let fromDecl (DeclPoolId i) : Frozen.TDecl =
             let entry = pools.Decls.[i]

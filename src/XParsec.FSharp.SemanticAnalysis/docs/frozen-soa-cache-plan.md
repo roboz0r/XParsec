@@ -224,7 +224,15 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 > `NodeKey` retained (the DU round-trip still reconstructs `Raw`, kind included). A corpus test
 > re-verifies the mint invariant (every real binder's `Offset` equals its node token's
 > `StartIndex`, zero mismatches) that makes the flip naming-preserving; the `binderName` rewire
-> to read pool data stays deferred to B.k+5. B.k+5…B.k+7 are untouched. A
+> to read pool data stays deferred to B.k+5. **B.k+5 step (A) is UNDERWAY**: the EXPRESSION pool
+> is now struct-of-arrays — dense parallel columns (`ExprShapes`/`ExprTys`/`ExprToks`/
+> `ExprChildren`/`ExprPatChildren`/`ExprVarBinder`) plus an `ExprPayload` DU side array carrying
+> each case's residual scalars and the composite structure (Match/TryWith arm guard-flags, Format
+> sink/segment shapes, StaticOptimization clause constraints, Range/RecordCons/ExternalMember
+> presence) — and the expr DU `Node` is GONE; `ofPools` rebuilds exprs from columns alone, proven
+> codegen-invariant over the full CLR corpus. Pats/decls/binder-pool still retain their `Node`/AoS
+> (next extraction slices); the accessor and both backends stay DU-backed until part (B). B.k+6/B.k+7
+> untouched. A
 > `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
 > `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 
@@ -352,6 +360,17 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
   corpus round-trip staying green.
 - **B.k+4 Naming integers in pools.** Pool binders carry offset / `NameIndex`; the 0.3 helper
   reads pool data. *Gate: goldens hold.*
+- **B.k+5 — split into (A) payload extraction, then (B) the flip (confirmed).** B.k+1..4 built
+  pool entries that RETAIN the whole DU node (payload rides `Node`); since a retained node holds
+  its subtree, the DU is still materialized. So the flip is done in two parts. **(A) Payload
+  extraction / columnar SoA:** convert each domain from an array-of-id-records to struct-of-arrays
+  — dense parallel columns for the uniform fields (`Shape`, `ty`, `tok`, the child-id arrays, and
+  the binder/lambda/var ids) plus a few typed side arrays (a per-domain `…Payload` DU carrying the
+  residual per-case scalars + the composite structure needed to re-nest the flat child columns) —
+  and DROP the `Node`. `ofPools` then rebuilds the DU from columns alone; the corpus round-trip
+  (which runs `ofPools (toPools frozen)` per program) proves the columns are Node-sufficient. Done
+  as its own commit(s), one domain at a time (exprs first, then pats+decls+binder pool), DU still
+  coexisting. **(B) Flip proper** (below) follows once the pools are self-contained.
 - **B.k+5 Flip the backing.** Point the accessor at the pools; `freeze` stops materializing
   the DU. *Gate: goldens hold — the projection payoff.* NB the read-only accessor covers only
   *reads*: the handful of node-**construction** sites the B.2…B.k migration left as

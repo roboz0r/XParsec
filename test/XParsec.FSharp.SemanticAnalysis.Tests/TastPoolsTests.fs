@@ -7,12 +7,13 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // The pool-build faithfulness gate: freeze a program, build the pools, then walk the
 // pools from the decl roots and assert the reconstructed tree equals the DU walk —
-// same shapes in the same order, the same expr/pat child fan-out at every node, and
-// the same underlying node at every id. The DU walk here re-derives children through
-// `TastAccessor` INDEPENDENTLY of the builder (which walks the same accessor), so the
-// two agreeing is the cross-check, not a tautology; the reconstruction follows the id
-// columns into the dense pool arrays, so a mis-wired child edge shows up as a fan-out
-// or node mismatch.
+// same shapes in the same order and the same expr/pat child fan-out at every node. The
+// expr pool holds no DU node (it is struct-of-arrays), so exprs are checked by their
+// SHAPE column and child-id columns; the pat/decl pools still retain a node, checked by
+// reference identity. The DU walk here re-derives children through `TastAccessor`
+// INDEPENDENTLY of the builder (which walks the same accessor), so the two agreeing is
+// the cross-check, not a tautology; the reconstruction follows the id columns into the
+// dense pool arrays, so a mis-wired child edge shows up as a fan-out or node mismatch.
 
 let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
     let lexed, file = parseFile src
@@ -34,15 +35,13 @@ let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Frozen.TPat) =
     Array.iter2 (checkPat pools) entry.PatChildren duKids
 
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Frozen.TExpr) =
-    let entry = pools.Exprs.[i]
-    sameNode entry.Node du "expr node"
-    Expect.equal entry.Shape (TastAccessor.exprKind du) "expr shape"
+    Expect.equal pools.ExprShapes.[i] (TastAccessor.exprKind du) "expr shape"
     let duExprKids = TastAccessor.exprChildren du
     let duPatKids = TastAccessor.exprPatChildren du
-    Expect.equal entry.ExprChildren.Length duExprKids.Length "expr child fan-out"
-    Expect.equal entry.PatChildren.Length duPatKids.Length "expr's pat fan-out"
-    Array.iter2 (checkExpr pools) entry.ExprChildren duExprKids
-    Array.iter2 (checkPat pools) entry.PatChildren duPatKids
+    Expect.equal pools.ExprChildren.[i].Length duExprKids.Length "expr child fan-out"
+    Expect.equal pools.ExprPatChildren.[i].Length duPatKids.Length "expr's pat fan-out"
+    Array.iter2 (checkExpr pools) pools.ExprChildren.[i] duExprKids
+    Array.iter2 (checkPat pools) pools.ExprPatChildren.[i] duPatKids
 
 let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
     let entry = pools.Decls.[i]
@@ -64,29 +63,27 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
         Expect.equal entry.ExprChildren.Length 0 "type decl surfaces no expr child"
         Expect.equal entry.PatChildren.Length 0 "type decl surfaces no pat child"
 
-/// The id-resolution gate: every reference the remap rewrote — each `Var.binding` and
-/// each of the seven side-table keys — must resolve to a `BinderId` whose RETAINED
-/// NodeKey equals the original content key. A binder the enumeration missed shows up as
-/// an unresolved reference (a `toPools` fault) or, here, as a resolved id whose key does
-/// not match. The dense side tables must also cover the source maps 1:1 — a dropped or
-/// duplicated key would desync the rebuilt map from the original.
+/// The id-resolution gate: the `ExprVarBinder` column is populated EXACTLY at the `Var`
+/// slots (each to an in-range `BinderId`), and each of the seven side-table keys resolves
+/// to a `BinderId`/`ExprPoolId`. A binder the enumeration missed shows up as an unresolved
+/// reference (a `toPools` fault). That each `Var` resolves to its OWN binder key is proven
+/// by the round-trip gate (which rebuilds every `Var.binding` from this column). The dense
+/// side tables must also cover the source maps 1:1 — a dropped or duplicated key would
+/// desync the rebuilt map from the original.
 let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
     let binderKey (BinderId i) = pools.Binders.[i].Key
-    // `FunVerdicts` is keyed by the lambda id space, not the binder pool; invert through
-    // the pooled lambda node exactly as `ofPools` does.
-    let lambdaKeyOf (ExprPoolId i) = TastWalk.lambdaKey pools.Exprs.[i].Node
+    // `FunVerdicts` is keyed by the lambda id space, not the binder pool; the Node is gone,
+    // so recompute the lambda key from the `ExprToks` column exactly as `ofPools` does.
+    let lambdaKeyOf (ExprPoolId i) =
+        NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda
 
-    for entry in pools.Exprs do
-        match entry.Shape with
-        | ExprShape.Var ->
-            match entry.VarBinder with
-            | ValueSome bid ->
-                Expect.equal
-                    (binderKey bid)
-                    (TastAccessor.exprVarBinding entry.Node)
-                    "Var resolves to its own binder key"
-            | ValueNone -> failtest "a Var pool entry carries no resolved binder id"
-        | _ -> ()
+    for i in 0 .. pools.ExprShapes.Length - 1 do
+        match pools.ExprShapes.[i], pools.ExprVarBinder.[i] with
+        | ExprShape.Var, ValueSome(BinderId b) ->
+            Expect.isTrue (b >= 0 && b < pools.Binders.Length) "Var binder id is an interned binder"
+        | ExprShape.Var, ValueNone -> failtest "a Var pool entry carries no resolved binder id"
+        | _, ValueSome _ -> failtest "a non-Var pool entry carries a binder id"
+        | _, ValueNone -> ()
 
     // Each dense side table is the source map re-keyed onto its id space: same cardinality,
     // and every dense key resolves (through the given resolver) to a NodeKey the source map
@@ -238,12 +235,13 @@ let binderNamingMintInvariantTests =
 // the binder pool), `ofPools` inverts back to the original lambda `NodeKey`, and a key
 // naming no pooled lambda faults.
 
-/// The first `Lambda` expr pool entry's DU node — the frozen lambda to key the verdict on.
-let private firstLambdaNode (pools: FrozenPools) : Frozen.TExpr =
-    pools.Exprs
-    |> Array.pick (fun e ->
-        match e.Shape with
-        | ExprShape.Lambda -> Some e.Node
+/// The first `Lambda` expr pool entry's key — the frozen lambda to key the verdict on,
+/// recomputed from its `ExprToks` column (the Node is gone) as `ofPools` does.
+let private firstLambdaKey (pools: FrozenPools) : NodeKey =
+    seq { 0 .. pools.ExprShapes.Length - 1 }
+    |> Seq.pick (fun i ->
+        match pools.ExprShapes.[i] with
+        | ExprShape.Lambda -> Some(NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda)
         | _ -> None
     )
 
@@ -254,7 +252,7 @@ let funVerdictLambdaKeyTests =
         [
             test "a lambda-keyed verdict pools by ExprPoolId and inverts to its NodeKey" {
                 let _, frozen = poolsFor "let f = fun x -> x + 1\n"
-                let lamKey = TastWalk.lambdaKey (firstLambdaNode (TastPools.toPools frozen))
+                let lamKey = firstLambdaKey (TastPools.toPools frozen)
 
                 let verdict: FunVerdict =
                     {
@@ -273,10 +271,10 @@ let funVerdictLambdaKeyTests =
                 Expect.equal pools.FunVerdicts.Length 1 "one pooled verdict"
                 let (ExprPoolId i, v) = pools.FunVerdicts.[0]
                 Expect.equal v verdict "pooled verdict value preserved"
-                Expect.equal pools.Exprs.[i].Shape ExprShape.Lambda "verdict id names a Lambda entry"
+                Expect.equal pools.ExprShapes.[i] ExprShape.Lambda "verdict id names a Lambda entry"
 
                 Expect.equal
-                    (TastWalk.lambdaKey pools.Exprs.[i].Node)
+                    (NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda)
                     lamKey
                     "verdict's ExprPoolId is the keyed lambda's"
 
