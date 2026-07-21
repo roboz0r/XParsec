@@ -545,6 +545,15 @@ module TastAccessor =
         | TExprG.New(className = className) -> className
         | _ -> failwith "TastAccessor.exprNewClassName: not a New node"
 
+    /// The recorded overload identity a `New` node's front end chose — the key that
+    /// disambiguates a same-arity external-ctor candidate set (`ValueNone` when arity
+    /// alone suffices). Guard with `exprKind` = `ExprShape.New` first; `failwith` on
+    /// any other shape.
+    let exprNewChosenCtor (e: ExprId) : SymbolKey voption =
+        match e with
+        | TExprG.New(key = key) -> key
+        | _ -> failwith "TastAccessor.exprNewChosenCtor: not a New node"
+
     /// The scalar payload of a `PropertyGet` node — the receiver and the resolved member
     /// key, minus the `via`/`ty`/`tok` the node also carries. `Receiver` is the sole
     /// `exprChildren` entry, named by role.

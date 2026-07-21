@@ -17,8 +17,13 @@ open EmitDispatch
 module EmitConstruct =
 
     let buildNew (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.New(className, chosenCtor, args, ty, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.New ->
+            let className = TastAccessor.exprNewClassName e
+            let chosenCtor = TastAccessor.exprNewChosenCtor e
+            let args = TastAccessor.exprChildren e
+            let ty = TastAccessor.exprTy e
+
             let tyArgs =
                 match ty with
                 | FTClass(_, xs) -> EqArray.toList xs
@@ -154,8 +159,11 @@ module EmitConstruct =
         | _ -> failwith "EmitConstruct.buildNew: unreachable"
 
     let buildRecordCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.RecordCons(srcFields, ty, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.RecordCons ->
+            let srcFields = TastAccessor.exprRecordConsFields e
+            let ty = TastAccessor.exprTy e
+
             // The source-order initialiser list (`{ Y = …; X = … }`) is reordered
             // to the type's *declaration* order before the ctor is invoked:
             // the ctor's parameter slots correspond to
@@ -167,7 +175,7 @@ module EmitConstruct =
 
             match env.Records.TryGetValue(SymbolKey.Type key) with
             | true, r ->
-                let srcMap = Map.ofSeq srcFields.Underlying
+                let srcMap = Map.ofSeq srcFields
 
                 // Fields push in declaration order (the ctor's parameter layout).
                 // A value flowing into an `obj` field is boxed by an explicit
@@ -202,8 +210,13 @@ module EmitConstruct =
         | _ -> failwith "EmitConstruct.buildRecordCons: unreachable"
 
     let buildRecordClone (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.RecordClone(source, overrides, ty, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.RecordClone ->
+            let cloneView = TastAccessor.exprRecordClone e
+            let source = cloneView.Source
+            let overrides = cloneView.Overrides
+            let ty = TastAccessor.exprTy e
+
             // `{ r with X = v; … }` — evaluate `r` into a local, then per
             // declaration-order field: push the override expression if it's in
             // the override list, else `ldloc; ldfld` from the saved source. Then
@@ -213,7 +226,7 @@ module EmitConstruct =
 
             match env.Records.TryGetValue(SymbolKey.Type key) with
             | true, r ->
-                let overrideMap = Map.ofSeq overrides.Underlying
+                let overrideMap = Map.ofSeq overrides
                 let srcSlot = b.Local ty
                 recur env b source
                 b.Add(ILInstr.Stloc srcSlot)
@@ -242,8 +255,12 @@ module EmitConstruct =
         | _ -> failwith "EmitConstruct.buildRecordClone: unreachable"
 
     let buildUnionCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.UnionCons(caseName, args, ty, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.UnionCons ->
+            let caseName = TastAccessor.exprUnionConsCaseName e
+            let args = TastAccessor.exprChildren e
+            let ty = TastAccessor.exprTy e
+
             // Local union table keys by the nominal `TypeKey`; the provider's
             // cons recipe (FSharp.Core / Vesper list) selects on the same key.
             let key, tyArgs = nominalShape "UnionCons" ty
@@ -280,8 +297,11 @@ module EmitConstruct =
         | _ -> failwith "EmitConstruct.buildUnionCons: unreachable"
 
     let buildTuple (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.Tuple(elems, ty, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.Tuple ->
+            let elems = TastAccessor.exprChildren e
+            let ty = TastAccessor.exprTy e
+
             // A standalone tuple *value* (the argument-list case is flattened at the
             // call site instead). Push each element left-to-right, then `newobj` the
             // `System.ValueTuple` ctor, leaving the struct on the stack. Arity ≥ 8
@@ -393,8 +413,8 @@ module EmitConstruct =
     ///   * cached singleton — stateless heap closure `ldsfld`'d once;
     ///   * heap `newobj` (v1) — everything else.
     let buildLambda (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.Lambda _ ->
+        match TastAccessor.exprKind e with
+        | ExprShape.Lambda ->
             match env.ClosureValueTypeByNode.TryGetValue e with
             | true, closureFt -> buildValueStructClosure env b e closureFt
             | false, _ ->
