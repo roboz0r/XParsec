@@ -692,6 +692,29 @@ module TastAccessor =
             }
         | _ -> failwith "TastAccessor.exprMatch: not a Match node"
 
+    /// The scalar payload of a `TryWith` node — the guarded body and the handler arms,
+    /// minus the `ty`/`tok` the node also carries. `Body` is the sole positional
+    /// `exprChildren` head; `Arms` is the `arms` field materialized (a composite carrier,
+    /// as for `Match` — `exprChildren` descends into arm bodies/guards, dropping the arm
+    /// identity a consumer scoping the handler's pattern binders needs).
+    [<Struct>]
+    type TryWithView =
+        {
+            Body: ExprId
+            Arms: Frozen.TMatchArm[]
+        }
+
+    /// The payload view of a `TryWith` node. Guard with `exprKind` = `ExprShape.TryWith`
+    /// first; `failwith` on any other shape.
+    let exprTryWith (e: ExprId) : TryWithView =
+        match e with
+        | TExprG.TryWith(body = body; arms = arms) ->
+            {
+                Body = body
+                Arms = EqArray.toArray arms
+            }
+        | _ -> failwith "TastAccessor.exprTryWith: not a TryWith node"
+
     /// The scalar payload of a `While` node (`while Cond do Body`), minus the `ty`/`tok`
     /// that `exprTy`/`exprTok` already carry — the two nodes `exprChildren` yields, named
     /// by role.
