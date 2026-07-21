@@ -14,14 +14,15 @@ open EmitPattern
 /// leaf arms (`Const` / `Null` / `Var`) stay inline; every structured case
 /// delegates to a per-concern `Emit*` module, passing `buildExpr` itself as the
 /// `Recur` back-edge (the one seam that crosses a file boundary — see
-/// `EmitDispatch`). The match here is exhaustive over `TExprG`, so a new node
-/// surfaces as a missing route rather than a silent fallthrough.
+/// `EmitDispatch`). The router dispatches on each node's `ExprShape`, so an
+/// unrouted shape surfaces at the `failwith` fallback rather than a silent
+/// fallthrough.
 module EmitExpr =
 
     let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.Const(cv, _, _) ->
-            match cv with
+        match TastAccessor.exprKind e with
+        | ExprShape.Const ->
+            match TastAccessor.exprConstValue e with
             | TConstValue.String s -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
             // The load follows from the width alone (`EmitTypes.pushIntConst` — shared with
             // the `Const` pattern and the enum-case load).
@@ -48,51 +49,55 @@ module EmitExpr =
                 // reified.
                 EmitTypes.buildUnitValue env b
 
-        | TExprG.Null _ -> b.Add ILInstr.Ldnull
+        | ExprShape.Null -> b.Add ILInstr.Ldnull
 
-        | TExprG.Var(binding, varTy, _) when env.StaticMethods.ContainsKey binding ->
-            // A generic module value (`let empty : SetTree<'T> = …` at module scope)
-            // lowers to a zero-arg generic static method on its holder (a non-generic
-            // module holder cannot host a `SetTree<'T>` field). A module value is
-            // never applied, so — unlike a static function, which `collectStaticFns`
-            // proves is always saturated and therefore only ever reaches codegen as an
-            // `App` head — it appears here as a bare `Var`. (Hence: a bare `Var`
-            // whose key is a static method is always one of these 0-arg value
-            // methods.) Emit a 0-arg `call` to its `MethodSpec`, the instantiation
-            // recovered by matching the method's declared result template against this
-            // reference's own type.
-            let sm = env.StaticMethods.[binding]
+        | ExprShape.Var ->
+            let binding = TastAccessor.exprVarBinding e
 
-            let callHandle =
-                if sm.Typars = 0 then
-                    sm.Handle
-                else
-                    let inst = matchInstantiation sm.Typars [ sm.ResultTy ] [ varTy ]
-                    env.Provider.StaticFnMethodSpec(sm.Handle, inst)
+            if env.StaticMethods.ContainsKey binding then
+                // A generic module value (`let empty : SetTree<'T> = …` at module scope)
+                // lowers to a zero-arg generic static method on its holder (a non-generic
+                // module holder cannot host a `SetTree<'T>` field). A module value is
+                // never applied, so — unlike a static function, which `collectStaticFns`
+                // proves is always saturated and therefore only ever reaches codegen as an
+                // `App` head — it appears here as a bare `Var`. (Hence: a bare `Var`
+                // whose key is a static method is always one of these 0-arg value
+                // methods.) Emit a 0-arg `call` to its `MethodSpec`, the instantiation
+                // recovered by matching the method's declared result template against this
+                // reference's own type.
+                let varTy = TastAccessor.exprTy e
+                let sm = env.StaticMethods.[binding]
 
-            b.Add(ILInstr.Call(callHandle, 0, 1))
+                let callHandle =
+                    if sm.Typars = 0 then
+                        sm.Handle
+                    else
+                        let inst = matchInstantiation sm.Typars [ sm.ResultTy ] [ varTy ]
+                        env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
-        | TExprG.Var(binding, _, _) -> buildVarLoad env b binding
+                b.Add(ILInstr.Call(callHandle, 0, 1))
+            else
+                buildVarLoad env b binding
 
-        | TExprG.Let _ -> EmitBindings.buildLet buildExpr env b e
-        | TExprG.Use _ -> EmitBindings.buildUse buildExpr env b e
+        | ExprShape.Let -> EmitBindings.buildLet buildExpr env b e
+        | ExprShape.Use -> EmitBindings.buildUse buildExpr env b e
 
-        | TExprG.ForIn _ -> EmitLoops.buildForIn buildExpr env b e
-        | TExprG.ForTo _ -> EmitLoops.buildForTo buildExpr env b e
-        | TExprG.While _ -> EmitLoops.buildWhile buildExpr env b e
+        | ExprShape.ForIn -> EmitLoops.buildForIn buildExpr env b e
+        | ExprShape.ForTo -> EmitLoops.buildForTo buildExpr env b e
+        | ExprShape.While -> EmitLoops.buildWhile buildExpr env b e
 
-        | TExprG.Sequential _ -> EmitMatch.buildSequential buildExpr env b e
-        | TExprG.IfThenElse _ -> EmitMatch.buildIfThenElse buildExpr env b e
-        | TExprG.Match _ -> EmitMatch.buildMatch buildExpr env b e
+        | ExprShape.Sequential -> EmitMatch.buildSequential buildExpr env b e
+        | ExprShape.IfThenElse -> EmitMatch.buildIfThenElse buildExpr env b e
+        | ExprShape.Match -> EmitMatch.buildMatch buildExpr env b e
 
-        | TExprG.Lambda _ -> EmitConstruct.buildLambda env b e
-        | TExprG.New _ -> EmitConstruct.buildNew buildExpr env b e
-        | TExprG.RecordCons _ -> EmitConstruct.buildRecordCons buildExpr env b e
-        | TExprG.RecordClone _ -> EmitConstruct.buildRecordClone buildExpr env b e
-        | TExprG.UnionCons _ -> EmitConstruct.buildUnionCons buildExpr env b e
-        | TExprG.Tuple _ -> EmitConstruct.buildTuple buildExpr env b e
+        | ExprShape.Lambda -> EmitConstruct.buildLambda env b e
+        | ExprShape.New -> EmitConstruct.buildNew buildExpr env b e
+        | ExprShape.RecordCons -> EmitConstruct.buildRecordCons buildExpr env b e
+        | ExprShape.RecordClone -> EmitConstruct.buildRecordClone buildExpr env b e
+        | ExprShape.UnionCons -> EmitConstruct.buildUnionCons buildExpr env b e
+        | ExprShape.Tuple -> EmitConstruct.buildTuple buildExpr env b e
 
-        | TExprG.App _ -> EmitCall.buildAppCall buildExpr env b e
+        | ExprShape.App -> EmitCall.buildAppCall buildExpr env b e
 
         // A bare external value with no application — a zero-arg module value such
         // as `Set.empty` (the `[<GeneralizableValue>]` generic value compiled to a
@@ -100,28 +105,30 @@ module EmitExpr =
         // head dispatch as an application with an empty spine: `buildAppCall`
         // collects a zero-length spine, `TryEmitCall` emits the 0-arg recipe, and
         // the generic instantiation is read from the value's (result) type.
-        | TExprG.External _ -> EmitCall.buildAppCall buildExpr env b e
+        | ExprShape.External -> EmitCall.buildAppCall buildExpr env b e
 
-        | TExprG.FieldGet _ -> EmitMember.buildFieldGet buildExpr env b e
-        | TExprG.Assignment _ -> EmitMember.buildAssignment buildExpr env b e
-        | TExprG.FieldSet _ -> EmitMember.buildFieldSet buildExpr env b e
-        | TExprG.PropertyGet _ -> EmitMember.buildPropertyGet buildExpr env b e
-        | TExprG.MethodCall _ -> EmitMember.buildMethodCall buildExpr env b e
-        | TExprG.StaticPropertyGet _ -> EmitMember.buildStaticPropertyGet env b e
-        | TExprG.StaticFieldGet _ -> EmitMember.buildStaticFieldGet env b e
-        | TExprG.StaticFieldSet _ -> EmitMember.buildStaticFieldSet buildExpr env b e
-        | TExprG.StaticMethodCall _ -> EmitMember.buildStaticMethodCall buildExpr env b e
-        | TExprG.ExternalMember _ -> EmitMember.buildExternalMember buildExpr env b e
+        | ExprShape.FieldGet -> EmitMember.buildFieldGet buildExpr env b e
+        | ExprShape.Assignment -> EmitMember.buildAssignment buildExpr env b e
+        | ExprShape.FieldSet -> EmitMember.buildFieldSet buildExpr env b e
+        | ExprShape.PropertyGet -> EmitMember.buildPropertyGet buildExpr env b e
+        | ExprShape.MethodCall -> EmitMember.buildMethodCall buildExpr env b e
+        | ExprShape.StaticPropertyGet -> EmitMember.buildStaticPropertyGet env b e
+        | ExprShape.StaticFieldGet -> EmitMember.buildStaticFieldGet env b e
+        | ExprShape.StaticFieldSet -> EmitMember.buildStaticFieldSet buildExpr env b e
+        | ExprShape.StaticMethodCall -> EmitMember.buildStaticMethodCall buildExpr env b e
+        | ExprShape.ExternalMember -> EmitMember.buildExternalMember buildExpr env b e
 
-        | TExprG.Format(sink, segments, _, _) -> EmitFormat.buildFormat buildExpr env b sink segments
+        | ExprShape.Format ->
+            let view = TastAccessor.exprFormat e
+            EmitFormat.buildFormat buildExpr env b view.Sink view.Segments
 
-        | TExprG.ILIntrinsic _ -> EmitIntrinsic.buildILIntrinsic buildExpr env b e
-        | TExprG.StaticOptimization _ -> EmitIntrinsic.buildStaticOptimization buildExpr env b e
-        | TExprG.Upcast _ -> EmitIntrinsic.buildUpcast buildExpr env b e
-        | TExprG.Downcast _ -> EmitIntrinsic.buildDowncast buildExpr env b e
-        | TExprG.TypeTest _ -> EmitIntrinsic.buildTypeTest buildExpr env b e
+        | ExprShape.ILIntrinsic -> EmitIntrinsic.buildILIntrinsic buildExpr env b e
+        | ExprShape.StaticOptimization -> EmitIntrinsic.buildStaticOptimization buildExpr env b e
+        | ExprShape.Upcast -> EmitIntrinsic.buildUpcast buildExpr env b e
+        | ExprShape.Downcast -> EmitIntrinsic.buildDowncast buildExpr env b e
+        | ExprShape.TypeTest -> EmitIntrinsic.buildTypeTest buildExpr env b e
 
-        | other -> failwithf "Emit: unsupported expression: %A" other
+        | _ -> failwithf "Emit: unsupported expression: %A" e
 
     /// Emit an expression as a statement: evaluate it and discard any value.
     let buildStatement (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
