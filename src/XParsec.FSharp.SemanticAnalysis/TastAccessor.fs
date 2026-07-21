@@ -565,28 +565,44 @@ module TastAccessor =
         | TExprG.New(key = key) -> key
         | _ -> failwith "TastAccessor.exprNewChosenCtor: not a New node"
 
-    /// The scalar payload of a `PropertyGet` node — the receiver and the resolved member
-    /// key, minus the `via`/`ty`/`tok` the node also carries. `Receiver` is the sole
-    /// `exprChildren` entry, named by role.
+    /// The scalar payload of a `PropertyGet` node — the receiver, the resolved member
+    /// key, and the dispatch `Via`, minus the `ty`/`tok` the node also carries.
+    /// `Receiver` is the sole `exprChildren` entry, named by role. `Via` distinguishes a
+    /// grounded self/base access from a `constrained.`-dispatched typar-interface one
+    /// (`CallVia.Interface`) — a distinction the CLR backend dispatches on; a target that
+    /// ignores it simply does not read the field.
     [<Struct>]
-    type PropertyGetView = { Receiver: ExprId; Key: SymbolKey }
+    type PropertyGetView =
+        {
+            Receiver: ExprId
+            Key: SymbolKey
+            Via: CallVia<FrozenType>
+        }
 
     /// The payload view of a `PropertyGet` node. Guard with `exprKind` =
     /// `ExprShape.PropertyGet` first; `failwith` on any other shape.
     let exprPropertyGet (e: ExprId) : PropertyGetView =
         match e with
-        | TExprG.PropertyGet(receiver = receiver; key = key) -> { Receiver = receiver; Key = key }
+        | TExprG.PropertyGet(receiver = receiver; key = key; via = via) ->
+            {
+                Receiver = receiver
+                Key = key
+                Via = via
+            }
         | _ -> failwith "TastAccessor.exprPropertyGet: not a PropertyGet node"
 
     /// The scalar payload of a `MethodCall` node — the receiver, the resolved member key,
-    /// and the argument expressions, minus the `via`/`ty`/`tok` the node also carries.
-    /// `Args` is ONLY the `args` field materialized — NOT `exprChildren` (which merges the
-    /// receiver in ahead of the args).
+    /// the dispatch `Via`, and the argument expressions, minus the `ty`/`tok` the node also
+    /// carries. `Args` is ONLY the `args` field materialized — NOT `exprChildren` (which
+    /// merges the receiver in ahead of the args). `Via` distinguishes a grounded self/base
+    /// call from a `constrained.`-dispatched typar-interface one (`CallVia.Interface`) — a
+    /// distinction the CLR backend dispatches on; a target that ignores it does not read it.
     [<Struct>]
     type MethodCallView =
         {
             Receiver: ExprId
             Key: SymbolKey
+            Via: CallVia<FrozenType>
             Args: ExprId[]
         }
 
@@ -594,10 +610,11 @@ module TastAccessor =
     /// `ExprShape.MethodCall` first; `failwith` on any other shape.
     let exprMethodCall (e: ExprId) : MethodCallView =
         match e with
-        | TExprG.MethodCall(receiver = receiver; key = key; args = args) ->
+        | TExprG.MethodCall(receiver = receiver; key = key; via = via; args = args) ->
             {
                 Receiver = receiver
                 Key = key
+                Via = via
                 Args = EqArray.toArray args
             }
         | _ -> failwith "TastAccessor.exprMethodCall: not a MethodCall node"
