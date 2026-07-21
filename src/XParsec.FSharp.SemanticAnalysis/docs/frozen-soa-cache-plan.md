@@ -218,7 +218,13 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 > generic remap/rebuild pair is now parameterized by a key resolver (`binderIdOf` for the six
 > binder tables, `lambdaIdOf` for `FunVerdicts`), and a focused unit test injects a synthetic
 > verdict keyed by a real frozen lambda to exercise the otherwise-unreachable path. The
-> codegen-facing `lambdaKey` rewire stays deferred to B.k+5. B.k+4…B.k+7 are untouched. A
+> codegen-facing `lambdaKey` rewire stays deferred to B.k+5. **B.k+4 has landed**: each
+> `BinderPoolEntry` now carries a `BinderNaming` triple (`IsSynthetic`/`Offset`/`NameIndex`)
+> sourced from its `NodeKey` — the naming data that outlives the key at the flip — with the
+> `NodeKey` retained (the DU round-trip still reconstructs `Raw`, kind included). A corpus test
+> re-verifies the mint invariant (every real binder's `Offset` equals its node token's
+> `StartIndex`, zero mismatches) that makes the flip naming-preserving; the `binderName` rewire
+> to read pool data stays deferred to B.k+5. B.k+5…B.k+7 are untouched. A
 > `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
 > `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 

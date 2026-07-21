@@ -98,15 +98,33 @@ type PatPoolEntry =
         Node: Frozen.TPat
     }
 
+/// The three naming projections a backend reads off a binder to emit its name WITHOUT
+/// the `NodeKey` — exactly the bits `binderName` (`JsEmitHelpers.fs`) unpacks: a real
+/// binder recovers its source name by slicing at `Offset`; a synthetic renders as
+/// `_s<NameIndex>`. This is the naming DATA (post-freeze a binder's identity is its
+/// slot, not its key) — kept separately from positional identity so it survives the
+/// `NodeKey` drop once the backing flips off the DU.
+[<Struct>]
+type BinderNaming =
+    {
+        IsSynthetic: bool
+        Offset: int
+        NameIndex: int
+    }
+
 /// One binder pool entry — a SIMPLE name binding (`let x`, the `f`/`y` of `let f y =
 /// …`, a `ForTo` loop variable, a synthetic binder). This is a DEDICATED dense column,
 /// deliberately NOT an index into `Pats`: simple binders are the common case and must
 /// not carry the heterogeneous payload the all-pattern-kinds `Pats` entry accommodates.
-/// It retains only the whole original `NodeKey` for now — the identity `Var.binding` and
-/// the side tables resolve against; the naming integer (offset / `NameIndex`) and the
-/// binder's type split out as their own dense fields later.
+/// It retains the whole original `NodeKey` — the identity `Var.binding` and the side
+/// tables resolve against, and the DU round-trip's carrier for the `Raw` bits (kind
+/// included) the trees still reconstruct from, so the key cannot be dropped while the
+/// backing is DU-form. Alongside it, `Naming` carries the three projections a backend
+/// names the binder by, sourced at `toPools` from the SAME key (`IsSynthetic`/`Offset`/
+/// `NameIndex`) so it is faithful to `binderName` by construction — the naming data that
+/// outlives the `NodeKey`. The binder's TYPE splits out as its own dense field later.
 [<Struct>]
-type BinderPoolEntry = { Key: NodeKey }
+type BinderPoolEntry = { Key: NodeKey; Naming: BinderNaming }
 
 /// One declaration pool entry. `ExprChildren`/`PatChildren` are the ids of the decl's
 /// immediate expr/pat roots — the `Let` binding's value + head pattern, or the
@@ -202,7 +220,20 @@ module TastPools =
             | true, _ -> ()
             | false, _ ->
                 binderIds.Add(k, BinderId binders.Count)
-                binders.Add { Key = k }
+
+                binders.Add
+                    {
+                        Key = k
+                        // The naming triple IS the key's projections — the same three bits
+                        // `binderName` reads — so it is faithful to emitted names by
+                        // construction, and stays correct after the key itself retires.
+                        Naming =
+                            {
+                                IsSynthetic = k.IsSynthetic
+                                Offset = k.Offset
+                                NameIndex = k.NameIndex
+                            }
+                    }
 
         let rec poolPat (p: Frozen.TPat) : PatPoolId =
             match TastAccessor.patBinder p with

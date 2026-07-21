@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.TastPoolsTests
 
 open Expecto
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
@@ -104,12 +105,71 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
     checkTable "BindingValReprs" binderKey pools.BindingValReprs frozen.BindingValReprs
     checkTable "BindingTyparArities" binderKey pools.BindingTyparArities frozen.BindingTyparArities
 
+/// The naming triple each binder entry carries must equal its retained `Key`'s
+/// projections (`IsSynthetic`/`Offset`/`NameIndex`) — the guard that `toPools` sourced
+/// `Naming` from the key itself, so the pool names a binder EXACTLY as `binderName` names
+/// its `NodeKey`. This is what lets the naming data outlive the key at the backing flip.
+let private checkBinderNaming (pools: FrozenPools) =
+    for entry in pools.Binders do
+        Expect.equal entry.Naming.IsSynthetic entry.Key.IsSynthetic "binder naming IsSynthetic tracks its key"
+        Expect.equal entry.Naming.Offset entry.Key.Offset "binder naming Offset tracks its key"
+        Expect.equal entry.Naming.NameIndex entry.Key.NameIndex "binder naming NameIndex tracks its key"
+
+// The mint invariant the naming-preserving backing flip rests on: a REAL (non-synthetic)
+// binder's `Offset` IS the binder NODE's own token `StartIndex` (`NamedSimple.tok`, read
+// via `patTok`; `ForTo.identTok`), so a real binder is name-recoverable from its node with
+// no key. Walk the frozen tree via the accessor, correlate each simple binder back to the
+// token that minted it, and assert equality — proving the pool's naming data is
+// node-recoverable. A mismatch would contradict the plan's premise, so it FAILS the test
+// (surfaced, not papered over). Returns the count of real binders checked so a test can
+// assert non-vacuous coverage.
+let private checkMintInvariant (frozen: Frozen.TastFile) : int =
+    let mutable realBinders = 0
+
+    let checkReal (k: NodeKey) (tok: SyntaxToken) (what: string) =
+        if not k.IsSynthetic then
+            realBinders <- realBinders + 1
+            Expect.equal k.Offset tok.StartIndex (sprintf "real %s binder offset is its node token StartIndex" what)
+
+    let rec walkPat (p: Frozen.TPat) =
+        match TastAccessor.patBinder p with
+        | ValueSome k -> checkReal k (TastAccessor.patTok p) "NamedSimple"
+        | ValueNone -> ()
+
+        for sub in TastAccessor.patChildren p do
+            walkPat sub
+
+    let rec walkExpr (e: Frozen.TExpr) =
+        // `ForTo`'s loop binder is minted from `identTok`, which the `ForToView` does not
+        // surface — reach it on the DU node directly (the pool retains the same node).
+        match e with
+        | TExprG.ForTo(var = var; identTok = identTok) -> checkReal var identTok "ForTo"
+        | _ -> ()
+
+        for pc in TastAccessor.exprPatChildren e do
+            walkPat pc
+
+        for ec in TastAccessor.exprChildren e do
+            walkExpr ec
+
+    for d in EqArray.toArray frozen.Decls do
+        match TastAccessor.declKind d with
+        | DeclShape.Let ->
+            let v = TastAccessor.declLet d
+            walkPat v.Binding
+            walkExpr v.Value
+        | DeclShape.Expression -> walkExpr (TastAccessor.declExpression d)
+        | DeclShape.Type -> ()
+
+    realBinders
+
 let private checkProgram (src: string) =
     let pools, frozen = poolsFor src
     let duDecls = EqArray.toArray frozen.Decls
     Expect.equal pools.Roots.Length duDecls.Length "one root per emittable decl"
     Array.iter2 (checkDecl pools) pools.Roots duDecls
     checkIdResolution pools frozen
+    checkBinderNaming pools
 
     // The interconversion gate: `ofPools ∘ toPools` reconstructs a structurally-equal
     // `Frozen.TastFile`. Structural equality is by the serializer (the round-trip oracle
@@ -146,6 +206,29 @@ let tests =
         [
             for name, src in programs do
                 test name { checkProgram src }
+        ]
+
+[<Tests>]
+let binderNamingMintInvariantTests =
+    testList
+        "TastPools binder naming is node-recoverable (mint invariant)"
+        [
+            // Each program checks the invariant on its own binders; the aggregate asserts the
+            // set is non-vacuous, so a program mix that surfaced no real binder would fail loud
+            // rather than pass trivially. The `let`/`for`-heavy programs above cover both
+            // `NamedSimple` and `ForTo` real binders.
+            for name, src in programs do
+                test name {
+                    let _, frozen = poolsFor src
+                    checkMintInvariant frozen |> ignore
+                }
+
+            test "the program set exercises real binders" {
+                let total =
+                    programs |> List.sumBy (fun (_, src) -> checkMintInvariant (snd (poolsFor src)))
+
+                Expect.isGreaterThan total 0 "at least one real binder is correlated to its node token"
+            }
         ]
 
 // The corpus never populates `FunVerdicts` (the value-struct / stack-closure emit path
