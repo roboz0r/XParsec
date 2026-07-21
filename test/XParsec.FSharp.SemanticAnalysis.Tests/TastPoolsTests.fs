@@ -63,18 +63,57 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
         Expect.equal entry.ExprChildren.Length 0 "type decl surfaces no expr child"
         Expect.equal entry.PatChildren.Length 0 "type decl surfaces no pat child"
 
+/// The id-resolution gate: every reference the remap rewrote — each `Var.binding` and
+/// each of the seven side-table keys — must resolve to a `BinderId` whose RETAINED
+/// NodeKey equals the original content key. A binder the enumeration missed shows up as
+/// an unresolved reference (a `toPools` fault) or, here, as a resolved id whose key does
+/// not match. The dense side tables must also cover the source maps 1:1 — a dropped or
+/// duplicated key would desync the rebuilt map from the original.
+let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
+    let binderKey (BinderId i) = pools.Binders.[i].Key
+
+    for entry in pools.Exprs do
+        match entry.Shape with
+        | ExprShape.Var ->
+            match entry.VarBinder with
+            | ValueSome bid ->
+                Expect.equal
+                    (binderKey bid)
+                    (TastAccessor.exprVarBinding entry.Node)
+                    "Var resolves to its own binder key"
+            | ValueNone -> failtest "a Var pool entry carries no resolved binder id"
+        | _ -> ()
+
+    // Each dense side table is the source map re-keyed by `BinderId`: same cardinality,
+    // and every dense key resolves to a NodeKey the source map holds.
+    let checkTable (name: string) (dense: (BinderId * 'v)[]) (source: Map<NodeKey, 'v>) =
+        Expect.equal dense.Length source.Count (name + " dense form covers the source map 1:1")
+
+        for (bid, _) in dense do
+            Expect.isTrue (Map.containsKey (binderKey bid) source) (name + " dense key resolves to a source binder")
+
+    checkTable "ModuleMembers" pools.ModuleMembers frozen.ModuleMembers
+    checkTable "TopLevelNames" pools.TopLevelNames frozen.TopLevelNames
+    checkTable "ClosureReprs" pools.ClosureReprs frozen.ClosureReprs
+    checkTable "FunVerdicts" pools.FunVerdicts frozen.FunVerdicts
+    checkTable "GenericFnSchemes" pools.GenericFnSchemes frozen.GenericFnSchemes
+    checkTable "BindingValReprs" pools.BindingValReprs frozen.BindingValReprs
+    checkTable "BindingTyparArities" pools.BindingTyparArities frozen.BindingTyparArities
+
 let private checkProgram (src: string) =
     let pools, frozen = poolsFor src
     let duDecls = EqArray.toArray frozen.Decls
     Expect.equal pools.Roots.Length duDecls.Length "one root per emittable decl"
     Array.iter2 (checkDecl pools) pools.Roots duDecls
+    checkIdResolution pools frozen
 
     // The interconversion gate: `ofPools ∘ toPools` reconstructs a structurally-equal
     // `Frozen.TastFile`. Structural equality is by the serializer (the round-trip oracle
     // the frozen-cache tests already use) — asserting the whole file by `=` is the wrong
-    // contract (side-table map ordering is free to differ), but here the rebuilt file
-    // shares the source's side-table maps by reference, so any flatten difference is a
-    // genuine decl-tree divergence.
+    // contract (side-table map ordering is free to differ). The rebuilt file's decl trees
+    // come from the pool ids and its side-table maps are re-keyed through the binder pool
+    // (not shared from the source), so a flatten difference is a genuine decl-tree OR
+    // key-remap divergence.
     Expect.equal
         (FrozenCodec.flatten (TastPools.ofPools pools))
         (FrozenCodec.flatten frozen)

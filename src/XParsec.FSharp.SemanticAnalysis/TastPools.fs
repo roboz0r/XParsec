@@ -33,6 +33,17 @@ open XParsec.FSharp.Parser
 // without disturbing this shape. Child columns are filled in the accessor's
 // enumeration order, and `ofPools` consumes them in that same order — the coupling the
 // round-trip test guards.
+//
+// Identity, too, goes positional: a binder's identity after freeze IS its slot in a
+// dedicated `Binders` column, not its 64-bit content key. Every distinct NodeKey a
+// simple binder introduces (`NamedSimple.binding`, `ForTo.var`) is interned to a
+// `BinderId`; the cross-references that named a definition by content key during
+// analysis — `Var.binding` and the seven `Map<NodeKey,_>` side tables — name it by that
+// id in the pool form. `ofPools` resolves each id back through `Binders` to the retained
+// NodeKey, so the round-trip exercises the remap rather than copying the keys back
+// verbatim: a reference or side-table key that resolves to no interned binder faults
+// here, which is the gate that keeps the enumeration honest. (Kind is not stored — its
+// only role was to make a content key unique, which positional ids now do.)
 
 /// A dense pool index into a `FrozenPools.Exprs` column.
 [<Struct>]
@@ -46,6 +57,14 @@ type PatPoolId = | PatPoolId of int
 [<Struct>]
 type DeclPoolId = | DeclPoolId of int
 
+/// A dense pool index into `FrozenPools.Binders` — the positional identity a frozen
+/// binder takes on once kind dissolves. A binder is a NodeKey a `NamedSimple` pattern
+/// or a `ForTo` loop variable INTRODUCES; the cross-references that named it by 64-bit
+/// content key during analysis (`Var.binding`, the side-table keys) name it by this id
+/// in the pool form.
+[<Struct>]
+type BinderId = | BinderId of int
+
 /// One expression pool entry. `ExprChildren` are the ids of the immediate child
 /// expressions in `TastAccessor.exprChildren` order; `PatChildren` the ids of the
 /// patterns this node owns (`TastAccessor.exprPatChildren` order). `Node` is the
@@ -57,6 +76,12 @@ type ExprPoolEntry =
         Shape: ExprShape
         ExprChildren: ExprPoolId[]
         PatChildren: PatPoolId[]
+        /// For a `Var` node, the dense id of the binder its `binding` NodeKey names —
+        /// the reference edge routed to positional identity. `ValueNone` for every
+        /// other shape (which carry no binder reference). `ofPools` reconstructs
+        /// `Var.binding` from THIS, not from the retained `Node`, so the round-trip
+        /// exercises the remap rather than copying the content key back verbatim.
+        VarBinder: BinderId voption
         Node: Frozen.TExpr
     }
 
@@ -70,6 +95,16 @@ type PatPoolEntry =
         PatChildren: PatPoolId[]
         Node: Frozen.TPat
     }
+
+/// One binder pool entry — a SIMPLE name binding (`let x`, the `f`/`y` of `let f y =
+/// …`, a `ForTo` loop variable, a synthetic binder). This is a DEDICATED dense column,
+/// deliberately NOT an index into `Pats`: simple binders are the common case and must
+/// not carry the heterogeneous payload the all-pattern-kinds `Pats` entry accommodates.
+/// It retains only the whole original `NodeKey` for now — the identity `Var.binding` and
+/// the side tables resolve against; the naming integer (offset / `NameIndex`) and the
+/// binder's type split out as their own dense fields later.
+[<Struct>]
+type BinderPoolEntry = { Key: NodeKey }
 
 /// One declaration pool entry. `ExprChildren`/`PatChildren` are the ids of the decl's
 /// immediate expr/pat roots — the `Let` binding's value + head pattern, or the
@@ -95,6 +130,13 @@ type DeclPoolEntry =
 /// keeps `Frozen.TastFile`/`FrozenPools` both whole-file batch values while confining
 /// the interconversion obligation to the decl TREES (pooling the side tables is later
 /// work).
+///
+/// The binder pool and the dense-keyed side tables give the file's identity keys a
+/// positional home: `Binders` is the distinct binder NodeKeys, indexable by `BinderId`;
+/// the seven `Map<NodeKey,_>` side tables of `File` are re-expressed as `BinderId`-keyed
+/// associations. `ofPools` rebuilds the maps from these (resolving each `BinderId` back
+/// through `Binders`), so the round-trip proves the remap is a faithful bijection over
+/// every referenced binder rather than trivially copying `File`'s maps.
 type FrozenPools =
     {
         Exprs: ExprPoolEntry[]
@@ -103,7 +145,22 @@ type FrozenPools =
         /// The pool ids of `File.Decls`, in source order — the entry points for a pool
         /// walk / rebuild.
         Roots: DeclPoolId[]
+        /// The distinct simple-binder entries, indexed by `BinderId` — its OWN dense
+        /// array (see `BinderPoolEntry`), disjoint from `Pats`. `NamedSimple` patterns
+        /// still also appear in `Pats` for the tree walk; this is the additional dense
+        /// column references resolve against, not a re-pointing of `Pats`.
+        Binders: BinderPoolEntry[]
         File: Frozen.TastFile
+        /// The seven `Map<NodeKey,_>` side tables of `File`, re-keyed by `BinderId` (a
+        /// sparse association — a binder appears iff the map held it). `ofPools` rebuilds
+        /// each map from its dense form.
+        ModuleMembers: (BinderId * ModuleBindingInfo)[]
+        TopLevelNames: (BinderId * string)[]
+        ClosureReprs: (BinderId * ClosureRepr)[]
+        FunVerdicts: (BinderId * FunVerdict)[]
+        GenericFnSchemes: (BinderId * FrozenConstraint list)[]
+        BindingValReprs: (BinderId * Frozen.ValRepr)[]
+        BindingTyparArities: (BinderId * int)[]
     }
 
 [<RequireQualifiedAccess>]
@@ -119,7 +176,25 @@ module TastPools =
         let pats = ResizeArray<PatPoolEntry>()
         let decls = ResizeArray<DeclPoolEntry>()
 
+        // The binder pool: each distinct NodeKey a `NamedSimple` pattern or `ForTo`
+        // loop variable introduces, interned to a dense `BinderId` on first encounter.
+        // The introducing sites are enumerated off the accessor as the tree is walked,
+        // so nothing re-derives which nodes bind.
+        let binders = ResizeArray<BinderPoolEntry>()
+        let binderIds = System.Collections.Generic.Dictionary<NodeKey, BinderId>()
+
+        let internBinder (k: NodeKey) : unit =
+            match binderIds.TryGetValue k with
+            | true, _ -> ()
+            | false, _ ->
+                binderIds.Add(k, BinderId binders.Count)
+                binders.Add { Key = k }
+
         let rec poolPat (p: Frozen.TPat) : PatPoolId =
+            match TastAccessor.patBinder p with
+            | ValueSome k -> internBinder k
+            | ValueNone -> ()
+
             let kids = TastAccessor.patChildren p |> Array.map poolPat
             let id = pats.Count
 
@@ -133,6 +208,10 @@ module TastPools =
             PatPoolId id
 
         let rec poolExpr (e: Frozen.TExpr) : ExprPoolId =
+            match TastAccessor.exprKind e with
+            | ExprShape.ForTo -> internBinder (TastAccessor.exprForTo e).Var
+            | _ -> ()
+
             let exprKids = TastAccessor.exprChildren e |> Array.map poolExpr
             let patKids = TastAccessor.exprPatChildren e |> Array.map poolPat
             let id = exprs.Count
@@ -142,6 +221,10 @@ module TastPools =
                     Shape = TastAccessor.exprKind e
                     ExprChildren = exprKids
                     PatChildren = patKids
+                    // Resolved in a second pass — a `Var` may name a binder pooled after
+                    // it (a forward/mutually-recursive reference), so the enumeration must
+                    // be complete before any reference resolves.
+                    VarBinder = ValueNone
                     Node = e
                 }
 
@@ -170,12 +253,45 @@ module TastPools =
 
         let roots = file.Decls |> EqArray.toArray |> Array.map poolDecl
 
+        // Resolve a reference/side-table key to the binder it names. A miss means the
+        // referent was minted by no `NamedSimple`/`ForTo` node — an incomplete binder
+        // enumeration, which is exactly the failure the id-resolution gate exists to
+        // surface.
+        let binderIdOf (k: NodeKey) : BinderId =
+            match binderIds.TryGetValue k with
+            | true, id -> id
+            | false, _ -> failwithf "TastPools.toPools: %O references a binder no NamedSimple/ForTo node introduced" k
+
+        // Second pass: now the enumeration is complete, route each `Var`'s reference edge
+        // to its binder's dense id.
+        let exprArr =
+            exprs.ToArray()
+            |> Array.map (fun entry ->
+                match entry.Shape with
+                | ExprShape.Var ->
+                    { entry with
+                        VarBinder = ValueSome(binderIdOf (TastAccessor.exprVarBinding entry.Node))
+                    }
+                | _ -> entry
+            )
+
+        let remapSideTable (m: Map<NodeKey, 'v>) : (BinderId * 'v)[] =
+            m |> Map.toArray |> Array.map (fun (k, v) -> binderIdOf k, v)
+
         {
-            Exprs = exprs.ToArray()
+            Exprs = exprArr
             Pats = pats.ToArray()
             Decls = decls.ToArray()
             Roots = roots
+            Binders = binders.ToArray()
             File = file
+            ModuleMembers = remapSideTable file.ModuleMembers
+            TopLevelNames = remapSideTable file.TopLevelNames
+            ClosureReprs = remapSideTable file.ClosureReprs
+            FunVerdicts = remapSideTable file.FunVerdicts
+            GenericFnSchemes = remapSideTable file.GenericFnSchemes
+            BindingValReprs = remapSideTable file.BindingValReprs
+            BindingTyparArities = remapSideTable file.BindingTyparArities
         }
 
     // ── the inverse: rebuild the DU trees from the pools ────────────────────
@@ -188,7 +304,12 @@ module TastPools =
     // Each match is exhaustive with no catch-all, so a new `TExprG`/`TPatG`/`TDeclG`
     // case fails to compile here.
 
-    let private substituteExpr (node: Frozen.TExpr) (es: Frozen.TExpr[]) (ps: Frozen.TPat[]) : Frozen.TExpr =
+    let private substituteExpr
+        (node: Frozen.TExpr)
+        (varBinding: NodeKey voption)
+        (es: Frozen.TExpr[])
+        (ps: Frozen.TPat[])
+        : Frozen.TExpr =
         let mutable ei = 0
         let mutable pi = 0
 
@@ -203,8 +324,13 @@ module TastPools =
             x
 
         match node with
+        // `binding` is re-supplied from the dense id, NOT read off the template `node`:
+        // that is what makes the round-trip exercise the reference remap.
+        | TExprG.Var(ty = ty; tok = tok) ->
+            match varBinding with
+            | ValueSome k -> TExprG.Var(k, ty, tok)
+            | ValueNone -> failwith "TastPools.ofPools: a Var entry carries no resolved binder id"
         | TExprG.Const _
-        | TExprG.Var _
         | TExprG.External _
         | TExprG.Null _
         | TExprG.StaticPropertyGet _
@@ -458,6 +584,11 @@ module TastPools =
     /// `Decls` are re-authored from the pool roots (the tree interconversion under
     /// test); every other field is the retained source file's, verbatim.
     let ofPools (pools: FrozenPools) : Frozen.TastFile =
+        // Resolve a dense id back to the binder NodeKey it names — the inverse of the
+        // `toPools` interning. This is the resolution the reference remap and the side
+        // tables both invert through.
+        let binderKey (BinderId i) : NodeKey = pools.Binders.[i].Key
+
         let rec fromPat (PatPoolId i) : Frozen.TPat =
             let entry = pools.Pats.[i]
             let ps = entry.PatChildren |> Array.map fromPat
@@ -467,7 +598,8 @@ module TastPools =
             let entry = pools.Exprs.[i]
             let es = entry.ExprChildren |> Array.map fromExpr
             let ps = entry.PatChildren |> Array.map fromPat
-            substituteExpr entry.Node es ps
+            let varBinding = entry.VarBinder |> ValueOption.map binderKey
+            substituteExpr entry.Node varBinding es ps
 
         let fromDecl (DeclPoolId i) : Frozen.TDecl =
             let entry = pools.Decls.[i]
@@ -477,4 +609,19 @@ module TastPools =
 
         let decls = pools.Roots |> Array.map fromDecl |> EqArray.ofArray
 
-        { pools.File with Decls = decls }
+        // Rebuild a side table from its dense form, resolving each `BinderId` back to its
+        // NodeKey. Reconstructing the maps here (rather than retaining `File`'s) is what
+        // makes the round-trip prove the key remap, not just the decl trees.
+        let rebuildSideTable (dense: (BinderId * 'v)[]) : Map<NodeKey, 'v> =
+            dense |> Array.map (fun (bid, v) -> binderKey bid, v) |> Map.ofArray
+
+        { pools.File with
+            Decls = decls
+            ModuleMembers = rebuildSideTable pools.ModuleMembers
+            TopLevelNames = rebuildSideTable pools.TopLevelNames
+            ClosureReprs = rebuildSideTable pools.ClosureReprs
+            FunVerdicts = rebuildSideTable pools.FunVerdicts
+            GenericFnSchemes = rebuildSideTable pools.GenericFnSchemes
+            BindingValReprs = rebuildSideTable pools.BindingValReprs
+            BindingTyparArities = rebuildSideTable pools.BindingTyparArities
+        }

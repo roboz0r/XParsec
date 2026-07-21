@@ -204,7 +204,15 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 > `ofPools`, produced by `Freeze.buildPools` alongside the DU (both coexist, accessor still
 > DU-backed, nothing reads the pools yet). Interconversion is proven codegen-invariant over the
 > full CLR corpus (`ConformanceRoundTripByteIdentityTests` now judges `ofPools (toPools frozen)`
-> against direct codegen per program) plus an SA-project smoke set. B.k+2…B.k+7 are untouched. A
+> against direct codegen per program) plus an SA-project smoke set. **B.k+2 has landed**: a
+> dedicated minimal `Binders` column (simple name bindings — `NamedSimple.binding` / `ForTo.var`
+> — interned to a dense `BinderId`, retaining the whole `NodeKey` for now), with `Var.binding`
+> and all seven `Map<NodeKey,_>` side tables re-expressed as `BinderId`-keyed dense forms; a
+> two-pass `toPools` (enumerate binders, then resolve references — a `Var` may name a binder
+> pooled after it) and a `failwith`-on-miss resolver that proved every reference/side-table key
+> resolves to a simple binder over the whole corpus. `ofPools` rebuilds `Var.binding` and the
+> side tables through the binder pool, so the round-trip gate exercises the remap. B.k+3…B.k+7
+> are untouched. A
 > `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
 > `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 
