@@ -885,25 +885,28 @@ module TastAccessor =
         | TDeclG.Expression(expr = expr) -> expr
         | _ -> failwith "TastAccessor.declExpression: not an Expression decl"
 
-    /// The payload of a `Let` decl, minus the `ty` the node also carries. `Binding` is
-    /// the bound pattern, `Value` its initializer, `IsInline` whether the binding expands
-    /// per call site.
+    /// The payload of a `Let` decl. `Binding` is the bound pattern, `Value` its
+    /// initializer, `IsInline` whether the binding expands per call site, `Ty` the
+    /// binding's declared type (the slot type a value-producing consumer allocates for
+    /// it — distinct from `exprTy Value` for a destructuring binding).
     [<Struct>]
     type DeclLetView =
         {
             Binding: PatId
             Value: ExprId
             IsInline: bool
+            Ty: FrozenType
         }
 
     /// The payload view of a `Let` decl. Guard with `declKind` = `DeclShape.Let` first;
     /// `failwith` on any other shape.
     let declLet (d: DeclId) : DeclLetView =
         match d with
-        | TDeclG.Let(binding = binding; value = value; isInline = isInline) ->
+        | TDeclG.Let(binding = binding; value = value; isInline = isInline; ty = ty) ->
             {
                 Binding = binding
                 Value = value
                 IsInline = isInline
+                Ty = ty
             }
         | _ -> failwith "TastAccessor.declLet: not a Let decl"

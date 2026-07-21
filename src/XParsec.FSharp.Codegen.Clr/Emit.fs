@@ -58,38 +58,45 @@ module Emit =
         let env = EmitEnv.ofContext ctx (Dictionary())
 
         for d in decls do
-            match d with
-            | TDeclG.Expression(e, _) -> buildStatement env b e
-            // A function emitted as a static method has no Main local.
-            | TDeclG.Let(TPatG.NamedSimple(binding, _, _), _, _, _) when ctx.StaticMethods.ContainsKey binding -> ()
-            // A top-level ("Program") value that follows a top-level `do`: its
-            // `public static` field is written **here**, in `Main`, in source order —
-            // not in the Program `.cctor` (which runs before `Main`). A reference reads
-            // `ldsfld` via `ModuleValues`. (Checked before the `ModuleValues` skip,
-            // which it would otherwise match.)
-            | TDeclG.Let(TPatG.NamedSimple(binding, _, _), value, _, _) when ctx.MainInitValues.ContainsKey binding ->
-                buildExpr env b value
-                b.Add(ILInstr.Stsfld ctx.MainInitValues.[binding])
-            // A module-level value is a `public static` field initialised by its
-            // holder's `.cctor`; a reference loads it with `ldsfld`, so it needs no Main local.
-            | TDeclG.Let(TPatG.NamedSimple(binding, _, _), _, _, _) when ctx.ModuleValues.ContainsKey binding -> ()
-            | TDeclG.Let(TPatG.NamedSimple(binding, _, _), value, _, ty) ->
-                let slot = b.Local ty
-                env.Slots.[binding] <- slot
-                buildExpr env b value
-                b.Add(ILInstr.Stloc slot)
-            // A destructuring top-level `let (a, b) = tupleExpr`: evaluate the value
-            // once into a Main local, then `bindPattern` (irrefutable) pulls each leaf
-            // into its own slot — the same destructuring `EmitBindings.buildLet` does
-            // for an in-expression `let`. Without this arm the binding was silently
-            // dropped by the catch-all below, so a later use of `a` / `b` hit
-            // "Emit: no binding for variable".
-            | TDeclG.Let(pat, value, _, _) ->
-                let slot = b.Local(EmitLower.typeOfExpr value)
-                buildExpr env b value
-                b.Add(ILInstr.Stloc slot)
-                bindPattern env b slot pat
-            | TDeclG.Type _ -> ()
+            match TastAccessor.declKind d with
+            | DeclShape.Expression -> buildStatement env b (TastAccessor.declExpression d)
+            | DeclShape.Type -> ()
+            | DeclShape.Let ->
+                let dl = TastAccessor.declLet d
+
+                // A simple (`NamedSimple`) binding carries the single binder its guards
+                // dispatch on; any other binding shape (a destructuring tuple/record/…)
+                // binds through nested sub-patterns and takes the fall-through arm.
+                match TastAccessor.patBinder dl.Binding with
+                // A function emitted as a static method has no Main local.
+                | ValueSome binding when ctx.StaticMethods.ContainsKey binding -> ()
+                // A top-level ("Program") value that follows a top-level `do`: its
+                // `public static` field is written **here**, in `Main`, in source order —
+                // not in the Program `.cctor` (which runs before `Main`). A reference reads
+                // `ldsfld` via `ModuleValues`. (Checked before the `ModuleValues` skip,
+                // which it would otherwise match.)
+                | ValueSome binding when ctx.MainInitValues.ContainsKey binding ->
+                    buildExpr env b dl.Value
+                    b.Add(ILInstr.Stsfld ctx.MainInitValues.[binding])
+                // A module-level value is a `public static` field initialised by its
+                // holder's `.cctor`; a reference loads it with `ldsfld`, so it needs no Main local.
+                | ValueSome binding when ctx.ModuleValues.ContainsKey binding -> ()
+                | ValueSome binding ->
+                    let slot = b.Local dl.Ty
+                    env.Slots.[binding] <- slot
+                    buildExpr env b dl.Value
+                    b.Add(ILInstr.Stloc slot)
+                // A destructuring top-level `let (a, b) = tupleExpr`: evaluate the value
+                // once into a Main local, then `bindPattern` (irrefutable) pulls each leaf
+                // into its own slot — the same destructuring `EmitBindings.buildLet` does
+                // for an in-expression `let`. Without this arm the binding was silently
+                // dropped by the catch-all below, so a later use of `a` / `b` hit
+                // "Emit: no binding for variable".
+                | ValueNone ->
+                    let slot = b.Local(EmitLower.typeOfExpr dl.Value)
+                    buildExpr env b dl.Value
+                    b.Add(ILInstr.Stloc slot)
+                    bindPattern env b slot dl.Binding
 
         b.Add(ILInstr.LdcI4 0)
         b.Add ILInstr.Ret
@@ -118,8 +125,8 @@ module Emit =
         // element bindings out of it before the body runs. A
         // `NamedSimple` / unit param needs none of this — it resolves through
         // `args.[ParamKey] = 1` directly.
-        match closure.ParamPat with
-        | TPatG.Tuple _ ->
+        match TastAccessor.patKind closure.ParamPat with
+        | PatShape.Tuple ->
             let slot = b.Local closure.ParamTy
             b.Add(ILInstr.Ldarg 1)
             b.Add(ILInstr.Stloc slot)
