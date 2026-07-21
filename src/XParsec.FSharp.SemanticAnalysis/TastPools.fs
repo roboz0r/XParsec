@@ -15,16 +15,19 @@ open XParsec.FSharp.Parser
 // the DU trees — `toPools`/`ofPools` round-trip a `Frozen.TastFile` — proven over the
 // corpus.
 //
-// Layout: the EXPRESSION pool is struct-of-arrays — parallel dense columns indexed by
-// `ExprPoolId` (`ExprShapes`/`ExprTys`/`ExprToks`, the child-id columns
-// `ExprChildren`/`ExprPatChildren`, the sparse `ExprVarBinder`) plus `ExprPayloads`, a
-// typed side array carrying ONLY each node's residual scalars — its fields MINUS the
-// `ty`/`tok`, the child expr/pat ids, and the `Var` binder id, all of which live in the
-// columns. So the expr pool holds NO DU node: the whole `TExprG` subtree dissolves into
-// columns, which is the point — a retained node drags its entire nested body along with
-// it, so freeze could never stop materializing the DU. The pat and decl pools still
-// retain their `Node` (a later slice extracts them); an expr's `ExprPatChildren` still
-// reference that Node-backed pat pool, which is fine while the domains stage separately.
+// Layout: EVERY pool is struct-of-arrays — parallel dense columns indexed by the matching
+// `*PoolId`. The expr columns are `ExprShapes`/`ExprTys`/`ExprToks`, the child-id columns
+// `ExprChildren`/`ExprPatChildren`, the sparse `ExprVarBinder`, plus `ExprPayloads`; the pat
+// columns `PatShapes`/`PatTys`/`PatToks`/`PatChildren` plus `PatPayloads`; the decl columns
+// `DeclShapes`/`DeclExprChildren`/`DeclPatChildren` plus `DeclPayloads` (decls carry no
+// node-level `ty`/`tok`, so the type rides the payload). Each `*Payloads` array is a typed
+// side array carrying ONLY a node's residual scalars/structure — its fields MINUS the
+// `ty`/`tok`, the child expr/pat ids, and (for exprs) the `Var` binder id, all of which live
+// in the columns. So NO pool holds a DU node: the whole `TExprG`/`TPat`/`TDecl` subtree
+// dissolves into columns, which is the point — a retained node drags its entire nested body
+// along with it, so freeze could never stop materializing the DU. (A `Type` decl's member
+// bodies are the one exception: they ride `DeclPayload.Type`'s `TTypeDecl` opaquely, NOT
+// pooled — the same opaque treatment the retained `Node` gave them, existing behavior.)
 //
 // A payload case that is a COMPOSITE carrier (`Match`/`TryWith` arms, `Format`
 // segments, `StaticOptimization` clauses, `Range` step, `RecordCons`/`RecordClone`
@@ -204,16 +207,36 @@ type ExprPayload =
             MemberName: string
         |}
 
-/// One pattern pool entry. `PatChildren` are the ids of the immediate sub-patterns
-/// (`TastAccessor.patChildren` order); patterns own no child expressions. `Node` is
-/// the verbatim source DU node (carries the binder `NodeKey`, `ty`, `tok`).
-[<Struct>]
-type PatPoolEntry =
-    {
-        Shape: PatShape
-        PatChildren: PatPoolId[]
-        Node: Frozen.TPat
-    }
+/// The residual payload of a frozen pattern node — one case per `PatShape`, carrying ONLY
+/// the fields left after the columnar split drops `ty`/`tok` (the `PatTys`/`PatToks`
+/// columns) and the child sub-pat ids (`PatChildren`, in `TastAccessor.patChildren` order;
+/// patterns own no child expressions). Mirrors `FrozenCodec.writePat` for what each case
+/// carries beyond those. Exhaustive: a new `TPat`/`PatShape` case fails to compile at
+/// `patPayload`/`substitutePat`.
+[<RequireQualifiedAccess>]
+type PatPayload =
+    /// The single binder this simple name pattern INTRODUCES — a `NodeKey` kept verbatim,
+    /// the pat analogue of `ExprPayload.ForTo`'s `Var`: it is interned to a `BinderId` (so
+    /// `Var` references resolve) yet reconstructed from here, and it names no sub-pattern so
+    /// it is not a child.
+    | NamedSimple of binding: NodeKey
+    | Wildcard
+    | Null
+    | Tuple
+    | Or
+    | Const of TConstValue
+    /// The field names, in source order; the sub-patterns are the children.
+    | Record of fieldNames: string[]
+    /// The union case name; the field sub-patterns are the children.
+    | Union of caseName: string
+    /// The tested-against type `T` of `:? T as x` (the `isinst` operand, distinct from the
+    /// scrutinee type in `PatTys`); the bound inner `as`-pattern is the sole child.
+    | TypeTestAs of testTy: FrozenType
+    | EnumCase of
+        {|
+            EnumKey: SymbolKey
+            CaseName: string
+        |}
 
 /// The three naming projections a backend reads off a binder to emit its name WITHOUT
 /// the `NodeKey` — exactly the bits `binderName` (`JsEmitHelpers.fs`) unpacks: a real
@@ -229,32 +252,22 @@ type BinderNaming =
         NameIndex: int
     }
 
-/// One binder pool entry — a SIMPLE name binding (`let x`, the `f`/`y` of `let f y =
-/// …`, a `ForTo` loop variable, a synthetic binder). This is a DEDICATED dense column,
-/// deliberately NOT an index into `Pats`: simple binders are the common case and must
-/// not carry the heterogeneous payload the all-pattern-kinds `Pats` entry accommodates.
-/// It retains the whole original `NodeKey` — the identity `Var.binding` and the side
-/// tables resolve against, and the DU round-trip's carrier for the `Raw` bits (kind
-/// included) the trees still reconstruct from, so the key cannot be dropped while the
-/// backing is DU-form. Alongside it, `Naming` carries the three projections a backend
-/// names the binder by, sourced at `toPools` from the SAME key (`IsSynthetic`/`Offset`/
-/// `NameIndex`) so it is faithful to `binderName` by construction — the naming data that
-/// outlives the `NodeKey`. The binder's TYPE splits out as its own dense field later.
-[<Struct>]
-type BinderPoolEntry = { Key: NodeKey; Naming: BinderNaming }
-
-/// One declaration pool entry. `ExprChildren`/`PatChildren` are the ids of the decl's
-/// immediate expr/pat roots — the `Let` binding's value + head pattern, or the
-/// `Expression` body. A `Type` decl surfaces no expr/pat children (its member bodies
-/// ride the retained `Node` opaquely, exactly as `TastAccessor.declType` treats them).
-[<Struct>]
-type DeclPoolEntry =
-    {
-        Shape: DeclShape
-        ExprChildren: ExprPoolId[]
-        PatChildren: PatPoolId[]
-        Node: Frozen.TDecl
-    }
+/// The residual payload of a frozen declaration node — one case per `DeclShape`. A decl
+/// carries no uniform node-level `ty`/`tok` (there are no `DeclTys`/`DeclToks` columns), so
+/// each case rides whatever type/scalars it needs. Its child expr/pat roots live in the
+/// `DeclExprChildren`/`DeclPatChildren` columns. Mirrors `FrozenCodec.writeDecl`. Exhaustive:
+/// a new `TDecl`/`DeclShape` case fails to compile at `declPayload`/`substituteDecl`.
+[<RequireQualifiedAccess>]
+type DeclPayload =
+    /// The binding is the sole pat child, its value the sole expr child; `IsInline`/`Ty`
+    /// (the binding's declared slot type) are the residual scalars.
+    | Let of {| IsInline: bool; Ty: FrozenType |}
+    /// The decl's declared type; the body is the sole expr child.
+    | Expression of FrozenType
+    /// The whole `type` declaration, VERBATIM. Its member bodies are NOT pooled — they ride
+    /// opaquely here exactly as the retained `Node` did, which is `TastAccessor.declType`'s
+    /// existing, intended behavior (a `Type` decl surfaces no expr/pat children).
+    | Type of Frozen.TTypeDecl
 
 /// The frozen-only companion `Freeze` produces alongside the `Frozen.TastFile` DU: the
 /// expr struct-of-arrays columns plus the pat/decl node columns (indexable by the matching
@@ -291,16 +304,41 @@ type FrozenPools =
         ExprPatChildren: PatPoolId[][]
         ExprVarBinder: BinderId voption[]
         ExprPayloads: ExprPayload[]
-        Pats: PatPoolEntry[]
-        Decls: DeclPoolEntry[]
+        /// The pattern pool as struct-of-arrays: parallel columns indexed by `PatPoolId`.
+        /// `PatShapes` is the tag column; `PatTys`/`PatToks` the node's `ty`/`tok`;
+        /// `PatChildren` the immediate sub-pat ids in `TastAccessor.patChildren` order
+        /// (patterns own no child expressions); `PatPayloads` the residual per-case payload.
+        /// No DU node is retained.
+        PatShapes: PatShape[]
+        PatTys: FrozenType[]
+        PatToks: SyntaxToken[]
+        PatChildren: PatPoolId[][]
+        PatPayloads: PatPayload[]
+        /// The declaration pool as struct-of-arrays, indexed by `DeclPoolId`. `DeclShapes`
+        /// is the tag column; `DeclExprChildren`/`DeclPatChildren` the decl's immediate
+        /// expr/pat roots (the `Let` binding's value + head pattern, or the `Expression`
+        /// body — a `Type` decl surfaces none); `DeclPayloads` the residual per-case payload
+        /// (which also carries the decl's type, there being no node-level `ty` column). No
+        /// DU node is retained.
+        DeclShapes: DeclShape[]
+        DeclExprChildren: ExprPoolId[][]
+        DeclPatChildren: PatPoolId[][]
+        DeclPayloads: DeclPayload[]
         /// The pool ids of `File.Decls`, in source order — the entry points for a pool
         /// walk / rebuild.
         Roots: DeclPoolId[]
-        /// The distinct simple-binder entries, indexed by `BinderId` — its OWN dense
-        /// array (see `BinderPoolEntry`), disjoint from `Pats`. `NamedSimple` patterns
-        /// still also appear in `Pats` for the tree walk; this is the additional dense
-        /// column references resolve against, not a re-pointing of `Pats`.
-        Binders: BinderPoolEntry[]
+        /// The distinct simple-binder entries as two parallel columns indexed by `BinderId`,
+        /// its OWN dense arrays disjoint from `Pats`: `BinderKeys` retains each binder's whole
+        /// original `NodeKey` — the identity `Var.binding` and the side tables resolve against,
+        /// and the DU round-trip's carrier for the `Raw` bits (kind included) the trees still
+        /// reconstruct from, so the key cannot be dropped while the backing is DU-form.
+        /// `BinderNamings` carries the three projections a backend names the binder by, sourced
+        /// at `toPools` from the SAME key (`IsSynthetic`/`Offset`/`NameIndex`) so it is faithful
+        /// to `binderName` by construction — the naming data that outlives the `NodeKey`. A
+        /// `NamedSimple` pattern still also appears in the pat columns for the tree walk; these
+        /// are the additional dense columns references resolve against, not a re-pointing.
+        BinderKeys: NodeKey[]
+        BinderNamings: BinderNaming[]
         File: Frozen.TastFile
         /// Six of the seven `Map<NodeKey,_>` side tables of `File`, re-keyed by `BinderId`
         /// (a sparse association — a binder appears iff the map held it). `ofPools`
@@ -427,6 +465,37 @@ module TastPools =
                     MemberName = memberName
                 |}
 
+    /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
+    /// child sub-pat ids (`patChildren`). The exact inverse of `substitutePat`, mirroring
+    /// `FrozenCodec.writePat`. Exhaustive with no catch-all, so a new `TPat` case fails to
+    /// compile here.
+    let private patPayload (p: Frozen.TPat) : PatPayload =
+        match p with
+        | TPatG.NamedSimple(binding = binding) -> PatPayload.NamedSimple binding
+        | TPatG.Wildcard _ -> PatPayload.Wildcard
+        | TPatG.Null _ -> PatPayload.Null
+        | TPatG.Tuple _ -> PatPayload.Tuple
+        | TPatG.Or _ -> PatPayload.Or
+        | TPatG.Const(value = value) -> PatPayload.Const value
+        | TPatG.Record(fields = fields) -> PatPayload.Record(fields |> EqArray.toArray |> Array.map fst)
+        | TPatG.Union(caseName = caseName) -> PatPayload.Union caseName
+        | TPatG.TypeTestAs(testTy = testTy) -> PatPayload.TypeTestAs testTy
+        | TPatG.EnumCase(enumKey = enumKey; caseName = caseName) ->
+            PatPayload.EnumCase
+                {|
+                    EnumKey = enumKey
+                    CaseName = caseName
+                |}
+
+    /// The residual payload of a frozen declaration node — its fields MINUS the child
+    /// expr/pat roots. The exact inverse of `substituteDecl`, mirroring `FrozenCodec.writeDecl`.
+    /// Exhaustive with no catch-all, so a new `TDecl` case fails to compile here.
+    let private declPayload (d: Frozen.TDecl) : DeclPayload =
+        match d with
+        | TDeclG.Let(isInline = isInline; ty = ty) -> DeclPayload.Let {| IsInline = isInline; Ty = ty |}
+        | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
+        | TDeclG.Type td -> DeclPayload.Type td
+
     /// Pool the frozen tree of `file.Decls`, assigning each reachable node a dense id
     /// and recording its child edges as ids. Post-order: a node's children are pooled
     /// (and so given lower ids) before the node itself is recorded, so every child id a
@@ -447,14 +516,27 @@ module TastPools =
         // mutually-recursive reference), so the enumeration must complete first.
         let varBindings = ResizeArray<struct (int * NodeKey)>()
 
-        let pats = ResizeArray<PatPoolEntry>()
-        let decls = ResizeArray<DeclPoolEntry>()
+        // The pattern pool as parallel column builders (struct-of-arrays), index-aligned by
+        // `PatPoolId`.
+        let patShapes = ResizeArray<PatShape>()
+        let patTys = ResizeArray<FrozenType>()
+        let patToks = ResizeArray<SyntaxToken>()
+        let patChildrenCol = ResizeArray<PatPoolId[]>()
+        let patPayloads = ResizeArray<PatPayload>()
 
-        // The binder pool: each distinct NodeKey a `NamedSimple` pattern or `ForTo`
-        // loop variable introduces, interned to a dense `BinderId` on first encounter.
-        // The introducing sites are enumerated off the accessor as the tree is walked,
-        // so nothing re-derives which nodes bind.
-        let binders = ResizeArray<BinderPoolEntry>()
+        // The declaration pool as parallel column builders, index-aligned by `DeclPoolId`.
+        let declShapes = ResizeArray<DeclShape>()
+        let declExprChildrenCol = ResizeArray<ExprPoolId[]>()
+        let declPatChildrenCol = ResizeArray<PatPoolId[]>()
+        let declPayloads = ResizeArray<DeclPayload>()
+
+        // The binder pool as two parallel columns: each distinct NodeKey a `NamedSimple`
+        // pattern or `ForTo` loop variable introduces, interned to a dense `BinderId` on
+        // first encounter, alongside the naming triple sourced from that same key. The
+        // introducing sites are enumerated off the accessor as the tree is walked, so
+        // nothing re-derives which nodes bind.
+        let binderKeys = ResizeArray<NodeKey>()
+        let binderNamings = ResizeArray<BinderNaming>()
         let binderIds = System.Collections.Generic.Dictionary<NodeKey, BinderId>()
 
         // The lambda id space: a source lambda's dense id IS its `ExprPoolId` (positional
@@ -468,20 +550,17 @@ module TastPools =
             match binderIds.TryGetValue k with
             | true, _ -> ()
             | false, _ ->
-                binderIds.Add(k, BinderId binders.Count)
-
-                binders.Add
+                binderIds.Add(k, BinderId binderKeys.Count)
+                binderKeys.Add k
+                // The naming triple IS the key's projections — the same three bits
+                // `binderName` reads — so it is faithful to emitted names by construction,
+                // and stays correct after the key itself retires. Its slot stays aligned
+                // with `binderKeys` by appending in lockstep.
+                binderNamings.Add
                     {
-                        Key = k
-                        // The naming triple IS the key's projections — the same three bits
-                        // `binderName` reads — so it is faithful to emitted names by
-                        // construction, and stays correct after the key itself retires.
-                        Naming =
-                            {
-                                IsSynthetic = k.IsSynthetic
-                                Offset = k.Offset
-                                NameIndex = k.NameIndex
-                            }
+                        IsSynthetic = k.IsSynthetic
+                        Offset = k.Offset
+                        NameIndex = k.NameIndex
                     }
 
         let rec poolPat (p: Frozen.TPat) : PatPoolId =
@@ -490,14 +569,13 @@ module TastPools =
             | ValueNone -> ()
 
             let kids = TastAccessor.patChildren p |> Array.map poolPat
-            let id = pats.Count
+            let id = patShapes.Count
 
-            pats.Add
-                {
-                    Shape = TastAccessor.patKind p
-                    PatChildren = kids
-                    Node = p
-                }
+            patShapes.Add(TastAccessor.patKind p)
+            patTys.Add(TastAccessor.patTy p)
+            patToks.Add(TastAccessor.patTok p)
+            patChildrenCol.Add kids
+            patPayloads.Add(patPayload p)
 
             PatPoolId id
 
@@ -536,15 +614,12 @@ module TastPools =
                 | DeclShape.Expression -> struct ([| poolExpr (TastAccessor.declExpression d) |], [||])
                 | DeclShape.Type -> struct ([||], [||])
 
-            let id = decls.Count
+            let id = declShapes.Count
 
-            decls.Add
-                {
-                    Shape = TastAccessor.declKind d
-                    ExprChildren = exprKids
-                    PatChildren = patKids
-                    Node = d
-                }
+            declShapes.Add(TastAccessor.declKind d)
+            declExprChildrenCol.Add exprKids
+            declPatChildrenCol.Add patKids
+            declPayloads.Add(declPayload d)
 
             DeclPoolId id
 
@@ -588,10 +663,18 @@ module TastPools =
             ExprPatChildren = exprPatChildrenCol.ToArray()
             ExprVarBinder = exprVarBinder
             ExprPayloads = exprPayloads.ToArray()
-            Pats = pats.ToArray()
-            Decls = decls.ToArray()
+            PatShapes = patShapes.ToArray()
+            PatTys = patTys.ToArray()
+            PatToks = patToks.ToArray()
+            PatChildren = patChildrenCol.ToArray()
+            PatPayloads = patPayloads.ToArray()
+            DeclShapes = declShapes.ToArray()
+            DeclExprChildren = declExprChildrenCol.ToArray()
+            DeclPatChildren = declPatChildrenCol.ToArray()
+            DeclPayloads = declPayloads.ToArray()
             Roots = roots
-            Binders = binders.ToArray()
+            BinderKeys = binderKeys.ToArray()
+            BinderNamings = binderNamings.ToArray()
             File = file
             ModuleMembers = remapSideTable binderIdOf file.ModuleMembers
             TopLevelNames = remapSideTable binderIdOf file.TopLevelNames
@@ -611,7 +694,8 @@ module TastPools =
     // them (`nextE`/`nextP` are order cursors) — the one coupling the round-trip gate
     // proves. The match on `ExprPayload` is exhaustive with no catch-all (the inverse of
     // `exprPayload`), so a new shape fails to compile here. `substitutePat`/`substituteDecl`
-    // still take a template `Node` — the pat and decl pools retain theirs this pass.
+    // re-author from their own payload + rebuilt children the same way — no template node,
+    // now that the pat and decl pools are columnar too.
 
     let private substituteExpr
         (ty: FrozenType)
@@ -826,38 +910,37 @@ module TastPools =
             TExprG.TypeTest(source, testTy, ty, tok)
         | ExprPayload.TraitCall p -> TExprG.TraitCall(p.Receiver, p.MemberName, EqArray.ofArray es, ty, tok)
 
-    let private substitutePat (node: Frozen.TPat) (ps: Frozen.TPat[]) : Frozen.TPat =
-        let mutable pi = 0
-
-        let nextP () =
-            let x = ps.[pi] in
-            pi <- pi + 1
-            x
-
-        match node with
-        | TPatG.NamedSimple _
-        | TPatG.Wildcard _
-        | TPatG.Const _
-        | TPatG.Null _
-        | TPatG.EnumCase _ -> node
-        | TPatG.Tuple(_, ty, tok) -> TPatG.Tuple(EqArray.ofArray ps, ty, tok)
-        | TPatG.Or(_, ty, tok) -> TPatG.Or(EqArray.ofArray ps, ty, tok)
-        | TPatG.Record(fields, ty, tok) ->
+    let private substitutePat
+        (ty: FrozenType)
+        (tok: SyntaxToken)
+        (payload: PatPayload)
+        (ps: Frozen.TPat[])
+        : Frozen.TPat =
+        match payload with
+        // `binding` is supplied from the payload, the pat analogue of `ForTo.var` — it is
+        // interned so `Var` references resolve, yet reconstructed verbatim from here.
+        | PatPayload.NamedSimple binding -> TPatG.NamedSimple(binding, ty, tok)
+        | PatPayload.Wildcard -> TPatG.Wildcard(ty, tok)
+        | PatPayload.Null -> TPatG.Null(ty, tok)
+        | PatPayload.Const value -> TPatG.Const(value, ty, tok)
+        | PatPayload.EnumCase p -> TPatG.EnumCase(p.EnumKey, p.CaseName, ty, tok)
+        | PatPayload.Tuple -> TPatG.Tuple(EqArray.ofArray ps, ty, tok)
+        | PatPayload.Or -> TPatG.Or(EqArray.ofArray ps, ty, tok)
+        | PatPayload.Union caseName -> TPatG.Union(caseName, EqArray.ofArray ps, ty, tok)
+        | PatPayload.TypeTestAs testTy -> TPatG.TypeTestAs(testTy, ps.[0], ty, tok)
+        | PatPayload.Record fieldNames ->
+            // The field names pair off with the sub-pat children in the SAME order
+            // `patChildren` enumerated the record's fields.
             let fields' =
-                fields
-                |> EqArray.toArray
-                |> Array.map (fun (name, _) -> (name, nextP ()))
-                |> EqArray.ofArray
+                Array.map2 (fun name sub -> (name, sub)) fieldNames ps |> EqArray.ofArray
 
             TPatG.Record(fields', ty, tok)
-        | TPatG.Union(caseName, _, ty, tok) -> TPatG.Union(caseName, EqArray.ofArray ps, ty, tok)
-        | TPatG.TypeTestAs(testTy, _, ty, tok) -> TPatG.TypeTestAs(testTy, nextP (), ty, tok)
 
-    let private substituteDecl (node: Frozen.TDecl) (es: Frozen.TExpr[]) (ps: Frozen.TPat[]) : Frozen.TDecl =
-        match node with
-        | TDeclG.Let(_, _, isInline, ty) -> TDeclG.Let(ps.[0], es.[0], isInline, ty)
-        | TDeclG.Expression(_, ty) -> TDeclG.Expression(es.[0], ty)
-        | TDeclG.Type _ -> node
+    let private substituteDecl (payload: DeclPayload) (es: Frozen.TExpr[]) (ps: Frozen.TPat[]) : Frozen.TDecl =
+        match payload with
+        | DeclPayload.Let p -> TDeclG.Let(ps.[0], es.[0], p.IsInline, p.Ty)
+        | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
+        | DeclPayload.Type td -> TDeclG.Type td
 
     /// Rebuild the `Frozen.TastFile` DU from the pools — the inverse of `toPools`. Its
     /// `Decls` are re-authored from the pool roots (the tree interconversion under
@@ -866,7 +949,7 @@ module TastPools =
         // Resolve a dense id back to the binder NodeKey it names — the inverse of the
         // `toPools` interning. This is the resolution the reference remap and the side
         // tables both invert through.
-        let binderKey (BinderId i) : NodeKey = pools.Binders.[i].Key
+        let binderKey (BinderId i) : NodeKey = pools.BinderKeys.[i]
 
         // The inverse of the lambda id space: a lambda's `ExprPoolId` back to the `NodeKey`
         // codegen looks its verdict up under. With the Node gone, recompute that key from
@@ -876,9 +959,8 @@ module TastPools =
             NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda
 
         let rec fromPat (PatPoolId i) : Frozen.TPat =
-            let entry = pools.Pats.[i]
-            let ps = entry.PatChildren |> Array.map fromPat
-            substitutePat entry.Node ps
+            let ps = pools.PatChildren.[i] |> Array.map fromPat
+            substitutePat pools.PatTys.[i] pools.PatToks.[i] pools.PatPayloads.[i] ps
 
         let rec fromExpr (ExprPoolId i) : Frozen.TExpr =
             let es = pools.ExprChildren.[i] |> Array.map fromExpr
@@ -887,10 +969,9 @@ module TastPools =
             substituteExpr pools.ExprTys.[i] pools.ExprToks.[i] varBinding pools.ExprPayloads.[i] es ps
 
         let fromDecl (DeclPoolId i) : Frozen.TDecl =
-            let entry = pools.Decls.[i]
-            let es = entry.ExprChildren |> Array.map fromExpr
-            let ps = entry.PatChildren |> Array.map fromPat
-            substituteDecl entry.Node es ps
+            let es = pools.DeclExprChildren.[i] |> Array.map fromExpr
+            let ps = pools.DeclPatChildren.[i] |> Array.map fromPat
+            substituteDecl pools.DeclPayloads.[i] es ps
 
         let decls = pools.Roots |> Array.map fromDecl |> EqArray.ofArray
 

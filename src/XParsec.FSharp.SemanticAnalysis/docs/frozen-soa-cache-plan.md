@@ -230,9 +230,17 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 > each case's residual scalars and the composite structure (Match/TryWith arm guard-flags, Format
 > sink/segment shapes, StaticOptimization clause constraints, Range/RecordCons/ExternalMember
 > presence) — and the expr DU `Node` is GONE; `ofPools` rebuilds exprs from columns alone, proven
-> codegen-invariant over the full CLR corpus. Pats/decls/binder-pool still retain their `Node`/AoS
-> (next extraction slices); the accessor and both backends stay DU-backed until part (B). B.k+6/B.k+7
-> untouched. A
+> codegen-invariant over the full CLR corpus. **Step (A) is now COMPLETE**: the pat and decl pools
+> and the binder pool are struct-of-arrays too (`PatShapes`/`PatTys`/`PatToks`/`PatChildren`/
+> `PatPayloads`; `DeclShapes`/`DeclExprChildren`/`DeclPatChildren`/`DeclPayloads`; the binder pool as
+> `BinderKeys`/`BinderNamings`) — NO pooled tree node retains a DU `Node`; every domain rebuilds
+> from columns, proven codegen-invariant over the CLR corpus. The one remaining DU residue is
+> deliberate and known: `FrozenPools.File` still holds the source `Frozen.TastFile` (for the side
+> tables / `InlineBodies` / diagnostics — its `.Decls` are re-authored by `ofPools`), and a `Type`
+> decl's member bodies + `InlineBodies` are carried opaquely (not pooled). Part (B) — flip the
+> accessor to read columns, rewire `binderName`/`lambdaKey`, lower the CLR construction sites, then
+> sever the `File`/DU residue — is next. The accessor and both backends stay DU-backed until then.
+> B.k+6/B.k+7 untouched. A
 > `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
 > `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 

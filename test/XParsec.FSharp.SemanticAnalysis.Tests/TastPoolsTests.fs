@@ -7,32 +7,23 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // The pool-build faithfulness gate: freeze a program, build the pools, then walk the
 // pools from the decl roots and assert the reconstructed tree equals the DU walk —
-// same shapes in the same order and the same expr/pat child fan-out at every node. The
-// expr pool holds no DU node (it is struct-of-arrays), so exprs are checked by their
-// SHAPE column and child-id columns; the pat/decl pools still retain a node, checked by
-// reference identity. The DU walk here re-derives children through `TastAccessor`
-// INDEPENDENTLY of the builder (which walks the same accessor), so the two agreeing is
-// the cross-check, not a tautology; the reconstruction follows the id columns into the
-// dense pool arrays, so a mis-wired child edge shows up as a fan-out or node mismatch.
+// same shapes in the same order and the same expr/pat child fan-out at every node. No
+// pool holds a DU node (all three are struct-of-arrays), so every node is checked by its
+// SHAPE column and child-id columns. The DU walk here re-derives children through
+// `TastAccessor` INDEPENDENTLY of the builder (which walks the same accessor), so the two
+// agreeing is the cross-check, not a tautology; the reconstruction follows the id columns
+// into the dense pool arrays, so a mis-wired child edge shows up as a fan-out mismatch.
 
 let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
     let lexed, file = parseFile src
     let frozen = Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file
     TastPools.toPools frozen, frozen
 
-/// A pool entry's `Node` must be the very DU node reached independently — reference
-/// identity, so faithfulness cannot hide behind structural equality of two distinct
-/// nodes.
-let private sameNode (poolNode: 'a) (duNode: 'a) (what: string) =
-    Expect.isTrue (System.Object.ReferenceEquals(poolNode, duNode)) (sprintf "pool %s is the DU node" what)
-
 let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Frozen.TPat) =
-    let entry = pools.Pats.[i]
-    sameNode entry.Node du "pat node"
-    Expect.equal entry.Shape (TastAccessor.patKind du) "pat shape"
+    Expect.equal pools.PatShapes.[i] (TastAccessor.patKind du) "pat shape"
     let duKids = TastAccessor.patChildren du
-    Expect.equal entry.PatChildren.Length duKids.Length "pat child fan-out"
-    Array.iter2 (checkPat pools) entry.PatChildren duKids
+    Expect.equal pools.PatChildren.[i].Length duKids.Length "pat child fan-out"
+    Array.iter2 (checkPat pools) pools.PatChildren.[i] duKids
 
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Frozen.TExpr) =
     Expect.equal pools.ExprShapes.[i] (TastAccessor.exprKind du) "expr shape"
@@ -44,24 +35,22 @@ let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Frozen.TExpr)
     Array.iter2 (checkPat pools) pools.ExprPatChildren.[i] duPatKids
 
 let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
-    let entry = pools.Decls.[i]
-    sameNode entry.Node du "decl node"
-    Expect.equal entry.Shape (TastAccessor.declKind du) "decl shape"
+    Expect.equal pools.DeclShapes.[i] (TastAccessor.declKind du) "decl shape"
 
     match TastAccessor.declKind du with
     | DeclShape.Let ->
         let v = TastAccessor.declLet du
-        Expect.equal entry.ExprChildren.Length 1 "let decl one value child"
-        Expect.equal entry.PatChildren.Length 1 "let decl one binding child"
-        checkExpr pools entry.ExprChildren.[0] v.Value
-        checkPat pools entry.PatChildren.[0] v.Binding
+        Expect.equal pools.DeclExprChildren.[i].Length 1 "let decl one value child"
+        Expect.equal pools.DeclPatChildren.[i].Length 1 "let decl one binding child"
+        checkExpr pools pools.DeclExprChildren.[i].[0] v.Value
+        checkPat pools pools.DeclPatChildren.[i].[0] v.Binding
     | DeclShape.Expression ->
-        Expect.equal entry.ExprChildren.Length 1 "expression decl one child"
-        Expect.equal entry.PatChildren.Length 0 "expression decl no pat child"
-        checkExpr pools entry.ExprChildren.[0] (TastAccessor.declExpression du)
+        Expect.equal pools.DeclExprChildren.[i].Length 1 "expression decl one child"
+        Expect.equal pools.DeclPatChildren.[i].Length 0 "expression decl no pat child"
+        checkExpr pools pools.DeclExprChildren.[i].[0] (TastAccessor.declExpression du)
     | DeclShape.Type ->
-        Expect.equal entry.ExprChildren.Length 0 "type decl surfaces no expr child"
-        Expect.equal entry.PatChildren.Length 0 "type decl surfaces no pat child"
+        Expect.equal pools.DeclExprChildren.[i].Length 0 "type decl surfaces no expr child"
+        Expect.equal pools.DeclPatChildren.[i].Length 0 "type decl surfaces no pat child"
 
 /// The id-resolution gate: the `ExprVarBinder` column is populated EXACTLY at the `Var`
 /// slots (each to an in-range `BinderId`), and each of the seven side-table keys resolves
@@ -71,7 +60,7 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
 /// side tables must also cover the source maps 1:1 — a dropped or duplicated key would
 /// desync the rebuilt map from the original.
 let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
-    let binderKey (BinderId i) = pools.Binders.[i].Key
+    let binderKey (BinderId i) = pools.BinderKeys.[i]
     // `FunVerdicts` is keyed by the lambda id space, not the binder pool; the Node is gone,
     // so recompute the lambda key from the `ExprToks` column exactly as `ofPools` does.
     let lambdaKeyOf (ExprPoolId i) =
@@ -80,7 +69,7 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
     for i in 0 .. pools.ExprShapes.Length - 1 do
         match pools.ExprShapes.[i], pools.ExprVarBinder.[i] with
         | ExprShape.Var, ValueSome(BinderId b) ->
-            Expect.isTrue (b >= 0 && b < pools.Binders.Length) "Var binder id is an interned binder"
+            Expect.isTrue (b >= 0 && b < pools.BinderKeys.Length) "Var binder id is an interned binder"
         | ExprShape.Var, ValueNone -> failtest "a Var pool entry carries no resolved binder id"
         | _, ValueSome _ -> failtest "a non-Var pool entry carries a binder id"
         | _, ValueNone -> ()
@@ -107,10 +96,14 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
 /// `Naming` from the key itself, so the pool names a binder EXACTLY as `binderName` names
 /// its `NodeKey`. This is what lets the naming data outlive the key at the backing flip.
 let private checkBinderNaming (pools: FrozenPools) =
-    for entry in pools.Binders do
-        Expect.equal entry.Naming.IsSynthetic entry.Key.IsSynthetic "binder naming IsSynthetic tracks its key"
-        Expect.equal entry.Naming.Offset entry.Key.Offset "binder naming Offset tracks its key"
-        Expect.equal entry.Naming.NameIndex entry.Key.NameIndex "binder naming NameIndex tracks its key"
+    Array.iter2
+        (fun (naming: BinderNaming) (key: NodeKey) ->
+            Expect.equal naming.IsSynthetic key.IsSynthetic "binder naming IsSynthetic tracks its key"
+            Expect.equal naming.Offset key.Offset "binder naming Offset tracks its key"
+            Expect.equal naming.NameIndex key.NameIndex "binder naming NameIndex tracks its key"
+        )
+        pools.BinderNamings
+        pools.BinderKeys
 
 // The mint invariant the naming-preserving backing flip rests on: a REAL (non-synthetic)
 // binder's `Offset` IS the binder NODE's own token `StartIndex` (`NamedSimple.tok`, read
