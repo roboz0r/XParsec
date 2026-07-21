@@ -1,0 +1,376 @@
+namespace XParsec.FSharp.SemanticAnalysis
+
+open XParsec.FSharp.Parser
+
+// The frozen-TAST accessor seam (frozen-soa-cache-plan.md, Phase B, step B.1).
+//
+// A single TAST-shaped access API — `exprKind`, `exprChildren`, `patBinder`, … —
+// that both the current `Frozen.TastFile` DU and the later id-indexable pools can
+// back. Consumers (codegen, `FrozenSignature`) migrate onto it while it is a thin
+// projection over the DU (steps B.2…B.k); the final step (B.k+5) re-points the
+// bodies at the pools, so the consumers never move again.
+//
+// This first cut is DU-backed and *unused*: it exists so the byte-layout of the
+// pools can be designed against the real access pattern, and so the migration has
+// a stable seam to move onto. The gate is only that it compiles.
+//
+// Deliberately NOT here yet:
+//   - `binderName`: the plan lists it, but the sole existing implementation lives
+//     in the JS backend (`JsEmitHelpers.binderName`) and reads a `NodeKey`'s naming
+//     bits directly. Re-homing it here (so it reads a pool naming integer instead)
+//     is B.k+4 — doing it now would only duplicate that body. `patBinder` already
+//     surfaces the binder identity naming is computed from.
+//   - Decl-level field accessors: `FrozenSignature` (the decl consumer) migrates
+//     late in the B.2…B.k sequence; `declShape` is provided as the entry tag, its
+//     payload accessors accrete with that migration.
+
+/// The post-freeze shape tag of a `Frozen.TExpr` node — one case per `TExprG` case.
+/// This is the accessor's answer to `exprKind`. It is NOT `NodeKind`: `NodeKind` is
+/// the pre-freeze CST content-address role, which freeze dissolves (plan § *Freeze
+/// regime*). The case names mirror `TExprG` (documented there); a new `TExprG` case
+/// makes the exhaustive matches in `TastAccessor` fail to compile, so this stays in
+/// lockstep.
+[<RequireQualifiedAccess>]
+type ExprShape =
+    | Const
+    | Var
+    | External
+    | Lambda
+    | App
+    | Let
+    | Use
+    | IfThenElse
+    | Tuple
+    | Sequential
+    | While
+    | ForTo
+    | ForIn
+    | Match
+    | TryWith
+    | TryFinally
+    | Assignment
+    | Null
+    | Range
+    | RecordCons
+    | RecordClone
+    | FieldGet
+    | FieldSet
+    | UnionCons
+    | New
+    | MethodCall
+    | PropertyGet
+    | StaticMethodCall
+    | StaticPropertyGet
+    | StaticFieldGet
+    | StaticFieldSet
+    | ExternalMember
+    | Format
+    | ILIntrinsic
+    | StaticOptimization
+    | Upcast
+    | Downcast
+    | TypeTest
+    | TraitCall
+
+/// The post-freeze shape tag of a `Frozen.TPat` node — one case per `TPatG` case.
+/// The accessor's answer to `patKind` (mirrors `ExprShape`'s relationship to
+/// `TExprG`).
+[<RequireQualifiedAccess>]
+type PatShape =
+    | NamedSimple
+    | Wildcard
+    | Tuple
+    | Const
+    | Record
+    | Union
+    | TypeTestAs
+    | Null
+    | EnumCase
+    | Or
+
+/// The post-freeze shape tag of a `Frozen.TDecl` node — one case per `TDeclG` case.
+[<RequireQualifiedAccess>]
+type DeclShape =
+    | Let
+    | Expression
+    | Type
+
+/// The TAST-shaped accessor. Every function is a pure projection of the frozen
+/// tree; under DU backing it matches the DU, under pool backing (B.k+5) it will
+/// read a column. `open` is disallowed so `exprTy`/`patTy` don't collide with the
+/// analysis-time `TastWalk` projections they delegate to.
+[<RequireQualifiedAccess>]
+module TastAccessor =
+
+    // The node handles. Transparent aliases over the DU today; when the backing
+    // flips to pools these become dense-id handles (a struct over `int`) and the
+    // accessor bodies below are what change — consumers, typed against these, do
+    // not. That is the whole point of routing every access through this seam.
+    type ExprId = Frozen.TExpr
+    type PatId = Frozen.TPat
+    type DeclId = Frozen.TDecl
+
+    /// The shape tag of an expression node.
+    let exprKind (e: ExprId) : ExprShape =
+        match e with
+        | TExprG.Const _ -> ExprShape.Const
+        | TExprG.Var _ -> ExprShape.Var
+        | TExprG.External _ -> ExprShape.External
+        | TExprG.Lambda _ -> ExprShape.Lambda
+        | TExprG.App _ -> ExprShape.App
+        | TExprG.Let _ -> ExprShape.Let
+        | TExprG.Use _ -> ExprShape.Use
+        | TExprG.IfThenElse _ -> ExprShape.IfThenElse
+        | TExprG.Tuple _ -> ExprShape.Tuple
+        | TExprG.Sequential _ -> ExprShape.Sequential
+        | TExprG.While _ -> ExprShape.While
+        | TExprG.ForTo _ -> ExprShape.ForTo
+        | TExprG.ForIn _ -> ExprShape.ForIn
+        | TExprG.Match _ -> ExprShape.Match
+        | TExprG.TryWith _ -> ExprShape.TryWith
+        | TExprG.TryFinally _ -> ExprShape.TryFinally
+        | TExprG.Assignment _ -> ExprShape.Assignment
+        | TExprG.Null _ -> ExprShape.Null
+        | TExprG.Range _ -> ExprShape.Range
+        | TExprG.RecordCons _ -> ExprShape.RecordCons
+        | TExprG.RecordClone _ -> ExprShape.RecordClone
+        | TExprG.FieldGet _ -> ExprShape.FieldGet
+        | TExprG.FieldSet _ -> ExprShape.FieldSet
+        | TExprG.UnionCons _ -> ExprShape.UnionCons
+        | TExprG.New _ -> ExprShape.New
+        | TExprG.MethodCall _ -> ExprShape.MethodCall
+        | TExprG.PropertyGet _ -> ExprShape.PropertyGet
+        | TExprG.StaticMethodCall _ -> ExprShape.StaticMethodCall
+        | TExprG.StaticPropertyGet _ -> ExprShape.StaticPropertyGet
+        | TExprG.StaticFieldGet _ -> ExprShape.StaticFieldGet
+        | TExprG.StaticFieldSet _ -> ExprShape.StaticFieldSet
+        | TExprG.ExternalMember _ -> ExprShape.ExternalMember
+        | TExprG.Format _ -> ExprShape.Format
+        | TExprG.ILIntrinsic _ -> ExprShape.ILIntrinsic
+        | TExprG.StaticOptimization _ -> ExprShape.StaticOptimization
+        | TExprG.Upcast _ -> ExprShape.Upcast
+        | TExprG.Downcast _ -> ExprShape.Downcast
+        | TExprG.TypeTest _ -> ExprShape.TypeTest
+        | TExprG.TraitCall _ -> ExprShape.TraitCall
+
+    /// The node's result type. Delegates to the (generic) analysis-time enumeration.
+    let exprTy (e: ExprId) : FrozenType = TastWalk.exprTy e
+
+    /// The node's source-anchor token.
+    let exprTok (e: ExprId) : SyntaxToken = TastWalk.exprTok e
+
+    /// The immediate child *expressions*, in evaluation order — the recursion spine
+    /// a generic walk (free-vars, closure discovery) follows. Sub-patterns are NOT
+    /// children (see `patChildren`); composite carriers with no node identity of
+    /// their own (match arms, format segments, static-opt clauses) are descended
+    /// into so every reachable sub-expression appears exactly once.
+    let exprChildren (e: ExprId) : ExprId[] =
+        let acc = ResizeArray<ExprId>()
+
+        match e with
+        | TExprG.Const _
+        | TExprG.Var _
+        | TExprG.External _
+        | TExprG.Null _
+        | TExprG.StaticPropertyGet _
+        | TExprG.StaticFieldGet _ -> ()
+        | TExprG.Lambda(body = body) -> acc.Add body
+        | TExprG.App(fn = fn; arg = arg) ->
+            acc.Add fn
+            acc.Add arg
+        | TExprG.Let(value = value; body = body) ->
+            acc.Add value
+            acc.Add body
+        | TExprG.Use(value = value; body = body) ->
+            acc.Add value
+            acc.Add body
+        | TExprG.IfThenElse(cond = cond; thenExpr = thenExpr; elseExpr = elseExpr) ->
+            acc.Add cond
+            acc.Add thenExpr
+            acc.Add elseExpr
+        | TExprG.Tuple(items = items)
+        | TExprG.Sequential(items = items) ->
+            for x in items do
+                acc.Add x
+        | TExprG.While(cond = cond; body = body) ->
+            acc.Add cond
+            acc.Add body
+        | TExprG.ForTo(startExpr = startExpr; endExpr = endExpr; body = body) ->
+            acc.Add startExpr
+            acc.Add endExpr
+            acc.Add body
+        | TExprG.ForIn(source = source; body = body) ->
+            acc.Add source
+            acc.Add body
+        | TExprG.Match(scrutinee = scrutinee; arms = arms) ->
+            acc.Add scrutinee
+
+            for arm in arms do
+                match arm.Guard with
+                | Some g -> acc.Add g
+                | None -> ()
+
+                acc.Add arm.Body
+        | TExprG.TryWith(body = body; arms = arms) ->
+            acc.Add body
+
+            for arm in arms do
+                match arm.Guard with
+                | Some g -> acc.Add g
+                | None -> ()
+
+                acc.Add arm.Body
+        | TExprG.TryFinally(body = body; cleanup = cleanup) ->
+            acc.Add body
+            acc.Add cleanup
+        | TExprG.Assignment(lhs = lhs; rhs = rhs) ->
+            acc.Add lhs
+            acc.Add rhs
+        | TExprG.Range(startExpr = startExpr; step = step; stopExpr = stopExpr) ->
+            acc.Add startExpr
+
+            match step with
+            | Some s -> acc.Add s
+            | None -> ()
+
+            acc.Add stopExpr
+        | TExprG.RecordCons(fields = fields) ->
+            for (_, v) in fields do
+                acc.Add v
+        | TExprG.RecordClone(source = source; overrides = overrides) ->
+            acc.Add source
+
+            for (_, v) in overrides do
+                acc.Add v
+        | TExprG.FieldGet(receiver = receiver) -> acc.Add receiver
+        | TExprG.FieldSet(receiver = receiver; value = value) ->
+            acc.Add receiver
+            acc.Add value
+        | TExprG.UnionCons(args = args) ->
+            for x in args do
+                acc.Add x
+        | TExprG.New(args = args) ->
+            for x in args do
+                acc.Add x
+        | TExprG.MethodCall(receiver = receiver; args = args) ->
+            acc.Add receiver
+
+            for x in args do
+                acc.Add x
+        | TExprG.PropertyGet(receiver = receiver) -> acc.Add receiver
+        | TExprG.StaticMethodCall(args = args) ->
+            for x in args do
+                acc.Add x
+        | TExprG.StaticFieldSet(value = value) -> acc.Add value
+        | TExprG.ExternalMember(receiver = receiver) ->
+            match receiver with
+            | ValueSome r -> acc.Add r
+            | ValueNone -> ()
+        | TExprG.Format(sink = sink; segments = segments) ->
+            match sink with
+            | FormatSinkG.ToWriter(writer = writer) -> acc.Add writer
+            | FormatSinkG.ToBuilder builder -> acc.Add builder
+            | FormatSinkG.ToStdOut _
+            | FormatSinkG.ToStdErr _
+            | FormatSinkG.ToString -> ()
+
+            for seg in segments do
+                match seg with
+                | FormatSegG.Lit _ -> ()
+                | FormatSegG.Hole(_, value) -> acc.Add value
+                | FormatSegG.DynHole hole ->
+                    match hole.Width with
+                    | ValueSome w -> acc.Add w
+                    | ValueNone -> ()
+
+                    match hole.Precision with
+                    | ValueSome p -> acc.Add p
+                    | ValueNone -> ()
+
+                    acc.Add hole.Value
+                | FormatSegG.CallbackHole(residue = residue) -> acc.Add residue
+        | TExprG.ILIntrinsic(args = args) ->
+            for x in args do
+                acc.Add x
+        | TExprG.StaticOptimization(clauses = clauses; defaultExpr = defaultExpr) ->
+            for clause in clauses do
+                acc.Add clause.Body
+
+            acc.Add defaultExpr
+        | TExprG.Upcast(source = source) -> acc.Add source
+        | TExprG.Downcast(source = source) -> acc.Add source
+        | TExprG.TypeTest(source = source) -> acc.Add source
+        | TExprG.TraitCall(args = args) ->
+            for x in args do
+                acc.Add x
+
+        acc.ToArray()
+
+    /// The shape tag of a pattern node.
+    let patKind (p: PatId) : PatShape =
+        match p with
+        | TPatG.NamedSimple _ -> PatShape.NamedSimple
+        | TPatG.Wildcard _ -> PatShape.Wildcard
+        | TPatG.Tuple _ -> PatShape.Tuple
+        | TPatG.Const _ -> PatShape.Const
+        | TPatG.Record _ -> PatShape.Record
+        | TPatG.Union _ -> PatShape.Union
+        | TPatG.TypeTestAs _ -> PatShape.TypeTestAs
+        | TPatG.Null _ -> PatShape.Null
+        | TPatG.EnumCase _ -> PatShape.EnumCase
+        | TPatG.Or _ -> PatShape.Or
+
+    /// The pattern's type.
+    let patTy (p: PatId) : FrozenType = TastWalk.patTy p
+
+    /// The pattern's source-anchor token.
+    let patTok (p: PatId) : SyntaxToken = TastWalk.patTok p
+
+    /// The single binder a simple (`NamedSimple`) pattern introduces — the identity
+    /// a `TExpr.Var` references and that naming is computed from. `ValueNone` for a
+    /// pattern that binds nothing (`Wildcard`, `Const`, …) or binds through nested
+    /// sub-patterns (`Tuple`, `Record`, `Union`, `TypeTestAs`, `Or` — walk
+    /// `patChildren` for those).
+    let patBinder (p: PatId) : NodeKey voption =
+        match p with
+        | TPatG.NamedSimple(binding = binding) -> ValueSome binding
+        | TPatG.Wildcard _
+        | TPatG.Tuple _
+        | TPatG.Const _
+        | TPatG.Record _
+        | TPatG.Union _
+        | TPatG.TypeTestAs _
+        | TPatG.Null _
+        | TPatG.EnumCase _
+        | TPatG.Or _ -> ValueNone
+
+    /// The immediate child *patterns*, in source order.
+    let patChildren (p: PatId) : PatId[] =
+        let acc = ResizeArray<PatId>()
+
+        match p with
+        | TPatG.NamedSimple _
+        | TPatG.Wildcard _
+        | TPatG.Const _
+        | TPatG.Null _
+        | TPatG.EnumCase _ -> ()
+        | TPatG.Tuple(items = items)
+        | TPatG.Or(alts = items) ->
+            for x in items do
+                acc.Add x
+        | TPatG.Record(fields = fields) ->
+            for (_, sub) in fields do
+                acc.Add sub
+        | TPatG.Union(fields = fields) ->
+            for x in fields do
+                acc.Add x
+        | TPatG.TypeTestAs(inner = inner) -> acc.Add inner
+
+        acc.ToArray()
+
+    /// The shape tag of a declaration node.
+    let declKind (d: DeclId) : DeclShape =
+        match d with
+        | TDeclG.Let _ -> DeclShape.Let
+        | TDeclG.Expression _ -> DeclShape.Expression
+        | TDeclG.Type _ -> DeclShape.Type

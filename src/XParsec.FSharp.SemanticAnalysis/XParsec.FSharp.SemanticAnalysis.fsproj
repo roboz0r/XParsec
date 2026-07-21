@@ -32,6 +32,7 @@
     <Compile Include="FrozenCodec.fs" />
     <Compile Include="TEnumCases.fs" />
     <Compile Include="TastWalk.fs" />
+    <Compile Include="TastAccessor.fs" />
     <Compile Include="TastLower.fs" />
     <Compile Include="TastConvert.fs" />
     <Compile Include="ExternalSymbols.fs" />

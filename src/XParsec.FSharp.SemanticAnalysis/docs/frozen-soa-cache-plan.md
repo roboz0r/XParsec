@@ -248,7 +248,17 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 ### Phase B — accessor + pools (option B; pools become the working rep)
 
 - **B.1 Accessor interface + DU backing.** Define the TAST-shaped accessor; implement it over
-  `Frozen.TastFile`. Unused. *Gate: compiles.*
+  `Frozen.TastFile`. Unused. *Gate: compiles.* **LANDED** — `TastAccessor.fs` (RQA module, after
+  `TastWalk.fs`): shape tags `ExprShape`/`PatShape`/`DeclShape`, handle aliases
+  `ExprId`/`PatId`/`DeclId` (transparent over the DU now; become dense-id handles at B.k+5, which
+  is why every access routes through this seam), and `exprKind`/`exprTy`/`exprTok`/`exprChildren`,
+  `patKind`/`patTy`/`patTok`/`patChildren`/`patBinder`, `declKind`. `exprTy`/`patTy` delegate to
+  `TastWalk`, whose two projections were generalized `TExprG<'ty,'tok> -> 'ty` (additive) so the
+  frozen tree reuses one enumeration instead of a parallel match. Deferred out of B.1 (would only
+  duplicate existing code): `binderName` — its sole impl reads `NodeKey` naming bits in the JS
+  backend, re-homed to read a pool naming integer at **B.k+4**; and decl-field accessors — the
+  decl consumer (`FrozenSignature`) migrates late in B.2…B.k, so only the `declKind` entry tag
+  exists today.
 - **B.2 … B.k Migrate consumers, one per commit.** Switch each codegen/`FrozenSignature`
   consumer from direct DU matching to the accessor, still DU-backed and output-identical —
   roughly one commit per emit file (`EmitExpr`, `EmitBindings`, `EmitClosures`, `EmitMatch`,
