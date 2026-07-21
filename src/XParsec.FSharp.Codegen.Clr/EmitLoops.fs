@@ -281,12 +281,17 @@ module EmitLoops =
         EmitTypes.buildUnitValue env b
 
     let buildForIn (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
+        match TastAccessor.exprKind e with
         // Matched in two layers so the inner `match` over `ForInEnumeratorG` is
         // *compiler-exhaustive* — a new enumerator kind fails the build here rather
         // than silently falling through to a wildcard. The outer `_` only guards the
         // (unreachable) non-`ForIn` dispatch.
-        | TExprG.ForIn(pat, source, body, enumerator, _, _) ->
+        | ExprShape.ForIn ->
+            let view = TastAccessor.exprForIn e
+            let pat = view.Pat
+            let source = view.Source
+            let body = view.Body
+            let enumerator = view.Enumerator
             let elemTy = typeOfPat pat
 
             match enumerator with
@@ -387,7 +392,7 @@ module EmitLoops =
                 // collection's implementation. `ExternalMemberRef` recovers the
                 // instantiation (`!0` → `elemTy`) from the supplied member type. The
                 // IL-IR exception region is the same `Try` / `BeginFinally` /
-                // `EndFinally` shape as `TExprG.Use`'s disposal.
+                // `EndFinally` shape as a `Use` node's disposal.
                 let enumTy =
                     FTClass(
                         SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1",
@@ -467,8 +472,13 @@ module EmitLoops =
         | _ -> failwith "EmitLoops.buildForIn: unreachable"
 
     let buildForTo (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.ForTo(var, _, startExpr, endExpr, body, _, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.ForTo ->
+            let view = TastAccessor.exprForTo e
+            let var = view.Var
+            let startExpr = view.StartExpr
+            let endExpr = view.EndExpr
+            let body = view.Body
             // `for i = a to b do body` — a unit expression. `a`/`b` are evaluated
             // once (F# semantics) into the loop-variable and a hidden limit local;
             // the loop is exited *before* the increment when `i = limit`, so the
@@ -522,8 +532,11 @@ module EmitLoops =
         | _ -> failwith "EmitLoops.buildForTo: unreachable"
 
     let buildWhile (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.While(cond, body, _, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.While ->
+            let view = TastAccessor.exprWhile e
+            let cond = view.Cond
+            let body = view.Body
             // `while <cond> do <body>` — a unit expression. Shape:
             //   loopStart: <cond>; brfalse loopEnd; <body>; pop…; br loopStart; loopEnd:
             // The condition leaves a `bool` the `brfalse` consumes; the body is a
