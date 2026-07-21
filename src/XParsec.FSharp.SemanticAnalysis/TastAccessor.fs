@@ -603,7 +603,7 @@ module TastAccessor =
             Receiver: ExprId
             Key: SymbolKey
             Via: CallVia<FrozenType>
-            Args: ExprId[]
+            Args: EqArray<ExprId>
         }
 
     /// The payload view of a `MethodCall` node. Guard with `exprKind` =
@@ -615,7 +615,7 @@ module TastAccessor =
                 Receiver = receiver
                 Key = key
                 Via = via
-                Args = EqArray.toArray args
+                Args = args
             }
         | _ -> failwith "TastAccessor.exprMethodCall: not a MethodCall node"
 
@@ -1008,3 +1008,135 @@ module TastAccessor =
                 Ty = ty
             }
         | _ -> failwith "TastAccessor.declLet: not a Let decl"
+
+    // ------------------------------------------------------------------------
+    // Recognizers — the accessor in pattern position.
+    //
+    // Each is a partial single-case active pattern (`[<return: Struct>]`, so the
+    // `voption` is unboxed and the match allocates nothing) that projects one
+    // shape's payload view — the pattern-position form of the `expr*`/`pat*`/`decl*`
+    // accessors above. A consumer matches the node directly:
+    //
+    //     match e with
+    //     | EForTo ft -> ...        // ft : ForToView, bound once
+    //     | EVar key  -> ...
+    //     | _ -> ...
+    //
+    // A recognizer succeeds on its own shape and declines (`ValueNone`) on every
+    // other, so an arm can never fire the wrong projection — no tag needs to be
+    // carried alongside to keep it honest. The payload is bound once, in-pattern,
+    // with no re-fetch in a `when` guard and no `match … -> let view = …` prologue,
+    // while every access still routes through this seam so the B.k+5 pool flip moves
+    // only this file.
+    //
+    // A recognizer exists for exactly the shapes a consumer matches in a *partial*
+    // dispatch (one that ends in a `| _ ->` fall-through). A *total* dispatch over
+    // every shape — the emit routers (`EmitExpr.buildExpr`, `EmitPattern`, the
+    // `Emit.fs` decl loop) — matches the `exprKind`/`patKind`/`declKind` tag instead,
+    // which the closed `ExprShape`/`PatShape`/`DeclShape` enum keeps exhaustive: a
+    // new case breaks those matches at compile time. `RequireQualifiedAccess` means
+    // they are used qualified (`TastAccessor.EForTo`).
+
+    /// A `Var` node → the binder it references (`exprVarBinding`).
+    [<return: Struct>]
+    let (|EVar|_|) (e: ExprId) : NodeKey voption =
+        match exprKind e with
+        | ExprShape.Var -> ValueSome(exprVarBinding e)
+        | _ -> ValueNone
+
+    /// A `Lambda` node → its `LambdaView` (`exprLambda`).
+    [<return: Struct>]
+    let (|ELambda|_|) (e: ExprId) : LambdaView voption =
+        match exprKind e with
+        | ExprShape.Lambda -> ValueSome(exprLambda e)
+        | _ -> ValueNone
+
+    /// A `Let` node → its `LetView` (`exprLet`).
+    [<return: Struct>]
+    let (|ELet|_|) (e: ExprId) : LetView voption =
+        match exprKind e with
+        | ExprShape.Let -> ValueSome(exprLet e)
+        | _ -> ValueNone
+
+    /// A `Use` node → its `UseView` (`exprUse`).
+    [<return: Struct>]
+    let (|EUse|_|) (e: ExprId) : UseView voption =
+        match exprKind e with
+        | ExprShape.Use -> ValueSome(exprUse e)
+        | _ -> ValueNone
+
+    /// An `App` node → its `AppView` (`exprApp`).
+    [<return: Struct>]
+    let (|EApp|_|) (e: ExprId) : AppView voption =
+        match exprKind e with
+        | ExprShape.App -> ValueSome(exprApp e)
+        | _ -> ValueNone
+
+    /// A `FieldGet` node → its `FieldGetView` (`exprFieldGet`).
+    [<return: Struct>]
+    let (|EFieldGet|_|) (e: ExprId) : FieldGetView voption =
+        match exprKind e with
+        | ExprShape.FieldGet -> ValueSome(exprFieldGet e)
+        | _ -> ValueNone
+
+    /// A `ForTo` node → its `ForToView` (`exprForTo`).
+    [<return: Struct>]
+    let (|EForTo|_|) (e: ExprId) : ForToView voption =
+        match exprKind e with
+        | ExprShape.ForTo -> ValueSome(exprForTo e)
+        | _ -> ValueNone
+
+    /// A `ForIn` node → its `ForInView` (`exprForIn`).
+    [<return: Struct>]
+    let (|EForIn|_|) (e: ExprId) : ForInView voption =
+        match exprKind e with
+        | ExprShape.ForIn -> ValueSome(exprForIn e)
+        | _ -> ValueNone
+
+    /// A `Match` node → its `MatchView` (`exprMatch`).
+    [<return: Struct>]
+    let (|EMatch|_|) (e: ExprId) : MatchView voption =
+        match exprKind e with
+        | ExprShape.Match -> ValueSome(exprMatch e)
+        | _ -> ValueNone
+
+    /// A `TryWith` node → its `TryWithView` (`exprTryWith`).
+    [<return: Struct>]
+    let (|ETryWith|_|) (e: ExprId) : TryWithView voption =
+        match exprKind e with
+        | ExprShape.TryWith -> ValueSome(exprTryWith e)
+        | _ -> ValueNone
+
+    /// An `External` node → its `ExternalView` (`exprExternal`).
+    [<return: Struct>]
+    let (|EExternal|_|) (e: ExprId) : ExternalView voption =
+        match exprKind e with
+        | ExprShape.External -> ValueSome(exprExternal e)
+        | _ -> ValueNone
+
+    /// An `ExternalMember` node → its `ExternalMemberView` (`exprExternalMember`).
+    [<return: Struct>]
+    let (|EExternalMember|_|) (e: ExprId) : ExternalMemberView voption =
+        match exprKind e with
+        | ExprShape.ExternalMember -> ValueSome(exprExternalMember e)
+        | _ -> ValueNone
+
+    /// A `NamedSimple` pattern → the single binder it introduces (`patBinder`, which
+    /// is `ValueSome` exactly for that shape).
+    [<return: Struct>]
+    let (|PNamed|_|) (p: PatId) : NodeKey voption = patBinder p
+
+    /// A `Let` decl → its `DeclLetView` (`declLet`).
+    [<return: Struct>]
+    let (|DLet|_|) (d: DeclId) : DeclLetView voption =
+        match declKind d with
+        | DeclShape.Let -> ValueSome(declLet d)
+        | _ -> ValueNone
+
+    /// An `Expression` decl → its body expression and declared slot type
+    /// (`declExpression`/`declExpressionTy`).
+    [<return: Struct>]
+    let (|DExpression|_|) (d: DeclId) : struct (ExprId * FrozenType) voption =
+        match declKind d with
+        | DeclShape.Expression -> ValueSome(struct (declExpression d, declExpressionTy d))
+        | _ -> ValueNone

@@ -156,7 +156,10 @@ module EmitPattern =
 
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
-        | PatShape.NamedSimple -> env.Slots.[(TastAccessor.patBinder pat).Value] <- scrutSlot
+        | PatShape.NamedSimple ->
+            match TastAccessor.patBinder pat with
+            | ValueSome k -> env.Slots.[k] <- scrutSlot
+            | ValueNone -> ()
         | PatShape.EnumCase ->
             let enumCase = TastAccessor.patEnumCase pat
             let enumKey = enumCase.EnumKey
@@ -395,7 +398,10 @@ module EmitPattern =
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
         | PatShape.Const -> () // irrefutable in a binding position — no compare, no bind
-        | PatShape.NamedSimple -> env.Slots.[(TastAccessor.patBinder pat).Value] <- srcSlot
+        | PatShape.NamedSimple ->
+            match TastAccessor.patBinder pat with
+            | ValueSome k -> env.Slots.[k] <- srcSlot
+            | ValueNone -> ()
         | PatShape.Tuple ->
             destructureTuple env b srcSlot (TastAccessor.patTy pat) (TastAccessor.patChildren pat) (bindPattern env b)
         | _ -> failwithf "Emit: destructuring pattern is out of scope: %A" pat

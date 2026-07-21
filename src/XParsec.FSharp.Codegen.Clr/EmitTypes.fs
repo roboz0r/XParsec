@@ -487,6 +487,20 @@ module EmitTypes =
             ModuleValues: Dictionary<NodeKey, EntityHandle>
         }
 
+    /// A `Var` bound to an addressable local **slot** in `env` → its slot index. The
+    /// shared "is this expression an addressable local?" test behind the `ldloca`-a-local
+    /// arm of `loadStructReceiverAddr` (struct-receiver addressing), the `&`-address-of
+    /// intrinsic, and the struct-argument receiver spill — each of which then falls back
+    /// differently (recurse into a field, `failwith`, or spill to a temp).
+    [<return: Struct>]
+    let (|LocalSlot|_|) (env: EmitEnv) (e: Frozen.TExpr) : int voption =
+        match e with
+        | TastAccessor.EVar k ->
+            match env.Slots.TryGetValue k with
+            | true, slot -> ValueSome slot
+            | false, _ -> ValueNone
+        | _ -> ValueNone
+
     /// `EmitEnv` constructors layering per-method state over the run-wide
     /// `EmitContext`, so a new shared registry is a change here — not in every
     /// builder.

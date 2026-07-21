@@ -34,10 +34,9 @@ module EmitMember =
         (receiver: Frozen.TExpr)
         (receiverTy: FrozenType)
         : unit =
-        match TastAccessor.exprKind receiver with
-        | ExprShape.Var when env.Slots.ContainsKey(TastAccessor.exprVarBinding receiver) ->
-            b.Add(ILInstr.Ldloca env.Slots.[TastAccessor.exprVarBinding receiver])
-        | ExprShape.Var when env.SelfKey = ValueSome(TastAccessor.exprVarBinding receiver) -> b.Add(ILInstr.Ldarg 0)
+        match receiver with
+        | LocalSlot env slot -> b.Add(ILInstr.Ldloca slot)
+        | TastAccessor.EVar k when env.SelfKey = ValueSome k -> b.Add(ILInstr.Ldarg 0)
         // A struct-typed *field* receiver (`this.Source.MoveNext()`): address the
         // field in place with `ldflda` so a mutating member call persists — spilling
         // the field's *value* to a temp (the fall-through below) would mutate a copy.
@@ -46,8 +45,7 @@ module EmitMember =
         // accepts either an object ref or a managed pointer. A struct returned by a
         // *property* still falls through to the spill (a getter yields a copy — there
         // is no in-place location to address, matching F#'s copy semantics).
-        | ExprShape.FieldGet ->
-            let fieldGet = TastAccessor.exprFieldGet receiver
+        | TastAccessor.EFieldGet fieldGet ->
             let parent = fieldGet.Receiver
             let name = fieldGet.FieldName
             let parentTy = typeOfExpr parent
@@ -209,304 +207,272 @@ module EmitMember =
             EmitTypes.buildUnitValue env b
 
     let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.FieldGet ->
-            let view = TastAccessor.exprFieldGet e
-            let receiver = view.Receiver
-            let name = view.FieldName
-            // `r.X` — load the receiver and `ldfld` the field. The field handle is
-            // a `Def` token for a monomorphic record, a `MemberRef` on the receiver's
-            // `TypeSpec` for a generic one (`resolveRecordField`). A
-            // referenced-assembly record routes through the provider.
-            let handle = resolveRecordField env (typeOfExpr receiver) name
-            recur env b receiver
-            b.Add(ILInstr.Ldfld handle)
-        | _ -> failwith "EmitMember.buildFieldGet: unreachable"
+        let view = TastAccessor.exprFieldGet e
+        let receiver = view.Receiver
+        let name = view.FieldName
+        // `r.X` — load the receiver and `ldfld` the field. The field handle is
+        // a `Def` token for a monomorphic record, a `MemberRef` on the receiver's
+        // `TypeSpec` for a generic one (`resolveRecordField`). A
+        // referenced-assembly record routes through the provider.
+        let handle = resolveRecordField env (typeOfExpr receiver) name
+        recur env b receiver
+        b.Add(ILInstr.Ldfld handle)
 
     let buildAssignment (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.Assignment ->
-            let view = TastAccessor.exprAssignment e
+        let view = TastAccessor.exprAssignment e
 
-            match TastAccessor.exprKind view.Lhs with
-            | ExprShape.Var ->
-                let binding = TastAccessor.exprVarBinding view.Lhs
-                let value = view.Rhs
-                // `x <- v` on a non-promoted `mutable` local — store into its slot.
-                // (A `HeapShared` mutable local was already rewritten by
-                // `RefCellPromotion` into a `contents` FieldSet, so any `Assignment`
-                // surviving to codegen targets a plain stack local.) Unit-typed, so
-                // reify `unit` for the consumer — same convention as `FieldSet`.
-                match env.Slots.TryGetValue binding with
-                | true, slot ->
-                    recur env b value
-                    b.Add(ILInstr.Stloc slot)
-                    EmitTypes.buildUnitValue env b
-                | false, _ -> failwithf "Emit: assignment to a variable with no local slot: %O" binding
-            | _ -> failwith "EmitMember.buildAssignment: unreachable"
-        | _ -> failwith "EmitMember.buildAssignment: unreachable"
+        match view.Lhs with
+        | TastAccessor.EVar binding ->
+            let value = view.Rhs
+            // `x <- v` on a non-promoted `mutable` local — store into its slot.
+            // (A `HeapShared` mutable local was already rewritten by
+            // `RefCellPromotion` into a `contents` FieldSet, so any `Assignment`
+            // surviving to codegen targets a plain stack local.) Unit-typed, so
+            // reify `unit` for the consumer — same convention as `FieldSet`.
+            match env.Slots.TryGetValue binding with
+            | true, slot ->
+                recur env b value
+                b.Add(ILInstr.Stloc slot)
+                EmitTypes.buildUnitValue env b
+            | false, _ -> failwithf "Emit: assignment to a variable with no local slot: %O" binding
+        | _ -> failwith "Emit: assignment lhs is not a mutable-local Var (front end should have rejected it)"
 
     let buildFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.FieldSet ->
-            let view = TastAccessor.exprFieldSet e
-            let receiver = view.Receiver
-            let name = view.FieldName
-            let value = view.Value
-            // `r.X <- v` on a `mutable` field. Validation has rejected the
-            // immutable case before we reach here. `stfld` consumes both pushes
-            // and leaves nothing on the stack, but a `FieldSet` is *unit-typed*
-            // — every consumer (`Sequential` middle items, the body of a
-            // unit-returning closure / static method) expects a unit value to be
-            // present. Reify the `unit` value to keep the IL verifier happy when
-            // the body is just a FieldSet.
-            let handle = resolveRecordField env (typeOfExpr receiver) name
-            recur env b receiver
-            recur env b value
-            b.Add(ILInstr.Stfld handle)
-            EmitTypes.buildUnitValue env b
-        | _ -> failwith "EmitMember.buildFieldSet: unreachable"
+        let view = TastAccessor.exprFieldSet e
+        let receiver = view.Receiver
+        let name = view.FieldName
+        let value = view.Value
+        // `r.X <- v` on a `mutable` field. Validation has rejected the
+        // immutable case before we reach here. `stfld` consumes both pushes
+        // and leaves nothing on the stack, but a `FieldSet` is *unit-typed*
+        // — every consumer (`Sequential` middle items, the body of a
+        // unit-returning closure / static method) expects a unit value to be
+        // present. Reify the `unit` value to keep the IL verifier happy when
+        // the body is just a FieldSet.
+        let handle = resolveRecordField env (typeOfExpr receiver) name
+        recur env b receiver
+        recur env b value
+        b.Add(ILInstr.Stfld handle)
+        EmitTypes.buildUnitValue env b
 
     let buildPropertyGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.PropertyGet ->
-            let view = TastAccessor.exprPropertyGet e
-            let receiver = view.Receiver
-            let key = view.Key
+        let view = TastAccessor.exprPropertyGet e
+        let receiver = view.Receiver
+        let key = view.Key
 
-            match view.Via with
-            | CallVia.Interface ifaceArgs ->
-                // Rung-3: an instance *property* read on a typar receiver constrained to an
-                // interface (`this.Source.Current` where `Source : 'E :> IStructEnumerator`).
-                // A 0-argument constrained interface access — the getter slot is `get_<name>`
-                // in the interface registry. Shared `constrained. callvirt` path with the
-                // method case.
-                let ty = TastAccessor.exprTy e
-                emitConstrainedInterfaceCall recur env b receiver key ifaceArgs EqArray.empty ty
-            | via ->
-                // Instance property read — a 0-argument instance member access; the
-                // receiver/dispatch shape is shared with `buildMethodCall`.
-                let receiverTy = typeOfExpr receiver
-                // A property is never a generic method, so the resolved member metadata
-                // is unused here (`MethodTyparCount` is always 0 for a `get_<name>`).
-                // A property get is a 0-argument access — no overload args to match.
-                // The CLR member NAME the metadata slot is bound by (no arity in it).
-                let (DisplayName memberName) = SymbolKeyOps.simpleName key
-                let handle, _ = resolveInstanceMember env receiverTy memberName []
-                // A property get is never `unit`-returning, so it always yields a value.
-                emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty false
-        | _ -> failwith "EmitMember.buildPropertyGet: unreachable"
+        match view.Via with
+        | CallVia.Interface ifaceArgs ->
+            // Rung-3: an instance *property* read on a typar receiver constrained to an
+            // interface (`this.Source.Current` where `Source : 'E :> IStructEnumerator`).
+            // A 0-argument constrained interface access — the getter slot is `get_<name>`
+            // in the interface registry. Shared `constrained. callvirt` path with the
+            // method case.
+            let ty = TastAccessor.exprTy e
+            emitConstrainedInterfaceCall recur env b receiver key ifaceArgs EqArray.empty ty
+        | via ->
+            // Instance property read — a 0-argument instance member access; the
+            // receiver/dispatch shape is shared with `buildMethodCall`.
+            let receiverTy = typeOfExpr receiver
+            // A property is never a generic method, so the resolved member metadata
+            // is unused here (`MethodTyparCount` is always 0 for a `get_<name>`).
+            // A property get is a 0-argument access — no overload args to match.
+            // The CLR member NAME the metadata slot is bound by (no arity in it).
+            let (DisplayName memberName) = SymbolKeyOps.simpleName key
+            let handle, _ = resolveInstanceMember env receiverTy memberName []
+            // A property get is never `unit`-returning, so it always yields a value.
+            emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty false
 
     let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.MethodCall ->
-            let view = TastAccessor.exprMethodCall e
-            let receiver = view.Receiver
-            let key = view.Key
-            // `MethodCallView.Args` is ONLY the args (the receiver is merged in by
-            // `exprChildren`, not here); the shared instance/interface helpers take the
-            // args as an `EqArray`, so re-wrap the materialized array.
-            let args = EqArray.ofArray view.Args
-            let ty = TastAccessor.exprTy e
+        let view = TastAccessor.exprMethodCall e
+        let receiver = view.Receiver
+        let key = view.Key
+        // `MethodCallView.Args` is ONLY the args (the receiver is merged in by
+        // `exprChildren`, not here); the shared instance/interface helpers take the
+        // args as an `EqArray`.
+        let args = view.Args
+        let ty = TastAccessor.exprTy e
 
-            match view.Via with
-            | CallVia.Interface ifaceArgs -> emitConstrainedInterfaceCall recur env b receiver key ifaceArgs args ty
-            | via ->
-                // Instance method call — the same receiver/dispatch shape as
-                // `buildPropertyGet`, with the call's arguments pushed between the
-                // receiver and the `call`/`callvirt`.
-                let receiverTy = typeOfExpr receiver
-                let argTys = [ for a in args -> typeOfExpr a ]
+        match view.Via with
+        | CallVia.Interface ifaceArgs -> emitConstrainedInterfaceCall recur env b receiver key ifaceArgs args ty
+        | via ->
+            // Instance method call — the same receiver/dispatch shape as
+            // `buildPropertyGet`, with the call's arguments pushed between the
+            // receiver and the `call`/`callvirt`.
+            let receiverTy = typeOfExpr receiver
+            let argTys = [ for a in args -> typeOfExpr a ]
 
-                // The CLR member NAME the metadata slot is bound by (no arity in it).
-                let (DisplayName memberName) = SymbolKeyOps.simpleName key
-                let handle0, m = resolveInstanceMember env receiverTy memberName argTys
+            // The CLR member NAME the metadata slot is bound by (no arity in it).
+            let (DisplayName memberName) = SymbolKeyOps.simpleName key
+            let handle0, m = resolveInstanceMember env receiverTy memberName argTys
 
-                // A *generic instance method*: the
-                // member-ref already carries the `GENERIC` header (its `'U` rides `!!i`),
-                // so the call must wrap it in a `MethodSpec`. The node carries no method
-                // type args, so recover them by structurally matching the member's declared
-                // curried signature (declaring-/method-axis markers) against the call's
-                // actual argument + result types — the instance analogue of the
-                // generic-static-fn `MethodSpec` recovery (`EmitCall`).
-                let handle =
-                    if m.MethodTyparCount = 0 then
-                        handle0
-                    else
-                        let declTyparArity =
-                            match receiverShape receiverTy with
-                            | ValueSome(_, rargs) -> List.length rargs
-                            | ValueNone -> 0
-
-                        let _, methodArgs =
-                            recoverMemberInst env m declTyparArity [ for a in args -> typeOfExpr a ] ty
-
-                        env.Provider.StaticFnMethodSpec(handle0, methodArgs)
-
-                // A `unit`-returning instance method is emitted `void` (`NominalEmit`):
-                // detect it from the call's result type so the call declares 0 results.
-                let returnsUnit =
-                    match ty with
-                    | FTUnit -> true
-                    | _ -> false
-
-                emitInstanceMember recur env b via receiver receiverTy handle args returnsUnit
-        | _ -> failwith "EmitMember.buildMethodCall: unreachable"
-
-    let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.StaticPropertyGet ->
-            let key = TastAccessor.exprStaticPropertyGetKey e
-            let ty = TastAccessor.exprTy e
-            let handle = resolveStaticMember env key [] ty
-            b.Add(ILInstr.Call(handle, 0, 1))
-        | _ -> failwith "EmitMember.buildStaticPropertyGet: unreachable"
-
-    let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.StaticFieldGet ->
-            let view = TastAccessor.exprStaticFieldGet e
-            let declKey = view.Key
-            let name = view.FieldName
-            // A numeric enum case (`E.A`) pushes its underlying integer constant — the
-            // enum value IS that integer (its `literal` field is metadata-only, so
-            // `ldsfld` would throw `MissingFieldException`). A class `static let`
-            // backing field is a real `ldsfld`.
-            match tryResolveEnumCaseLoad env declKey name with
-            | ValueSome instr -> b.Add instr
-            | ValueNone -> b.Add(ILInstr.Ldsfld(resolveStaticField env declKey name))
-        | _ -> failwith "EmitMember.buildStaticFieldGet: unreachable"
-
-    let buildStaticFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.StaticFieldSet ->
-            let view = TastAccessor.exprStaticFieldSet e
-            let declKey = view.Key
-            let name = view.FieldName
-            let value = view.Value
-            // `x <- v` on a `static let mutable` backing field — the store analogue of
-            // `buildStaticFieldGet`'s `ldsfld`. `stsfld` consumes the value push and
-            // leaves nothing, but the write is *unit-typed*, so reify a unit value for
-            // the consumer, exactly as `buildFieldSet` does.
-            recur env b value
-            b.Add(ILInstr.Stsfld(resolveStaticField env declKey name))
-            EmitTypes.buildUnitValue env b
-        | _ -> failwith "EmitMember.buildStaticFieldSet: unreachable"
-
-    let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.StaticMethodCall ->
-            let key = TastAccessor.exprStaticMethodCallKey e
-            // A `StaticMethodCall`'s arguments ARE its `exprChildren` (no receiver to merge).
-            let args = TastAccessor.exprChildren e
-            let ty = TastAccessor.exprTy e
-            // The declaring type of the static member. When it is a project-local
-            // class/union the emitted tables carry it; when it lives in a referenced
-            // package it does not — a *consumer*'s SRTP `+` / `-` dispatching to an
-            // imported type's static operator (`Vesper.Set`'s `op_Addition`) reaches
-            // here. `Inline.resolveTraitCall` always mints a local-shaped
-            // `StaticMethodCall`; route the external case through the external
-            // member-ref path instead of failing in `resolveStaticMember`.
-            let isLocal =
-                let declKey =
-                    SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "EmitMember: static member call" key)
-
-                env.Unions.ContainsKey declKey || env.Classes.ContainsKey declKey
-
+            // A *generic instance method*: the
+            // member-ref already carries the `GENERIC` header (its `'U` rides `!!i`),
+            // so the call must wrap it in a `MethodSpec`. The node carries no method
+            // type args, so recover them by structurally matching the member's declared
+            // curried signature (declaring-/method-axis markers) against the call's
+            // actual argument + result types — the instance analogue of the
+            // generic-static-fn `MethodSpec` recovery (`EmitCall`).
             let handle =
-                if isLocal then
-                    resolveStaticMember env key [ for a in args -> typeOfExpr a ] ty
+                if m.MethodTyparCount = 0 then
+                    handle0
                 else
-                    // Reconstruct the member's .NET-tupled signature from the pushed
-                    // args + result so `ExternalMemberRef` can recover the declaring
-                    // instantiation (`Set<int>` from `op_Addition`'s open `Set<!0>`).
-                    let argTys = [ for a in args -> typeOfExpr a ]
+                    let declTyparArity =
+                        match receiverShape receiverTy with
+                        | ValueSome(_, rargs) -> List.length rargs
+                        | ValueNone -> 0
 
-                    let paramTy =
-                        match argTys with
-                        | [] -> FTConst(RuntimeNames.unitKey, EqArray.empty)
-                        | [ single ] -> single
-                        | many -> FTTuple(EqArray.ofList many)
+                    let _, methodArgs = recoverMemberInst env m declTyparArity argTys ty
 
-                    env.Provider.ExternalMemberRef(key, false, true, FTFun(paramTy, ty))
-            // Obj-parameter boxes are explicit `Upcast` nodes from Elaborate; push raw.
-            for a in args do
-                recur env b a
+                    env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 
-            // A `unit`-returning static member is emitted `void` (Step B,
-            // "void everywhere") — and the external member-ref encoder already maps
-            // a `unit` return to `void` — so the `call` declares 0 results and a
-            // value-position consumer reifies a `unit` afterward, exactly as the
-            // instance path (`emitInstanceMember`) does.
+            // A `unit`-returning instance method is emitted `void` (`NominalEmit`):
+            // detect it from the call's result type so the call declares 0 results.
             let returnsUnit =
                 match ty with
                 | FTUnit -> true
                 | _ -> false
 
-            let resultCount = if returnsUnit then 0 else 1
-            b.Add(ILInstr.Call(handle, args.Length, resultCount))
+            emitInstanceMember recur env b via receiver receiverTy handle args returnsUnit
 
-            if returnsUnit then
-                EmitTypes.buildUnitValue env b
-        | _ -> failwith "EmitMember.buildStaticMethodCall: unreachable"
+    let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        let key = TastAccessor.exprStaticPropertyGetKey e
+        let ty = TastAccessor.exprTy e
+        let handle = resolveStaticMember env key [] ty
+        b.Add(ILInstr.Call(handle, 0, 1))
+
+    let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        let view = TastAccessor.exprStaticFieldGet e
+        let declKey = view.Key
+        let name = view.FieldName
+        // A numeric enum case (`E.A`) pushes its underlying integer constant — the
+        // enum value IS that integer (its `literal` field is metadata-only, so
+        // `ldsfld` would throw `MissingFieldException`). A class `static let`
+        // backing field is a real `ldsfld`.
+        match tryResolveEnumCaseLoad env declKey name with
+        | ValueSome instr -> b.Add instr
+        | ValueNone -> b.Add(ILInstr.Ldsfld(resolveStaticField env declKey name))
+
+    let buildStaticFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        let view = TastAccessor.exprStaticFieldSet e
+        let declKey = view.Key
+        let name = view.FieldName
+        let value = view.Value
+        // `x <- v` on a `static let mutable` backing field — the store analogue of
+        // `buildStaticFieldGet`'s `ldsfld`. `stsfld` consumes the value push and
+        // leaves nothing, but the write is *unit-typed*, so reify a unit value for
+        // the consumer, exactly as `buildFieldSet` does.
+        recur env b value
+        b.Add(ILInstr.Stsfld(resolveStaticField env declKey name))
+        EmitTypes.buildUnitValue env b
+
+    let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        let key = TastAccessor.exprStaticMethodCallKey e
+        // A `StaticMethodCall`'s arguments ARE its `exprChildren` (no receiver to merge).
+        let args = TastAccessor.exprChildren e
+        let ty = TastAccessor.exprTy e
+        // The declaring type of the static member. When it is a project-local
+        // class/union the emitted tables carry it; when it lives in a referenced
+        // package it does not — a *consumer*'s SRTP `+` / `-` dispatching to an
+        // imported type's static operator (`Vesper.Set`'s `op_Addition`) reaches
+        // here. `Inline.resolveTraitCall` always mints a local-shaped
+        // `StaticMethodCall`; route the external case through the external
+        // member-ref path instead of failing in `resolveStaticMember`.
+        let isLocal =
+            let declKey =
+                SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "EmitMember: static member call" key)
+
+            env.Unions.ContainsKey declKey || env.Classes.ContainsKey declKey
+
+        let handle =
+            if isLocal then
+                resolveStaticMember env key [ for a in args -> typeOfExpr a ] ty
+            else
+                // Reconstruct the member's .NET-tupled signature from the pushed
+                // args + result so `ExternalMemberRef` can recover the declaring
+                // instantiation (`Set<int>` from `op_Addition`'s open `Set<!0>`).
+                let argTys = [ for a in args -> typeOfExpr a ]
+
+                let paramTy =
+                    match argTys with
+                    | [] -> FTConst(RuntimeNames.unitKey, EqArray.empty)
+                    | [ single ] -> single
+                    | many -> FTTuple(EqArray.ofList many)
+
+                env.Provider.ExternalMemberRef(key, false, true, FTFun(paramTy, ty))
+        // Obj-parameter boxes are explicit `Upcast` nodes from Elaborate; push raw.
+        for a in args do
+            recur env b a
+
+        // A `unit`-returning static member is emitted `void` (Step B,
+        // "void everywhere") — and the external member-ref encoder already maps
+        // a `unit` return to `void` — so the `call` declares 0 results and a
+        // value-position consumer reifies a `unit` afterward, exactly as the
+        // instance path (`emitInstanceMember`) does.
+        let returnsUnit =
+            match ty with
+            | FTUnit -> true
+            | _ -> false
+
+        let resultCount = if returnsUnit then 0 else 1
+        b.Add(ILInstr.Call(handle, args.Length, resultCount))
+
+        if returnsUnit then
+            EmitTypes.buildUnitValue env b
 
     let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.ExternalMember ->
-            let view = TastAccessor.exprExternalMember e
-            let receiver = view.Receiver
-            let key = view.Key
-            let ty = TastAccessor.exprTy e
+        let view = TastAccessor.exprExternalMember e
+        let receiver = view.Receiver
+        let key = view.Key
+        let ty = TastAccessor.exprTy e
 
-            match view.Storage with
-            | MemberStorage.Field ->
-                // A genuine external public field — read via `ldsfld` (static, e.g.
-                // `String.Empty`) or `ldfld` over the pushed receiver (instance, e.g. a
-                // `ValueTuple`'s `Item1`), against a field token (not a `get_X` accessor).
-                match receiver with
-                | ValueNone ->
-                    let handle = env.Provider.ExternalFieldRef(key, ValueNone, ty)
-                    b.Add(ILInstr.Ldsfld handle)
-                | ValueSome r ->
-                    let receiverTy = typeOfExpr r
-                    let handle = env.Provider.ExternalFieldRef(key, ValueSome receiverTy, ty)
+        match view.Storage with
+        | MemberStorage.Field ->
+            // A genuine external public field — read via `ldsfld` (static, e.g.
+            // `String.Empty`) or `ldfld` over the pushed receiver (instance, e.g. a
+            // `ValueTuple`'s `Item1`), against a field token (not a `get_X` accessor).
+            match receiver with
+            | ValueNone ->
+                let handle = env.Provider.ExternalFieldRef(key, ValueNone, ty)
+                b.Add(ILInstr.Ldsfld handle)
+            | ValueSome r ->
+                let receiverTy = typeOfExpr r
+                let handle = env.Provider.ExternalFieldRef(key, ValueSome receiverTy, ty)
 
-                    // An unboxed value-type receiver is reached by address (as the property
-                    // getter arm does); `ldfld` then reads the field off that managed pointer.
-                    if isValueType env receiverTy then
-                        loadStructReceiverAddr recur env b r receiverTy
-                    else
-                        recur env b r
+                // An unboxed value-type receiver is reached by address (as the property
+                // getter arm does); `ldfld` then reads the field off that managed pointer.
+                if isValueType env receiverTy then
+                    loadStructReceiverAddr recur env b r receiverTy
+                else
+                    recur env b r
 
-                    b.Add(ILInstr.Ldfld handle)
-            | MemberStorage.Property ->
-                // A standalone external *property* get: a static one (`call
-                // get_<name>()`) or an instance one reached as the receiver of an outer
-                // access (`<receiver>; callvirt get_<name>()`). The keyed member ref is
-                // minted from the node's `SymbolKey`; an instance access on an external
-                // union/record receiver goes through `ExternalMemberRefOn` (the parent +
-                // arity come off the receiver type, not the bare contract name).
-                match receiver with
-                | ValueNone ->
-                    let handle = env.Provider.ExternalMemberRef(key, true, true, ty)
-                    b.Add(ILInstr.Call(handle, 0, 1))
-                | ValueSome r ->
-                    let receiverTy = typeOfExpr r
-                    let handle = externalInstanceMemberRef env key receiverTy true (ty)
+                b.Add(ILInstr.Ldfld handle)
+        | MemberStorage.Property ->
+            // A standalone external *property* get: a static one (`call
+            // get_<name>()`) or an instance one reached as the receiver of an outer
+            // access (`<receiver>; callvirt get_<name>()`). The keyed member ref is
+            // minted from the node's `SymbolKey`; an instance access on an external
+            // union/record receiver goes through `ExternalMemberRefOn` (the parent +
+            // arity come off the receiver type, not the bare contract name).
+            match receiver with
+            | ValueNone ->
+                let handle = env.Provider.ExternalMemberRef(key, true, true, ty)
+                b.Add(ILInstr.Call(handle, 0, 1))
+            | ValueSome r ->
+                let receiverTy = typeOfExpr r
+                let handle = externalInstanceMemberRef env key receiverTy true (ty)
 
-                    // A property getter on an *unboxed* value-type receiver (`span.Length`,
-                    // any external struct) is reached by address + non-virtual `call`, not
-                    // by value + `callvirt` (the verifier rejects the latter — a ref struct
-                    // can't be boxed). Same dispatch as `emitInstanceMember`'s struct self.
-                    if isValueType env receiverTy then
-                        loadStructReceiverAddr recur env b r receiverTy
-                        b.Add(ILInstr.Call(handle, 1, 1))
-                    else
-                        recur env b r
-                        b.Add(ILInstr.Callvirt(handle, 1, 1))
-            | MemberStorage.Method ->
-                // An external method used as a first-class value (a method group, not
-                // applied) needs closure synthesis — out of scope. Applied methods are
-                // handled as an `App` head above.
-                failwith "Emit: external method used as a first-class value is out of scope"
-        | _ -> failwith "EmitMember.buildExternalMember: unreachable"
+                // A property getter on an *unboxed* value-type receiver (`span.Length`,
+                // any external struct) is reached by address + non-virtual `call`, not
+                // by value + `callvirt` (the verifier rejects the latter — a ref struct
+                // can't be boxed). Same dispatch as `emitInstanceMember`'s struct self.
+                if isValueType env receiverTy then
+                    loadStructReceiverAddr recur env b r receiverTy
+                    b.Add(ILInstr.Call(handle, 1, 1))
+                else
+                    recur env b r
+                    b.Add(ILInstr.Callvirt(handle, 1, 1))
+        | MemberStorage.Method ->
+            // An external method used as a first-class value (a method group, not
+            // applied) needs closure synthesis — out of scope. Applied methods are
+            // handled as an `App` head above.
+            failwith "Emit: external method used as a first-class value is out of scope"

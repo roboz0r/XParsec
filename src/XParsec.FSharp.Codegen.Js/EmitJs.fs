@@ -346,7 +346,7 @@ module EmitJs =
                 let withRecv =
                     JsExpr.Call(Members.localFn ctx mc.Key false false ValueNone, [ buildExpr ctx mc.Receiver ], loc)
 
-                applyArgs ctx withRecv (EqArray.ofArray mc.Args)
+                applyArgs ctx withRecv mc.Args
 
         | ExprShape.StaticPropertyGet -> Members.localFn ctx (TastAccessor.exprStaticPropertyGetKey e) true true loc
 

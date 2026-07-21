@@ -281,283 +281,268 @@ module EmitLoops =
         EmitTypes.buildUnitValue env b
 
     let buildForIn (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        // Matched in two layers so the inner `match` over `ForInEnumeratorG` is
-        // *compiler-exhaustive* — a new enumerator kind fails the build here rather
-        // than silently falling through to a wildcard. The outer `_` only guards the
-        // (unreachable) non-`ForIn` dispatch.
-        | ExprShape.ForIn ->
-            let view = TastAccessor.exprForIn e
-            let pat = view.Pat
-            let source = view.Source
-            let body = view.Body
-            let enumerator = view.Enumerator
-            let elemTy = typeOfPat pat
+        // Reached only via `EmitExpr`'s router, so `exprForIn` is a total projection.
+        // The inner `match` over `ForInEnumeratorG` is *compiler-exhaustive* (no
+        // wildcard) — a new enumerator kind fails the build here rather than
+        // silently falling through.
+        let view = TastAccessor.exprForIn e
+        let pat = view.Pat
+        let source = view.Source
+        let body = view.Body
+        let enumerator = view.Enumerator
+        let elemTy = typeOfPat pat
 
-            match enumerator with
-            | ForInEnumeratorG.Pattern(enumeratorTy, getEnum, members, isValueType, dispose) ->
-                // Duck-typed `GetEnumerator()` — C#'s non-boxing `foreach`. The source
-                // exposes a public `GetEnumerator()` returning a concrete enumerator
-                // `E` (`enumeratorTy`) with `MoveNext(): bool` and a `Current`
-                // property, without implementing `IEnumerable<'T>`. The loop walks `E`
-                // directly — by address with no allocation when `E` is a struct
-                // (`isValueType`). The two resolution axes are independent:
-                //   • `getEnum`  — how to ref the source's `GetEnumerator`: `External`
-                //     mints it from the carried key (`ExternalMemberRef`, return
-                //     recovers the source instantiation); `Local` resolves it off the
-                //     source expression's type (`resolveInstanceMember`).
-                //   • `members`  — how to ref `E`'s `MoveNext` / `Current`: `External`
-                //     mints them via `ExternalMemberRefOn` against `enumeratorTy` (a
-                //     T-free `MoveNext(): bool` can't recover the declaring type);
-                //     `Local` resolves them off the user `E` `TypeDef`.
-                // `dispose` is `true` only when `E : IDisposable` (the shared emitter
-                // mints the `System.IDisposable::Dispose` slot — a `callvirt`, or
-                // `constrained.` for a struct `E`, dispatches to the impl even when its
-                // slot is absent from `E`'s member table).
-                let geHandle =
-                    match getEnum with
-                    | ForInGetEnumG.External geKey ->
-                        env.Provider.ExternalMemberRef(
-                            geKey,
-                            false,
-                            false,
-                            FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), enumeratorTy)
-                        )
-                    | ForInGetEnumG.Local -> fst (resolveInstanceMember env (typeOfExpr source) "GetEnumerator" [])
-                    // Rung-3: a generic-typar source — `GetEnumerator` is the custom
-                    // seq interface's abstract slot, dispatched `constrained. callvirt`.
-                    | ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
-                        constrainedSlot env ifaceKey ifaceArgs "GetEnumerator"
-
-                let mnHandle, curHandle =
-                    match members with
-                    | ForInEnumMembersG.External(mnKey, curKey) ->
-                        externalEnumMembers env enumeratorTy mnKey curKey elemTy
-                    | ForInEnumMembersG.Local ->
-                        fst (resolveInstanceMember env enumeratorTy "MoveNext" []),
-                        fst (resolveInstanceMember env enumeratorTy "Current" [])
-                    // Rung-3: a generic-typar enumerator `E` — `MoveNext` / `Current`
-                    // are the enumerator interface's abstract slots.
-                    | ForInEnumMembersG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
-                        constrainedSlot env ifaceKey ifaceArgs "MoveNext",
-                        constrainedSlot env ifaceKey ifaceArgs "Current"
-
-                let getEnumViaConstrained =
-                    match getEnum with
-                    | ForInGetEnumG.ConstrainedInterface _ -> true
-                    | _ -> false
-
-                let membersViaConstrained =
-                    match members with
-                    | ForInEnumMembersG.ConstrainedInterface _ -> true
-                    | _ -> false
-
-                emitEnumeratorLoop
-                    recur
-                    env
-                    b
-                    {
-                        ElemTy = elemTy
-                        EnumeratorTy = enumeratorTy
-                        GetEnumerator = geHandle
-                        MoveNext = mnHandle
-                        Current = curHandle
-                        IsValueType = isValueType
-                        Disposable = dispose
-                        // A constrained `GetEnumerator` is dispatched `constrained.
-                        // callvirt` on the addressed source receiver.
-                        GetEnumeratorViaInterface = getEnumViaConstrained
-                        GetEnumViaConstrained = getEnumViaConstrained
-                        MembersViaConstrained = membersViaConstrained
-                    }
-                    pat
-                    source
-                    body
-            | ForInEnumeratorG.Interface ->
-                // `for x in src do body` over an `IEnumerable<'T>`. Lowered to the
-                // standard enumerator loop through the interface slots, so the same
-                // shape drives any BCL collection (and, later, a user `seq`):
-                //
-                //   let e = (src).GetEnumerator()            // IEnumerable<T>::GetEnumerator → IEnumerator<T>
-                //   try
-                //     while e.MoveNext() do                  // IEnumerator::MoveNext
-                //       let x = e.Current                    // IEnumerator<T>::get_Current
-                //       body
-                //   finally
-                //     if e <> null then e.Dispose()          // IDisposable::Dispose
-                //
-                // The four member refs are minted from hand-built `SymbolKey`s against
-                // the well-known interface types — the declaring type of each slot,
-                // not the source's concrete type — so a `callvirt` dispatches to the
-                // collection's implementation. `ExternalMemberRef` recovers the
-                // instantiation (`!0` → `elemTy`) from the supplied member type. The
-                // IL-IR exception region is the same `Try` / `BeginFinally` /
-                // `EndFinally` shape as a `Use` node's disposal.
-                let enumTy =
-                    FTClass(
-                        SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1",
-                        EqArray.singleton elemTy
-                    )
-
-                let geKey =
-                    SymbolKeyOps.memberKey
-                        (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerable`1")
-                        "GetEnumerator"
-                        EqArray.empty
-                        0
-                        MemberKind.Method
-
-                let geHandle =
+        match enumerator with
+        | ForInEnumeratorG.Pattern(enumeratorTy, getEnum, members, isValueType, dispose) ->
+            // Duck-typed `GetEnumerator()` — C#'s non-boxing `foreach`. The source
+            // exposes a public `GetEnumerator()` returning a concrete enumerator
+            // `E` (`enumeratorTy`) with `MoveNext(): bool` and a `Current`
+            // property, without implementing `IEnumerable<'T>`. The loop walks `E`
+            // directly — by address with no allocation when `E` is a struct
+            // (`isValueType`). The two resolution axes are independent:
+            //   • `getEnum`  — how to ref the source's `GetEnumerator`: `External`
+            //     mints it from the carried key (`ExternalMemberRef`, return
+            //     recovers the source instantiation); `Local` resolves it off the
+            //     source expression's type (`resolveInstanceMember`).
+            //   • `members`  — how to ref `E`'s `MoveNext` / `Current`: `External`
+            //     mints them via `ExternalMemberRefOn` against `enumeratorTy` (a
+            //     T-free `MoveNext(): bool` can't recover the declaring type);
+            //     `Local` resolves them off the user `E` `TypeDef`.
+            // `dispose` is `true` only when `E : IDisposable` (the shared emitter
+            // mints the `System.IDisposable::Dispose` slot — a `callvirt`, or
+            // `constrained.` for a struct `E`, dispatches to the impl even when its
+            // slot is absent from `E`'s member table).
+            let geHandle =
+                match getEnum with
+                | ForInGetEnumG.External geKey ->
                     env.Provider.ExternalMemberRef(
                         geKey,
                         false,
                         false,
-                        FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), enumTy)
+                        FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), enumeratorTy)
                     )
+                | ForInGetEnumG.Local -> fst (resolveInstanceMember env (typeOfExpr source) "GetEnumerator" [])
+                // Rung-3: a generic-typar source — `GetEnumerator` is the custom
+                // seq interface's abstract slot, dispatched `constrained. callvirt`.
+                | ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
+                    constrainedSlot env ifaceKey ifaceArgs "GetEnumerator"
 
-                let mnKey =
-                    SymbolKeyOps.memberKey
-                        (SymbolKeyOps.typeKeyOf "System.Collections" "IEnumerator")
-                        "MoveNext"
-                        EqArray.empty
-                        0
-                        MemberKind.Method
+            let mnHandle, curHandle =
+                match members with
+                | ForInEnumMembersG.External(mnKey, curKey) -> externalEnumMembers env enumeratorTy mnKey curKey elemTy
+                | ForInEnumMembersG.Local ->
+                    fst (resolveInstanceMember env enumeratorTy "MoveNext" []),
+                    fst (resolveInstanceMember env enumeratorTy "Current" [])
+                // Rung-3: a generic-typar enumerator `E` — `MoveNext` / `Current`
+                // are the enumerator interface's abstract slots.
+                | ForInEnumMembersG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
+                    constrainedSlot env ifaceKey ifaceArgs "MoveNext", constrainedSlot env ifaceKey ifaceArgs "Current"
 
-                let mnHandle =
-                    env.Provider.ExternalMemberRef(
-                        mnKey,
-                        false,
-                        false,
-                        FTFun(
-                            FTConst(RuntimeNames.unitKey, EqArray.empty),
-                            FTConst(RuntimeNames.boolKey, EqArray.empty)
-                        )
-                    )
+            let getEnumViaConstrained =
+                match getEnum with
+                | ForInGetEnumG.ConstrainedInterface _ -> true
+                | _ -> false
 
-                let curKey =
-                    SymbolKeyOps.memberKey
-                        (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1")
-                        "Current"
-                        EqArray.empty
-                        0
-                        MemberKind.Property
+            let membersViaConstrained =
+                match members with
+                | ForInEnumMembersG.ConstrainedInterface _ -> true
+                | _ -> false
 
-                let curHandle = env.Provider.ExternalMemberRef(curKey, true, false, elemTy)
+            emitEnumeratorLoop
+                recur
+                env
+                b
+                {
+                    ElemTy = elemTy
+                    EnumeratorTy = enumeratorTy
+                    GetEnumerator = geHandle
+                    MoveNext = mnHandle
+                    Current = curHandle
+                    IsValueType = isValueType
+                    Disposable = dispose
+                    // A constrained `GetEnumerator` is dispatched `constrained.
+                    // callvirt` on the addressed source receiver.
+                    GetEnumeratorViaInterface = getEnumViaConstrained
+                    GetEnumViaConstrained = getEnumViaConstrained
+                    MembersViaConstrained = membersViaConstrained
+                }
+                pat
+                source
+                body
+        | ForInEnumeratorG.Interface ->
+            // `for x in src do body` over an `IEnumerable<'T>`. Lowered to the
+            // standard enumerator loop through the interface slots, so the same
+            // shape drives any BCL collection (and, later, a user `seq`):
+            //
+            //   let e = (src).GetEnumerator()            // IEnumerable<T>::GetEnumerator → IEnumerator<T>
+            //   try
+            //     while e.MoveNext() do                  // IEnumerator::MoveNext
+            //       let x = e.Current                    // IEnumerator<T>::get_Current
+            //       body
+            //   finally
+            //     if e <> null then e.Dispose()          // IDisposable::Dispose
+            //
+            // The four member refs are minted from hand-built `SymbolKey`s against
+            // the well-known interface types — the declaring type of each slot,
+            // not the source's concrete type — so a `callvirt` dispatches to the
+            // collection's implementation. `ExternalMemberRef` recovers the
+            // instantiation (`!0` → `elemTy`) from the supplied member type. The
+            // IL-IR exception region is the same `Try` / `BeginFinally` /
+            // `EndFinally` shape as a `Use` node's disposal.
+            let enumTy =
+                FTClass(SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1", EqArray.singleton elemTy)
 
-                // The interface enumerator is always a reference `IEnumerator<'T>` and
-                // always `IDisposable` — so `IsValueType = false` and `Disposable = true`
-                // (the null-checked disposal `emitEnumeratorLoop` emits for a reference
-                // enumerator, through the `System.IDisposable::Dispose` slot it mints).
-                // That `Dispose` returns a real `void`, so the callvirt consumes only
-                // the receiver — exactly what the shared emitter expects.
-                emitEnumeratorLoop
-                    recur
-                    env
-                    b
-                    {
-                        ElemTy = elemTy
-                        EnumeratorTy = enumTy
-                        GetEnumerator = geHandle
-                        MoveNext = mnHandle
-                        Current = curHandle
-                        IsValueType = false
-                        Disposable = true
-                        GetEnumeratorViaInterface = true
-                        GetEnumViaConstrained = false
-                        MembersViaConstrained = false
-                    }
-                    pat
-                    source
-                    body
-        | _ -> failwith "EmitLoops.buildForIn: unreachable"
+            let geKey =
+                SymbolKeyOps.memberKey
+                    (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerable`1")
+                    "GetEnumerator"
+                    EqArray.empty
+                    0
+                    MemberKind.Method
+
+            let geHandle =
+                env.Provider.ExternalMemberRef(
+                    geKey,
+                    false,
+                    false,
+                    FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), enumTy)
+                )
+
+            let mnKey =
+                SymbolKeyOps.memberKey
+                    (SymbolKeyOps.typeKeyOf "System.Collections" "IEnumerator")
+                    "MoveNext"
+                    EqArray.empty
+                    0
+                    MemberKind.Method
+
+            let mnHandle =
+                env.Provider.ExternalMemberRef(
+                    mnKey,
+                    false,
+                    false,
+                    FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), FTConst(RuntimeNames.boolKey, EqArray.empty))
+                )
+
+            let curKey =
+                SymbolKeyOps.memberKey
+                    (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1")
+                    "Current"
+                    EqArray.empty
+                    0
+                    MemberKind.Property
+
+            let curHandle = env.Provider.ExternalMemberRef(curKey, true, false, elemTy)
+
+            // The interface enumerator is always a reference `IEnumerator<'T>` and
+            // always `IDisposable` — so `IsValueType = false` and `Disposable = true`
+            // (the null-checked disposal `emitEnumeratorLoop` emits for a reference
+            // enumerator, through the `System.IDisposable::Dispose` slot it mints).
+            // That `Dispose` returns a real `void`, so the callvirt consumes only
+            // the receiver — exactly what the shared emitter expects.
+            emitEnumeratorLoop
+                recur
+                env
+                b
+                {
+                    ElemTy = elemTy
+                    EnumeratorTy = enumTy
+                    GetEnumerator = geHandle
+                    MoveNext = mnHandle
+                    Current = curHandle
+                    IsValueType = false
+                    Disposable = true
+                    GetEnumeratorViaInterface = true
+                    GetEnumViaConstrained = false
+                    MembersViaConstrained = false
+                }
+                pat
+                source
+                body
 
     let buildForTo (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.ForTo ->
-            let view = TastAccessor.exprForTo e
-            let var = view.Var
-            let startExpr = view.StartExpr
-            let endExpr = view.EndExpr
-            let body = view.Body
-            // `for i = a to b do body` — a unit expression. `a`/`b` are evaluated
-            // once (F# semantics) into the loop-variable and a hidden limit local;
-            // the loop is exited *before* the increment when `i = limit`, so the
-            // final iteration runs without `i+1` overflowing (the standard F#
-            // lowering — matters at `b = Int32.MaxValue`). Shape:
-            //   i = a; limit = b
-            //   if i > limit goto loopEnd          // empty/degenerate range
-            //   loopBody: body; pop…
-            //             if i = limit goto loopEnd // last iteration, no overflow
-            //             i = i + 1; goto loopBody
-            //   loopEnd:
-            let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
-            let iSlot = b.Local intTy
-            let limitSlot = b.Local intTy
-            env.Slots.[var] <- iSlot
+        // Reached only via `EmitExpr`'s router, so `exprForTo` is a total projection.
+        let view = TastAccessor.exprForTo e
+        let var = view.Var
+        let startExpr = view.StartExpr
+        let endExpr = view.EndExpr
+        let body = view.Body
+        // `for i = a to b do body` — a unit expression. `a`/`b` are evaluated
+        // once (F# semantics) into the loop-variable and a hidden limit local;
+        // the loop is exited *before* the increment when `i = limit`, so the
+        // final iteration runs without `i+1` overflowing (the standard F#
+        // lowering — matters at `b = Int32.MaxValue`). Shape:
+        //   i = a; limit = b
+        //   if i > limit goto loopEnd          // empty/degenerate range
+        //   loopBody: body; pop…
+        //             if i = limit goto loopEnd // last iteration, no overflow
+        //             i = i + 1; goto loopBody
+        //   loopEnd:
+        let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
+        let iSlot = b.Local intTy
+        let limitSlot = b.Local intTy
+        env.Slots.[var] <- iSlot
 
-            recur env b startExpr
-            b.Add(ILInstr.Stloc iSlot)
-            recur env b endExpr
-            b.Add(ILInstr.Stloc limitSlot)
+        recur env b startExpr
+        b.Add(ILInstr.Stloc iSlot)
+        recur env b endExpr
+        b.Add(ILInstr.Stloc limitSlot)
 
-            let loopBody = b.Label()
-            let loopEnd = b.Label()
-            let baseDepth = b.Depth
+        let loopBody = b.Label()
+        let loopEnd = b.Label()
+        let baseDepth = b.Depth
 
-            // `i > limit` (signed) → exit before the first iteration on an empty range.
-            b.Add(ILInstr.Ldloc iSlot)
-            b.Add(ILInstr.Ldloc limitSlot)
-            b.Add(ILInstr.Bin ILOpCode.Cgt)
-            b.Add(ILInstr.Brtrue loopEnd)
+        // `i > limit` (signed) → exit before the first iteration on an empty range.
+        b.Add(ILInstr.Ldloc iSlot)
+        b.Add(ILInstr.Ldloc limitSlot)
+        b.Add(ILInstr.Bin ILOpCode.Cgt)
+        b.Add(ILInstr.Brtrue loopEnd)
 
-            b.Add(ILInstr.Mark loopBody)
-            recur env b body
+        b.Add(ILInstr.Mark loopBody)
+        recur env b body
 
-            while b.Depth > baseDepth do
-                b.Add ILInstr.Pop
+        while b.Depth > baseDepth do
+            b.Add ILInstr.Pop
 
-            // `i = limit` → done (skips the increment that would overflow at MaxValue).
-            b.Add(ILInstr.Ldloc iSlot)
-            b.Add(ILInstr.Ldloc limitSlot)
-            b.Add(ILInstr.Beq loopEnd)
-            b.Add(ILInstr.Ldloc iSlot)
-            b.Add(ILInstr.LdcI4 1)
-            b.Add(ILInstr.Bin ILOpCode.Add)
-            b.Add(ILInstr.Stloc iSlot)
-            b.Add(ILInstr.Br loopBody)
-            b.SetDepth baseDepth
-            b.Add(ILInstr.Mark loopEnd)
-            // `for` is a unit expression — leave the single reified `unit` value.
-            EmitTypes.buildUnitValue env b
-        | _ -> failwith "EmitLoops.buildForTo: unreachable"
+        // `i = limit` → done (skips the increment that would overflow at MaxValue).
+        b.Add(ILInstr.Ldloc iSlot)
+        b.Add(ILInstr.Ldloc limitSlot)
+        b.Add(ILInstr.Beq loopEnd)
+        b.Add(ILInstr.Ldloc iSlot)
+        b.Add(ILInstr.LdcI4 1)
+        b.Add(ILInstr.Bin ILOpCode.Add)
+        b.Add(ILInstr.Stloc iSlot)
+        b.Add(ILInstr.Br loopBody)
+        b.SetDepth baseDepth
+        b.Add(ILInstr.Mark loopEnd)
+        // `for` is a unit expression — leave the single reified `unit` value.
+        EmitTypes.buildUnitValue env b
 
     let buildWhile (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match TastAccessor.exprKind e with
-        | ExprShape.While ->
-            let view = TastAccessor.exprWhile e
-            let cond = view.Cond
-            let body = view.Body
-            // `while <cond> do <body>` — a unit expression. Shape:
-            //   loopStart: <cond>; brfalse loopEnd; <body>; pop…; br loopStart; loopEnd:
-            // The condition leaves a `bool` the `brfalse` consumes; the body is a
-            // unit statement whose value is discarded each iteration (popped back to
-            // the loop-top base, as `Sequential` does). The depth tracker is reset to
-            // that base before the exit label so post-loop statement discards stay
-            // correct — `IlIr.analyze` re-derives the buffer's merge depths across the
-            // back-edge. `while` itself leaves the single reified `unit`.
-            let loopStart = b.Label()
-            let loopEnd = b.Label()
-            let baseDepth = b.Depth
-            b.Add(ILInstr.Mark loopStart)
-            recur env b cond
-            b.Add(ILInstr.Brfalse loopEnd)
-            recur env b body
+        // Reached only via `EmitExpr`'s router, so `exprWhile` is a total projection.
+        let view = TastAccessor.exprWhile e
+        let cond = view.Cond
+        let body = view.Body
+        // `while <cond> do <body>` — a unit expression. Shape:
+        //   loopStart: <cond>; brfalse loopEnd; <body>; pop…; br loopStart; loopEnd:
+        // The condition leaves a `bool` the `brfalse` consumes; the body is a
+        // unit statement whose value is discarded each iteration (popped back to
+        // the loop-top base, as `Sequential` does). The depth tracker is reset to
+        // that base before the exit label so post-loop statement discards stay
+        // correct — `IlIr.analyze` re-derives the buffer's merge depths across the
+        // back-edge. `while` itself leaves the single reified `unit`.
+        let loopStart = b.Label()
+        let loopEnd = b.Label()
+        let baseDepth = b.Depth
+        b.Add(ILInstr.Mark loopStart)
+        recur env b cond
+        b.Add(ILInstr.Brfalse loopEnd)
+        recur env b body
 
-            while b.Depth > baseDepth do
-                b.Add ILInstr.Pop
+        while b.Depth > baseDepth do
+            b.Add ILInstr.Pop
 
-            b.Add(ILInstr.Br loopStart)
-            b.SetDepth baseDepth
-            b.Add(ILInstr.Mark loopEnd)
-            EmitTypes.buildUnitValue env b
-        | _ -> failwith "EmitLoops.buildWhile: unreachable"
+        b.Add(ILInstr.Br loopStart)
+        b.SetDepth baseDepth
+        b.Add(ILInstr.Mark loopEnd)
+        EmitTypes.buildUnitValue env b

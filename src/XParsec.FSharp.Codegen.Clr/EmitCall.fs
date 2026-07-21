@@ -145,104 +145,104 @@ module EmitCall =
     let buildAppCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         let head, spineArgs = TastWalk.collectSpine [] e
 
-        match TastAccessor.exprKind head with
-        | ExprShape.External when
-            (TastAccessor.exprExternal head).CompiledName = RuntimeNames.arrayOfListName
-            && tryEmitArrayLiteral recur env b (typeOfExpr e) spineArgs
-            ->
-            // Handled in the guard: an `[| … |]` literal lowered to
-            // `ArrayModule.OfList <cons-chain>` (ElaborateExpr) emitted directly as
-            // newarr + stelem, so the BCL-only path needs no FSharp.Core. The guard
-            // only commits when the spine arg is the literal cons-chain ElaborateExpr
-            // builds; any other shape falls through to the recipe path below.
-            ()
-        | ExprShape.External ->
-            let ext = TastAccessor.exprExternal head
-            let name = ext.CompiledName
-            let key = ext.Key
-            // The recipe reads its generic instantiation from the head's full
-            // curried type. `key` is the resolved `SymbolKey.ValueKey` stamped
-            // by Elaborate when the front-end resolved the name through the symbol
-            // provider — codegen routes by identity, not name suffix.
-            //
-            // When a SOURCE-LAMBDA argument lowered to a
-            // value-struct closure (an external struct-seq combinator: `StructSeq.map`
-            // / `fold`), the head's frozen type is stale for the instantiation recovery
-            // — its `'TFunc` leaf is the front end's arrow (→ the `Fun`2`/`Fun`3`
-            // INTERFACE), and a chained `'S` source slot still carries the producing
-            // transformer's arrow rather than its already-rewritten `<closure>$`
-            // value-struct. Reconstruct the recovery type from the ACTUAL (closure-
-            // rewritten) spine argument types + result instead, overriding each value-
-            // struct-closure position with its `<closure>$` nominal — the external
-            // analogue of the project-local `StaticMethods`-arm override + rewritten
-            // `actualTys`. Gated on the presence of a value-struct closure so every
-            // existing external call keeps the (identical) head-type recovery.
-            let recipeFnTy =
-                if
-                    spineArgs
-                    |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg)
-                then
-                    // NOTE the spine tuple's middle element is the partial-application
-                    // RESULT type at that step, not the argument's own type — read the
-                    // argument type from `typeOfExpr arg` (already closure-rewritten by
-                    // `ClosureVerdictRewrite` for a chained source slot).
-                    let argTys =
+        match head with
+        | TastAccessor.EExternal ext ->
+            // An `[| … |]` literal lowered to `ArrayModule.OfList <cons-chain>`
+            // (ElaborateExpr) is emitted directly as newarr + stelem, so the BCL-only
+            // path needs no FSharp.Core. `tryEmitArrayLiteral` commits IL and returns
+            // true only when the spine arg is that literal cons-chain; any other shape
+            // emits nothing, returns false, and falls through to the recipe path below.
+            if
+                ext.CompiledName = RuntimeNames.arrayOfListName
+                && tryEmitArrayLiteral recur env b (typeOfExpr e) spineArgs
+            then
+                ()
+            else
+
+                let name = ext.CompiledName
+                let key = ext.Key
+                // The recipe reads its generic instantiation from the head's full
+                // curried type. `key` is the resolved `SymbolKey.ValueKey` stamped
+                // by Elaborate when the front-end resolved the name through the symbol
+                // provider — codegen routes by identity, not name suffix.
+                //
+                // When a SOURCE-LAMBDA argument lowered to a
+                // value-struct closure (an external struct-seq combinator: `StructSeq.map`
+                // / `fold`), the head's frozen type is stale for the instantiation recovery
+                // — its `'TFunc` leaf is the front end's arrow (→ the `Fun`2`/`Fun`3`
+                // INTERFACE), and a chained `'S` source slot still carries the producing
+                // transformer's arrow rather than its already-rewritten `<closure>$`
+                // value-struct. Reconstruct the recovery type from the ACTUAL (closure-
+                // rewritten) spine argument types + result instead, overriding each value-
+                // struct-closure position with its `<closure>$` nominal — the external
+                // analogue of the project-local `StaticMethods`-arm override + rewritten
+                // `actualTys`. Gated on the presence of a value-struct closure so every
+                // existing external call keeps the (identical) head-type recovery.
+                let recipeFnTy =
+                    if
                         spineArgs
-                        |> List.map (fun (arg, _, _) ->
-                            match env.ClosureValueTypeByNode.TryGetValue arg with
-                            | true, closureFt -> closureFt
-                            | false, _ -> typeOfExpr arg
-                        )
+                        |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg)
+                    then
+                        // NOTE the spine tuple's middle element is the partial-application
+                        // RESULT type at that step, not the argument's own type — read the
+                        // argument type from `typeOfExpr arg` (already closure-rewritten by
+                        // `ClosureVerdictRewrite` for a chained source slot).
+                        let argTys =
+                            spineArgs
+                            |> List.map (fun (arg, _, _) ->
+                                match env.ClosureValueTypeByNode.TryGetValue arg with
+                                | true, closureFt -> closureFt
+                                | false, _ -> typeOfExpr arg
+                            )
 
-                    List.foldBack (fun a acc -> FTFun(a, acc)) argTys (typeOfExpr e)
-                else
-                    typeOfExpr head
+                        List.foldBack (fun a acc -> FTFun(a, acc)) argTys (typeOfExpr e)
+                    else
+                        typeOfExpr head
 
-            match env.Provider.TryEmitCall(name, key, recipeFnTy) with
-            | ValueSome recipe ->
-                // The spine split keys off the SOURCE-group count when the recipe
-                // carries one (`Grouped` — an external module function with a captured
-                // `ValRepr`): one spine element per source group, then each
-                // group flattened to its pushed CLR values exactly as the in-assembly
-                // static-fn arm does. `Flat` pushes every leading element one-to-one.
-                let leading, rest =
-                    match recipe.Arity with
-                    | CallArity.Grouped(groups, _) ->
-                        let leading, rest = List.splitAt (List.length groups) spineArgs
-                        flattenGroupPushes recur env b groups leading |> ignore
-                        leading, rest
-                    | CallArity.Flat argCount ->
-                        let leading, rest = List.splitAt argCount spineArgs
+                match env.Provider.TryEmitCall(name, key, recipeFnTy) with
+                | ValueSome recipe ->
+                    // The spine split keys off the SOURCE-group count when the recipe
+                    // carries one (`Grouped` — an external module function with a captured
+                    // `ValRepr`): one spine element per source group, then each
+                    // group flattened to its pushed CLR values exactly as the in-assembly
+                    // static-fn arm does. `Flat` pushes every leading element one-to-one.
+                    let leading, rest =
+                        match recipe.Arity with
+                        | CallArity.Grouped(groups, _) ->
+                            let leading, rest = List.splitAt (List.length groups) spineArgs
+                            flattenGroupPushes recur env b groups leading |> ignore
+                            leading, rest
+                        | CallArity.Flat argCount ->
+                            let leading, rest = List.splitAt argCount spineArgs
 
-                        for (a, _, _) in leading do
-                            recur env b a
+                            for (a, _, _) in leading do
+                                recur env b a
 
-                        leading, rest
+                            leading, rest
 
-                b.Add(ILInstr.Recipe recipe)
+                    b.Add(ILInstr.Recipe recipe)
 
-                // A `void` recipe (`Pushes = 0`, a now-`void` external module
-                // function) left nothing on the stack; reify a `unit` for the
-                // value-position result, as every other unit-returning call does.
-                // `rest` is empty for such a call (`unit` is not applicable), so the
-                // `foldInvoke` below is a no-op.
-                if recipe.Pushes = 0 then
-                    EmitTypes.buildUnitValue env b
+                    // A `void` recipe (`Pushes = 0`, a now-`void` external module
+                    // function) left nothing on the stack; reify a `unit` for the
+                    // value-position result, as every other unit-returning call does.
+                    // `rest` is empty for such a call (`unit` is not applicable), so the
+                    // `foldInvoke` below is a no-op.
+                    if recipe.Pushes = 0 then
+                        EmitTypes.buildUnitValue env b
 
-                // Whatever the recipe left on the stack — a function value
-                // the rest of the spine is applied to.
-                let funcTy =
-                    match List.tryLast leading with
-                    | Some(_, ty, _) -> ty
-                    | None -> typeOfExpr head
+                    // Whatever the recipe left on the stack — a function value
+                    // the rest of the spine is applied to.
+                    let funcTy =
+                        match List.tryLast leading with
+                        | Some(_, ty, _) -> ty
+                        | None -> typeOfExpr head
 
-                // Whatever the recipe left is a native `Vesper.Fun` — apply the
-                // rest of the spine through its `Invoke`.
-                foldInvoke recur env b funcTy rest
-            | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
+                    // Whatever the recipe left is a native `Vesper.Fun` — apply the
+                    // rest of the spine through its `Invoke`.
+                    foldInvoke recur env b funcTy rest
+                | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
-        | ExprShape.Var when env.StaticMethods.ContainsKey(TastAccessor.exprVarBinding head) ->
-            let k = TastAccessor.exprVarBinding head
+        | TastAccessor.EVar k when env.StaticMethods.ContainsKey k ->
             // A top-level function emitted as a static method: `call` it with
             // the first `ParamArity` args (always present — a non-saturated use would
             // have escaped to a closure, see `collectStaticFns`), then `Invoke`
@@ -340,8 +340,7 @@ module EmitCall =
 
             foldInvoke recur env b sm.ResultTy rest
 
-        | ExprShape.ExternalMember when (TastAccessor.exprExternalMember head).Storage = MemberStorage.Method ->
-            let em = TastAccessor.exprExternalMember head
+        | TastAccessor.EExternalMember em when em.Storage = MemberStorage.Method ->
             let receiver = em.Receiver
             let key = em.Key
             let name = em.MemberName
@@ -382,9 +381,8 @@ module EmitCall =
 
             match receiver with
             | ValueSome r when receiverIsStruct ->
-                match TastAccessor.exprKind r with
-                | ExprShape.Var when env.Slots.ContainsKey(TastAccessor.exprVarBinding r) ->
-                    b.Add(ILInstr.Ldloca env.Slots.[TastAccessor.exprVarBinding r])
+                match r with
+                | LocalSlot env slot -> b.Add(ILInstr.Ldloca slot)
                 | _ ->
                     recur env b r
                     let tmp = b.Local(typeOfExpr r)

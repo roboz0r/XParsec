@@ -14,9 +14,10 @@ open EmitPattern
 /// leaf arms (`Const` / `Null` / `Var`) stay inline; every structured case
 /// delegates to a per-concern `Emit*` module, passing `buildExpr` itself as the
 /// `Recur` back-edge (the one seam that crosses a file boundary — see
-/// `EmitDispatch`). The router dispatches on each node's `ExprShape`, so an
-/// unrouted shape surfaces at the `failwith` fallback rather than a silent
-/// fallthrough.
+/// `EmitDispatch`). The router matches each node's `ExprShape` *exhaustively* — the
+/// shapes the CLR backend does not yet emit (`TryWith`/`TryFinally`/`Range`/`TraitCall`)
+/// are explicit `failwith` arms, not a catch-all — so adding an `ExprShape` case breaks
+/// the build here and forces a routing decision.
 module EmitExpr =
 
     let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
@@ -128,7 +129,15 @@ module EmitExpr =
         | ExprShape.Downcast -> EmitIntrinsic.buildDowncast buildExpr env b e
         | ExprShape.TypeTest -> EmitIntrinsic.buildTypeTest buildExpr env b e
 
-        | _ -> failwithf "Emit: unsupported expression: %A" e
+        // Not yet emitted by the CLR backend. These shapes still occur in the frozen
+        // tree (closure discovery walks `TryWith`/`TryFinally` bodies, for one), so they
+        // reach the emitter rather than being lowered away. An explicit arm each keeps
+        // the dispatch exhaustive over `ExprShape`: a newly added shape breaks the build
+        // here and forces a routing decision instead of silently falling through.
+        | ExprShape.TryWith
+        | ExprShape.TryFinally
+        | ExprShape.Range
+        | ExprShape.TraitCall -> failwithf "Emit: unsupported expression: %A" e
 
     /// Emit an expression as a statement: evaluate it and discard any value.
     let buildStatement (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =

@@ -12,22 +12,37 @@ module EmitClosures =
 
         let rec go p =
             match TastAccessor.patKind p with
-            | PatShape.NamedSimple -> acc.Add (TastAccessor.patBinder p).Value
-            // An or-pattern binds nothing (name resolution drops its binders).
-            | PatShape.Or
-            | PatShape.Wildcard
-            | PatShape.Null
-            | PatShape.EnumCase
-            | PatShape.Const -> ()
-            | PatShape.Tuple
-            | PatShape.Record
-            | PatShape.Union
-            | PatShape.TypeTestAs ->
+            | PatShape.NamedSimple ->
+                match TastAccessor.patBinder p with
+                | ValueSome k -> acc.Add k
+                | ValueNone -> ()
+            // An or-pattern binds nothing (name resolution drops its binders), so it is
+            // NOT walked for the binders in its alternatives; every other composite is.
+            // Leaves (`Wildcard`/`Null`/`EnumCase`/`Const`) have no `patChildren`, so the
+            // recursion bottoms out there without an arm of their own.
+            | PatShape.Or -> ()
+            | _ ->
                 for sub in TastAccessor.patChildren p do
                     go sub
 
         go p
         List.ofSeq acc
+
+    /// A `let name = <lambda> in body` — a simple-named binder whose value is a lambda.
+    /// This is the shape that anchors an inner closure to its binder name (the binder is
+    /// scoped across its own value, not only the body). → the binder key, the lambda
+    /// value, and the body. Declines any other `Let` (a tuple/record binder, or a
+    /// non-lambda value) and any non-`Let`. Single-sources the binder-vs-value shape test
+    /// the two closure walks below share (was spelled once via `patKind`, once via
+    /// `patBinder`).
+    [<return: Struct>]
+    let private (|LetBoundLambda|_|) (e: Frozen.TExpr) : struct (NodeKey * Frozen.TExpr * Frozen.TExpr) voption =
+        match e with
+        | TastAccessor.ELet letv ->
+            match TastAccessor.patBinder letv.Binding, TastAccessor.exprKind letv.Value with
+            | ValueSome k, ExprShape.Lambda -> ValueSome(struct (k, letv.Value, letv.Body))
+            | _ -> ValueNone
+        | _ -> ValueNone
 
     /// Walk `body`, invoking `onFree key ty` once per `Var` reference not shadowed
     /// by `bound` — the single source of truth for closure free-variable scoping.
@@ -56,41 +71,28 @@ module EmitClosures =
                 bound.Remove key |> ignore
 
         let rec go (e: Frozen.TExpr) =
-            match TastAccessor.exprKind e with
-            | ExprShape.Var ->
-                let key = TastAccessor.exprVarBinding e
-                let ty = TastAccessor.exprTy e
-
+            match e with
+            | TastAccessor.EVar key ->
                 if not (bound.Contains key) then
-                    onFree key ty
-            | ExprShape.Lambda ->
-                let lam = TastAccessor.exprLambda e
-                scoped (patKeys lam.Param) (fun () -> go lam.Body)
-            | ExprShape.Let ->
-                let letv = TastAccessor.exprLet e
-
-                match TastAccessor.patKind letv.Binding, TastAccessor.exprKind letv.Value with
-                | PatShape.NamedSimple, ExprShape.Lambda ->
-                    scoped (patKeys letv.Binding) (fun () -> go letv.Value)
-                    scoped (patKeys letv.Binding) (fun () -> go letv.Body)
-                | _ ->
-                    go letv.Value
-                    scoped (patKeys letv.Binding) (fun () -> go letv.Body)
-            | ExprShape.Use ->
-                let usev = TastAccessor.exprUse e
+                    onFree key (TastAccessor.exprTy e)
+            | TastAccessor.ELambda lam -> scoped (patKeys lam.Param) (fun () -> go lam.Body)
+            | LetBoundLambda(k, value, body) ->
+                scoped [ k ] (fun () -> go value)
+                scoped [ k ] (fun () -> go body)
+            | TastAccessor.ELet letv ->
+                go letv.Value
+                scoped (patKeys letv.Binding) (fun () -> go letv.Body)
+            | TastAccessor.EUse usev ->
                 go usev.Value
                 scoped (patKeys usev.Binding) (fun () -> go usev.Body)
-            | ExprShape.ForTo ->
-                let ft = TastAccessor.exprForTo e
+            | TastAccessor.EForTo ft ->
                 go ft.StartExpr
                 go ft.EndExpr
                 scoped [ ft.Var ] (fun () -> go ft.Body)
-            | ExprShape.ForIn ->
-                let fi = TastAccessor.exprForIn e
+            | TastAccessor.EForIn fi ->
                 go fi.Source
                 scoped (patKeys fi.Pat) (fun () -> go fi.Body)
-            | ExprShape.Match ->
-                let m = TastAccessor.exprMatch e
+            | TastAccessor.EMatch m ->
                 go m.Scrutinee
 
                 for arm in m.Arms do
@@ -100,8 +102,7 @@ module EmitClosures =
                             arm.Guard |> Option.iter go
                             go arm.Body
                         )
-            | ExprShape.TryWith ->
-                let tw = TastAccessor.exprTryWith e
+            | TastAccessor.ETryWith tw ->
                 go tw.Body
 
                 for arm in tw.Arms do
@@ -181,23 +182,15 @@ module EmitClosures =
         : 'a list =
         decls
         |> List.choose (fun d ->
-            match TastAccessor.declKind d with
-            | DeclShape.Let ->
-                let letd = TastAccessor.declLet d
-
-                match TastAccessor.patKind letd.Binding with
-                | PatShape.NamedSimple when
+            match d with
+            | TastAccessor.DLet letd ->
+                match letd.Binding with
+                | TastAccessor.PNamed k when
                     not letd.IsInline
-                    && (
-                        match TastAccessor.exprKind letd.Value with
-                        | ExprShape.Lambda -> false
-                        | _ -> true
-                    )
+                    && TastAccessor.exprKind letd.Value <> ExprShape.Lambda
                     && tyOk (TastAccessor.patTy letd.Binding)
                     ->
-                    let k = (TastAccessor.patBinder letd.Binding).Value
-                    let ty = TastAccessor.patTy letd.Binding
-                    project k ty letd.Value (Map.tryFind k moduleMembers)
+                    project k (TastAccessor.patTy letd.Binding) letd.Value (Map.tryFind k moduleMembers)
                 | _ -> None
             | _ -> None
         )
@@ -511,17 +504,14 @@ module EmitClosures =
                     body
 
             let rec rw (e: Frozen.TExpr) : Frozen.TExpr =
-                match TastAccessor.exprKind e with
-                | ExprShape.Var when arity.ContainsKey(TastAccessor.exprVarBinding e) ->
-                    buildEta e arity.[TastAccessor.exprVarBinding e]
-                | ExprShape.App ->
+                match e with
+                | TastAccessor.EVar k when arity.ContainsKey k -> buildEta e arity.[k]
+                | TastAccessor.EApp _ ->
                     let head, args = TastWalk.collectSpine [] e
                     let args = args |> List.map (fun (a, t, tk) -> rw a, t, tk)
 
-                    match TastAccessor.exprKind head with
-                    | ExprShape.Var when arity.ContainsKey(TastAccessor.exprVarBinding head) ->
-                        let k = TastAccessor.exprVarBinding head
-
+                    match head with
+                    | TastAccessor.EVar k when arity.ContainsKey k ->
                         if List.length args >= arity.[k] then
                             // Saturated (or over-applied): the head stays a direct
                             // `call`; the residual spine over-applies `f`'s result.
@@ -534,13 +524,10 @@ module EmitClosures =
 
             decls
             |> List.map (fun d ->
-                match TastAccessor.declKind d with
-                | DeclShape.Let ->
-                    let letd = TastAccessor.declLet d
-                    Frozen.TDecl.Let(letd.Binding, rw letd.Value, letd.IsInline, letd.Ty)
-                | DeclShape.Expression ->
-                    Frozen.TDecl.Expression(rw (TastAccessor.declExpression d), TastAccessor.declExpressionTy d)
-                | DeclShape.Type -> d
+                match d with
+                | TastAccessor.DLet letd -> Frozen.TDecl.Let(letd.Binding, rw letd.Value, letd.IsInline, letd.Ty)
+                | TastAccessor.DExpression(e, ty) -> Frozen.TDecl.Expression(rw e, ty)
+                | _ -> d
             )
 
     /// The static-method-eligible top-level functions — the ONE genuinely
@@ -726,8 +713,8 @@ module EmitClosures =
         let rec goExpr (e: Frozen.TExpr) =
             go (TastLower.typeOfExpr e)
 
-            match TastAccessor.exprKind e with
-            | ExprShape.ForIn -> goEnum (TastAccessor.exprForIn e).Enumerator
+            match e with
+            | TastAccessor.EForIn fi -> goEnum fi.Enumerator
             | _ -> ()
 
             TastLower.iterChildren goExpr e
@@ -789,10 +776,10 @@ module EmitClosures =
             iterChildren walk e
 
         for d in decls do
-            match TastAccessor.declKind d with
-            | DeclShape.Expression -> walk (TastAccessor.declExpression d)
-            | DeclShape.Let -> walk (TastAccessor.declLet d).Value
-            | DeclShape.Type -> ()
+            match d with
+            | TastAccessor.DExpression(e, _) -> walk e
+            | TastAccessor.DLet letd -> walk letd.Value
+            | _ -> ()
 
         for r in memberRoots do
             walk r.Body
@@ -888,8 +875,8 @@ module EmitClosures =
                         if n = 0 then
                             ValueSome cur
                         else
-                            match TastAccessor.exprKind cur with
-                            | ExprShape.Lambda -> peel (n - 1) (TastAccessor.exprLambda cur).Body
+                            match cur with
+                            | TastAccessor.ELambda lam -> peel (n - 1) lam.Body
                             | _ -> ValueNone
 
                     peel arity e
@@ -899,16 +886,12 @@ module EmitClosures =
             (match flatInner with
              | ValueSome inner -> go currentTypars declaringOffset ValueNone inner
              | ValueNone ->
-                 match TastAccessor.exprKind e with
-                 | ExprShape.Let ->
-                     let letv = TastAccessor.exprLet e
-
-                     match TastAccessor.patKind letv.Binding, TastAccessor.exprKind letv.Value with
-                     | PatShape.NamedSimple, ExprShape.Lambda ->
-                         let k = (TastAccessor.patBinder letv.Binding).Value
-                         go currentTypars declaringOffset (ValueSome k) letv.Value
-                         go currentTypars declaringOffset ValueNone letv.Body
-                     | _ -> iterChildren (go currentTypars declaringOffset ValueNone) e
+                 match e with
+                 // A `let x = <lambda>` binder anchors an inner closure to its name
+                 // (`selfKey`), scoped across the lambda value.
+                 | LetBoundLambda(k, value, body) ->
+                     go currentTypars declaringOffset (ValueSome k) value
+                     go currentTypars declaringOffset ValueNone body
                  | _ -> iterChildren (go currentTypars declaringOffset ValueNone) e) // children (and inner lambdas) first → leaves-first
 
             let registerClosure
@@ -933,22 +916,16 @@ module EmitClosures =
                             if n = 0 then
                                 ValueSome(List.rev extrasRev, curBody, r)
                             else
-                                match TastAccessor.exprKind curBody with
-                                | ExprShape.Lambda ->
-                                    let lam = TastAccessor.exprLambda curBody
-
-                                    match TastAccessor.patKind lam.Param with
-                                    | PatShape.NamedSimple ->
-                                        let ppat = lam.Param
-                                        let pk = (TastAccessor.patBinder ppat).Value
-                                        let pkty = TastAccessor.patTy ppat
-
+                                match curBody with
+                                | TastAccessor.ELambda lam ->
+                                    match TastAccessor.patBinder lam.Param with
+                                    | ValueSome pk ->
                                         loop
                                             (n - 1)
-                                            ((pk, pkty, ppat) :: extrasRev)
+                                            ((pk, TastAccessor.patTy lam.Param, lam.Param) :: extrasRev)
                                             lam.Body
                                             (TastAccessor.exprTy curBody)
-                                    | _ -> ValueNone
+                                    | ValueNone -> ValueNone
                                 | _ -> ValueNone
                         | _ -> ValueNone
 
@@ -1026,33 +1003,30 @@ module EmitClosures =
                 lookup.[e] <- c
                 order.Add e
 
-            match TastAccessor.exprKind e with
-            | ExprShape.Lambda ->
-                let lam = TastAccessor.exprLambda e
+            match e with
+            | TastAccessor.ELambda lam ->
                 let pat = lam.Param
                 let body = lam.Body
                 let lamTy = TastAccessor.exprTy e
 
                 match TastAccessor.patKind pat with
                 | PatShape.NamedSimple ->
-                    let p = (TastAccessor.patBinder pat).Value
-                    let pty = TastAccessor.patTy pat
-                    registerClosure p pty pat body lamTy
+                    match TastAccessor.patBinder pat with
+                    | ValueSome p -> registerClosure p (TastAccessor.patTy pat) pat body lamTy
+                    | ValueNone -> ()
                 | PatShape.Const when TastAccessor.patConstValue pat = TConstValue.Unit ->
-                    let pty = TastAccessor.patTy pat
                     // A `fun () ->` unit binder has no name to reference, but the
                     // closure's `Invoke` still allocates `ldarg.1` for the unit
                     // value the caller pushes; mint a synthetic placeholder so the
                     // `args` map (and `freeVars`'s bound set) still has a key.
-                    registerClosure (mintUnitParamKey ()) pty pat body lamTy
+                    registerClosure (mintUnitParamKey ()) (TastAccessor.patTy pat) pat body lamTy
                 | PatShape.Tuple ->
-                    let pty = TastAccessor.patTy pat
                     // A tuple-param lambda (`fun (a, b) -> …`). The single `ldarg.1`
                     // carries the `ValueTuple`n` value; mint a synthetic placeholder
                     // for that slot — `buildClosureInvoke` `bindPattern`s the leaf
-                    // element bindings out of it. `pty` is the param's `FTTuple`,
-                    // which the closure's `Invoke` signature encodes.
-                    registerClosure (mintTupleParamKey ()) pty pat body lamTy
+                    // element bindings out of it. The param's `FTTuple` (`patTy pat`) is
+                    // what the closure's `Invoke` signature encodes.
+                    registerClosure (mintTupleParamKey ()) (TastAccessor.patTy pat) pat body lamTy
                 | _ -> failwithf "Emit: closure parameter destructuring is out of scope: %A" pat
             | _ -> ()
 
@@ -1062,14 +1036,10 @@ module EmitClosures =
             | false, _ -> 0
 
         for d in decls do
-            match TastAccessor.declKind d with
-            | DeclShape.Let ->
-                let letd = TastAccessor.declLet d
-
-                match TastAccessor.patKind letd.Binding with
-                | PatShape.NamedSimple ->
-                    let k = (TastAccessor.patBinder letd.Binding).Value
-
+            match d with
+            | TastAccessor.DLet letd ->
+                match TastAccessor.patBinder letd.Binding with
+                | ValueSome k ->
                     if staticFnKeys.Contains k then
                         // A static-method function's lambda is not a closure, but its body
                         // may still construct inner closures — walk only the body. The
@@ -1078,9 +1048,9 @@ module EmitClosures =
                         go (typarsForStaticFn k) 0 ValueNone body
                     else
                         go 0 0 (ValueSome k) letd.Value
-                | _ -> go 0 0 ValueNone letd.Value
-            | DeclShape.Expression -> go 0 0 ValueNone (TastAccessor.declExpression d)
-            | DeclShape.Type -> ()
+                | ValueNone -> go 0 0 ValueNone letd.Value
+            | TastAccessor.DExpression(e, _) -> go 0 0 ValueNone e
+            | _ -> ()
 
         // Type member bodies: a lambda inside a member body is a closure too —
         // `buildMember` walks the same expanded body, so the
