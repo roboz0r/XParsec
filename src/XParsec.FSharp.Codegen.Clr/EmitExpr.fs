@@ -15,7 +15,7 @@ open EmitPattern
 /// delegates to a per-concern `Emit*` module, passing `buildExpr` itself as the
 /// `Recur` back-edge (the one seam that crosses a file boundary — see
 /// `EmitDispatch`). The router matches each node's `ExprShape` *exhaustively* — the
-/// shapes the CLR backend does not yet emit (`TryWith`/`TryFinally`/`Range`/`TraitCall`)
+/// shapes the CLR backend does not yet emit (`TryWith`/`Range`/`TraitCall`)
 /// are explicit `failwith` arms, not a catch-all — so adding an `ExprShape` case breaks
 /// the build here and forces a routing decision.
 module EmitExpr =
@@ -82,6 +82,7 @@ module EmitExpr =
 
         | ExprShape.Let -> EmitBindings.buildLet buildExpr env b e
         | ExprShape.Use -> EmitBindings.buildUse buildExpr env b e
+        | ExprShape.TryFinally -> EmitBindings.buildTryFinally buildExpr env b e
 
         | ExprShape.ForIn -> EmitLoops.buildForIn buildExpr env b e
         | ExprShape.ForTo -> EmitLoops.buildForTo buildExpr env b e
@@ -130,12 +131,11 @@ module EmitExpr =
         | ExprShape.TypeTest -> EmitIntrinsic.buildTypeTest buildExpr env b e
 
         // Not yet emitted by the CLR backend. These shapes still occur in the frozen
-        // tree (closure discovery walks `TryWith`/`TryFinally` bodies, for one), so they
-        // reach the emitter rather than being lowered away. An explicit arm each keeps
-        // the dispatch exhaustive over `ExprShape`: a newly added shape breaks the build
-        // here and forces a routing decision instead of silently falling through.
+        // tree (closure discovery walks `TryWith` bodies, for one), so they reach the
+        // emitter rather than being lowered away. An explicit arm each keeps the dispatch
+        // exhaustive over `ExprShape`: a newly added shape breaks the build here and
+        // forces a routing decision instead of silently falling through.
         | ExprShape.TryWith
-        | ExprShape.TryFinally
         | ExprShape.Range
         | ExprShape.TraitCall -> failwithf "Emit: unsupported expression: %A" e
 

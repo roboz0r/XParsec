@@ -67,6 +67,7 @@
     <Compile Include="EnumTests.fs" />
     <Compile Include="ExceptionTests.fs" />
     <Compile Include="UseTests.fs" />
+    <Compile Include="TryFinallyTests.fs" />
     <Compile Include="ForInTests.fs" />
     <Compile Include="StructSeqTests.fs" />
     <Compile Include="ChainedReceiverTests.fs" />

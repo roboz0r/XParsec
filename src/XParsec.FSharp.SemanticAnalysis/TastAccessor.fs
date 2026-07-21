@@ -715,6 +715,19 @@ module TastAccessor =
             }
         | _ -> failwith "TastAccessor.exprTryWith: not a TryWith node"
 
+    /// The scalar payload of a `TryFinally` node (`try Body finally Cleanup`), minus the
+    /// `ty`/`tok` that `exprTy`/`exprTok` already carry — the two `exprChildren` entries,
+    /// named by role. `Body` carries the node's `ty`; `Cleanup` is unit.
+    [<Struct>]
+    type TryFinallyView = { Body: ExprId; Cleanup: ExprId }
+
+    /// The payload view of a `TryFinally` node. Guard with `exprKind` = `ExprShape.TryFinally`
+    /// first; `failwith` on any other shape.
+    let exprTryFinally (e: ExprId) : TryFinallyView =
+        match e with
+        | TExprG.TryFinally(body = body; cleanup = cleanup) -> { Body = body; Cleanup = cleanup }
+        | _ -> failwith "TastAccessor.exprTryFinally: not a TryFinally node"
+
     /// The scalar payload of a `While` node (`while Cond do Body`), minus the `ty`/`tok`
     /// that `exprTy`/`exprTok` already carry — the two nodes `exprChildren` yields, named
     /// by role.
@@ -1105,6 +1118,13 @@ module TastAccessor =
     let (|ETryWith|_|) (e: ExprId) : TryWithView voption =
         match exprKind e with
         | ExprShape.TryWith -> ValueSome(exprTryWith e)
+        | _ -> ValueNone
+
+    /// A `TryFinally` node → its `TryFinallyView` (`exprTryFinally`).
+    [<return: Struct>]
+    let (|ETryFinally|_|) (e: ExprId) : TryFinallyView voption =
+        match exprKind e with
+        | ExprShape.TryFinally -> ValueSome(exprTryFinally e)
         | _ -> ValueNone
 
     /// An `External` node → its `ExternalView` (`exprExternal`).

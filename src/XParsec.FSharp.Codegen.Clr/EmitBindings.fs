@@ -10,10 +10,49 @@ open EmitResolve
 open EmitPattern
 open EmitDispatch
 
-/// `let` / `use` bindings. Both recurse into `buildExpr` (passed as `recur`); the
-/// `use`-dispose path even builds a synthetic `MethodCall` and re-enters through
-/// `recur`, so no direct cross-arm call is needed.
+/// `let` / `use` bindings and the source-level `try`/`finally`. All recurse into
+/// `buildExpr` (passed as `recur`); the `use`-dispose path even builds a synthetic
+/// `MethodCall` and re-enters through `recur`, so no direct cross-arm call is needed.
 module EmitBindings =
+
+    /// Emit a `try Body finally …` protected region, returning the body's value.
+    ///
+    /// A protected region can't carry an evaluation-stack value across its `leave`,
+    /// so the body's result is parked in a local inside the `try` and reloaded after
+    /// the finally as the region's value (works for a unit body too — `Unit` is a
+    /// value, parked and reloaded like any other). `emitFinally` fills the handler:
+    /// it runs at stack depth 0 and must leave the stack empty; this helper re-asserts
+    /// depth 0 around it and after the `Mark`.
+    ///
+    /// Both producers (`use` desugaring and a source-level `try`/`finally`) are
+    /// statement-position bindings, so the surrounding stack is empty here: the region
+    /// opens at depth 0 and the final `ldloc` leaves exactly the one result value. The
+    /// IL-IR exception-region pseudo-marks (`Try` / `BeginFinally` / `EndFinally`) carry
+    /// the region; `IlIr.lower` replays them into a proper `try`/`finally`.
+    let private buildTryFinallyRegion
+        (recur: Recur)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (body: Frozen.TExpr)
+        (emitFinally: unit -> unit)
+        : unit =
+        let resultSlot = b.Local(typeOfExpr body)
+        let endLabel = b.Label()
+
+        b.Add ILInstr.Try
+        recur env b body
+        b.Add(ILInstr.Stloc resultSlot)
+        b.Add(ILInstr.Leave endLabel)
+
+        b.Add ILInstr.BeginFinally
+        b.SetDepth 0
+        emitFinally ()
+        b.SetDepth 0
+        b.Add ILInstr.EndFinally
+
+        b.SetDepth 0
+        b.Add(ILInstr.Mark endLabel)
+        b.Add(ILInstr.Ldloc resultSlot)
 
     // Reached only via `EmitExpr`'s `ExprShape.Let` route, so `exprLet` is a total
     // projection here (it guards the shape itself); no re-dispatch on `exprKind`.
@@ -62,22 +101,11 @@ module EmitBindings =
                 | ValueSome b -> b
                 | ValueNone -> mintUseBinderKey ()
             // `use x = value in body` → `let x = value in try body finally if x <> null
-            // then x.Dispose()`. The IL-IR exception-region pseudo-marks (`Try` /
-            // `BeginFinally` / `EndFinally`) carry the region; `IlIr.lower` replays
-            // them into a proper `try`/`finally`.
-            //
-            // A protected region can't carry an evaluation-stack value across its
-            // `leave`, so the body's result is parked in a local inside the `try`
-            // and reloaded after the finally as the expression's value (works for a
-            // unit body too — `Unit` is `null`, parked and reloaded like any value).
-            // The disposal is guarded by a null check so a null binder is a no-op
-            // like F#'s `use`. `dispose` (see `Disposal`) selects the path: the
-            // capability's slot — on the CLR, the resolved `IDisposable::Dispose`
-            // interface member — or the binder's own pattern `Dispose()`.
-            //
-            // `use` is a statement-position binding, so the surrounding stack is
-            // empty here: the region opens at depth 0 and the final `ldloc` leaves
-            // exactly the one result value.
+            // then x.Dispose()` (the `try`/`finally` region itself is `buildTryFinallyRegion`).
+            // The disposal is guarded by a null check so a null binder is a no-op like F#'s
+            // `use`. `dispose` (see `Disposal`) selects the path: the capability's slot — on
+            // the CLR, the resolved `IDisposable::Dispose` interface member — or the binder's
+            // own pattern `Dispose()`.
             //
             // Both disposal paths below guard the call with a reference null check
             // (`ldloc; brfalse`) and dispatch via `callvirt` — correct only for a
@@ -98,20 +126,6 @@ module EmitBindings =
             env.Slots.[binding] <- slot
             recur env b view.Value
             b.Add(ILInstr.Stloc slot)
-
-            let resultSlot = b.Local(typeOfExpr view.Body)
-            let endLabel = b.Label()
-            let skipLabel = b.Label()
-
-            b.Add ILInstr.Try
-            recur env b view.Body
-            b.Add(ILInstr.Stloc resultSlot)
-            b.Add(ILInstr.Leave endLabel)
-
-            b.Add ILInstr.BeginFinally
-            b.SetDepth 0
-            b.Add(ILInstr.Ldloc slot)
-            b.Add(ILInstr.Brfalse skipLabel)
 
             // Dispose through a local instance `x.Dispose()`: reuse the standard
             // instance-call path (`CallVia.Self` `MethodCall`), which resolves the member
@@ -169,37 +183,43 @@ module EmitBindings =
             let isLocalDisposeKey (key: SymbolKey) =
                 isLocalType (SymbolKeyOps.declTypeKeyOf "Emit: use-dispose member" key)
 
-            match view.Dispose with
-            // The binder implements the disposal capability. A LOCAL impl disposes through
-            // its own `Dispose` method; an EXTERNAL one through the capability's interface
-            // slot (the key the front end resolved) — the type's own `Dispose` may not even
-            // exist on it (`MemoryStream` inherits `Stream.Dispose`).
-            | Disposal.ViaCapability _ when isLocalBinder ->
-                emitLocalDispose (
-                    SymbolKeyOps.memberKey
-                        (nominalTypeKey "use-dispose receiver" varTy)
-                        "Dispose"
-                        EqArray.empty
-                        0
-                        MemberKind.Method
-                )
-            | Disposal.ViaCapability slot -> emitExternalDispose slot
-            // The carve-out: an own pattern `Dispose()`, called directly. The project-local
-            // `[<IsByRefLike>]` ref struct (`Infer.tryRefStructOwnDispose`) lands here too.
-            | Disposal.ViaOwnMember key when isLocalDisposeKey key -> emitLocalDispose key
-            | Disposal.ViaOwnMember key -> emitExternalDispose key
-            | Disposal.Unresolved ->
-                failwithf
-                    "Emit: `use` over a binder with no resolved disposal (%A) — Unification reported an error, so this file should never have reached codegen"
-                    varTy
+            // The finally handler: `if x <> null then x.Dispose()`. Reached at stack
+            // depth 0 and left empty-stacked (each disposal path ends balanced), as
+            // `buildTryFinallyRegion` requires.
+            let skipLabel = b.Label()
 
-            b.SetDepth 0
-            b.Add(ILInstr.Mark skipLabel)
-            b.Add ILInstr.EndFinally
+            let emitDisposeFinally () =
+                b.Add(ILInstr.Ldloc slot)
+                b.Add(ILInstr.Brfalse skipLabel)
 
-            b.SetDepth 0
-            b.Add(ILInstr.Mark endLabel)
-            b.Add(ILInstr.Ldloc resultSlot)
+                match view.Dispose with
+                // The binder implements the disposal capability. A LOCAL impl disposes through
+                // its own `Dispose` method; an EXTERNAL one through the capability's interface
+                // slot (the key the front end resolved) — the type's own `Dispose` may not even
+                // exist on it (`MemoryStream` inherits `Stream.Dispose`).
+                | Disposal.ViaCapability _ when isLocalBinder ->
+                    emitLocalDispose (
+                        SymbolKeyOps.memberKey
+                            (nominalTypeKey "use-dispose receiver" varTy)
+                            "Dispose"
+                            EqArray.empty
+                            0
+                            MemberKind.Method
+                    )
+                | Disposal.ViaCapability slot -> emitExternalDispose slot
+                // The carve-out: an own pattern `Dispose()`, called directly. The project-local
+                // `[<IsByRefLike>]` ref struct (`Infer.tryRefStructOwnDispose`) lands here too.
+                | Disposal.ViaOwnMember key when isLocalDisposeKey key -> emitLocalDispose key
+                | Disposal.ViaOwnMember key -> emitExternalDispose key
+                | Disposal.Unresolved ->
+                    failwithf
+                        "Emit: `use` over a binder with no resolved disposal (%A) — Unification reported an error, so this file should never have reached codegen"
+                        varTy
+
+                b.SetDepth 0
+                b.Add(ILInstr.Mark skipLabel)
+
+            buildTryFinallyRegion recur env b view.Body emitDisposeFinally
         | _ ->
             // Only a genuinely destructuring `use` (tuple / record / union / const)
             // can reach here — `NamedSimple` and `Wildcard` are handled above. Such
@@ -207,3 +227,19 @@ module EmitBindings =
             // simple variable patterns can be bound in 'use' expressions"), since the
             // bound value is what gets disposed. Kept as a defensive invariant guard.
             failwithf "Emit: destructuring use-binding should have been rejected by Validation: %A" pat
+
+    // Reached only via `EmitExpr`'s `ExprShape.TryFinally` route, so `exprTryFinally` is a
+    // total projection here.
+    let buildTryFinally (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        let view = TastAccessor.exprTryFinally e
+
+        // `try Body finally Cleanup`: the handler runs `Cleanup` purely for effect (it
+        // types as unit), so evaluate it and discard whatever it leaves, ending the
+        // handler empty-stacked as `buildTryFinallyRegion` requires.
+        let emitCleanupFinally () =
+            recur env b view.Cleanup
+
+            while b.Depth > 0 do
+                b.Add ILInstr.Pop
+
+        buildTryFinallyRegion recur env b view.Body emitCleanupFinally

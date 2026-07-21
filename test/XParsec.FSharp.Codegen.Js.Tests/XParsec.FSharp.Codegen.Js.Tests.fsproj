@@ -27,6 +27,7 @@
     <Compile Include="ExceptionTests.fs" />
     <Compile Include="ArrayLoopTests.fs" />
     <Compile Include="UseTests.fs" />
+    <Compile Include="TryFinallyTests.fs" />
     <Compile Include="ForInTests.fs" />
     <Compile Include="ManualEnumerationTests.fs" />
     <Compile Include="ClassEmitTests.fs" />

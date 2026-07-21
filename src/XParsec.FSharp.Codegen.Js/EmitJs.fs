@@ -511,6 +511,18 @@ module EmitJs =
             let block = [ JsStatement.Const(name, buildExpr ctx u.Value); tryFinally ]
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block block, loc), [], loc)
 
+        // `try body finally cleanup` in expression position. As with `use` (which desugars
+        // through the same JS `try/finally`), the region has a value, but JS `try/finally`
+        // is a statement — so wrap it in a zero-arg IIFE that `return`s the body's value from
+        // the `try` and runs `cleanup` (a unit expression) for effect in the `finally`.
+        | ExprShape.TryFinally ->
+            let tf = TastAccessor.exprTryFinally e
+
+            let tryFinally =
+                JsStatement.TryFinally([ JsStatement.Return(buildExpr ctx tf.Body) ], buildStatements ctx tf.Cleanup)
+
+            JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block [ tryFinally ], loc), [], loc)
+
         // `e :> obj` (value→`obj` box, synthesised at Elaborate for an `obj` parameter/field).
         // JS is dynamically typed — every value is already a boxed `obj` — so the box is a
         // no-op; emit the source verbatim. The downcast `e :?> T` is likewise identity (no
@@ -850,6 +862,15 @@ module EmitJs =
                 [
                     JsStatement.Const(name, buildExpr ctx u.Value)
                     JsStatement.TryFinally(buildStatements ctx u.Body, disposeStmts ctx u.Dispose name)
+                ]
+            // `try body finally cleanup` in statement position — the body and cleanup both
+            // keep statement position (no IIFE needed, unlike the expression form), mapping
+            // straight onto JS `try/finally`.
+            | ExprShape.TryFinally ->
+                let tf = TastAccessor.exprTryFinally e
+
+                [
+                    JsStatement.TryFinally(buildStatements ctx tf.Body, buildStatements ctx tf.Cleanup)
                 ]
             | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
