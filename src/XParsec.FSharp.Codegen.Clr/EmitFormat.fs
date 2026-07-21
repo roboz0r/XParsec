@@ -6,12 +6,12 @@ open XParsec.FSharp.SemanticAnalysis.PrintfHoleForm
 open EmitTypes
 open EmitLower
 
-/// `TExprG.Format` lowering, lifted out of `EmitExpr`. Self-contained apart from
+/// `ExprShape.Format` lowering, lifted out of `EmitExpr`. Self-contained apart from
 /// recursing into the expression compiler, which is passed in as `buildExpr`
 /// (the node lives behind a ref-struct local + sink, so it can't ride the
 /// `CallRecipe` model the rest of the call sites use).
 module EmitFormat =
-    /// Lower a `TExprG.Format` to the `Vesper.Formatter` write-through handler: a
+    /// Lower a `Format` node to the `Vesper.Formatter` write-through handler: a
     /// ref-struct local constructed in place, then each segment folded
     /// left-to-right (`AppendLiteral` for a literal run, `AppendFormatted<T>`
     /// for a hole — its arg evaluated *here*, at its position), then a trailing
