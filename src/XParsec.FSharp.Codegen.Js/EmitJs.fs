@@ -326,31 +326,27 @@ module EmitJs =
         // member's declaring type being a local interface is the signal (not the node's
         // `CallVia` — see `WalkCtx.LocalInterfaces`). An interface-impl PROPERTY emits as a
         // zero-arg attached method, so its read is the same member access called with no
-        // args.
-        | ExprShape.PropertyGet when
-            ctx.LocalInterfaces.Contains(JsExternalMembers.declKey (TastAccessor.exprPropertyGet e).Key)
-            ->
-            let pg = TastAccessor.exprPropertyGet e
-            JsExpr.Call(attachedAccess ctx loc pg.Receiver pg.Key, [], loc)
-
-        | ExprShape.MethodCall when
-            ctx.LocalInterfaces.Contains(JsExternalMembers.declKey (TastAccessor.exprMethodCall e).Key)
-            ->
-            let mc = TastAccessor.exprMethodCall e
-            JsExpr.Call(attachedAccess ctx loc mc.Receiver mc.Key, [ for a in mc.Args -> buildExpr ctx a ], loc)
-
-        // Member access on a local record/union: each member is a free receiver-first function.
+        // args. Otherwise the member is on a local record/union: each is a free
+        // receiver-first function. (The `LocalInterfaces` test is inside the arm, not a
+        // `when` guard, so the payload view is materialized once — never in a guard.)
         | ExprShape.PropertyGet ->
             let pg = TastAccessor.exprPropertyGet e
-            JsExpr.Call(Members.localFn ctx pg.Key false true ValueNone, [ buildExpr ctx pg.Receiver ], loc)
+
+            if ctx.LocalInterfaces.Contains(JsExternalMembers.declKey pg.Key) then
+                JsExpr.Call(attachedAccess ctx loc pg.Receiver pg.Key, [], loc)
+            else
+                JsExpr.Call(Members.localFn ctx pg.Key false true ValueNone, [ buildExpr ctx pg.Receiver ], loc)
 
         | ExprShape.MethodCall ->
             let mc = TastAccessor.exprMethodCall e
 
-            let withRecv =
-                JsExpr.Call(Members.localFn ctx mc.Key false false ValueNone, [ buildExpr ctx mc.Receiver ], loc)
+            if ctx.LocalInterfaces.Contains(JsExternalMembers.declKey mc.Key) then
+                JsExpr.Call(attachedAccess ctx loc mc.Receiver mc.Key, [ for a in mc.Args -> buildExpr ctx a ], loc)
+            else
+                let withRecv =
+                    JsExpr.Call(Members.localFn ctx mc.Key false false ValueNone, [ buildExpr ctx mc.Receiver ], loc)
 
-            applyArgs ctx withRecv (EqArray.ofArray mc.Args)
+                applyArgs ctx withRecv (EqArray.ofArray mc.Args)
 
         | ExprShape.StaticPropertyGet -> Members.localFn ctx (TastAccessor.exprStaticPropertyGetKey e) true true loc
 
@@ -528,13 +524,15 @@ module EmitJs =
         // operand is dropped on JS). They reach the backend because their inline bodies
         // live in `ops-platform.js.fs` (`array.fs`'s `zeroCreate` for `newarr`).
         | ExprShape.ILIntrinsic ->
+            let args = TastAccessor.exprChildren e
+
             match TastAccessor.exprILIntrinsicOpCode e with
             | "newarr" ->
                 // `Array.zeroCreate count` → `Array(count).fill(null)`: a *dense* array (not
                 // the sparse `new Array(count)`), so `Object.keys` / iteration observe every
                 // slot. Unset slots read as `null`, not the element type's zero — the JS
                 // zero-init erasure corner (callers fill before reading).
-                match TastAccessor.exprChildren e with
+                match args with
                 | [| count |] ->
                     let alloc =
                         JsExpr.Call(JsExpr.Identifier("Array", ValueNone), [ buildExpr ctx count ], ValueNone)
@@ -547,13 +545,13 @@ module EmitJs =
 
             // `arr.[i]` → `arr[i]` (a computed member read).
             | "ldelem" ->
-                match TastAccessor.exprChildren e with
+                match args with
                 | [| arr; idx |] -> JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, loc)
                 | _ -> failwith "EmitJs: 'ldelem' expects two operands (array, index)"
 
             // `arr.[i] <- v` → `(arr[i] = v)` (a computed-member assignment expression).
             | "stelem" ->
-                match TastAccessor.exprChildren e with
+                match args with
                 | [| arr; idx; value |] ->
                     let target = JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, ValueNone)
                     JsExpr.Assign(target, buildExpr ctx value, loc)
@@ -561,7 +559,7 @@ module EmitJs =
 
             // `arr.Length` → `arr.length`.
             | "ldlen" ->
-                match TastAccessor.exprChildren e with
+                match args with
                 | [| arr |] -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
                 | _ -> failwith "EmitJs: 'ldlen' expects one operand (the array)"
 
@@ -570,13 +568,9 @@ module EmitJs =
             // It has NO runtime effect: emit the lone operand verbatim, re-typed (the CLR
             // emits nothing likewise). Handled before the generic `$N`-template expander,
             // which would (correctly) reject an operand-bearing template with no hole.
-            | "" when (TastAccessor.exprChildren e).Length = 1 -> buildExpr ctx (TastAccessor.exprChildren e).[0]
+            | "" when args.Length = 1 -> buildExpr ctx args.[0]
 
-            | opCode ->
-                JsExpr.Raw(
-                    EmitJsFormat.expandTemplate buildExpr ctx opCode (List.ofArray (TastAccessor.exprChildren e)),
-                    loc
-                )
+            | opCode -> JsExpr.Raw(EmitJsFormat.expandTemplate buildExpr ctx opCode (List.ofArray args), loc)
 
         | ExprShape.Format ->
             let fv = TastAccessor.exprFormat e
