@@ -185,9 +185,15 @@ does not gate A's value.
 
 Every step is a standalone commit: green build, and (past 0.1) the byte-identity gate holds.
 
-> **Status: Phase 0 and Phase A are LANDED.** The opt-in, input-keyed frozen-compile cache
-> ships — XxHash128 keys, Brotli blobs, verbatim DU flatten/thaw, `ClrDriver.compileCached`.
-> Phase B (accessor + pools + projection) is NOT started; this doc stays live for it. A
+> **Status: Phase 0 and Phase A are LANDED; Phase B is IN PROGRESS.** The opt-in,
+> input-keyed frozen-compile cache ships — XxHash128 keys, Brotli blobs, verbatim DU
+> flatten/thaw, `ClrDriver.compileCached`. In Phase B the accessor (B.1) and the entire
+> **JS-backend** consumer migration have landed: every `Codegen.Js` consumer now reads the
+> frozen tree through `TastAccessor` — **zero `TExprG`/`TPatG`/`TDeclG` DU matches remain in
+> `Codegen.Js`**, each step byte-identical (485/485 golden JS tests). STILL OPEN in B.2…B.k:
+> the **CLR backend** (`Codegen.Clr`, ~194 DU matches across ~18 files) — deferred by a
+> deliberate JS-first ordering, not a blocker. `FrozenSignature` has no expr-tree matches (a
+> non-op for this seam). The pool steps (B.k+1…B.k+7) are untouched. A
 > `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
 > `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 
@@ -261,9 +267,30 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
   exists today.
 - **B.2 … B.k Migrate consumers, one per commit.** Switch each codegen/`FrozenSignature`
   consumer from direct DU matching to the accessor, still DU-backed and output-identical —
-  roughly one commit per emit file (`EmitExpr`, `EmitBindings`, `EmitClosures`, `EmitMatch`,
-  `EmitTypes`, `EmitCall`, … then the JS emitters, then `FrozenSignature`): **~15–20
-  commits**, the bulk of the effort. *Gate (each): goldens hold.*
+  roughly one commit per emit file: **~15–20 commits**, the bulk of the effort. *Gate
+  (each): goldens hold.*
+
+  **JS half LANDED** (commits `873812c7`→`bfc2e719` on `codegen-js`, 9 commits). The
+  payload-accessor API the one-liner glossed was settled as: a per-case `[<Struct>] …View`
+  (named fields, `failwith`-guarded, dispatched behind `exprKind`/`patKind`/`declKind`) for
+  multi-field cases; a single field accessor for a lone scalar; a labeled accessor
+  (`patRecordFields`/`exprRecordConsFields`/…) where `exprChildren` would drop names;
+  children/type/token via the existing `exprChildren`/`exprTy`/`exprTok`. **`TastAccessor.fs`
+  is the canonical record of the convention — read it, don't re-derive.** Order landed:
+  `JsExternalMembers`, `EmitJsCapabilities`, `JsFlatFns`, `EmitJsTypes`, `EmitJsContext`,
+  `JsEmitHelpers`, `EmitJs` (split ×3 — `buildExpr`; the statement-builders; `buildProgram`
+  decls), then a shared `(|InstanceExternalMember|_|)` recognizer factored into
+  `JsExternalMembers`. `binderName`'s `NodeKey`-bits logic was left untouched (its `NodeKey`
+  now arrives via `patBinder`/`exprVarBinding`) per the B.k+4 deferral.
+
+  **CLR half TODO** — the remaining B.2…B.k work. Same mechanical recipe over `Codegen.Clr`'s
+  emit files (`EmitExpr`, `EmitBindings`, `EmitClosures`, `EmitMatch`, `EmitCall`,
+  `EmitConstruct`, `EmitIntrinsic`, `EmitMember`, `EmitPattern`, `EmitLoops`, `EmitFormat`,
+  `ClosureVerdictRewrite`, `HolderPlan`, …): reuse the accessors already on `TastAccessor`,
+  grow new ones per the same convention, one commit per file, gating each on the CLR golden
+  suite (`./claude_tools.cmd -Action Test -TestProject "XParsec.FSharp.Codegen.Clr.Tests"`).
+  Note the CLR backend also recomputes lambda keys (the 0.2 `lambdaKey`/`synthLambdaBodyKey`
+  sites) — those stay as-is until B.k+3.
 - **B.k+1 Id-children pools.** Add the id-indexable pools; `freeze` populates them alongside
   the DU (both coexist). *Gate: pools structurally mirror the DU — cross-check over the
   corpus.*
