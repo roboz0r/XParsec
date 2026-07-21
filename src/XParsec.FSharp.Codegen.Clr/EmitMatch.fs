@@ -17,8 +17,11 @@ open EmitDispatch
 module EmitMatch =
 
     let buildMatch (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.Match(scrutinee, arms, _, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.Match ->
+            let view = TastAccessor.exprMatch e
+            let scrutinee = view.Scrutinee
+            let arms = view.Arms
             // Evaluate the scrutinee once into a local, then test each arm in
             // order: on a mismatch branch to the next arm; on a match (and a
             // passing guard) emit the body and branch to the shared end. The
@@ -52,8 +55,12 @@ module EmitMatch =
         | _ -> failwith "EmitMatch.buildMatch: unreachable"
 
     let buildIfThenElse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.IfThenElse(cond, thenExpr, elseExpr, _, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.IfThenElse ->
+            let view = TastAccessor.exprIfThenElse e
+            let cond = view.Cond
+            let thenExpr = view.ThenExpr
+            let elseExpr = view.ElseExpr
             // `<cond>; brfalse else; <then>; br end; else: <else>; end:`. Both
             // arms leave one value; the builder's linear depth tracker (which
             // follows only the then-arm) is reset to the post-`brfalse` base
@@ -73,15 +80,16 @@ module EmitMatch =
         | _ -> failwith "EmitMatch.buildIfThenElse: unreachable"
 
     let buildSequential (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        match e with
-        | TExprG.Sequential(items, _, _) ->
+        match TastAccessor.exprKind e with
+        | ExprShape.Sequential ->
             // Every item but the last is a unit-typed statement: emit it and
             // discard whatever value it leaves (popping back to the pre-item
             // depth); the last item leaves the sequence's result.
+            let items = TastAccessor.exprChildren e
             let n = items.Length
 
             items
-            |> EqArray.iteri (fun i it ->
+            |> Array.iteri (fun i it ->
                 if i = n - 1 then
                     recur env b it
                 else
