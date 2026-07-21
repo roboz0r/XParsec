@@ -147,25 +147,37 @@ module JsEmitHelpers =
     /// A value safe to duplicate at use sites: no side effects, no evaluation-order
     /// dependence. Covers `Const`/`Var` and `ILIntrinsic` templates over pure args.
     let rec isPureValue (e: Frozen.TExpr) : bool =
-        match e with
-        | TExprG.Const _
-        | TExprG.Var _ -> true
+        match TastAccessor.exprKind e with
+        | ExprShape.Const
+        | ExprShape.Var -> true
         // The array intrinsics touch allocated / mutable state, so duplicating one at
         // a use site (what substitution does) is unsound — `newarr` would re-allocate
         // a fresh array each time, and `ldelem`/`ldlen` would re-read after an
         // intervening `stelem`. The scalar `$N` templates remain pure.
-        | TExprG.ILIntrinsic(("newarr" | "ldelem" | "stelem" | "ldlen" | "ldobj" | "ldloca"), _, _, _, _) -> false
-        | TExprG.ILIntrinsic(_, _, args, _, _) -> args |> EqArray.forall isPureValue
+        | ExprShape.ILIntrinsic ->
+            match TastAccessor.exprILIntrinsicOpCode e with
+            | "newarr"
+            | "ldelem"
+            | "stelem"
+            | "ldlen"
+            | "ldobj"
+            | "ldloca" -> false
+            | _ -> TastAccessor.exprChildren e |> Array.forall isPureValue
         // A pure `let` chain is pure when both value and body are — the recursive
         // collapse reduces it to a clean template rather than an IIFE.
-        | TExprG.Let(TPatG.NamedSimple _, value, body, _, _) -> isPureValue value && isPureValue body
+        | ExprShape.Let ->
+            let l = TastAccessor.exprLet e
+
+            match TastAccessor.patKind l.Binding with
+            | PatShape.NamedSimple -> isPureValue l.Value && isPureValue l.Body
+            | _ -> false
         | _ -> false
 
     /// Replace every `Var k` in `e` with `value`. Used only for a pure `value`, so
     /// duplicating it across multiple uses is semantics-preserving.
     let rec substVar (k: NodeKey) (value: Frozen.TExpr) (e: Frozen.TExpr) : Frozen.TExpr =
-        match e with
-        | TExprG.Var(vk, _, _) when vk.Raw = k.Raw -> value
+        match TastAccessor.exprKind e with
+        | ExprShape.Var when (TastAccessor.exprVarBinding e).Raw = k.Raw -> value
         | _ -> TastLower.mapChildren (substVar k value) e
 
     /// Is the binder `k` ever assigned (`k <- …`) within `e`? A `let mutable` whose
@@ -175,8 +187,17 @@ module JsEmitHelpers =
     /// the substitution would replace its reads with the initial value and corrupt the
     /// assignment lhs — and emits as a reassignable `let`, not a `const`.
     let rec isAssignedIn (k: NodeKey) (e: Frozen.TExpr) : bool =
-        match e with
-        | TExprG.Assignment(TExprG.Var(vk, _, _), _, _, _) when vk.Raw = k.Raw -> true
+        match TastAccessor.exprKind e with
+        | ExprShape.Assignment ->
+            let a = TastAccessor.exprAssignment e
+
+            if
+                TastAccessor.exprKind a.Lhs = ExprShape.Var
+                && (TastAccessor.exprVarBinding a.Lhs).Raw = k.Raw
+            then
+                true
+            else
+                TastLower.existsChild (isAssignedIn k) e
         | _ -> TastLower.existsChild (isAssignedIn k) e
 
     /// Does `value` read a variable that `body` later reassigns? F# `let x = value`
@@ -188,8 +209,8 @@ module JsEmitHelpers =
     /// duplicating `NamedSimple` substitution needs this; the `Wildcard` case drops the
     /// value unread, so a non-stable-but-pure value is safe to discard there.
     let rec valueReadsAssignedIn (body: Frozen.TExpr) (value: Frozen.TExpr) : bool =
-        match value with
-        | TExprG.Var(vk, _, _) -> isAssignedIn vk body
+        match TastAccessor.exprKind value with
+        | ExprShape.Var -> isAssignedIn (TastAccessor.exprVarBinding value) body
         | _ -> TastLower.existsChild (valueReadsAssignedIn body) value
 
     /// A `NamedSimple` `let` whose value is safe to inline into its uses, reduced to
@@ -200,13 +221,23 @@ module JsEmitHelpers =
     /// `valueReadsAssignedIn`). Every `buildExpr`/`buildStatements`/`buildTailBody` site
     /// that collapses a pure `let` matches through here so the guard lives in one place.
     let (|InlinableLet|_|) (e: Frozen.TExpr) : Frozen.TExpr option =
-        match e with
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when
-            isPureValue value
-            && not (isAssignedIn k body)
-            && not (valueReadsAssignedIn body value)
-            ->
-            Some(substVar k value body)
+        match TastAccessor.exprKind e with
+        | ExprShape.Let ->
+            let l = TastAccessor.exprLet e
+
+            match TastAccessor.patKind l.Binding with
+            | PatShape.NamedSimple ->
+                let k = (TastAccessor.patBinder l.Binding).Value
+
+                if
+                    isPureValue l.Value
+                    && not (isAssignedIn k l.Body)
+                    && not (valueReadsAssignedIn l.Body l.Value)
+                then
+                    Some(substVar k l.Value l.Body)
+                else
+                    None
+            | _ -> None
         | _ -> None
 
     // ---- Functions -----------------------------------------------------------
@@ -216,22 +247,24 @@ module JsEmitHelpers =
     // TODO: tuple leaves smuggle a destructuring pattern through a `string` (emitted
     // verbatim). `Arrow.parameters` wants a real `JsPattern` for object-destructuring.
     let rec lambdaParamName (source: string voption) (p: Frozen.TPat) : string =
-        match p with
-        | TPatG.NamedSimple(k, _, _) -> binderName source k
-        | TPatG.Wildcard(_, tok) -> "_w" + string tok.StartIndex
-        | TPatG.Const(TConstValue.Unit, _, tok) -> "_u" + string tok.StartIndex
-        | TPatG.Tuple(items, _, _) ->
-            let parts = items |> EqArray.map (lambdaParamName source) |> EqArray.toArray
+        match TastAccessor.patKind p with
+        | PatShape.NamedSimple -> binderName source (TastAccessor.patBinder p).Value
+        | PatShape.Wildcard -> "_w" + string (TastAccessor.patTok p).StartIndex
+        | PatShape.Const when TastAccessor.patConstValue p = TConstValue.Unit ->
+            "_u" + string (TastAccessor.patTok p).StartIndex
+        | PatShape.Tuple ->
+            let parts = TastAccessor.patChildren p |> Array.map (lambdaParamName source)
             "[" + System.String.Join(", ", parts) + "]"
-        | other -> failwithf "EmitJs: unsupported lambda parameter pattern %A" other
+        | _ -> failwithf "EmitJs: unsupported lambda parameter pattern %A" p
 
     /// Peel a curried `Lambda` chain into its parameter names and the innermost
     /// body. The inverse of the nested-arrow emission.
     let rec peelArrow (source: string voption) (e: Frozen.TExpr) : string list * Frozen.TExpr =
-        match e with
-        | TExprG.Lambda(p, body, _, _) ->
-            let names, inner = peelArrow source body
-            lambdaParamName source p :: names, inner
+        match TastAccessor.exprKind e with
+        | ExprShape.Lambda ->
+            let l = TastAccessor.exprLambda e
+            let names, inner = peelArrow source l.Body
+            lambdaParamName source l.Param :: names, inner
         | _ -> [], e
 
     /// `["a"; "b"]` → `(a) => (b) => <innermost>`. Shared by lambda and member emission.
@@ -244,10 +277,14 @@ module JsEmitHelpers =
     /// Active pattern for a fully-saturated tail self-call — shared by the detector
     /// (`hasTailSelfCall`) and rewriter (`buildTailBody`) so they can't drift.
     let (|TailSelfCall|_|) (selfKey: NodeKey) (arity: int) (e: Frozen.TExpr) : Frozen.TExpr list option =
-        match e with
-        | TExprG.App _ ->
+        match TastAccessor.exprKind e with
+        | ExprShape.App ->
             match TastWalk.collectSpine [] e with
-            | TExprG.Var(k, _, _), spine when k.Raw = selfKey.Raw && List.length spine = arity ->
+            | head, spine when
+                TastAccessor.exprKind head = ExprShape.Var
+                && (TastAccessor.exprVarBinding head).Raw = selfKey.Raw
+                && List.length spine = arity
+                ->
                 Some [ for (a, _, _) in spine -> a ]
             | _ -> None
         | _ -> None
@@ -257,10 +294,18 @@ module JsEmitHelpers =
     /// preserve tail position (`if`/`let`/`Sequential`-tail); a saturated tail
     /// self-call is what the trampoline rewrites to param mutation + `continue`.
     let rec hasTailSelfCall (selfKey: NodeKey) (arity: int) (e: Frozen.TExpr) : bool =
-        match e with
-        | TExprG.IfThenElse(_, thenE, elseE, _, _) ->
-            hasTailSelfCall selfKey arity thenE || hasTailSelfCall selfKey arity elseE
-        | TExprG.Let(_, _, body, _, _) -> hasTailSelfCall selfKey arity body
-        | TExprG.Sequential(xs, _, _) when xs.Length > 0 -> hasTailSelfCall selfKey arity xs.[xs.Length - 1]
-        | TailSelfCall selfKey arity _ -> true
+        match TastAccessor.exprKind e with
+        | ExprShape.IfThenElse ->
+            let i = TastAccessor.exprIfThenElse e
+
+            hasTailSelfCall selfKey arity i.ThenExpr
+            || hasTailSelfCall selfKey arity i.ElseExpr
+        | ExprShape.Let -> hasTailSelfCall selfKey arity (TastAccessor.exprLet e).Body
+        | ExprShape.Sequential ->
+            let xs = TastAccessor.exprChildren e
+            xs.Length > 0 && hasTailSelfCall selfKey arity xs.[xs.Length - 1]
+        | ExprShape.App ->
+            match e with
+            | TailSelfCall selfKey arity _ -> true
+            | _ -> false
         | _ -> false

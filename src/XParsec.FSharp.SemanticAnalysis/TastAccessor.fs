@@ -338,6 +338,95 @@ module TastAccessor =
             }
         | _ -> failwith "TastAccessor.exprExternalMember: not an ExternalMember node"
 
+    /// The binder a `Var` node references — the `NodeKey` a preceding binder
+    /// introduced. Guard with `exprKind` = `ExprShape.Var` first; `failwith` on any
+    /// other shape.
+    let exprVarBinding (e: ExprId) : NodeKey =
+        match e with
+        | TExprG.Var(binding = binding) -> binding
+        | _ -> failwith "TastAccessor.exprVarBinding: not a Var node"
+
+    /// The IL opcode string of an `ILIntrinsic` node — the `$N`-templated instruction.
+    /// Its `args` are the node's `exprChildren` and its `typeOperand` is carried
+    /// separately. Guard with `exprKind` = `ExprShape.ILIntrinsic` first; `failwith` on
+    /// any other shape.
+    let exprILIntrinsicOpCode (e: ExprId) : string =
+        match e with
+        | TExprG.ILIntrinsic(opCode = opCode) -> opCode
+        | _ -> failwith "TastAccessor.exprILIntrinsicOpCode: not an ILIntrinsic node"
+
+    /// The scalar payload of a `Lambda` node, minus the `ty`/`tok` that
+    /// `exprTy`/`exprTok` already carry. `Body` is the sole `exprChildren` entry; the
+    /// `Param` pattern is not an expression child.
+    [<Struct>]
+    type LambdaView = { Param: PatId; Body: ExprId }
+
+    /// The payload view of a `Lambda` node. Guard with `exprKind` = `ExprShape.Lambda`
+    /// first; `failwith` on any other shape.
+    let exprLambda (e: ExprId) : LambdaView =
+        match e with
+        | TExprG.Lambda(param = param; body = body) -> { Param = param; Body = body }
+        | _ -> failwith "TastAccessor.exprLambda: not a Lambda node"
+
+    /// The scalar payload of a `Let` node, minus the `ty`/`tok` that `exprTy`/`exprTok`
+    /// already carry. `Value`/`Body` are the two `exprChildren` entries; the `Binding`
+    /// pattern is not an expression child.
+    [<Struct>]
+    type LetView =
+        {
+            Binding: PatId
+            Value: ExprId
+            Body: ExprId
+        }
+
+    /// The payload view of a `Let` node. Guard with `exprKind` = `ExprShape.Let` first;
+    /// `failwith` on any other shape.
+    let exprLet (e: ExprId) : LetView =
+        match e with
+        | TExprG.Let(binding = binding; value = value; body = body) ->
+            {
+                Binding = binding
+                Value = value
+                Body = body
+            }
+        | _ -> failwith "TastAccessor.exprLet: not a Let node"
+
+    /// The scalar payload of an `Assignment` node (`lhs <- rhs`), minus the `ty`/`tok`
+    /// that `exprTy`/`exprTok` already carry — the same two nodes `exprChildren` yields,
+    /// named by role.
+    [<Struct>]
+    type AssignmentView = { Lhs: ExprId; Rhs: ExprId }
+
+    /// The payload view of an `Assignment` node. Guard with `exprKind` =
+    /// `ExprShape.Assignment` first; `failwith` on any other shape.
+    let exprAssignment (e: ExprId) : AssignmentView =
+        match e with
+        | TExprG.Assignment(lhs = lhs; rhs = rhs) -> { Lhs = lhs; Rhs = rhs }
+        | _ -> failwith "TastAccessor.exprAssignment: not an Assignment node"
+
+    /// The scalar payload of an `IfThenElse` node, minus the `ty`/`tok` that
+    /// `exprTy`/`exprTok` already carry — the three branch nodes `exprChildren` yields,
+    /// named by role.
+    [<Struct>]
+    type IfThenElseView =
+        {
+            Cond: ExprId
+            ThenExpr: ExprId
+            ElseExpr: ExprId
+        }
+
+    /// The payload view of an `IfThenElse` node. Guard with `exprKind` =
+    /// `ExprShape.IfThenElse` first; `failwith` on any other shape.
+    let exprIfThenElse (e: ExprId) : IfThenElseView =
+        match e with
+        | TExprG.IfThenElse(cond = cond; thenExpr = thenExpr; elseExpr = elseExpr) ->
+            {
+                Cond = cond
+                ThenExpr = thenExpr
+                ElseExpr = elseExpr
+            }
+        | _ -> failwith "TastAccessor.exprIfThenElse: not an IfThenElse node"
+
     /// The shape tag of a pattern node.
     let patKind (p: PatId) : PatShape =
         match p with
@@ -425,7 +514,8 @@ module TastAccessor =
     /// The scalar payload of an `EnumCase` pattern — the case's `enumKey`/`caseName`
     /// identity, minus the `ty`/`tok` that `patTy`/`patTok` already carry.
     [<Struct>]
-    type EnumCasePatView = { EnumKey: SymbolKey; CaseName: string }
+    type EnumCasePatView =
+        { EnumKey: SymbolKey; CaseName: string }
 
     /// The payload view of an `EnumCase` pattern. Guard with `patKind` =
     /// `PatShape.EnumCase` first; `failwith` on any other shape.
