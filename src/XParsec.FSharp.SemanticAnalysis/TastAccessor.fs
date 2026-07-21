@@ -877,3 +877,33 @@ module TastAccessor =
         match d with
         | TDeclG.Type td -> td
         | _ -> failwith "TastAccessor.declType: not a Type decl"
+
+    /// The body expression of an `Expression` decl. Guard with `declKind` =
+    /// `DeclShape.Expression` first; `failwith` on any other shape.
+    let declExpression (d: DeclId) : ExprId =
+        match d with
+        | TDeclG.Expression(expr = expr) -> expr
+        | _ -> failwith "TastAccessor.declExpression: not an Expression decl"
+
+    /// The payload of a `Let` decl, minus the `ty` the node also carries. `Binding` is
+    /// the bound pattern, `Value` its initializer, `IsInline` whether the binding expands
+    /// per call site.
+    [<Struct>]
+    type DeclLetView =
+        {
+            Binding: PatId
+            Value: ExprId
+            IsInline: bool
+        }
+
+    /// The payload view of a `Let` decl. Guard with `declKind` = `DeclShape.Let` first;
+    /// `failwith` on any other shape.
+    let declLet (d: DeclId) : DeclLetView =
+        match d with
+        | TDeclG.Let(binding = binding; value = value; isInline = isInline) ->
+            {
+                Binding = binding
+                Value = value
+                IsInline = isInline
+            }
+        | _ -> failwith "TastAccessor.declLet: not a Let decl"

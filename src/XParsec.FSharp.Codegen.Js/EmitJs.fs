@@ -985,8 +985,13 @@ module EmitJs =
         let localInterfaces = System.Collections.Generic.HashSet<TypeKey>()
 
         for decl in tast.Decls do
-            match decl with
-            | TDeclG.Type({ Kind = TTypeKindG.Interface _ } as td) -> localInterfaces.Add td.TypeKey |> ignore
+            match TastAccessor.declKind decl with
+            | DeclShape.Type ->
+                let td = TastAccessor.declType decl
+
+                match td.Kind with
+                | TTypeKindG.Interface _ -> localInterfaces.Add td.TypeKey |> ignore
+                | _ -> ()
             | _ -> ()
 
         let ctx =
@@ -1056,27 +1061,34 @@ module EmitJs =
         let reassignedAtTop (k: NodeKey) =
             lowered
             |> List.exists (fun d ->
-                match d with
-                | TDeclG.Expression(e, _) -> isAssignedIn k e
-                | TDeclG.Let(_, value, _, _) -> isAssignedIn k value
-                | _ -> false
+                match TastAccessor.declKind d with
+                | DeclShape.Expression -> isAssignedIn k (TastAccessor.declExpression d)
+                | DeclShape.Let -> isAssignedIn k (TastAccessor.declLet d).Value
+                | DeclShape.Type -> false
             )
 
         let body =
             [
                 for decl in lowered do
-                    match decl with
-                    | TDeclG.Expression(e, _) -> yield! buildStatements ctx e
-                    | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
-                        // A module FUNCTION emits FLAT (Fable-style); a plain value
-                        // routes through `emitBound` (closures stay curried).
-                        let init =
-                            match ctx.CompiledFns.TryGetValue k with
-                            | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx (TastWalk.exprTok value))
-                            | _ -> emitBound ctx k value
+                    match TastAccessor.declKind decl with
+                    | DeclShape.Expression -> yield! buildStatements ctx (TastAccessor.declExpression decl)
+                    | DeclShape.Let ->
+                        let dl = TastAccessor.declLet decl
 
-                        topLevelBinding ctx (reassignedAtTop k) (binderName ctx.Source k) init
-                    | other -> failwithf "EmitJs: unsupported declaration %A" other
+                        match TastAccessor.patKind dl.Binding with
+                        | PatShape.NamedSimple ->
+                            let k = (TastAccessor.patBinder dl.Binding).Value
+                            let value = dl.Value
+                            // A module FUNCTION emits FLAT (Fable-style); a plain value
+                            // routes through `emitBound` (closures stay curried).
+                            let init =
+                                match ctx.CompiledFns.TryGetValue k with
+                                | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx (TastWalk.exprTok value))
+                                | _ -> emitBound ctx k value
+
+                            topLevelBinding ctx (reassignedAtTop k) (binderName ctx.Source k) init
+                        | _ -> failwithf "EmitJs: unsupported declaration %A" decl
+                    | DeclShape.Type -> failwithf "EmitJs: unsupported declaration %A" decl
             ]
 
         // Imports lead the program; local class decls follow — classes are not hoisted
