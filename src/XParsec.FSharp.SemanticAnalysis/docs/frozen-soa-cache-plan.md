@@ -187,15 +187,20 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 
 > **Status: Phase 0 and Phase A are LANDED; Phase B is IN PROGRESS.** The opt-in,
 > input-keyed frozen-compile cache ships — XxHash128 keys, Brotli blobs, verbatim DU
-> flatten/thaw, `ClrDriver.compileCached`. In Phase B the accessor (B.1) and the entire
-> **JS-backend** consumer migration have landed: every `Codegen.Js` consumer now reads the
-> frozen tree through `TastAccessor` — **zero `TExprG`/`TPatG`/`TDeclG` DU matches remain in
-> `Codegen.Js`**, each step byte-identical (485/485 golden JS tests). STILL OPEN in B.2…B.k:
-> the **CLR backend** (`Codegen.Clr`, ~194 DU matches across ~18 files) — deferred by a
-> deliberate JS-first ordering, not a blocker. `FrozenSignature` has no expr-tree matches (a
-> non-op for this seam). The pool steps (B.k+1…B.k+7) are untouched. A
-> `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
-> `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
+> flatten/thaw, `ClrDriver.compileCached`. In Phase B the accessor (B.1) and the **entire
+> B.2…B.k consumer migration** have landed: every `Codegen.Js` **and** `Codegen.Clr` consumer
+> now reads the frozen tree through `TastAccessor` — **zero `TExprG`/`TPatG`/`TDeclG` DU
+> matches remain in either backend** (verified repo-wide), each step byte-identical (485/485
+> golden JS tests, 1407/1407 golden CLR tests). `FrozenSignature` has no expr-tree matches (a
+> non-op for this seam). The CLR migration grew the accessor to cover CLR-only payload the JS
+> half never read — additive `…View` field extensions (`DeclLetView.Ty`, `Via` on
+> `PropertyGetView`/`MethodCallView`) and scalars (`exprNewChosenCtor`,
+> `exprILIntrinsicTypeOperand`, `exprTypeTestTestTy`, `exprStaticOptimizationDefault`,
+> `patTypeTestTestTy`, `declExpressionTy`, plus an `exprTryWith`/`TryWithView` mirroring
+> `exprMatch`) — all reused across both backends, no JS churn. The 0.2 `TastWalk.lambdaKey`
+> recompute sites (`EmitClosures`, `ClosureVerdictRewrite`) stay as-is until B.k+3. The pool
+> steps (B.k+1…B.k+7) are untouched. A `GeneralizedTypars.unsafeOfNames` concession made in
+> A.4 is tracked in `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 
 ### Phase 0 — scaffolding & de-risking (no behavior change)
 
@@ -283,14 +288,23 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
   `JsExternalMembers`. `binderName`'s `NodeKey`-bits logic was left untouched (its `NodeKey`
   now arrives via `patBinder`/`exprVarBinding`) per the B.k+4 deferral.
 
-  **CLR half TODO** — the remaining B.2…B.k work. Same mechanical recipe over `Codegen.Clr`'s
-  emit files (`EmitExpr`, `EmitBindings`, `EmitClosures`, `EmitMatch`, `EmitCall`,
-  `EmitConstruct`, `EmitIntrinsic`, `EmitMember`, `EmitPattern`, `EmitLoops`, `EmitFormat`,
-  `ClosureVerdictRewrite`, `HolderPlan`, …): reuse the accessors already on `TastAccessor`,
-  grow new ones per the same convention, one commit per file, gating each on the CLR golden
-  suite (`./claude_tools.cmd -Action Test -TestProject "XParsec.FSharp.Codegen.Clr.Tests"`).
-  Note the CLR backend also recomputes lambda keys (the 0.2 `lambdaKey`/`synthLambdaBodyKey`
-  sites) — those stay as-is until B.k+3.
+  **CLR half LANDED** (`codegen-js`, 15 file-scoped commits `771e1e40`→`dc5d144f`, one per emit
+  file bar the four 1-match trivia grouped into one). Same mechanical recipe over `Codegen.Clr`.
+  Order landed: `EmitLoops`, `EmitMatch`, `EmitFormat` (comment-only), the trivia group
+  (`EmitLower`/`LayoutNodes`/`Layout`/`NominalEmit`), `HolderPlan`, `Emit`, `EmitBindings`,
+  `EmitConstruct`, `EmitCall`, `EmitIntrinsic`, `EmitMember`, `EmitPattern`,
+  `ClosureVerdictRewrite`, `EmitExpr`, `EmitClosures`. The CLR consumers being more
+  sophisticated than JS, the accessor grew to cover payload JS never read — always by
+  **extending an existing `…View` additively** (`DeclLetView.Ty`, `Via` on
+  `PropertyGetView`/`MethodCallView`) or adding a lone scalar / a new View mirroring a sibling
+  (`exprTryWith` ≈ `exprMatch`), never a per-file helper and never a near-duplicate; all reused
+  across both backends with zero JS churn. Two seam invariants worth recording for the later
+  steps: (a) the accessor is **read-only** — a consumer that *constructs* a frozen node (the
+  `buildUse` dispose synthetic in `EmitBindings`, the `buildEta` eta-expansion and decl rebuilds
+  in `EmitClosures`, the retype rebuilds in `ClosureVerdictRewrite`) keeps a `Frozen.TExpr.*` /
+  `Frozen.TPat.*` / `Frozen.TDecl.*` construction, which the grep gate tolerates; (b) the 0.2
+  `lambdaKey`/`synthLambdaBodyKey` sites (`EmitClosures`, `ClosureVerdictRewrite`) stay as-is
+  until B.k+3.
 - **B.k+1 Id-children pools.** Add the id-indexable pools; `freeze` populates them alongside
   the DU (both coexist). *Gate: pools structurally mirror the DU — cross-check over the
   corpus.*
@@ -301,7 +315,12 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 - **B.k+4 Naming integers in pools.** Pool binders carry offset / `NameIndex`; the 0.3 helper
   reads pool data. *Gate: goldens hold.*
 - **B.k+5 Flip the backing.** Point the accessor at the pools; `freeze` stops materializing
-  the DU. *Gate: goldens hold — the projection payoff.*
+  the DU. *Gate: goldens hold — the projection payoff.* NB the read-only accessor covers only
+  *reads*: the handful of node-**construction** sites the B.2…B.k migration left as
+  `Frozen.TExpr.*`/`Frozen.TPat.*`/`Frozen.TDecl.*` (the `buildUse` dispose synthetic; the
+  `buildEta` eta lambdas and decl rebuilds; the `ClosureVerdictRewrite` retype rebuilds) cannot
+  ride a dense-id handle unchanged — this step needs a construction seam (or to lower those
+  sites to emit directly, as the JS backend does) alongside flipping the read backing.
 - **B.k+6 Serialize pools directly.** Replace A's DU flatten/thaw with pool (de)serialization;
   intern `FrozenType`/keys for size. *Gate: round-trip + size regression check.*
 - **B.k+7 Remove dead DU paths.** Delete the DU thaw and any now-unused DU plumbing. *Gate:
