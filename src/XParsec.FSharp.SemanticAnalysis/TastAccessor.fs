@@ -951,6 +951,15 @@ module TastAccessor =
         | TDeclG.Expression(expr = expr) -> expr
         | _ -> failwith "TastAccessor.declExpression: not an Expression decl"
 
+    /// The declared type an `Expression` decl carries alongside its `expr`
+    /// (`declExpression`) — the slot type a value-producing consumer must preserve
+    /// when reconstructing the decl. Guard with `declKind` = `DeclShape.Expression`
+    /// first; `failwith` on any other shape.
+    let declExpressionTy (d: DeclId) : FrozenType =
+        match d with
+        | TDeclG.Expression(ty = ty) -> ty
+        | _ -> failwith "TastAccessor.declExpressionTy: not an Expression decl"
+
     /// The payload of a `Let` decl. `Binding` is the bound pattern, `Value` its
     /// initializer, `IsInline` whether the binding expands per call site, `Ty` the
     /// binding's declared type (the slot type a value-producing consumer allocates for

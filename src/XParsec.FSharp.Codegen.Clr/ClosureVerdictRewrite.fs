@@ -210,8 +210,11 @@ module internal ClosureVerdictRewrite =
                 | true, struct (closureFt, idx) -> slots.[idx] <- closureFt
                 | false, _ -> ()
 
-                match e with
-                | TExprG.Var(k, varTy, _) ->
+                match TastAccessor.exprKind e with
+                | ExprShape.Var ->
+                    let k = TastAccessor.exprVarBinding e
+                    let varTy = TastAccessor.exprTy e
+
                     match verdictBindings.TryGetValue k with
                     | true, (newTy, _) ->
                         // The referenced binding `s_{n-1}` contributes TWO nested positions
@@ -291,11 +294,13 @@ module internal ClosureVerdictRewrite =
         // `Fun`2`/`Fun`3`-bounded lambda argument, so at most one verdict is found per call.
         let appOwnVerdict (e: Frozen.TExpr) : struct (FrozenType * int) voption =
             let rec scan (e: Frozen.TExpr) : struct (FrozenType * int) voption =
-                match e with
-                | TExprG.App(fn, arg, _, _) ->
-                    match closureNodeVerdict.TryGetValue arg with
+                match TastAccessor.exprKind e with
+                | ExprShape.App ->
+                    let app = TastAccessor.exprApp e
+
+                    match closureNodeVerdict.TryGetValue app.Arg with
                     | true, v -> ValueSome v
-                    | false, _ -> scan fn
+                    | false, _ -> scan app.Fn
                 | _ -> ValueNone
 
             scan e
@@ -327,9 +332,11 @@ module internal ClosureVerdictRewrite =
                 // The verdict binding a (possibly nested-field) receiver bottoms out in,
                 // for mapping a projection's arrow type to its closure.
                 let rec receiverBinding (r: Frozen.TExpr) : NodeKey voption =
-                    match r with
-                    | TExprG.Var(k, _, _) when verdictBindings.ContainsKey k -> ValueSome k
-                    | TExprG.FieldGet(inner, _, _, _) -> receiverBinding inner
+                    match TastAccessor.exprKind r with
+                    | ExprShape.Var ->
+                        let k = TastAccessor.exprVarBinding r
+                        if verdictBindings.ContainsKey k then ValueSome k else ValueNone
+                    | ExprShape.FieldGet -> receiverBinding (TastAccessor.exprFieldGet r).Receiver
                     | _ -> ValueNone
 
                 // Rebuild ONLY the affected nodes — closure discovery keyed lambdas by
@@ -337,12 +344,17 @@ module internal ClosureVerdictRewrite =
                 // rebuild would mint fresh Lambda nodes the verdict tables no longer
                 // recognise. Each arm returns the SAME `e` when nothing beneath changed.
                 let rec rw (e: Frozen.TExpr) : Frozen.TExpr =
-                    match e with
-                    | TExprG.Var(k, _, tok) ->
+                    match TastAccessor.exprKind e with
+                    | ExprShape.Var ->
+                        let k = TastAccessor.exprVarBinding e
+
                         match verdictBindings.TryGetValue k with
-                        | true, (newTy, _) -> TExprG.Var(k, newTy, tok)
+                        | true, (newTy, _) -> Frozen.TExpr.Var(k, newTy, TastAccessor.exprTok e)
                         | false, _ -> e
-                    | TExprG.FieldGet(recv, name, ty, tok) ->
+                    | ExprShape.FieldGet ->
+                        let fg = TastAccessor.exprFieldGet e
+                        let ty = TastAccessor.exprTy e
+                        let recv = fg.Receiver
                         let recv' = rw recv
 
                         let ty' =
@@ -363,8 +375,12 @@ module internal ClosureVerdictRewrite =
                         then
                             e
                         else
-                            TExprG.FieldGet(recv', name, ty', tok)
-                    | TExprG.App(fn, arg, ty, tok) ->
+                            Frozen.TExpr.FieldGet(recv', fg.FieldName, ty', TastAccessor.exprTok e)
+                    | ExprShape.App ->
+                        let app = TastAccessor.exprApp e
+                        let ty = TastAccessor.exprTy e
+                        let fn = app.Fn
+                        let arg = app.Arg
                         // A *transformer* call (`map (fun x -> x+1) src`)
                         // whose result type carries the lambda's `'TFunc`
                         // (`MapSeq<…,arrow,…>`), used directly as an argument to a consuming
@@ -397,7 +413,7 @@ module internal ClosureVerdictRewrite =
                         then
                             e
                         else
-                            TExprG.App(fn', arg', ty', tok)
+                            Frozen.TExpr.App(fn', arg', ty', TastAccessor.exprTok e)
                     | _ ->
                         // Recurse without forcing a rebuild: rebuild only if a child node
                         // actually changed identity (preserving Lambda reference identity).
@@ -420,10 +436,12 @@ module internal ClosureVerdictRewrite =
                 rw e
 
         let retypeDecl (d: Frozen.TDecl) : Frozen.TDecl =
-            match d with
-            | TDeclG.Expression(e, tok) -> TDeclG.Expression(retypeBody e, tok)
-            | TDeclG.Let(p, v, isInline, tok) -> TDeclG.Let(p, retypeBody v, isInline, tok)
-            | TDeclG.Type _ -> d
+            match TastAccessor.declKind d with
+            | DeclShape.Expression -> Frozen.TDecl.Expression(retypeBody (TastAccessor.declExpression d), TastAccessor.declExpressionTy d)
+            | DeclShape.Let ->
+                let lv = TastAccessor.declLet d
+                Frozen.TDecl.Let(lv.Binding, retypeBody lv.Value, lv.IsInline, lv.Ty)
+            | DeclShape.Type -> d
 
         {
             RetypeBody = retypeBody
