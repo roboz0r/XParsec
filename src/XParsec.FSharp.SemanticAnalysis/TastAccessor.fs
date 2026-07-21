@@ -400,6 +400,44 @@ module TastAccessor =
 
         acc.ToArray()
 
+    /// The constant value carried by a `Const` pattern. Guard with `patKind` =
+    /// `PatShape.Const` first; `failwith` on any other shape.
+    let patConstValue (p: PatId) : TConstValue =
+        match p with
+        | TPatG.Const(value = value) -> value
+        | _ -> failwith "TastAccessor.patConstValue: not a Const pattern"
+
+    /// The union case name a `Union` pattern discriminates on. Guard with `patKind` =
+    /// `PatShape.Union` first; `failwith` on any other shape.
+    let patUnionCaseName (p: PatId) : string =
+        match p with
+        | TPatG.Union(caseName = caseName) -> caseName
+        | _ -> failwith "TastAccessor.patUnionCaseName: not a Union pattern"
+
+    /// The (field-name, sub-pattern) pairs a `Record` pattern binds — the labels
+    /// `patChildren` drops. Guard with `patKind` = `PatShape.Record` first; `failwith`
+    /// on any other shape.
+    let patRecordFields (p: PatId) : (string * PatId)[] =
+        match p with
+        | TPatG.Record(fields = fields) -> EqArray.toArray fields
+        | _ -> failwith "TastAccessor.patRecordFields: not a Record pattern"
+
+    /// The scalar payload of an `EnumCase` pattern — the case's `enumKey`/`caseName`
+    /// identity, minus the `ty`/`tok` that `patTy`/`patTok` already carry.
+    [<Struct>]
+    type EnumCasePatView = { EnumKey: SymbolKey; CaseName: string }
+
+    /// The payload view of an `EnumCase` pattern. Guard with `patKind` =
+    /// `PatShape.EnumCase` first; `failwith` on any other shape.
+    let patEnumCase (p: PatId) : EnumCasePatView =
+        match p with
+        | TPatG.EnumCase(enumKey = enumKey; caseName = caseName) ->
+            {
+                EnumKey = enumKey
+                CaseName = caseName
+            }
+        | _ -> failwith "TastAccessor.patEnumCase: not an EnumCase pattern"
+
     /// The shape tag of a declaration node.
     let declKind (d: DeclId) : DeclShape =
         match d with

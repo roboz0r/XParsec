@@ -440,11 +440,18 @@ module EmitJsContext =
         let memberAccess (field: string) =
             JsExpr.Member(access, JsExpr.Identifier(field, ValueNone), false, ValueNone)
 
-        match pat with
-        | TPatG.Wildcard _ -> None, []
-        | TPatG.NamedSimple(k, _, _) -> None, [ JsStatement.Const(binderName ctx.Source k, access) ]
-        | TPatG.Const(value, _, _) -> Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []
-        | TPatG.Union(caseName, subPats, ty, _) ->
+        match TastAccessor.patKind pat with
+        | PatShape.Wildcard -> None, []
+        | PatShape.NamedSimple ->
+            let k = (TastAccessor.patBinder pat).Value
+            None, [ JsStatement.Const(binderName ctx.Source k, access) ]
+        | PatShape.Const ->
+            let value = TastAccessor.patConstValue pat
+            Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []
+        | PatShape.Union ->
+            let caseName = TastAccessor.patUnionCaseName pat
+            let ty = TastAccessor.patTy pat
+            let subPats = TastAccessor.patChildren pat
             let c = unionCaseOf ctx "match pattern" ty caseName
 
             let tagTest =
@@ -460,13 +467,15 @@ module EmitJsContext =
                 List.map2
                     (fun fld sub -> compileMatchPattern ctx (memberAccess fld) sub)
                     c.Fields
-                    (EqArray.toList subPats)
+                    (List.ofArray subPats)
                 |> List.unzip
 
             conjoin (Some tagTest :: childTests), List.concat childBinds
-        | TPatG.Record(fields, ty, _) ->
+        | PatShape.Record ->
             // Validate each field name against the emitted record so a stale name
             // fails here rather than silently reading `undefined`.
+            let ty = TastAccessor.patTy pat
+            let fields = TastAccessor.patRecordFields pat
             let info = recordInfoOf ctx "record pattern" ty
             let known = Set.ofList info.Fields
 
@@ -482,33 +491,37 @@ module EmitJsContext =
 
             conjoin tests, List.concat binds
         // Tuple pattern: each element matches its positional index `access[i]`.
-        | TPatG.Tuple(items, _, _) ->
+        | PatShape.Tuple ->
+            let items = TastAccessor.patChildren pat
+
             let indexAccess i =
                 JsExpr.Member(access, JsExpr.Literal(JsLiteral.Number(string i), ValueNone), true, ValueNone)
 
             let tests, binds =
-                EqArray.toList items
+                List.ofArray items
                 |> List.mapi (fun i sub -> compileMatchPattern ctx (indexAccess i) sub)
                 |> List.unzip
 
             conjoin tests, List.concat binds
-        | TPatG.TypeTestAs _ -> failwithf "EmitJs: type-test patterns are not supported"
+        | PatShape.TypeTestAs -> failwithf "EmitJs: type-test patterns are not supported"
         // v1 lowers an enum-case pattern to equality against the case's frozen
         // object-map slot (`scrut === E.Ci`). JS `===` is value equality for numbers
         // and strings, so this is correct for all three variants (v1 = equality only),
         // and keeping the test against `E.Ci` keeps the object map the single source
         // of truth (no per-case literal duplicated into the pattern).
-        | TPatG.EnumCase(enumKey, caseName, _, _) ->
-            Some(JsExpr.Binary("===", access, enumCaseAccess ctx enumKey caseName ValueNone, ValueNone)), []
+        | PatShape.EnumCase ->
+            let ec = TastAccessor.patEnumCase pat
+            Some(JsExpr.Binary("===", access, enumCaseAccess ctx ec.EnumKey ec.CaseName ValueNone, ValueNone)), []
         // `null` pattern: JS loose `== null` matches both `null` and `undefined`.
-        | TPatG.Null _ -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
+        | PatShape.Null -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
         // `p1 | … | pn`: the arm matches iff SOME alternative matches, so the test
         // is the disjunction of the alternatives' tests. An irrefutable alternative
         // (`test = None`) makes the whole or-pattern irrefutable — `disjoin` folds
         // it to `None`. Alternatives bind nothing (name resolution drops or-pattern
         // binders — `ElaboratePatterns` rejects a binding alternative), so the binding
         // lists are empty and discarded.
-        | TPatG.Or(alts, _, _) ->
+        | PatShape.Or ->
+            let alts = TastAccessor.patChildren pat
             let tests = [ for alt in alts -> fst (compileMatchPattern ctx access alt) ]
 
             disjoin tests, []
