@@ -335,7 +335,11 @@ module internal ClosureVerdictRewrite =
                     match TastAccessor.exprKind r with
                     | ExprShape.Var ->
                         let k = TastAccessor.exprVarBinding r
-                        if verdictBindings.ContainsKey k then ValueSome k else ValueNone
+
+                        if verdictBindings.ContainsKey k then
+                            ValueSome k
+                        else
+                            ValueNone
                     | ExprShape.FieldGet -> receiverBinding (TastAccessor.exprFieldGet r).Receiver
                     | _ -> ValueNone
 
@@ -437,7 +441,8 @@ module internal ClosureVerdictRewrite =
 
         let retypeDecl (d: Frozen.TDecl) : Frozen.TDecl =
             match TastAccessor.declKind d with
-            | DeclShape.Expression -> Frozen.TDecl.Expression(retypeBody (TastAccessor.declExpression d), TastAccessor.declExpressionTy d)
+            | DeclShape.Expression ->
+                Frozen.TDecl.Expression(retypeBody (TastAccessor.declExpression d), TastAccessor.declExpressionTy d)
             | DeclShape.Let ->
                 let lv = TastAccessor.declLet d
                 Frozen.TDecl.Let(lv.Binding, retypeBody lv.Value, lv.IsInline, lv.Ty)

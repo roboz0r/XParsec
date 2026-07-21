@@ -504,7 +504,8 @@ module EmitClosures =
 
                 List.foldBack2
                     (fun k (dom, cod) acc ->
-                        Frozen.TExpr.Lambda(Frozen.TPat.NamedSimple(k, dom, tok), acc, FTFun(dom, cod), tok))
+                        Frozen.TExpr.Lambda(Frozen.TPat.NamedSimple(k, dom, tok), acc, FTFun(dom, cod), tok)
+                    )
                     keys
                     levels
                     body
@@ -537,7 +538,8 @@ module EmitClosures =
                 | DeclShape.Let ->
                     let letd = TastAccessor.declLet d
                     Frozen.TDecl.Let(letd.Binding, rw letd.Value, letd.IsInline, letd.Ty)
-                | DeclShape.Expression -> Frozen.TDecl.Expression(rw (TastAccessor.declExpression d), TastAccessor.declExpressionTy d)
+                | DeclShape.Expression ->
+                    Frozen.TDecl.Expression(rw (TastAccessor.declExpression d), TastAccessor.declExpressionTy d)
                 | DeclShape.Type -> d
             )
 
@@ -940,7 +942,12 @@ module EmitClosures =
                                         let ppat = lam.Param
                                         let pk = (TastAccessor.patBinder ppat).Value
                                         let pkty = TastAccessor.patTy ppat
-                                        loop (n - 1) ((pk, pkty, ppat) :: extrasRev) lam.Body (TastAccessor.exprTy curBody)
+
+                                        loop
+                                            (n - 1)
+                                            ((pk, pkty, ppat) :: extrasRev)
+                                            lam.Body
+                                            (TastAccessor.exprTy curBody)
                                     | _ -> ValueNone
                                 | _ -> ValueNone
                         | _ -> ValueNone
