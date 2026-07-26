@@ -254,10 +254,13 @@ let private programs =
         "destructuring let ahead of a use in a function body",
         "let f (d: System.IDisposable * int) =\n    let (a, b) = d\n    use x = a\n    b\n"
 
-        // Inline templates: `Freeze` partitions these out of `Decls`, so their binders
-        // are NOT in the pooled tree — published ones ride `InlineBodies` (which the
-        // pool's binder enumeration now covers), and a top-level one is published
-        // nowhere, so its side-table entries leave the file with it.
+        // Inline bindings: an `inline` binding is in `Decls` like any other (it is
+        // emitted as an ordinary module function) and, when publishable, is ALSO a
+        // second independent tree under `InlineTemplates`. Both are pooled roots, so
+        // the SAME source binder is reached twice by the enumeration — idempotent in
+        // the key, so it lands on one `BinderId` and the side tables filed against it
+        // resolve. A top-level `inline` binding is published nowhere (no top-level
+        // binding is exported), so only its `Decls` copy exists.
         "top-level inline binding", "module M\nlet inline f x = x + 1\nlet y = f 2\n"
         "inline binding in a named module", "module M\n\nmodule N =\n    let inline f x = x + 1\n\nlet y = N.f 2\n"
         "nullary intrinsic alias binding", "module M\n\nmodule N =\n    let undef = (# \"undefined\" #)\n"

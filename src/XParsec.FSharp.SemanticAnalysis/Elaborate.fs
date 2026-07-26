@@ -2144,10 +2144,11 @@ module Elaborate =
 
         {
             Decls = EqArray.ofList decls
-            // The inline vocabulary is `Freeze`'s to publish: it is the pass that
-            // partitions the templates out of `Decls`, and it is where they become
-            // `FrozenType`. Pre-freeze they are still IN `Decls`, where the same-unit
-            // splice (`Passes.InlineExpansion`) reads them.
+            // The inline vocabulary is `Freeze`'s to publish: that is where a template
+            // becomes `FrozenType`. Publication is ADDITIVE and takes nothing out of
+            // `Decls` (`TastFileG.InlineBodies`) — an inline binding stays a decl in both
+            // domains, which is where the same-unit splice (`Passes.InlineExpansion`)
+            // reads it and where both backends emit it as an ordinary module function.
             InlineBodies = EqArray.empty
             Diagnostics = List.ofSeq ctx.Diagnostics
             // Snapshot so the backend can key the emitted IL type off the representation
