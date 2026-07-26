@@ -152,11 +152,91 @@ module TastPools =
         | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
         | TDeclG.Type td -> DeclPayload.Type td
 
+    /// Where a pooling walk PUTS the rows it produces. The walk itself — which nodes
+    /// exist, in what order, and which child edges they carry — is `poolExpr`/`poolPat`/
+    /// `poolDecl` below and exists exactly once; a sink decides only where a row lands and
+    /// how a binder id is assigned. `toPools` fills a fresh pool with one; an overlay
+    /// builder appends to a stacked one with another.
+    type PoolSink =
+        {
+            /// Called for every binder a walked node INTRODUCES (a `NamedSimple` pattern's
+            /// binding, a `ForTo` loop variable), before the node's row is added.
+            InternBinder: NodeKey -> unit
+            AddExpr: ExprRow -> ExprPoolId
+            AddPat: PatRow -> PatPoolId
+            AddDecl: DeclRow -> DeclPoolId
+            /// Called with each expr node and the id its row took. The hook for the
+            /// id-keyed records a row cannot carry: a `Var`'s binder reference (which the
+            /// walk leaves `ValueNone`, binder ids being the sink's to assign) and a
+            /// lambda's entry in the lambda id space.
+            OnExprPooled: Frozen.TExpr -> ExprPoolId -> unit
+        }
+
+    /// Pool a pattern subtree post-order: a node's children are pooled before the node
+    /// itself, so every child id its row names already resolves. The child enumeration is
+    /// the accessor's — no tree-shape knowledge is duplicated here.
+    let rec poolPat (sink: PoolSink) (p: Frozen.TPat) : PatPoolId =
+        match TastAccessor.patBinder p with
+        | ValueSome k -> sink.InternBinder k
+        | ValueNone -> ()
+
+        let kids = TastAccessor.patChildren p |> Array.map (poolPat sink)
+
+        sink.AddPat
+            {
+                Shape = TastAccessor.patKind p
+                Ty = TastAccessor.patTy p
+                Tok = TastAccessor.patTok p
+                Children = kids
+                Payload = patPayload p
+            }
+
+    /// Pool an expression subtree post-order (see `poolPat`), its owned sub-patterns
+    /// included.
+    let rec poolExpr (sink: PoolSink) (e: Frozen.TExpr) : ExprPoolId =
+        match TastAccessor.exprKind e with
+        | ExprShape.ForTo -> sink.InternBinder (TastAccessor.exprForTo e).Var
+        | _ -> ()
+
+        let exprKids = TastAccessor.exprChildren e |> Array.map (poolExpr sink)
+        let patKids = TastAccessor.exprPatChildren e |> Array.map (poolPat sink)
+
+        let id =
+            sink.AddExpr
+                {
+                    Shape = TastAccessor.exprKind e
+                    Ty = TastAccessor.exprTy e
+                    Tok = TastAccessor.exprTok e
+                    Children = exprKids
+                    PatChildren = patKids
+                    VarBinder = ValueNone
+                    Payload = exprPayload e
+                }
+
+        sink.OnExprPooled e id
+        id
+
+    /// Pool a declaration and its expr/pat roots (see `poolPat`). A `Type` decl surfaces
+    /// no children — its member bodies ride the payload opaquely.
+    let poolDecl (sink: PoolSink) (d: Frozen.TDecl) : DeclPoolId =
+        let struct (exprKids, patKids) =
+            match TastAccessor.declKind d with
+            | DeclShape.Let ->
+                let v = TastAccessor.declLet d
+                struct ([| poolExpr sink v.Value |], [| poolPat sink v.Binding |])
+            | DeclShape.Expression -> struct ([| poolExpr sink (TastAccessor.declExpression d) |], [||])
+            | DeclShape.Type -> struct ([||], [||])
+
+        sink.AddDecl
+            {
+                Shape = TastAccessor.declKind d
+                ExprChildren = exprKids
+                PatChildren = patKids
+                Payload = declPayload d
+            }
+
     /// Pool the frozen tree of `file.Decls`, assigning each reachable node a dense id
-    /// and recording its child edges as ids. Post-order: a node's children are pooled
-    /// (and so given lower ids) before the node itself is recorded, so every child id a
-    /// column names already resolves. The child enumeration is the accessor's — no
-    /// tree-shape knowledge is duplicated here.
+    /// and recording its child edges as ids.
     let toPools (file: Frozen.TastFile) : FrozenPools =
         // The expression pool as parallel column builders (struct-of-arrays); all are
         // appended together per node so they stay index-aligned by `ExprPoolId`.
@@ -208,78 +288,55 @@ module TastPools =
             | false, _ ->
                 binderIds.Add(k, BinderId binderKeys.Count)
                 binderKeys.Add k
-                // The naming triple IS the key's projections — the same three bits
-                // `binderName` reads — so it is faithful to emitted names by construction,
-                // and stays correct after the key itself retires. Its slot stays aligned
-                // with `binderKeys` by appending in lockstep.
-                binderNamings.Add
-                    {
-                        IsSynthetic = k.IsSynthetic
-                        Offset = k.Offset
-                        NameIndex = k.NameIndex
-                    }
+                // The naming slot stays aligned with `binderKeys` by appending in lockstep.
+                binderNamings.Add(BinderNaming.ofKey k)
 
-        let rec poolPat (p: Frozen.TPat) : PatPoolId =
-            match TastAccessor.patBinder p with
-            | ValueSome k -> internBinder k
-            | ValueNone -> ()
+        // The sink: rows land at the end of the column builders, so a node's id is the
+        // count at the moment it is added. `ExprRow.VarBinder` is dropped here — the `Var`
+        // reference edge cannot resolve until the binder enumeration is complete, so it is
+        // recorded as pending and filled by the second pass below.
+        let sink: PoolSink =
+            {
+                InternBinder = internBinder
+                AddExpr =
+                    fun row ->
+                        let id = exprShapes.Count
+                        exprShapes.Add row.Shape
+                        exprTys.Add row.Ty
+                        exprToks.Add row.Tok
+                        exprChildrenCol.Add row.Children
+                        exprPatChildrenCol.Add row.PatChildren
+                        exprPayloads.Add row.Payload
+                        ExprPoolId id
+                AddPat =
+                    fun row ->
+                        let id = patShapes.Count
+                        patShapes.Add row.Shape
+                        patTys.Add row.Ty
+                        patToks.Add row.Tok
+                        patChildrenCol.Add row.Children
+                        patPayloads.Add row.Payload
+                        PatPoolId id
+                AddDecl =
+                    fun row ->
+                        let id = declShapes.Count
+                        declShapes.Add row.Shape
+                        declExprChildrenCol.Add row.ExprChildren
+                        declPatChildrenCol.Add row.PatChildren
+                        declPayloads.Add row.Payload
+                        DeclPoolId id
+                // A `Var`'s binder reference resolves in pass 2 (see `varBindings`); a
+                // lambda's positional identity is its slot, stamped so `FunVerdicts`
+                // (lambda-expression-keyed) resolves onto it.
+                OnExprPooled =
+                    fun e (ExprPoolId id) ->
+                        match TastAccessor.exprKind e with
+                        | ExprShape.Var -> varBindings.Add(struct (id, TastAccessor.exprVarBinding e))
+                        | ExprShape.Lambda -> lambdaIds.[TastWalk.lambdaKey e] <- ExprPoolId id
+                        | _ -> ()
+            }
 
-            let kids = TastAccessor.patChildren p |> Array.map poolPat
-            let id = patShapes.Count
-
-            patShapes.Add(TastAccessor.patKind p)
-            patTys.Add(TastAccessor.patTy p)
-            patToks.Add(TastAccessor.patTok p)
-            patChildrenCol.Add kids
-            patPayloads.Add(patPayload p)
-
-            PatPoolId id
-
-        let rec poolExpr (e: Frozen.TExpr) : ExprPoolId =
-            match TastAccessor.exprKind e with
-            | ExprShape.ForTo -> internBinder (TastAccessor.exprForTo e).Var
-            | _ -> ()
-
-            let exprKids = TastAccessor.exprChildren e |> Array.map poolExpr
-            let patKids = TastAccessor.exprPatChildren e |> Array.map poolPat
-            let id = exprShapes.Count
-
-            exprShapes.Add(TastAccessor.exprKind e)
-            exprTys.Add(TastAccessor.exprTy e)
-            exprToks.Add(TastAccessor.exprTok e)
-            exprChildrenCol.Add exprKids
-            exprPatChildrenCol.Add patKids
-            exprPayloads.Add(exprPayload e)
-
-            // A `Var`'s binder reference resolves in pass 2 (see `varBindings`); a lambda's
-            // positional identity is this very slot, stamped so `FunVerdicts`
-            // (lambda-expression-keyed) resolves onto it.
-            match TastAccessor.exprKind e with
-            | ExprShape.Var -> varBindings.Add(struct (id, TastAccessor.exprVarBinding e))
-            | ExprShape.Lambda -> lambdaIds.[TastWalk.lambdaKey e] <- ExprPoolId id
-            | _ -> ()
-
-            ExprPoolId id
-
-        let poolDecl (d: Frozen.TDecl) : DeclPoolId =
-            let struct (exprKids, patKids) =
-                match TastAccessor.declKind d with
-                | DeclShape.Let ->
-                    let v = TastAccessor.declLet d
-                    struct ([| poolExpr v.Value |], [| poolPat v.Binding |])
-                | DeclShape.Expression -> struct ([| poolExpr (TastAccessor.declExpression d) |], [||])
-                | DeclShape.Type -> struct ([||], [||])
-
-            let id = declShapes.Count
-
-            declShapes.Add(TastAccessor.declKind d)
-            declExprChildrenCol.Add exprKids
-            declPatChildrenCol.Add patKids
-            declPayloads.Add(declPayload d)
-
-            DeclPoolId id
-
-        let roots = file.Decls |> EqArray.toArray |> Array.map poolDecl
+        let roots = file.Decls |> EqArray.toArray |> Array.map (poolDecl sink)
 
         // Resolve a reference/side-table key to the binder it names. A miss means the
         // referent was minted by no `NamedSimple`/`ForTo` node — an incomplete binder

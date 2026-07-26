@@ -34,6 +34,7 @@
     <Compile Include="TastAccessor.fs" />
     <Compile Include="TastPoolTypes.fs" />
     <Compile Include="TastPools.fs" />
+    <Compile Include="TastPoolBuilder.fs" />
     <!-- After the pools: `FrozenCodec` serializes the POOL columns, so it depends on
          `TastPoolTypes`/`TastPools`, not the other way round. -->
     <Compile Include="FrozenCodec.fs" />

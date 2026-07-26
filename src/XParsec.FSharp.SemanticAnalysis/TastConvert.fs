@@ -183,10 +183,7 @@ module TastConvert =
             IsMutable = fld.IsMutable
         }
 
-    let typeMember
-        (f: 'a -> 'b)
-        (m: TTypeMemberG<'a, TExprG<'a, 'tok>>)
-        : TTypeMemberG<'b, TExprG<'b, 'tok>> =
+    let typeMember (f: 'a -> 'b) (m: TTypeMemberG<'a, TExprG<'a, 'tok>>) : TTypeMemberG<'b, TExprG<'b, 'tok>> =
         {
             Name = m.Name
             IsStatic = m.IsStatic
@@ -210,10 +207,7 @@ module TastConvert =
             Init = expr f l.Init
         }
 
-    let preambleEntry
-        (f: 'a -> 'b)
-        (p: TPreambleEntryG<'a, TExprG<'a, 'tok>>)
-        : TPreambleEntryG<'b, TExprG<'b, 'tok>> =
+    let preambleEntry (f: 'a -> 'b) (p: TPreambleEntryG<'a, TExprG<'a, 'tok>>) : TPreambleEntryG<'b, TExprG<'b, 'tok>> =
         match p with
         | TPreambleEntryG.Let l -> TPreambleEntryG.Let(classLet f l)
         | TPreambleEntryG.Do e -> TPreambleEntryG.Do(expr f e)
@@ -225,10 +219,7 @@ module TastConvert =
             Init = expr f cl.Init
         }
 
-    let ctorFieldInit
-        (f: 'a -> 'b)
-        (fi: TCtorFieldInitG<TExprG<'a, 'tok>>)
-        : TCtorFieldInitG<TExprG<'b, 'tok>> =
+    let ctorFieldInit (f: 'a -> 'b) (fi: TCtorFieldInitG<TExprG<'a, 'tok>>) : TCtorFieldInitG<TExprG<'b, 'tok>> =
         {
             Field = fi.Field
             Init = expr f fi.Init
@@ -245,10 +236,7 @@ module TastConvert =
             FieldInits = EqArray.map (ctorFieldInit f) sc.FieldInits
         }
 
-    let baseCtorCall
-        (f: 'a -> 'b)
-        (bc: TBaseCtorCallG<'a, TExprG<'a, 'tok>>)
-        : TBaseCtorCallG<'b, TExprG<'b, 'tok>> =
+    let baseCtorCall (f: 'a -> 'b) (bc: TBaseCtorCallG<'a, TExprG<'a, 'tok>>) : TBaseCtorCallG<'b, TExprG<'b, 'tok>> =
         {
             CtorParams = EqArray.map (fun (k, ty) -> k, f ty) bc.CtorParams
             Args = EqArray.map (expr f) bc.Args

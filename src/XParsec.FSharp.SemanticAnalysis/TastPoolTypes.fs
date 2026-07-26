@@ -254,6 +254,21 @@ type BinderNaming =
         NameIndex: int
     }
 
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module BinderNaming =
+
+    /// The naming triple IS the key's own projections — the same three bits `binderName`
+    /// reads — so a pooled binder names identically to its `NodeKey` by construction, and
+    /// stays correct after the key itself retires. Sole constructor: every site that interns
+    /// a binder (the initial pool build, an overlay builder's mint) derives the triple here
+    /// so no site can drift from `binderName`.
+    let ofKey (k: NodeKey) : BinderNaming =
+        {
+            IsSynthetic = k.IsSynthetic
+            Offset = k.Offset
+            NameIndex = k.NameIndex
+        }
+
 /// The residual payload of a frozen declaration node — one case per `DeclShape`. A decl
 /// carries no uniform node-level `ty`/`tok` (there are no `DeclTys`/`DeclToks` columns), so
 /// each case rides whatever type/scalars it needs. Its child expr/pat roots live in the
@@ -380,4 +395,50 @@ type FrozenPools =
         GenericFnSchemes: (BinderId * FrozenConstraint list)[]
         BindingValReprs: (BinderId * Frozen.ValRepr)[]
         BindingTyparArities: (BinderId * int)[]
+    }
+
+// ── the ROW view: one node's slice across the parallel columns ──────────────
+//
+// A `*Row` is the TRANSPOSE of the columns at one id — every column value of a single
+// node, gathered. It is what a node-at-a-time producer or rewriter speaks: the pooling
+// walk hands the sink a whole row rather than a widening argument list, and a REWRITE is
+// `{ row with Children = … }` / `{ row with Ty = … }` — a row copy with no per-case match
+// on the node's shape, which is what makes a columnar rewrite cheaper than rebuilding a
+// DU node. The columns stay the storage form; rows never accumulate anywhere the layout
+// matters.
+
+/// One expression node's slice across the `Expr*` columns, in column order.
+type ExprRow =
+    {
+        Shape: ExprShape
+        Ty: FrozenType
+        Tok: SyntaxToken
+        Children: ExprPoolId[]
+        PatChildren: PatPoolId[]
+        /// The `Var` reference edge (`ValueNone` at every other shape). A tree WALK cannot
+        /// fill this — assigning binder ids is the pooling sink's business, and a `Var` may
+        /// name a binder the walk has not reached yet — so a walk-produced row carries
+        /// `ValueNone` here and the sink supplies the id once it can resolve one.
+        VarBinder: BinderId voption
+        Payload: ExprPayload
+    }
+
+/// One pattern node's slice across the `Pat*` columns, in column order.
+type PatRow =
+    {
+        Shape: PatShape
+        Ty: FrozenType
+        Tok: SyntaxToken
+        Children: PatPoolId[]
+        Payload: PatPayload
+    }
+
+/// One declaration node's slice across the `Decl*` columns, in column order (a decl has no
+/// node-level `ty`/`tok` — its type rides the payload).
+type DeclRow =
+    {
+        Shape: DeclShape
+        ExprChildren: ExprPoolId[]
+        PatChildren: PatPoolId[]
+        Payload: DeclPayload
     }
