@@ -155,7 +155,7 @@ module TastWalk =
     /// THE definition of "is a binder", and generic over the domain on purpose: the
     /// pre-freeze producers of the binder-keyed side tables (`Elaborate`, `Regions`)
     /// decide what to key on with the SAME function the post-freeze pool enumerates
-    /// with (`TastPools.toPools`, via `TastAccessor.patBinder`), so the two cannot
+    /// with (`TastPools.toPools`, via `TastWalk.patBinder`), so the two cannot
     /// drift. They must not: `toPools` FAULTS on a side-table key that names no pooled
     /// binder, so a producer keying on a non-binder node is a hard failure on the
     /// serialization path, not a stale entry.

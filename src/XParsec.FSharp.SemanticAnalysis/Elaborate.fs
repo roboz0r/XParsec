@@ -1908,10 +1908,18 @@ module Elaborate =
             [
                 for b in bindings do
                     let tpat = translatePat ctx b.headPat
+
+                    // An E1 format-literal alias binding is ELIDED below — it reaches the
+                    // frozen tree as no declaration at all — so it introduces NO binder.
+                    // Recording one would file a side-table entry against a definition
+                    // site the tree does not contain, which the frozen binder pool
+                    // (`TastPools.toPools`) faults on.
+                    let elided = ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat)
+
                     // Every frozen side table below is filed under THIS key, never under
                     // `CstKeys.ofBinding b` — see `frozenBindingBinder`. A head pattern
                     // that introduces no binder records nothing at all.
-                    let binder = frozenBindingBinder tpat
+                    let binder = if elided then ValueNone else frozenBindingBinder tpat
 
                     // Inside a named module: record where this binding's static
                     // method belongs. The emitted method takes its `[<CompiledName>]`
@@ -2038,7 +2046,7 @@ module Elaborate =
                     // and the self-host contract has no cold runtime for a format value,
                     // so nothing reads it. (A genuinely dynamic read is E2, rejected
                     // upstream.) Eliding it here keeps `New PrintfFormat` off codegen.
-                    if not (ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat)) then
+                    if not elided then
                         yield TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv
             ]
         | ModuleElem.Expression e ->

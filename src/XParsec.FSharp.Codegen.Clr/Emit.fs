@@ -11,7 +11,7 @@ open EmitExpr
 /// The codegen TAST walker, split across modules: `EmitLower` (External-as-value
 /// eta-reification; inline expansion — operators included —
 /// ran pre-freeze in `Passes.InlineExpansion`), `EmitClosures` (closure / static-method
-/// discovery), `EmitExpr` (`Frozen.TExpr` -> IL via the depth-tracked `Cil` helpers),
+/// discovery), `EmitExpr` (`TastAccessor.ExprId` -> IL via the depth-tracked `Cil` helpers),
 /// and this `Emit` (the method/body builders codegen calls). The shared data
 /// types live in `EmitTypes`. This module re-exports the public surface of the
 /// helper modules so callers keep using `Emit.*`.
@@ -53,7 +53,7 @@ module Emit =
     /// binds a `Main` local — except a function lowered to a static method,
     /// which has no value here; each effectful expression is emitted in source
     /// order; then `ldc.i4.0; ret`. (Inline bindings were removed by `lower`.)
-    let buildMain (ctx: EmitContext) (decls: Frozen.TDecl list) : ILBody =
+    let buildMain (ctx: EmitContext) (decls: TastAccessor.DeclId list) : ILBody =
         let b = IlBuilder()
         let env = EmitEnv.ofContext ctx (Dictionary())
 
@@ -191,7 +191,7 @@ module Emit =
         (baseKey: NodeKey voption)
         (prms: EqArray<NodeKey * FrozenType>)
         (voidReturn: bool)
-        (body: Frozen.TExpr)
+        (body: TastAccessor.ExprId)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
@@ -251,9 +251,9 @@ module Emit =
     let buildSecondaryCtor
         (ctx: EmitContext)
         (prms: EqArray<NodeKey * FrozenType>)
-        (lets: Frozen.TCtorLet list)
+        (lets: TastAccessor.CtorLet list)
         (primaryCtor: EntityHandle)
-        (primaryArgs: Frozen.TExpr list)
+        (primaryArgs: TastAccessor.ExprId list)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
@@ -288,8 +288,8 @@ module Emit =
     let buildSecondaryCtorFieldInit
         (ctx: EmitContext)
         (prms: EqArray<NodeKey * FrozenType>)
-        (lets: Frozen.TCtorLet list)
-        (fieldInits: (EntityHandle * Frozen.TExpr) list)
+        (lets: TastAccessor.CtorLet list)
+        (fieldInits: (EntityHandle * TastAccessor.ExprId) list)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
@@ -314,7 +314,7 @@ module Emit =
     /// the `unit` it leaves must be drained before the next step. A body that
     /// *terminates* (`raise`) reset the builder's depth to 0 and leaves nothing; any
     /// deeper stack is a codegen bug.
-    let private buildForEffect (env: EmitEnv) (b: IlBuilder) (body: Frozen.TExpr) : unit =
+    let private buildForEffect (env: EmitEnv) (b: IlBuilder) (body: TastAccessor.ExprId) : unit =
         buildExpr env b body
 
         match b.Depth with

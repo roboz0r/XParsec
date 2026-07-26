@@ -17,10 +17,10 @@ open AssemblerScaffold
 type private UnitPrelude =
     {
         Layout: UnitLayout
-        CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
-        CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
-        ClosureValueTypeByNode: Dictionary<Frozen.TExpr, FrozenType>
-        ClosureTypeDefByNode: Dictionary<Frozen.TExpr, EntityHandle>
+        CtorHandleByNode: Dictionary<ExprPoolId, EntityHandle>
+        CachedClosureFieldByNode: Dictionary<ExprPoolId, EntityHandle>
+        ClosureValueTypeByNode: Dictionary<ExprPoolId, FrozenType>
+        ClosureTypeDefByNode: Dictionary<ExprPoolId, EntityHandle>
         Verdict: ClosureVerdictRewrite.Rewrite
     }
 
@@ -290,13 +290,11 @@ type internal Assembler
                     handle
                 )
 
-        let ctorHandleByNode =
-            Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+        let ctorHandleByNode = Dictionary<ExprPoolId, EntityHandle>()
 
         // A non-capturing, monomorphic closure's cached singleton field: its
         // construction sites `ldsfld` this instead of `newobj`ing.
-        let cachedClosureFieldByNode =
-            Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+        let cachedClosureFieldByNode = Dictionary<ExprPoolId, EntityHandle>()
 
         // A captureless `Stack` (value-struct) closure's synthetic encodable `FrozenType`
         // (the by-value local + the constrained-slot `MethodSpec` type-argument) and its
@@ -306,18 +304,16 @@ type internal Assembler
         // slot, and that slot's field is in the up-front field pass. `BindClosures` reads
         // these already-minted entries rather than re-minting (`RegisterStackClosure-
         // ValueType` is single-shot — it fails on a duplicate `<closure>` key).
-        let closureValueTypeByNode =
-            Dictionary<Frozen.TExpr, FrozenType>(HashIdentity.Reference)
+        let closureValueTypeByNode = Dictionary<ExprPoolId, FrozenType>()
 
-        let closureTypeDefByNode =
-            Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+        let closureTypeDefByNode = Dictionary<ExprPoolId, EntityHandle>()
 
         for c in closures do
             if c.IsValueStruct then
                 let defHandle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
                 let ft = provider.RegisterStackClosureValueType(c.Name, defHandle)
-                closureValueTypeByNode.[c.Node] <- ft
-                closureTypeDefByNode.[c.Node] <- defHandle
+                closureValueTypeByNode.[c.Node.Id] <- ft
+                closureTypeDefByNode.[c.Node.Id] <- defHandle
 
         // A numeric enum's case `Constant` values + its `NumericEnum` registry entry.
         // Both must exist before the field pass (which attaches the `Constant` rows). SRM
@@ -353,7 +349,7 @@ type internal Assembler
                     cd.Interfaces
                     |> List.tryPick (fun (_, members) ->
                         members
-                        |> List.tryPick (fun (m: Frozen.TTypeMember) ->
+                        |> List.tryPick (fun (m: TastAccessor.TypeMember) ->
                             if m.Name = "GetEnumerator" then Some m.ReturnTy else None
                         )
                     )
@@ -726,13 +722,13 @@ type internal Assembler
     member this.BindClosures(u: UnitEmit) =
         for c in u.Layout.Closures do
             if c.Typars = 0 then
-                u.EmitCtx.CtorHandleByNode.[c.Node] <-
+                u.EmitCtx.CtorHandleByNode.[c.Node.Id] <-
                     toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
 
             // A non-capturing, monomorphic closure is cached: the construction site
             // `ldsfld`s its singleton field instead of `newobj`ing.
             if Emit.closureIsCached c then
-                u.EmitCtx.CachedClosureFieldByNode.[c.Node] <-
+                u.EmitCtx.CachedClosureFieldByNode.[c.Node.Id] <-
                     toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
 
             // A captureless `Stack` (value-struct) closure is
@@ -742,7 +738,7 @@ type internal Assembler
             // minted in `buildPrelude` (before the field pass, so the stored-slot
             // substitution could read them); `RegisterStackClosureValueType` is
             // single-shot, so this only asserts they are present — never re-mints.
-            if c.IsValueStruct && not (u.EmitCtx.ClosureValueTypeByNode.ContainsKey c.Node) then
+            if c.IsValueStruct && not (u.EmitCtx.ClosureValueTypeByNode.ContainsKey c.Node.Id) then
                 failwithf "Emit: value-struct closure '%s' was not pre-minted before the field pass" c.Name
 
     member this.PrepareInterfaces(u: UnitEmit) =

@@ -13,4 +13,4 @@ module EmitDispatch =
     /// — every other cross-arm call is a forward reference resolved by compile
     /// order, so this single abbreviation is all the indirection the split needs
     /// (no mutable dispatch cell). Mirrors `UnificationInferDispatch.Infer`.
-    type Recur = EmitEnv -> IlBuilder -> Frozen.TExpr -> unit
+    type Recur = EmitEnv -> IlBuilder -> TastAccessor.ExprId -> unit

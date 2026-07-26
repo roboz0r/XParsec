@@ -14,18 +14,18 @@ open XParsec.FSharp.SemanticAnalysis
 /// the `ILIntrinsic` node a contract's per-primitive `when ^T : …` clause carries.
 module EmitLower =
 
-    let typeOfExpr = TastLower.typeOfExpr
-    let typeOfPat = TastLower.typeOfPat
+    let typeOfExpr = TastAccessor.exprTy
+    let typeOfPat = TastAccessor.patTy
     // `inline` so the call sites keep `TastLower.receiverShape`'s inlining (a plain
     // re-export `let` would demote it to an allocated function value).
     let inline receiverShape ty = TastLower.receiverShape ty
     let matchInstantiation = TastLower.matchInstantiation
     let matchInstantiationPartial = TastLower.matchInstantiationPartial
-    let iterChildren = TastLower.iterChildren
+    let iterChildren = TastAccessor.iterChildren
     let mintUnitParamKey = TastLower.mintUnitParamKey
     let mintTupleParamKey = TastLower.mintTupleParamKey
     let mintUseBinderKey = TastLower.mintUseBinderKey
     let peelLambda = TastLower.peelLambda
 
     /// The CLR backend's `lower`: the shared, platform-neutral `TastLower.lower`.
-    let lower (decls: EqArray<Frozen.TDecl>) : Frozen.TDecl list = TastLower.lower decls
+    let lower (decls: TastAccessor.DeclId list) : TastAccessor.DeclId list = TastLower.lower decls

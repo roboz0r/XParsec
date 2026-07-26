@@ -20,15 +20,15 @@ let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
     TastPools.toPools frozen, frozen
 
 let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Frozen.TPat) =
-    Expect.equal pools.PatShapes.[i] (TastAccessor.patKind du) "pat shape"
-    let duKids = TastAccessor.patChildren du
+    Expect.equal pools.PatShapes.[i] (TastPools.patShape du) "pat shape"
+    let duKids = TastPools.patChildren du
     Expect.equal pools.PatChildren.[i].Length duKids.Length "pat child fan-out"
     Array.iter2 (checkPat pools) pools.PatChildren.[i] duKids
 
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Frozen.TExpr) =
-    Expect.equal pools.ExprShapes.[i] (TastAccessor.exprKind du) "expr shape"
-    let duExprKids = TastAccessor.exprChildren du
-    let duPatKids = TastAccessor.exprPatChildren du
+    Expect.equal pools.ExprShapes.[i] (TastPools.exprShape du) "expr shape"
+    let duExprKids = TastPools.exprChildren du
+    let duPatKids = TastPools.exprPatChildren du
     Expect.equal pools.ExprChildren.[i].Length duExprKids.Length "expr child fan-out"
     Expect.equal pools.ExprPatChildren.[i].Length duPatKids.Length "expr's pat fan-out"
     Array.iter2 (checkExpr pools) pools.ExprChildren.[i] duExprKids
@@ -53,20 +53,19 @@ let private bodySlots (td: TTypeDeclG<FrozenType, SyntaxToken, 'body>) : 'body[]
     slots.ToArray()
 
 let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
-    Expect.equal pools.DeclShapes.[i] (TastAccessor.declKind du) "decl shape"
+    Expect.equal pools.DeclShapes.[i] (TastPools.declShape du) "decl shape"
 
-    match TastAccessor.declKind du with
-    | DeclShape.Let ->
-        let v = TastAccessor.declLet du
+    match du with
+    | TDeclG.Let(binding = binding; value = value) ->
         Expect.equal pools.DeclExprChildren.[i].Length 1 "let decl one value child"
         Expect.equal pools.DeclPatChildren.[i].Length 1 "let decl one binding child"
-        checkExpr pools pools.DeclExprChildren.[i].[0] v.Value
-        checkPat pools pools.DeclPatChildren.[i].[0] v.Binding
-    | DeclShape.Expression ->
+        checkExpr pools pools.DeclExprChildren.[i].[0] value
+        checkPat pools pools.DeclPatChildren.[i].[0] binding
+    | TDeclG.Expression(expr = expr) ->
         Expect.equal pools.DeclExprChildren.[i].Length 1 "expression decl one child"
         Expect.equal pools.DeclPatChildren.[i].Length 0 "expression decl no pat child"
-        checkExpr pools pools.DeclExprChildren.[i].[0] (TastAccessor.declExpression du)
-    | DeclShape.Type ->
+        checkExpr pools pools.DeclExprChildren.[i].[0] expr
+    | TDeclG.Type duTd ->
         Expect.equal pools.DeclExprChildren.[i].Length 0 "type decl surfaces no expr child"
         Expect.equal pools.DeclPatChildren.[i].Length 0 "type decl surfaces no pat child"
 
@@ -77,7 +76,7 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
         match pools.DeclPayloads.[i] with
         | DeclPayload.Type td ->
             let ids = bodySlots td
-            let bodies = bodySlots (TastAccessor.declType du)
+            let bodies = bodySlots duTd
             Expect.equal ids.Length bodies.Length "one pooled body id per type-decl body slot"
             Array.iter2 (checkExpr pools) ids bodies
         | p -> failtestf "a Type decl's pool payload is %A, not DeclPayload.Type" p
@@ -154,34 +153,31 @@ let private checkMintInvariant (frozen: Frozen.TastFile) : int =
             Expect.equal k.Offset tok.StartIndex (sprintf "real %s binder offset is its node token StartIndex" what)
 
     let rec walkPat (p: Frozen.TPat) =
-        match TastAccessor.patBinder p with
-        | ValueSome k -> checkReal k (TastAccessor.patTok p) "NamedSimple"
+        match TastWalk.patBinder p with
+        | ValueSome k -> checkReal k (TastWalk.patTok p) "NamedSimple"
         | ValueNone -> ()
 
-        for sub in TastAccessor.patChildren p do
+        for sub in TastPools.patChildren p do
             walkPat sub
 
     let rec walkExpr (e: Frozen.TExpr) =
-        // `ForTo`'s loop binder is minted from `identTok`, which the `ForToView` does not
-        // surface — reach it on the DU node directly (the pool retains the same node).
         match e with
         | TExprG.ForTo(var = var; identTok = identTok) -> checkReal var identTok "ForTo"
         | _ -> ()
 
-        for pc in TastAccessor.exprPatChildren e do
+        for pc in TastPools.exprPatChildren e do
             walkPat pc
 
-        for ec in TastAccessor.exprChildren e do
+        for ec in TastPools.exprChildren e do
             walkExpr ec
 
     for d in EqArray.toArray frozen.Decls do
-        match TastAccessor.declKind d with
-        | DeclShape.Let ->
-            let v = TastAccessor.declLet d
-            walkPat v.Binding
-            walkExpr v.Value
-        | DeclShape.Expression -> walkExpr (TastAccessor.declExpression d)
-        | DeclShape.Type -> ()
+        match d with
+        | TDeclG.Let(binding = binding; value = value) ->
+            walkPat binding
+            walkExpr value
+        | TDeclG.Expression(expr = expr) -> walkExpr expr
+        | TDeclG.Type _ -> ()
 
     realBinders
 

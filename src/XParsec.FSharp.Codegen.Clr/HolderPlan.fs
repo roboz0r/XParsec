@@ -27,7 +27,7 @@ type HolderPlan =
         /// This is the single decl list every downstream pass (closure discovery,
         /// `buildMain`) must walk, so they see the same rewritten nodes the holder
         /// plan was computed from.
-        Lowered: Frozen.TDecl list
+        Lowered: TastAccessor.DeclId list
         /// Module-level values lowered to `public static` fields on their named
         /// holders, in declaration order (see `collectModuleValues` for the
         /// classification rules); every reference is an `ldsfld` — never a
@@ -99,7 +99,7 @@ module HolderPlan =
         (programHolder: Emit.HolderKey)
         (topLevelNames: Map<NodeKey, string>)
         (refStructNsNames: HashSet<string * string>)
-        (lowered0: Frozen.TDecl list)
+        (lowered0: TastAccessor.DeclId list)
         : HolderPlan =
         // The capture-only eligible set drives bridging: a value-use of a function
         // that survives as a static method becomes a curried bridge; a capture-demoted

@@ -23,7 +23,7 @@ type CallArity =
     /// The callee's SOURCE grouping drives the split: the walker consumes
     /// `groups.Length` spine elements and flattens each to its pushed CLR values
     /// (`CompiledFns.flattenPlan`); `flatArgCount` is the resulting flat pop count.
-    | Grouped of groups: Frozen.ArgGroup list * flatArgCount: int
+    | Grouped of groups: TastAccessor.ArgGroup list * flatArgCount: int
 
     /// The number of CLR values the `call` actually pops — what the IlIr stack model
     /// adjusts by (`Pushes - FlatArgCount`). The spine-element count is this for

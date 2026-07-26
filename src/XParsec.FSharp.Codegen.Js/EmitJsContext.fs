@@ -58,6 +58,12 @@ module EmitJsContext =
     type WalkCtx =
         {
             Resolver: Resolver
+            /// The file's node pool, with this emission's append-only overlay. Every node
+            /// the walker reads resolves through it, and the nodes the walker DERIVES (an
+            /// `InlinableLet` splice) are appended to it mid-walk. It is also where a
+            /// binder's emitted NAME comes from: `binderName` reads the pool's naming
+            /// column rather than unpacking a `NodeKey`'s bits.
+            Pool: PoolBuilder
             Source: string voption
             Records: Dictionary<SymbolKey, JsRecordInfo>
             Unions: Dictionary<SymbolKey, JsUnionInfo>
@@ -125,6 +131,7 @@ module EmitJsContext =
         /// there is no absent-provider case to carry.
         let create
             (resolver: Resolver)
+            (pool: PoolBuilder)
             (source: string voption)
             (provider: IExternalSymbolProvider)
             (imports: JsImports)
@@ -132,6 +139,7 @@ module EmitJsContext =
             : WalkCtx =
             {
                 Resolver = resolver
+                Pool = pool
                 Source = source
                 Records = Dictionary()
                 Unions = Dictionary()
@@ -292,7 +300,7 @@ module EmitJsContext =
     /// Emit a nested (non-top-level) `let`/`const` for binder `k`: a reassignable `let`
     /// when the body mutates the binder (`k <- …`), else a `const`. The top-level
     /// analogue is `topLevelBinding`.
-    let localBinding (k: NodeKey) (body: Frozen.TExpr) (name: string) (init: JsExpr) : JsStatement =
+    let localBinding (k: NodeKey) (body: TastAccessor.ExprId) (name: string) (init: JsExpr) : JsStatement =
         if isAssignedIn k body then
             JsStatement.Let(name, init)
         else
@@ -436,7 +444,11 @@ module EmitJsContext =
     /// Free of expression emission (no `buildExpr`), so it lives here rather than in the
     /// main walker recursion — both `buildMatchArm` and the destructuring `for … in`
     /// binder reuse it.
-    let rec compileMatchPattern (ctx: WalkCtx) (access: JsExpr) (pat: Frozen.TPat) : JsExpr option * JsStatement list =
+    let rec compileMatchPattern
+        (ctx: WalkCtx)
+        (access: JsExpr)
+        (pat: TastAccessor.PatId)
+        : JsExpr option * JsStatement list =
         let memberAccess (field: string) =
             JsExpr.Member(access, JsExpr.Identifier(field, ValueNone), false, ValueNone)
 
@@ -444,7 +456,7 @@ module EmitJsContext =
         | PatShape.Wildcard -> None, []
         | PatShape.NamedSimple ->
             let k = (TastAccessor.patBinder pat).Value
-            None, [ JsStatement.Const(binderName ctx.Source k, access) ]
+            None, [ JsStatement.Const(binderNameOf ctx.Pool ctx.Source k, access) ]
         | PatShape.Const ->
             let value = TastAccessor.patConstValue pat
             Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []

@@ -324,10 +324,10 @@ let tests =
             // SRTP member constraint has no IL encoding at all, so it does not.
             test "lowering emits a StaticOptimization inline, and drops an SRTP one" {
                 let lowered (src: string) =
-                    TastLower.lower (freeze src).Decls
+                    TastLower.lower (pooledDecls (freeze src))
                     |> List.filter (fun d ->
                         match d with
-                        | TDeclG.Let(isInline = true) -> true
+                        | TastAccessor.DLet lv -> lv.IsInline
                         | _ -> false
                     )
 

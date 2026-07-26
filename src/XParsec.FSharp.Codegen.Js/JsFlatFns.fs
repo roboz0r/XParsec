@@ -7,7 +7,7 @@ open JsEmitHelpers
 
 /// The Fable-style FLAT module-function helpers, decoupled from the `EmitJs`
 /// walker. Each function that needs to lower a sub-expression takes a
-/// `build: Frozen.TExpr -> JsExpr` callback (the `EmitJs.buildExpr ctx` closure),
+/// `build: TastAccessor.ExprId -> JsExpr` callback (the `EmitJs.buildExpr ctx` closure),
 /// exactly as the CLR backend's `EmitCall.flattenGroupPushes` takes a `recur`.
 /// Keeping this cluster out of the `buildExpr` mutual-recursion group is what lets
 /// it live in its own file and keeps `EmitJs` legible.
@@ -31,9 +31,9 @@ module JsFlatFns =
 
     /// One flat compiled parameter's JS name: a simple binder reads its own slot; a
     /// destructuring leaf (a nested tuple element) renders as a `[a, b]` pattern.
-    let paramNameOf (source: string voption) (p: TastLower.StaticParam) : string =
+    let paramNameOf (pool: PoolBuilder) (source: string voption) (p: TastLower.StaticParam) : string =
         match p.Pat with
-        | None -> binderName source p.Slot
+        | None -> binderNameOf pool source p.Slot
         | Some pat -> lambdaParamName source pat
 
     /// The SOURCE groups of an EXTERNAL module function, read off the provider's
@@ -46,7 +46,10 @@ module JsFlatFns =
     /// `ValueNone` when there is no key (a test mock) or the symbol carries no `ValRepr`
     /// (a value, a hand-authored runtime primitive, a metadata-layer symbol) — the call
     /// then keeps the curried convention (correct for an all-`GSimple` signature).
-    let externalGroups (provider: IExternalSymbolProvider) (key: SymbolKey voption) : Frozen.ArgGroup list voption =
+    let externalGroups
+        (provider: IExternalSymbolProvider)
+        (key: SymbolKey voption)
+        : TastAccessor.ArgGroup list voption =
         match key with
         | ValueSome key ->
             match provider.TryLookup(SymbolKeyOps.qualifiedName key) with
@@ -61,9 +64,9 @@ module JsFlatFns =
     /// spilled to a temporary (returned in the snd; the caller binds it via `wrapSpills`
     /// so it evaluates exactly once).
     let flattenGroupArgs
-        (build: Frozen.TExpr -> JsExpr)
-        (groups: Frozen.ArgGroup list)
-        (leadingArgs: Frozen.TExpr list)
+        (build: TastAccessor.ExprId -> JsExpr)
+        (groups: TastAccessor.ArgGroup list)
+        (leadingArgs: TastAccessor.ExprId list)
         : JsExpr list * (string * JsExpr) list =
         let flat = ResizeArray<JsExpr>()
         let spills = ResizeArray<string * JsExpr>()
@@ -83,7 +86,7 @@ module JsFlatFns =
                     for j in 0 .. n - 1 do
                         flat.Add(indexMember je j)
                 else
-                    let tmp = "_tg" + string (TastWalk.exprTok a).StartIndex
+                    let tmp = "_tg" + string (TastAccessor.exprTok a).StartIndex
                     spills.Add(tmp, build a)
 
                     for j in 0 .. n - 1 do
@@ -107,10 +110,10 @@ module JsFlatFns =
     /// source group) into a single flat `callee(flatArgs…)`, then fold any residual
     /// over-application on as unary calls.
     let emitFlatCall
-        (build: Frozen.TExpr -> JsExpr)
+        (build: TastAccessor.ExprId -> JsExpr)
         (callee: JsExpr)
-        (groups: Frozen.ArgGroup list)
-        (spine: (Frozen.TExpr * FrozenType * SyntaxToken) list)
+        (groups: TastAccessor.ArgGroup list)
+        (spine: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
         (loc: JsLoc voption)
         : JsExpr =
         let leading, rest = List.splitAt (List.length groups) spine
@@ -128,7 +131,7 @@ module JsFlatFns =
     /// expects: `(c0) => (c1) => callee(c0, c1)`. A tuple group's single curried
     /// parameter is destructured into the flat call's positional reads; a lone unit
     /// parameter is accepted and dropped. `off` disambiguates the synthetic names.
-    let curryAdapter (callee: JsExpr) (groups: Frozen.ArgGroup list) (off: int) (loc: JsLoc voption) : JsExpr =
+    let curryAdapter (callee: JsExpr) (groups: TastAccessor.ArgGroup list) (off: int) (loc: JsLoc voption) : JsExpr =
         let isLone = TastLower.isLoneUnitGroup groups
 
         let names = groups |> List.mapi (fun i _ -> "_c" + string off + "_" + string i)

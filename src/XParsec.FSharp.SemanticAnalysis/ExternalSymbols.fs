@@ -129,7 +129,7 @@ type ExternalSymbol =
         /// everything that is not a contract-extracted function (module values,
         /// operators, the `monoFrozen`/`scheme` builders, metadata-layer symbols) — those
         /// keep the curried-`Scheme` reconstruction at the codegen boundary.
-        ValRepr: Frozen.ValRepr voption
+        ValRepr: TastAccessor.ValRepr voption
         /// How the symbol's home module exports it (see `ImportForm`). Stamped
         /// `Default` by the TS-manifest provider for a TS `export default`
         /// (mitt's factory); `Named` for every other producer — the
@@ -1069,7 +1069,7 @@ type CodegenOpenSignature =
         /// a metadata-layer symbol); the boundary then keeps the curried
         /// reconstruction. The compiled form is never stored alongside — it is fully
         /// determined by the `ValRepr`.
-        ValRepr: Frozen.ValRepr voption
+        ValRepr: TastAccessor.ValRepr voption
         /// The symbol's `when 'a :> <ty>` bounds, frozen over the method-typar axis
         /// (`FTTypar(Method, i)` leaves), in the SAME `FrozenConstraint` shape the
         /// project-local `EmitCall` phantom-typar solve consumes. Re-opens the channel

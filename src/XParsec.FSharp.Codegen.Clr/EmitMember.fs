@@ -31,7 +31,7 @@ module EmitMember =
         (recur: Recur)
         (env: EmitEnv)
         (b: IlBuilder)
-        (receiver: Frozen.TExpr)
+        (receiver: TastAccessor.ExprId)
         (receiverTy: FrozenType)
         : unit =
         match receiver with
@@ -78,10 +78,10 @@ module EmitMember =
         (env: EmitEnv)
         (b: IlBuilder)
         (via: CallVia<FrozenType>)
-        (receiver: Frozen.TExpr)
+        (receiver: TastAccessor.ExprId)
         (receiverTy: FrozenType)
         (handle: EntityHandle)
-        (args: EqArray<Frozen.TExpr>)
+        (args: EqArray<TastAccessor.ExprId>)
         (returnsUnit: bool)
         : unit =
         let isStructSelf =
@@ -130,10 +130,10 @@ module EmitMember =
         (recur: Recur)
         (env: EmitEnv)
         (b: IlBuilder)
-        (receiver: Frozen.TExpr)
+        (receiver: TastAccessor.ExprId)
         (key: SymbolKey)
         (ifaceArgs: EqArray<FrozenType>)
-        (args: EqArray<Frozen.TExpr>)
+        (args: EqArray<TastAccessor.ExprId>)
         (ty: FrozenType)
         : unit =
         let receiverTy = typeOfExpr receiver
@@ -206,7 +206,7 @@ module EmitMember =
         if returnsUnit then
             EmitTypes.buildUnitValue env b
 
-    let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildFieldGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprFieldGet e
         let receiver = view.Receiver
         let name = view.FieldName
@@ -218,7 +218,7 @@ module EmitMember =
         recur env b receiver
         b.Add(ILInstr.Ldfld handle)
 
-    let buildAssignment (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildAssignment (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprAssignment e
 
         match view.Lhs with
@@ -237,7 +237,7 @@ module EmitMember =
             | false, _ -> failwithf "Emit: assignment to a variable with no local slot: %O" binding
         | _ -> failwith "Emit: assignment lhs is not a mutable-local Var (front end should have rejected it)"
 
-    let buildFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprFieldSet e
         let receiver = view.Receiver
         let name = view.FieldName
@@ -255,7 +255,7 @@ module EmitMember =
         b.Add(ILInstr.Stfld handle)
         EmitTypes.buildUnitValue env b
 
-    let buildPropertyGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildPropertyGet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprPropertyGet e
         let receiver = view.Receiver
         let key = view.Key
@@ -282,7 +282,7 @@ module EmitMember =
             // A property get is never `unit`-returning, so it always yields a value.
             emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty false
 
-    let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprMethodCall e
         let receiver = view.Receiver
         let key = view.Key
@@ -334,13 +334,13 @@ module EmitMember =
 
             emitInstanceMember recur env b via receiver receiverTy handle args returnsUnit
 
-    let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildStaticPropertyGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let key = TastAccessor.exprStaticPropertyGetKey e
         let ty = TastAccessor.exprTy e
         let handle = resolveStaticMember env key [] ty
         b.Add(ILInstr.Call(handle, 0, 1))
 
-    let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprStaticFieldGet e
         let declKey = view.Key
         let name = view.FieldName
@@ -352,7 +352,7 @@ module EmitMember =
         | ValueSome instr -> b.Add instr
         | ValueNone -> b.Add(ILInstr.Ldsfld(resolveStaticField env declKey name))
 
-    let buildStaticFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildStaticFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprStaticFieldSet e
         let declKey = view.Key
         let name = view.FieldName
@@ -365,7 +365,7 @@ module EmitMember =
         b.Add(ILInstr.Stsfld(resolveStaticField env declKey name))
         EmitTypes.buildUnitValue env b
 
-    let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let key = TastAccessor.exprStaticMethodCallKey e
         // A `StaticMethodCall`'s arguments ARE its `exprChildren` (no receiver to merge).
         let args = TastAccessor.exprChildren e
@@ -419,7 +419,7 @@ module EmitMember =
         if returnsUnit then
             EmitTypes.buildUnitValue env b
 
-    let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildExternalMember (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprExternalMember e
         let receiver = view.Receiver
         let key = view.Key

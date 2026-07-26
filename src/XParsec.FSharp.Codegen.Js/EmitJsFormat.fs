@@ -43,12 +43,12 @@ module EmitJsFormat =
     /// variants — emit `toExponential`/`toPrecision`, an accepted JS *approximation*
     /// (minimal exponent width, `toPrecision` trailing zeros), not F# byte-parity.
     let buildHole
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (hole: Frozen.HoleSpec)
-        (operand: Frozen.TExpr)
-        (starWidth: Frozen.TExpr voption)
-        (starPrecision: Frozen.TExpr voption)
+        (operand: TastAccessor.ExprId)
+        (starWidth: TastAccessor.ExprId voption)
+        (starPrecision: TastAccessor.ExprId voption)
         : JsExpr =
         let num (n: int) =
             JsExpr.Literal(JsLiteral.Number(string n), ValueNone)
@@ -354,7 +354,7 @@ module EmitJsFormat =
         // curried application order, then `body` (which references `w` and reads the
         // value) runs. `body` may be a guarded block (padding forms) or an expression
         // (`%*A` clamp). The value operand is read once inside `body`.
-        let bindStarWidth (widthExpr: Frozen.TExpr) (body: JsFnBody) : JsExpr =
+        let bindStarWidth (widthExpr: TastAccessor.ExprId) (body: JsFnBody) : JsExpr =
             call (JsExpr.Arrow([ "w" ], body, ValueNone)) [ buildExpr ctx widthExpr ]
 
         // Bind the runtime star precision to `p`, evaluated *after* any width but before
@@ -363,7 +363,7 @@ module EmitJsFormat =
         // and `%A` keep the raw precision (`:649-657`, `:1114`). The error TYPE of a
         // negative raw precision diverges from the CLR (JS `toFixed` throws `RangeError`),
         // an accepted divergence like `%e`/`%g`.
-        let bindStarPrec (precExpr: Frozen.TExpr) (normalize: bool) (bodyExpr: JsExpr) : JsExpr =
+        let bindStarPrec (precExpr: TastAccessor.ExprId) (normalize: bool) (bodyExpr: JsExpr) : JsExpr =
             let arg =
                 if normalize then
                     invoke (id "Math") "max" [ num 0; invoke (id "Math") "min" [ num 99; buildExpr ctx precExpr ] ]
@@ -456,7 +456,7 @@ module EmitJsFormat =
                 | PrintfHoleForm.Alignment.Star leftJustify -> Option.Some(padDyn leftJustify)
 
             wrapDims (emitField fmt wrap)
-        // `%a`/`%t` callback holes ride a `FormatSegG.CallbackHole` whose residue string
+        // `%a`/`%t` callback holes ride a `TastAccessor.FormatSegView.CallbackHole` whose residue string
         // is spliced directly; a callback spec's `HoleForm` is provenance only and never
         // reaches this per-hole projection.
         | HoleSpecSource.Classified(HoleForm.Callback _) ->
@@ -465,20 +465,20 @@ module EmitJsFormat =
     /// Build the single argument a `console.log`/`error` call prints from format segments.
     /// Mixed formats are concatenations seeded with `""` so every `+` is string-valued.
     let buildFormatArg
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
-        (segments: EqArray<Frozen.FormatSeg>)
+        (segments: TastAccessor.FormatSegView[])
         : JsExpr =
         let buildHole = buildHole buildExpr ctx
 
         match segments with
-        | EqOne(FormatSegG.Lit s) -> JsExpr.Literal(JsLiteral.String s, ValueNone)
-        | EqOne(FormatSegG.Hole(hole, operand)) -> buildHole hole operand ValueNone ValueNone
-        | EqOne(FormatSegG.DynHole d) -> buildHole d.Spec d.Value d.Width d.Precision
+        | [| TastAccessor.FormatSegView.Lit s |] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
+        | [| TastAccessor.FormatSegView.Hole(hole, operand) |] -> buildHole hole operand ValueNone ValueNone
+        | [| TastAccessor.FormatSegView.DynHole d |] -> buildHole d.Spec d.Value d.Width d.Precision
         // `%a`/`%t`: Elaborate lowered the callback to an ordinary residue-string expr; the
         // splice is just that expr (on JS only `sprintf`'s `cb(undefined)[(v)]` reaches
         // here — writer/builder `%a` diagnoses at the capability gate before Elaborate).
-        | EqOne(FormatSegG.CallbackHole(_, residue)) -> buildExpr ctx residue
+        | [| TastAccessor.FormatSegView.CallbackHole(_, residue) |] -> buildExpr ctx residue
         | _ ->
             let pieces = ResizeArray<JsRawSeg>()
             // Seed with `""` so the first `+` already concatenates strings, even
@@ -489,11 +489,14 @@ module EmitJsFormat =
                 pieces.Add(JsRawSeg.Verbatim " + ")
 
                 match seg with
-                | FormatSegG.Lit s -> pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String s, ValueNone)))
-                | FormatSegG.Hole(hole, operand) ->
+                | TastAccessor.FormatSegView.Lit s ->
+                    pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String s, ValueNone)))
+                | TastAccessor.FormatSegView.Hole(hole, operand) ->
                     pieces.Add(JsRawSeg.Hole(buildHole hole operand ValueNone ValueNone))
-                | FormatSegG.DynHole d -> pieces.Add(JsRawSeg.Hole(buildHole d.Spec d.Value d.Width d.Precision))
-                | FormatSegG.CallbackHole(_, residue) -> pieces.Add(JsRawSeg.Hole(buildExpr ctx residue))
+                | TastAccessor.FormatSegView.DynHole d ->
+                    pieces.Add(JsRawSeg.Hole(buildHole d.Spec d.Value d.Width d.Precision))
+                | TastAccessor.FormatSegView.CallbackHole(_, residue) ->
+                    pieces.Add(JsRawSeg.Hole(buildExpr ctx residue))
 
             JsExpr.Raw(List.ofSeq pieces, ValueNone)
 
@@ -501,10 +504,10 @@ module EmitJsFormat =
     /// interleaved with operand expressions. `$$` is a literal `$`. A bare CIL
     /// mnemonic with operands but no `$N` hole is a hard error.
     let expandTemplate
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (template: string)
-        (args: Frozen.TExpr list)
+        (args: TastAccessor.ExprId list)
         : JsRawSeg list =
         let segs = ResizeArray<JsRawSeg>()
         let buf = System.Text.StringBuilder()

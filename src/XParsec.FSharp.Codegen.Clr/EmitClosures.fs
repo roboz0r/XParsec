@@ -7,7 +7,7 @@ open EmitTypes
 open EmitLower
 
 module EmitClosures =
-    let private patKeys (p: Frozen.TPat) : NodeKey list =
+    let private patKeys (p: TastAccessor.PatId) : NodeKey list =
         let acc = ResizeArray<NodeKey>()
 
         let rec go p =
@@ -36,7 +36,9 @@ module EmitClosures =
     /// the two closure walks below share (was spelled once via `patKind`, once via
     /// `patBinder`).
     [<return: Struct>]
-    let private (|LetBoundLambda|_|) (e: Frozen.TExpr) : struct (NodeKey * Frozen.TExpr * Frozen.TExpr) voption =
+    let private (|LetBoundLambda|_|)
+        (e: TastAccessor.ExprId)
+        : struct (NodeKey * TastAccessor.ExprId * TastAccessor.ExprId) voption =
         match e with
         | TastAccessor.ELet letv ->
             match TastAccessor.patBinder letv.Binding, TastAccessor.exprKind letv.Value with
@@ -61,7 +63,7 @@ module EmitClosures =
     let private walkFreeRefs
         (bound: HashSet<NodeKey>)
         (onFree: NodeKey -> FrozenType -> unit)
-        (body: Frozen.TExpr)
+        (body: TastAccessor.ExprId)
         : unit =
         let scoped (keys: NodeKey list) (k: unit -> unit) =
             let added = keys |> List.filter bound.Add
@@ -70,7 +72,7 @@ module EmitClosures =
             for key in added do
                 bound.Remove key |> ignore
 
-        let rec go (e: Frozen.TExpr) =
+        let rec go (e: TastAccessor.ExprId) =
             match e with
             | TastAccessor.EVar key ->
                 if not (bound.Contains key) then
@@ -99,7 +101,7 @@ module EmitClosures =
                     scoped
                         (patKeys arm.Pat)
                         (fun () ->
-                            arm.Guard |> Option.iter go
+                            arm.Guard |> ValueOption.iter go
                             go arm.Body
                         )
             | TastAccessor.ETryWith tw ->
@@ -109,7 +111,7 @@ module EmitClosures =
                     scoped
                         (patKeys arm.Pat)
                         (fun () ->
-                            arm.Guard |> Option.iter go
+                            arm.Guard |> ValueOption.iter go
                             go arm.Body
                         )
             | _ -> iterChildren go e
@@ -123,7 +125,7 @@ module EmitClosures =
         (staticFnKeys: HashSet<NodeKey>)
         (paramKeys: NodeKey list)
         (selfKey: NodeKey voption)
-        (body: Frozen.TExpr)
+        (body: TastAccessor.ExprId)
         : (NodeKey * FrozenType) list =
         let bound = HashSet<NodeKey>()
         // Every leaf the parameter pattern binds is in scope — for a tuple param
@@ -152,7 +154,7 @@ module EmitClosures =
 
     /// Like `freeVars` but keeps only keys (no types, no static-method exclusion):
     /// the capture test in `collectStaticFns` must *see* every referenced binding.
-    let private freeVarKeys (boundKeys: NodeKey seq) (body: Frozen.TExpr) : HashSet<NodeKey> =
+    let private freeVarKeys (boundKeys: NodeKey seq) (body: TastAccessor.ExprId) : HashSet<NodeKey> =
         let bound = HashSet<NodeKey>(boundKeys)
         let acc = HashSet<NodeKey>()
         walkFreeRefs bound (fun key _ -> acc.Add key |> ignore) body
@@ -177,8 +179,8 @@ module EmitClosures =
     let private classifyModuleValues
         (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
         (tyOk: FrozenType -> bool)
-        (project: NodeKey -> FrozenType -> Frozen.TExpr -> ModuleBindingInfo option -> 'a option)
-        (decls: Frozen.TDecl list)
+        (project: NodeKey -> FrozenType -> TastAccessor.ExprId -> ModuleBindingInfo option -> 'a option)
+        (decls: TastAccessor.DeclId list)
         : 'a list =
         decls
         |> List.choose (fun d ->
@@ -208,7 +210,7 @@ module EmitClosures =
     /// treatment.
     let collectModuleValues
         (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
-        (decls: Frozen.TDecl list)
+        (decls: TastAccessor.DeclId list)
         : ModuleValue list =
         decls
         |> classifyModuleValues
@@ -297,7 +299,7 @@ module EmitClosures =
         (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
         (programHolder: HolderKey)
         (topLevelNames: Map<NodeKey, string>)
-        (decls: Frozen.TDecl list)
+        (decls: TastAccessor.DeclId list)
         : StaticFn list =
         // Open (`not ftIsGround`) but encodable (`ftNoUnknown`) and not itself a
         // function type — a function-typed generic value (a stored closure, which
@@ -361,7 +363,7 @@ module EmitClosures =
         // assembly. `EmitLower.lower` strips type decls, so the caller computes this
         // from `tast.Decls`.
         (refStructNsNames: HashSet<string * string>)
-        (decls: Frozen.TDecl list)
+        (decls: TastAccessor.DeclId list)
         : ModuleValue list =
         // A `[<Struct; IsByRefLike>]` value cannot be a static field (the CLR confines
         // a byref-like type to the stack) — and never needs to be (a ref struct can't
@@ -457,8 +459,8 @@ module EmitClosures =
     let bridgeStaticFnEscapes
         (eligible: HashSet<NodeKey>)
         (fns: CompiledFns.CompiledFn list)
-        (decls: Frozen.TDecl list)
-        : Frozen.TDecl list =
+        (decls: TastAccessor.DeclId list)
+        : TastAccessor.DeclId list =
         // Each eligible function's source arity (its curried group count) — the number
         // of arrows the eta-expansion peels, and the spine length at or above which a
         // reference is a saturated direct `call`. `fns` is the SAME pre-bridge
@@ -478,8 +480,8 @@ module EmitClosures =
             // single fresh param carries the group's (possibly tuple / unit) domain
             // and is passed as one argument, exactly as the saturated-call site
             // (`EmitCall`) re-flattens it from `StaticFn.Groups`.
-            let buildEta (fVar: Frozen.TExpr) (n: int) : Frozen.TExpr =
-                let tok = TastWalk.exprTok fVar
+            let buildEta (fVar: TastAccessor.ExprId) (n: int) : TastAccessor.ExprId =
+                let tok = TastAccessor.exprTok fVar
 
                 // Each peeled `->` as a `(domain, codomain)` pair: the fresh param's
                 // type and the intermediate `App` result type.
@@ -490,24 +492,29 @@ module EmitClosures =
 
                 let keys = levels |> List.map (fun _ -> mintUnitParamKey ())
 
-                let argTriples =
-                    List.map2 (fun k (dom, cod) -> Frozen.TExpr.Var(k, dom, tok), cod, tok) keys levels
+                // The bridge's nodes are DERIVED — they exist in no frozen tree — so they
+                // are appended to the same pool `fVar` lives in, which is what lets the
+                // spliced `fVar` ride into them by the id it already had.
+                let pool = fVar.Pool
 
-                let body = TastWalk.rebuildApp fVar argTriples
+                let argTriples =
+                    List.map2 (fun k (dom, cod) -> TastAccessor.mintVar pool k dom tok, cod, tok) keys levels
+
+                let body = TastAccessor.mintAppSpine fVar argTriples
 
                 List.foldBack2
                     (fun k (dom, cod) acc ->
-                        Frozen.TExpr.Lambda(Frozen.TPat.NamedSimple(k, dom, tok), acc, FTFun(dom, cod), tok)
+                        TastAccessor.mintLambda (TastAccessor.mintNamedPat pool k dom tok) acc (FTFun(dom, cod)) tok
                     )
                     keys
                     levels
                     body
 
-            let rec rw (e: Frozen.TExpr) : Frozen.TExpr =
+            let rec rw (e: TastAccessor.ExprId) : TastAccessor.ExprId =
                 match e with
                 | TastAccessor.EVar k when arity.ContainsKey k -> buildEta e arity.[k]
                 | TastAccessor.EApp _ ->
-                    let head, args = TastWalk.collectSpine [] e
+                    let head, args = TastAccessor.collectSpine [] e
                     let args = args |> List.map (fun (a, t, tk) -> rw a, t, tk)
 
                     match head with
@@ -515,19 +522,18 @@ module EmitClosures =
                         if List.length args >= arity.[k] then
                             // Saturated (or over-applied): the head stays a direct
                             // `call`; the residual spine over-applies `f`'s result.
-                            TastWalk.rebuildApp head args
+                            TastAccessor.mintAppSpine head args
                         else
                             // Under-application: partially apply the eta closure.
-                            TastWalk.rebuildApp (buildEta head arity.[k]) args
-                    | _ -> TastWalk.rebuildApp (rw head) args
-                | _ -> TastLower.mapChildren rw e
+                            TastAccessor.mintAppSpine (buildEta head arity.[k]) args
+                    | _ -> TastAccessor.mintAppSpine (rw head) args
+                | _ -> TastAccessor.mapChildren rw e
 
             decls
             |> List.map (fun d ->
-                match d with
-                | TastAccessor.DLet letd -> Frozen.TDecl.Let(letd.Binding, rw letd.Value, letd.IsInline, letd.Ty)
-                | TastAccessor.DExpression(e, ty) -> Frozen.TDecl.Expression(rw e, ty)
-                | _ -> d
+                match TastAccessor.declKind d with
+                | DeclShape.Type -> d
+                | _ -> TastAccessor.mapDeclExpr rw d
             )
 
     /// The static-method-eligible top-level functions — the ONE genuinely
@@ -710,21 +716,21 @@ module EmitClosures =
                 | ForInEnumMembersG.ConstrainedInterface(_, args) -> EqArray.iter go args
                 | _ -> ()
 
-        let rec goExpr (e: Frozen.TExpr) =
-            go (TastLower.typeOfExpr e)
+        let rec goExpr (e: TastAccessor.ExprId) =
+            go (TastAccessor.exprTy e)
 
             match e with
             | TastAccessor.EForIn fi -> goEnum fi.Enumerator
             | _ -> ()
 
-            TastLower.iterChildren goExpr e
+            TastAccessor.iterChildren goExpr e
 
         goExpr fn.Body
         maxIx + 1
 
     /// Enumerate every `Lambda` in the lowered tree leaves-first (a closure before
     /// any closure that constructs it), with its capture set; returns a dictionary
-    /// mapping each lambda node (by reference) to its `Closure`. `staticFnKeys`'
+    /// mapping each lambda node (by pool id) to its `Closure`. `staticFnKeys`'
     /// outer lambdas are *not* closures (only their bodies are walked for inner
     /// closures), since a reference to one is a direct call. A closure walked from
     /// a generic static fn's body inherits that fn's `staticFnTypars` on its
@@ -742,7 +748,7 @@ module EmitClosures =
             /// The member's own method-typar count — these follow the class
             /// typars in the closure's typar list (offset `DeclaringTypars`).
             MethodTypars: int
-            Body: Frozen.TExpr
+            Body: TastAccessor.ExprId
         }
 
     /// The source-lambda argument nodes that lower onto a zero-alloc
@@ -757,20 +763,18 @@ module EmitClosures =
     /// `ofToken … ExprLambda`) indexes the verdict map. Walking every lambda and
     /// testing membership covers project-local and external heads in one path.
     let private collectStackLambdaArgs
-        (funVerdicts: Map<NodeKey, FunVerdict>)
-        (decls: Frozen.TDecl list)
+        (funVerdicts: IReadOnlyDictionary<ExprPoolId, FunVerdict>)
+        (decls: TastAccessor.DeclId list)
         (memberRoots: MemberClosureRoot list)
-        : Dictionary<Frozen.TExpr, int> =
-        let stackNodes = Dictionary<Frozen.TExpr, int>(HashIdentity.Reference)
+        : Dictionary<ExprPoolId, int> =
+        let stackNodes = Dictionary<ExprPoolId, int>()
 
-        let rec walk (e: Frozen.TExpr) =
+        let rec walk (e: TastAccessor.ExprId) =
             (match TastAccessor.exprKind e with
              | ExprShape.Lambda ->
-                 let k = TastWalk.lambdaKey e
-
-                 match Map.tryFind k funVerdicts with
-                 | Some v -> stackNodes.[e] <- v.Arity
-                 | None -> ()
+                 match funVerdicts.TryGetValue e.Id with
+                 | true, v -> stackNodes.[e.Id] <- v.Arity
+                 | false, _ -> ()
              | _ -> ())
 
             iterChildren walk e
@@ -809,11 +813,11 @@ module EmitClosures =
         /// Return the next closure name, then advance (return-current-then-
         /// increment — the exact timing the inline counter had). `node` is the
         /// closure's source expression (its `NodeKey`/offset recoverable via
-        /// `NodeKey.ofToken (TastWalk.exprTok node) …`); `selfKey` is the
+        /// `NodeKey.ofToken (TastAccessor.exprTok node) …`); `selfKey` is the
         /// enclosing `let f = fun…` binder (`ValueNone` for an anonymous lambda).
         /// Both are the context a `<bound-name>@<line>` policy would need; the
         /// counter policy ignores them.
-        member _.NextName(_node: Frozen.TExpr, _selfKey: NodeKey voption) : string =
+        member _.NextName(_node: TastAccessor.ExprId, _selfKey: NodeKey voption) : string =
             let name = sprintf "<closure>$%d" counter
             counter <- counter + 1
             name
@@ -823,13 +827,13 @@ module EmitClosures =
         (staticFnKeys: HashSet<NodeKey>)
         (moduleValueKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
-        (funVerdicts: Map<NodeKey, FunVerdict>)
+        (funVerdicts: IReadOnlyDictionary<ExprPoolId, FunVerdict>)
         (closureReprs: Map<NodeKey, ClosureRepr>)
-        (decls: Frozen.TDecl list)
+        (decls: TastAccessor.DeclId list)
         (memberRoots: MemberClosureRoot list)
-        : Closure list * Dictionary<Frozen.TExpr, Closure> =
-        let order = ResizeArray<Frozen.TExpr>()
-        let lookup = Dictionary<Frozen.TExpr, Closure>(HashIdentity.Reference)
+        : Closure list * Dictionary<ExprPoolId, Closure> =
+        let order = ResizeArray<ExprPoolId>()
+        let lookup = Dictionary<ExprPoolId, Closure>()
 
         // Source lambdas threaded through a constrained `Fun`2`/`Fun`3`
         // slot — eligible for the value-struct closure shape, mapped to their flat
@@ -850,15 +854,15 @@ module EmitClosures =
         // class's typars (the leading slots) — `0` for a static-fn closure.
         // The arity of a value-struct lambda node (1 by default; 2 for a
         // flat `Fun`3` slot). Only an anonymous monomorphic lambda the verdict reached.
-        let valueStructArity (currentTypars: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) : int =
+        let valueStructArity (currentTypars: int) (selfKey: NodeKey voption) (e: TastAccessor.ExprId) : int =
             if currentTypars = 0 && ValueOption.isNone selfKey then
-                match stackLambdaArgs.TryGetValue e with
+                match stackLambdaArgs.TryGetValue e.Id with
                 | true, arity -> arity
                 | false, _ -> 1
             else
                 1
 
-        let rec go (currentTypars: int) (declaringOffset: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) =
+        let rec go (currentTypars: int) (declaringOffset: int) (selfKey: NodeKey voption) (e: TastAccessor.ExprId) =
             // A FLAT (`Fun`(arity+1)`) value-struct lambda of arity `2..4` peels its
             // `arity - 1` inner `Lambda` levels into the SAME closure's extra
             // parameters (one flat `Invoke(a,b,…)`), so those inner lambdas are NOT
@@ -871,7 +875,7 @@ module EmitClosures =
                     // Unwrap all `arity` nested `Lambda` levels down to the DEEPEST
                     // body; if the shape isn't that saturated nesting, fall through
                     // (`ValueNone`) and this node walks its children normally.
-                    let rec peel n (cur: Frozen.TExpr) =
+                    let rec peel n (cur: TastAccessor.ExprId) =
                         if n = 0 then
                             ValueSome cur
                         else
@@ -897,8 +901,8 @@ module EmitClosures =
             let registerClosure
                 (p: NodeKey)
                 (pty: FrozenType)
-                (paramPat: Frozen.TPat)
-                (body: Frozen.TExpr)
+                (paramPat: TastAccessor.PatId)
+                (body: TastAccessor.ExprId)
                 (lamTy: FrozenType)
                 =
                 // A flat (`Fun`(arity+1)`) value-struct closure of arity `2..4` peels
@@ -910,7 +914,7 @@ module EmitClosures =
                 let arity = valueStructArity currentTypars selfKey e
 
                 let peeled =
-                    let rec loop n extrasRev (curBody: Frozen.TExpr) (curTy: FrozenType) =
+                    let rec loop n extrasRev (curBody: TastAccessor.ExprId) (curTy: FrozenType) =
                         match curTy with
                         | FTFun(_, r) ->
                             if n = 0 then
@@ -979,7 +983,9 @@ module EmitClosures =
                 // the combinator stays escape-free (no `ref struct`). Everything else is
                 // heap.
                 let isValueStruct =
-                    currentTypars = 0 && ValueOption.isNone selfKey && stackLambdaArgs.ContainsKey e
+                    currentTypars = 0
+                    && ValueOption.isNone selfKey
+                    && stackLambdaArgs.ContainsKey e.Id
 
                 let c =
                     {
@@ -1000,8 +1006,8 @@ module EmitClosures =
                         ExtraParams = extraParams
                     }
 
-                lookup.[e] <- c
-                order.Add e
+                lookup.[e.Id] <- c
+                order.Add e.Id
 
             match e with
             | TastAccessor.ELambda lam ->

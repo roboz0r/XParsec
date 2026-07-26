@@ -23,7 +23,24 @@ module internal Layout =
         (project: ProjectInfo)
         (tast: Frozen.TastFile)
         : UnitLayout =
-        let lowered0 = Emit.lower tast.Decls
+        // The file's trees as columns, with an append-only overlay stacked over them.
+        // Every node this emission DERIVES — the eta bridges, the closure-verdict
+        // retypes, a `use`'s dispose synthetic — is appended to the overlay, and every
+        // id the canonical pool already handed out keeps naming the same node, which is
+        // what lets the derived nodes be minted mid-emit rather than in one batch.
+        let pools = TastPools.toPools tast
+        let pool = TastPoolBuilder.openOver pools
+        let decls = TastAccessor.roots pool |> List.ofArray
+
+        // A source lambda's verdict, on the lambda ID SPACE: a lambda's dense id is its
+        // `ExprPoolId`, so a discovered lambda's verdict is a lookup on the node itself
+        // rather than a key recomputed from its token.
+        let funVerdicts = Dictionary<ExprPoolId, FunVerdict>()
+
+        for (id, v) in pools.FunVerdicts do
+            funVerdicts.[id] <- v
+
+        let lowered0 = Emit.lower decls
         // The anonymous "Program" holder's key — a module of that name in the global
         // namespace. It owns the holder-less fns + `Main` + the top-level value fields /
         // `.cctor`. Its type slot is `TypeSlotKey.Program`, not `TypeSlotKey.Holder`, so
@@ -37,7 +54,7 @@ module internal Layout =
         // `Emit.lower` strips the type decls `lowered` would carry.
         let refStructNsNames =
             [
-                for d in tast.Decls do
+                for d in decls do
                     match TastAccessor.declKind d with
                     | DeclShape.Type ->
                         let td = TastAccessor.declType d
@@ -70,8 +87,8 @@ module internal Layout =
         // Member bodies never pass through `Emit.lower` — they need no lowering at all;
         // they arrive from the freeze ready to emit. Partitioned **once** here and
         // published as `Partitioned`, so closure discovery and `buildMember` walk the
-        // same node objects — closure node identity (`HashIdentity.Reference`) demands it.
-        let partitioned = LayoutNodes.partitionTypeDecls tast.Decls
+        // same node IDS — the `…ByNode` tables key on them.
+        let partitioned = LayoutNodes.partitionTypeDecls decls
 
         // Closure-discovery roots from every (expanded) member body and class-preamble
         // expression, each tagged with its declaring type's typar count (0 ⇒
@@ -82,9 +99,9 @@ module internal Layout =
         let memberRoots =
             [
                 let root
-                    (td: Frozen.TTypeDecl)
+                    (td: TastAccessor.TypeDecl)
                     (methodTypars: int)
-                    (body: Frozen.TExpr)
+                    (body: TastAccessor.ExprId)
                     : EmitClosures.MemberClosureRoot =
                     {
                         DeclaringTypars = td.TypeParams.Length
@@ -92,10 +109,10 @@ module internal Layout =
                         Body = body
                     }
 
-                let memberRoot (td: Frozen.TTypeDecl) (m: Frozen.TTypeMember) =
+                let memberRoot (td: TastAccessor.TypeDecl) (m: TastAccessor.TypeMember) =
                     root td m.MethodTypeParams.Length m.Body
 
-                let preambleRoot (td: Frozen.TTypeDecl) (entry: Frozen.TPreambleEntry) =
+                let preambleRoot (td: TastAccessor.TypeDecl) (entry: TastAccessor.PreambleEntry) =
                     match entry with
                     | TPreambleEntryG.Let l -> root td 0 l.Init
                     | TPreambleEntryG.Do e -> root td 0 e
@@ -128,7 +145,7 @@ module internal Layout =
                 // snapshotted in `Pipeline` like `ClosureReprs`.
                 // `discoverClosures` marks a source-lambda argument a value-struct (and
                 // at what flat arity) by node membership — no structural re-derivation.
-                tast.FunVerdicts
+                funVerdicts
                 tast.ClosureReprs
                 lowered
                 memberRoots
@@ -298,7 +315,7 @@ module internal Layout =
             Closures = closures
             ClosureByNode = closureByNode
             Partitioned = partitioned
-            FunVerdicts = tast.FunVerdicts
+            FunVerdicts = funVerdicts
             // The entry flag is the whole-assembly OutputKind decision, made by `combine`
             // (an executable's LAST file is the entry unit); a file cannot know it alone.
             EmitEntryPoint = false

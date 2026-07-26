@@ -88,23 +88,23 @@ module internal CapabilityCoSlots =
 /// A partitioned union declaration: its `TTypeDecl`, cases, and members.
 type internal UnionDecl =
     {
-        Decl: Frozen.TTypeDecl
+        Decl: TastAccessor.TypeDecl
         Cases: Frozen.TUnionCase list
-        Members: Frozen.TTypeMember list
+        Members: TastAccessor.TypeMember list
         /// User `interface … with member …` impls (same shape as `ClassDecl.Interfaces`):
         /// each pair is an implemented interface type + its already-typed member bodies.
-        Interfaces: (FrozenType * Frozen.TTypeMember list) list
+        Interfaces: (FrozenType * TastAccessor.TypeMember list) list
     }
 
 /// A partitioned record declaration: its `TTypeDecl`, fields, and members.
 type internal RecordDecl =
     {
-        Decl: Frozen.TTypeDecl
+        Decl: TastAccessor.TypeDecl
         Fields: Frozen.TRecordField list
-        Members: Frozen.TTypeMember list
+        Members: TastAccessor.TypeMember list
         /// User `interface … with member …` impls (same shape as `ClassDecl.Interfaces`):
         /// each pair is an implemented interface type + its already-typed member bodies.
-        Interfaces: (FrozenType * Frozen.TTypeMember list) list
+        Interfaces: (FrozenType * TastAccessor.TypeMember list) list
         /// `Struct` for a `[<Struct>]` record (`System.ValueType` base, sealed) or
         /// `RefType` otherwise. Records are never `RefStruct`.
         ValueKind: ClassValueKind
@@ -116,27 +116,27 @@ type internal RecordDecl =
 /// `[<Struct>]` value type, or a `[<IsByRefLike>]` byref-like value type.
 type internal ClassDecl =
     {
-        Decl: Frozen.TTypeDecl
+        Decl: TastAccessor.TypeDecl
         Fields: Frozen.TRecordField list
         CtorParams: Frozen.TRecordField list
-        Members: Frozen.TTypeMember list
+        Members: TastAccessor.TypeMember list
         BaseType: FrozenType voption
-        Interfaces: (FrozenType * Frozen.TTypeMember list) list
+        Interfaces: (FrozenType * TastAccessor.TypeMember list) list
         IsSealed: bool
         /// `static let` / `static do` in declaration order: the body of the synthesised
         /// `.cctor`. A `let` also takes a static backing field.
-        StaticPreamble: Frozen.TPreambleEntry list
+        StaticPreamble: TastAccessor.PreambleEntry list
         /// Instance `let` / `do` in declaration order: the tail of the primary `.ctor`,
         /// after the base-ctor call and the ctor-param field stores (so an initialiser
         /// reads a ctor param through its already-stored field). A `let` also takes an
         /// instance backing field.
-        InstancePreamble: Frozen.TPreambleEntry list
+        InstancePreamble: TastAccessor.PreambleEntry list
         /// The class-level `this` binder. The instance preamble reads the class's fields
         /// through it (`FieldGet(Var ThisKey, …)`), so the primary `.ctor` maps it to
         /// `ldarg.0`.
         ThisKey: NodeKey
-        SecondaryCtors: Frozen.TSecondaryCtor list
-        BaseCtorCall: Frozen.TBaseCtorCall voption
+        SecondaryCtors: TastAccessor.SecondaryCtor list
+        BaseCtorCall: TastAccessor.BaseCtorCall voption
         ValueKind: ClassValueKind
         /// `false` for the `val`-field form (`type T = val …; new(…) = …`): the
         /// secondaries are the only ctors (no synthesised primary `.ctor`).
@@ -153,7 +153,7 @@ type internal ClassDecl =
 /// emitted literal-field set).
 type internal EnumDecl =
     {
-        Decl: Frozen.TTypeDecl
+        Decl: TastAccessor.TypeDecl
         Underlying: string
         Cases: (string * TConstValue) list
     }
@@ -169,14 +169,14 @@ type internal EnumDecl =
 /// case is skipped, matching the emitted case-field set).
 type internal StructEnumDecl =
     {
-        Decl: Frozen.TTypeDecl
+        Decl: TastAccessor.TypeDecl
         IsMixed: bool
         Cases: (string * TEnumLiteral) list
     }
 
 type internal PartitionedTypeDecls =
     {
-        Interfaces: (Frozen.TTypeDecl * Frozen.TAbstractMethod list) list
+        Interfaces: (TastAccessor.TypeDecl * Frozen.TAbstractMethod list) list
         Unions: UnionDecl list
         Records: RecordDecl list
         Classes: ClassDecl list
@@ -193,7 +193,7 @@ type internal NominalEmissionInput =
     /// already-typed member bodies (same shape as the class arm): codegen emits one
     /// `InterfaceImpl` row per entry and one virtual `MethodDefinition` per member,
     /// alongside any synthesised structural eq/comp/format interfaces.
-    | Union of cases: Frozen.TUnionCase list * interfaces: (FrozenType * Frozen.TTypeMember list) list
+    | Union of cases: Frozen.TUnionCase list * interfaces: (FrozenType * TastAccessor.TypeMember list) list
     /// `interfaces` pairs each user-implemented `interface … with` type with its
     /// already-typed member bodies (same shape as the class / union arms): codegen
     /// emits one `InterfaceImpl` row per entry and one virtual `MethodDefinition`
@@ -202,7 +202,7 @@ type internal NominalEmissionInput =
     /// a base-chain-free `.ctor`, and value-type-shaped equality/comparison bodies.
     | Record of
         fields: Frozen.TRecordField list *
-        interfaces: (FrozenType * Frozen.TTypeMember list) list *
+        interfaces: (FrozenType * TastAccessor.TypeMember list) list *
         isStruct: bool
     /// The partitioned declaration itself: the class arm needs so much of it
     /// (fields, ctor params, base, preambles, secondaries, value kind) that a
@@ -217,7 +217,9 @@ module internal NominalMembers =
     /// bodies) to the impl-member sequence in declaration order. The SINGLE place the
     /// load-bearing flatten order lives, so `indexed`, `Layout`, and `NominalEmit` can't
     /// drift on it (they previously each re-flattened the grouped list independently).
-    let flattenIfaceMembers (interfaces: (FrozenType * Frozen.TTypeMember list) list) : Frozen.TTypeMember list =
+    let flattenIfaceMembers
+        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
+        : TastAccessor.TypeMember list =
         [
             for (_, ms) in interfaces do
                 yield! ms
@@ -233,9 +235,9 @@ module internal NominalMembers =
     /// Eq/comp/format rows use disjoint `MethodKey`s, so they never collide with these
     /// and their relative order is irrelevant.
     let indexed
-        (members: Frozen.TTypeMember list)
-        (interfaces: (FrozenType * Frozen.TTypeMember list) list)
-        : (int * bool * Frozen.TTypeMember) list =
+        (members: TastAccessor.TypeMember list)
+        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
+        : (int * bool * TastAccessor.TypeMember) list =
         [
             yield! members |> List.mapi (fun i m -> i, false, m)
 
@@ -249,13 +251,13 @@ module internal NominalMembers =
     /// derived from), so it never has to scan every impl member by name and hope no other
     /// interface declares that name too.
     let ofInterface
-        (members: Frozen.TTypeMember list)
-        (interfaces: (FrozenType * Frozen.TTypeMember list) list)
+        (members: TastAccessor.TypeMember list)
+        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
         (iface: FrozenType)
-        : (int * Frozen.TTypeMember) list =
+        : (int * TastAccessor.TypeMember) list =
         // The own-then-impl-blocks-in-order walk `indexed` defines, carrying each block's
         // start index instead of discarding it.
-        let rec go (index: int) (rest: (FrozenType * Frozen.TTypeMember list) list) =
+        let rec go (index: int) (rest: (FrozenType * TastAccessor.TypeMember list) list) =
             match rest with
             | [] -> []
             | (ifaceTy, ms) :: tail ->

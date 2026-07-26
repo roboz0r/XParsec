@@ -40,8 +40,8 @@ module EmitJs =
 
     // ---- The walker ----------------------------------------------------------
 
-    let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
-        let loc = locOf ctx (TastWalk.exprTok e)
+    let rec buildExpr (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsExpr =
+        let loc = locOf ctx (TastAccessor.exprTok e)
 
         match TastAccessor.exprKind e with
         | ExprShape.Const -> constExpr (TastAccessor.exprConstValue e) loc
@@ -52,7 +52,9 @@ module EmitJs =
         // single-arg / lone-unit function needs no adapter (flat == curried there).
         | ExprShape.Var ->
             let k = TastAccessor.exprVarBinding e
-            let ident = JsExpr.Identifier(binderName ctx.Source k, loc)
+
+            let ident =
+                JsExpr.Identifier(binderName ctx.Source (TastAccessor.exprVarNaming e), loc)
 
             match ctx.CompiledFns.TryGetValue k with
             | true, cf when JsFlatFns.needsAdapter cf.Groups -> JsFlatFns.curryAdapter ident cf.Groups k.Offset loc
@@ -72,7 +74,7 @@ module EmitJs =
 
             match JsFlatFns.externalGroups ctx.Provider ext.Key with
             | ValueSome groups when JsFlatFns.needsAdapter groups ->
-                JsFlatFns.curryAdapter alias groups (TastWalk.exprTok e).StartIndex loc
+                JsFlatFns.curryAdapter alias groups (TastAccessor.exprTok e).StartIndex loc
             | _ -> alias
 
         | ExprShape.IfThenElse ->
@@ -101,7 +103,7 @@ module EmitJs =
                 // so lowers to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once,
                 // and (for a mutable binder) reassignable as the arrow parameter.
                 | PatShape.NamedSimple ->
-                    let name = binderName ctx.Source (TastAccessor.patBinder l.Binding).Value
+                    let name = binderName ctx.Source (TastAccessor.patBinderNaming l.Binding).Value
 
                     JsExpr.Call(
                         JsExpr.Arrow([ name ], JsFnBody.Expr(buildExpr ctx l.Body), ValueNone),
@@ -128,7 +130,7 @@ module EmitJs =
         // module function reaches its head's curried adapter through this fallback.
         | ExprShape.App ->
             let av = TastAccessor.exprApp e
-            let head, spine = TastWalk.collectSpine [] e
+            let head, spine = TastAccessor.collectSpine [] e
 
             // Flat dispatch: a capability-protocol member call (`tryCapabilityCall` —
             // `src.GetEnumerator()`, `e.MoveNext()`, `e.Dispose()`) folds head + the lone
@@ -150,16 +152,16 @@ module EmitJs =
                 // `ValRepr` capture require ≥ 1 source group), so the saturation predicate
                 // below is written ONCE for both kinds: a flat call exactly when the spine
                 // is at least the group count. Anything else keeps the curried fallback.
-                let flatHead: (JsExpr * Frozen.ArgGroup list) voption =
+                let flatHead: (JsExpr * TastAccessor.ArgGroup list) voption =
                     let identAt name =
-                        JsExpr.Identifier(name, locOf ctx (TastWalk.exprTok head))
+                        JsExpr.Identifier(name, locOf ctx (TastAccessor.exprTok head))
 
                     match TastAccessor.exprKind head with
                     | ExprShape.Var ->
                         let k = TastAccessor.exprVarBinding head
 
                         match ctx.CompiledFns.TryGetValue k with
-                        | true, cf -> ValueSome(identAt (binderName ctx.Source k), cf.Groups)
+                        | true, cf -> ValueSome(identAt (binderNameOf ctx.Pool ctx.Source k), cf.Groups)
                         | _ -> ValueNone
                     | ExprShape.External ->
                         let ext = TastAccessor.exprExternal head
@@ -216,7 +218,7 @@ module EmitJs =
             | ExprShape.Var ->
                 JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), argsFrom (buildExpr ctx rc.Source), loc)
             | _ ->
-                let sName = "_rc" + string (TastWalk.exprTok e).StartIndex
+                let sName = "_rc" + string (TastAccessor.exprTok e).StartIndex
 
                 let newExpr =
                     JsExpr.New(
@@ -440,7 +442,7 @@ module EmitJs =
                         r
                         em.Key
                         em.MemberName
-                        (TastWalk.exprTok e).StartIndex
+                        (TastAccessor.exprTok e).StartIndex
                         loc
                 | _ ->
                     JsExternalMembers.mangledMemberAccess
@@ -459,7 +461,7 @@ module EmitJs =
         // guards, constants, nested patterns, and non-union scrutinees uniformly.
         | ExprShape.Match ->
             let m = TastAccessor.exprMatch e
-            let mv = "_m" + string (TastWalk.exprTok e).StartIndex
+            let mv = "_m" + string (TastAccessor.exprTok e).StartIndex
             let access = JsExpr.Identifier(mv, ValueNone)
 
             let body =
@@ -597,11 +599,11 @@ module EmitJs =
             let arg = EmitJsFormat.buildFormatArg buildExpr ctx fv.Segments
 
             match fv.Sink with
-            | FormatSinkG.ToStdOut true -> JsExpr.Call(console "log", [ arg ], loc)
-            | FormatSinkG.ToStdErr true -> JsExpr.Call(console "error", [ arg ], loc)
+            | TastAccessor.FormatSinkView.ToStdOut true -> JsExpr.Call(console "log", [ arg ], loc)
+            | TastAccessor.FormatSinkView.ToStdErr true -> JsExpr.Call(console "error", [ arg ], loc)
             // `sprintf` (`State = unit`, `Residue = string`): the spliced concatenation
             // IS the result string, yielded directly as a value (no console call).
-            | FormatSinkG.ToString -> arg
+            | TastAccessor.FormatSinkView.ToString -> arg
             | other -> failwithf "EmitJs: unsupported format sink %A" other
 
         | _ -> failwithf "EmitJs: unsupported expression %A" e
@@ -611,13 +613,13 @@ module EmitJs =
     /// (wildcard / bare variable, `test = None`) emits a bare `Block` so its
     /// bindings stay scoped (two arms may bind the same source name); a refutable
     /// arm guards that block with `if (test)`.
-    and private buildMatchArm (ctx: WalkCtx) (access: JsExpr) (arm: Frozen.TMatchArm) : JsStatement list =
+    and private buildMatchArm (ctx: WalkCtx) (access: JsExpr) (arm: TastAccessor.ArmView) : JsStatement list =
         let test, binds = compileMatchPattern ctx access arm.Pat
 
         let inner =
             match arm.Guard with
-            | None -> binds @ [ JsStatement.Return(buildExpr ctx arm.Body) ]
-            | Some g ->
+            | ValueNone -> binds @ [ JsStatement.Return(buildExpr ctx arm.Body) ]
+            | ValueSome g ->
                 binds
                 @ [
                     JsStatement.If(buildExpr ctx g, [ JsStatement.Return(buildExpr ctx arm.Body) ], [])
@@ -637,7 +639,7 @@ module EmitJs =
         (selfKey: NodeKey voption)
         (arity: int)
         (names: string list)
-        (body: Frozen.TExpr)
+        (body: TastAccessor.ExprId)
         : JsFnBody =
         match selfKey with
         | ValueSome k when hasTailSelfCall k arity body ->
@@ -653,8 +655,8 @@ module EmitJs =
     /// innermost body is the plain expression. The nested-unary shape keeps every
     /// arrow's param in scope at the innermost body, which is what lets the trampoline
     /// write them back and `continue`.
-    and emitFunction (ctx: WalkCtx) (selfKey: NodeKey voption) (lam: Frozen.TExpr) : JsExpr =
-        let loc = locOf ctx (TastWalk.exprTok lam)
+    and emitFunction (ctx: WalkCtx) (selfKey: NodeKey voption) (lam: TastAccessor.ExprId) : JsExpr =
+        let loc = locOf ctx (TastAccessor.exprTok lam)
         let names, body = peelArrow ctx.Source lam
         nestUnaryArrows loc names (trampolineOrExpr ctx selfKey (List.length names) names body)
 
@@ -664,7 +666,12 @@ module EmitJs =
     /// argument that reads a parameter (`sum (n-1) (acc+n)`) sees the *old* value
     /// — then `continue`s. Tail `if`/`let`/`Sequential`-tail thread through;
     /// every other tail expression `return`s its value.
-    and buildTailBody (ctx: WalkCtx) (selfKey: NodeKey) (paramNames: string list) (e: Frozen.TExpr) : JsStatement list =
+    and buildTailBody
+        (ctx: WalkCtx)
+        (selfKey: NodeKey)
+        (paramNames: string list)
+        (e: TastAccessor.ExprId)
+        : JsStatement list =
         let arity = List.length paramNames
         let recur = buildTailBody ctx selfKey paramNames
 
@@ -695,7 +702,7 @@ module EmitJs =
                     let k = (TastAccessor.patBinder l.Binding).Value
 
                     let binding =
-                        localBinding k l.Body (binderName ctx.Source k) (buildExpr ctx l.Value)
+                        localBinding k l.Body (binderNameOf ctx.Pool ctx.Source k) (buildExpr ctx l.Value)
 
                     binding :: recur l.Body
                 // `let _ = value in body` — discard the value (effects only); body stays in tail
@@ -722,7 +729,7 @@ module EmitJs =
 
     /// Curry `base` over `args` — one unary `Call` per argument, in source order
     /// (`base(a)(b)…`). Shared by the `MethodCall` / `StaticMethodCall` lowerings.
-    and private applyArgs (ctx: WalkCtx) (baseExpr: JsExpr) (args: EqArray<Frozen.TExpr>) : JsExpr =
+    and private applyArgs (ctx: WalkCtx) (baseExpr: JsExpr) (args: EqArray<TastAccessor.ExprId>) : JsExpr =
         args
         |> EqArray.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
 
@@ -738,7 +745,7 @@ module EmitJs =
         (cf: CompiledFns.CompiledFn)
         (loc: JsLoc voption)
         : JsExpr =
-        let names = [ for p in cf.Params -> JsFlatFns.paramNameOf ctx.Source p ]
+        let names = [ for p in cf.Params -> JsFlatFns.paramNameOf ctx.Pool ctx.Source p ]
 
         // Only the all-`GSimple` shape maps a self-call's spine one-to-one onto the flat
         // params, so the trampoline is gated on it; otherwise no self-key is offered.
@@ -753,7 +760,7 @@ module EmitJs =
     /// `receiver.<member>` for a call dispatched through a local interface slot — the
     /// member resolves to the attached method `partitionClassMembers` emitted on the
     /// receiver's class. Shared by the `PropertyGet`/`MethodCall` `CallVia.Interface` arms.
-    and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (receiver: Frozen.TExpr) (key: SymbolKey) : JsExpr =
+    and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (receiver: TastAccessor.ExprId) (key: SymbolKey) : JsExpr =
         // Backend name emission: the attached method is reached under its JS member name.
         let (DisplayName memberName) = SymbolKeyOps.simpleName key
         JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(memberName, ValueNone), false, loc)
@@ -762,14 +769,14 @@ module EmitJs =
     /// value routes through `emitFunction` carrying its binder key, so a
     /// recursive binding (`let rec`) can recognise its own tail calls; any other
     /// value is a plain `buildExpr`.
-    and emitBound (ctx: WalkCtx) (k: NodeKey) (value: Frozen.TExpr) : JsExpr =
+    and emitBound (ctx: WalkCtx) (k: NodeKey) (value: TastAccessor.ExprId) : JsExpr =
         match TastAccessor.exprKind value with
         | ExprShape.Lambda -> emitFunction ctx (ValueSome k) value
         | _ -> buildExpr ctx value
 
     /// An expression in statement position. `Sequential` flattens; a `let` binder
     /// becomes a `const`; anything else is one `ExpressionStatement`.
-    and buildStatements (ctx: WalkCtx) (e: Frozen.TExpr) : JsStatement list =
+    and buildStatements (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsStatement list =
         match e with
         // Pure, immutable binder: substitute away so synthetic operand lets don't
         // surface as `const`s. A mutable binder is excluded (see `buildExpr`).
@@ -790,7 +797,7 @@ module EmitJs =
                     let k = (TastAccessor.patBinder l.Binding).Value
 
                     let binding =
-                        localBinding k l.Body (binderName ctx.Source k) (emitBound ctx k l.Value)
+                        localBinding k l.Body (binderNameOf ctx.Pool ctx.Source k) (emitBound ctx k l.Value)
 
                     binding :: buildStatements ctx l.Body
                 // `let _ = value in body` — emit the discarded value as its own statement(s)
@@ -808,8 +815,8 @@ module EmitJs =
             // dance the IL backend needs is unnecessary — `i <= limit` is safe.)
             | ExprShape.ForTo ->
                 let ft = TastAccessor.exprForTo e
-                let name = binderName ctx.Source ft.Var
-                let limit = "_lim" + string (TastWalk.exprTok e).StartIndex
+                let name = binderNameOf ctx.Pool ctx.Source ft.Var
+                let limit = "_lim" + string (TastAccessor.exprTok e).StartIndex
 
                 [
                     JsStatement.Const(limit, buildExpr ctx ft.EndExpr)
@@ -887,13 +894,13 @@ module EmitJs =
     /// `<prefix><tok>` slot — the value is still bound (parked/iterated) even though
     /// the body can't name it. Only simple/wildcard binders are supported; a
     /// destructuring binder (e.g. a tuple pattern) is rejected.
-    and private patBinderName (ctx: WalkCtx) (prefix: string) (binding: Frozen.TPat) : string =
+    and private patBinderName (ctx: WalkCtx) (prefix: string) (binding: TastAccessor.PatId) : string =
         match TastAccessor.patKind binding with
-        | PatShape.NamedSimple -> binderName ctx.Source (TastAccessor.patBinder binding).Value
+        | PatShape.NamedSimple -> binderName ctx.Source (TastAccessor.patBinderNaming binding).Value
         | PatShape.Wildcard -> prefix + string (TastAccessor.patTok binding).StartIndex
         | _ -> failwithf "EmitJs: unsupported single binder pattern %A" binding
 
-    and private useBinderName (ctx: WalkCtx) (binding: Frozen.TPat) : string = patBinderName ctx "_use" binding
+    and private useBinderName (ctx: WalkCtx) (binding: TastAccessor.PatId) : string = patBinderName ctx "_use" binding
 
     /// The `finally` body that disposes a `use` binder: a null-guarded disposal call.
     /// F# `use` is null-safe — JS loose `!= null` catches both `null` and `undefined`
@@ -967,7 +974,7 @@ module EmitJs =
     let private emitStaticPreamble
         (ctx: WalkCtx)
         (className: string)
-        (entries: Frozen.TPreambleEntry list)
+        (entries: TastAccessor.PreambleEntry list)
         : JsStatement list =
         [
             for entry in entries do
@@ -988,10 +995,12 @@ module EmitJs =
     /// The whole frozen file → a `Program`. Type declarations become JS `class`es first
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
     /// and `type` decls drop out, leaving module values and effectful expressions.
-    let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
-        let collected = collectTypes ctx0.Capabilities ctx0.ExportTopLevel tast
+    let buildProgram (ctx0: WalkCtx) : JsProgram =
+        let decls = TastAccessor.roots ctx0.Pool |> List.ofArray
 
-        let lowered = TastLower.lower tast.Decls
+        let collected = collectTypes ctx0.Capabilities ctx0.ExportTopLevel decls
+
+        let lowered = TastLower.lower decls
 
         // The top-level module functions and their flat compiled form — the same
         // `Codegen.Common.CompiledFns` analysis the CLR backend reads. Drives the FLAT
@@ -1007,7 +1016,7 @@ module EmitJs =
         // dispatch of a `(r :> ILocal).M()` / `.Prop` access (see `WalkCtx.LocalInterfaces`).
         let localInterfaces = System.Collections.Generic.HashSet<TypeKey>()
 
-        for decl in tast.Decls do
+        for decl in decls do
             match TastAccessor.declKind decl with
             | DeclShape.Type ->
                 let td = TastAccessor.declType decl
@@ -1106,10 +1115,10 @@ module EmitJs =
                             // routes through `emitBound` (closures stay curried).
                             let init =
                                 match ctx.CompiledFns.TryGetValue k with
-                                | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx (TastWalk.exprTok value))
+                                | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx (TastAccessor.exprTok value))
                                 | _ -> emitBound ctx k value
 
-                            topLevelBinding ctx (reassignedAtTop k) (binderName ctx.Source k) init
+                            topLevelBinding ctx (reassignedAtTop k) (binderNameOf ctx.Pool ctx.Source k) init
                         | _ -> failwithf "EmitJs: unsupported declaration %A" decl
                     | DeclShape.Type -> failwithf "EmitJs: unsupported declaration %A" decl
             ]

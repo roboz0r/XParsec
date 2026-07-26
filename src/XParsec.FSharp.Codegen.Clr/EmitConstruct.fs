@@ -16,7 +16,7 @@ open EmitDispatch
 /// no `Recur` seam; the rest evaluate sub-expressions through `recur`.
 module EmitConstruct =
 
-    let buildNew (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildNew (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so the accessors below are total projections.
         let className = TastAccessor.exprNewClassName e
         let chosenCtor = TastAccessor.exprNewChosenCtor e
@@ -148,7 +148,7 @@ module EmitConstruct =
 
             emitNewobj ()
 
-    let buildRecordCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildRecordCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprRecordConsFields` is a total projection.
         let srcFields = TastAccessor.exprRecordConsFields e
         let ty = TastAccessor.exprTy e
@@ -196,7 +196,7 @@ module EmitConstruct =
                 b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
             | ValueNone -> failwithf "Emit: no emitted record for '%s'" qualName
 
-    let buildRecordClone (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildRecordClone (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprRecordClone` is a total projection.
         let cloneView = TastAccessor.exprRecordClone e
         let source = cloneView.Source
@@ -239,7 +239,7 @@ module EmitConstruct =
             b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
         | false, _ -> failwithf "Emit: no emitted record for '%A'" key
 
-    let buildUnionCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildUnionCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprUnionConsCaseName` is a total projection.
         let caseName = TastAccessor.exprUnionConsCaseName e
         let args = TastAccessor.exprChildren e
@@ -279,7 +279,7 @@ module EmitConstruct =
             | ValueSome recipe -> b.Add(ILInstr.Recipe recipe)
             | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" qualName caseName
 
-    let buildTuple (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildTuple (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprChildren` is a total projection.
         let elems = TastAccessor.exprChildren e
         let ty = TastAccessor.exprTy e
@@ -311,8 +311,8 @@ module EmitConstruct =
     /// The discovered `Closure` for a `Lambda` node — every construction path needs
     /// it. Its absence is a broken invariant (discovery missed a lambda), so each
     /// caller faults rather than silently degrading.
-    let private closureOf (env: EmitEnv) (e: Frozen.TExpr) : Closure =
-        match env.ClosureByNode.TryGetValue e with
+    let private closureOf (env: EmitEnv) (e: TastAccessor.ExprId) : Closure =
+        match env.ClosureByNode.TryGetValue e.Id with
         | true, closure -> closure
         | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
 
@@ -327,9 +327,14 @@ module EmitConstruct =
     ///     the `&slot` managed pointer. Value-type ctor stack discipline: address
     ///     first, then args, then `call` (returns void, stack empty), then `ldloc`
     ///     the now-initialised value.
-    let private buildValueStructClosure (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) (closureFt: FrozenType) : unit =
+    let private buildValueStructClosure
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (e: TastAccessor.ExprId)
+        (closureFt: FrozenType)
+        : unit =
         let closure = closureOf env e
-        let closureHandle = env.ClosureTypeDefByNode.[e]
+        let closureHandle = env.ClosureTypeDefByNode.[e.Id]
         let slot = b.Local closureFt
         b.Add(ILInstr.Ldloca slot)
 
@@ -340,7 +345,7 @@ module EmitConstruct =
                 buildVarLoad env b k
 
             let ctorHandle =
-                match env.CtorHandleByNode.TryGetValue e with
+                match env.CtorHandleByNode.TryGetValue e.Id with
                 | true, ctor -> ctor
                 | false, _ ->
                     failwith "Emit: value-struct closure constructor not yet emitted (leaves-first ordering broken)"
@@ -356,7 +361,7 @@ module EmitConstruct =
     /// site (`!!i` inside the enclosing static method's body, `!i` inside an
     /// enclosing closure's `Invoke`) — both encodings reference the same TypeVar
     /// roots, and the parent's `TypeSpec` captures the use-site instantiation.
-    let private buildHeapClosure (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let private buildHeapClosure (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let closure = closureOf env e
 
         for (k, _) in closure.Captures do
@@ -364,7 +369,7 @@ module EmitConstruct =
 
         let ctorHandle =
             if closure.Typars = 0 then
-                match env.CtorHandleByNode.TryGetValue e with
+                match env.CtorHandleByNode.TryGetValue e.Id with
                 | true, ctor -> ctor
                 | false, _ -> failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
             else
@@ -393,12 +398,12 @@ module EmitConstruct =
     ///   * value-struct — by-value, keyed in `ClosureValueTypeByNode`;
     ///   * cached singleton — stateless heap closure `ldsfld`'d once;
     ///   * heap `newobj` (v1) — everything else.
-    let buildLambda (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildLambda (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router; the node's discovered closure mode
         // (value-struct / cached singleton / heap `newobj`) selects the construction.
-        match env.ClosureValueTypeByNode.TryGetValue e with
+        match env.ClosureValueTypeByNode.TryGetValue e.Id with
         | true, closureFt -> buildValueStructClosure env b e closureFt
         | false, _ ->
-            match env.CachedClosureFieldByNode.TryGetValue e with
+            match env.CachedClosureFieldByNode.TryGetValue e.Id with
             | true, cachedField -> b.Add(ILInstr.Ldsfld cachedField)
             | false, _ -> buildHeapClosure env b e

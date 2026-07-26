@@ -601,10 +601,42 @@ accessor flip, and lets each mint site move to native row-appends on its own sch
 - **F.2 The stacked builder.** The base/overlay pool type, the flat id space, `appendTree`, and
   the row-copy primitives. Unused. *Gate: unit tests on the stack — base ids resolve unchanged,
   overlay edges may name base nodes.*
-- **F.3 Flip the accessor.** Fat handles; every accessor body reads columns; `binderName` reads
-  `BinderNamings` and `lambdaKey` reads the lambda's `ExprPoolId` (the B.k+4/B.k+3 rewires land
-  here); both backends open a builder at their emit entry point and the mint sites append.
-  *Gate: goldens hold — 485 JS, 1407 CLR.*
+- **F.3 Flip the accessor. LANDED — both phases.** Every accessor body reads columns; the
+  B.k+4/B.k+3 rewires (`binderName` off `BinderNamings`, `lambdaKey` off the lambda's
+  `ExprPoolId`) landed with it. **Neither backend contains a single `TExprG`/`TPatG`/`TDeclG`
+  reference any more — not even a construction site** (verified repo-wide). Goldens held: 485
+  JS, 1407 CLR.
+
+  - **Handle:** one generic `[<Struct; NoComparison>] Handle<'Id> = { Pool: PoolBuilder; Id }`,
+    instantiated three ways. `PoolBuilder` is `[<ReferenceEquality>]`, so equality is pool
+    identity + id and a handle is a sound dictionary key — two ids denote the same node only
+    when they came from the same pool. The pool riding the handle is what lets a consumer speak
+    in whole nodes (`e.Body`, `arm.Guard`) exactly as when a node WAS the tree, and lets pools
+    that are not a file's tree coexist with it.
+  - **No mint goes through a rebuilt DU.** Phase 2 landed in full: the rewrites are native row
+    operations (`mapChildren`, `retype`/`retypeWithChildren`, `mapDeclExpr`) and the fresh nodes
+    are `mintVar`/`mintNamedPat`/`mintLambda`/`mintAppSpine`/`mintMethodCall`. `appendPatTree` —
+    the DU bridge — survives in exactly one production use, `FrozenSignature` pooling an
+    external provider's re-axised pats.
+  - **Identity went value-keyed.** All six `HashIdentity.Reference` dictionaries are now
+    `Dictionary<ExprPoolId, _>`, and the `ReferenceEquals` guards are GONE: `copyExprWith`
+    returns the *original* id when the edited row equals the original, which is the id-space
+    analogue those guards were hand-rolling. This retires the fragility `Layout.fs:73` recorded.
+  - **`TastLower.lower`'s expression walk was DELETED, not ported** — it was structurally the
+    identity (`App` collect-then-rebuild the same spine; everything else `mapChildren` of
+    itself), so it only ever deep-copied. `lower` is now purely decl flattening.
+  - **External-symbol pats** live in their own builder over a zero-column base
+    (`TastPoolBuilder.openEmpty`), one per `ValRepr`/provider — the second-pool case the fat
+    handle was chosen to allow.
+  - **`TastAccessor` grew (1212 → 1266), it did not shrink.** The ~300 lines of DU walking left
+    for `TastPools` (now the last DU walker), and the file absorbed the mint API, the generic
+    traversal, and the remaining views. The predicted large deletion happened — it just moved.
+  - **A third instance of the same bug class surfaced**, because `toPools` is now on every
+    compile's path rather than only the cache's: an elided E1 format-alias binding recorded a
+    `TopLevelNames` entry for a decl the tree never contains, faulting 5 printf tests. Fixed at
+    the producer, keyed off the same `elided` condition that governs the elision, so the two
+    cannot drift. Third time this session: **a side table naming a node the tree does not bear
+    is the recurring defect of this codebase's identity model.**
 - **F.4 Migrate the stragglers.** `FrozenSignature`, `ConformanceTypars`, `SymbolProviders`,
   `Inline.thawBody`. *Gate: green.*
 - **F.5 Sever the DU.** `freeze` stops materializing the DU (cheap version: build, `toPools`,

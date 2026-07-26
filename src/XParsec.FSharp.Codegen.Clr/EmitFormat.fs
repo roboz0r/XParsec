@@ -21,11 +21,11 @@ module EmitFormat =
     /// `sprintf`. Not a `CallRecipe` — the recipe
     /// model can't interleave literals/args around a ref-struct local + sink.
     let buildFormat
-        (buildExpr: EmitEnv -> IlBuilder -> Frozen.TExpr -> unit)
+        (buildExpr: EmitEnv -> IlBuilder -> TastAccessor.ExprId -> unit)
         (env: EmitEnv)
         (b: IlBuilder)
-        (sink: Frozen.FormatSink)
-        (segments: EqArray<Frozen.FormatSeg>)
+        (sink: TastAccessor.FormatSinkView)
+        (segments: TastAccessor.FormatSegView[])
         : unit =
         let fh = env.Provider.FormatHandles()
         let slot = b.Local fh.HandlerLocal
@@ -37,10 +37,10 @@ module EmitFormat =
 
         for seg in segments do
             match seg with
-            | FormatSegG.Lit s -> litLen <- litLen + s.Length
-            | FormatSegG.Hole _
-            | FormatSegG.DynHole _
-            | FormatSegG.CallbackHole _ -> holeCount <- holeCount + 1
+            | TastAccessor.FormatSegView.Lit s -> litLen <- litLen + s.Length
+            | TastAccessor.FormatSegView.Hole _
+            | TastAccessor.FormatSegView.DynHole _
+            | TastAccessor.FormatSegView.CallbackHole _ -> holeCount <- holeCount + 1
 
         // Construct in place: `ldloca h; ldc litLen; ldc holeCount; <sink?>; call .ctor`.
         b.Add(ILInstr.Ldloca slot)
@@ -48,17 +48,17 @@ module EmitFormat =
         b.Add(ILInstr.LdcI4 holeCount)
 
         match sink with
-        | FormatSinkG.ToString -> b.Add(ILInstr.Call(fh.CtorString, 3, 0))
-        | FormatSinkG.ToStdOut _ ->
+        | TastAccessor.FormatSinkView.ToString -> b.Add(ILInstr.Call(fh.CtorString, 3, 0))
+        | TastAccessor.FormatSinkView.ToStdOut _ ->
             b.Add(ILInstr.Call(fh.ConsoleOut, 0, 1))
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSinkG.ToStdErr _ ->
+        | TastAccessor.FormatSinkView.ToStdErr _ ->
             b.Add(ILInstr.Call(fh.ConsoleError, 0, 1))
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSinkG.ToWriter(w, _) ->
+        | TastAccessor.FormatSinkView.ToWriter(w, _) ->
             buildExpr env b w
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSinkG.ToBuilder sb ->
+        | TastAccessor.FormatSinkView.ToBuilder sb ->
             buildExpr env b sb
             b.Add(ILInstr.Call(fh.CtorBuilder, 4, 0))
 
@@ -110,7 +110,7 @@ module EmitFormat =
         // static (or a plain hole).
         let emitHole
             (hole: Frozen.HoleSpec)
-            (arg: Frozen.TExpr)
+            (arg: TastAccessor.ExprId)
             (starWidthLocal: int option)
             (starPrecLocal: int option)
             =
@@ -320,12 +320,12 @@ module EmitFormat =
 
         for seg in segments do
             match seg with
-            | FormatSegG.Lit s ->
+            | TastAccessor.FormatSegView.Lit s ->
                 b.Add(ILInstr.Ldloca slot)
                 b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
-            | FormatSegG.Hole(hole, arg) -> emitHole hole arg None None
-            | FormatSegG.CallbackHole(_, residue) ->
+            | TastAccessor.FormatSegView.Hole(hole, arg) -> emitHole hole arg None None
+            | TastAccessor.FormatSegView.CallbackHole(_, residue) ->
                 // `%a`/`%t`: Elaborate already lowered the callback (+ any scratch sink) to
                 // an ordinary residue-*string* expr; splice it exactly like a literal —
                 // codegen has no sink knowledge. (`sprintf` = the callback's return;
@@ -333,7 +333,7 @@ module EmitFormat =
                 b.Add(ILInstr.Ldloca slot)
                 buildExpr env b residue
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
-            | FormatSegG.DynHole d ->
+            | TastAccessor.FormatSegView.DynHole d ->
                 // Curried application evaluates the dimension args *before* the value,
                 // but the handler members take them *after* the value — so spill each
                 // present dim (width first, then precision) to a local, then emit the
@@ -394,12 +394,12 @@ module EmitFormat =
                 emitHole d.Spec d.Value wLocal pLocal
 
         match sink with
-        | FormatSinkG.ToString ->
+        | TastAccessor.FormatSinkView.ToString ->
             // Leaves the built string on the stack (the `sprintf` result).
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.ToStringAndClear, 1, 1))
-        | FormatSinkG.ToStdOut nl
-        | FormatSinkG.ToStdErr nl ->
+        | TastAccessor.FormatSinkView.ToStdOut nl
+        | TastAccessor.FormatSinkView.ToStdErr nl ->
             if nl then
                 b.Add(ILInstr.Ldloca slot)
                 b.Add(ILInstr.Ldstr(env.Ctx.UserString "\n"))
@@ -408,7 +408,7 @@ module EmitFormat =
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b
-        | FormatSinkG.ToWriter(_, nl) ->
+        | TastAccessor.FormatSinkView.ToWriter(_, nl) ->
             // `fprintfn` appends the trailing `\n` before flushing, exactly as the
             // `ToStdOut`/`ToStdErr nl` sinks do; `fprintf` (`nl = false`) does not.
             if nl then
@@ -419,7 +419,7 @@ module EmitFormat =
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b
-        | FormatSinkG.ToBuilder _ ->
+        | TastAccessor.FormatSinkView.ToBuilder _ ->
             // `bprintf` has no newline variant, so no trailing `\n` — just flush the
             // buffered text to the `StringBuilder` sink and yield unit.
             b.Add(ILInstr.Ldloca slot)

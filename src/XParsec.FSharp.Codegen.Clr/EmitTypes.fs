@@ -7,13 +7,13 @@ open XParsec.FSharp.SemanticAnalysis
 
 module EmitTypes =
 
-    /// One `FSharpFunc\`2<ParamTy, ResultTy>` subclass. `Node` is matched by
-    /// reference identity in the *lowered* tree shared by discovery and emission.
-    /// `Captures` order = field order = ctor-arg order = order pushed at the
+    /// One `FSharpFunc\`2<ParamTy, ResultTy>` subclass. `Node` is matched by its POOL ID
+    /// in the *lowered* tree shared by discovery and emission — the `…ByNode` tables key
+    /// on that id. `Captures` order = field order = ctor-arg order = order pushed at the
     /// construction site.
     type Closure =
         {
-            Node: Frozen.TExpr
+            Node: TastAccessor.ExprId
             Name: string
             ParamKey: NodeKey
             ParamTy: FrozenType
@@ -22,9 +22,9 @@ module EmitTypes =
             /// (`fun (a, b) -> …`) is destructured out of the `ldarg.1`
             /// `ValueTuple`n` value by `bindPattern` before the body runs, so
             /// `ParamKey` is a synthetic placeholder for that slot.
-            ParamPat: Frozen.TPat
+            ParamPat: TastAccessor.PatId
             ResultTy: FrozenType
-            Body: Frozen.TExpr
+            Body: TastAccessor.ExprId
             Captures: (NodeKey * FrozenType) list
             /// Binding key of the `let [rec] f = <this lambda>` this is the value
             /// of. A recursive self-reference resolves to `this` (`ldarg.0`), so
@@ -77,7 +77,7 @@ module EmitTypes =
             /// key, type, pattern — peeled from a successive inner `Lambda`). Empty for
             /// the arity-1 path; length `FunArity - 1` (so `1..3` for flat arity `2..4`).
             /// The closure's `Invoke` binds extra param `i` (0-based) to `ldarg.(2+i)`.
-            ExtraParams: (NodeKey * FrozenType * Frozen.TPat) list
+            ExtraParams: (NodeKey * FrozenType * TastAccessor.PatId) list
         }
 
     /// A non-capturing (`Captures` empty), monomorphic (`Typars = 0`) closure is
@@ -127,9 +127,9 @@ module EmitTypes =
     [<RequireQualifiedAccess>]
     type PreambleStep =
         /// A `[static] let`: evaluate the initialiser and store it into the backing field.
-        | Store of field: EntityHandle * init: Frozen.TExpr
+        | Store of field: EntityHandle * init: TastAccessor.ExprId
         /// A `[static] do`: run the body for effect (its `unit` result is drained).
-        | Run of body: Frozen.TExpr
+        | Run of body: TastAccessor.ExprId
 
     /// A class primary `.ctor`'s base-constructor chain.
     [<RequireQualifiedAccess>]
@@ -137,7 +137,7 @@ module EmitTypes =
         /// `inherit Base(args)`, an external base's `.ctor`, or — for an `inherit`-less
         /// reference class — `System.Object::.ctor()`. The args are evaluated before
         /// `this` is constructed, so they may only reference the ctor params (`ldarg`).
-        | Base of ctor: EntityHandle * args: Frozen.TExpr list
+        | Base of ctor: EntityHandle * args: TastAccessor.ExprId list
         /// A value type: `System.ValueType` has no accessible ctor and value types do
         /// not chain.
         | None
@@ -337,8 +337,8 @@ module EmitTypes =
             /// N pushed values. Distinct from `Params` because the flat compiled
             /// signature alone cannot tell `f(int,int)` (tupled group) from a genuine
             /// single `(int*int)` param.
-            Groups: Frozen.ArgGroup list
-            Body: Frozen.TExpr
+            Groups: TastAccessor.ArgGroup list
+            Body: TastAccessor.ExprId
             ResultTy: FrozenType
             /// `true` when the source result type is `unit` — the method emits as
             /// genuine CLR `void` (full F# fidelity, "void everywhere"), its
@@ -371,7 +371,7 @@ module EmitTypes =
             SymbolKey: SymbolKey
             Name: string
             Ty: FrozenType
-            Init: Frozen.TExpr
+            Init: TastAccessor.ExprId
             Holder: HolderKey
         }
 
@@ -394,7 +394,7 @@ module EmitTypes =
             /// The SOURCE groups (mirrors `StaticFn.Groups`): `Groups.Length` spine
             /// applications collapse into one `call`, and each tuple group's single
             /// argument is flattened to N pushed values at the call site.
-            Groups: Frozen.ArgGroup list
+            Groups: TastAccessor.ArgGroup list
             ResultTy: FrozenType
             Typars: int
             ParamTys: FrozenType list
@@ -417,18 +417,18 @@ module EmitTypes =
         {
             Provider: ICodegenProvider
             Ctx: MetadataContext
-            ClosureByNode: Dictionary<Frozen.TExpr, Closure>
-            CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            ClosureByNode: Dictionary<ExprPoolId, Closure>
+            CtorHandleByNode: Dictionary<ExprPoolId, EntityHandle>
             /// A non-capturing, monomorphic closure's cached `instance` field:
             /// a `Lambda` node here loads its one cached singleton
             /// with `ldsfld` instead of `newobj`'ing per construction.
-            CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            CachedClosureFieldByNode: Dictionary<ExprPoolId, EntityHandle>
             /// A captureless `Stack` (value-struct) closure
             /// `Lambda` node → its synthetic encodable `FrozenType` (its by-value
             /// local + the constrained-slot `MethodSpec` type-argument) and its
             /// closure-`TypeDef` handle (`initobj` operand).
-            ClosureValueTypeByNode: Dictionary<Frozen.TExpr, FrozenType>
-            ClosureTypeDefByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            ClosureValueTypeByNode: Dictionary<ExprPoolId, FrozenType>
+            ClosureTypeDefByNode: Dictionary<ExprPoolId, EntityHandle>
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
@@ -461,15 +461,15 @@ module EmitTypes =
             Provider: ICodegenProvider
             Ctx: MetadataContext
             Slots: Dictionary<NodeKey, int>
-            ClosureByNode: Dictionary<Frozen.TExpr, Closure>
-            CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            ClosureByNode: Dictionary<ExprPoolId, Closure>
+            CtorHandleByNode: Dictionary<ExprPoolId, EntityHandle>
             /// Cached non-capturing closure singleton fields;
             /// a `Lambda` value here `ldsfld`s instead of `newobj`ing.
-            CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            CachedClosureFieldByNode: Dictionary<ExprPoolId, EntityHandle>
             /// Value-struct closures: synthetic encodable
             /// `FrozenType` + closure-`TypeDef` handle per `Stack` `Lambda` node.
-            ClosureValueTypeByNode: Dictionary<Frozen.TExpr, FrozenType>
-            ClosureTypeDefByNode: Dictionary<Frozen.TExpr, EntityHandle>
+            ClosureValueTypeByNode: Dictionary<ExprPoolId, FrozenType>
+            ClosureTypeDefByNode: Dictionary<ExprPoolId, EntityHandle>
             Args: Dictionary<NodeKey, int>
             SelfKey: NodeKey voption
             CaptureFields: Dictionary<NodeKey, EntityHandle>
@@ -493,7 +493,7 @@ module EmitTypes =
     /// intrinsic, and the struct-argument receiver spill — each of which then falls back
     /// differently (recurse into a field, `failwith`, or spill to a temp).
     [<return: Struct>]
-    let (|LocalSlot|_|) (env: EmitEnv) (e: Frozen.TExpr) : int voption =
+    let (|LocalSlot|_|) (env: EmitEnv) (e: TastAccessor.ExprId) : int voption =
         match e with
         | TastAccessor.EVar k ->
             match env.Slots.TryGetValue k with

@@ -22,10 +22,8 @@ let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
 let private firstLetValue (frozen: Frozen.TastFile) : Frozen.TExpr =
     EqArray.toArray frozen.Decls
     |> Array.pick (fun d ->
-        match TastAccessor.declKind d with
-        | DeclShape.Let ->
-            let v = TastAccessor.declLet d
-            Some v.Value
+        match d with
+        | TDeclG.Let(value = value) -> Some value
         | _ -> None
     )
 
@@ -161,15 +159,15 @@ let appendTests =
                 let (ExprPoolId i) = id
                 Expect.isGreaterThanOrEqual i baseCount "the appended root is an overlay id"
 
-                Expect.equal (TastPoolBuilder.exprShape b id) (TastAccessor.exprKind du) "appended shape"
-                Expect.equal (TastPoolBuilder.exprTy b id) (TastAccessor.exprTy du) "appended ty"
-                Expect.equal (TastPoolBuilder.exprTok b id) (TastAccessor.exprTok du) "appended tok"
+                Expect.equal (TastPoolBuilder.exprShape b id) (TastPools.exprShape du) "appended shape"
+                Expect.equal (TastPoolBuilder.exprTy b id) (TastWalk.exprTy du) "appended ty"
+                Expect.equal (TastPoolBuilder.exprTok b id) (TastWalk.exprTok du) "appended tok"
 
                 // `appendExprTree` pools the WHOLE tree it is handed — its children are
                 // re-pooled into the overlay, not deduped against equal base rows.
                 let kids = TastPoolBuilder.exprChildren b id
 
-                Expect.equal kids.Length (TastAccessor.exprChildren du).Length "appended child fan-out"
+                Expect.equal kids.Length (TastPools.exprChildren du).Length "appended child fan-out"
 
                 for (ExprPoolId k) in kids do
                     Expect.isGreaterThanOrEqual k baseCount "an appended child is an overlay id"
@@ -184,13 +182,8 @@ let appendTests =
                 let varDu =
                     EqArray.toArray frozen.Decls
                     |> Array.pick (fun d ->
-                        match TastAccessor.declKind d with
-                        | DeclShape.Let ->
-                            let v = TastAccessor.declLet d
-
-                            match TastAccessor.exprKind v.Value with
-                            | ExprShape.Var -> Some v.Value
-                            | _ -> None
+                        match d with
+                        | TDeclG.Let(value = TExprG.Var _ as value) -> Some value
                         | _ -> None
                     )
 
@@ -206,7 +199,9 @@ let appendTests =
                 | ValueSome binder ->
                     Expect.equal
                         (TastPoolBuilder.binderKey b binder)
-                        (TastAccessor.exprVarBinding varDu)
+                        (match varDu with
+                         | TExprG.Var(binding = b) -> b
+                         | _ -> failtest "not a Var")
                         "the minted Var resolves to its own binder key"
 
                     let (BinderId j) = binder
@@ -261,7 +256,14 @@ let rowCopyTests =
                 // the stack's load-bearing case: an edge minted above the boundary
                 // addressing a node below it.
                 let swapped =
-                    TastPoolBuilder.copyExprWithChildren b tuple [| kids.[1]; kids.[0] |] [||]
+                    TastPoolBuilder.copyExprWith
+                        b
+                        tuple
+                        (fun row ->
+                            { row with
+                                Children = [| kids.[1]; kids.[0] |]
+                            }
+                        )
 
                 Expect.notEqual swapped tuple "the copy is a new node"
 
@@ -276,27 +278,30 @@ let rowCopyTests =
                 Expect.equal (TastPoolBuilder.exprTok b swapped) (TastPoolBuilder.exprTok b tuple) "tok carried"
 
                 let newRoot =
-                    TastPoolBuilder.copyDeclWithChildren b root [| swapped |] (TastPoolBuilder.declPatChildren b root)
+                    TastPoolBuilder.copyDeclWith
+                        b
+                        root
+                        (fun row ->
+                            { row with
+                                ExprChildren = [| swapped |]
+                            }
+                        )
 
                 TastPoolBuilder.setRoot b 0 newRoot
 
                 // The oracle: the same file with the tuple's items reversed, built on the
                 // ORIGINAL DU nodes, so tokens and types are the source's exactly.
-                let du = (EqArray.toArray frozen.Decls).[0]
-                let letView = TastAccessor.declLet du
-
-                let expectedValue =
-                    match letView.Value with
-                    | TExprG.Tuple(items = items; ty = ty; tok = tok) ->
-                        TExprG.Tuple(items |> EqArray.toArray |> Array.rev |> EqArray.ofArray, ty, tok)
-                    | _ -> failtest "the decl's value is not a Tuple"
-
                 let expected =
-                    { frozen with
-                        Decls =
-                            EqArray.ofArray
-                                [| TDeclG.Let(letView.Binding, expectedValue, letView.IsInline, letView.Ty) |]
-                    }
+                    match (EqArray.toArray frozen.Decls).[0] with
+                    | TDeclG.Let(
+                        binding = binding; value = TExprG.Tuple(items, ty, tok); isInline = isInline; ty = declTy) ->
+                        let reversed =
+                            TExprG.Tuple(items |> EqArray.toArray |> Array.rev |> EqArray.ofArray, ty, tok)
+
+                        { frozen with
+                            Decls = EqArray.ofArray [| TDeclG.Let(binding, reversed, isInline, declTy) |]
+                        }
+                    | _ -> failtest "the decl is not a `let` over a Tuple"
 
                 Expect.isTrue
                     (TastFileG.structurallyEqual (TastPools.ofPools (TastPoolBuilder.toPools b)) expected)
@@ -310,7 +315,9 @@ let rowCopyTests =
                 let element = (TastPoolBuilder.exprChildren b tuple).[0]
                 let tupleTy = TastPoolBuilder.exprTy b tuple
 
-                let retyped = TastPoolBuilder.copyExprWithTy b element tupleTy
+                let retyped =
+                    TastPoolBuilder.copyExprWith b element (fun row -> { row with Ty = tupleTy })
+
                 Expect.notEqual retyped element "the retype is a new node"
                 Expect.equal (TastPoolBuilder.exprTy b retyped) tupleTy "the retyped row carries the new type"
 
@@ -331,25 +338,38 @@ let rowCopyTests =
                 // A rewrite walk that touches nothing must append nothing and leave every
                 // id a consumer already holds pointing at the same node.
                 Expect.equal
-                    (TastPoolBuilder.copyExprWithChildren
+                    (TastPoolBuilder.copyExprWith
                         b
                         tuple
-                        (TastPoolBuilder.exprChildren b tuple)
-                        (TastPoolBuilder.exprPatChildren b tuple))
+                        (fun row ->
+                            { row with
+                                Children = TastPoolBuilder.exprChildren b tuple
+                            }
+                        ))
                     tuple
                     "unchanged children reuse the row"
 
                 Expect.equal
-                    (TastPoolBuilder.copyExprWithTy b tuple (TastPoolBuilder.exprTy b tuple))
+                    (TastPoolBuilder.copyExprWith
+                        b
+                        tuple
+                        (fun row ->
+                            { row with
+                                Ty = TastPoolBuilder.exprTy b tuple
+                            }
+                        ))
                     tuple
                     "an unchanged type reuses the row"
 
                 Expect.equal
-                    (TastPoolBuilder.copyDeclWithChildren
+                    (TastPoolBuilder.copyDeclWith
                         b
                         root
-                        (TastPoolBuilder.declExprChildren b root)
-                        (TastPoolBuilder.declPatChildren b root))
+                        (fun row ->
+                            { row with
+                                ExprChildren = TastPoolBuilder.declExprChildren b root
+                            }
+                        ))
                     root
                     "unchanged decl edges reuse the row"
 

@@ -174,8 +174,8 @@ module EmitJsCapabilities =
     let (|CapabilityRead|_|)
         (caps: RuntimeNames.CapabilityIds)
         (imports: JsImports)
-        (e: Frozen.TExpr)
-        : struct (Frozen.TExpr * (JsExpr -> JsLoc voption -> JsExpr)) voption =
+        (e: TastAccessor.ExprId)
+        : struct (TastAccessor.ExprId * (JsExpr -> JsLoc voption -> JsExpr)) voption =
         match e with
         | JsExternalMembers.InstanceExternalMember(recv, em) when em.Storage.IsValueMember ->
             tryCapabilitySlot caps imports (JsExternalMembers.declKey em.Key) em.MemberName
@@ -193,9 +193,9 @@ module EmitJsCapabilities =
     let tryCapabilityCall
         (caps: RuntimeNames.CapabilityIds)
         (imports: JsImports)
-        (build: Frozen.TExpr -> JsExpr)
-        (head: Frozen.TExpr)
-        (spine: (Frozen.TExpr * FrozenType * SyntaxToken) list)
+        (build: TastAccessor.ExprId -> JsExpr)
+        (head: TastAccessor.ExprId)
+        (spine: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
         (loc: JsLoc voption)
         : JsExpr voption =
         match head, spine with

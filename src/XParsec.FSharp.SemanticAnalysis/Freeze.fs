@@ -323,13 +323,45 @@ module Freeze =
         let bindingValReprs =
             let d = System.Collections.Generic.Dictionary<NodeKey, Frozen.ValRepr>()
 
+            // The curried-lambda peel on the DU spine this freeze has just produced —
+            // the one point where the source arity is read before the tree is pooled.
+            // Only the READING of a parameter pattern is written here; which group it
+            // makes is `TastLower.argGroupOfParam`, the same rule the pooled peel runs.
+            let rec peel (e: Frozen.TExpr) : Frozen.ArgGroup list * Frozen.TExpr =
+                match e with
+                | TExprG.Lambda(param = param; body = body) ->
+                    let facts: TastLower.ParamPatFacts =
+                        {
+                            Shape = TastPools.patShape param
+                            Ty = TastWalk.patTy param
+                            Binder = TastWalk.patBinder param
+                            ConstValue =
+                                match param with
+                                | TPatG.Const(value = value) -> ValueSome value
+                                | _ -> ValueNone
+                        }
+
+                    match TastLower.argGroupOfParam facts param with
+                    | ValueSome g ->
+                        let gs, b = peel body
+                        g :: gs, b
+                    | ValueNone -> [], e
+                | _ -> [], e
+
             let record (k: NodeKey) (value: Frozen.TExpr) =
                 let typars =
                     match Map.tryFind k converted.BindingTyparArities with
                     | Some n -> n
                     | None -> 0
 
-                d.[k] <- fst (TastLower.valReprOf typars value)
+                let groups, body = peel value
+
+                d.[k] <-
+                    {
+                        Typars = typars
+                        Groups = groups
+                        ResultTy = TastWalk.exprTy body
+                    }
 
             for decl in converted.Decls do
                 match decl with

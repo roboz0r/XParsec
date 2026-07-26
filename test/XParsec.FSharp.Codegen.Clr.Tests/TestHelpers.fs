@@ -45,6 +45,13 @@ let (|TyClass|_|) (t: SemType) =
 /// (`| [ TDecl.Let _ ] -> …`, `| [ x; y ] -> …`) verbatim across the flip.
 let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 
+/// A frozen file's declarations as pool handles — what `Layout.buildUnit` opens before
+/// anything else, so a test that drives a lowering / discovery pass directly starts from
+/// the same representation the backend does.
+let pooledDecls (frozen: Frozen.TastFile) : TastAccessor.DeclId list =
+    TastAccessor.roots (TastPoolBuilder.openOver (TastPools.toPools frozen))
+    |> List.ofArray
+
 /// Lex + parse a source string; script fragments wrap as `AnonymousModule`.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     // `Result.Ok`/`Result.Error` are qualified because `open ...SemanticAnalysis`

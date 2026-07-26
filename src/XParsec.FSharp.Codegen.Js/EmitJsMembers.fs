@@ -18,7 +18,7 @@ module EmitJsMembers =
     /// leaving the body's `TExpr.Var(thisKey)` references intact. Empty when the binder
     /// already resolves to `this` (avoids a no-op `const this = this;`).
     let thisAlias (ctx: WalkCtx) (k: NodeKey) : JsStatement list =
-        let recvName = binderName ctx.Source k
+        let recvName = binderNameOf ctx.Pool ctx.Source k
 
         if recvName = "this" then
             []
@@ -26,7 +26,7 @@ module EmitJsMembers =
             [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
 
     /// `thisAlias` for a member — empty when the member is static.
-    let thisBinding (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsStatement list =
+    let thisBinding (ctx: WalkCtx) (m: TastAccessor.TypeMember) : JsStatement list =
         match m.ThisKey with
         | ValueSome k -> thisAlias ctx k
         | ValueNone -> []
@@ -39,14 +39,14 @@ module EmitJsMembers =
     /// slot IS its member body; only the `key` (a plain `Named`, a `Symbol.dispose`
     /// member-access, or a `Symbol.for("vesper.X")` registry call) tells them apart.
     let emitPlainMethod
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (key: JsMethodKey)
-        (m: Frozen.TTypeMember)
+        (m: TastAccessor.TypeMember)
         : JsClassMethod =
         {
             Key = key
-            Params = [ for (pk, _) in m.Params -> binderName ctx.Source pk ]
+            Params = [ for (pk, _) in m.Params -> binderNameOf ctx.Pool ctx.Source pk ]
             Body = thisBinding ctx m @ [ JsStatement.Return(buildExpr ctx m.Body) ]
             Generator = false
         }
@@ -54,9 +54,9 @@ module EmitJsMembers =
     /// An interface-impl / `Object`-override member (`Equals`/`CompareTo`/`GetHashCode`
     /// or a user interface method) as a name-keyed attached method.
     let emitAttachedMethod
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
-        (m: Frozen.TTypeMember)
+        (m: TastAccessor.TypeMember)
         : JsClassMethod =
         emitPlainMethod buildExpr ctx (JsMethodKey.Named m.Name) m
 
@@ -72,13 +72,13 @@ module EmitJsMembers =
     /// (`e.MoveNext()` / `e.Current()`), dispatched directly on the runtime object — not
     /// the free receiver-first form a regular member call lowers to.
     let emitIteratorMethod
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
-        (m: Frozen.TTypeMember)
+        (m: TastAccessor.TypeMember)
         : JsClassMethod =
         // A fresh enumerator binder, keyed on the body token so it can't shadow a
         // source binder the `GetEnumerator` body itself introduces.
-        let eName = "_e" + string (TastWalk.exprTok m.Body).StartIndex
+        let eName = "_e" + string (TastAccessor.exprTok m.Body).StartIndex
         let eIdent = JsExpr.Identifier(eName, ValueNone)
 
         // Direct attached calls on the enumerator object: `e.MoveNext()` / `e.Current()`
@@ -109,9 +109,9 @@ module EmitJsMembers =
     /// (non-generator) method keyed by the `Symbol.dispose` member-access node, NOT a
     /// `Symbol.for("…")` registry call.
     let emitDisposeMethod
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
-        (m: Frozen.TTypeMember)
+        (m: TastAccessor.TypeMember)
         : JsClassMethod =
         emitPlainMethod buildExpr ctx (JsMethodKey.Computed symbolDispose) m
 
@@ -123,10 +123,10 @@ module EmitJsMembers =
     /// foreign object carrying an unrelated `.Equals`/`.CompareTo`/`.GetHashCode`. `registryName`
     /// is the registry key (`vesper.equality` etc.).
     let emitProtocolMethod
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (registryName: string)
-        (m: Frozen.TTypeMember)
+        (m: TastAccessor.TypeMember)
         : JsClassMethod =
         emitPlainMethod buildExpr ctx (JsMethodKey.Computed(registrySymbol registryName)) m
 
@@ -134,10 +134,10 @@ module EmitJsMembers =
     /// `member this.Foo a b` → `<Type>__Foo = (this$) => (a) => (b) => <body>`.
     /// Static members drop the receiver; a static property emits as a plain value binding.
     let emitMemberFn
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (typeName: string)
-        (m: Frozen.TTypeMember)
+        (m: TastAccessor.TypeMember)
         : JsStatement =
         let isProperty = (m.Kind = TMemberKind.Property)
         let name = JsExternalMembers.mangledName typeName m.IsStatic isProperty m.Name
@@ -147,10 +147,10 @@ module EmitJsMembers =
                 []
             else
                 match m.ThisKey with
-                | ValueSome k -> [ binderName ctx.Source k ]
+                | ValueSome k -> [ binderNameOf ctx.Pool ctx.Source k ]
                 | ValueNone -> [ "this$" ]
 
-        let paramNames = [ for (pk, _) in m.Params -> binderName ctx.Source pk ]
+        let paramNames = [ for (pk, _) in m.Params -> binderNameOf ctx.Pool ctx.Source pk ]
         let allNames = receiverNames @ paramNames
         let body = buildExpr ctx m.Body
 
@@ -168,7 +168,7 @@ module EmitJsMembers =
     /// `[Symbol.dispose]()` method. (`Free` members are emitted elsewhere as free
     /// functions.) Shared by the pending-class and pending-union emission.
     let emitCapabilityMethods
-        (buildExpr: WalkCtx -> Frozen.TExpr -> JsExpr)
+        (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (p: PartitionedMembers)
         : JsClassMethod list =

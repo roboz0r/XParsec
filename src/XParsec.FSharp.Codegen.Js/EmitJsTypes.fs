@@ -82,19 +82,19 @@ module EmitJsTypes =
         {
             /// Instance methods bound to `this` (runtime dispatch slots): interface-impl
             /// / `Object`-override members → `emitAttachedMethod`.
-            Attached: Frozen.TTypeMember list
+            Attached: TastAccessor.TypeMember list
             /// Free receiver-first functions (tree-shakeable; call sites lower to these).
-            Free: Frozen.TTypeMember list
+            Free: TastAccessor.TypeMember list
             /// Enumerable-capability `GetEnumerator` impls (`seq<'T>` / `IEnumerable<'T>`)
             /// → `[Symbol.iterator]` generators (`emitIteratorMethod`).
-            Iterators: Frozen.TTypeMember list
+            Iterators: TastAccessor.TypeMember list
             /// Eq/comp/hash capability impls, paired with their registry-symbol key
             /// (`vesper.equality` / `vesper.comparison` / `vesper.hash`) → computed-key
             /// `[Symbol.for("vesper.X")]` methods (`emitProtocolMethod`).
-            Protocols: (string * Frozen.TTypeMember) list
+            Protocols: (string * TastAccessor.TypeMember) list
             /// Disposable-capability `Dispose` impls → native `[Symbol.dispose]()`
             /// methods (`emitDisposeMethod`) that `use` calls.
-            Disposers: Frozen.TTypeMember list
+            Disposers: TastAccessor.TypeMember list
         }
 
     /// A class's INSTANCE preamble (`let` / `do`) awaiting emission into the primary
@@ -106,7 +106,7 @@ module EmitJsTypes =
     type ClassPreamble =
         {
             ThisKey: NodeKey
-            Entries: Frozen.TPreambleEntry list
+            Entries: TastAccessor.PreambleEntry list
         }
 
     /// One locally-emitted class awaiting body emission: its name + ctor `fields`, its
@@ -121,7 +121,7 @@ module EmitJsTypes =
             /// `static let` / `static do` entries in declaration order, initialising the
             /// class's static backing fields (`ClassName.field`) at module load. Empty
             /// for a class with no static preamble.
-            StaticPreamble: Frozen.TPreambleEntry list
+            StaticPreamble: TastAccessor.PreambleEntry list
             Members: PartitionedMembers
         }
 
@@ -153,7 +153,7 @@ module EmitJsTypes =
             Enums: System.Collections.Generic.Dictionary<SymbolKey, string>
             PendingClasses: PendingClass list
             PendingUnions: PendingUnion list
-            Members: (string * Frozen.TTypeMember) list
+            Members: (string * TastAccessor.TypeMember) list
         }
 
     // The IMPLEMENTER half of the capability protocol — the dispatch slot a type that
@@ -190,16 +190,16 @@ module EmitJsTypes =
     let partitionClassMembers
         (caps: RuntimeNames.CapabilityIds)
         (typeName: string)
-        (interfaces: EqArray<FrozenType * EqArray<Frozen.TTypeMember>>)
-        (members: EqArray<Frozen.TTypeMember>)
+        (interfaces: EqArray<FrozenType * EqArray<TastAccessor.TypeMember>>)
+        (members: EqArray<TastAccessor.TypeMember>)
         : PartitionedMembers =
-        let attached = ResizeArray<Frozen.TTypeMember>()
-        let iterators = ResizeArray<Frozen.TTypeMember>()
-        let protocols = ResizeArray<string * Frozen.TTypeMember>()
-        let disposers = ResizeArray<Frozen.TTypeMember>()
+        let attached = ResizeArray<TastAccessor.TypeMember>()
+        let iterators = ResizeArray<TastAccessor.TypeMember>()
+        let protocols = ResizeArray<string * TastAccessor.TypeMember>()
+        let disposers = ResizeArray<TastAccessor.TypeMember>()
         let claimed = System.Collections.Generic.HashSet<string>()
 
-        let attachNamed (ifaceMembers: EqArray<Frozen.TTypeMember>) =
+        let attachNamed (ifaceMembers: EqArray<TastAccessor.TypeMember>) =
             for m in ifaceMembers do
                 if claimed.Add m.Name then
                     attached.Add m
@@ -236,7 +236,7 @@ module EmitJsTypes =
                 | ValueSome JsCapability.Cursor
                 | ValueNone -> attachNamed ifaceMembers
 
-        let free = ResizeArray<Frozen.TTypeMember>()
+        let free = ResizeArray<TastAccessor.TypeMember>()
 
         for m in members do
             if m.IsOverride && m.Name = "Equals" then
@@ -276,7 +276,11 @@ module EmitJsTypes =
     /// Collect the file's nominal `type` decls (in source order) into the emission list,
     /// the lookup tables, the deferred pending-class/union records, and the free-member
     /// list. Read off the un-lowered decls — `TastLower.lower` drops `type` decls.
-    let collectTypes (caps: RuntimeNames.CapabilityIds) (exportTypes: bool) (tast: Frozen.TastFile) : CollectedTypes =
+    let collectTypes
+        (caps: RuntimeNames.CapabilityIds)
+        (exportTypes: bool)
+        (decls: TastAccessor.DeclId list)
+        : CollectedTypes =
         let ordered = ResizeArray<JsStatement>()
         let records = System.Collections.Generic.Dictionary<SymbolKey, JsRecordInfo>()
         let unions = System.Collections.Generic.Dictionary<SymbolKey, JsUnionInfo>()
@@ -284,9 +288,9 @@ module EmitJsTypes =
         let enums = System.Collections.Generic.Dictionary<SymbolKey, string>()
         let pendingClasses = ResizeArray<PendingClass>()
         let pendingUnions = ResizeArray<PendingUnion>()
-        let members = ResizeArray<string * Frozen.TTypeMember>()
+        let members = ResizeArray<string * TastAccessor.TypeMember>()
 
-        let addMembers (typeName: string) (ms: EqArray<Frozen.TTypeMember>) =
+        let addMembers (typeName: string) (ms: EqArray<TastAccessor.TypeMember>) =
             for m in ms do
                 members.Add(typeName, m)
 
@@ -296,8 +300,8 @@ module EmitJsTypes =
         // wraps the returned partition in the appropriate pending record.
         let deferPartition
             (typeName: string)
-            (interfaces: EqArray<FrozenType * EqArray<Frozen.TTypeMember>>)
-            (declMembers: EqArray<Frozen.TTypeMember>)
+            (interfaces: EqArray<FrozenType * EqArray<TastAccessor.TypeMember>>)
+            (declMembers: EqArray<TastAccessor.TypeMember>)
             : PartitionedMembers =
             let parts = partitionClassMembers caps typeName interfaces declMembers
 
@@ -306,7 +310,7 @@ module EmitJsTypes =
 
             parts
 
-        for decl in tast.Decls do
+        for decl in decls do
             match TastAccessor.declKind decl with
             | DeclShape.Type ->
                 let td = TastAccessor.declType decl

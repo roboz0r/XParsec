@@ -25,7 +25,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// type-argument the call site solves (`EmitCall`) — there is no grounded arrow leaf to
 /// patch, and the old collision-prone arrow-equality rewrite is gone.
 ///
-/// Pure `Frozen.TExpr` / `FrozenType` / `NodeKey` traffic — the same family
+/// Pure `TastAccessor.ExprId` / `FrozenType` / `NodeKey` traffic — the same family
 /// `TastLower` already shares between backends. It depends on NOTHING CLR-specific (no
 /// provider, layout, or `Emit.Closure`): the only backend input is the already-minted
 /// node→nominal map, which any backend that lowers a captureless lambda to a nominal
@@ -41,19 +41,19 @@ module internal ClosureVerdictRewrite =
             /// Retype a body expression so a reference to a verdict binding (`Var h` /
             /// `h.F`) or an inline transformer call dispatches on the value-struct
             /// nominal rather than the frozen arrow. A no-op when there are no verdicts.
-            RetypeBody: Frozen.TExpr -> Frozen.TExpr
+            RetypeBody: TastAccessor.ExprId -> TastAccessor.ExprId
             /// `RetypeBody` lifted to a top-level `TDecl` (the Main path) — the single
             /// place that knows how to reach the expressions inside a `TDecl`.
-            RetypeDecl: Frozen.TDecl -> Frozen.TDecl
+            RetypeDecl: TastAccessor.DeclId -> TastAccessor.DeclId
             /// The field-slot type for a module value: the rewritten container if it is
             /// a verdict binding, else the declared type unchanged.
             ModuleValueSlotType: NodeKey -> FrozenType -> FrozenType
         }
 
     /// Build the rewrite from the backend-neutral inputs:
-    /// * `closureValueTypeByNode` — each value-struct closure's Lambda node (reference
-    ///   identity) → its minted `<closure>$` value-struct `FrozenType`.
-    /// * `funVerdicts` — a source-lambda node's `NodeKey` → its `FunVerdict`; the
+    /// * `closureValueTypeByNode` — each value-struct closure's Lambda node, by POOL
+    ///   ID → its minted `<closure>$` value-struct `FrozenType`.
+    /// * `funVerdicts` — a source-lambda node's POOL ID → its `FunVerdict`; the
     ///   `ResultTyparPos` names the type-arg POSITION its `'TFunc` occupies in the
     ///   producing transformer's result nominal (the only field this pass reads).
     /// * `enumeratorOf` — the seq→enumerator witness: given a (rewritten) seq nominal,
@@ -63,31 +63,29 @@ module internal ClosureVerdictRewrite =
     ///   binding's nested `'E` slot NODE-KEYED, never by matching an arrow leaf.
     /// * `moduleValues` — each stored module value as `(key, declared type, initialiser)`.
     let build
-        (closureValueTypeByNode: IReadOnlyDictionary<Frozen.TExpr, FrozenType>)
-        (funVerdicts: Map<NodeKey, FunVerdict>)
+        (closureValueTypeByNode: IReadOnlyDictionary<ExprPoolId, FrozenType>)
+        (funVerdicts: IReadOnlyDictionary<ExprPoolId, FunVerdict>)
         (enumeratorOf: FrozenType -> FrozenType voption)
-        (moduleValues: (NodeKey * FrozenType * Frozen.TExpr) seq)
+        (moduleValues: (NodeKey * FrozenType * TastAccessor.ExprId) seq)
         : Rewrite =
 
-        // Per-value-struct-closure VERDICT, keyed by the closure's
-        // Lambda node (reference identity) → its `<closure>$` value-struct + the
-        // RESULT-typar POSITION its `'TFunc` occupies in the producing transformer's
-        // result nominal. `closureValueTypeByNode`'s keys ARE exactly the value-struct
-        // closure nodes, so iterate it directly (no `Emit.Closure`/`IsValueStruct`
-        // dependency — the seam that keeps this module backend-neutral). The
-        // node-identity discipline so two *structurally identical* transformer arrows
-        // (two `int->int` maps) are NEVER conflated — each transformer-call site is
-        // rewritten with the closure THAT call produced, found by walking that call's
-        // OWN argument spine (`appOwnVerdict`). Built first so every downstream
-        // consumer (`collect`, `appOwnVerdict`, the for-in leaf set) shares it.
+        // Per-value-struct-closure VERDICT, keyed by the closure's Lambda node's POOL ID
+        // → its `<closure>$` value-struct + the RESULT-typar POSITION its `'TFunc`
+        // occupies in the producing transformer's result nominal.
+        // `closureValueTypeByNode`'s keys ARE exactly the value-struct closure nodes, so
+        // iterate it directly (no `Emit.Closure`/`IsValueStruct` dependency — the seam
+        // that keeps this module backend-neutral). Node identity is what stops two
+        // *structurally identical* transformer arrows (two `int->int` maps) from ever
+        // being conflated: each transformer-call site is rewritten with the closure THAT
+        // call produced, found by walking that call's OWN argument spine
+        // (`appOwnVerdict`). Built first so every downstream consumer (`collect`,
+        // `appOwnVerdict`, the for-in leaf set) shares it.
         let closureNodeVerdict =
-            let d = Dictionary<Frozen.TExpr, struct (FrozenType * int)>(HashIdentity.Reference)
+            let d = Dictionary<ExprPoolId, struct (FrozenType * int)>()
 
             for KeyValue(node, closureFt) in closureValueTypeByNode do
-                let k = TastWalk.lambdaKey node
-
-                match Map.tryFind k funVerdicts with
-                | Some { ResultTyparPos = ValueSome idx } -> d.[node] <- struct (closureFt, idx)
+                match funVerdicts.TryGetValue node with
+                | true, { ResultTyparPos = ValueSome idx } -> d.[node] <- struct (closureFt, idx)
                 | _ -> ()
 
             d
@@ -113,7 +111,7 @@ module internal ClosureVerdictRewrite =
 
         let substituteVerdictClosures
             (ty: FrozenType)
-            (init: Frozen.TExpr)
+            (init: TastAccessor.ExprId)
             : FrozenType * (FrozenType * FrozenType) list =
             // The verdict lambdas in this initialiser, by result-typar position → its
             // `<closure>$` value-type. Each value-struct lambda node carrying a
@@ -133,7 +131,7 @@ module internal ClosureVerdictRewrite =
             //
             // `nestedSubst` maps each such nested OLD nominal subtree to its NEW one. It is
             // populated NODE-KEYED, never by arrow shape: for the referenced binding `s1`
-            // we have, by reference identity, both its old frozen type (`varTy`) and its
+            // we have, by node identity, both its old frozen type (`varTy`) and its
             // already-rewritten type (`verdictBindings.[k]`), and we record the structural
             // correspondence between the two by a LOCKSTEP walk (`recordNominalDiff`). Each
             // recorded key is a WHOLE NOMINAL (`FTClass`/`FTConst`/…), so its full nesting
@@ -205,8 +203,8 @@ module internal ClosureVerdictRewrite =
                     // the structural collision this redesign removes.
                     | _ -> ()
 
-            let rec collect (e: Frozen.TExpr) =
-                match closureNodeVerdict.TryGetValue e with
+            let rec collect (e: TastAccessor.ExprId) =
+                match closureNodeVerdict.TryGetValue e.Id with
                 | true, struct (closureFt, idx) -> slots.[idx] <- closureFt
                 | false, _ -> ()
 
@@ -233,7 +231,7 @@ module internal ClosureVerdictRewrite =
                     | false, _ -> ()
                 | _ -> ()
 
-                TastLower.iterChildren collect e
+                TastAccessor.iterChildren collect e
 
             collect init
 
@@ -291,11 +289,11 @@ module internal ClosureVerdictRewrite =
         // value-struct closure (by node identity) among them. Returns the closure's
         // `(value-struct type, result-typar position)`. A combinator takes at most one
         // `Fun`2`/`Fun`3`-bounded lambda argument, so at most one verdict is found per call.
-        let appOwnVerdict (e: Frozen.TExpr) : struct (FrozenType * int) voption =
-            let rec scan (e: Frozen.TExpr) : struct (FrozenType * int) voption =
+        let appOwnVerdict (e: TastAccessor.ExprId) : struct (FrozenType * int) voption =
+            let rec scan (e: TastAccessor.ExprId) : struct (FrozenType * int) voption =
                 match e with
                 | TastAccessor.EApp app ->
-                    match closureNodeVerdict.TryGetValue app.Arg with
+                    match closureNodeVerdict.TryGetValue app.Arg.Id with
                     | true, v -> ValueSome v
                     | false, _ -> scan app.Fn
                 | _ -> ValueNone
@@ -322,13 +320,13 @@ module internal ClosureVerdictRewrite =
         // projected arrow — mapped to the closure via that binding's recorded
         // replacements; the receiver itself is retyped to the rewritten container so its
         // field-`MemberRef` `TypeSpec` matches the value-struct-instantiated field row.
-        let retypeBody (e: Frozen.TExpr) : Frozen.TExpr =
+        let retypeBody (e: TastAccessor.ExprId) : TastAccessor.ExprId =
             if verdictBindings.Count = 0 && not hasTransformerVerdict then
                 e
             else
                 // The verdict binding a (possibly nested-field) receiver bottoms out in,
                 // for mapping a projection's arrow type to its closure.
-                let rec receiverBinding (r: Frozen.TExpr) : NodeKey voption =
+                let rec receiverBinding (r: TastAccessor.ExprId) : NodeKey voption =
                     match r with
                     | TastAccessor.EVar k ->
                         if verdictBindings.ContainsKey k then
@@ -338,23 +336,23 @@ module internal ClosureVerdictRewrite =
                     | TastAccessor.EFieldGet fg -> receiverBinding fg.Receiver
                     | _ -> ValueNone
 
-                // Rebuild ONLY the affected nodes — closure discovery keyed lambdas by
-                // reference identity (`HashIdentity.Reference`), so a blanket `mapChildren`
-                // rebuild would mint fresh Lambda nodes the verdict tables no longer
-                // recognise. Each arm returns the SAME `e` when nothing beneath changed.
-                let rec rw (e: Frozen.TExpr) : Frozen.TExpr =
+                // Re-author ONLY the affected nodes. Closure discovery keys its lambdas
+                // by node id, so a blanket rebuild would give every lambda beneath a
+                // rewritten node a fresh id the verdict tables no longer recognise; the
+                // row copies below return the ORIGINAL id whenever nothing moved, which
+                // is what keeps an untouched subtree the very node discovery found.
+                let rec rw (e: TastAccessor.ExprId) : TastAccessor.ExprId =
                     match e with
                     | TastAccessor.EVar k ->
                         match verdictBindings.TryGetValue k with
-                        | true, (newTy, _) -> Frozen.TExpr.Var(k, newTy, TastAccessor.exprTok e)
+                        | true, (newTy, _) -> TastAccessor.retype e newTy
                         | false, _ -> e
                     | TastAccessor.EFieldGet fg ->
                         let ty = TastAccessor.exprTy e
-                        let recv = fg.Receiver
-                        let recv' = rw recv
+                        let recv' = rw fg.Receiver
 
                         let ty' =
-                            match receiverBinding recv with
+                            match receiverBinding fg.Receiver with
                             | ValueSome k ->
                                 let _, replaced = verdictBindings.[k]
 
@@ -365,17 +363,9 @@ module internal ClosureVerdictRewrite =
                                 |> Option.defaultValue ty
                             | ValueNone -> ty
 
-                        if
-                            System.Object.ReferenceEquals(recv', recv)
-                            && System.Object.ReferenceEquals(ty', ty)
-                        then
-                            e
-                        else
-                            Frozen.TExpr.FieldGet(recv', fg.FieldName, ty', TastAccessor.exprTok e)
+                        TastAccessor.retypeWithChildren e [| recv' |] ty'
                     | TastAccessor.EApp app ->
                         let ty = TastAccessor.exprTy e
-                        let fn = app.Fn
-                        let arg = app.Arg
                         // A *transformer* call (`map (fun x -> x+1) src`)
                         // whose result type carries the lambda's `'TFunc`
                         // (`MapSeq<…,arrow,…>`), used directly as an argument to a consuming
@@ -385,56 +375,30 @@ module internal ClosureVerdictRewrite =
                         //
                         // COLLISION-SAFE: the rewrite is keyed on THIS application's
                         // own produced closure — `appOwnVerdict` walks this `App`'s argument
-                        // spine, finds the value-struct lambda node it feeds (by reference
-                        // identity), and rewrites ONLY that closure's recorded
+                        // spine, finds the value-struct lambda node it feeds (by node
+                        // id), and rewrites ONLY that closure's recorded
                         // `FunResultTypar` POSITION. It never consults a program-wide
                         // arrow-type table, so two transformer calls whose lambdas share the
                         // SAME frozen arrow (`int->int`) are each rewritten with the closure
                         // THEY produced — a type-keyed collision is impossible by
                         // construction. A terminal call (`fold …`, result `int`) produces no
                         // value-struct transformer verdict, so it is left unchanged.
-                        let fn' = rw fn
-                        let arg' = rw arg
-
                         let ty' =
                             match appOwnVerdict e with
                             | ValueSome verdict -> rewriteAppResultByVerdict ty verdict
                             | ValueNone -> ty
 
-                        if
-                            System.Object.ReferenceEquals(fn', fn)
-                            && System.Object.ReferenceEquals(arg', arg)
-                            && System.Object.ReferenceEquals(ty', ty)
-                        then
-                            e
-                        else
-                            Frozen.TExpr.App(fn', arg', ty', TastAccessor.exprTok e)
-                    | _ ->
-                        // Recurse without forcing a rebuild: rebuild only if a child node
-                        // actually changed identity (preserving Lambda reference identity).
-                        let mutable changed = false
-
-                        let rebuilt =
-                            TastLower.mapChildren
-                                (fun c ->
-                                    let c' = rw c
-
-                                    if not (System.Object.ReferenceEquals(c', c)) then
-                                        changed <- true
-
-                                    c'
-                                )
-                                e
-
-                        if changed then rebuilt else e
+                        TastAccessor.retypeWithChildren e [| rw app.Fn; rw app.Arg |] ty'
+                    // Recurse without forcing a rebuild: the row copy appends only when a
+                    // child actually moved, so an untouched subtree keeps its id.
+                    | _ -> TastAccessor.mapChildren rw e
 
                 rw e
 
-        let retypeDecl (d: Frozen.TDecl) : Frozen.TDecl =
-            match d with
-            | TastAccessor.DExpression(e, ty) -> Frozen.TDecl.Expression(retypeBody e, ty)
-            | TastAccessor.DLet lv -> Frozen.TDecl.Let(lv.Binding, retypeBody lv.Value, lv.IsInline, lv.Ty)
-            | _ -> d
+        let retypeDecl (d: TastAccessor.DeclId) : TastAccessor.DeclId =
+            match TastAccessor.declKind d with
+            | DeclShape.Type -> d
+            | _ -> TastAccessor.mapDeclExpr retypeBody d
 
         {
             RetypeBody = retypeBody

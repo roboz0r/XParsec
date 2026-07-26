@@ -14,7 +14,7 @@ open XParsec.FSharp.SemanticAnalysis
 module internal LayoutNodes =
 
     /// Single-walk partition of `tast.Decls` by `TTypeKind`.
-    let partitionTypeDecls (decls: EqArray<Frozen.TDecl>) : PartitionedTypeDecls =
+    let partitionTypeDecls (decls: TastAccessor.DeclId list) : PartitionedTypeDecls =
         let interfaces = ResizeArray()
         let unions = ResizeArray()
         let records = ResizeArray()
@@ -133,7 +133,7 @@ module internal LayoutNodes =
     /// An augmentation member's method row: interface-impl members force the
     /// virtual/new-slot/final attrs so the runtime binds them to the
     /// `InterfaceImpl`; a type's own members keep their natural attrs.
-    let private memberRow (key: SymbolKey) (index: int) (isIfaceImpl: bool) (mem: Frozen.TTypeMember) : MethodRow =
+    let private memberRow (key: SymbolKey) (index: int) (isIfaceImpl: bool) (mem: TastAccessor.TypeMember) : MethodRow =
         {
             Key = MethodKey.Member(key, index)
             Name = memberMetaName mem
@@ -156,14 +156,14 @@ module internal LayoutNodes =
     /// Shared by the union, record, and class arms.
     let private ownAndIfaceMemberRows
         (key: SymbolKey)
-        (members: Frozen.TTypeMember list)
-        (interfaces: (FrozenType * Frozen.TTypeMember list) list)
+        (members: TastAccessor.TypeMember list)
+        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
         : MethodRow list =
         NominalMembers.indexed members interfaces
         |> List.map (fun (i, isIfaceImpl, m) -> memberRow key i isIfaceImpl m)
 
     /// The equality triple's rows, in `NominalEmit` emission order.
-    let private equalityRows (td: Frozen.TTypeDecl) : MethodRow list =
+    let private equalityRows (td: TastAccessor.TypeDecl) : MethodRow list =
         match td.EqualitySupport with
         | EqualityVerdict.Structural ->
             [
@@ -187,7 +187,7 @@ module internal LayoutNodes =
 
     /// The comparison pair's rows: the typed `CompareTo(Self)` first (its
     /// handle feeds `CompareTo(object)`'s body).
-    let private comparisonRows (td: Frozen.TTypeDecl) : MethodRow list =
+    let private comparisonRows (td: TastAccessor.TypeDecl) : MethodRow list =
         match td.ComparisonSupport with
         | ComparisonVerdict.Structural ->
             [
@@ -211,7 +211,7 @@ module internal LayoutNodes =
     /// nominal (`ClrEnv.coreInterfaceEntity`), so even `Vesper.Core`'s own records get a
     /// row. A new virtual slot bound to the `InterfaceImpl` by name + signature, like the
     /// typed `Equals(Self)`.
-    let private formatRows (td: Frozen.TTypeDecl) : MethodRow list =
+    let private formatRows (td: TastAccessor.TypeDecl) : MethodRow list =
         [
             {
                 Key = MethodKey.FmtFormat td.Key
@@ -228,8 +228,8 @@ module internal LayoutNodes =
     /// typed `Equals(Self)`.
     let private coSlotRows
         (symbols: ICodegenSymbols)
-        (td: Frozen.TTypeDecl)
-        (interfaces: (FrozenType * Frozen.TTypeMember list) list)
+        (td: TastAccessor.TypeDecl)
+        (interfaces: (FrozenType * TastAccessor.TypeMember list) list)
         : MethodRow list =
         [
             for (_, slot) in CapabilityCoSlots.required symbols [ for (ifaceTy, _) in interfaces -> ifaceTy ] ->
@@ -243,7 +243,7 @@ module internal LayoutNodes =
     /// The module a declaration's key says holds it, or `ValueNone` for one declared
     /// straight in a namespace. The key is the ONE place the containment lives —
     /// `ModuleRules` builds it — so nothing here re-derives it from a name.
-    let private declaringModule (td: Frozen.TTypeDecl) : ModuleKey voption =
+    let private declaringModule (td: TastAccessor.TypeDecl) : ModuleKey voption =
         match td.Key with
         | SymbolKey.Type t ->
             match t.Holder with
@@ -262,7 +262,7 @@ module internal LayoutNodes =
     /// of its namespace otherwise.
     let private nominalNode
         (kind: TypeSlotKind)
-        (td: Frozen.TTypeDecl)
+        (td: TastAccessor.TypeDecl)
         (fields: FieldSlot list)
         (methods: MethodRow list)
         : TypeNode =
@@ -303,7 +303,7 @@ module internal LayoutNodes =
     // order the `TypeDef` table has always used; nothing here reads unit-wide or
     // later-derived state.
 
-    let buildInterfaceNodes (interfaces: (Frozen.TTypeDecl * Frozen.TAbstractMethod list) list) : TypeNode list =
+    let buildInterfaceNodes (interfaces: (TastAccessor.TypeDecl * Frozen.TAbstractMethod list) list) : TypeNode list =
         [
             for (td, methods) in interfaces ->
                 let methodRows =

@@ -79,7 +79,7 @@ module internal MethodAttrSets =
 
     /// A property is emitted (and referenced) as `get_<name>`; a method keeps
     /// its name.
-    let memberMetaName (mem: Frozen.TTypeMember) : string =
+    let memberMetaName (mem: TastAccessor.TypeMember) : string =
         match mem.Kind with
         | TMemberKind.Property -> "get_" + mem.Name
         | TMemberKind.Method -> mem.Name
@@ -318,16 +318,16 @@ type internal UnitLayout =
         /// placed in the tree. `combine` adds the `<Module>` and Program keys and asks
         /// the set question once over the whole assembly.
         BuiltKeys: TypeSlotKey list
-        Lowered: Frozen.TDecl list
+        Lowered: TastAccessor.DeclId list
         Plan: HolderPlan
         Closures: EmitTypes.Closure list
-        ClosureByNode: Dictionary<Frozen.TExpr, EmitTypes.Closure>
+        ClosureByNode: Dictionary<ExprPoolId, EmitTypes.Closure>
         Partitioned: PartitionedTypeDecls
-        /// This unit's source-lambda value-struct closure verdicts, snapshotted from its
-        /// own `tast.FunVerdicts`. The Assembler's per-unit closure-verdict rewrite reads
-        /// exactly this unit's verdicts (a foreign unit's node keys mean nothing to it),
-        /// which is why it rides on the unit rather than a single ctor-level table.
-        FunVerdicts: Map<NodeKey, FunVerdict>
+        /// This unit's source-lambda value-struct closure verdicts, on ITS OWN pool's
+        /// lambda id space. The Assembler's per-unit closure-verdict rewrite reads
+        /// exactly this unit's verdicts (a foreign unit's ids name nothing in it), which
+        /// is why it rides on the unit rather than a single ctor-level table.
+        FunVerdicts: IReadOnlyDictionary<ExprPoolId, FunVerdict>
         /// Whether this unit carries the entry point (`Main`). `buildUnit` leaves it FALSE
         /// — the OutputKind decision belongs to the whole assembly, not a file — and
         /// `combine` stamps it TRUE on the single entry unit (an executable's last file)

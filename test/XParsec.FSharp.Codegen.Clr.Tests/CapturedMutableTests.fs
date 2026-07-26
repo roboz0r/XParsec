@@ -277,7 +277,12 @@ let tests =
 
             let discover (src: string) : Emit.Closure list =
                 let ctx, tast = analyseWithCtx src
-                let lowered0 = Emit.lower (Freeze.run ctx tast).Decls
+                let pools = TastPools.toPools (Freeze.run ctx tast)
+                let pool = TastPoolBuilder.openOver pools
+                let lowered0 = Emit.lower (List.ofArray (TastAccessor.roots pool))
+                // No lambda in these sources carries a value-struct verdict, but the
+                // discovery signature is the pooled one, so feed it the pooled table.
+                let funVerdicts = readOnlyDict pools.FunVerdicts
                 let moduleValues = Emit.collectModuleValues tast.ModuleMembers lowered0
                 let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
 
@@ -312,7 +317,7 @@ let tests =
                         eligible
                         moduleValueKeys
                         typarsMap
-                        tast.FunVerdicts
+                        funVerdicts
                         tast.ClosureReprs
                         lowered
                         []

@@ -31,11 +31,18 @@ module FrozenSignature =
     /// one symbol's two views consistent, and matches the `Declaring`-axis `ValRepr`
     /// the `.fsi` extractor mints (`TastLower.externalValRepr`). The grouping is
     /// untouched — only the embedded typar leaves move axis.
-    let private valReprToDeclaring (vr: Frozen.ValRepr) : Frozen.ValRepr =
+    let private valReprToDeclaring (pats: PoolBuilder) (vr: Frozen.ValRepr) : TastAccessor.ValRepr =
         // The `ValRepr` traversal is `TastConvert`'s — the same one the freeze and the
         // pool build run — at the axis re-map for both the embedded types and the tuple
         // groups' pattern trees, so the grouping cannot drift from the shape it maps.
-        TastConvert.valRepr ConformanceTypars.toDeclaringAxis (TastConvert.pat ConformanceTypars.toDeclaringAxis) vr
+        // The re-axised pattern is a DERIVED tree belonging to no file, so it lands in
+        // the provider's own pool, exactly as an `.fsi`-minted one does.
+        TastConvert.valRepr
+            ConformanceTypars.toDeclaringAxis
+            (TastConvert.pat ConformanceTypars.toDeclaringAxis
+             >> TastPoolBuilder.appendPatTree pats
+             >> fun id -> { Pool = pats; Id = id })
+            vr
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a
     /// provider view. `assemblyName` is this unit's home assembly — a file-N entity is
@@ -411,11 +418,15 @@ module FrozenSignature =
         // typars are the single `Method` axis — remap to `Declaring` (the axis
         // `ExternalSymbol.Scheme` / `instantiateDeclaring` require) via the shared
         // `ConformanceTypars.toDeclaringAxis`.
-        let bindingValRepr (k: NodeKey) : Frozen.ValRepr voption =
+        // The re-axised tuple-group patterns this provider hands out, in one pool it
+        // owns: they are derived from the frozen file's, not nodes of it.
+        let valReprPats = TastPoolBuilder.openEmpty ()
+
+        let bindingValRepr (k: NodeKey) : TastAccessor.ValRepr voption =
             match Map.tryFind k frozen.BindingValReprs with
             // A value has no lambda groups — `ValueNone`, exactly as the extractor
             // leaves `ValRepr` on a non-function `val`.
-            | Some vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring vr)
+            | Some vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring valReprPats vr)
             | _ -> ValueNone
 
         let bindingArity (k: NodeKey) : int =

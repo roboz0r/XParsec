@@ -179,7 +179,7 @@ let tests =
                 // The compiled form is derived from the captured `ValRepr` on demand —
                 // the same `TastLower.compiledOf` rule the codegen boundary applies, so
                 // the test pins the single-sourced derivation, not a stored copy.
-                let compiledOf (suffix: string) : Frozen.CompiledForm =
+                let compiledOf (suffix: string) : TastAccessor.CompiledForm =
                     match (symOf suffix).ValRepr with
                     | ValueSome vr -> TastLower.compiledOf vr
                     | ValueNone -> failtestf "val '%s' carries no ValRepr" suffix
@@ -188,7 +188,7 @@ let tests =
                 let compiledParamTys (suffix: string) : FrozenType list =
                     (compiledOf suffix).Params |> List.map (fun p -> p.Ty)
 
-                let compiledReturn (suffix: string) : Frozen.CompiledReturn = (compiledOf suffix).Return
+                let compiledReturn (suffix: string) : TastAccessor.CompiledReturn = (compiledOf suffix).Return
 
                 // A terse rendering of the source group shape (the `ValRepr` arity).
                 let groupTags (suffix: string) : string list =
@@ -199,15 +199,15 @@ let tests =
                             match g with
                             | ArgGroupG.GUnit _ -> "unit"
                             | ArgGroupG.GSimple _ -> "simple"
-                            | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) -> sprintf "tuple%d" items.Length
-                            | ArgGroupG.GTuple _ -> "tuple?"
+                            | ArgGroupG.GTuple pat -> sprintf "tuple%d" (TastAccessor.patChildren pat).Length
+
                         )
                     | ValueNone -> failtestf "val '%s' carries no ValRepr" suffix
 
                 // Curried: two single-arg groups, two flat params, value return.
                 Expect.equal (groupTags "curried") [ "simple"; "simple" ] "curried source arity"
                 Expect.equal (compiledParamTys "curried") [ intF; intF ] "curried flat params"
-                Expect.equal (compiledReturn "curried") (Frozen.CompiledReturn.RValue intF) "curried return"
+                Expect.equal (compiledReturn "curried") (CompiledReturnG.RValue intF) "curried return"
 
                 // Tupled group: one width-2 group flattens to TWO flat params.
                 Expect.equal (groupTags "tupleGroup") [ "tuple2" ] "tupled-group source arity"
@@ -220,11 +220,11 @@ let tests =
                 // Lone unit param erases to a parameterless method.
                 Expect.equal (groupTags "loneUnit") [ "unit" ] "lone-unit source arity"
                 Expect.equal (compiledParamTys "loneUnit") [] "lone unit param erased (parameterless)"
-                Expect.equal (compiledReturn "loneUnit") (Frozen.CompiledReturn.RValue intF) "lone-unit return"
+                Expect.equal (compiledReturn "loneUnit") (CompiledReturnG.RValue intF) "lone-unit return"
 
                 // Unit return → RVoid.
                 Expect.equal (compiledParamTys "voidRet") [ intF ] "void fn keeps its real param"
-                Expect.equal (compiledReturn "voidRet") Frozen.CompiledReturn.RVoid "unit return → RVoid"
+                Expect.equal (compiledReturn "voidRet") CompiledReturnG.RVoid "unit return → RVoid"
             }
 
             test "A body-less type registers an Opaque residue shape, not absence" {

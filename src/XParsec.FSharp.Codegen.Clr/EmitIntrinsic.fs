@@ -15,7 +15,7 @@ open EmitDispatch
 /// `:?`) and the unresolved `StaticOptimization` fallback.
 module EmitIntrinsic =
 
-    let buildILIntrinsic (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildILIntrinsic (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so the accessors below are total projections.
         let operand = TastAccessor.exprILIntrinsicTypeOperand e
         let args = TastAccessor.exprChildren e
@@ -147,7 +147,7 @@ module EmitIntrinsic =
                     | n -> failwithf "Emit: %d-ary inline-IL instruction '%s' is out of scope" n opCode
                 | ValueNone -> failwithf "Emit: unsupported inline-IL instruction '%s'" opCode
 
-    let buildStaticOptimization (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildStaticOptimization (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so the accessor below is a total projection.
         // Reaching codegen unresolved means the function was never
         // inline-expanded against a concrete operand type (used as a
@@ -155,7 +155,7 @@ module EmitIntrinsic =
         // fall back to the leading (dynamic) expression in that case.
         recur env b (TastAccessor.exprStaticOptimizationDefault e)
 
-    let buildUpcast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildUpcast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router.
         // `e :> T`: a reference-type source is already usable as its base —
         // the JIT erases the cast, so emit nothing. A value-type source must
@@ -171,7 +171,7 @@ module EmitIntrinsic =
         | _ when isValueType env srcTy -> b.Add(ILInstr.Box(env.Provider.TypeToken srcTy))
         | _ -> ()
 
-    let buildDowncast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildDowncast (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router.
         // `e :?> T`: `unbox.any` for a value-type target, `castclass` for a
         // reference-type one. Both throw `InvalidCastException` at runtime on
@@ -186,7 +186,7 @@ module EmitIntrinsic =
         else
             b.Add(ILInstr.Castclass token)
 
-    let buildTypeTest (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildTypeTest (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router.
         // `e :? T` → `isinst T; ldnull; cgt.un` — a non-null `isinst` result
         // (the value really is a `T`) compares greater-than null, yielding 1.

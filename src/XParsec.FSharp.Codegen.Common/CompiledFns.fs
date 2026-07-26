@@ -27,9 +27,9 @@ module CompiledFns =
     type CompiledFn =
         {
             Key: NodeKey
-            Groups: Frozen.ArgGroup list
+            Groups: TastAccessor.ArgGroup list
             Params: TastLower.StaticParam list
-            Body: Frozen.TExpr
+            Body: TastAccessor.ExprId
             ResultTy: FrozenType
             /// `true` when the source result is `unit` — CLR `void` / JS no return value.
             ReturnsVoid: bool
@@ -43,15 +43,15 @@ module CompiledFns =
     [<RequireQualifiedAccess>]
     type FlatStep =
         /// A scalar group (`GSimple` / non-lone `GUnit`): emit the argument as one value.
-        | Arg of Frozen.TExpr
+        | Arg of TastAccessor.ExprId
         /// A tupled group whose argument is a literal `Tuple`: emit each element (one
         /// value per element), each evaluated directly.
-        | TupleLiteral of EqArray<Frozen.TExpr>
+        | TupleLiteral of EqArray<TastAccessor.ExprId>
         /// A tupled group whose argument is a tuple *value*: N values read positionally
         /// from it (`elemTys` are its element types; `N = elemTys.Length`). The CLR
         /// spills to a local + reads `ItemN`; the JS reads `v[j]` (spilling an impure
         /// value through an IIFE). Both decide how from `elemTys`/the value itself.
-        | TupleValue of value: Frozen.TExpr * elemTys: FrozenType list
+        | TupleValue of value: TastAccessor.ExprId * elemTys: FrozenType list
 
     /// Flatten a saturated call's LEADING spine (one element per SOURCE group) into the
     /// backend-neutral push plan: a lone `()` group contributes nothing; a `GSimple` /
@@ -60,7 +60,7 @@ module CompiledFns =
     /// home of the lone-unit-erase / literal-vs-value tuple dispatch the CLR
     /// (`EmitCall.flattenGroupPushes`) and JS (`EmitJs.flattenGroupArgs`) interpreters
     /// share.
-    let flattenPlan (groups: Frozen.ArgGroup list) (leadingArgs: Frozen.TExpr list) : FlatStep list =
+    let flattenPlan (groups: TastAccessor.ArgGroup list) (leadingArgs: TastAccessor.ExprId list) : FlatStep list =
         let isLone = TastLower.isLoneUnitGroup groups
 
         [
@@ -70,10 +70,10 @@ module CompiledFns =
                 | ArgGroupG.GUnit _
                 | ArgGroupG.GSimple _ -> FlatStep.Arg a
                 | ArgGroupG.GTuple _ ->
-                    match a with
-                    | TExprG.Tuple(elems, _, _) -> FlatStep.TupleLiteral elems
+                    match TastAccessor.exprKind a with
+                    | ExprShape.Tuple -> FlatStep.TupleLiteral(EqArray.ofArray (TastAccessor.exprChildren a))
                     | _ ->
-                        match TastLower.typeOfExpr a with
+                        match TastAccessor.exprTy a with
                         | FTTuple xs -> FlatStep.TupleValue(a, EqArray.toList xs)
                         | other -> failwithf "flattenPlan: tuple-group argument is not a tuple type: %A" other
         ]
@@ -81,14 +81,16 @@ module CompiledFns =
     /// Gather every top-level `let f … = …` whose value peels to ≥ 1 source group
     /// (a function, not a zero-param value), in declaration order. Must be called on
     /// already-`lower`ed decls (the curried `Lambda` chain still present in `value`).
-    let gather (decls: Frozen.TDecl list) : CompiledFn list =
+    let gather (decls: TastAccessor.DeclId list) : CompiledFn list =
         [
             for d in decls do
                 match d with
-                | TDeclG.Let(TPatG.NamedSimple(k, _, _), value, _, _) ->
-                    match TastLower.peelValRepr value with
+                | TastAccessor.DLet lv when (TastAccessor.patBinder lv.Binding).IsSome ->
+                    let k = (TastAccessor.patBinder lv.Binding).Value
+
+                    match TastLower.peelValRepr lv.Value with
                     | (_ :: _ as groups), body ->
-                        let resultTy = TastLower.typeOfExpr body
+                        let resultTy = TastAccessor.exprTy body
 
                         let vr: TastLower.ValRepr =
                             {

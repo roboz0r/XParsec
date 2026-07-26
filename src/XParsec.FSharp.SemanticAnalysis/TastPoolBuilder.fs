@@ -19,7 +19,7 @@ open XParsec.FSharp.Parser
 //     what makes it sound to stack rather than remap.
 //
 // The read side therefore never learns there are two layers: it resolves an id and gets a
-// column value. That is the property the accessor will later sit on, and the reason a mint
+// column value. That is the property `TastAccessor` sits on, and the reason a mint
 // site can splice base subtrees into overlay nodes for free.
 //
 // The overlay is held as ARRAYS OF ROWS, not columns: it is small, is appended one whole
@@ -31,6 +31,11 @@ open XParsec.FSharp.Parser
 /// An append-only overlay stacked over an immutable base `FrozenPools`. See the file
 /// header for the stacking invariant. Not thread-safe: a builder belongs to one backend's
 /// emit of one file.
+///
+/// Reference equality, because it is an IDENTITY (a mutable append target), not a value:
+/// two builders over the same base are different pools and their ids are not
+/// interchangeable, and a node handle carrying one must stay cheap to compare and hash.
+[<ReferenceEquality>]
 type PoolBuilder =
     private
         {
@@ -60,6 +65,18 @@ type PoolBuilder =
             BinderIndex: Dictionary<NodeKey, BinderId>
         }
 
+/// A node HANDLE: a dense pool id together with the pool that resolves it. One generic
+/// type for all three domains — `'Id` is `ExprPoolId` / `PatPoolId` / `DeclPoolId`.
+///
+/// The pool rides the handle rather than being a parameter of every accessor, which is
+/// what lets a consumer speak in whole nodes (`e.Body`, `arm.Guard`) exactly as it did
+/// when a node WAS the tree, and lets pools that are not a file's tree exist alongside
+/// it (an `.fsi`-minted `ValRepr`'s patterns index into their own). Equality is the
+/// pool's identity plus the id, so a handle is a sound dictionary key: two ids only
+/// denote the same node when they came from the same pool.
+[<Struct; NoComparison>]
+type Handle<'Id> = { Pool: PoolBuilder; Id: 'Id }
+
 [<RequireQualifiedAccess>]
 module TastPoolBuilder =
 
@@ -87,11 +104,56 @@ module TastPoolBuilder =
             BinderIndex = index
         }
 
+    /// The zero column set — the base of a pool that is nobody's file. `openOver` this
+    /// for nodes that belong to no frozen tree at all: an EXTERNAL symbol's `ValRepr`
+    /// patterns are minted from an `.fsi` contract (`TastLower.externalValRepr`) and
+    /// index into no file, yet are read through the same accessor as any other pattern,
+    /// so they need a pool of their own.
+    let emptyPools: FrozenPools =
+        {
+            ExprShapes = [||]
+            ExprTys = [||]
+            ExprToks = [||]
+            ExprChildren = [||]
+            ExprPatChildren = [||]
+            ExprVarBinder = [||]
+            ExprPayloads = [||]
+            PatShapes = [||]
+            PatTys = [||]
+            PatToks = [||]
+            PatChildren = [||]
+            PatPayloads = [||]
+            DeclShapes = [||]
+            DeclExprChildren = [||]
+            DeclPatChildren = [||]
+            DeclPayloads = [||]
+            Roots = [||]
+            InlineTemplates = [||]
+            BinderKeys = [||]
+            BinderNamings = [||]
+            Residue =
+                {
+                    Diagnostics = []
+                    IntrinsicReprKeys = readOnlyDict []
+                    Accessibility = readOnlyDict []
+                }
+            ModuleMembers = [||]
+            TopLevelNames = [||]
+            ClosureReprs = [||]
+            FunVerdicts = [||]
+            GenericFnSchemes = [||]
+            BindingValReprs = [||]
+            BindingTyparArities = [||]
+        }
+
+    /// A builder over no base at all — see `emptyPools`.
+    let openEmpty () : PoolBuilder = openOver emptyPools
+
     // ── the stacked read surface ────────────────────────────────────────────
     //
     // One accessor per column, each resolving a FLAT id across the two layers with a single
     // comparison. These are the per-domain equivalents of reading `FrozenPools.ExprShapes.[i]`
-    // and friends directly, and are what a consumer (eventually the accessor itself) reads
+    // and friends directly, and are what `TastAccessor` reads
     // instead, so it never has to know which layer answered.
 
     let exprShape (b: PoolBuilder) (ExprPoolId i) : ExprShape =
@@ -299,6 +361,13 @@ module TastPoolBuilder =
             b.OvBinderNamings.Add(BinderNaming.ofKey k)
             id
 
+    /// The naming triple of the binder a `NodeKey` names, resolved THROUGH the pool.
+    /// The entry point for the cross-references that still carry a key (the side
+    /// tables, a `ForTo` loop variable, a flattened parameter's slot): naming is read
+    /// off `BinderNamings` like any other binder's, so no site derives a name from the
+    /// key's own bits and the naming survives the key's eventual retirement.
+    let binderNamingOfKey (b: PoolBuilder) (k: NodeKey) : BinderNaming = binderNaming b (internBinder b k)
+
     // ── row copies: rewrite without a per-case match ────────────────────────
     //
     // The payoff of the columnar form. A child substitution (what `TastLower.mapChildren`
@@ -310,71 +379,22 @@ module TastPoolBuilder =
     // tree and touches nothing appends nothing and leaves every cached id pointing at the
     // same node.
 
-    /// Append a copy of row `id` with these child edges. Substituting `id`'s own children
-    /// for rewritten ones is the whole of a generic child-mapping rewrite.
-    let copyExprWithChildren
-        (b: PoolBuilder)
-        (id: ExprPoolId)
-        (children: ExprPoolId[])
-        (patChildren: PatPoolId[])
-        : ExprPoolId =
+    /// Append a copy of row `id` with `edit` applied — the ONE rewrite primitive, since
+    /// every rewrite (substitute the children, retype, replace the payload) is a field
+    /// of the same row and the unchanged-row test is the same comparison. Substituting a
+    /// node's own children for rewritten ones is the whole of a generic child-mapping
+    /// rewrite; a retype touches `Ty` and nothing else.
+    let copyExprWith (b: PoolBuilder) (id: ExprPoolId) (edit: ExprRow -> ExprRow) : ExprPoolId =
         let row = exprRow b id
+        let row' = edit row
+        if row' = row then id else appendExpr b row'
 
-        if row.Children = children && row.PatChildren = patChildren then
-            id
-        else
-            appendExpr
-                b
-                { row with
-                    Children = children
-                    PatChildren = patChildren
-                }
 
-    /// Append a copy of row `id` carrying a different type — a retype, which touches the
-    /// `ExprTys` entry and nothing else.
-    let copyExprWithTy (b: PoolBuilder) (id: ExprPoolId) (ty: FrozenType) : ExprPoolId =
-        let row = exprRow b id
-
-        if row.Ty = ty then
-            id
-        else
-            appendExpr b { row with Ty = ty }
-
-    /// Append a copy of row `id` with a different residual payload. The payload case must
-    /// match the row's `Shape` — the shape column and the payload are two views of one
-    /// node, and `ofPools` reads the payload.
-    let copyExprWithPayload (b: PoolBuilder) (id: ExprPoolId) (payload: ExprPayload) : ExprPoolId =
-        appendExpr b { exprRow b id with Payload = payload }
-
-    /// Append a copy of pat row `id` with these sub-pattern edges — see
-    /// `copyExprWithChildren`.
-    let copyPatWithChildren (b: PoolBuilder) (id: PatPoolId) (children: PatPoolId[]) : PatPoolId =
-        let row = patRow b id
-
-        if row.Children = children then
-            id
-        else
-            appendPat b { row with Children = children }
-
-    /// Append a copy of decl row `id` with these expr/pat roots — see
-    /// `copyExprWithChildren`.
-    let copyDeclWithChildren
-        (b: PoolBuilder)
-        (id: DeclPoolId)
-        (exprChildren: ExprPoolId[])
-        (patChildren: PatPoolId[])
-        : DeclPoolId =
+    /// Append a copy of decl row `id` with `edit` applied — see `copyExprWith`.
+    let copyDeclWith (b: PoolBuilder) (id: DeclPoolId) (edit: DeclRow -> DeclRow) : DeclPoolId =
         let row = declRow b id
-
-        if row.ExprChildren = exprChildren && row.PatChildren = patChildren then
-            id
-        else
-            appendDecl
-                b
-                { row with
-                    ExprChildren = exprChildren
-                    PatChildren = patChildren
-                }
+        let row' = edit row
+        if row' = row then id else appendDecl b row'
 
     // ── pooling a freshly minted DU tree ────────────────────────────────────
 
@@ -400,10 +420,10 @@ module TastPoolBuilder =
             AddPat = appendPat b
             AddDecl = appendDecl b
             OnExprPooled =
-                fun e id ->
-                    match TastAccessor.exprKind e with
-                    | ExprShape.Var -> setVarBinder b id (internBinder b (TastAccessor.exprVarBinding e))
-                    | _ -> ()
+                fun _ varBinding id ->
+                    match varBinding with
+                    | ValueSome k -> setVarBinder b id (internBinder b k)
+                    | ValueNone -> ()
         }
 
     /// Pool a freshly minted DU subtree into the overlay and return its flat id. This is
@@ -415,9 +435,6 @@ module TastPoolBuilder =
     /// Pool a freshly minted pattern subtree — see `appendExprTree`.
     let appendPatTree (b: PoolBuilder) (p: Frozen.TPat) : PatPoolId = TastPools.poolPat (sinkOf b) p
 
-    /// Pool a freshly minted declaration — see `appendExprTree`. Does NOT make it a root;
-    /// `setRoot` does.
-    let appendDeclTree (b: PoolBuilder) (d: Frozen.TDecl) : DeclPoolId = TastPools.poolDecl (sinkOf b) d
 
     // ── freezing back to a plain pool ───────────────────────────────────────
 

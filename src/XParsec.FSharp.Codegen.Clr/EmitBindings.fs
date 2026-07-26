@@ -33,7 +33,7 @@ module EmitBindings =
         (recur: Recur)
         (env: EmitEnv)
         (b: IlBuilder)
-        (body: Frozen.TExpr)
+        (body: TastAccessor.ExprId)
         (emitFinally: unit -> unit)
         : unit =
         let resultSlot = b.Local(typeOfExpr body)
@@ -56,7 +56,7 @@ module EmitBindings =
 
     // Reached only via `EmitExpr`'s `ExprShape.Let` route, so `exprLet` is a total
     // projection here (it guards the shape itself); no re-dispatch on `exprKind`.
-    let buildLet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildLet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprLet e
 
         match TastAccessor.patBinder view.Binding with
@@ -80,7 +80,7 @@ module EmitBindings =
     // Reached only via `EmitExpr`'s `ExprShape.Use` route, so `exprUse` is a total
     // projection here; the binding's pattern shape (simple/wildcard vs a rejected
     // destructuring) is the only remaining dispatch.
-    let buildUse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildUse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprUse e
         let pat = view.Binding
 
@@ -132,17 +132,22 @@ module EmitBindings =
             // handle and emits the `callvirt`. `Dispose` returns unit (one `Unit` value),
             // popped so the finally handler ends empty-stacked.
             let emitLocalDispose (disposeKey: SymbolKey) =
+                // The dispose call is SYNTHESISED here and emitted immediately, inside
+                // this one builder callback — there is no batch point to mint it at, so
+                // it is appended to the pool the `use` node itself lives in and handed
+                // straight to `recur`.
+                let pool = view.Value.Pool
+
                 recur
                     env
                     b
-                    (Frozen.TExpr.MethodCall(
-                        Frozen.TExpr.Var(binding, varTy, tok),
-                        disposeKey,
-                        CallVia.Self,
-                        EqArray.empty,
-                        FTConst(RuntimeNames.unitKey, EqArray.empty),
-                        tok
-                    ))
+                    (TastAccessor.mintMethodCall
+                        (TastAccessor.mintVar pool binding varTy tok)
+                        disposeKey
+                        CallVia.Self
+                        [||]
+                        (FTConst(RuntimeNames.unitKey, EqArray.empty))
+                        tok)
 
                 b.Add ILInstr.Pop
 
@@ -230,7 +235,7 @@ module EmitBindings =
 
     // Reached only via `EmitExpr`'s `ExprShape.TryFinally` route, so `exprTryFinally` is a
     // total projection here.
-    let buildTryFinally (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildTryFinally (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprTryFinally e
 
         // `try Body finally Cleanup`: the handler runs `Cleanup` purely for effect (it

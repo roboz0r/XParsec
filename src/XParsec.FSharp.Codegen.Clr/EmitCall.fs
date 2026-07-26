@@ -24,7 +24,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (funcTy0: FrozenType)
-        (args: (Frozen.TExpr * FrozenType * SyntaxToken) list)
+        (args: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
         : unit =
         let mutable funcTy = funcTy0
 
@@ -50,14 +50,14 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (arrTy: FrozenType)
-        (spineArgs: (Frozen.TExpr * FrozenType * SyntaxToken) list)
+        (spineArgs: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
         : bool =
         let elemOf =
             match arrTy with
             | FTArray elem -> ValueSome elem
             | _ -> ValueNone
 
-        let rec collect (acc: Frozen.TExpr list) (e: Frozen.TExpr) : Frozen.TExpr list option =
+        let rec collect (acc: TastAccessor.ExprId list) (e: TastAccessor.ExprId) : TastAccessor.ExprId list option =
             match TastAccessor.exprKind e with
             | ExprShape.UnionCons ->
                 match TastAccessor.exprChildren e with
@@ -98,8 +98,8 @@ module EmitCall =
         (recur: Recur)
         (env: EmitEnv)
         (b: IlBuilder)
-        (groups: Frozen.ArgGroup list)
-        (leading: (Frozen.TExpr * FrozenType * SyntaxToken) list)
+        (groups: TastAccessor.ArgGroup list)
+        (leading: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
         : FrozenType list =
         let actualTys = ResizeArray<FrozenType>()
 
@@ -142,8 +142,8 @@ module EmitCall =
     ///   key's `argSig` length.
     /// - otherwise — the head is itself a function value (a closure local or a
     ///   partially applied result); emit it, then `Invoke` each arg.
-    let buildAppCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
-        let head, spineArgs = TastWalk.collectSpine [] e
+    let buildAppCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
+        let head, spineArgs = TastAccessor.collectSpine [] e
 
         match head with
         | TastAccessor.EExternal ext ->
@@ -181,7 +181,7 @@ module EmitCall =
                 let recipeFnTy =
                     if
                         spineArgs
-                        |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg)
+                        |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg.Id)
                     then
                         // NOTE the spine tuple's middle element is the partial-application
                         // RESULT type at that step, not the argument's own type — read the
@@ -190,7 +190,7 @@ module EmitCall =
                         let argTys =
                             spineArgs
                             |> List.map (fun (arg, _, _) ->
-                                match env.ClosureValueTypeByNode.TryGetValue arg with
+                                match env.ClosureValueTypeByNode.TryGetValue arg.Id with
                                 | true, closureFt -> closureFt
                                 | false, _ -> typeOfExpr arg
                             )
@@ -294,7 +294,7 @@ module EmitCall =
                     // maps one-to-one onto the flat parameter index.
                     leading
                     |> List.iteri (fun i (arg, _, _) ->
-                        match env.ClosureValueTypeByNode.TryGetValue arg with
+                        match env.ClosureValueTypeByNode.TryGetValue arg.Id with
                         | true, closureFt ->
                             if i < List.length sm.ParamTys then
                                 match sm.ParamTys.[i] with

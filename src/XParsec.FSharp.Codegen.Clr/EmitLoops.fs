@@ -151,9 +151,9 @@ module EmitLoops =
         (env: EmitEnv)
         (b: IlBuilder)
         (loop: EnumeratorLoop)
-        (pat: Frozen.TPat)
-        (source: Frozen.TExpr)
-        (body: Frozen.TExpr)
+        (pat: TastAccessor.PatId)
+        (source: TastAccessor.ExprId)
+        (body: TastAccessor.ExprId)
         : unit =
         // The `constrained.` token for a struct enumerator's interface `Dispose` —
         // `TypeToken` routes through the value-type-aware encoder, so `E` lands as a
@@ -280,7 +280,7 @@ module EmitLoops =
         // `for` is a unit expression — leave the single reified `unit` value.
         EmitTypes.buildUnitValue env b
 
-    let buildForIn (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildForIn (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprForIn` is a total projection.
         // The inner `match` over `ForInEnumeratorG` is *compiler-exhaustive* (no
         // wildcard) — a new enumerator kind fails the build here rather than
@@ -460,7 +460,7 @@ module EmitLoops =
                 source
                 body
 
-    let buildForTo (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildForTo (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprForTo` is a total projection.
         let view = TastAccessor.exprForTo e
         let var = view.Var
@@ -518,7 +518,7 @@ module EmitLoops =
         // `for` is a unit expression — leave the single reified `unit` value.
         EmitTypes.buildUnitValue env b
 
-    let buildWhile (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildWhile (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprWhile` is a total projection.
         let view = TastAccessor.exprWhile e
         let cond = view.Cond

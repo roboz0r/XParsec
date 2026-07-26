@@ -22,7 +22,7 @@ module internal NominalEmit =
     /// (`!i`), `i` = position in `TypeParams`. The codegen encoders resolve a
     /// `FTTypar(Declaring, i)` straight off the node, so these need no ambient
     /// typar window.
-    let private typarMarkersOf (td: Frozen.TTypeDecl) : FrozenType list =
+    let private typarMarkersOf (td: TastAccessor.TypeDecl) : FrozenType list =
         [ for i in 0 .. td.TypeParams.Length - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 
     /// The resolved `inherit` parent of a nominal class, classified ONCE so the
@@ -50,7 +50,7 @@ module internal NominalEmit =
 
     /// The user `interface … with` impls (interface type + member bodies) a
     /// nominal carries. Classes, unions, and records all carry them.
-    let private userInterfacesOf (input: NominalEmissionInput) : (FrozenType * Frozen.TTypeMember list) list =
+    let private userInterfacesOf (input: NominalEmissionInput) : (FrozenType * TastAccessor.TypeMember list) list =
         match input with
         | NominalEmissionInput.Class cd -> cd.Interfaces
         | NominalEmissionInput.Union(_, interfaces) -> interfaces
@@ -59,8 +59,8 @@ module internal NominalEmit =
     let register
         (asm: Assembler)
         (input: NominalEmissionInput)
-        (td: Frozen.TTypeDecl)
-        (members: Frozen.TTypeMember list)
+        (td: TastAccessor.TypeDecl)
+        (members: TastAccessor.TypeMember list)
         : unit =
         let icodegen = asm.Icodegen
         let isGeneric = not td.TypeParams.IsEmpty
@@ -92,7 +92,7 @@ module internal NominalEmit =
         // path), never this table. Own members lead the list and `pickOverload`
         // prefers the first equally-good match, so the own member wins on a tie.
         (members @ NominalMembers.flattenIfaceMembers (userInterfacesOf input))
-        |> List.iteri (fun i (mem: Frozen.TTypeMember) ->
+        |> List.iteri (fun i (mem: TastAccessor.TypeMember) ->
             let em: Emit.EmittedMember =
                 {
                     Handle = toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))
@@ -186,7 +186,7 @@ module internal NominalEmit =
             // `MemberRef` on the instantiated `TypeSpec`.
             let secondaryCtorHandles =
                 secondaryCtors
-                |> List.mapi (fun i (sc: Frozen.TSecondaryCtor) ->
+                |> List.mapi (fun i (sc: TastAccessor.SecondaryCtor) ->
                     sc.Params.Length,
                     [ for (_, t) in sc.Params -> t ],
                     toEntity (asm.MethodDef(MethodKey.SecondaryCtor(td.Key, i)))
@@ -245,8 +245,8 @@ module internal NominalEmit =
         (asm: Assembler)
         (emitCtx: Emit.EmitContext)
         (input: NominalEmissionInput)
-        (td: Frozen.TTypeDecl)
-        (members: Frozen.TTypeMember list)
+        (td: TastAccessor.TypeDecl)
+        (members: TastAccessor.TypeMember list)
         : unit =
         let provider = asm.Provider
         let icodegen = asm.Icodegen
@@ -498,7 +498,7 @@ module internal NominalEmit =
             let ctorChain =
                 match baseShape, baseCtorCall with
                 | BaseShape.ExternalBase(baseKey, _), ValueSome bcc when not bcc.Args.IsEmpty ->
-                    let argTypes = [ for a in bcc.Args -> TastLower.typeOfExpr a ]
+                    let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
 
                     match icodegen.TryEmitCtor(baseKey, bcc.ChosenCtor, [], argTypes) with
                     | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, EqArray.toList bcc.Args)
@@ -674,7 +674,7 @@ module internal NominalEmit =
                 )
 
         // Interface implementations: each `(ifaceTy, members)` entry's
-        // member bodies are already-typed `Frozen.TTypeMember`s, flattened here. They
+        // member bodies are already-typed `TastAccessor.TypeMember`s, flattened here. They
         // emit as virtual methods (`ifaceEqualsAttrs` — a new slot, `Final` since
         // classes, unions, and records are all sealed) that the runtime binds to the
         // `InterfaceImpl` row by name + signature. The type's own members lead,
@@ -687,7 +687,7 @@ module internal NominalEmit =
 
         // `isIfaceImpl` selects the `void`-return conformance below; the row's
         // attrs were fixed by the layout's enumeration.
-        let prepareMember (index: int) (isIfaceImpl: bool) (mem: Frozen.TTypeMember) =
+        let prepareMember (index: int) (isIfaceImpl: bool) (mem: TastAccessor.TypeMember) =
             // A *generic* member. Both its declaring-type typars and its own
             // method typars now ride self-describing `TyTypar` nodes in the signature /
             // locals / body (Elaborate.remapMemberTypes remaps both axes), so no ambient

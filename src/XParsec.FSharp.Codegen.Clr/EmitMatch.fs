@@ -16,7 +16,7 @@ open EmitDispatch
 /// correct (`IlIr.analyze` re-derives the buffer's true merge depths).
 module EmitMatch =
 
-    let buildMatch (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildMatch (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprMatch` is a total projection.
         let view = TastAccessor.exprMatch e
         let scrutinee = view.Scrutinee
@@ -38,10 +38,10 @@ module EmitMatch =
             buildMatchTest env b scrutSlot nextLabel arm.Pat
 
             match arm.Guard with
-            | Some g ->
+            | ValueSome g ->
                 recur env b g
                 b.Add(ILInstr.Brfalse nextLabel)
-            | None -> ()
+            | ValueNone -> ()
 
             recur env b arm.Body
             b.Add(ILInstr.Br endLabel)
@@ -52,7 +52,7 @@ module EmitMatch =
         b.SetDepth(baseDepth + 1)
         b.Add(ILInstr.Mark endLabel)
 
-    let buildIfThenElse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildIfThenElse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprIfThenElse` is a total projection.
         let view = TastAccessor.exprIfThenElse e
         let cond = view.Cond
@@ -75,7 +75,7 @@ module EmitMatch =
         recur env b elseExpr
         b.Add(ILInstr.Mark endLabel)
 
-    let buildSequential (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildSequential (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router, so `exprChildren` is a total projection.
         // Every item but the last is a unit-typed statement: emit it and
         // discard whatever value it leaves (popping back to the pre-item

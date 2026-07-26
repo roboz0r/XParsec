@@ -5,7 +5,7 @@ open XParsec.FSharp.Parser
 
 /// Platform-neutral TAST lowering, shared by both codegen backends (CLR and JS).
 /// The two codegen projects must not reference each other, so the lowering logic
-/// that traffics only in `Frozen.TExpr` / `FrozenType` / `NodeKey` lives here, in
+/// that traffics only in node handles / `FrozenType` / `NodeKey` lives here, in
 /// `SemanticAnalysis`, where both backends already depend.
 ///
 /// Lowering is backend-uniform: no operator reaches it needing a per-backend finish.
@@ -19,65 +19,10 @@ module TastLower =
     /// to the parameter's slot); a destructuring tuple parameter (`fun (a, b) -> …`)
     /// carries `Pat = Some …` and a synthetic `Slot`, whose value the backend
     /// spills to a local and `bindPattern`s into the leaf bindings. Platform-neutral
-    /// (`Frozen.TPat` / `FrozenType` / `NodeKey` only); the CLR-shaped `StaticFn`
+    /// (pattern handle / `FrozenType` / `NodeKey` only); the CLR-shaped `StaticFn`
     /// that carries it stays in `Codegen.Clr`. The shape lives in `Tast.fs`
-    /// (`StaticParamG`, generic over `'ty`/`'tok`); this is the frozen instantiation.
-    type StaticParam = Frozen.StaticParam
-
-    let typeOfExpr (e: Frozen.TExpr) : FrozenType =
-        match e with
-        | TExprG.Const(ty = ty)
-        | TExprG.Var(ty = ty)
-        | TExprG.External(ty = ty)
-        | TExprG.Lambda(ty = ty)
-        | TExprG.App(ty = ty)
-        | TExprG.Let(ty = ty)
-        | TExprG.Use(ty = ty)
-        | TExprG.IfThenElse(ty = ty)
-        | TExprG.Tuple(ty = ty)
-        | TExprG.Sequential(ty = ty)
-        | TExprG.While(ty = ty)
-        | TExprG.ForTo(ty = ty)
-        | TExprG.ForIn(ty = ty)
-        | TExprG.Match(ty = ty)
-        | TExprG.TryWith(ty = ty)
-        | TExprG.TryFinally(ty = ty)
-        | TExprG.Assignment(ty = ty)
-        | TExprG.Null(ty = ty)
-        | TExprG.Range(ty = ty)
-        | TExprG.RecordCons(ty = ty)
-        | TExprG.RecordClone(ty = ty)
-        | TExprG.FieldGet(ty = ty)
-        | TExprG.FieldSet(ty = ty)
-        | TExprG.UnionCons(ty = ty)
-        | TExprG.New(ty = ty)
-        | TExprG.MethodCall(ty = ty)
-        | TExprG.PropertyGet(ty = ty)
-        | TExprG.StaticMethodCall(ty = ty)
-        | TExprG.StaticPropertyGet(ty = ty)
-        | TExprG.StaticFieldGet(ty = ty)
-        | TExprG.StaticFieldSet(ty = ty)
-        | TExprG.ExternalMember(ty = ty)
-        | TExprG.Format(ty = ty)
-        | TExprG.ILIntrinsic(ty = ty)
-        | TExprG.StaticOptimization(ty = ty)
-        | TExprG.Upcast(ty = ty)
-        | TExprG.Downcast(ty = ty)
-        | TExprG.TraitCall(ty = ty)
-        | TExprG.TypeTest(ty = ty) -> ty
-
-    let typeOfPat (p: Frozen.TPat) : FrozenType =
-        match p with
-        | TPatG.NamedSimple(ty = ty)
-        | TPatG.Wildcard(ty = ty)
-        | TPatG.Tuple(ty = ty)
-        | TPatG.Const(ty = ty)
-        | TPatG.Record(ty = ty)
-        | TPatG.Union(ty = ty)
-        | TPatG.TypeTestAs(ty = ty)
-        | TPatG.Null(ty = ty)
-        | TPatG.EnumCase(ty = ty)
-        | TPatG.Or(ty = ty) -> ty
+    /// (`StaticParamG`, generic over `'ty`/`'pat`); this is the pooled instantiation.
+    type StaticParam = TastAccessor.StaticParam
 
     /// Resolve a nominal receiver type to its `(SymbolKey, type-args)` pair
     /// (was a projected string name). The
@@ -228,126 +173,6 @@ module TastLower =
                                 | ValueNone -> ()
                             | _ -> ()
 
-    /// The single structural recursion the lowering map, the closure collector,
-    /// and the free-variable walk all share (the latter two via `iterChildren`).
-    let mapChildren (f: Frozen.TExpr -> Frozen.TExpr) (e: Frozen.TExpr) : Frozen.TExpr =
-        match e with
-        | TExprG.Const _
-        | TExprG.Var _
-        | TExprG.External _
-        | TExprG.Null _
-        | TExprG.StaticPropertyGet _
-        | TExprG.StaticFieldGet _ -> e
-        | TExprG.Lambda(p, b, t, tk) -> TExprG.Lambda(p, f b, t, tk)
-        | TExprG.App(fn, a, t, tk) -> TExprG.App(f fn, f a, t, tk)
-        | TExprG.Let(p, v, b, t, tk) -> TExprG.Let(p, f v, f b, t, tk)
-        | TExprG.Use(p, v, b, dispose, t, tk) -> TExprG.Use(p, f v, f b, dispose, t, tk)
-        | TExprG.IfThenElse(c, th, el, t, tk) -> TExprG.IfThenElse(f c, f th, f el, t, tk)
-        | TExprG.Tuple(xs, t, tk) -> TExprG.Tuple(EqArray.map f xs, t, tk)
-        | TExprG.Sequential(xs, t, tk) -> TExprG.Sequential(EqArray.map f xs, t, tk)
-        | TExprG.While(c, b, t, tk) -> TExprG.While(f c, f b, t, tk)
-        | TExprG.ForTo(v, it, s, e2, b, t, tk) -> TExprG.ForTo(v, it, f s, f e2, f b, t, tk)
-        | TExprG.ForIn(p, src, b, en, t, tk) -> TExprG.ForIn(p, f src, f b, en, t, tk)
-        | TExprG.Match(sc, arms, t, tk) ->
-            TExprG.Match(
-                f sc,
-                arms
-                |> EqArray.map (fun a ->
-                    { a with
-                        Guard = Option.map f a.Guard
-                        Body = f a.Body
-                    }
-                ),
-                t,
-                tk
-            )
-        | TExprG.TryWith(b, arms, t, tk) ->
-            TExprG.TryWith(
-                f b,
-                arms
-                |> EqArray.map (fun a ->
-                    { a with
-                        Guard = Option.map f a.Guard
-                        Body = f a.Body
-                    }
-                ),
-                t,
-                tk
-            )
-        | TExprG.TryFinally(b, c, t, tk) -> TExprG.TryFinally(f b, f c, t, tk)
-        | TExprG.Assignment(l, r, t, tk) -> TExprG.Assignment(f l, f r, t, tk)
-        | TExprG.Range(s, step, stop, t, tk) -> TExprG.Range(f s, Option.map f step, f stop, t, tk)
-        | TExprG.RecordCons(fields, t, tk) -> TExprG.RecordCons(EqArray.map (fun (n, v) -> n, f v) fields, t, tk)
-        | TExprG.RecordClone(src, ov, t, tk) -> TExprG.RecordClone(f src, EqArray.map (fun (n, v) -> n, f v) ov, t, tk)
-        | TExprG.FieldGet(r, n, t, tk) -> TExprG.FieldGet(f r, n, t, tk)
-        | TExprG.FieldSet(r, n, v, t, tk) -> TExprG.FieldSet(f r, n, f v, t, tk)
-        | TExprG.StaticFieldSet(k, n, v, t, tk) -> TExprG.StaticFieldSet(k, n, f v, t, tk)
-        | TExprG.UnionCons(c, args, t, tk) -> TExprG.UnionCons(c, EqArray.map f args, t, tk)
-        | TExprG.New(c, k, args, t, tk) -> TExprG.New(c, k, EqArray.map f args, t, tk)
-        | TExprG.MethodCall(r, k, via, args, t, tk) -> TExprG.MethodCall(f r, k, via, EqArray.map f args, t, tk)
-        | TExprG.PropertyGet(r, k, via, t, tk) -> TExprG.PropertyGet(f r, k, via, t, tk)
-        | TExprG.StaticMethodCall(k, args, t, tk) -> TExprG.StaticMethodCall(k, EqArray.map f args, t, tk)
-        | TExprG.ExternalMember(r, k, n, isProp, t, tk) ->
-            TExprG.ExternalMember(ValueOption.map f r, k, n, isProp, t, tk)
-        | TExprG.Format(sink, segs, t, tk) ->
-            let sink =
-                match sink with
-                | FormatSinkG.ToWriter(w, nl) -> FormatSinkG.ToWriter(f w, nl)
-                | FormatSinkG.ToBuilder w -> FormatSinkG.ToBuilder(f w)
-                | other -> other
-
-            let segs =
-                segs
-                |> EqArray.map (fun seg ->
-                    match seg with
-                    | FormatSegG.Lit _ -> seg
-                    | FormatSegG.Hole(h, a) -> FormatSegG.Hole(h, f a)
-                    | FormatSegG.DynHole d ->
-                        FormatSegG.DynHole
-                            { d with
-                                Width = ValueOption.map f d.Width
-                                Precision = ValueOption.map f d.Precision
-                                Value = f d.Value
-                            }
-                    | FormatSegG.CallbackHole(spec, residue) -> FormatSegG.CallbackHole(spec, f residue)
-                )
-
-            TExprG.Format(sink, segs, t, tk)
-        | TExprG.ILIntrinsic(op, operand, args, t, tk) -> TExprG.ILIntrinsic(op, operand, EqArray.map f args, t, tk)
-        | TExprG.StaticOptimization(clauses, def, t, tk) ->
-            TExprG.StaticOptimization(clauses |> EqArray.map (fun cl -> { cl with Body = f cl.Body }), f def, t, tk)
-        | TExprG.Upcast(src, t, tk) -> TExprG.Upcast(f src, t, tk)
-        | TExprG.Downcast(src, t, tk) -> TExprG.Downcast(f src, t, tk)
-        | TExprG.TraitCall(recv, n, args, t, tk) -> TExprG.TraitCall(recv, n, EqArray.map f args, t, tk)
-        | TExprG.TypeTest(src, testTy, t, tk) -> TExprG.TypeTest(f src, testTy, t, tk)
-
-    /// Reuses `mapChildren`, discarding the rebuilt tree — only the one-shot
-    /// discovery / free-variable pre-passes call this.
-    let iterChildren (f: Frozen.TExpr -> unit) (e: Frozen.TExpr) : unit =
-        mapChildren
-            (fun c ->
-                f c
-                c
-            )
-            e
-        |> ignore
-
-    /// True when any immediate child of `e` satisfies `p` — the exists-over-children
-    /// primitive the recursive `TExpr` search predicates build on (mirrors
-    /// `FrozenType.existsChild` / `SemType.existsChild`). `p` is not invoked on further
-    /// children once one has matched, so a `p` that recurses short-circuits the descent.
-    let existsChild (p: Frozen.TExpr -> bool) (e: Frozen.TExpr) : bool =
-        let mutable found = false
-
-        iterChildren
-            (fun c ->
-                if not found then
-                    found <- p c
-            )
-            e
-
-        found
-
     /// Source of synthetic `NodeKey`s for placeholder lambda-parameter slots —
     /// the unit binder (`fun () -> …`) and the tuple binder (`fun (a, b) -> …`).
     /// The body never references the key (a unit value is dropped; a tuple is
@@ -375,41 +200,6 @@ module TastLower =
     /// no name to reference it, so the slot is keyed off a fresh placeholder.
     let mintUseBinderKey () : NodeKey = mintSyntheticParamKey ()
 
-    /// Peel a curried `Lambda` chain of simple (`NamedSimple`), unit-pattern
-    /// (`TPatG.Const(Unit, _)`, from `fun () -> …`), or destructuring tuple
-    /// (`fun (a, b) -> …`) parameters. A unit binder gets a synthetic placeholder
-    /// `NodeKey` (the body never references it) so the static-method emission
-    /// still allocates a slot for the unit value the caller pushes. A
-    /// tuple binder likewise gets a synthetic `Slot` and carries its `Pat` so the
-    /// emission `bindPattern`s the leaf bindings out of the value. Any
-    /// other pattern stops the peel.
-    let rec peelLambda (e: Frozen.TExpr) : StaticParam list * Frozen.TExpr =
-        match e with
-        | TExprG.Lambda(TPatG.NamedSimple(k, pty, _), body, _, _) ->
-            let ps, b = peelLambda body
-            { Slot = k; Ty = pty; Pat = None } :: ps, b
-        | TExprG.Lambda(TPatG.Const(TConstValue.Unit, pty, _), body, _, _) ->
-            let ps, b = peelLambda body
-
-            {
-                Slot = mintUnitParamKey ()
-                Ty = pty
-                Pat = None
-            }
-            :: ps,
-            b
-        | TExprG.Lambda((TPatG.Tuple(_, pty, _) as pat), body, _, _) ->
-            let ps, b = peelLambda body
-
-            {
-                Slot = mintTupleParamKey ()
-                Ty = pty
-                Pat = Some pat
-            }
-            :: ps,
-            b
-        | _ -> [], e
-
     // ----------------------------------------------------------------------
     // Compiled-form representation
     //
@@ -431,17 +221,48 @@ module TastLower =
     // ----------------------------------------------------------------------
 
     // The source-arity / compiled-form types live in `Tast.fs` (`ArgGroupG`,
-    // `ValReprG`, `CompiledReturnG`, `CompiledFormG`, generic over `'ty`/`'tok`);
-    // these are the frozen instantiations the builders below produce.
-    type ArgGroup = Frozen.ArgGroup
-    type ValRepr = Frozen.ValRepr
-    type CompiledReturn = Frozen.CompiledReturn
-    type CompiledForm = Frozen.CompiledForm
+    // `ValReprG`, `CompiledReturnG`, `CompiledFormG`, generic over `'ty`/`'pat`);
+    // these are the pooled instantiations the builders below produce.
+    type ArgGroup = TastAccessor.ArgGroup
+    type ValRepr = TastAccessor.ValRepr
+    type CompiledReturn = TastAccessor.CompiledReturn
+    type CompiledForm = TastAccessor.CompiledForm
 
     let private isUnitFrozen (t: FrozenType) : bool =
         match t with
         | FTUnit -> true
         | _ -> false
+
+    /// What the source-arity grouping rule reads off ONE curried parameter pattern:
+    /// its shape, its type, the binder it introduces (`NamedSimple` only), and its
+    /// constant value (`Const` only). Named rather than a positional tuple because the
+    /// rule is called from both pattern domains and neither should have to remember an
+    /// argument order.
+    [<Struct>]
+    type ParamPatFacts =
+        {
+            Shape: PatShape
+            Ty: FrozenType
+            Binder: NodeKey voption
+            ConstValue: TConstValue voption
+        }
+
+    /// The SOURCE grouping of one curried parameter — the arity rule, written once: a
+    /// simple binder is a `GSimple`; a `()` parameter is a `GUnit` (the lone-erasable
+    /// `let f () = …` shape); a tuple parameter is a `GTuple` carrying the WHOLE
+    /// pattern, since flattening is `compiledOf`'s job and the source grouping must
+    /// survive; anything else is not a parameter group at all and stops the peel.
+    ///
+    /// Generic in the pattern so it runs unchanged on both sides of the freeze/pool
+    /// boundary: `Freeze` groups a binding's parameters off the DU lambda spine it has
+    /// just built, and everything after it off the pooled spine. Only the READING of a
+    /// pattern differs between the two; the rule does not.
+    let argGroupOfParam (facts: ParamPatFacts) (pat: 'p) : ArgGroupG<FrozenType, 'p> voption =
+        match facts.Shape, facts.Binder, facts.ConstValue with
+        | PatShape.NamedSimple, ValueSome k, _ -> ValueSome(ArgGroupG.GSimple(k, facts.Ty))
+        | PatShape.Const, _, ValueSome TConstValue.Unit -> ValueSome(ArgGroupG.GUnit facts.Ty)
+        | PatShape.Tuple, _, _ -> ValueSome(ArgGroupG.GTuple pat)
+        | _ -> ValueNone
 
     /// Peel up to `n` top-level `->` arrows off a frozen type (all of them when
     /// `n < 0`), returning each as a `(domain, codomain)` pair in order. One home for
@@ -536,29 +357,64 @@ module TastLower =
     /// body (the `peelLambda` walk, recording groups rather than flattened params).
     /// A tuple group keeps its whole pattern — flattening is `compiledOf`'s job, so
     /// the source grouping survives here.
-    let rec peelValRepr (e: Frozen.TExpr) : ArgGroup list * Frozen.TExpr =
+    let rec peelValRepr (e: TastAccessor.ExprId) : ArgGroup list * TastAccessor.ExprId =
         match e with
-        | TExprG.Lambda(TPatG.NamedSimple(k, pty, _), body, _, _) ->
-            let gs, b = peelValRepr body
-            ArgGroupG.GSimple(k, pty) :: gs, b
-        | TExprG.Lambda(TPatG.Const(TConstValue.Unit, pty, _), body, _, _) ->
-            let gs, b = peelValRepr body
-            ArgGroupG.GUnit pty :: gs, b
-        | TExprG.Lambda((TPatG.Tuple _ as pat), body, _, _) ->
-            let gs, b = peelValRepr body
-            ArgGroupG.GTuple pat :: gs, b
+        | TastAccessor.ELambda lam ->
+            let facts =
+                {
+                    Shape = TastAccessor.patKind lam.Param
+                    Ty = TastAccessor.patTy lam.Param
+                    Binder = TastAccessor.patBinder lam.Param
+                    ConstValue =
+                        match TastAccessor.patKind lam.Param with
+                        | PatShape.Const -> ValueSome(TastAccessor.patConstValue lam.Param)
+                        | _ -> ValueNone
+                }
+
+            match argGroupOfParam facts lam.Param with
+            | ValueSome g ->
+                let gs, b = peelValRepr lam.Body
+                g :: gs, b
+            | ValueNone -> [], e
         | _ -> [], e
+
+    /// `peelValRepr` projected to one flat parameter per SOURCE group — the shape a
+    /// static-method emission binds its arg slots from. A unit group gets a synthetic
+    /// placeholder `NodeKey` (the body never references it) so the emission still
+    /// allocates a slot for the unit value the caller pushes; a tuple group likewise
+    /// gets a synthetic `Slot` and carries its `Pat` so the emission `bindPattern`s the
+    /// leaf bindings out of the value.
+    let peelLambda (e: TastAccessor.ExprId) : StaticParam list * TastAccessor.ExprId =
+        let groups, body = peelValRepr e
+
+        let paramOf (g: ArgGroup) : StaticParam =
+            match g with
+            | ArgGroupG.GSimple(k, ty) -> { Slot = k; Ty = ty; Pat = None }
+            | ArgGroupG.GUnit ty ->
+                {
+                    Slot = mintUnitParamKey ()
+                    Ty = ty
+                    Pat = None
+                }
+            | ArgGroupG.GTuple pat ->
+                {
+                    Slot = mintTupleParamKey ()
+                    Ty = TastAccessor.patTy pat
+                    Pat = Some pat
+                }
+
+        List.map paramOf groups, body
 
     /// Build the SOURCE `ValRepr` for a function value (`typars` = its generic
     /// arity), returning the residual body the backend emits. `ResultTy` is the
     /// residual body's type — the source result, before any unit→void normalisation.
-    let valReprOf (typars: int) (e: Frozen.TExpr) : ValRepr * Frozen.TExpr =
+    let valReprOf (typars: int) (e: TastAccessor.ExprId) : ValRepr * TastAccessor.ExprId =
         let groups, body = peelValRepr e
 
         {
             Typars = typars
             Groups = groups
-            ResultTy = typeOfExpr body
+            ResultTy = TastAccessor.exprTy body
         },
         body
 
@@ -566,20 +422,22 @@ module TastLower =
     /// simple binder becomes a direct arg slot the body references; a wildcard a
     /// slotted-but-unnamed arg; anything else keeps its pattern for the backend to
     /// destructure (a nested tuple element stays one `ValueTuple` param).
-    let private flattenTupleItem (p: Frozen.TPat) : StaticParam =
-        match p with
-        | TPatG.NamedSimple(k, ty, _) -> { Slot = k; Ty = ty; Pat = None }
-        | TPatG.Wildcard(ty, _) ->
+    let private flattenTupleItem (p: TastAccessor.PatId) : StaticParam =
+        let ty = TastAccessor.patTy p
+
+        match TastAccessor.patKind p, TastAccessor.patBinder p with
+        | PatShape.NamedSimple, ValueSome k -> { Slot = k; Ty = ty; Pat = None }
+        | PatShape.Wildcard, _ ->
             {
                 Slot = mintSyntheticParamKey ()
                 Ty = ty
                 Pat = None
             }
-        | other ->
+        | _ ->
             {
                 Slot = mintSyntheticParamKey ()
-                Ty = typeOfPat other
-                Pat = Some other
+                Ty = ty
+                Pat = Some p
             }
 
     /// Derive the flat `CompiledForm` from a source `ValRepr` — the
@@ -598,8 +456,10 @@ module TastLower =
                     }
                 ]
             | ArgGroupG.GSimple(k, ty) -> [ { Slot = k; Ty = ty; Pat = None } ]
-            | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) -> [ for it in items -> flattenTupleItem it ]
-            | ArgGroupG.GTuple _ -> failwith "peelValRepr: GTuple must carry a TPatG.Tuple pattern"
+            | ArgGroupG.GTuple pat ->
+                match TastAccessor.patKind pat with
+                | PatShape.Tuple -> [ for it in TastAccessor.patChildren pat -> flattenTupleItem it ]
+                | other -> failwithf "peelValRepr: GTuple must carry a tuple pattern, not %A" other
 
         let ps =
             if isLoneUnitGroup vr.Groups then
@@ -634,12 +494,23 @@ module TastLower =
     /// consumer derives the same compiled form an in-assembly function does from its
     /// own `gather`ed `ValRepr`.
     let externalValRepr (typars: int) (groups: (int * FrozenType) list) (resultTy: FrozenType) : ValRepr =
+        // A contract-minted pattern belongs to no file's tree, so it indexes into no
+        // file's pool — it gets a standalone one, owned by this `ValRepr` and reachable
+        // only through the handles it hands out. That is what the pool-carrying handle
+        // buys: the consumer reads these pats through the same accessor as any other,
+        // and never learns they came from somewhere else.
+        let contractPats = TastPoolBuilder.openEmpty ()
+
         let groupOf (arity: int, pty: FrozenType) : ArgGroup =
             if arity >= 2 then
                 match pty with
                 | FTTuple elems ->
-                    let items = elems |> EqArray.map (fun e -> TPatG.Wildcard(e, contractPatTok))
-                    ArgGroupG.GTuple(TPatG.Tuple(items, pty, contractPatTok))
+                    let items =
+                        elems
+                        |> EqArray.toArray
+                        |> Array.map (fun e -> TastAccessor.mintWildcardPat contractPats e contractPatTok)
+
+                    ArgGroupG.GTuple(TastAccessor.mintTuplePat contractPats items pty contractPatTok)
                 | _ ->
                     // A ≥2-width group is always an `FTTuple` (translateArgsSpec); keep a
                     // single param defensively rather than fabricate one.
@@ -674,24 +545,11 @@ module TastLower =
     ///
     /// What is left is the flattening: drop `type` decls (emitted as metadata), drop the
     /// one binding shape that has no IL form at all (`traitCallOnly`), and split a nested
-    /// `let` chain into a flat top-level decl list.
-    let lower (decls: EqArray<Frozen.TDecl>) : Frozen.TDecl list =
-        let rec lowerExpr (e: Frozen.TExpr) : Frozen.TExpr =
-            match e with
-            | TExprG.App _ ->
-                let head, spineArgs = TastWalk.collectSpine [] e
-
-                // An `External` head is a recipe call: it stays in call position (the
-                // inline pass already spliced any head that had a body), and only the
-                // args are lowered.
-                let head' =
-                    match head with
-                    | TExprG.External _ -> head
-                    | _ -> lowerExpr head
-
-                TastWalk.rebuildApp head' [ for (a, t, tk) in spineArgs -> lowerExpr a, t, tk ]
-            | _ -> mapChildren lowerExpr e
-
+    /// `let` chain into a flat top-level decl list. It rewrites no EXPRESSION: what the
+    /// expression walk used to do — descend rebuilding every node, leaving an `External`
+    /// call head alone — is the identity, an `External` node having no children to
+    /// descend into in the first place.
+    let lower (decls: TastAccessor.DeclId list) : TastAccessor.DeclId list =
         // Split a folded top-level statement sequence back into standalone decls
         // in source order. The parser folds
         // consecutive top-level statements/lets into ONE `TDecl.Expression` whose
@@ -705,20 +563,23 @@ module TastLower =
         // the continuation (`body`) of a top-level `let … in …`. Sub-expressions
         // (application args, lambda bodies, match arms) are NOT descended into, so
         // a genuinely-local `let` nested inside an expression is left intact.
-        let rec flattenTopLevel (e: Frozen.TExpr) : Frozen.TDecl list =
-            match e with
-            | TExprG.Sequential(items, _, _) ->
+        let rec flattenTopLevel (e: TastAccessor.ExprId) : TastAccessor.DeclId list =
+            match TastAccessor.exprKind e with
+            | ExprShape.Sequential ->
                 [
-                    for it in items do
+                    for it in TastAccessor.exprChildren e do
                         yield! flattenTopLevel it
                 ]
-            | TExprG.Let(pat, value, body, _, _) ->
+            | ExprShape.Let ->
                 // The bound value is itself an expression (not a statement spine) —
                 // keep it whole; only the `body` continuation is more top-level decls.
-                TDeclG.Let(pat, value, false, typeOfExpr value) :: flattenTopLevel body
-            | _ -> [ TDeclG.Expression(e, typeOfExpr e) ]
+                let l = TastAccessor.exprLet e
 
-        let result = ResizeArray<Frozen.TDecl>()
+                TastAccessor.mintLetDecl l.Binding l.Value false (TastAccessor.exprTy l.Value)
+                :: flattenTopLevel l.Body
+            | _ -> [ TastAccessor.mintExpressionDecl e (TastAccessor.exprTy e) ]
+
+        let result = ResizeArray<TastAccessor.DeclId>()
 
         // A body that still carries a `TExprG.TraitCall` is TEMPLATE-ONLY: it has no
         // compiled form on any target, and never will without witness passing.
@@ -732,25 +593,28 @@ module TastLower =
         // overwhelming majority, `StaticOptimization`-bearing ones included — is emitted
         // as an ordinary module function like any other binding, and only its use sites
         // decide whether they splice it or call it.
-        let rec hasTraitCall (e: Frozen.TExpr) : bool =
-            match e with
-            | TExprG.TraitCall _ -> true
-            | _ -> TastAccessor.exprChildren e |> Array.exists hasTraitCall
+        let rec hasTraitCall (e: TastAccessor.ExprId) : bool =
+            match TastAccessor.exprKind e with
+            | ExprShape.TraitCall -> true
+            | _ -> TastAccessor.existsChild hasTraitCall e
 
-        let lowerOne (d: Frozen.TDecl) =
-            match d with
-            | TDeclG.Let(_, value, true, _) when hasTraitCall value -> ()
-            | TDeclG.Let(p, value, isInline, t) -> result.Add(TDeclG.Let(p, lowerExpr value, isInline, t))
-            | TDeclG.Expression(e, t) -> result.Add(TDeclG.Expression(lowerExpr e, t))
+        let lowerOne (d: TastAccessor.DeclId) =
+            match TastAccessor.declKind d with
+            | DeclShape.Let ->
+                let lv = TastAccessor.declLet d
+
+                if not (lv.IsInline && hasTraitCall lv.Value) then
+                    result.Add d
+            | DeclShape.Expression -> result.Add d
             // Type declarations are emitted as metadata, not through the expr stream.
-            | TDeclG.Type _ -> ()
+            | DeclShape.Type -> ()
 
         for d in decls do
-            match d with
+            match TastAccessor.declKind d with
             // A top-level statement decl may be a folded sequence — split it first,
             // so a trailing `let` reaches the collector as a standalone decl.
-            | TDeclG.Expression(e, _) ->
-                for fd in flattenTopLevel e do
+            | DeclShape.Expression ->
+                for fd in flattenTopLevel (TastAccessor.declExpression d) do
                     lowerOne fd
             | _ -> lowerOne d
 

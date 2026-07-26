@@ -31,32 +31,57 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 /// Every expression reachable from `e` (itself included) — so a test can assert what an
 /// operator lowered TO structurally, rather than string-matching a `%A` render.
-let private subExprs (e: Frozen.TExpr) : Frozen.TExpr list =
-    let acc = ResizeArray<Frozen.TExpr>()
+let private subExprs (e: TastAccessor.ExprId) : TastAccessor.ExprId list =
+    let acc = ResizeArray<TastAccessor.ExprId>()
 
-    let rec go (x: Frozen.TExpr) =
+    let rec go (x: TastAccessor.ExprId) =
         acc.Add x
-        TastLower.iterChildren go x
+        TastAccessor.iterChildren go x
 
     go e
     List.ofSeq acc
 
-let private frozenExprs (decls: EqArray<Frozen.TDecl>) : Frozen.TExpr list =
+let private frozenExprs (decls: TastAccessor.DeclId list) : TastAccessor.ExprId list =
     [
-        for d in EqArray.toList decls do
+        for d in decls do
             match d with
-            | TDeclG.Let(_, value, _, _) -> yield! subExprs value
-            | TDeclG.Expression(e, _) -> yield! subExprs e
-            | TDeclG.Type _ -> ()
+            | TastAccessor.DLet lv -> yield! subExprs lv.Value
+            | TastAccessor.DExpression(e, _) -> yield! subExprs e
+            | _ -> ()
     ]
 
 /// `e` contains the named inline-IL opcode anywhere below it.
-let private hasIlIntrinsic (op: string) (e: Frozen.TExpr) : bool =
+let private hasIlIntrinsic (op: string) (e: TastAccessor.ExprId) : bool =
     subExprs e
-    |> List.exists (
-        function
-        | TExprG.ILIntrinsic(o, _, _, _, _) -> o = op
+    |> List.exists (fun x ->
+        match TastAccessor.exprKind x with
+        | ExprShape.ILIntrinsic -> TastAccessor.exprILIntrinsicOpCode x = op
         | _ -> false
+    )
+
+/// The SYMBOL a node names, rendered — `ValueNone` for a node that names none. Lets a
+/// test say "this body reaches `EqualityComparer<_>.Equals`" without rendering the tree.
+let private symbolText (e: TastAccessor.ExprId) : string voption =
+    match TastAccessor.exprKind e with
+    | ExprShape.StaticMethodCall -> ValueSome(sprintf "%A" (TastAccessor.exprStaticMethodCallKey e))
+    | ExprShape.StaticPropertyGet -> ValueSome(sprintf "%A" (TastAccessor.exprStaticPropertyGetKey e))
+    | ExprShape.MethodCall -> ValueSome(sprintf "%A" (TastAccessor.exprMethodCall e).Key)
+    | ExprShape.PropertyGet -> ValueSome(sprintf "%A" (TastAccessor.exprPropertyGet e).Key)
+    | ExprShape.External -> ValueSome(sprintf "%A" (TastAccessor.exprExternal e))
+    | ExprShape.ExternalMember ->
+        let em = TastAccessor.exprExternalMember e
+        ValueSome(sprintf "%A %s" em.Key em.MemberName)
+    | ExprShape.New -> ValueSome(TastAccessor.exprNewClassName e)
+    | _ -> ValueNone
+
+/// Does any node below `e` (itself included) name a symbol whose rendering mentions
+/// `needle`?
+let private mentionsSymbol (needle: string) (e: TastAccessor.ExprId) : bool =
+    subExprs e
+    |> List.exists (fun x ->
+        match symbolText x with
+        | ValueSome t -> t.Contains needle
+        | ValueNone -> false
     )
 
 /// `Vesper.Core` alone — `<` lives in `Vesper.Comparison`, which this stack does NOT
@@ -100,17 +125,20 @@ let tests =
                 // selects and the body's base — `EqualityComparer<^T>.Default.Equals(a, b)`
                 // — is what survives. A `ceq` ILIntrinsic here would be the reference
                 // comparison the ground guard used to fall back to.
-                match Emit.lower (Freeze.run ctx tast).Decls with
-                | [ TDeclG.Let(TPatG.NamedSimple _, TExprG.Lambda(_, TExprG.Lambda(_, body, _, _), _, _), false, _) ] ->
-                    let rendered = sprintf "%A" body
+                match Emit.lower (pooledDecls (Freeze.run ctx tast)) with
+                | [ TastAccessor.DLet lv ] when
+                    (TastAccessor.patBinder lv.Binding).IsSome
+                    && not lv.IsInline
+                    && TastAccessor.exprKind lv.Value = ExprShape.Lambda
+                    && TastAccessor.exprKind (TastAccessor.exprLambda lv.Value).Body = ExprShape.Lambda
+                    ->
+                    let body = (TastAccessor.exprLambda (TastAccessor.exprLambda lv.Value).Body).Body
 
                     Expect.isTrue
-                        (rendered.Contains "EqualityComparer")
-                        (sprintf "expected the `=` base (EqualityComparer.Equals), got %A" body)
+                        (mentionsSymbol "EqualityComparer" body)
+                        "expected the `=` base (EqualityComparer.Equals)"
 
-                    Expect.isFalse
-                        (rendered.Contains "ILIntrinsic(\"ceq\"")
-                        (sprintf "an un-ground `=` must not emit a reference `ceq`, got %A" body)
+                    Expect.isFalse (hasIlIntrinsic "ceq" body) "an un-ground `=` must not emit a reference `ceq`"
                 | other -> failtestf "expected `let f a b = a = b` to lower to a two-lambda let, got %A" other
             }
 
@@ -320,13 +348,13 @@ let tests =
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                let exprs = frozenExprs (Freeze.run ctx tast).Decls
+                let exprs = frozenExprs (pooledDecls (Freeze.run ctx tast))
 
                 Expect.isFalse
                     (exprs
-                     |> List.exists (
-                         function
-                         | TExprG.External("op_Addition", _, _, _) -> true
+                     |> List.exists (fun x ->
+                         match x with
+                         | TastAccessor.EExternal ext -> ext.CompiledName = "op_Addition"
                          | _ -> false
                      ))
                     "no `op_Addition` External survives the pre-freeze eta + splice"
@@ -337,9 +365,10 @@ let tests =
                 // the `add` is below the inner lambda, not directly its body.)
                 let addInLambda =
                     exprs
-                    |> List.exists (
-                        function
-                        | TExprG.Lambda(_, (TExprG.Lambda _ as inner), _, _) -> hasIlIntrinsic "add" inner
+                    |> List.exists (fun x ->
+                        match x with
+                        | TastAccessor.ELambda outer when TastAccessor.exprKind outer.Body = ExprShape.Lambda ->
+                            hasIlIntrinsic "add" outer.Body
                         | _ -> false
                     )
 

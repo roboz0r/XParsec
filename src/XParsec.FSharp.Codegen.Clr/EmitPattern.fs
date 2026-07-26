@@ -83,8 +83,8 @@ module EmitPattern =
         (b: IlBuilder)
         (srcSlot: int)
         (ty: FrozenType)
-        (items: Frozen.TPat[])
-        (recur: int -> Frozen.TPat -> unit)
+        (items: TastAccessor.PatId[])
+        (recur: int -> TastAccessor.PatId -> unit)
         : unit =
         let refs = env.Provider.ValueTupleRefs(tupleElemTys ty)
 
@@ -144,10 +144,16 @@ module EmitPattern =
     /// always match (the latter aliases its binding to `scrutSlot`, so
     /// `emitVarLoad` resolves it to the same local — no copy). Union / tuple /
     /// record patterns land in later rung-2 slices.
-    let rec buildMatchTest (env: EmitEnv) (b: IlBuilder) (scrutSlot: int) (nextLabel: int) (pat: Frozen.TPat) : unit =
+    let rec buildMatchTest
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (scrutSlot: int)
+        (nextLabel: int)
+        (pat: TastAccessor.PatId)
+        : unit =
         // `ldfld` a field of the scrutinee into a fresh local, then test its
         // sub-pattern against that local (a named sub-pattern just aliases it).
-        let extractField (fieldRef: EntityHandle) (subPat: Frozen.TPat) =
+        let extractField (fieldRef: EntityHandle) (subPat: TastAccessor.PatId) =
             let fldSlot = b.Local(typeOfPat subPat)
             b.Add(ILInstr.Ldloc scrutSlot)
             b.Add(ILInstr.Ldfld fieldRef)
@@ -394,7 +400,7 @@ module EmitPattern =
     /// `NamedSimple` aliases its binding directly to `srcSlot` (no copy, exactly as
     /// the match arm does); a `Tuple` `ldfld`s each `ValueTuple`n` `Item` field into
     /// a fresh local and recurses; `Wildcard` / `Const` bind nothing.
-    let rec bindPattern (env: EmitEnv) (b: IlBuilder) (srcSlot: int) (pat: Frozen.TPat) : unit =
+    let rec bindPattern (env: EmitEnv) (b: IlBuilder) (srcSlot: int) (pat: TastAccessor.PatId) : unit =
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
         | PatShape.Const -> () // irrefutable in a binding position — no compare, no bind

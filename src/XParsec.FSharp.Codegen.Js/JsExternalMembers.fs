@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// erased-grouping bare export, the mangled receiver-first import).
 ///
 /// As in `JsFlatFns` (the precedent), each function that must lower a
-/// sub-expression takes a `build: Frozen.TExpr -> JsExpr` callback (the
+/// sub-expression takes a `build: TastAccessor.ExprId -> JsExpr` callback (the
 /// `EmitJs.buildExpr ctx` closure) — keeping this cluster out of the `buildExpr`
 /// mutual-recursion group is what lets it live in its own file and keeps `EmitJs`
 /// legible: `EmitJs`'s `ExternalMember` / `App` arms shrink to a dispatch over
@@ -33,8 +33,8 @@ module JsExternalMembers =
     /// each site adds its own `Storage` guard (a value-member read vs. a `Method` call).
     [<return: Struct>]
     let (|InstanceExternalMember|_|)
-        (e: Frozen.TExpr)
-        : struct (Frozen.TExpr * TastAccessor.ExternalMemberView) voption =
+        (e: TastAccessor.ExprId)
+        : struct (TastAccessor.ExprId * TastAccessor.ExternalMemberView) voption =
         match TastAccessor.exprKind e with
         | ExprShape.ExternalMember ->
             let em = TastAccessor.exprExternalMember e
@@ -171,7 +171,11 @@ module JsExternalMembers =
     /// convention) into its JS positional arguments: dropped for a 0-param (`unit`)
     /// member (`recv.get()`, not `recv.get(undefined)`), the lone value for 1, or the
     /// literal tuple's elements for ≥2. Mirrors the CLR `ExternalMember` arg push.
-    let attachedMemberArgs (build: Frozen.TExpr -> JsExpr) (argCount: int) (argExpr: Frozen.TExpr) : JsExpr list =
+    let attachedMemberArgs
+        (build: TastAccessor.ExprId -> JsExpr)
+        (argCount: int)
+        (argExpr: TastAccessor.ExprId)
+        : JsExpr list =
         if argCount = 0 then
             []
         elif argCount = 1 then
@@ -202,9 +206,9 @@ module JsExternalMembers =
     /// the `App` arm falls through to the flat-call / curried dispatch.
     let tryAttachedCall
         (provider: IExternalSymbolProvider)
-        (build: Frozen.TExpr -> JsExpr)
-        (head: Frozen.TExpr)
-        (spine: (Frozen.TExpr * FrozenType * SyntaxToken) list)
+        (build: TastAccessor.ExprId -> JsExpr)
+        (head: TastAccessor.ExprId)
+        (spine: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
         (loc: JsLoc voption)
         : JsExpr voption =
         match head with
@@ -237,8 +241,8 @@ module JsExternalMembers =
     /// param, forwarded per the member's `argSig` arity (`attachedForwardArgs`).
     /// `off` (the member node's token offset) disambiguates the synthetic arg name.
     let etaWrapAttachedMethod
-        (build: Frozen.TExpr -> JsExpr)
-        (recv: Frozen.TExpr)
+        (build: TastAccessor.ExprId -> JsExpr)
+        (recv: TastAccessor.ExprId)
         (key: SymbolKey)
         (memberName: string)
         (off: int)
@@ -248,7 +252,7 @@ module JsExternalMembers =
             match TastAccessor.exprKind recv with
             | ExprShape.Var -> build recv, ValueNone
             | _ ->
-                let tmp = "_recv" + string (TastWalk.exprTok recv).StartIndex
+                let tmp = "_recv" + string (TastAccessor.exprTok recv).StartIndex
                 JsExpr.Identifier(tmp, ValueNone), ValueSome(tmp, build recv)
 
         let argName = "_a" + string off
@@ -314,9 +318,9 @@ module JsExternalMembers =
     let mangledMemberAccess
         (provider: IExternalSymbolProvider)
         (imports: JsImports)
-        (build: Frozen.TExpr -> JsExpr)
+        (build: TastAccessor.ExprId -> JsExpr)
         (declKey: TypeKey)
-        (receiver: Frozen.TExpr voption)
+        (receiver: TastAccessor.ExprId voption)
         (memberName: string)
         (isProperty: bool)
         (loc: JsLoc voption)

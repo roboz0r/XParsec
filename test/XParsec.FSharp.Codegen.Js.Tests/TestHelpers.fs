@@ -311,9 +311,11 @@ let private jsWalkCtx
     (runtime: Map<string, JsRuntimeModule>)
     (exportTopLevel: bool)
     (input: string)
+    (frozen: Frozen.TastFile)
     : EmitJsContext.WalkCtx =
     EmitJsContext.WalkCtx.create
         (ValueSome(EmitJsContext.LineIndex.build input))
+        (TastPoolBuilder.openOver (TastPools.toPools frozen))
         (ValueSome input)
         provider
         (JsImports.create runtime)
@@ -330,8 +332,8 @@ let emitWith
     (input: string)
     : string =
     let frozen = frozenImplJs provider input
-    let ctx = jsWalkCtx provider runtime exportTopLevel input
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+    let ctx = jsWalkCtx provider runtime exportTopLevel input frozen
+    (JsPrint.print (EmitJs.buildProgram ctx)).Source
 
 /// The Node round-trip assertion, documented ONCE: write `files` to a tmp dir, run the
 /// first under Node, and require the trimmed stdout to EXACTLY equal `expected`. When

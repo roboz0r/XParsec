@@ -2,376 +2,118 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Parser
 
-// The frozen-TAST accessor seam (frozen-soa-cache-plan.md, Phase B, step B.1).
+// The frozen-TAST access seam: ONE TAST-shaped API — `exprKind`, `exprChildren`,
+// `patBinder`, … — over the id-indexable pools. Every consumer (both codegen backends,
+// the shared lowering) speaks this and nothing else, so the tree representation is
+// visible in exactly one file.
 //
-// A single TAST-shaped access API — `exprKind`, `exprChildren`, `patBinder`, … —
-// that both the current `Frozen.TastFile` DU and the later id-indexable pools can
-// back. Consumers (codegen, `FrozenSignature`) migrate onto it while it is a thin
-// projection over the DU (steps B.2…B.k); the final step (B.k+5) re-points the
-// bodies at the pools, so the consumers never move again.
+// A node is a `Handle` — a dense pool id plus the pool that resolves it — and every
+// body here is a column read. That is the whole implementation: a shape tag is one
+// array index, a child list is one array index, and a payload view is one array index
+// plus a match on the residual scalars the columnar split left over. Nothing walks a
+// tree to answer a question about a node, and no node "contains" its children, so a
+// consumer can hold one without pinning a subtree.
 //
-// This first cut is DU-backed and *unused*: it exists so the byte-layout of the
-// pools can be designed against the real access pattern, and so the migration has
-// a stable seam to move onto. The gate is only that it compiles.
+// The pool being on the handle rather than a parameter is what keeps the shapes a
+// consumer writes unchanged — `lv.Value`, `arm.Guard`, `exprChildren e` — and lets
+// pools that are not a file's tree coexist with it (an `.fsi`-minted `ValRepr`'s
+// patterns index into their own; see `TastLower.externalValRepr`).
 //
-// Deliberately NOT here yet:
-//   - `binderName`: the plan lists it, but the sole existing implementation lives
-//     in the JS backend (`JsEmitHelpers.binderName`) and reads a `NodeKey`'s naming
-//     bits directly. Re-homing it here (so it reads a pool naming integer instead)
-//     is B.k+4 — doing it now would only duplicate that body. `patBinder` already
-//     surfaces the binder identity naming is computed from.
-//   - Decl-level field accessors: `FrozenSignature` (the decl consumer) migrates
-//     late in the B.2…B.k sequence; `declShape` is provided as the entry tag, its
-//     payload accessors accrete with that migration.
+// The `…View` records are the payload seam: a node's fields MINUS the child edges and
+// the `ty`/`tok`, named by role, so a consumer never positions into `exprChildren` by
+// hand. Each is a struct of handles and scalars — pool-agnostic, since the handles
+// carry their own pool. The `failwith` guards are the shape contract: read a payload
+// only after `exprKind`/`patKind`/`declKind` (or through the matching recognizer).
 
-/// The post-freeze shape tag of a `Frozen.TExpr` node — one case per `TExprG` case.
-/// This is the accessor's answer to `exprKind`. It is NOT `NodeKind`: `NodeKind` is
-/// the pre-freeze CST content-address role, which freeze dissolves (plan § *Freeze
-/// regime*). The case names mirror `TExprG` (documented there); a new `TExprG` case
-/// makes the exhaustive matches in `TastAccessor` fail to compile, so this stays in
-/// lockstep.
-[<RequireQualifiedAccess>]
-type ExprShape =
-    | Const
-    | Var
-    | External
-    | Lambda
-    | App
-    | Let
-    | Use
-    | IfThenElse
-    | Tuple
-    | Sequential
-    | While
-    | ForTo
-    | ForIn
-    | Match
-    | TryWith
-    | TryFinally
-    | Assignment
-    | Null
-    | Range
-    | RecordCons
-    | RecordClone
-    | FieldGet
-    | FieldSet
-    | UnionCons
-    | New
-    | MethodCall
-    | PropertyGet
-    | StaticMethodCall
-    | StaticPropertyGet
-    | StaticFieldGet
-    | StaticFieldSet
-    | ExternalMember
-    | Format
-    | ILIntrinsic
-    | StaticOptimization
-    | Upcast
-    | Downcast
-    | TypeTest
-    | TraitCall
-
-/// The post-freeze shape tag of a `Frozen.TPat` node — one case per `TPatG` case.
-/// The accessor's answer to `patKind` (mirrors `ExprShape`'s relationship to
-/// `TExprG`).
-[<RequireQualifiedAccess>]
-type PatShape =
-    | NamedSimple
-    | Wildcard
-    | Tuple
-    | Const
-    | Record
-    | Union
-    | TypeTestAs
-    | Null
-    | EnumCase
-    | Or
-
-/// The post-freeze shape tag of a `Frozen.TDecl` node — one case per `TDeclG` case.
-[<RequireQualifiedAccess>]
-type DeclShape =
-    | Let
-    | Expression
-    | Type
-
-/// The TAST-shaped accessor. Every function is a pure projection of the frozen
-/// tree; under DU backing it matches the DU, under pool backing (B.k+5) it will
-/// read a column. `open` is disallowed so `exprTy`/`patTy` don't collide with the
-/// analysis-time `TastWalk` projections they delegate to.
+/// The TAST-shaped accessor. `open` is disallowed so `exprTy`/`patTy` don't collide
+/// with the analysis-time `TastWalk` projections of the same name.
 [<RequireQualifiedAccess>]
 module TastAccessor =
 
-    // The node handles. Transparent aliases over the DU today; when the backing
-    // flips to pools these become dense-id handles (a struct over `int`) and the
-    // accessor bodies below are what change — consumers, typed against these, do
-    // not. That is the whole point of routing every access through this seam.
-    type ExprId = Frozen.TExpr
-    type PatId = Frozen.TPat
-    type DeclId = Frozen.TDecl
+    // The node handles: a dense id in a pool, carried with the pool.
+    type ExprId = Handle<ExprPoolId>
+    type PatId = Handle<PatPoolId>
+    type DeclId = Handle<DeclPoolId>
+
+    /// The `type`-declaration cluster with its member/preamble/ctor BODY slots holding
+    /// handles — the shape `TTypeDeclG`'s `'body` parameter exists for. Same spine as
+    /// `Frozen.TTypeDecl`, ids in the body slots.
+    type TypeDecl = TTypeDeclG<FrozenType, SyntaxToken, ExprId>
+    type TypeKind = TTypeKindG<FrozenType, SyntaxToken, ExprId>
+    type Class = TClassG<FrozenType, SyntaxToken, ExprId>
+    type TypeMember = TTypeMemberG<FrozenType, ExprId>
+    type ClassLet = TClassLetG<FrozenType, ExprId>
+    type PreambleEntry = TPreambleEntryG<FrozenType, ExprId>
+    type CtorLet = TCtorLetG<FrozenType, ExprId>
+    type CtorFieldInit = TCtorFieldInitG<ExprId>
+    type SecondaryCtor = TSecondaryCtorG<FrozenType, ExprId>
+    type BaseCtorCall = TBaseCtorCallG<FrozenType, ExprId>
+
+    /// The compiled-form cluster with its tuple-group / destructuring patterns held as
+    /// handles — the `'pat` instantiation every consumer reads, whether the pats came
+    /// from a file's own pool (`peelValRepr` off the frozen lambda spine) or from the
+    /// standalone pool an `.fsi` contract's are minted into.
+    type StaticParam = StaticParamG<FrozenType, PatId>
+    type ArgGroup = ArgGroupG<FrozenType, PatId>
+    type ValRepr = ValReprG<FrozenType, PatId>
+    type CompiledReturn = CompiledReturnG<FrozenType>
+    type CompiledForm = CompiledFormG<FrozenType, PatId>
+
+    /// A sibling id in the same pool. Every child edge resolves through this, so the
+    /// pool propagates down a walk without any consumer naming it.
+    let inline private at (h: Handle<'a>) (id: 'b) : Handle<'b> = { Pool = h.Pool; Id = id }
+
+    // ── expressions ─────────────────────────────────────────────────────────
 
     /// The shape tag of an expression node.
-    let exprKind (e: ExprId) : ExprShape =
-        match e with
-        | TExprG.Const _ -> ExprShape.Const
-        | TExprG.Var _ -> ExprShape.Var
-        | TExprG.External _ -> ExprShape.External
-        | TExprG.Lambda _ -> ExprShape.Lambda
-        | TExprG.App _ -> ExprShape.App
-        | TExprG.Let _ -> ExprShape.Let
-        | TExprG.Use _ -> ExprShape.Use
-        | TExprG.IfThenElse _ -> ExprShape.IfThenElse
-        | TExprG.Tuple _ -> ExprShape.Tuple
-        | TExprG.Sequential _ -> ExprShape.Sequential
-        | TExprG.While _ -> ExprShape.While
-        | TExprG.ForTo _ -> ExprShape.ForTo
-        | TExprG.ForIn _ -> ExprShape.ForIn
-        | TExprG.Match _ -> ExprShape.Match
-        | TExprG.TryWith _ -> ExprShape.TryWith
-        | TExprG.TryFinally _ -> ExprShape.TryFinally
-        | TExprG.Assignment _ -> ExprShape.Assignment
-        | TExprG.Null _ -> ExprShape.Null
-        | TExprG.Range _ -> ExprShape.Range
-        | TExprG.RecordCons _ -> ExprShape.RecordCons
-        | TExprG.RecordClone _ -> ExprShape.RecordClone
-        | TExprG.FieldGet _ -> ExprShape.FieldGet
-        | TExprG.FieldSet _ -> ExprShape.FieldSet
-        | TExprG.UnionCons _ -> ExprShape.UnionCons
-        | TExprG.New _ -> ExprShape.New
-        | TExprG.MethodCall _ -> ExprShape.MethodCall
-        | TExprG.PropertyGet _ -> ExprShape.PropertyGet
-        | TExprG.StaticMethodCall _ -> ExprShape.StaticMethodCall
-        | TExprG.StaticPropertyGet _ -> ExprShape.StaticPropertyGet
-        | TExprG.StaticFieldGet _ -> ExprShape.StaticFieldGet
-        | TExprG.StaticFieldSet _ -> ExprShape.StaticFieldSet
-        | TExprG.ExternalMember _ -> ExprShape.ExternalMember
-        | TExprG.Format _ -> ExprShape.Format
-        | TExprG.ILIntrinsic _ -> ExprShape.ILIntrinsic
-        | TExprG.StaticOptimization _ -> ExprShape.StaticOptimization
-        | TExprG.Upcast _ -> ExprShape.Upcast
-        | TExprG.Downcast _ -> ExprShape.Downcast
-        | TExprG.TypeTest _ -> ExprShape.TypeTest
-        | TExprG.TraitCall _ -> ExprShape.TraitCall
+    let exprKind (e: ExprId) : ExprShape = TastPoolBuilder.exprShape e.Pool e.Id
 
-    /// The node's result type. Delegates to the (generic) analysis-time enumeration.
-    let exprTy (e: ExprId) : FrozenType = TastWalk.exprTy e
+    /// The node's result type.
+    let exprTy (e: ExprId) : FrozenType = TastPoolBuilder.exprTy e.Pool e.Id
 
     /// The node's source-anchor token.
-    let exprTok (e: ExprId) : SyntaxToken = TastWalk.exprTok e
+    let exprTok (e: ExprId) : SyntaxToken = TastPoolBuilder.exprTok e.Pool e.Id
 
-    /// The immediate child *expressions*, in evaluation order — the recursion spine
-    /// a generic walk (free-vars, closure discovery) follows. Sub-patterns are NOT
-    /// children (see `patChildren`); composite carriers with no node identity of
-    /// their own (match arms, format segments, static-opt clauses) are descended
-    /// into so every reachable sub-expression appears exactly once.
+    /// The immediate child *expressions*, in evaluation order — the recursion spine a
+    /// generic walk (free-vars, closure discovery) follows. Sub-patterns are NOT
+    /// children (see `exprPatChildren`); composite carriers with no node identity of
+    /// their own (match arms, format segments, static-opt clauses) were flattened in,
+    /// so every reachable sub-expression appears exactly once.
     let exprChildren (e: ExprId) : ExprId[] =
-        let acc = ResizeArray<ExprId>()
-
-        match e with
-        | TExprG.Const _
-        | TExprG.Var _
-        | TExprG.External _
-        | TExprG.Null _
-        | TExprG.StaticPropertyGet _
-        | TExprG.StaticFieldGet _ -> ()
-        | TExprG.Lambda(body = body) -> acc.Add body
-        | TExprG.App(fn = fn; arg = arg) ->
-            acc.Add fn
-            acc.Add arg
-        | TExprG.Let(value = value; body = body) ->
-            acc.Add value
-            acc.Add body
-        | TExprG.Use(value = value; body = body) ->
-            acc.Add value
-            acc.Add body
-        | TExprG.IfThenElse(cond = cond; thenExpr = thenExpr; elseExpr = elseExpr) ->
-            acc.Add cond
-            acc.Add thenExpr
-            acc.Add elseExpr
-        | TExprG.Tuple(items = items)
-        | TExprG.Sequential(items = items) ->
-            for x in items do
-                acc.Add x
-        | TExprG.While(cond = cond; body = body) ->
-            acc.Add cond
-            acc.Add body
-        | TExprG.ForTo(startExpr = startExpr; endExpr = endExpr; body = body) ->
-            acc.Add startExpr
-            acc.Add endExpr
-            acc.Add body
-        | TExprG.ForIn(source = source; body = body) ->
-            acc.Add source
-            acc.Add body
-        | TExprG.Match(scrutinee = scrutinee; arms = arms) ->
-            acc.Add scrutinee
-
-            for arm in arms do
-                match arm.Guard with
-                | Some g -> acc.Add g
-                | None -> ()
-
-                acc.Add arm.Body
-        | TExprG.TryWith(body = body; arms = arms) ->
-            acc.Add body
-
-            for arm in arms do
-                match arm.Guard with
-                | Some g -> acc.Add g
-                | None -> ()
-
-                acc.Add arm.Body
-        | TExprG.TryFinally(body = body; cleanup = cleanup) ->
-            acc.Add body
-            acc.Add cleanup
-        | TExprG.Assignment(lhs = lhs; rhs = rhs) ->
-            acc.Add lhs
-            acc.Add rhs
-        | TExprG.Range(startExpr = startExpr; step = step; stopExpr = stopExpr) ->
-            acc.Add startExpr
-
-            match step with
-            | Some s -> acc.Add s
-            | None -> ()
-
-            acc.Add stopExpr
-        | TExprG.RecordCons(fields = fields) ->
-            for (_, v) in fields do
-                acc.Add v
-        | TExprG.RecordClone(source = source; overrides = overrides) ->
-            acc.Add source
-
-            for (_, v) in overrides do
-                acc.Add v
-        | TExprG.FieldGet(receiver = receiver) -> acc.Add receiver
-        | TExprG.FieldSet(receiver = receiver; value = value) ->
-            acc.Add receiver
-            acc.Add value
-        | TExprG.UnionCons(args = args) ->
-            for x in args do
-                acc.Add x
-        | TExprG.New(args = args) ->
-            for x in args do
-                acc.Add x
-        | TExprG.MethodCall(receiver = receiver; args = args) ->
-            acc.Add receiver
-
-            for x in args do
-                acc.Add x
-        | TExprG.PropertyGet(receiver = receiver) -> acc.Add receiver
-        | TExprG.StaticMethodCall(args = args) ->
-            for x in args do
-                acc.Add x
-        | TExprG.StaticFieldSet(value = value) -> acc.Add value
-        | TExprG.ExternalMember(receiver = receiver) ->
-            match receiver with
-            | ValueSome r -> acc.Add r
-            | ValueNone -> ()
-        | TExprG.Format(sink = sink; segments = segments) ->
-            match sink with
-            | FormatSinkG.ToWriter(writer = writer) -> acc.Add writer
-            | FormatSinkG.ToBuilder builder -> acc.Add builder
-            | FormatSinkG.ToStdOut _
-            | FormatSinkG.ToStdErr _
-            | FormatSinkG.ToString -> ()
-
-            for seg in segments do
-                match seg with
-                | FormatSegG.Lit _ -> ()
-                | FormatSegG.Hole(_, value) -> acc.Add value
-                | FormatSegG.DynHole hole ->
-                    match hole.Width with
-                    | ValueSome w -> acc.Add w
-                    | ValueNone -> ()
-
-                    match hole.Precision with
-                    | ValueSome p -> acc.Add p
-                    | ValueNone -> ()
-
-                    acc.Add hole.Value
-                | FormatSegG.CallbackHole(residue = residue) -> acc.Add residue
-        | TExprG.ILIntrinsic(args = args) ->
-            for x in args do
-                acc.Add x
-        | TExprG.StaticOptimization(clauses = clauses; defaultExpr = defaultExpr) ->
-            for clause in clauses do
-                acc.Add clause.Body
-
-            acc.Add defaultExpr
-        | TExprG.Upcast(source = source) -> acc.Add source
-        | TExprG.Downcast(source = source) -> acc.Add source
-        | TExprG.TypeTest(source = source) -> acc.Add source
-        | TExprG.TraitCall(args = args) ->
-            for x in args do
-                acc.Add x
-
-        acc.ToArray()
+        TastPoolBuilder.exprChildren e.Pool e.Id |> Array.map (at e)
 
     /// The immediate child *patterns* an expression owns directly, in source order —
     /// the binders (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
-    /// (`Match`/`TryWith`) that are part of THIS node. They are NOT reachable through
-    /// `exprChildren` (which yields only sub-expressions), so a generic walk that must
-    /// reach every sub-pattern — pool construction, binder discovery — follows this
-    /// alongside `exprChildren`. Only the six binder/arm shapes own patterns; every
-    /// other yields none. The match is exhaustive with no catch-all for the same reason
-    /// `exprChildren` is: a new `TExprG` case that carried a pattern would fail to
-    /// compile here rather than silently escape the walk. `ForTo`'s loop variable is a
-    /// `NodeKey`, not a pattern, so it is not a pat child (see `exprForTo`).
+    /// (`Match`/`TryWith`). They are NOT reachable through `exprChildren`, so a generic
+    /// walk that must reach every sub-pattern follows this alongside it. `ForTo`'s loop
+    /// variable is a `NodeKey`, not a pattern, so it is not a pat child (see `exprForTo`).
     let exprPatChildren (e: ExprId) : PatId[] =
-        let acc = ResizeArray<PatId>()
+        TastPoolBuilder.exprPatChildren e.Pool e.Id |> Array.map (at e)
 
-        match e with
-        | TExprG.Const _
-        | TExprG.Var _
-        | TExprG.External _
-        | TExprG.App _
-        | TExprG.IfThenElse _
-        | TExprG.Tuple _
-        | TExprG.Sequential _
-        | TExprG.While _
-        | TExprG.ForTo _
-        | TExprG.TryFinally _
-        | TExprG.Assignment _
-        | TExprG.Null _
-        | TExprG.Range _
-        | TExprG.RecordCons _
-        | TExprG.RecordClone _
-        | TExprG.FieldGet _
-        | TExprG.FieldSet _
-        | TExprG.UnionCons _
-        | TExprG.New _
-        | TExprG.MethodCall _
-        | TExprG.PropertyGet _
-        | TExprG.StaticMethodCall _
-        | TExprG.StaticPropertyGet _
-        | TExprG.StaticFieldGet _
-        | TExprG.StaticFieldSet _
-        | TExprG.ExternalMember _
-        | TExprG.Format _
-        | TExprG.ILIntrinsic _
-        | TExprG.StaticOptimization _
-        | TExprG.Upcast _
-        | TExprG.Downcast _
-        | TExprG.TypeTest _
-        | TExprG.TraitCall _ -> ()
-        | TExprG.Lambda(param = param) -> acc.Add param
-        | TExprG.Let(binding = binding) -> acc.Add binding
-        | TExprG.Use(binding = binding) -> acc.Add binding
-        | TExprG.ForIn(pat = pat) -> acc.Add pat
-        | TExprG.Match(arms = arms) ->
-            for arm in arms do
-                acc.Add arm.Pat
-        | TExprG.TryWith(arms = arms) ->
-            for arm in arms do
-                acc.Add arm.Pat
-
-        acc.ToArray()
+    let private payload (e: ExprId) : ExprPayload = TastPoolBuilder.exprPayload e.Pool e.Id
 
     /// The constant value carried by a `Const` node. Guard with `exprKind` =
     /// `ExprShape.Const` first; `failwith` on any other shape.
     let exprConstValue (e: ExprId) : TConstValue =
-        match e with
-        | TExprG.Const(value = value) -> value
+        match payload e with
+        | ExprPayload.Const value -> value
         | _ -> failwith "TastAccessor.exprConstValue: not a Const node"
+
+    /// The binder a `Var` node references — the `NodeKey` a preceding binder
+    /// introduced. Guard with `exprKind` = `ExprShape.Var` first; `failwith` on any
+    /// other shape.
+    let exprVarBinding (e: ExprId) : NodeKey =
+        match TastPoolBuilder.exprVarBinder e.Pool e.Id with
+        | ValueSome b -> TastPoolBuilder.binderKey e.Pool b
+        | ValueNone -> failwith "TastAccessor.exprVarBinding: not a Var node"
+
+    /// The naming projections of the binder a `Var` node references — what a backend
+    /// emits its name from, read off the pool's naming column rather than the key's own
+    /// bits. Guard with `exprKind` = `ExprShape.Var` first; `failwith` on any other shape.
+    let exprVarNaming (e: ExprId) : BinderNaming =
+        match TastPoolBuilder.exprVarBinder e.Pool e.Id with
+        | ValueSome b -> TastPoolBuilder.binderNaming e.Pool b
+        | ValueNone -> failwith "TastAccessor.exprVarNaming: not a Var node"
 
     /// The scalar payload of an `ExternalMember` node, minus the `ty`/`tok` that
     /// `exprTy`/`exprTok` already carry. `Receiver` is a payload sub-expression named
@@ -388,31 +130,27 @@ module TastAccessor =
     /// The payload view of an `ExternalMember` node. Guard with `exprKind` =
     /// `ExprShape.ExternalMember` first; `failwith` on any other shape.
     let exprExternalMember (e: ExprId) : ExternalMemberView =
-        match e with
-        | TExprG.ExternalMember(receiver = receiver; key = key; memberName = memberName; storage = storage) ->
+        match payload e with
+        | ExprPayload.ExternalMember p ->
             {
-                Receiver = receiver
-                Key = key
-                MemberName = memberName
-                Storage = storage
+                Receiver =
+                    (if p.HasReceiver then
+                         ValueSome (exprChildren e).[0]
+                     else
+                         ValueNone)
+                Key = p.Key
+                MemberName = p.MemberName
+                Storage = p.Storage
             }
         | _ -> failwith "TastAccessor.exprExternalMember: not an ExternalMember node"
-
-    /// The binder a `Var` node references — the `NodeKey` a preceding binder
-    /// introduced. Guard with `exprKind` = `ExprShape.Var` first; `failwith` on any
-    /// other shape.
-    let exprVarBinding (e: ExprId) : NodeKey =
-        match e with
-        | TExprG.Var(binding = binding) -> binding
-        | _ -> failwith "TastAccessor.exprVarBinding: not a Var node"
 
     /// The IL opcode string of an `ILIntrinsic` node — the `$N`-templated instruction.
     /// Its `args` are the node's `exprChildren` and its `typeOperand` is carried
     /// separately. Guard with `exprKind` = `ExprShape.ILIntrinsic` first; `failwith` on
     /// any other shape.
     let exprILIntrinsicOpCode (e: ExprId) : string =
-        match e with
-        | TExprG.ILIntrinsic(opCode = opCode) -> opCode
+        match payload e with
+        | ExprPayload.ILIntrinsic p -> p.OpCode
         | _ -> failwith "TastAccessor.exprILIntrinsicOpCode: not an ILIntrinsic node"
 
     /// The type operand `<T>` an `ILIntrinsic` node carries — the element type of
@@ -422,8 +160,8 @@ module TastAccessor =
     /// (`exprTy`). Guard with `exprKind` = `ExprShape.ILIntrinsic` first; `failwith` on
     /// any other shape.
     let exprILIntrinsicTypeOperand (e: ExprId) : FrozenType voption =
-        match e with
-        | TExprG.ILIntrinsic(typeOperand = typeOperand) -> typeOperand
+        match payload e with
+        | ExprPayload.ILIntrinsic p -> p.TypeOperand
         | _ -> failwith "TastAccessor.exprILIntrinsicTypeOperand: not an ILIntrinsic node"
 
     /// The scalar payload of a `Lambda` node, minus the `ty`/`tok` that
@@ -435,8 +173,12 @@ module TastAccessor =
     /// The payload view of a `Lambda` node. Guard with `exprKind` = `ExprShape.Lambda`
     /// first; `failwith` on any other shape.
     let exprLambda (e: ExprId) : LambdaView =
-        match e with
-        | TExprG.Lambda(param = param; body = body) -> { Param = param; Body = body }
+        match exprKind e with
+        | ExprShape.Lambda ->
+            {
+                Param = (exprPatChildren e).[0]
+                Body = (exprChildren e).[0]
+            }
         | _ -> failwith "TastAccessor.exprLambda: not a Lambda node"
 
     /// The scalar payload of a `Let` node, minus the `ty`/`tok` that `exprTy`/`exprTok`
@@ -453,12 +195,14 @@ module TastAccessor =
     /// The payload view of a `Let` node. Guard with `exprKind` = `ExprShape.Let` first;
     /// `failwith` on any other shape.
     let exprLet (e: ExprId) : LetView =
-        match e with
-        | TExprG.Let(binding = binding; value = value; body = body) ->
+        match exprKind e with
+        | ExprShape.Let ->
+            let es = exprChildren e
+
             {
-                Binding = binding
-                Value = value
-                Body = body
+                Binding = (exprPatChildren e).[0]
+                Value = es.[0]
+                Body = es.[1]
             }
         | _ -> failwith "TastAccessor.exprLet: not a Let node"
 
@@ -471,8 +215,10 @@ module TastAccessor =
     /// The payload view of an `Assignment` node. Guard with `exprKind` =
     /// `ExprShape.Assignment` first; `failwith` on any other shape.
     let exprAssignment (e: ExprId) : AssignmentView =
-        match e with
-        | TExprG.Assignment(lhs = lhs; rhs = rhs) -> { Lhs = lhs; Rhs = rhs }
+        match exprKind e with
+        | ExprShape.Assignment ->
+            let es = exprChildren e
+            { Lhs = es.[0]; Rhs = es.[1] }
         | _ -> failwith "TastAccessor.exprAssignment: not an Assignment node"
 
     /// The scalar payload of an `IfThenElse` node, minus the `ty`/`tok` that
@@ -489,12 +235,14 @@ module TastAccessor =
     /// The payload view of an `IfThenElse` node. Guard with `exprKind` =
     /// `ExprShape.IfThenElse` first; `failwith` on any other shape.
     let exprIfThenElse (e: ExprId) : IfThenElseView =
-        match e with
-        | TExprG.IfThenElse(cond = cond; thenExpr = thenExpr; elseExpr = elseExpr) ->
+        match exprKind e with
+        | ExprShape.IfThenElse ->
+            let es = exprChildren e
+
             {
-                Cond = cond
-                ThenExpr = thenExpr
-                ElseExpr = elseExpr
+                Cond = es.[0]
+                ThenExpr = es.[1]
+                ElseExpr = es.[2]
             }
         | _ -> failwith "TastAccessor.exprIfThenElse: not an IfThenElse node"
 
@@ -510,11 +258,11 @@ module TastAccessor =
     /// The payload view of an `External` node. Guard with `exprKind` =
     /// `ExprShape.External` first; `failwith` on any other shape.
     let exprExternal (e: ExprId) : ExternalView =
-        match e with
-        | TExprG.External(compiledName = compiledName; key = key) ->
+        match payload e with
+        | ExprPayload.External p ->
             {
-                CompiledName = compiledName
-                Key = key
+                CompiledName = p.CompiledName
+                Key = p.Key
             }
         | _ -> failwith "TastAccessor.exprExternal: not an External node"
 
@@ -527,16 +275,18 @@ module TastAccessor =
     /// The payload view of an `App` node. Guard with `exprKind` = `ExprShape.App` first;
     /// `failwith` on any other shape.
     let exprApp (e: ExprId) : AppView =
-        match e with
-        | TExprG.App(fn = fn; arg = arg) -> { Fn = fn; Arg = arg }
+        match exprKind e with
+        | ExprShape.App ->
+            let es = exprChildren e
+            { Fn = es.[0]; Arg = es.[1] }
         | _ -> failwith "TastAccessor.exprApp: not an App node"
 
     /// The (field-name, value-expression) pairs a `RecordCons` literal assigns, in source
     /// order — the labels `exprChildren` drops. Guard with `exprKind` =
     /// `ExprShape.RecordCons` first; `failwith` on any other shape.
     let exprRecordConsFields (e: ExprId) : (string * ExprId)[] =
-        match e with
-        | TExprG.RecordCons(fields = fields) -> EqArray.toArray fields
+        match payload e with
+        | ExprPayload.RecordCons fieldNames -> Array.map2 (fun n v -> (n, v)) fieldNames (exprChildren e)
         | _ -> failwith "TastAccessor.exprRecordConsFields: not a RecordCons node"
 
     /// The scalar payload of a `RecordClone` node (`{ source with … }`), minus the
@@ -552,11 +302,13 @@ module TastAccessor =
     /// The payload view of a `RecordClone` node. Guard with `exprKind` =
     /// `ExprShape.RecordClone` first; `failwith` on any other shape.
     let exprRecordClone (e: ExprId) : RecordCloneView =
-        match e with
-        | TExprG.RecordClone(source = source; overrides = overrides) ->
+        match payload e with
+        | ExprPayload.RecordClone overrideNames ->
+            let es = exprChildren e
+
             {
-                Source = source
-                Overrides = EqArray.toArray overrides
+                Source = es.[0]
+                Overrides = Array.map2 (fun n v -> (n, v)) overrideNames es.[1..]
             }
         | _ -> failwith "TastAccessor.exprRecordClone: not a RecordClone node"
 
@@ -569,10 +321,10 @@ module TastAccessor =
     /// The payload view of a `FieldGet` node. Guard with `exprKind` =
     /// `ExprShape.FieldGet` first; `failwith` on any other shape.
     let exprFieldGet (e: ExprId) : FieldGetView =
-        match e with
-        | TExprG.FieldGet(receiver = receiver; fieldName = fieldName) ->
+        match payload e with
+        | ExprPayload.FieldGet fieldName ->
             {
-                Receiver = receiver
+                Receiver = (exprChildren e).[0]
                 FieldName = fieldName
             }
         | _ -> failwith "TastAccessor.exprFieldGet: not a FieldGet node"
@@ -591,12 +343,14 @@ module TastAccessor =
     /// The payload view of a `FieldSet` node. Guard with `exprKind` =
     /// `ExprShape.FieldSet` first; `failwith` on any other shape.
     let exprFieldSet (e: ExprId) : FieldSetView =
-        match e with
-        | TExprG.FieldSet(receiver = receiver; fieldName = fieldName; value = value) ->
+        match payload e with
+        | ExprPayload.FieldSet fieldName ->
+            let es = exprChildren e
+
             {
-                Receiver = receiver
+                Receiver = es.[0]
                 FieldName = fieldName
-                Value = value
+                Value = es.[1]
             }
         | _ -> failwith "TastAccessor.exprFieldSet: not a FieldSet node"
 
@@ -604,16 +358,16 @@ module TastAccessor =
     /// `exprChildren` and its `ty` is `exprTy`. Guard with `exprKind` =
     /// `ExprShape.UnionCons` first; `failwith` on any other shape.
     let exprUnionConsCaseName (e: ExprId) : string =
-        match e with
-        | TExprG.UnionCons(caseName = caseName) -> caseName
+        match payload e with
+        | ExprPayload.UnionCons caseName -> caseName
         | _ -> failwith "TastAccessor.exprUnionConsCaseName: not a UnionCons node"
 
     /// The class name a `New` node constructs. Its `args` are the node's `exprChildren`
     /// and its `ty` is `exprTy`. Guard with `exprKind` = `ExprShape.New` first; `failwith`
     /// on any other shape.
     let exprNewClassName (e: ExprId) : string =
-        match e with
-        | TExprG.New(className = className) -> className
+        match payload e with
+        | ExprPayload.New p -> p.ClassName
         | _ -> failwith "TastAccessor.exprNewClassName: not a New node"
 
     /// The recorded overload identity a `New` node's front end chose — the key that
@@ -621,8 +375,8 @@ module TastAccessor =
     /// alone suffices). Guard with `exprKind` = `ExprShape.New` first; `failwith` on
     /// any other shape.
     let exprNewChosenCtor (e: ExprId) : SymbolKey voption =
-        match e with
-        | TExprG.New(key = key) -> key
+        match payload e with
+        | ExprPayload.New p -> p.Key
         | _ -> failwith "TastAccessor.exprNewChosenCtor: not a New node"
 
     /// The scalar payload of a `PropertyGet` node — the receiver, the resolved member
@@ -642,21 +396,21 @@ module TastAccessor =
     /// The payload view of a `PropertyGet` node. Guard with `exprKind` =
     /// `ExprShape.PropertyGet` first; `failwith` on any other shape.
     let exprPropertyGet (e: ExprId) : PropertyGetView =
-        match e with
-        | TExprG.PropertyGet(receiver = receiver; key = key; via = via) ->
+        match payload e with
+        | ExprPayload.PropertyGet p ->
             {
-                Receiver = receiver
-                Key = key
-                Via = via
+                Receiver = (exprChildren e).[0]
+                Key = p.Key
+                Via = p.Via
             }
         | _ -> failwith "TastAccessor.exprPropertyGet: not a PropertyGet node"
 
     /// The scalar payload of a `MethodCall` node — the receiver, the resolved member key,
     /// the dispatch `Via`, and the argument expressions, minus the `ty`/`tok` the node also
-    /// carries. `Args` is ONLY the `args` field materialized — NOT `exprChildren` (which
-    /// merges the receiver in ahead of the args). `Via` distinguishes a grounded self/base
-    /// call from a `constrained.`-dispatched typar-interface one (`CallVia.Interface`) — a
-    /// distinction the CLR backend dispatches on; a target that ignores it does not read it.
+    /// carries. `Args` is ONLY the `args` field — NOT `exprChildren` (which merges the
+    /// receiver in ahead of the args). `Via` distinguishes a grounded self/base call from a
+    /// `constrained.`-dispatched typar-interface one (`CallVia.Interface`) — a distinction
+    /// the CLR backend dispatches on; a target that ignores it does not read it.
     [<Struct>]
     type MethodCallView =
         {
@@ -669,34 +423,39 @@ module TastAccessor =
     /// The payload view of a `MethodCall` node. Guard with `exprKind` =
     /// `ExprShape.MethodCall` first; `failwith` on any other shape.
     let exprMethodCall (e: ExprId) : MethodCallView =
-        match e with
-        | TExprG.MethodCall(receiver = receiver; key = key; via = via; args = args) ->
+        match payload e with
+        | ExprPayload.MethodCall p ->
+            let es = exprChildren e
+
             {
-                Receiver = receiver
-                Key = key
-                Via = via
-                Args = args
+                Receiver = es.[0]
+                Key = p.Key
+                Via = p.Via
+                Args = EqArray.ofArray es.[1..]
             }
         | _ -> failwith "TastAccessor.exprMethodCall: not a MethodCall node"
 
     /// The resolved member key of a `StaticPropertyGet` node. Guard with `exprKind` =
     /// `ExprShape.StaticPropertyGet` first; `failwith` on any other shape.
     let exprStaticPropertyGetKey (e: ExprId) : SymbolKey =
-        match e with
-        | TExprG.StaticPropertyGet(key = key) -> key
+        match payload e with
+        | ExprPayload.StaticPropertyGet key -> key
         | _ -> failwith "TastAccessor.exprStaticPropertyGetKey: not a StaticPropertyGet node"
 
     /// The scalar payload of a `StaticFieldGet` node — the declaring class key and the
-    /// backing-field name, minus the `ty`/`tok` the node also carries. Guard with
-    /// `exprKind` = `ExprShape.StaticFieldGet` first; `failwith` on any other shape.
+    /// backing-field name, minus the `ty`/`tok` the node also carries.
     [<Struct>]
     type StaticFieldGetView = { Key: SymbolKey; FieldName: string }
 
     /// The payload view of a `StaticFieldGet` node. Guard with `exprKind` =
     /// `ExprShape.StaticFieldGet` first; `failwith` on any other shape.
     let exprStaticFieldGet (e: ExprId) : StaticFieldGetView =
-        match e with
-        | TExprG.StaticFieldGet(declKey = declKey; fieldName = fieldName) -> { Key = declKey; FieldName = fieldName }
+        match payload e with
+        | ExprPayload.StaticFieldGet p ->
+            {
+                Key = p.DeclKey
+                FieldName = p.FieldName
+            }
         | _ -> failwith "TastAccessor.exprStaticFieldGet: not a StaticFieldGet node"
 
     /// The scalar payload of a `StaticFieldSet` node — the declaring class key, the
@@ -713,12 +472,12 @@ module TastAccessor =
     /// The payload view of a `StaticFieldSet` node. Guard with `exprKind` =
     /// `ExprShape.StaticFieldSet` first; `failwith` on any other shape.
     let exprStaticFieldSet (e: ExprId) : StaticFieldSetView =
-        match e with
-        | TExprG.StaticFieldSet(declKey = declKey; fieldName = fieldName; value = value) ->
+        match payload e with
+        | ExprPayload.StaticFieldSet p ->
             {
-                Key = declKey
-                FieldName = fieldName
-                Value = value
+                Key = p.DeclKey
+                FieldName = p.FieldName
+                Value = (exprChildren e).[0]
             }
         | _ -> failwith "TastAccessor.exprStaticFieldSet: not a StaticFieldSet node"
 
@@ -726,52 +485,81 @@ module TastAccessor =
     /// `exprChildren`. Guard with `exprKind` = `ExprShape.StaticMethodCall` first;
     /// `failwith` on any other shape.
     let exprStaticMethodCallKey (e: ExprId) : SymbolKey =
-        match e with
-        | TExprG.StaticMethodCall(key = key) -> key
+        match payload e with
+        | ExprPayload.StaticMethodCall key -> key
         | _ -> failwith "TastAccessor.exprStaticMethodCallKey: not a StaticMethodCall node"
 
-    /// The scalar payload of a `Match` node — the scrutinee and the arms, minus the
-    /// `ty`/`tok` the node also carries. `Arms` is the `arms` field materialized (a
-    /// composite carrier, not an `exprChildren` entry — `exprChildren` descends into arm
-    /// bodies/guards, dropping the arm identity a consumer needs).
+    /// One arm of a `Match` / `TryWith` — its scrutinee pattern, its optional guard, and
+    /// its body. The arm is a composite carrier with no node identity of its own: its
+    /// pieces live in the child columns, and this re-nests them for a consumer that
+    /// must scope the arm's pattern binders over its guard and body.
     [<Struct>]
-    type MatchView =
+    type ArmView =
         {
-            Scrutinee: ExprId
-            Arms: Frozen.TMatchArm[]
+            Pat: PatId
+            Guard: ExprId voption
+            Body: ExprId
         }
+
+    /// Re-nest the flat child columns into arms: each arm draws its pat, then its
+    /// optional guard (present per `guardPresent`), then its body — the order the pool
+    /// build enumerated them in. `lead` is how many leading expr children belong to the
+    /// node itself rather than an arm (`Match`'s scrutinee / `TryWith`'s body).
+    let private armsOf (e: ExprId) (guardPresent: bool[]) (lead: int) : ArmView[] =
+        let es = exprChildren e
+        let ps = exprPatChildren e
+        let mutable i = lead
+
+        guardPresent
+        |> Array.mapi (fun a hasGuard ->
+            let guard =
+                if hasGuard then
+                    let g = ValueSome es.[i]
+                    i <- i + 1
+                    g
+                else
+                    ValueNone
+
+            let body = es.[i]
+            i <- i + 1
+
+            {
+                Pat = ps.[a]
+                Guard = guard
+                Body = body
+            }
+        )
+
+    /// The scalar payload of a `Match` node — the scrutinee and the arms, minus the
+    /// `ty`/`tok` the node also carries.
+    [<Struct>]
+    type MatchView = { Scrutinee: ExprId; Arms: ArmView[] }
 
     /// The payload view of a `Match` node. Guard with `exprKind` = `ExprShape.Match` first;
     /// `failwith` on any other shape.
     let exprMatch (e: ExprId) : MatchView =
-        match e with
-        | TExprG.Match(scrutinee = scrutinee; arms = arms) ->
+        match payload e with
+        | ExprPayload.Match guardPresent ->
             {
-                Scrutinee = scrutinee
-                Arms = EqArray.toArray arms
+                Scrutinee = (exprChildren e).[0]
+                Arms = armsOf e guardPresent 1
             }
         | _ -> failwith "TastAccessor.exprMatch: not a Match node"
 
     /// The scalar payload of a `TryWith` node — the guarded body and the handler arms,
     /// minus the `ty`/`tok` the node also carries. `Body` is the sole positional
-    /// `exprChildren` head; `Arms` is the `arms` field materialized (a composite carrier,
-    /// as for `Match` — `exprChildren` descends into arm bodies/guards, dropping the arm
-    /// identity a consumer scoping the handler's pattern binders needs).
+    /// `exprChildren` head.
     [<Struct>]
-    type TryWithView =
-        {
-            Body: ExprId
-            Arms: Frozen.TMatchArm[]
-        }
+    type TryWithView = { Body: ExprId; Arms: ArmView[] }
 
     /// The payload view of a `TryWith` node. Guard with `exprKind` = `ExprShape.TryWith`
     /// first; `failwith` on any other shape.
     let exprTryWith (e: ExprId) : TryWithView =
-        match e with
-        | TExprG.TryWith(body = body; arms = arms) ->
+        match payload e with
+        | ExprPayload.TryWith guardPresent ->
             {
-                Body = body
-                Arms = EqArray.toArray arms
+                Body = (exprChildren e).[0]
+                Arms = armsOf e guardPresent 1
             }
         | _ -> failwith "TastAccessor.exprTryWith: not a TryWith node"
 
@@ -784,8 +572,10 @@ module TastAccessor =
     /// The payload view of a `TryFinally` node. Guard with `exprKind` = `ExprShape.TryFinally`
     /// first; `failwith` on any other shape.
     let exprTryFinally (e: ExprId) : TryFinallyView =
-        match e with
-        | TExprG.TryFinally(body = body; cleanup = cleanup) -> { Body = body; Cleanup = cleanup }
+        match exprKind e with
+        | ExprShape.TryFinally ->
+            let es = exprChildren e
+            { Body = es.[0]; Cleanup = es.[1] }
         | _ -> failwith "TastAccessor.exprTryFinally: not a TryFinally node"
 
     /// The scalar payload of a `While` node (`while Cond do Body`), minus the `ty`/`tok`
@@ -797,13 +587,16 @@ module TastAccessor =
     /// The payload view of a `While` node. Guard with `exprKind` = `ExprShape.While` first;
     /// `failwith` on any other shape.
     let exprWhile (e: ExprId) : WhileView =
-        match e with
-        | TExprG.While(cond = cond; body = body) -> { Cond = cond; Body = body }
+        match exprKind e with
+        | ExprShape.While ->
+            let es = exprChildren e
+            { Cond = es.[0]; Body = es.[1] }
         | _ -> failwith "TastAccessor.exprWhile: not a While node"
 
     /// The scalar payload of a `ForTo` node (`for Var = StartExpr to EndExpr do Body`),
     /// minus the `identTok`/`ty`/`tok` the node also carries. `StartExpr`/`EndExpr`/`Body`
-    /// are the three `exprChildren` entries, named by role; `Var` is the loop binder.
+    /// are the three `exprChildren` entries, named by role; `Var` is the loop binder,
+    /// which has no pattern node behind it.
     [<Struct>]
     type ForToView =
         {
@@ -816,13 +609,15 @@ module TastAccessor =
     /// The payload view of a `ForTo` node. Guard with `exprKind` = `ExprShape.ForTo`
     /// first; `failwith` on any other shape.
     let exprForTo (e: ExprId) : ForToView =
-        match e with
-        | TExprG.ForTo(var = var; startExpr = startExpr; endExpr = endExpr; body = body) ->
+        match payload e with
+        | ExprPayload.ForTo p ->
+            let es = exprChildren e
+
             {
-                Var = var
-                StartExpr = startExpr
-                EndExpr = endExpr
-                Body = body
+                Var = p.Var
+                StartExpr = es.[0]
+                EndExpr = es.[1]
+                Body = es.[2]
             }
         | _ -> failwith "TastAccessor.exprForTo: not a ForTo node"
 
@@ -842,12 +637,14 @@ module TastAccessor =
     /// The payload view of a `ForIn` node. Guard with `exprKind` = `ExprShape.ForIn`
     /// first; `failwith` on any other shape.
     let exprForIn (e: ExprId) : ForInView =
-        match e with
-        | TExprG.ForIn(pat = pat; source = source; body = body; enumerator = enumerator) ->
+        match payload e with
+        | ExprPayload.ForIn enumerator ->
+            let es = exprChildren e
+
             {
-                Pat = pat
-                Source = source
-                Body = body
+                Pat = (exprPatChildren e).[0]
+                Source = es.[0]
+                Body = es.[1]
                 Enumerator = enumerator
             }
         | _ -> failwith "TastAccessor.exprForIn: not a ForIn node"
@@ -868,32 +665,104 @@ module TastAccessor =
     /// The payload view of a `Use` node. Guard with `exprKind` = `ExprShape.Use` first;
     /// `failwith` on any other shape.
     let exprUse (e: ExprId) : UseView =
-        match e with
-        | TExprG.Use(binding = binding; value = value; body = body; dispose = dispose) ->
+        match payload e with
+        | ExprPayload.Use dispose ->
+            let es = exprChildren e
+
             {
-                Binding = binding
-                Value = value
-                Body = body
+                Binding = (exprPatChildren e).[0]
+                Value = es.[0]
+                Body = es.[1]
                 Dispose = dispose
             }
         | _ -> failwith "TastAccessor.exprUse: not a Use node"
 
+    /// The expression-bearing shape of a `Format` node's sink, its sub-expression
+    /// (`ToWriter`'s writer, `ToBuilder`'s builder) resolved to a handle. It heads the
+    /// node's `exprChildren`, ahead of the segment children.
+    [<RequireQualifiedAccess>]
+    type FormatSinkView =
+        | ToStdOut of nlOut: bool
+        | ToStdErr of nlErr: bool
+        | ToWriter of writer: ExprId * nlWriter: bool
+        | ToBuilder of builder: ExprId
+        | ToString
+
+    /// A `%*.*f`-style hole whose width and/or precision are runtime values. Same field
+    /// names as `DynFormatHoleG`, the shape it re-nests: the dimensions ride
+    /// `exprChildren` (width, then precision, then the value) and the presence flags in
+    /// the payload say which are there.
+    [<Struct>]
+    type DynHoleView =
+        {
+            Width: ExprId voption
+            Precision: ExprId voption
+            Spec: Frozen.HoleSpec
+            Value: ExprId
+        }
+
+    /// One `Format` segment with its sub-expressions resolved to handles — the flat
+    /// child columns re-nested into the literal / hole shape a formatter replays.
+    [<RequireQualifiedAccess>]
+    type FormatSegView =
+        | Lit of text: string
+        | Hole of spec: Frozen.HoleSpec * value: ExprId
+        | DynHole of DynHoleView
+        | CallbackHole of cbSpec: Frozen.HoleSpec * residue: ExprId
+
     /// The scalar payload of a `Format` node — the sink and the interleaved
-    /// literal/hole segments, minus the `ty`/`tok` the node also carries. Both are
-    /// composite carriers whose sub-expressions `exprChildren` descends into; a consumer
-    /// dispatching on the sink or replaying the segments reads them here.
+    /// literal/hole segments, minus the `ty`/`tok` the node also carries.
     [<Struct>]
     type FormatView =
         {
-            Sink: Frozen.FormatSink
-            Segments: EqArray<Frozen.FormatSeg>
+            Sink: FormatSinkView
+            Segments: FormatSegView[]
         }
 
     /// The payload view of a `Format` node. Guard with `exprKind` = `ExprShape.Format`
     /// first; `failwith` on any other shape.
     let exprFormat (e: ExprId) : FormatView =
-        match e with
-        | TExprG.Format(sink = sink; segments = segments) -> { Sink = sink; Segments = segments }
+        match payload e with
+        | ExprPayload.Format p ->
+            // The sink's own child is consumed BEFORE the segment children — the order
+            // the pool build enumerated them, which the segment loop then continues.
+            let es = exprChildren e
+            let mutable i = 0
+
+            let next () =
+                let x = es.[i]
+                i <- i + 1
+                x
+
+            let sink =
+                match p.Sink with
+                | FormatSinkShape.ToWriter newline -> FormatSinkView.ToWriter(next (), newline)
+                | FormatSinkShape.ToBuilder -> FormatSinkView.ToBuilder(next ())
+                | FormatSinkShape.ToStdOut newline -> FormatSinkView.ToStdOut newline
+                | FormatSinkShape.ToStdErr newline -> FormatSinkView.ToStdErr newline
+                | FormatSinkShape.ToString -> FormatSinkView.ToString
+
+            let segments =
+                p.Segments
+                |> Array.map (fun seg ->
+                    match seg with
+                    | FormatSegShape.Lit s -> FormatSegView.Lit s
+                    | FormatSegShape.Hole spec -> FormatSegView.Hole(spec, next ())
+                    | FormatSegShape.DynHole(hasWidth, hasPrecision, spec) ->
+                        let width = if hasWidth then ValueSome(next ()) else ValueNone
+                        let precision = if hasPrecision then ValueSome(next ()) else ValueNone
+
+                        FormatSegView.DynHole
+                            {
+                                Width = width
+                                Precision = precision
+                                Spec = spec
+                                Value = next ()
+                            }
+                    | FormatSegShape.CallbackHole spec -> FormatSegView.CallbackHole(spec, next ())
+                )
+
+            { Sink = sink; Segments = segments }
         | _ -> failwith "TastAccessor.exprFormat: not a Format node"
 
     /// The tested-against type `T` of a `TypeTest` node (`e :? T`) — the `isinst`
@@ -901,93 +770,76 @@ module TastAccessor =
     /// tested `source` is the sole `exprChildren` entry. Guard with `exprKind` =
     /// `ExprShape.TypeTest` first; `failwith` on any other shape.
     let exprTypeTestTestTy (e: ExprId) : FrozenType =
-        match e with
-        | TExprG.TypeTest(testTy = testTy) -> testTy
+        match payload e with
+        | ExprPayload.TypeTest testTy -> testTy
         | _ -> failwith "TastAccessor.exprTypeTestTestTy: not a TypeTest node"
 
     /// The fallback (dynamic) default expression of a `StaticOptimization` node — the
-    /// branch F# selects when no type-specialized clause's constraints hold. It is also
-    /// the only branch codegen emits: reaching a backend unresolved means inline
-    /// expansion never pinned an operand type. The clause bodies and this default share
-    /// `exprTy`. Guard with `exprKind` = `ExprShape.StaticOptimization` first; `failwith`
-    /// on any other shape.
+    /// branch F# selects when no type-specialized clause's constraints hold, and the LAST
+    /// of the node's `exprChildren` (the clause bodies precede it). It is also the only
+    /// branch codegen emits: reaching a backend unresolved means inline expansion never
+    /// pinned an operand type. Guard with `exprKind` = `ExprShape.StaticOptimization`
+    /// first; `failwith` on any other shape.
     let exprStaticOptimizationDefault (e: ExprId) : ExprId =
-        match e with
-        | TExprG.StaticOptimization(defaultExpr = defaultExpr) -> defaultExpr
+        match exprKind e with
+        | ExprShape.StaticOptimization ->
+            let es = exprChildren e
+            es.[es.Length - 1]
         | _ -> failwith "TastAccessor.exprStaticOptimizationDefault: not a StaticOptimization node"
 
+    // ── patterns ────────────────────────────────────────────────────────────
+
     /// The shape tag of a pattern node.
-    let patKind (p: PatId) : PatShape =
-        match p with
-        | TPatG.NamedSimple _ -> PatShape.NamedSimple
-        | TPatG.Wildcard _ -> PatShape.Wildcard
-        | TPatG.Tuple _ -> PatShape.Tuple
-        | TPatG.Const _ -> PatShape.Const
-        | TPatG.Record _ -> PatShape.Record
-        | TPatG.Union _ -> PatShape.Union
-        | TPatG.TypeTestAs _ -> PatShape.TypeTestAs
-        | TPatG.Null _ -> PatShape.Null
-        | TPatG.EnumCase _ -> PatShape.EnumCase
-        | TPatG.Or _ -> PatShape.Or
+    let patKind (p: PatId) : PatShape = TastPoolBuilder.patShape p.Pool p.Id
 
     /// The pattern's type.
-    let patTy (p: PatId) : FrozenType = TastWalk.patTy p
+    let patTy (p: PatId) : FrozenType = TastPoolBuilder.patTy p.Pool p.Id
 
     /// The pattern's source-anchor token.
-    let patTok (p: PatId) : SyntaxToken = TastWalk.patTok p
-
-    /// The single binder a simple (`NamedSimple`) pattern introduces — the identity
-    /// a `TExpr.Var` references and that naming is computed from. `ValueNone` for a
-    /// pattern that binds nothing (`Wildcard`, `Const`, …) or binds through nested
-    /// sub-patterns (`Tuple`, `Record`, `Union`, `TypeTestAs`, `Or` — walk
-    /// `patChildren` for those). Delegates to `TastWalk`, which owns the one
-    /// domain-generic definition the pre-freeze side-table producers key on too.
-    let patBinder (p: PatId) : NodeKey voption = TastWalk.patBinder p
+    let patTok (p: PatId) : SyntaxToken = TastPoolBuilder.patTok p.Pool p.Id
 
     /// The immediate child *patterns*, in source order.
     let patChildren (p: PatId) : PatId[] =
-        let acc = ResizeArray<PatId>()
+        TastPoolBuilder.patChildren p.Pool p.Id |> Array.map (at p)
 
-        match p with
-        | TPatG.NamedSimple _
-        | TPatG.Wildcard _
-        | TPatG.Const _
-        | TPatG.Null _
-        | TPatG.EnumCase _ -> ()
-        | TPatG.Tuple(items = items)
-        | TPatG.Or(alts = items) ->
-            for x in items do
-                acc.Add x
-        | TPatG.Record(fields = fields) ->
-            for (_, sub) in fields do
-                acc.Add sub
-        | TPatG.Union(fields = fields) ->
-            for x in fields do
-                acc.Add x
-        | TPatG.TypeTestAs(inner = inner) -> acc.Add inner
+    let private patPayload (p: PatId) : PatPayload = TastPoolBuilder.patPayload p.Pool p.Id
 
-        acc.ToArray()
+    /// The single binder a simple (`NamedSimple`) pattern introduces — the identity a
+    /// `Var` references and that naming is computed from. `ValueNone` for a pattern that
+    /// binds nothing (`Wildcard`, `Const`, …) or binds through nested sub-patterns
+    /// (`Tuple`, `Record`, `Union`, `TypeTestAs`, `Or` — walk `patChildren` for those).
+    let patBinder (p: PatId) : NodeKey voption =
+        match patPayload p with
+        | PatPayload.NamedSimple binding -> ValueSome binding
+        | _ -> ValueNone
+
+    /// The naming projections of the binder a `NamedSimple` pattern introduces, read off
+    /// the pool's naming column — see `exprVarNaming`.
+    let patBinderNaming (p: PatId) : BinderNaming voption =
+        match patPayload p with
+        | PatPayload.NamedSimple binding -> ValueSome(TastPoolBuilder.binderNamingOfKey p.Pool binding)
+        | _ -> ValueNone
 
     /// The constant value carried by a `Const` pattern. Guard with `patKind` =
     /// `PatShape.Const` first; `failwith` on any other shape.
     let patConstValue (p: PatId) : TConstValue =
-        match p with
-        | TPatG.Const(value = value) -> value
+        match patPayload p with
+        | PatPayload.Const value -> value
         | _ -> failwith "TastAccessor.patConstValue: not a Const pattern"
 
     /// The union case name a `Union` pattern discriminates on. Guard with `patKind` =
     /// `PatShape.Union` first; `failwith` on any other shape.
     let patUnionCaseName (p: PatId) : string =
-        match p with
-        | TPatG.Union(caseName = caseName) -> caseName
+        match patPayload p with
+        | PatPayload.Union caseName -> caseName
         | _ -> failwith "TastAccessor.patUnionCaseName: not a Union pattern"
 
     /// The (field-name, sub-pattern) pairs a `Record` pattern binds — the labels
     /// `patChildren` drops. Guard with `patKind` = `PatShape.Record` first; `failwith`
     /// on any other shape.
     let patRecordFields (p: PatId) : (string * PatId)[] =
-        match p with
-        | TPatG.Record(fields = fields) -> EqArray.toArray fields
+        match patPayload p with
+        | PatPayload.Record fieldNames -> Array.map2 (fun n sub -> (n, sub)) fieldNames (patChildren p)
         | _ -> failwith "TastAccessor.patRecordFields: not a Record pattern"
 
     /// The scalar payload of an `EnumCase` pattern — the case's `enumKey`/`caseName`
@@ -999,11 +851,11 @@ module TastAccessor =
     /// The payload view of an `EnumCase` pattern. Guard with `patKind` =
     /// `PatShape.EnumCase` first; `failwith` on any other shape.
     let patEnumCase (p: PatId) : EnumCasePatView =
-        match p with
-        | TPatG.EnumCase(enumKey = enumKey; caseName = caseName) ->
+        match patPayload p with
+        | PatPayload.EnumCase v ->
             {
-                EnumKey = enumKey
-                CaseName = caseName
+                EnumKey = v.EnumKey
+                CaseName = v.CaseName
             }
         | _ -> failwith "TastAccessor.patEnumCase: not an EnumCase pattern"
 
@@ -1012,29 +864,32 @@ module TastAccessor =
     /// type. The bound inner sub-pattern (the `as`-name) is `patChildren.[0]`. Guard
     /// with `patKind` = `PatShape.TypeTestAs` first; `failwith` on any other shape.
     let patTypeTestTestTy (p: PatId) : FrozenType =
-        match p with
-        | TPatG.TypeTestAs(testTy = testTy) -> testTy
+        match patPayload p with
+        | PatPayload.TypeTestAs testTy -> testTy
         | _ -> failwith "TastAccessor.patTypeTestTestTy: not a TypeTestAs pattern"
 
-    /// The shape tag of a declaration node.
-    let declKind (d: DeclId) : DeclShape =
-        match d with
-        | TDeclG.Let _ -> DeclShape.Let
-        | TDeclG.Expression _ -> DeclShape.Expression
-        | TDeclG.Type _ -> DeclShape.Type
+    // ── declarations ────────────────────────────────────────────────────────
 
-    /// The `type`-declaration payload of a `Type` decl (its `Kind`, `Key`, `Name`, …).
-    /// Guard with `declKind` = `DeclShape.Type` first; `failwith` on any other shape.
-    let declType (d: DeclId) : Frozen.TTypeDecl =
-        match d with
-        | TDeclG.Type td -> td
+    /// The shape tag of a declaration node.
+    let declKind (d: DeclId) : DeclShape = TastPoolBuilder.declShape d.Pool d.Id
+
+    let private declPayload (d: DeclId) : DeclPayload = TastPoolBuilder.declPayload d.Pool d.Id
+
+    /// The `type`-declaration payload of a `Type` decl (its `Kind`, `Key`, `Name`, …),
+    /// its member/preamble/ctor bodies resolved to handles. Guard with `declKind` =
+    /// `DeclShape.Type` first; `failwith` on any other shape.
+    let declType (d: DeclId) : TypeDecl =
+        match declPayload d with
+        // The seven body slots are enumerated by `TastConvert` — the same traversal the
+        // pool build and drain run — so nothing here re-derives the declaration shape.
+        | DeclPayload.Type td -> TastConvert.typeDecl id (at d) td
         | _ -> failwith "TastAccessor.declType: not a Type decl"
 
     /// The body expression of an `Expression` decl. Guard with `declKind` =
     /// `DeclShape.Expression` first; `failwith` on any other shape.
     let declExpression (d: DeclId) : ExprId =
-        match d with
-        | TDeclG.Expression(expr = expr) -> expr
+        match declKind d with
+        | DeclShape.Expression -> at d (TastPoolBuilder.declExprChildren d.Pool d.Id).[0]
         | _ -> failwith "TastAccessor.declExpression: not an Expression decl"
 
     /// The declared type an `Expression` decl carries alongside its `expr`
@@ -1042,8 +897,8 @@ module TastAccessor =
     /// when reconstructing the decl. Guard with `declKind` = `DeclShape.Expression`
     /// first; `failwith` on any other shape.
     let declExpressionTy (d: DeclId) : FrozenType =
-        match d with
-        | TDeclG.Expression(ty = ty) -> ty
+        match declPayload d with
+        | DeclPayload.Expression ty -> ty
         | _ -> failwith "TastAccessor.declExpressionTy: not an Expression decl"
 
     /// The payload of a `Let` decl. `Binding` is the bound pattern, `Value` its
@@ -1062,15 +917,216 @@ module TastAccessor =
     /// The payload view of a `Let` decl. Guard with `declKind` = `DeclShape.Let` first;
     /// `failwith` on any other shape.
     let declLet (d: DeclId) : DeclLetView =
-        match d with
-        | TDeclG.Let(binding = binding; value = value; isInline = isInline; ty = ty) ->
+        match declPayload d with
+        | DeclPayload.Let p ->
             {
-                Binding = binding
-                Value = value
-                IsInline = isInline
-                Ty = ty
+                Binding = at d (TastPoolBuilder.declPatChildren d.Pool d.Id).[0]
+                Value = at d (TastPoolBuilder.declExprChildren d.Pool d.Id).[0]
+                IsInline = p.IsInline
+                Ty = p.Ty
             }
         | _ -> failwith "TastAccessor.declLet: not a Let decl"
+
+    /// The file's declarations, in source order — the pool roots as handles.
+    let roots (pool: PoolBuilder) : DeclId[] =
+        TastPoolBuilder.roots pool |> Array.map (fun id -> { Pool = pool; Id = id })
+
+    // ── generic traversal ───────────────────────────────────────────────────
+    //
+    // The single structural recursion every rewrite / discovery pass shares. In
+    // columnar form a child substitution is a ROW COPY with new child ids — one row,
+    // no per-case match on the node's shape — and it returns the ORIGINAL id when no
+    // child moved, so a walk that touches nothing appends nothing and every id a
+    // consumer already cached still names the same node.
+
+    /// Rebuild `e` with `f` applied to each immediate child expression. Its owned
+    /// sub-patterns are untouched (a rewrite that must reach them walks
+    /// `exprPatChildren` itself).
+    let mapChildren (f: ExprId -> ExprId) (e: ExprId) : ExprId =
+        let kids = exprChildren e |> Array.map (fun c -> (f c).Id)
+        at e (TastPoolBuilder.copyExprWith e.Pool e.Id (fun row -> { row with Children = kids }))
+
+    /// `mapChildren` with the result discarded — the one-shot discovery /
+    /// free-variable pre-passes.
+    let iterChildren (f: ExprId -> unit) (e: ExprId) : unit =
+        for c in exprChildren e do
+            f c
+
+    /// True when any immediate child of `e` satisfies `p` — the exists-over-children
+    /// primitive the recursive search predicates build on (mirrors
+    /// `FrozenType.existsChild`). `p` is not invoked on further children once one has
+    /// matched, so a `p` that recurses short-circuits the descent.
+    let existsChild (p: ExprId -> bool) (e: ExprId) : bool = exprChildren e |> Array.exists p
+
+    /// Peel a curried `App` chain into its head and the arguments paired with each
+    /// `App` node's *result* type and token. The inverse of `mintAppSpine`.
+    let rec collectSpine
+        (acc: (ExprId * FrozenType * SyntaxToken) list)
+        (e: ExprId)
+        : ExprId * (ExprId * FrozenType * SyntaxToken) list =
+        match exprKind e with
+        | ExprShape.App ->
+            let app = exprApp e
+            collectSpine ((app.Arg, exprTy e, exprTok e) :: acc) app.Fn
+        | _ -> e, acc
+
+    // ── minting ─────────────────────────────────────────────────────────────
+    //
+    // The append side of the seam: a derived node is a ROW, written straight into the
+    // pool the site is already working in. Only the shapes a lowering actually
+    // SYNTHESISES are here — everything else a rewrite produces is a copy of an
+    // existing row (`mapChildren`, `retype`), which preserves the id when nothing moved.
+    // Each takes the pool from a handle it is already holding, so no site threads a
+    // builder alongside the nodes.
+
+    let private mintExpr (pool: PoolBuilder) (shape: ExprShape) ty tok children patChildren pl : ExprId =
+        {
+            Pool = pool
+            Id =
+                TastPoolBuilder.appendExpr
+                    pool
+                    {
+                        Shape = shape
+                        Ty = ty
+                        Tok = tok
+                        Children = children
+                        PatChildren = patChildren
+                        VarBinder = ValueNone
+                        Payload = pl
+                    }
+        }
+
+    /// A reference to `binding`. Interning is idempotent in the key, so a reference
+    /// minted before its defining pattern exists still lands on that binder's id.
+    let mintVar (pool: PoolBuilder) (binding: NodeKey) (ty: FrozenType) (tok: SyntaxToken) : ExprId =
+        let binder = TastPoolBuilder.internBinder pool binding
+
+        {
+            Pool = pool
+            Id =
+                TastPoolBuilder.appendExpr
+                    pool
+                    {
+                        Shape = ExprShape.Var
+                        Ty = ty
+                        Tok = tok
+                        Children = [||]
+                        PatChildren = [||]
+                        VarBinder = ValueSome binder
+                        Payload = ExprPayload.Var
+                    }
+        }
+
+    /// `fn arg`, typed with the application's result type.
+    let mintApp (fn: ExprId) (arg: ExprId) (ty: FrozenType) (tok: SyntaxToken) : ExprId =
+        mintExpr fn.Pool ExprShape.App ty tok [| fn.Id; arg.Id |] [||] ExprPayload.App
+
+    /// Re-apply a head to a spine of `(arg, result type, token)` levels — the inverse
+    /// of `collectSpine`.
+    let mintAppSpine (head: ExprId) (args: (ExprId * FrozenType * SyntaxToken) list) : ExprId =
+        List.fold (fun acc (arg, resTy, tok) -> mintApp acc arg resTy tok) head args
+
+    /// `fun param -> body`.
+    let mintLambda (param: PatId) (body: ExprId) (ty: FrozenType) (tok: SyntaxToken) : ExprId =
+        mintExpr body.Pool ExprShape.Lambda ty tok [| body.Id |] [| param.Id |] ExprPayload.Lambda
+
+    /// `receiver.Key args` — an instance call on a project-local member.
+    let mintMethodCall
+        (receiver: ExprId)
+        (key: SymbolKey)
+        (via: CallVia<FrozenType>)
+        (args: ExprId[])
+        (ty: FrozenType)
+        (tok: SyntaxToken)
+        : ExprId =
+        mintExpr
+            receiver.Pool
+            ExprShape.MethodCall
+            ty
+            tok
+            (Array.append [| receiver.Id |] (args |> Array.map (fun a -> a.Id)))
+            [||]
+            (ExprPayload.MethodCall {| Key = key; Via = via |})
+
+    let private mintPat (pool: PoolBuilder) (shape: PatShape) ty tok children pl : PatId =
+        {
+            Pool = pool
+            Id =
+                TastPoolBuilder.appendPat
+                    pool
+                    {
+                        Shape = shape
+                        Ty = ty
+                        Tok = tok
+                        Children = children
+                        Payload = pl
+                    }
+        }
+
+    /// A simple binder pattern, introducing `binding`.
+    let mintNamedPat (pool: PoolBuilder) (binding: NodeKey) (ty: FrozenType) (tok: SyntaxToken) : PatId =
+        TastPoolBuilder.internBinder pool binding |> ignore
+        mintPat pool PatShape.NamedSimple ty tok [||] (PatPayload.NamedSimple binding)
+
+    /// An anonymous `_` pattern.
+    let mintWildcardPat (pool: PoolBuilder) (ty: FrozenType) (tok: SyntaxToken) : PatId =
+        mintPat pool PatShape.Wildcard ty tok [||] PatPayload.Wildcard
+
+    /// A tuple pattern over `items`.
+    let mintTuplePat (pool: PoolBuilder) (items: PatId[]) (ty: FrozenType) (tok: SyntaxToken) : PatId =
+        mintPat pool PatShape.Tuple ty tok (items |> Array.map (fun i -> i.Id)) PatPayload.Tuple
+
+    /// A top-level `let binding = value` declaration.
+    let mintLetDecl (binding: PatId) (value: ExprId) (isInline: bool) (ty: FrozenType) : DeclId =
+        {
+            Pool = value.Pool
+            Id =
+                TastPoolBuilder.appendDecl
+                    value.Pool
+                    {
+                        Shape = DeclShape.Let
+                        ExprChildren = [| value.Id |]
+                        PatChildren = [| binding.Id |]
+                        Payload = DeclPayload.Let {| IsInline = isInline; Ty = ty |}
+                    }
+        }
+
+    /// A top-level statement declaration.
+    let mintExpressionDecl (expr: ExprId) (ty: FrozenType) : DeclId =
+        {
+            Pool = expr.Pool
+            Id =
+                TastPoolBuilder.appendDecl
+                    expr.Pool
+                    {
+                        Shape = DeclShape.Expression
+                        ExprChildren = [| expr.Id |]
+                        PatChildren = [||]
+                        Payload = DeclPayload.Expression ty
+                    }
+        }
+
+    /// Re-author `e` with a different result type — a RETYPE, which touches the type
+    /// column and nothing else, and returns `e` itself when the type is unchanged.
+    let retype (e: ExprId) (ty: FrozenType) : ExprId =
+        at e (TastPoolBuilder.copyExprWith e.Pool e.Id (fun row -> { row with Ty = ty }))
+
+    /// Re-author `e` with different immediate children AND a different result type —
+    /// the two-field form of `mapChildren` / `retype`, so a rewrite that changes both
+    /// appends ONE row rather than two.
+    let retypeWithChildren (e: ExprId) (children: ExprId[]) (ty: FrozenType) : ExprId =
+        let kids = children |> Array.map (fun c -> c.Id)
+
+        at e (TastPoolBuilder.copyExprWith e.Pool e.Id (fun row -> { row with Children = kids; Ty = ty }))
+
+    /// Re-author a decl with a different value / body expression — the decl analogue of
+    /// `mapChildren`, returning the decl itself when the expression did not move.
+    let mapDeclExpr (f: ExprId -> ExprId) (d: DeclId) : DeclId =
+        let kids =
+            TastPoolBuilder.declExprChildren d.Pool d.Id
+            |> Array.map (fun c -> (f (at d c)).Id)
+
+        at d (TastPoolBuilder.copyDeclWith d.Pool d.Id (fun row -> { row with ExprChildren = kids }))
 
     // ------------------------------------------------------------------------
     // Recognizers — the accessor in pattern position.
@@ -1088,9 +1144,7 @@ module TastAccessor =
     // A recognizer succeeds on its own shape and declines (`ValueNone`) on every
     // other, so an arm can never fire the wrong projection — no tag needs to be
     // carried alongside to keep it honest. The payload is bound once, in-pattern,
-    // with no re-fetch in a `when` guard and no `match … -> let view = …` prologue,
-    // while every access still routes through this seam so the B.k+5 pool flip moves
-    // only this file.
+    // with no re-fetch in a `when` guard and no `match … -> let view = …` prologue.
     //
     // A recognizer exists for exactly the shapes a consumer matches in a *partial*
     // dispatch (one that ends in a `| _ ->` fall-through). A *total* dispatch over

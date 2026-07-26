@@ -101,11 +101,18 @@ module Codegen =
             | Some src -> ValueSome(EmitJsContext.LineIndex.build src.Content)
             | None -> ValueNone
 
+        // The file's trees as columns, with an append-only overlay stacked over them:
+        // every node this emission derives (the `substVar` splice of an inlinable `let`)
+        // is appended to the overlay mid-walk, and every id the canonical pool already
+        // handed out keeps naming the same node.
+        let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+
         // Source text drives variable naming (recovering source identifiers from binder
         // offsets) independently of whether maps are emitted.
         let ctx =
             EmitJsContext.WalkCtx.create
                 resolver
+                pool
                 (match project.Source with
                  | Some src -> ValueSome src.Content
                  | None -> ValueNone)
@@ -115,7 +122,7 @@ module Codegen =
                  | Library -> true
                  | Script -> false)
 
-        let result = JsPrint.print (EmitJs.buildProgram ctx tast)
+        let result = JsPrint.print (EmitJs.buildProgram ctx)
         let jsFile = jsFileName project
 
         let runtimeModules = JsImports.modules ctx.Imports

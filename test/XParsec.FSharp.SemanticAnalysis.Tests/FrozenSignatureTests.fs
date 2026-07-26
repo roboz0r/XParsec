@@ -66,7 +66,7 @@ let private bindingKey (frozen: Frozen.TastFile) (name: string) : SymbolKey =
 /// The grouping SHAPE of a `ValRepr` — one integer per curried group (`0` = lone
 /// `unit`, `1` = simple, `N` = a tuple of `N`). Typar-axis-independent, so it pins
 /// the curried/tupled/mixed grouping without depending on primitive canon keys.
-let private groupShape (vr: Frozen.ValRepr voption) : int list option =
+let private groupShape (vr: TastAccessor.ValRepr voption) : int list option =
     match vr with
     | ValueNone -> None
     | ValueSome v ->
@@ -75,8 +75,8 @@ let private groupShape (vr: Frozen.ValRepr voption) : int list option =
             function
             | ArgGroupG.GUnit _ -> 0
             | ArgGroupG.GSimple _ -> 1
-            | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) -> items.Length
-            | ArgGroupG.GTuple _ -> -1
+            | ArgGroupG.GTuple pat -> (TastAccessor.patChildren pat).Length
+
         )
         |> Some
 

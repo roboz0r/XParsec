@@ -20,7 +20,7 @@ open EmitPattern
 /// the build here and forces a routing decision.
 module EmitExpr =
 
-    let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         match TastAccessor.exprKind e with
         | ExprShape.Const ->
             match TastAccessor.exprConstValue e with
@@ -140,7 +140,7 @@ module EmitExpr =
         | ExprShape.TraitCall -> failwithf "Emit: unsupported expression: %A" e
 
     /// Emit an expression as a statement: evaluate it and discard any value.
-    let buildStatement (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+    let buildStatement (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         buildExpr env b e
 
         while b.Depth > 0 do

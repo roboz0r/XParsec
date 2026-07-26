@@ -9,13 +9,14 @@ open XParsec.FSharp.Parser
 // "node id k and its children by id" is an O(1) fetch — the random-access shape the
 // projecting consumers want, which a forward-only decode stream could not serve.
 //
-// The pools coexist with the DU: the DU stays the working IN-MEMORY representation and the
-// accessor stays DU-backed, but the pools are the STORED form — `FrozenCodec.flatten`/`thaw`
-// serialize the columns and rebuild the DU from them, so `FrozenPools` must be a
-// self-contained, serializable value (nothing may ride it that only makes sense with the
-// source file still in hand — see `FrozenFileResidue`). The pools' correctness obligation is
-// that they are INTERCONVERTIBLE with the DU trees — `toPools`/`ofPools` round-trip a
-// `Frozen.TastFile` — proven structurally over the corpus by the flatten/thaw gate.
+// The pools are BOTH the working representation and the stored one: `TastAccessor` reads
+// these columns and nothing else, and `FrozenCodec.flatten`/`thaw` serialize them. So
+// `FrozenPools` must be a self-contained, serializable value (nothing may ride it that
+// only makes sense with the source file still in hand — see `FrozenFileResidue`). The DU
+// survives alongside as freeze's OUTPUT shape and as a debug/test facility; the pools'
+// correctness obligation is that the two are INTERCONVERTIBLE — `toPools`/`ofPools`
+// round-trip a `Frozen.TastFile` — proven structurally over the corpus by the
+// flatten/thaw gate.
 //
 // Layout: EVERY pool is struct-of-arrays — parallel dense columns indexed by the matching
 // `*PoolId`. The expr columns are `ExprShapes`/`ExprTys`/`ExprToks`, the child-id columns
@@ -40,8 +41,8 @@ open XParsec.FSharp.Parser
 // fields, `ExternalMember` receiver) records just enough STRUCTURE — per-arm guard
 // flags, per-segment kind, per-clause constraints, presence flags — to redistribute the
 // FLAT child columns back into their nested shape, since the node that once held that
-// shape is gone. Both directions reuse the accessor's child enumeration
-// (`TastAccessor.exprChildren`/`exprPatChildren`) and consume it in that same order —
+// shape is gone. Both directions reuse the pooling walk's child enumeration
+// (`TastPools.exprChildren`/`exprPatChildren`) and consume it in that same order —
 // the coupling the round-trip test guards — rather than re-deriving the tree spine. The
 // `ExprPayloads` build (`exprPayload`) and consume (`substituteExpr`) are inverse
 // per-case matches, each exhaustive so a new `TExprG`/`ExprShape` case fails to compile.
@@ -62,6 +63,76 @@ open XParsec.FSharp.Parser
 // verbatim: a reference or side-table key that resolves to no interned binder faults
 // here, which is the gate that keeps the enumeration honest. (Kind is not stored — its
 // only role was to make a content key unique, which positional ids now do.)
+
+/// The post-freeze shape tag of an expression node — one case per `TExprG` case, and
+/// the `ExprShapes` tag column's element type. This is NOT `NodeKind`: `NodeKind` is
+/// the pre-freeze CST content-address role, which freeze dissolves (plan § *Freeze
+/// regime*). The case names mirror `TExprG` (documented there); a new `TExprG` case
+/// makes the exhaustive matches that build and drain the columns fail to compile, so
+/// this stays in lockstep.
+[<RequireQualifiedAccess>]
+type ExprShape =
+    | Const
+    | Var
+    | External
+    | Lambda
+    | App
+    | Let
+    | Use
+    | IfThenElse
+    | Tuple
+    | Sequential
+    | While
+    | ForTo
+    | ForIn
+    | Match
+    | TryWith
+    | TryFinally
+    | Assignment
+    | Null
+    | Range
+    | RecordCons
+    | RecordClone
+    | FieldGet
+    | FieldSet
+    | UnionCons
+    | New
+    | MethodCall
+    | PropertyGet
+    | StaticMethodCall
+    | StaticPropertyGet
+    | StaticFieldGet
+    | StaticFieldSet
+    | ExternalMember
+    | Format
+    | ILIntrinsic
+    | StaticOptimization
+    | Upcast
+    | Downcast
+    | TypeTest
+    | TraitCall
+
+/// The post-freeze shape tag of a pattern node — one case per `TPatG` case (mirrors
+/// `ExprShape`'s relationship to `TExprG`).
+[<RequireQualifiedAccess>]
+type PatShape =
+    | NamedSimple
+    | Wildcard
+    | Tuple
+    | Const
+    | Record
+    | Union
+    | TypeTestAs
+    | Null
+    | EnumCase
+    | Or
+
+/// The post-freeze shape tag of a declaration node — one case per `TDeclG` case.
+[<RequireQualifiedAccess>]
+type DeclShape =
+    | Let
+    | Expression
+    | Type
 
 /// A dense pool index into a `FrozenPools.Exprs` column.
 [<Struct>]
@@ -248,7 +319,7 @@ type ExprPayload =
 
 /// The residual payload of a frozen pattern node — one case per `PatShape`, carrying ONLY
 /// the fields left after the columnar split drops `ty`/`tok` (the `PatTys`/`PatToks`
-/// columns) and the child sub-pat ids (`PatChildren`, in `TastAccessor.patChildren` order;
+/// columns) and the child sub-pat ids (`PatChildren`, in `TastPools.patChildren` order;
 /// patterns own no child expressions). Mirrors `FrozenCodec.writePatPayload` for what each case
 /// carries beyond those. Exhaustive: a new `TPat`/`PatShape` case fails to compile at
 /// `patPayload`/`substitutePat`.
@@ -367,8 +438,8 @@ type FrozenPools =
         /// The expression pool as struct-of-arrays: these columns are parallel, each
         /// indexed by `ExprPoolId`. `ExprShapes` is the tag column; `ExprTys`/`ExprToks`
         /// the node's `ty`/`tok`; `ExprChildren` the immediate child-expr ids in
-        /// `TastAccessor.exprChildren` order; `ExprPatChildren` the owned pat ids in
-        /// `TastAccessor.exprPatChildren` order; `ExprVarBinder` the `Var` reference id
+        /// `TastPools.exprChildren` order; `ExprPatChildren` the owned pat ids in
+        /// `TastPools.exprPatChildren` order; `ExprVarBinder` the `Var` reference id
         /// (`ValueSome` only at a `Var`); `ExprPayloads` the residual per-case payload.
         /// No DU node is retained — the columns are Node-sufficient, which the round-trip
         /// gate proves.
@@ -381,7 +452,7 @@ type FrozenPools =
         ExprPayloads: ExprPayload[]
         /// The pattern pool as struct-of-arrays: parallel columns indexed by `PatPoolId`.
         /// `PatShapes` is the tag column; `PatTys`/`PatToks` the node's `ty`/`tok`;
-        /// `PatChildren` the immediate sub-pat ids in `TastAccessor.patChildren` order
+        /// `PatChildren` the immediate sub-pat ids in `TastPools.patChildren` order
         /// (patterns own no child expressions); `PatPayloads` the residual per-case payload.
         /// No DU node is retained.
         PatShapes: PatShape[]
