@@ -2,9 +2,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Parser
 
-// The wire-shape definitions for the id-indexable frozen pools (frozen-soa-cache-plan.md,
-// "Wire format"); the interconversion logic that fills and drains them lives in
-// `TastPools.fs`. Each frozen node is assigned a dense `int` pool id during a traversal of
+// The wire-shape definitions for the id-indexable frozen pools; the logic that fills them
+// lives in `TastPools.fs` and the logic that drains them in `TastUnpool.fs`. Each frozen node is assigned a dense `int` pool id during a traversal of
 // the DU; a node's child *expressions*/*patterns* are then addressable as their pool ids, so
 // "node id k and its children by id" is an O(1) fetch — the random-access shape the
 // projecting consumers want, which a forward-only decode stream could not serve.

@@ -8,7 +8,7 @@ recomputable from any CST node with no side index. That representation is
 load-bearing through the whole semantic pipeline. It is deliberately *not* what
 the frozen artifact uses — after freeze, identity becomes positional and the
 64-bit key dissolves. See § *Analysis identity vs. frozen identity* below, and
-`docs/frozen-soa-cache-plan.md` for the freeze regime in full.
+`TastPoolTypes.fs`'s header for the frozen regime in full.
 
 ## Wire format
 
