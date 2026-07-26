@@ -71,9 +71,14 @@ type PoolBuilder =
 /// The pool rides the handle rather than being a parameter of every accessor, which is
 /// what lets a consumer speak in whole nodes (`e.Body`, `arm.Guard`) exactly as it did
 /// when a node WAS the tree, and lets pools that are not a file's tree exist alongside
-/// it (an `.fsi`-minted `ValRepr`'s patterns index into their own). Equality is the
-/// pool's identity plus the id, so a handle is a sound dictionary key: two ids only
-/// denote the same node when they came from the same pool.
+/// it (an `.fsi`-minted `ValRepr`'s patterns index into their own).
+///
+/// Equality is the pool's identity plus the id (hence `ReferenceEquality` on
+/// `PoolBuilder`), so two ids denote the same node only when they came from the same
+/// pool. No consumer keys a dictionary on a handle TODAY — the six identity tables key
+/// on the bare `ExprPoolId` and get their disambiguation from being per-unit
+/// (`LayoutModel.UnitLayout.FunVerdicts`) — but a handle is the key that would not need
+/// that argument.
 [<Struct; NoComparison>]
 type Handle<'Id> = { Pool: PoolBuilder; Id: 'Id }
 

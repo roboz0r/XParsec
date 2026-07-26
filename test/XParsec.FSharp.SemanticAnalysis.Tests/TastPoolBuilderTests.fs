@@ -76,8 +76,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 /// the cross-unit inline wire's drain). Run after the overlay has grown, so an id-space
 /// boundary error shows up as a wrong or missing subtree.
 let private checkRootsDrainUnchanged (b: PoolBuilder) (frozen: Frozen.TastFile) =
-    let drained =
-        TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
+    let drained = TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
 
     Expect.equal drained (EqArray.toArray frozen.Decls) "every base root drains to its original decl"
 

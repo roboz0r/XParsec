@@ -324,9 +324,11 @@ type internal UnitLayout =
         ClosureByNode: Dictionary<ExprPoolId, EmitTypes.Closure>
         Partitioned: PartitionedTypeDecls
         /// This unit's source-lambda value-struct closure verdicts, on ITS OWN pool's
-        /// lambda id space. The Assembler's per-unit closure-verdict rewrite reads
-        /// exactly this unit's verdicts (a foreign unit's ids name nothing in it), which
-        /// is why it rides on the unit rather than a single ctor-level table.
+        /// lambda id space. It rides the unit rather than a single ctor-level table
+        /// because an `ExprPoolId` is only meaningful RELATIVE to the pool that issued
+        /// it: two units' pools both number from 0, so a foreign unit's id would not
+        /// miss — it would silently name a DIFFERENT node. Per-unit scoping is what makes
+        /// the bare id a sound key here; merging these across units would not be.
         FunVerdicts: IReadOnlyDictionary<ExprPoolId, FunVerdict>
         /// Whether this unit carries the entry point (`Main`). `buildUnit` leaves it FALSE
         /// — the OutputKind decision belongs to the whole assembly, not a file — and

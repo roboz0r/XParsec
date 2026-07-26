@@ -723,10 +723,11 @@ module TastPools =
 
         // One generic remap over the side tables, parameterized by the key resolver: the
         // binder-keyed tables pass `binderIdOf`, `FunVerdicts` passes `lambdaIdOf`. A second
-        // resolver, not a second remap, so the two id spaces share one enumeration. The
-        // table's NAME rides along so an unresolvable key says which table holds it.
-        let remapSideTable (name: string) (resolve: string -> NodeKey -> 'id) (m: Map<NodeKey, 'v>) : ('id * 'v)[] =
-            m |> Map.toArray |> Array.map (fun (k, v) -> resolve name k, v)
+        // resolver, not a second remap, so the two id spaces share one enumeration. Each
+        // call site applies the resolver to its table's NAME first, so an unresolvable key
+        // says which table holds it.
+        let remapSideTable (resolve: NodeKey -> 'id) (m: Map<NodeKey, 'v>) : ('id * 'v)[] =
+            m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 
         {
             ExprShapes = exprShapes.ToArray()
@@ -755,11 +756,11 @@ module TastPools =
                     IntrinsicReprKeys = file.IntrinsicReprKeys
                     Accessibility = file.Accessibility
                 }
-            ModuleMembers = remapSideTable "ModuleMembers" binderIdOf file.ModuleMembers
-            TopLevelNames = remapSideTable "TopLevelNames" binderIdOf file.TopLevelNames
-            ClosureReprs = remapSideTable "ClosureReprs" binderIdOf file.ClosureReprs
-            FunVerdicts = remapSideTable "FunVerdicts" lambdaIdOf file.FunVerdicts
-            GenericFnSchemes = remapSideTable "GenericFnSchemes" binderIdOf file.GenericFnSchemes
-            BindingValReprs = remapSideTable "BindingValReprs" binderIdOf pooledValReprs
-            BindingTyparArities = remapSideTable "BindingTyparArities" binderIdOf file.BindingTyparArities
+            ModuleMembers = remapSideTable (binderIdOf "ModuleMembers") file.ModuleMembers
+            TopLevelNames = remapSideTable (binderIdOf "TopLevelNames") file.TopLevelNames
+            ClosureReprs = remapSideTable (binderIdOf "ClosureReprs") file.ClosureReprs
+            FunVerdicts = remapSideTable (lambdaIdOf "FunVerdicts") file.FunVerdicts
+            GenericFnSchemes = remapSideTable (binderIdOf "GenericFnSchemes") file.GenericFnSchemes
+            BindingValReprs = remapSideTable (binderIdOf "BindingValReprs") pooledValReprs
+            BindingTyparArities = remapSideTable (binderIdOf "BindingTyparArities") file.BindingTyparArities
         }

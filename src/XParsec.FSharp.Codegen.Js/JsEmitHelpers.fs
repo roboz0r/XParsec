@@ -72,9 +72,11 @@ module JsEmitHelpers =
     /// `Offset`: a counter-minted binder's offset is negative, which is not a legal
     /// identifier tail.
     ///
-    /// Takes the pool's `BinderNaming`, not a `NodeKey`: after freeze a binder's identity
-    /// is its slot, and these three projections are the naming DATA that slot carries —
-    /// so naming outlives the key rather than re-deriving itself from the key's bits.
+    /// Takes a `BinderNaming`, not a `NodeKey`: after freeze a binder's identity is its
+    /// slot, and these three projections are the naming DATA that slot carries, so a
+    /// caller holding only an id (`exprVarNaming`) can name it. A caller holding a key
+    /// projects one with `BinderNaming.ofKey` (`binderNameOf`) — the same three bits, by
+    /// construction, that being the naming column's sole constructor.
     let binderName (source: string voption) (n: BinderNaming) : string =
         match source with
         | ValueSome s when
@@ -95,7 +97,8 @@ module JsEmitHelpers =
     /// a `ForTo` loop variable, a flattened parameter's slot. `BinderNaming.ofKey` is
     /// the sole constructor of the pool's naming column, so projecting the key here
     /// gives the same three bits that column holds, without a pool to resolve against.
-    let binderNameOf (source: string voption) (k: NodeKey) : string = binderName source (BinderNaming.ofKey k)
+    let binderNameOf (source: string voption) (k: NodeKey) : string =
+        binderName source (BinderNaming.ofKey k)
 
     // ---- Scalar constants ----------------------------------------------------
 

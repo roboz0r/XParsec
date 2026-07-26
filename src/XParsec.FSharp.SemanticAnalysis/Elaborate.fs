@@ -321,25 +321,6 @@ module Elaborate =
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 
-    /// The identity a module `let` contributes to the FROZEN side tables
-    /// (`ModuleMembers`, `TopLevelNames`, `GenericFnSchemes`, `BindingTyparArities`) —
-    /// the binder its already-translated head pattern introduces, or `ValueNone` when it
-    /// introduces none.
-    ///
-    /// NOT `CstKeys.ofBinding b`. That is the ANALYSIS identity: the content address of
-    /// the head PATTERN node, which is what the type/scheme tables inference filled are
-    /// keyed by, and it stays that. But the frozen tables are re-keyed onto the frozen
-    /// binder pool (`TastPools`), so their keys must be keys the FROZEN TREE bears, and
-    /// the head-pattern key is one only for a bare simple head:
-    ///   * a wrapped head (`let (x) = …`, `let (x: int) = …`) keys the paren/annotation
-    ///     node, which `ElaboratePatterns.translatePat` ERASES — so the entry named a
-    ///     node no reader could reach, and the binding's name/arity were silently lost;
-    ///   * a composite or wildcard head (`let (a, b) = p`, `let _ = e`) introduces no
-    ///     single binder at all, so it has no frozen identity and needs none — every
-    ///     reader of these tables (`Freeze.bindingValReprs`, `FrozenSignature`,
-    ///     `HolderPlan`) looks up a simple binder's key.
-    let private frozenBindingBinder (tpat: TPat) : NodeKey voption = TastWalk.patBinder tpat
-
     /// For a generalised binding, record its frozen typar
     /// BOUNDS, keyed by the binding's `NodeKey`, onto `ctx.GenericFnSchemes`. Each
     /// `Coercion` bound is frozen as a `FrozenConstraint.Coercion(idx, target)`
@@ -1916,10 +1897,28 @@ module Elaborate =
                     // (`TastPools.toPools`) faults on.
                     let elided = ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat)
 
-                    // Every frozen side table below is filed under THIS key, never under
-                    // `CstKeys.ofBinding b` — see `frozenBindingBinder`. A head pattern
-                    // that introduces no binder records nothing at all.
-                    let binder = if elided then ValueNone else frozenBindingBinder tpat
+                    // The identity this binding contributes to the FROZEN side tables
+                    // (`ModuleMembers`, `TopLevelNames`, `GenericFnSchemes`,
+                    // `BindingTyparArities`): the binder its already-translated head
+                    // pattern introduces, or `ValueNone` when it introduces none — in
+                    // which case the tables below record nothing at all.
+                    //
+                    // NOT `CstKeys.ofBinding b`. That is the ANALYSIS identity — the
+                    // content address of the head PATTERN node, which the type/scheme
+                    // tables inference filled are keyed by, and it stays that. The frozen
+                    // tables are re-keyed onto the frozen binder pool (`TastPools`), so
+                    // their keys must be keys the FROZEN TREE bears, and the head-pattern
+                    // key is one only for a bare simple head:
+                    //   * a wrapped head (`let (x) = …`, `let (x: int) = …`) keys the
+                    //     paren/annotation node, which `ElaboratePatterns.translatePat`
+                    //     ERASES — so the entry named a node no reader could reach, and
+                    //     the binding's name/arity were silently lost;
+                    //   * a composite or wildcard head (`let (a, b) = p`, `let _ = e`)
+                    //     introduces no single binder at all, so it has no frozen identity
+                    //     and needs none — every reader of these tables
+                    //     (`Freeze.bindingValReprs`, `FrozenSignature`, `HolderPlan`)
+                    //     looks up a simple binder's key.
+                    let binder = if elided then ValueNone else TastWalk.patBinder tpat
 
                     // Inside a named module: record where this binding's static
                     // method belongs. The emitted method takes its `[<CompiledName>]`

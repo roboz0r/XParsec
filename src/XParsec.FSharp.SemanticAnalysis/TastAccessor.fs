@@ -159,7 +159,11 @@ module TastAccessor =
         match payload e with
         | ExprPayload.ExternalMember p ->
             {
-                Receiver = (if p.HasReceiver then ValueSome(exprChild e 0) else ValueNone)
+                Receiver =
+                    (if p.HasReceiver then
+                         ValueSome(exprChild e 0)
+                     else
+                         ValueNone)
                 Key = p.Key
                 MemberName = p.MemberName
                 Storage = p.Storage
