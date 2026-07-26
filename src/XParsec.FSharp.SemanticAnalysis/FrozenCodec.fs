@@ -1616,9 +1616,11 @@ module FrozenCodec =
     // Brotli-compressed at the store seam, which absorbs their width redundancy far more
     // cheaply than a bespoke varint would pay for in reader complexity.
     //
-    // The shape and payload tag writers below are EXHAUSTIVE with no catch-all — the same
-    // discipline `TastPools.exprPayload`/`substituteExpr` hold — so a new payload or shape
-    // case fails to compile here rather than serializing as a silent alias.
+    // The payload tag writers below are EXHAUSTIVE with no catch-all — the same discipline
+    // `TastPools.exprPayload`/`substituteExpr` hold — so a new payload case fails to
+    // compile here rather than serializing as a silent alias. The SHAPE tags are all-nullary
+    // and single-sourced from one array instead; see `shapeTags` for how completeness is
+    // held there.
 
     let private writeBinderId (w: BinaryWriter) (BinderId i) = w.Write i
     let private readBinderId (r: BinaryReader) : BinderId = BinderId(r.ReadInt32())
@@ -1662,139 +1664,111 @@ module FrozenCodec =
                 id, v
             )
 
-    let private writeExprShape (w: BinaryWriter) (s: ExprShape) =
-        let tag =
-            match s with
-            | ExprShape.Const -> 0uy
-            | ExprShape.Var -> 1uy
-            | ExprShape.External -> 2uy
-            | ExprShape.Lambda -> 3uy
-            | ExprShape.App -> 4uy
-            | ExprShape.Let -> 5uy
-            | ExprShape.Use -> 6uy
-            | ExprShape.IfThenElse -> 7uy
-            | ExprShape.Tuple -> 8uy
-            | ExprShape.Sequential -> 9uy
-            | ExprShape.While -> 10uy
-            | ExprShape.ForTo -> 11uy
-            | ExprShape.ForIn -> 12uy
-            | ExprShape.Match -> 13uy
-            | ExprShape.TryWith -> 14uy
-            | ExprShape.TryFinally -> 15uy
-            | ExprShape.Assignment -> 16uy
-            | ExprShape.Null -> 17uy
-            | ExprShape.Range -> 18uy
-            | ExprShape.RecordCons -> 19uy
-            | ExprShape.RecordClone -> 20uy
-            | ExprShape.FieldGet -> 21uy
-            | ExprShape.FieldSet -> 22uy
-            | ExprShape.UnionCons -> 23uy
-            | ExprShape.New -> 24uy
-            | ExprShape.MethodCall -> 25uy
-            | ExprShape.PropertyGet -> 26uy
-            | ExprShape.StaticMethodCall -> 27uy
-            | ExprShape.StaticPropertyGet -> 28uy
-            | ExprShape.StaticFieldGet -> 29uy
-            | ExprShape.StaticFieldSet -> 30uy
-            | ExprShape.ExternalMember -> 31uy
-            | ExprShape.Format -> 32uy
-            | ExprShape.ILIntrinsic -> 33uy
-            | ExprShape.StaticOptimization -> 34uy
-            | ExprShape.Upcast -> 35uy
-            | ExprShape.Downcast -> 36uy
-            | ExprShape.TypeTest -> 37uy
-            | ExprShape.TraitCall -> 38uy
+    // A shape tag is one byte, and — unlike every other tagged case in this file — its
+    // numbering is written down ONCE. `ExprShape`/`PatShape`/`DeclShape` are all-nullary,
+    // so the whole codec for one is a single declaration-ordered array: an entry's INDEX
+    // is the byte it stores as, and the same array inverts a byte on read. A
+    // writer/reader disagreement is no longer expressible, where before it was two
+    // hand-typed numberings that had to agree by eye.
+    //
+    // What that costs, and how it is bought back: the writer is no longer an exhaustive
+    // match, so a new case does not fail to COMPILE here. `shapeTags` instead checks at
+    // module init that the array is a BIJECTION onto the type's cases — no duplicates,
+    // and exactly as many entries as the type declares — so a case added without
+    // extending the array faults the first time anything touches the codec rather than
+    // serializing as a silent alias of another shape. The array's ORDER is the wire
+    // format: append to it, never permute it.
 
-        w.Write tag
+    let private shapeTags (name: string) (byTag: 'a[]) : ('a -> byte) * (BinaryReader -> 'a) =
+        let toTag = System.Collections.Generic.Dictionary<'a, byte>(byTag.Length)
 
-    let private readExprShape (r: BinaryReader) : ExprShape =
-        match r.ReadByte() with
-        | 0uy -> ExprShape.Const
-        | 1uy -> ExprShape.Var
-        | 2uy -> ExprShape.External
-        | 3uy -> ExprShape.Lambda
-        | 4uy -> ExprShape.App
-        | 5uy -> ExprShape.Let
-        | 6uy -> ExprShape.Use
-        | 7uy -> ExprShape.IfThenElse
-        | 8uy -> ExprShape.Tuple
-        | 9uy -> ExprShape.Sequential
-        | 10uy -> ExprShape.While
-        | 11uy -> ExprShape.ForTo
-        | 12uy -> ExprShape.ForIn
-        | 13uy -> ExprShape.Match
-        | 14uy -> ExprShape.TryWith
-        | 15uy -> ExprShape.TryFinally
-        | 16uy -> ExprShape.Assignment
-        | 17uy -> ExprShape.Null
-        | 18uy -> ExprShape.Range
-        | 19uy -> ExprShape.RecordCons
-        | 20uy -> ExprShape.RecordClone
-        | 21uy -> ExprShape.FieldGet
-        | 22uy -> ExprShape.FieldSet
-        | 23uy -> ExprShape.UnionCons
-        | 24uy -> ExprShape.New
-        | 25uy -> ExprShape.MethodCall
-        | 26uy -> ExprShape.PropertyGet
-        | 27uy -> ExprShape.StaticMethodCall
-        | 28uy -> ExprShape.StaticPropertyGet
-        | 29uy -> ExprShape.StaticFieldGet
-        | 30uy -> ExprShape.StaticFieldSet
-        | 31uy -> ExprShape.ExternalMember
-        | 32uy -> ExprShape.Format
-        | 33uy -> ExprShape.ILIntrinsic
-        | 34uy -> ExprShape.StaticOptimization
-        | 35uy -> ExprShape.Upcast
-        | 36uy -> ExprShape.Downcast
-        | 37uy -> ExprShape.TypeTest
-        | 38uy -> ExprShape.TraitCall
-        | b -> failwithf "FrozenCodec: unknown ExprShape tag %d" b
+        byTag |> Array.iteri (fun i c -> toTag.[c] <- byte i)
 
-    let private writePatShape (w: BinaryWriter) (s: PatShape) =
-        let tag =
-            match s with
-            | PatShape.NamedSimple -> 0uy
-            | PatShape.Wildcard -> 1uy
-            | PatShape.Tuple -> 2uy
-            | PatShape.Const -> 3uy
-            | PatShape.Record -> 4uy
-            | PatShape.Union -> 5uy
-            | PatShape.TypeTestAs -> 6uy
-            | PatShape.Null -> 7uy
-            | PatShape.EnumCase -> 8uy
-            | PatShape.Or -> 9uy
+        if toTag.Count <> byTag.Length then
+            failwithf "FrozenCodec: the %s tag table lists a case twice" name
 
-        w.Write tag
+        let declared = Reflection.FSharpType.GetUnionCases(typeof<'a>).Length
 
-    let private readPatShape (r: BinaryReader) : PatShape =
-        match r.ReadByte() with
-        | 0uy -> PatShape.NamedSimple
-        | 1uy -> PatShape.Wildcard
-        | 2uy -> PatShape.Tuple
-        | 3uy -> PatShape.Const
-        | 4uy -> PatShape.Record
-        | 5uy -> PatShape.Union
-        | 6uy -> PatShape.TypeTestAs
-        | 7uy -> PatShape.Null
-        | 8uy -> PatShape.EnumCase
-        | 9uy -> PatShape.Or
-        | b -> failwithf "FrozenCodec: unknown PatShape tag %d" b
+        if byTag.Length <> declared then
+            failwithf "FrozenCodec: %s declares %d cases but its tag table lists %d" name declared byTag.Length
 
-    let private writeDeclShape (w: BinaryWriter) (s: DeclShape) =
-        let tag =
-            match s with
-            | DeclShape.Let -> 0uy
-            | DeclShape.Expression -> 1uy
-            | DeclShape.Type -> 2uy
+        let read (r: BinaryReader) =
+            let b = r.ReadByte()
 
-        w.Write tag
+            if int b >= byTag.Length then
+                failwithf "FrozenCodec: unknown %s tag %d" name b
 
-    let private readDeclShape (r: BinaryReader) : DeclShape =
-        match r.ReadByte() with
-        | 0uy -> DeclShape.Let
-        | 1uy -> DeclShape.Expression
-        | 2uy -> DeclShape.Type
-        | b -> failwithf "FrozenCodec: unknown DeclShape tag %d" b
+            byTag.[int b]
+
+        (fun s -> toTag.[s]), read
+
+    let private exprShapeTag, readExprShape =
+        shapeTags
+            "ExprShape"
+            [|
+                ExprShape.Const
+                ExprShape.Var
+                ExprShape.External
+                ExprShape.Lambda
+                ExprShape.App
+                ExprShape.Let
+                ExprShape.Use
+                ExprShape.IfThenElse
+                ExprShape.Tuple
+                ExprShape.Sequential
+                ExprShape.While
+                ExprShape.ForTo
+                ExprShape.ForIn
+                ExprShape.Match
+                ExprShape.TryWith
+                ExprShape.TryFinally
+                ExprShape.Assignment
+                ExprShape.Null
+                ExprShape.Range
+                ExprShape.RecordCons
+                ExprShape.RecordClone
+                ExprShape.FieldGet
+                ExprShape.FieldSet
+                ExprShape.UnionCons
+                ExprShape.New
+                ExprShape.MethodCall
+                ExprShape.PropertyGet
+                ExprShape.StaticMethodCall
+                ExprShape.StaticPropertyGet
+                ExprShape.StaticFieldGet
+                ExprShape.StaticFieldSet
+                ExprShape.ExternalMember
+                ExprShape.Format
+                ExprShape.ILIntrinsic
+                ExprShape.StaticOptimization
+                ExprShape.Upcast
+                ExprShape.Downcast
+                ExprShape.TypeTest
+                ExprShape.TraitCall
+            |]
+
+    let private patShapeTag, readPatShape =
+        shapeTags
+            "PatShape"
+            [|
+                PatShape.NamedSimple
+                PatShape.Wildcard
+                PatShape.Tuple
+                PatShape.Const
+                PatShape.Record
+                PatShape.Union
+                PatShape.TypeTestAs
+                PatShape.Null
+                PatShape.EnumCase
+                PatShape.Or
+            |]
+
+    let private declShapeTag, readDeclShape =
+        shapeTags "DeclShape" [| DeclShape.Let; DeclShape.Expression; DeclShape.Type |]
+
+    let private writeExprShape (w: BinaryWriter) (s: ExprShape) = w.Write(exprShapeTag s)
+    let private writePatShape (w: BinaryWriter) (s: PatShape) = w.Write(patShapeTag s)
+    let private writeDeclShape (w: BinaryWriter) (s: DeclShape) = w.Write(declShapeTag s)
 
     let private writeBinderNaming (w: BinaryWriter) (n: BinderNaming) =
         w.Write n.IsSynthetic
