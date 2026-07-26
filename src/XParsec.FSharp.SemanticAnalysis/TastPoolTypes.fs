@@ -9,11 +9,13 @@ open XParsec.FSharp.Parser
 // "node id k and its children by id" is an O(1) fetch — the random-access shape the
 // projecting consumers want, which a forward-only decode stream could not serve.
 //
-// PURELY ADDITIVE and coexistent with the DU: the DU stays the working
-// representation, the accessor stays DU-backed, and nothing reads the pools yet.
-// The pools' correctness obligation this step is that they are INTERCONVERTIBLE with
-// the DU trees — `toPools`/`ofPools` round-trip a `Frozen.TastFile` — proven over the
-// corpus.
+// The pools coexist with the DU: the DU stays the working IN-MEMORY representation and the
+// accessor stays DU-backed, but the pools are the STORED form — `FrozenCodec.flatten`/`thaw`
+// serialize the columns and rebuild the DU from them, so `FrozenPools` must be a
+// self-contained, serializable value (nothing may ride it that only makes sense with the
+// source file still in hand — see `FrozenFileResidue`). The pools' correctness obligation is
+// that they are INTERCONVERTIBLE with the DU trees — `toPools`/`ofPools` round-trip a
+// `Frozen.TastFile` — proven structurally over the corpus by the flatten/thaw gate.
 //
 // Layout: EVERY pool is struct-of-arrays — parallel dense columns indexed by the matching
 // `*PoolId`. The expr columns are `ExprShapes`/`ExprTys`/`ExprToks`, the child-id columns
@@ -269,25 +271,45 @@ type DeclPayload =
     /// existing, intended behavior (a `Type` decl surfaces no expr/pat children).
     | Type of Frozen.TTypeDecl
 
+/// Everything of a `Frozen.TastFile` that has NO pooled form yet — the file MINUS its decl
+/// trees (the columns) and MINUS the seven side tables (the dense `BinderId`/`ExprPoolId`
+/// associations). Exactly these four fields, each for its own reason:
+///
+///   * `Diagnostics` — a flat list keyed by `NodeKey`, in no pooled domain (a diagnostic can
+///     name a node the emittable tree does not contain, so it cannot take a pool id).
+///   * `IntrinsicReprKeys` / `Accessibility` — the two `SymbolKey`-keyed dictionaries. Their
+///     key space is the SYMBOL identity, not the positional node identity the pools give, so
+///     they are untouched by the dense-id remap.
+///   * `InlineBodies` — the inline VOCABULARY. Its bodies are `TDeclG` trees that ride the DU
+///     codec opaquely (they are templates, not emittable code, so no pool walk reaches them).
+///
+/// Naming the residue is the point: `FrozenPools` is then a self-contained, serializable
+/// value, and what remains outside the columnar form is visible in the type rather than
+/// hidden inside a retained whole `TastFile` (which would also make the pools unserializable
+/// without re-serializing the DU file they were built from).
+type FrozenFileResidue =
+    {
+        // Qualified: this file `open`s `XParsec.FSharp.Parser`, which also declares a
+        // `Diagnostic`; the bare name would bind to the parser's, mistyping the field —
+        // the same shadowing `TastFileG.Diagnostics` guards against.
+        Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
+        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>
+        InlineBodies: EqArray<Frozen.TInlineValue>
+        Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
+    }
+
 /// The frozen-only companion produced alongside the `Frozen.TastFile` DU (by
 /// `TastPools.toPools`): the expr struct-of-arrays columns plus the pat/decl node columns
 /// (indexable by the matching `*PoolId`) and the decl roots the file's `Decls` pooled to, in
 /// source order. Kept OFF `TastFileG` — that record is shared with the `SemType`
 /// instantiation, which has no pools.
 ///
-/// `File` retains the source file VERBATIM as the carrier for everything the tree pools
-/// do not (yet) hold — the side tables, `InlineBodies`, diagnostics. Its `Decls` are
-/// re-authored from the pools by `ofPools`; every other field is the file's own. This
-/// keeps `Frozen.TastFile`/`FrozenPools` both whole-file batch values while confining
-/// the interconversion obligation to the decl TREES (pooling the side tables is later
-/// work).
-///
 /// The binder pool and the dense-keyed side tables give the file's identity keys a
 /// positional home: `Binders` is the distinct binder NodeKeys, indexable by `BinderId`;
-/// the seven `Map<NodeKey,_>` side tables of `File` are re-expressed as `BinderId`-keyed
+/// the source file's seven `Map<NodeKey,_>` side tables are re-expressed as `BinderId`-keyed
 /// associations. `ofPools` rebuilds the maps from these (resolving each `BinderId` back
 /// through `Binders`), so the round-trip proves the remap is a faithful bijection over
-/// every referenced binder rather than trivially copying `File`'s maps.
+/// every referenced binder rather than trivially copying the source maps.
 type FrozenPools =
     {
         /// The expression pool as struct-of-arrays: these columns are parallel, each
@@ -325,8 +347,8 @@ type FrozenPools =
         DeclExprChildren: ExprPoolId[][]
         DeclPatChildren: PatPoolId[][]
         DeclPayloads: DeclPayload[]
-        /// The pool ids of `File.Decls`, in source order — the entry points for a pool
-        /// walk / rebuild.
+        /// The pool ids of the source file's `Decls`, in source order — the entry points
+        /// for a pool walk / rebuild.
         Roots: DeclPoolId[]
         /// The distinct simple-binder entries as two parallel columns indexed by `BinderId`,
         /// its OWN dense arrays disjoint from `Pats`: `BinderKeys` retains each binder's whole
@@ -340,8 +362,9 @@ type FrozenPools =
         /// are the additional dense columns references resolve against, not a re-pointing.
         BinderKeys: NodeKey[]
         BinderNamings: BinderNaming[]
-        File: Frozen.TastFile
-        /// Six of the seven `Map<NodeKey,_>` side tables of `File`, re-keyed by `BinderId`
+        /// The not-yet-pooled remainder of the source file, carried verbatim.
+        Residue: FrozenFileResidue
+        /// Six of the seven source `Map<NodeKey,_>` side tables, re-keyed by `BinderId`
         /// (a sparse association — a binder appears iff the map held it). `ofPools`
         /// rebuilds each map from its dense form.
         ModuleMembers: (BinderId * ModuleBindingInfo)[]

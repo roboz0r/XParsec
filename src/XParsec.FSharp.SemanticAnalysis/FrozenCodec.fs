@@ -5,13 +5,19 @@ open System.IO
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// A hand-rolled structural binary (de)serializer for the FROZEN leaf domains —
-/// `FrozenType` and the `SymbolKey`/`TypeKey` key cluster it reaches, plus the two
-/// value structs a frozen node anchors on (`NodeKey`, `SyntaxToken`). Deliberately
-/// throwaway (a plain recursive `BinaryWriter`/`BinaryReader` over a `MemoryStream`):
-/// it exists only to prove the leaf domains round-trip structurally, ahead of the
-/// tree (`TExpr`/`TDecl`/`TPat`) and side-table (de)serialization that extends this
-/// same module.
+/// A hand-rolled structural binary (de)serializer for the FROZEN domain, layered:
+/// the leaf domains (`FrozenType` and the `SymbolKey`/`TypeKey` key cluster it
+/// reaches, plus `NodeKey`/`SyntaxToken`), the recursive `TExpr`/`TDecl`/`TPat` tree
+/// codec, and — on top of both — the `FrozenPools` COLUMN codec that `flatten`/`thaw`
+/// actually store. A plain `BinaryWriter`/`BinaryReader` over a `MemoryStream`; the
+/// blob is Brotli-wrapped at the store seam (`Compression`), so nothing here
+/// hand-rolls varints or bit-packing.
+///
+/// The stored form is the pools, not the DU: `flatten` = `TastPools.toPools` then the
+/// column writers, `thaw` their inverse then `TastPools.ofPools`. The tree codec is
+/// still load-bearing, because the pools carry two domains OPAQUELY — a
+/// `DeclPayload.Type`'s member bodies and the `InlineBodies` vocabulary, neither of
+/// which the pool walk reaches.
 ///
 /// Two invariants the writer/reader pair upholds:
 ///   * The writer's `match` is EXHAUSTIVE with no catch-all, so a new `FrozenType`
@@ -390,11 +396,11 @@ module FrozenCodec =
         | 3uy -> MemberKind.ExplicitInterfaceImpl(readTypeKey r)
         | b -> failwithf "FrozenCodec: unknown MemberKind tag %d" b
 
-    // ── container helpers (option / voption / list / map / dictionary) ──────
+    // ── container helpers (option / voption / list / dictionary) ───────────
     //
     // All length- or tag-prefixed, mirroring `writeEqArrayWith`/`readArrayWith`: the
-    // reader consumes exactly what the writer emitted, in order. `Map<NodeKey,_>` and
-    // the two `IReadOnlyDictionary<SymbolKey,_>` fields serialize as a length-prefixed
+    // reader consumes exactly what the writer emitted, in order. The two
+    // `IReadOnlyDictionary<SymbolKey,_>` fields serialize as a length-prefixed
     // (key, value) sequence — no canonical order is imposed (the cache key hashes
     // inputs, not the blob), so emit order is free and read rebuilds an unordered map.
 
@@ -447,24 +453,6 @@ module FrozenCodec =
             arr.[i] <- readElem r
 
         List.ofArray arr
-
-    let private writeNodeKeyMap (w: BinaryWriter) (writeVal: BinaryWriter -> 'v -> unit) (m: Map<NodeKey, 'v>) =
-        w.Write m.Count
-
-        for KeyValue(k, v) in m do
-            writeNodeKey w k
-            writeVal w v
-
-    let private readNodeKeyMap (r: BinaryReader) (readVal: BinaryReader -> 'v) : Map<NodeKey, 'v> =
-        let n = r.ReadInt32()
-        let mutable acc = Map.empty
-
-        for _ in 1..n do
-            let k = readNodeKey r
-            let v = readVal r
-            acc <- Map.add k v acc
-
-        acc
 
     /// The two `IReadOnlyDictionary<SymbolKey,_>` fields — rebuilt on read as a
     /// concrete `Dictionary` exposed through the read-only face, exactly how
@@ -1675,11 +1663,6 @@ module FrozenCodec =
         writeSymbolKey w v.Key
         writeInlineBody w v.Body
 
-    and private writeStaticParam (w: BinaryWriter) (p: Frozen.StaticParam) =
-        writeNodeKey w p.Slot
-        writeFrozenType w p.Ty
-        writeOptionWith w writePat p.Pat
-
     and private writeArgGroup (w: BinaryWriter) (g: Frozen.ArgGroup) =
         match g with
         | ArgGroupG.GUnit ty ->
@@ -1697,17 +1680,6 @@ module FrozenCodec =
         w.Write v.Typars
         writeListWith w writeArgGroup v.Groups
         writeFrozenType w v.ResultTy
-
-    and private writeCompiledReturn (w: BinaryWriter) (c: Frozen.CompiledReturn) =
-        match c with
-        | CompiledReturnG.RVoid -> w.Write 0uy
-        | CompiledReturnG.RValue ty ->
-            w.Write 1uy
-            writeFrozenType w ty
-
-    and private writeCompiledForm (w: BinaryWriter) (c: Frozen.CompiledForm) =
-        writeListWith w writeStaticParam c.Params
-        writeCompiledReturn w c.Return
 
     // ── the mirror reader group ─────────────────────────────────────────────
 
@@ -2387,12 +2359,6 @@ module FrozenCodec =
         let body = readInlineBody r
         { Key = key; Body = body }
 
-    and private readStaticParam (r: BinaryReader) : Frozen.StaticParam =
-        let slot = readNodeKey r
-        let ty = readFrozenType r
-        let pat = readOptionWith r readPat
-        { Slot = slot; Ty = ty; Pat = pat }
-
     and private readArgGroup (r: BinaryReader) : Frozen.ArgGroup =
         match r.ReadByte() with
         | 0uy -> ArgGroupG.GUnit(readFrozenType r)
@@ -2414,71 +2380,690 @@ module FrozenCodec =
             ResultTy = resultTy
         }
 
-    and private readCompiledReturn (r: BinaryReader) : Frozen.CompiledReturn =
+    // ── the pool columns (the stored wire form) ─────────────────────────────
+    //
+    // One length-prefixed column per `FrozenPools` field, emitted in record-declaration
+    // order so the writer and the reader read as the same list side by side. Ids
+    // (`ExprPoolId`/`PatPoolId`/`DeclPoolId`/`BinderId`) are plain `int`s: the blob is
+    // Brotli-compressed at the store seam, which absorbs their width redundancy far more
+    // cheaply than a bespoke varint would pay for in reader complexity.
+    //
+    // The shape and payload tag writers below are EXHAUSTIVE with no catch-all — the same
+    // discipline `TastPools.exprPayload`/`substituteExpr` hold — so a new payload or shape
+    // case fails to compile here rather than serializing as a silent alias.
+
+    let private writeExprPoolId (w: BinaryWriter) (ExprPoolId i) = w.Write i
+    let private readExprPoolId (r: BinaryReader) : ExprPoolId = ExprPoolId(r.ReadInt32())
+    let private writePatPoolId (w: BinaryWriter) (PatPoolId i) = w.Write i
+    let private readPatPoolId (r: BinaryReader) : PatPoolId = PatPoolId(r.ReadInt32())
+    let private writeDeclPoolId (w: BinaryWriter) (DeclPoolId i) = w.Write i
+    let private readDeclPoolId (r: BinaryReader) : DeclPoolId = DeclPoolId(r.ReadInt32())
+    let private writeBinderId (w: BinaryWriter) (BinderId i) = w.Write i
+    let private readBinderId (r: BinaryReader) : BinderId = BinderId(r.ReadInt32())
+
+    /// A jagged child-id column — one length-prefixed id list per pool slot. Generic over
+    /// the id codec, so the expr-child and pat-child columns of all three domains share the
+    /// one nesting convention rather than repeating it per domain.
+    let private writeIdColumn (w: BinaryWriter) (writeId: BinaryWriter -> 'id -> unit) (col: 'id[][]) =
+        writeArrayWith w (fun w ids -> writeArrayWith w writeId ids) col
+
+    let private readIdColumn (r: BinaryReader) (readId: BinaryReader -> 'id) : 'id[][] =
+        readArrayWith r (fun r -> readArrayWith r readId)
+
+    /// A dense side table — the `(id, value)` association a `Map<NodeKey,_>` was re-keyed
+    /// to. Generic over BOTH codecs, so the six `BinderId`-keyed tables and the one
+    /// `ExprPoolId`-keyed (`FunVerdicts`) share this single pair.
+    let private writeDenseTable
+        (w: BinaryWriter)
+        (writeId: BinaryWriter -> 'id -> unit)
+        (writeVal: BinaryWriter -> 'v -> unit)
+        (xs: ('id * 'v)[])
+        =
+        writeArrayWith
+            w
+            (fun w (id, v) ->
+                writeId w id
+                writeVal w v
+            )
+            xs
+
+    let private readDenseTable
+        (r: BinaryReader)
+        (readId: BinaryReader -> 'id)
+        (readVal: BinaryReader -> 'v)
+        : ('id * 'v)[] =
+        readArrayWith
+            r
+            (fun r ->
+                let id = readId r
+                let v = readVal r
+                id, v
+            )
+
+    let private writeExprShape (w: BinaryWriter) (s: ExprShape) =
+        let tag =
+            match s with
+            | ExprShape.Const -> 0uy
+            | ExprShape.Var -> 1uy
+            | ExprShape.External -> 2uy
+            | ExprShape.Lambda -> 3uy
+            | ExprShape.App -> 4uy
+            | ExprShape.Let -> 5uy
+            | ExprShape.Use -> 6uy
+            | ExprShape.IfThenElse -> 7uy
+            | ExprShape.Tuple -> 8uy
+            | ExprShape.Sequential -> 9uy
+            | ExprShape.While -> 10uy
+            | ExprShape.ForTo -> 11uy
+            | ExprShape.ForIn -> 12uy
+            | ExprShape.Match -> 13uy
+            | ExprShape.TryWith -> 14uy
+            | ExprShape.TryFinally -> 15uy
+            | ExprShape.Assignment -> 16uy
+            | ExprShape.Null -> 17uy
+            | ExprShape.Range -> 18uy
+            | ExprShape.RecordCons -> 19uy
+            | ExprShape.RecordClone -> 20uy
+            | ExprShape.FieldGet -> 21uy
+            | ExprShape.FieldSet -> 22uy
+            | ExprShape.UnionCons -> 23uy
+            | ExprShape.New -> 24uy
+            | ExprShape.MethodCall -> 25uy
+            | ExprShape.PropertyGet -> 26uy
+            | ExprShape.StaticMethodCall -> 27uy
+            | ExprShape.StaticPropertyGet -> 28uy
+            | ExprShape.StaticFieldGet -> 29uy
+            | ExprShape.StaticFieldSet -> 30uy
+            | ExprShape.ExternalMember -> 31uy
+            | ExprShape.Format -> 32uy
+            | ExprShape.ILIntrinsic -> 33uy
+            | ExprShape.StaticOptimization -> 34uy
+            | ExprShape.Upcast -> 35uy
+            | ExprShape.Downcast -> 36uy
+            | ExprShape.TypeTest -> 37uy
+            | ExprShape.TraitCall -> 38uy
+
+        w.Write tag
+
+    let private readExprShape (r: BinaryReader) : ExprShape =
         match r.ReadByte() with
-        | 0uy -> CompiledReturnG.RVoid
-        | 1uy -> CompiledReturnG.RValue(readFrozenType r)
-        | b -> failwithf "FrozenCodec: unknown CompiledReturn tag %d" b
+        | 0uy -> ExprShape.Const
+        | 1uy -> ExprShape.Var
+        | 2uy -> ExprShape.External
+        | 3uy -> ExprShape.Lambda
+        | 4uy -> ExprShape.App
+        | 5uy -> ExprShape.Let
+        | 6uy -> ExprShape.Use
+        | 7uy -> ExprShape.IfThenElse
+        | 8uy -> ExprShape.Tuple
+        | 9uy -> ExprShape.Sequential
+        | 10uy -> ExprShape.While
+        | 11uy -> ExprShape.ForTo
+        | 12uy -> ExprShape.ForIn
+        | 13uy -> ExprShape.Match
+        | 14uy -> ExprShape.TryWith
+        | 15uy -> ExprShape.TryFinally
+        | 16uy -> ExprShape.Assignment
+        | 17uy -> ExprShape.Null
+        | 18uy -> ExprShape.Range
+        | 19uy -> ExprShape.RecordCons
+        | 20uy -> ExprShape.RecordClone
+        | 21uy -> ExprShape.FieldGet
+        | 22uy -> ExprShape.FieldSet
+        | 23uy -> ExprShape.UnionCons
+        | 24uy -> ExprShape.New
+        | 25uy -> ExprShape.MethodCall
+        | 26uy -> ExprShape.PropertyGet
+        | 27uy -> ExprShape.StaticMethodCall
+        | 28uy -> ExprShape.StaticPropertyGet
+        | 29uy -> ExprShape.StaticFieldGet
+        | 30uy -> ExprShape.StaticFieldSet
+        | 31uy -> ExprShape.ExternalMember
+        | 32uy -> ExprShape.Format
+        | 33uy -> ExprShape.ILIntrinsic
+        | 34uy -> ExprShape.StaticOptimization
+        | 35uy -> ExprShape.Upcast
+        | 36uy -> ExprShape.Downcast
+        | 37uy -> ExprShape.TypeTest
+        | 38uy -> ExprShape.TraitCall
+        | b -> failwithf "FrozenCodec: unknown ExprShape tag %d" b
 
-    and private readCompiledForm (r: BinaryReader) : Frozen.CompiledForm =
-        let parameters = readListWith r readStaticParam
-        let ret = readCompiledReturn r
-        { Params = parameters; Return = ret }
+    let private writePatShape (w: BinaryWriter) (s: PatShape) =
+        let tag =
+            match s with
+            | PatShape.NamedSimple -> 0uy
+            | PatShape.Wildcard -> 1uy
+            | PatShape.Tuple -> 2uy
+            | PatShape.Const -> 3uy
+            | PatShape.Record -> 4uy
+            | PatShape.Union -> 5uy
+            | PatShape.TypeTestAs -> 6uy
+            | PatShape.Null -> 7uy
+            | PatShape.EnumCase -> 8uy
+            | PatShape.Or -> 9uy
 
-    // ── the whole frozen file (top-level entry points) ──────────────────────
+        w.Write tag
 
-    let private writeTastFile (w: BinaryWriter) (f: Frozen.TastFile) =
-        writeEqArrayWith w writeDecl f.Decls
-        writeListWith w writeDiagnostic f.Diagnostics
-        writeSymbolDict w writeIntrinsicReprInfo f.IntrinsicReprKeys
-        writeNodeKeyMap w writeModuleBindingInfo f.ModuleMembers
-        writeNodeKeyMap w (fun w (s: string) -> w.Write s) f.TopLevelNames
-        writeNodeKeyMap w writeClosureRepr f.ClosureReprs
-        writeNodeKeyMap w writeFunVerdict f.FunVerdicts
-        writeNodeKeyMap w (fun w cs -> writeListWith w writeFrozenConstraint cs) f.GenericFnSchemes
-        writeEqArrayWith w writeInlineValue f.InlineBodies
-        writeSymbolDict w writeAccessibility f.Accessibility
-        writeNodeKeyMap w writeValRepr f.BindingValReprs
-        writeNodeKeyMap w (fun w (i: int) -> w.Write i) f.BindingTyparArities
+    let private readPatShape (r: BinaryReader) : PatShape =
+        match r.ReadByte() with
+        | 0uy -> PatShape.NamedSimple
+        | 1uy -> PatShape.Wildcard
+        | 2uy -> PatShape.Tuple
+        | 3uy -> PatShape.Const
+        | 4uy -> PatShape.Record
+        | 5uy -> PatShape.Union
+        | 6uy -> PatShape.TypeTestAs
+        | 7uy -> PatShape.Null
+        | 8uy -> PatShape.EnumCase
+        | 9uy -> PatShape.Or
+        | b -> failwithf "FrozenCodec: unknown PatShape tag %d" b
 
-    let private readTastFile (r: BinaryReader) : Frozen.TastFile =
-        let decls = EqArray.ofArray (readArrayWith r readDecl)
-        let diagnostics = readListWith r readDiagnostic
-        let intrinsicReprKeys = readSymbolDict r readIntrinsicReprInfo
-        let moduleMembers = readNodeKeyMap r readModuleBindingInfo
-        let topLevelNames = readNodeKeyMap r (fun r -> r.ReadString())
-        let closureReprs = readNodeKeyMap r readClosureRepr
-        let funVerdicts = readNodeKeyMap r readFunVerdict
+    let private writeDeclShape (w: BinaryWriter) (s: DeclShape) =
+        let tag =
+            match s with
+            | DeclShape.Let -> 0uy
+            | DeclShape.Expression -> 1uy
+            | DeclShape.Type -> 2uy
 
-        let genericFnSchemes =
-            readNodeKeyMap r (fun r -> readListWith r readFrozenConstraint)
+        w.Write tag
 
-        let inlineBodies = EqArray.ofArray (readArrayWith r readInlineValue)
-        let accessibility = readSymbolDict r readAccessibility
-        let bindingValReprs = readNodeKeyMap r readValRepr
-        let bindingTyparArities = readNodeKeyMap r (fun r -> r.ReadInt32())
+    let private readDeclShape (r: BinaryReader) : DeclShape =
+        match r.ReadByte() with
+        | 0uy -> DeclShape.Let
+        | 1uy -> DeclShape.Expression
+        | 2uy -> DeclShape.Type
+        | b -> failwithf "FrozenCodec: unknown DeclShape tag %d" b
+
+    let private writeBinderNaming (w: BinaryWriter) (n: BinderNaming) =
+        w.Write n.IsSynthetic
+        w.Write n.Offset
+        w.Write n.NameIndex
+
+    let private readBinderNaming (r: BinaryReader) : BinderNaming =
+        let isSynthetic = r.ReadBoolean()
+        let offset = r.ReadInt32()
+        let nameIndex = r.ReadInt32()
 
         {
-            Decls = decls
+            IsSynthetic = isSynthetic
+            Offset = offset
+            NameIndex = nameIndex
+        }
+
+    let private writeFormatSinkShape (w: BinaryWriter) (s: FormatSinkShape) =
+        match s with
+        | FormatSinkShape.ToStdOut newline ->
+            w.Write 0uy
+            w.Write newline
+        | FormatSinkShape.ToStdErr newline ->
+            w.Write 1uy
+            w.Write newline
+        | FormatSinkShape.ToWriter newline ->
+            w.Write 2uy
+            w.Write newline
+        | FormatSinkShape.ToBuilder -> w.Write 3uy
+        | FormatSinkShape.ToString -> w.Write 4uy
+
+    let private readFormatSinkShape (r: BinaryReader) : FormatSinkShape =
+        match r.ReadByte() with
+        | 0uy -> FormatSinkShape.ToStdOut(r.ReadBoolean())
+        | 1uy -> FormatSinkShape.ToStdErr(r.ReadBoolean())
+        | 2uy -> FormatSinkShape.ToWriter(r.ReadBoolean())
+        | 3uy -> FormatSinkShape.ToBuilder
+        | 4uy -> FormatSinkShape.ToString
+        | b -> failwithf "FrozenCodec: unknown FormatSinkShape tag %d" b
+
+    let private writeFormatSegShape (w: BinaryWriter) (s: FormatSegShape) =
+        match s with
+        | FormatSegShape.Lit text ->
+            w.Write 0uy
+            w.Write text
+        | FormatSegShape.Hole spec ->
+            w.Write 1uy
+            writeHoleSpec w spec
+        | FormatSegShape.DynHole(hasWidth, hasPrecision, spec) ->
+            w.Write 2uy
+            w.Write hasWidth
+            w.Write hasPrecision
+            writeHoleSpec w spec
+        | FormatSegShape.CallbackHole spec ->
+            w.Write 3uy
+            writeHoleSpec w spec
+
+    let private readFormatSegShape (r: BinaryReader) : FormatSegShape =
+        match r.ReadByte() with
+        | 0uy -> FormatSegShape.Lit(r.ReadString())
+        | 1uy -> FormatSegShape.Hole(readHoleSpec r)
+        | 2uy ->
+            let hasWidth = r.ReadBoolean()
+            let hasPrecision = r.ReadBoolean()
+            let spec = readHoleSpec r
+            FormatSegShape.DynHole(hasWidth, hasPrecision, spec)
+        | 3uy -> FormatSegShape.CallbackHole(readHoleSpec r)
+        | b -> failwithf "FrozenCodec: unknown FormatSegShape tag %d" b
+
+    let private writeExprPayload (w: BinaryWriter) (p: ExprPayload) =
+        match p with
+        | ExprPayload.Const value ->
+            w.Write 0uy
+            writeTConstValue w value
+        | ExprPayload.Var -> w.Write 1uy
+        | ExprPayload.External p ->
+            w.Write 2uy
+            w.Write p.CompiledName
+            writeVOptionWith w writeSymbolKey p.Key
+        | ExprPayload.Lambda -> w.Write 3uy
+        | ExprPayload.App -> w.Write 4uy
+        | ExprPayload.Let -> w.Write 5uy
+        | ExprPayload.Use dispose ->
+            w.Write 6uy
+            writeDisposal w dispose
+        | ExprPayload.IfThenElse -> w.Write 7uy
+        | ExprPayload.Tuple -> w.Write 8uy
+        | ExprPayload.Sequential -> w.Write 9uy
+        | ExprPayload.While -> w.Write 10uy
+        | ExprPayload.ForTo p ->
+            w.Write 11uy
+            writeNodeKey w p.Var
+            writeSyntaxToken w p.IdentTok
+        | ExprPayload.ForIn enumerator ->
+            w.Write 12uy
+            writeForInEnumerator w enumerator
+        | ExprPayload.Match guardPresent ->
+            w.Write 13uy
+            writeArrayWith w (fun w (g: bool) -> w.Write g) guardPresent
+        | ExprPayload.TryWith guardPresent ->
+            w.Write 14uy
+            writeArrayWith w (fun w (g: bool) -> w.Write g) guardPresent
+        | ExprPayload.TryFinally -> w.Write 15uy
+        | ExprPayload.Assignment -> w.Write 16uy
+        | ExprPayload.Null -> w.Write 17uy
+        | ExprPayload.Range hasStep ->
+            w.Write 18uy
+            w.Write hasStep
+        | ExprPayload.RecordCons fieldNames ->
+            w.Write 19uy
+            writeArrayWith w (fun w (n: string) -> w.Write n) fieldNames
+        | ExprPayload.RecordClone overrideNames ->
+            w.Write 20uy
+            writeArrayWith w (fun w (n: string) -> w.Write n) overrideNames
+        | ExprPayload.FieldGet fieldName ->
+            w.Write 21uy
+            w.Write fieldName
+        | ExprPayload.FieldSet fieldName ->
+            w.Write 22uy
+            w.Write fieldName
+        | ExprPayload.UnionCons caseName ->
+            w.Write 23uy
+            w.Write caseName
+        | ExprPayload.New p ->
+            w.Write 24uy
+            w.Write p.ClassName
+            writeVOptionWith w writeSymbolKey p.Key
+        | ExprPayload.MethodCall p ->
+            w.Write 25uy
+            writeSymbolKey w p.Key
+            writeCallVia w p.Via
+        | ExprPayload.PropertyGet p ->
+            w.Write 26uy
+            writeSymbolKey w p.Key
+            writeCallVia w p.Via
+        | ExprPayload.StaticMethodCall key ->
+            w.Write 27uy
+            writeSymbolKey w key
+        | ExprPayload.StaticPropertyGet key ->
+            w.Write 28uy
+            writeSymbolKey w key
+        | ExprPayload.StaticFieldGet p ->
+            w.Write 29uy
+            writeSymbolKey w p.DeclKey
+            w.Write p.FieldName
+        | ExprPayload.StaticFieldSet p ->
+            w.Write 30uy
+            writeSymbolKey w p.DeclKey
+            w.Write p.FieldName
+        | ExprPayload.ExternalMember p ->
+            w.Write 31uy
+            w.Write p.HasReceiver
+            writeSymbolKey w p.Key
+            w.Write p.MemberName
+            writeMemberStorage w p.Storage
+        | ExprPayload.Format p ->
+            w.Write 32uy
+            writeFormatSinkShape w p.Sink
+            writeArrayWith w writeFormatSegShape p.Segments
+        | ExprPayload.ILIntrinsic p ->
+            w.Write 33uy
+            w.Write p.OpCode
+            writeVOptionWith w writeFrozenType p.TypeOperand
+        | ExprPayload.StaticOptimization clauseConstraints ->
+            w.Write 34uy
+            writeArrayWith w (fun w cs -> writeEqArrayWith w writeStaticOptConstraint cs) clauseConstraints
+        | ExprPayload.Upcast -> w.Write 35uy
+        | ExprPayload.Downcast -> w.Write 36uy
+        | ExprPayload.TypeTest testTy ->
+            w.Write 37uy
+            writeFrozenType w testTy
+        | ExprPayload.TraitCall p ->
+            w.Write 38uy
+            writeFrozenType w p.Receiver
+            w.Write p.MemberName
+
+    let private readExprPayload (r: BinaryReader) : ExprPayload =
+        match r.ReadByte() with
+        | 0uy -> ExprPayload.Const(readTConstValue r)
+        | 1uy -> ExprPayload.Var
+        | 2uy ->
+            let compiledName = r.ReadString()
+            let key = readVOptionWith r readSymbolKey
+
+            ExprPayload.External
+                {|
+                    CompiledName = compiledName
+                    Key = key
+                |}
+        | 3uy -> ExprPayload.Lambda
+        | 4uy -> ExprPayload.App
+        | 5uy -> ExprPayload.Let
+        | 6uy -> ExprPayload.Use(readDisposal r)
+        | 7uy -> ExprPayload.IfThenElse
+        | 8uy -> ExprPayload.Tuple
+        | 9uy -> ExprPayload.Sequential
+        | 10uy -> ExprPayload.While
+        | 11uy ->
+            let var = readNodeKey r
+            let identTok = readSyntaxToken r
+
+            ExprPayload.ForTo {| Var = var; IdentTok = identTok |}
+        | 12uy -> ExprPayload.ForIn(readForInEnumerator r)
+        | 13uy -> ExprPayload.Match(readArrayWith r (fun r -> r.ReadBoolean()))
+        | 14uy -> ExprPayload.TryWith(readArrayWith r (fun r -> r.ReadBoolean()))
+        | 15uy -> ExprPayload.TryFinally
+        | 16uy -> ExprPayload.Assignment
+        | 17uy -> ExprPayload.Null
+        | 18uy -> ExprPayload.Range(r.ReadBoolean())
+        | 19uy -> ExprPayload.RecordCons(readArrayWith r (fun r -> r.ReadString()))
+        | 20uy -> ExprPayload.RecordClone(readArrayWith r (fun r -> r.ReadString()))
+        | 21uy -> ExprPayload.FieldGet(r.ReadString())
+        | 22uy -> ExprPayload.FieldSet(r.ReadString())
+        | 23uy -> ExprPayload.UnionCons(r.ReadString())
+        | 24uy ->
+            let className = r.ReadString()
+            let key = readVOptionWith r readSymbolKey
+            ExprPayload.New {| ClassName = className; Key = key |}
+        | 25uy ->
+            let key = readSymbolKey r
+            let via = readCallVia r
+            ExprPayload.MethodCall {| Key = key; Via = via |}
+        | 26uy ->
+            let key = readSymbolKey r
+            let via = readCallVia r
+            ExprPayload.PropertyGet {| Key = key; Via = via |}
+        | 27uy -> ExprPayload.StaticMethodCall(readSymbolKey r)
+        | 28uy -> ExprPayload.StaticPropertyGet(readSymbolKey r)
+        | 29uy ->
+            let declKey = readSymbolKey r
+            let fieldName = r.ReadString()
+
+            ExprPayload.StaticFieldGet
+                {|
+                    DeclKey = declKey
+                    FieldName = fieldName
+                |}
+        | 30uy ->
+            let declKey = readSymbolKey r
+            let fieldName = r.ReadString()
+
+            ExprPayload.StaticFieldSet
+                {|
+                    DeclKey = declKey
+                    FieldName = fieldName
+                |}
+        | 31uy ->
+            let hasReceiver = r.ReadBoolean()
+            let key = readSymbolKey r
+            let memberName = r.ReadString()
+            let storage = readMemberStorage r
+
+            ExprPayload.ExternalMember
+                {|
+                    HasReceiver = hasReceiver
+                    Key = key
+                    MemberName = memberName
+                    Storage = storage
+                |}
+        | 32uy ->
+            let sink = readFormatSinkShape r
+            let segments = readArrayWith r readFormatSegShape
+            ExprPayload.Format {| Sink = sink; Segments = segments |}
+        | 33uy ->
+            let opCode = r.ReadString()
+            let typeOperand = readVOptionWith r readFrozenType
+
+            ExprPayload.ILIntrinsic
+                {|
+                    OpCode = opCode
+                    TypeOperand = typeOperand
+                |}
+        | 34uy ->
+            ExprPayload.StaticOptimization(
+                readArrayWith r (fun r -> EqArray.ofArray (readArrayWith r readStaticOptConstraint))
+            )
+        | 35uy -> ExprPayload.Upcast
+        | 36uy -> ExprPayload.Downcast
+        | 37uy -> ExprPayload.TypeTest(readFrozenType r)
+        | 38uy ->
+            let receiver = readFrozenType r
+            let memberName = r.ReadString()
+
+            ExprPayload.TraitCall
+                {|
+                    Receiver = receiver
+                    MemberName = memberName
+                |}
+        | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b
+
+    let private writePatPayload (w: BinaryWriter) (p: PatPayload) =
+        match p with
+        | PatPayload.NamedSimple binding ->
+            w.Write 0uy
+            writeNodeKey w binding
+        | PatPayload.Wildcard -> w.Write 1uy
+        | PatPayload.Null -> w.Write 2uy
+        | PatPayload.Tuple -> w.Write 3uy
+        | PatPayload.Or -> w.Write 4uy
+        | PatPayload.Const value ->
+            w.Write 5uy
+            writeTConstValue w value
+        | PatPayload.Record fieldNames ->
+            w.Write 6uy
+            writeArrayWith w (fun w (n: string) -> w.Write n) fieldNames
+        | PatPayload.Union caseName ->
+            w.Write 7uy
+            w.Write caseName
+        | PatPayload.TypeTestAs testTy ->
+            w.Write 8uy
+            writeFrozenType w testTy
+        | PatPayload.EnumCase p ->
+            w.Write 9uy
+            writeSymbolKey w p.EnumKey
+            w.Write p.CaseName
+
+    let private readPatPayload (r: BinaryReader) : PatPayload =
+        match r.ReadByte() with
+        | 0uy -> PatPayload.NamedSimple(readNodeKey r)
+        | 1uy -> PatPayload.Wildcard
+        | 2uy -> PatPayload.Null
+        | 3uy -> PatPayload.Tuple
+        | 4uy -> PatPayload.Or
+        | 5uy -> PatPayload.Const(readTConstValue r)
+        | 6uy -> PatPayload.Record(readArrayWith r (fun r -> r.ReadString()))
+        | 7uy -> PatPayload.Union(r.ReadString())
+        | 8uy -> PatPayload.TypeTestAs(readFrozenType r)
+        | 9uy ->
+            let enumKey = readSymbolKey r
+            let caseName = r.ReadString()
+
+            PatPayload.EnumCase
+                {|
+                    EnumKey = enumKey
+                    CaseName = caseName
+                |}
+        | b -> failwithf "FrozenCodec: unknown PatPayload tag %d" b
+
+    // A `Type` decl's member bodies are the one tree the pools do NOT hold — they ride the
+    // DU codec here, opaquely, exactly as `DeclPayload.Type` carries them.
+    let private writeDeclPayload (w: BinaryWriter) (p: DeclPayload) =
+        match p with
+        | DeclPayload.Let p ->
+            w.Write 0uy
+            w.Write p.IsInline
+            writeFrozenType w p.Ty
+        | DeclPayload.Expression ty ->
+            w.Write 1uy
+            writeFrozenType w ty
+        | DeclPayload.Type td ->
+            w.Write 2uy
+            writeTypeDecl w td
+
+    let private readDeclPayload (r: BinaryReader) : DeclPayload =
+        match r.ReadByte() with
+        | 0uy ->
+            let isInline = r.ReadBoolean()
+            let ty = readFrozenType r
+            DeclPayload.Let {| IsInline = isInline; Ty = ty |}
+        | 1uy -> DeclPayload.Expression(readFrozenType r)
+        | 2uy -> DeclPayload.Type(readTypeDecl r)
+        | b -> failwithf "FrozenCodec: unknown DeclPayload tag %d" b
+
+    /// The four not-yet-pooled fields, verbatim. `InlineBodies` is the vocabulary whose
+    /// bodies ride the DU decl codec (`writeInlineValue` → `writeDecl`) — the second of the
+    /// two domains the pools carry opaquely.
+    let private writeResidue (w: BinaryWriter) (res: FrozenFileResidue) =
+        writeListWith w writeDiagnostic res.Diagnostics
+        writeSymbolDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
+        writeEqArrayWith w writeInlineValue res.InlineBodies
+        writeSymbolDict w writeAccessibility res.Accessibility
+
+    let private readResidue (r: BinaryReader) : FrozenFileResidue =
+        let diagnostics = readListWith r readDiagnostic
+        let intrinsicReprKeys = readSymbolDict r readIntrinsicReprInfo
+        let inlineBodies = EqArray.ofArray (readArrayWith r readInlineValue)
+        let accessibility = readSymbolDict r readAccessibility
+
+        {
             Diagnostics = diagnostics
             IntrinsicReprKeys = intrinsicReprKeys
+            InlineBodies = inlineBodies
+            Accessibility = accessibility
+        }
+
+    let private writePools (w: BinaryWriter) (p: FrozenPools) =
+        writeArrayWith w writeExprShape p.ExprShapes
+        writeArrayWith w writeFrozenType p.ExprTys
+        writeArrayWith w writeSyntaxToken p.ExprToks
+        writeIdColumn w writeExprPoolId p.ExprChildren
+        writeIdColumn w writePatPoolId p.ExprPatChildren
+        writeArrayWith w (fun w b -> writeVOptionWith w writeBinderId b) p.ExprVarBinder
+        writeArrayWith w writeExprPayload p.ExprPayloads
+        writeArrayWith w writePatShape p.PatShapes
+        writeArrayWith w writeFrozenType p.PatTys
+        writeArrayWith w writeSyntaxToken p.PatToks
+        writeIdColumn w writePatPoolId p.PatChildren
+        writeArrayWith w writePatPayload p.PatPayloads
+        writeArrayWith w writeDeclShape p.DeclShapes
+        writeIdColumn w writeExprPoolId p.DeclExprChildren
+        writeIdColumn w writePatPoolId p.DeclPatChildren
+        writeArrayWith w writeDeclPayload p.DeclPayloads
+        writeArrayWith w writeDeclPoolId p.Roots
+        writeArrayWith w writeNodeKey p.BinderKeys
+        writeArrayWith w writeBinderNaming p.BinderNamings
+        writeResidue w p.Residue
+        writeDenseTable w writeBinderId writeModuleBindingInfo p.ModuleMembers
+        writeDenseTable w writeBinderId (fun w (s: string) -> w.Write s) p.TopLevelNames
+        writeDenseTable w writeBinderId writeClosureRepr p.ClosureReprs
+        writeDenseTable w writeExprPoolId writeFunVerdict p.FunVerdicts
+        writeDenseTable w writeBinderId (fun w cs -> writeListWith w writeFrozenConstraint cs) p.GenericFnSchemes
+        writeDenseTable w writeBinderId writeValRepr p.BindingValReprs
+        writeDenseTable w writeBinderId (fun w (i: int) -> w.Write i) p.BindingTyparArities
+
+    let private readPools (r: BinaryReader) : FrozenPools =
+        let exprShapes = readArrayWith r readExprShape
+        let exprTys = readArrayWith r readFrozenType
+        let exprToks = readArrayWith r readSyntaxToken
+        let exprChildren = readIdColumn r readExprPoolId
+        let exprPatChildren = readIdColumn r readPatPoolId
+        let exprVarBinder = readArrayWith r (fun r -> readVOptionWith r readBinderId)
+        let exprPayloads = readArrayWith r readExprPayload
+        let patShapes = readArrayWith r readPatShape
+        let patTys = readArrayWith r readFrozenType
+        let patToks = readArrayWith r readSyntaxToken
+        let patChildren = readIdColumn r readPatPoolId
+        let patPayloads = readArrayWith r readPatPayload
+        let declShapes = readArrayWith r readDeclShape
+        let declExprChildren = readIdColumn r readExprPoolId
+        let declPatChildren = readIdColumn r readPatPoolId
+        let declPayloads = readArrayWith r readDeclPayload
+        let roots = readArrayWith r readDeclPoolId
+        let binderKeys = readArrayWith r readNodeKey
+        let binderNamings = readArrayWith r readBinderNaming
+        let residue = readResidue r
+        let moduleMembers = readDenseTable r readBinderId readModuleBindingInfo
+
+        let topLevelNames = readDenseTable r readBinderId (fun r -> r.ReadString())
+
+        let closureReprs = readDenseTable r readBinderId readClosureRepr
+        let funVerdicts = readDenseTable r readExprPoolId readFunVerdict
+
+        let genericFnSchemes =
+            readDenseTable r readBinderId (fun r -> readListWith r readFrozenConstraint)
+
+        let bindingValReprs = readDenseTable r readBinderId readValRepr
+
+        let bindingTyparArities = readDenseTable r readBinderId (fun r -> r.ReadInt32())
+
+        {
+            ExprShapes = exprShapes
+            ExprTys = exprTys
+            ExprToks = exprToks
+            ExprChildren = exprChildren
+            ExprPatChildren = exprPatChildren
+            ExprVarBinder = exprVarBinder
+            ExprPayloads = exprPayloads
+            PatShapes = patShapes
+            PatTys = patTys
+            PatToks = patToks
+            PatChildren = patChildren
+            PatPayloads = patPayloads
+            DeclShapes = declShapes
+            DeclExprChildren = declExprChildren
+            DeclPatChildren = declPatChildren
+            DeclPayloads = declPayloads
+            Roots = roots
+            BinderKeys = binderKeys
+            BinderNamings = binderNamings
+            Residue = residue
             ModuleMembers = moduleMembers
             TopLevelNames = topLevelNames
             ClosureReprs = closureReprs
             FunVerdicts = funVerdicts
             GenericFnSchemes = genericFnSchemes
-            InlineBodies = inlineBodies
-            Accessibility = accessibility
             BindingValReprs = bindingValReprs
             BindingTyparArities = bindingTyparArities
         }
 
-    /// Flatten an entire frozen file to a length-prefixed byte blob — VERBATIM (no
-    /// interning / compression / pools). `thaw` is its exact structural inverse.
-    let flatten (f: Frozen.TastFile) : byte[] = toBytes writeTastFile f
+    // ── the whole frozen file (top-level entry points) ──────────────────────
 
-    /// Rebuild the frozen file from a `flatten` blob. The two `IReadOnlyDictionary`
-    /// fields come back as concrete `Dictionary`s (reference equality), so a
-    /// whole-record `=` is NOT sound on them — compare those two fields as key→value
-    /// sets (see the round-trip gate).
-    let thaw (bytes: byte[]) : Frozen.TastFile = ofBytes readTastFile bytes
+    /// Flatten an entire frozen file to a byte blob: pool the trees and identity keys
+    /// (`TastPools.toPools`), then write the columns. No interning and no compression —
+    /// `Compression` wraps the blob at the store seam, and the cache key hashes INPUTS, not
+    /// the blob, so no byte canonicalization is owed here. `thaw` is the exact inverse.
+    let flatten (f: Frozen.TastFile) : byte[] =
+        toBytes writePools (TastPools.toPools f)
+
+    /// Rebuild the frozen file from a `flatten` blob: read the columns, then re-author the
+    /// DU from them (`TastPools.ofPools`). The two `IReadOnlyDictionary` fields come back as
+    /// concrete `Dictionary`s (reference equality), so a whole-record `=` is NOT sound —
+    /// compare with `TastFileG.structurallyEqual`.
+    let thaw (bytes: byte[]) : Frozen.TastFile =
+        TastPools.ofPools (ofBytes readPools bytes)

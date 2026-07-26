@@ -1215,6 +1215,49 @@ module TPreambleEntryG =
                 | TPreambleEntryG.Do _ -> ()
         ]
 
+[<RequireQualifiedAccess>]
+module TastFileG =
+    /// Key→value set equality for the two `IReadOnlyDictionary<SymbolKey,_>` fields.
+    /// A `SymbolKey` is an identity (equatable, deliberately unordered), so the file
+    /// stores these as HASH maps — and `IReadOnlyDictionary` carries only REFERENCE
+    /// equality, so two dictionaries with identical contents never `=`-match. Compare
+    /// them as sets instead: same count, and every key maps to an equal value. Order
+    /// independent by construction, which is what a hash map's enumeration order
+    /// demands.
+    let private dictEqual
+        (a: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>)
+        (b: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>)
+        : bool =
+        a.Count = b.Count
+        && a
+           |> Seq.forall (fun (KeyValue(k, v)) ->
+               match b.TryGetValue k with
+               | true, v2 -> v = v2
+               | _ -> false
+           )
+
+    /// Whole-file structural equality — the equality a `TastFileG` round-trip (freeze
+    /// → serialize → rebuild, or `TastPools.ofPools ∘ toPools`) is judged by. This is
+    /// LIBRARY knowledge, not test knowledge: two of the record's twelve fields are
+    /// `IReadOnlyDictionary`, which breaks the derived structural `=` on the whole
+    /// record, so `a = b` is unsound on a rebuilt file and every consumer that wants
+    /// "same contents" must route through here rather than rediscover the carve-out.
+    /// Every other field — the decl trees, the `Map<NodeKey,_>` side tables, the
+    /// diagnostics list, the inline vocabulary — has sound structural equality.
+    let structurallyEqual (a: TastFileG<'ty, 'tok>) (b: TastFileG<'ty, 'tok>) : bool =
+        a.Decls = b.Decls
+        && a.Diagnostics = b.Diagnostics
+        && dictEqual a.IntrinsicReprKeys b.IntrinsicReprKeys
+        && a.ModuleMembers = b.ModuleMembers
+        && a.TopLevelNames = b.TopLevelNames
+        && a.ClosureReprs = b.ClosureReprs
+        && a.FunVerdicts = b.FunVerdicts
+        && a.GenericFnSchemes = b.GenericFnSchemes
+        && a.InlineBodies = b.InlineBodies
+        && dictEqual a.Accessibility b.Accessibility
+        && a.BindingValReprs = b.BindingValReprs
+        && a.BindingTyparArities = b.BindingTyparArities
+
 // Parallel frozen aliases. Codegen and the freeze step speak these; the bare names
 // above STAY `SemType` (inference, Regions, tests, any non-codegen API).
 

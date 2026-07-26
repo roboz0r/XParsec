@@ -162,15 +162,16 @@ let private checkProgram (src: string) =
     checkBinderNaming pools
 
     // The interconversion gate: `ofPools ∘ toPools` reconstructs a structurally-equal
-    // `Frozen.TastFile`. Structural equality is by the serializer (the round-trip oracle
-    // the frozen-cache tests already use) — asserting the whole file by `=` is the wrong
-    // contract (side-table map ordering is free to differ). The rebuilt file's decl trees
-    // come from the pool ids and its side-table maps are re-keyed through the binder pool
-    // (not shared from the source), so a flatten difference is a genuine decl-tree OR
-    // key-remap divergence.
-    Expect.equal
-        (FrozenCodec.flatten (TastPools.ofPools pools))
-        (FrozenCodec.flatten frozen)
+    // `Frozen.TastFile`. Compared DIRECTLY, DU value against DU value — the serializer is
+    // no oracle here, because `FrozenCodec.flatten` itself pools the file, so flattening
+    // both sides would compare `toPools (ofPools (toPools f))` with `toPools f` and prove
+    // nothing about `ofPools`. `TastFileG.structurallyEqual` is the equality a whole-file
+    // `=` cannot be (two fields are `IReadOnlyDictionary`, reference-equal only). The
+    // rebuilt file's decl trees come from the pool ids and its side-table maps are re-keyed
+    // through the binder pool (not shared from the source), so an inequality is a genuine
+    // decl-tree OR key-remap divergence.
+    Expect.isTrue
+        (TastFileG.structurallyEqual (TastPools.ofPools pools) frozen)
         "ofPools (toPools f) round-trips to a structurally-equal frozen file"
 
 // Representative programs, spanning binder shapes (lambda / let-in / for), control

@@ -6,7 +6,9 @@ open XParsec.FSharp.Parser
 // wire-shape types (`ExprPoolId`/`ExprPayload`/`FrozenPools`/…) and the design rationale
 // live in `TastPoolTypes.fs`. `toPools` walks the DU assigning each node a dense id and
 // recording its child edges as ids; `ofPools` inverts, rebuilding the DU from the columns
-// alone. They are proven INTERCONVERTIBLE over the corpus — nothing reads the pools yet.
+// alone. They are proven INTERCONVERTIBLE over the corpus, and they are the seam the STORED
+// wire form sits on: `FrozenCodec.flatten` is `toPools` then the column writers, `thaw` their
+// inverse then `ofPools`.
 
 [<RequireQualifiedAccess>]
 module TastPools =
@@ -329,7 +331,13 @@ module TastPools =
             Roots = roots
             BinderKeys = binderKeys.ToArray()
             BinderNamings = binderNamings.ToArray()
-            File = file
+            Residue =
+                {
+                    Diagnostics = file.Diagnostics
+                    IntrinsicReprKeys = file.IntrinsicReprKeys
+                    InlineBodies = file.InlineBodies
+                    Accessibility = file.Accessibility
+                }
             ModuleMembers = remapSideTable binderIdOf file.ModuleMembers
             TopLevelNames = remapSideTable binderIdOf file.TopLevelNames
             ClosureReprs = remapSideTable binderIdOf file.ClosureReprs
@@ -584,9 +592,10 @@ module TastPools =
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
         | DeclPayload.Type td -> TDeclG.Type td
 
-    /// Rebuild the `Frozen.TastFile` DU from the pools — the inverse of `toPools`. Its
-    /// `Decls` are re-authored from the pool roots (the tree interconversion under
-    /// test); every other field is the retained source file's, verbatim.
+    /// Rebuild the `Frozen.TastFile` DU from the pools — the inverse of `toPools`. The
+    /// `Decls` are re-authored from the pool roots and the side tables re-keyed back
+    /// through the binder/lambda id spaces (the interconversion under test); only the
+    /// four `Residue` fields are carried through verbatim, having no pooled form.
     let ofPools (pools: FrozenPools) : Frozen.TastFile =
         // Resolve a dense id back to the binder NodeKey it names — the inverse of the
         // `toPools` interning. This is the resolution the reference remap and the side
@@ -618,20 +627,24 @@ module TastPools =
         let decls = pools.Roots |> Array.map fromDecl |> EqArray.ofArray
 
         // Rebuild a side table from its dense form, resolving each `BinderId` back to its
-        // NodeKey. Reconstructing the maps here (rather than retaining `File`'s) is what
-        // makes the round-trip prove the key remap, not just the decl trees.
+        // NodeKey. Reconstructing the maps here (rather than retaining the source file's) is
+        // what makes the round-trip prove the key remap, not just the decl trees.
         // One generic rebuild, parameterized by the inverse key resolver: the binder-keyed
         // tables pass `binderKey`, `FunVerdicts` passes `lambdaKeyOf`.
         let rebuildSideTable (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) : Map<NodeKey, 'v> =
             dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
-        { pools.File with
+        {
             Decls = decls
+            Diagnostics = pools.Residue.Diagnostics
+            IntrinsicReprKeys = pools.Residue.IntrinsicReprKeys
             ModuleMembers = rebuildSideTable binderKey pools.ModuleMembers
             TopLevelNames = rebuildSideTable binderKey pools.TopLevelNames
             ClosureReprs = rebuildSideTable binderKey pools.ClosureReprs
             FunVerdicts = rebuildSideTable lambdaKeyOf pools.FunVerdicts
             GenericFnSchemes = rebuildSideTable binderKey pools.GenericFnSchemes
+            InlineBodies = pools.Residue.InlineBodies
+            Accessibility = pools.Residue.Accessibility
             BindingValReprs = rebuildSideTable binderKey pools.BindingValReprs
             BindingTyparArities = rebuildSideTable binderKey pools.BindingTyparArities
         }

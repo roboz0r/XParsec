@@ -238,7 +238,9 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 > deliberate and known: `FrozenPools.File` still holds the source `Frozen.TastFile` (for the side
 > tables / `InlineBodies` / diagnostics — its `.Decls` are re-authored by `ofPools`), and a `Type`
 > decl's member bodies + `InlineBodies` are carried opaquely (not pooled). **Part (B) — the flip —
-> is DEFERRED to a separate effort (decision).** It is the project's crux, not a mechanical step:
+> was deferred, then UN-DEFERRED — see *The flip* for the architecture that replaced the
+> deferral, including the premise correction that forced it.** It is the project's crux, not a
+> mechanical step:
 > the CLR backend's eta-bridging (`bridgeStaticFnEscapes`) and `ClosureVerdictRewrite` are
 > CLR-specific TAST→TAST pre-passes that MINT new nodes `discoverClosures` must then walk (the JS
 > backend has no analogue — its native-curried model needs neither), so a pool-backed emit cannot
@@ -250,7 +252,21 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 > severance all land together in the dedicated flip effort (overlapping B.k+6/B.k+7). Until then the
 > accessor and both backends stay DU-backed. What THIS arc banks: the pools are built, fully
 > columnar, interconvertible, and proven codegen-invariant over the corpus — the substrate the flip
-> and the direct pool serialization (B.k+6) build on. B.k+6/B.k+7 untouched. A
+> and the direct pool serialization (B.k+6) build on. **B.k+6 has landed**: the pools ARE the
+> stored wire form — `FrozenCodec.flatten` is `TastPools.toPools` then the column writers and
+> `thaw` their inverse then `ofPools`, so the corpus-wide `thaw ∘ flatten` gate now also gates the
+> pool interconversion. `FrozenPools.File` (the whole source `Frozen.TastFile`) narrowed to a
+> four-field `FrozenFileResidue` — diagnostics, the two `SymbolKey` dictionaries, and
+> `InlineBodies` — which is exactly what `ofPools` ever read off it, so `FrozenPools` is now
+> self-contained and serializable, and the residue NAMES what is still unpooled. The DU tree codec
+> stays: it is what serializes the two opaque domains (a `DeclPayload.Type`'s member bodies, the
+> inline vocabulary), which **F.1** pools. Whole-file structural equality moved to
+> `TastFileG.structurallyEqual` (library knowledge — two of the record's twelve fields are
+> `IReadOnlyDictionary` and break the derived `=`), de-circularising the `TastPoolsTests` oracle,
+> which had been using `flatten` as its judge. The column form is **~30% LARGER compressed** than
+> the recursive tree codec (the tree encodes its spine in the nesting for free; columns must name
+> every child edge) — recorded in `FrozenBlobSizeTests` with measured ceilings, and accepted:
+> interning is dropped from this arc as a pure size optimization. A
 > `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
 > `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
 
@@ -391,21 +407,116 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
   coexisting. **(A) is LANDED** (commits `f0b81afe` exprs, `cf3b4956` pats+decls+binder) — every
   domain is struct-of-arrays, no pooled tree node retains a DU `Node`, proven codegen-invariant
   over the CLR corpus. **(B) the flip is DEFERRED** to a dedicated effort (see below).
-- **B.k+5 Flip the backing — DEFERRED (decision).** Point the accessor at the pools; `freeze`
-  stops materializing the DU. *Gate: goldens hold — the projection payoff.* The blocker is the
-  CLR-specific node-**construction** sites (`buildUse` dispose synthetic; `buildEta` /
-  `bridgeStaticFnEscapes` eta lambdas + decl rebuilds; `ClosureVerdictRewrite` retype rebuilds):
-  the two closure passes are TAST→TAST rewrites that MINT new nodes `discoverClosures` must walk,
-  and the JS backend has NO analogue (its native-curried model needs neither), so a pool-backed
-  emit cannot read them and there is no JS precedent to port. **Superseding the earlier
-  "lower-to-emit-directly" call:** the SA pool stays the IMMUTABLE, backend-neutral canonical
-  artifact, and the **CLR backend derives its own working DU/pool from it (via `ofPools` or a
-  projection) for its backend-specific lowering** — not a construction seam into the shared pool,
-  and not a reimplementation of closure emission at the emit site. The accessor flip, the
-  `binderName`/`lambdaKey` pool-read rewires, and the `File`/DU severance all land together in
-  this deferred effort (overlapping B.k+6/B.k+7). `buildUse`/`lambdaKey`/`synthLambdaBodyKey` and
-  the closure passes stay DU-backed as-is until then.
-- **B.k+6 Serialize pools directly.** Replace A's DU flatten/thaw with pool (de)serialization;
-  intern `FrozenType`/keys for size. *Gate: round-trip + size regression check.*
-- **B.k+7 Remove dead DU paths.** Delete the DU thaw and any now-unused DU plumbing. *Gate:
-  green.*
+- **B.k+5 Flip the backing — UN-DEFERRED; see *The flip* below** for the architecture and the
+  F.1…F.5 staging that replaces this one-line entry. Point the accessor at the pools; `freeze`
+  stops materializing the DU. *Gate: goldens hold — the projection payoff.*
+- **B.k+6 Serialize pools directly.** Replace A's DU flatten/thaw with pool (de)serialization.
+  *Gate: round-trip.* Interning `FrozenType`/keys is **dropped from this arc** — a pure size
+  optimization, and the blob is compressed downstream anyway; revisit when size is the
+  complaint.
+- **B.k+7 Remove dead DU paths.** Folded into **F.5**.
+
+## The flip
+
+### A premise correction
+
+The earlier deferral rested on: *the construction sites are CLR-specific, and the JS backend has
+no analogue.* **That is false**, and the whole design changes with it. The JS backend mints too —
+it just does so *indirectly*, which is why a grep for `Frozen.TExpr.*` under `Codegen.Js` returns
+nothing:
+
+- `JsEmitHelpers.substVar` → `TastLower.mapChildren` rebuilds the spliced path inside
+  `(|InlinableLet|_|)`, which `EmitJs.buildExpr` matches **mid-walk** (`EmitJs.fs:95`, `:664`,
+  `:768`).
+- `TastLower.lower` — the single largest mint in the system (119 constructor occurrences) — is
+  run by **both** backends before emit (`Layout.fs:26`, `EmitJs.fs:986`).
+
+So node construction is not a CLR quirk to route around; it is universal, and the flip must meet
+it head-on. Correspondingly the builder below is **not CLR-only** — it is a shared facility both
+backends open.
+
+### Three mint regimes
+
+- **Whole-tree pre-pass** — `TastLower.lower` (both backends); `bridgeStaticFnEscapes`/`buildEta`
+  (CLR, `HolderPlan.fs:141`, strictly *before* `discoverClosures` at `Layout.fs:121`, whose walk
+  then covers the eta lambdas); `SymbolProviders.collectInlineBodies`.
+- **Per-body batch** — `ClosureVerdictRewrite.retypeBody`/`retypeDecl`, applied per method /
+  module-value immediately before that body's emit (`Assembler.fs:1037`, `:1072`, `:1094`,
+  `:1123`). Deliberately reference-preserving for untouched subtrees, because `discoverClosures`
+  keyed its lambdas by `HashIdentity.Reference`.
+- **Interleaved** — no batch point at all: `EmitBindings.buildUse`'s dispose synthetic
+  (`EmitBindings.fs:138`, constructed and emitted inside one `IlBuilder` callback), and the JS
+  `substVar` path above.
+
+The interleaved regime is what rules out "re-pool once between phases".
+
+### The design: a stacked pool
+
+**The SA-built pool stays immutable and canonical.** A backend opens a **builder** over it that
+*stacks* rather than copies: ids `0 .. n-1` address the immutable base columns, ids `≥ n` address
+the builder's own append-only columns. The read side therefore sees **one flat id space** and
+never learns there are two layers — `exprKind`, `exprChildren`, every `…View` resolve an id
+without caring which layer answers. Nothing is copied, and base ids are **preserved exactly**,
+which is what makes the stack sound: an edge minted in the overlay may name a base node by its
+own id, and every id a consumer cached before the overlay existed stays valid.
+
+Two consequences worth naming:
+
+- **Id preservation retires the reference-identity fragility.** Six dictionaries key on
+  `Frozen.TExpr` object identity today (`ClosureVerdictRewrite.fs:84`, `EmitClosures.fs:764`,
+  `:832`, `Assembler.fs:294`/`:299`/`:310`/`:313`), and `Layout.fs:73` records the resulting
+  constraint. Under stacked ids these become **value**-keyed on a pool id — strictly better, and
+  the per-body `retypeBody` batch stops having to preserve object identity by hand.
+- **Rewrites collapse to row edits.** In columnar form `mapChildren` is "append a row identical
+  to row *i* with new child-id arrays" — one row copy, *no per-case match*, replacing 119
+  constructor occurrences. A `ClosureVerdictRewrite` retype is "copy the row, write a different
+  `ExprTys` entry". This is the flip's real payoff, not just the allocation win.
+
+**Handles carry their pool.** `ExprId`/`PatId`/`DeclId` become `[<Struct>] { Pool; Id }` rather
+than a bare `int`. A bare int forces a pool parameter through every one of the ~70 accessor
+signatures and every call site the B.2…B.k migration just finished touching; the fat handle keeps
+all of those shapes intact. It also lets pools that are *not* the file's tree exist — see the
+`ValRepr` residue below — at the cost of 16-byte handles in emit loops, which is a prototype-stage
+trade we can revisit if it shows up in a profile.
+
+**The DU survives as a construction vocabulary, not a walked representation.** A mint site may
+keep building `Frozen.TExpr.*` and hand it to `appendTree : builder -> Frozen.TExpr -> ExprId`;
+what disappears is anything *walking* a DU. That decouples the mint-site rewrites from the
+accessor flip, and lets each mint site move to native row-appends on its own schedule.
+
+### Known residues the flip must resolve
+
+- **`ValRepr` patterns have no pool home.** `ArgGroupG.GTuple` carries a `TPatG`
+  (`Tast.fs:561-574`), and for an *external* symbol those pats are minted from an `.fsi` contract
+  by `TastLower.externalValRepr` (`VesperLib.fs:299`) — they are in no file's tree, yet
+  `JsFlatFns.fs:143` reads them through `TastAccessor.patKind`. They get their own small pool,
+  owned by the external symbol table; the fat handle makes that a non-event.
+- **`Inline.thawBody`** (`Inline.fs:73`) converts a frozen `TDecl` to the `SemType` domain via
+  `TastConvert.decl`. There is no pooled `SemType` side, so this needs either a pool→`SemType`
+  walk or an `ofPools` of that one subtree.
+- **Un-migrated DU consumers**: `FrozenSignature` (decl *heads* + opaque `TTypeDecl` only — it
+  never reads a value position), `ConformanceTypars`, `SymbolProviders.collectInlineBodies`.
+- **`ofPools` stays** as a debug/test facility. 288 direct `Frozen.TDecl`/`TExpr`/`TPat`
+  references across 46 test files read `tast.Decls` for shape assertions; keeping `ofPools`
+  means the flip does not drag a 46-file test rewrite behind it.
+
+### Staging
+
+- **F.1 Pool the remaining tree carriers.** A `TTypeDecl`'s member bodies (`TExpr` at six sites:
+  members incl. interface impls, static/instance preamble `Let.Init` and `Do`, secondary-ctor
+  `Lets[].Init`/`PrimaryArgs[]`/`FieldInits[].Init`, base-ctor `Args[]` — and **no `TPat`**
+  directly, every param being a bare `NodeKey * 'ty`), `InlineBodies`' decl trees, and the
+  `ValRepr` pats. The file residue shrinks to diagnostics + the two `SymbolKey` dictionaries,
+  neither of which holds a tree. *Gate: round-trip + goldens.*
+- **F.2 The stacked builder.** The base/overlay pool type, the flat id space, `appendTree`, and
+  the row-copy primitives. Unused. *Gate: unit tests on the stack — base ids resolve unchanged,
+  overlay edges may name base nodes.*
+- **F.3 Flip the accessor.** Fat handles; every accessor body reads columns; `binderName` reads
+  `BinderNamings` and `lambdaKey` reads the lambda's `ExprPoolId` (the B.k+4/B.k+3 rewires land
+  here); both backends open a builder at their emit entry point and the mint sites append.
+  *Gate: goldens hold — 485 JS, 1407 CLR.*
+- **F.4 Migrate the stragglers.** `FrozenSignature`, `ConformanceTypars`, `SymbolProviders`,
+  `Inline.thawBody`. *Gate: green.*
+- **F.5 Sever the DU.** `freeze` stops materializing the DU (cheap version: build, `toPools`,
+  drop — freeze building columns natively is a separate optimization); delete the DU paths that
+  actually died. *Gate: green.*
