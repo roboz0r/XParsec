@@ -2283,5 +2283,5 @@ module FrozenCodec =
     /// Rebuild the frozen file's pools from a `flatten` blob. The `Residue`'s two
     /// `IReadOnlyDictionary` fields come back as concrete `Dictionary`s (reference
     /// equality), so a whole-record `=` on a thawed file is NOT sound — compare through
-    /// `TastPools.ofPools` and `TastFileG.structurallyEqual`.
+    /// `TastUnpool.ofPools` and `TastFileG.structurallyEqual`.
     let thaw (bytes: byte[]) : FrozenPools = ofBytes readPools bytes

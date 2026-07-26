@@ -39,7 +39,7 @@ let private frozenFiles: (string * FrozenPools) list =
 /// `=` would compare by reference, and `TastFileG.structurallyEqual` is the whole-file
 /// equality that knows better.
 let private survivesRoundTrip (f: FrozenPools) : bool =
-    TastFileG.structurallyEqual (TastPools.ofPools f) (TastPools.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f)))
+    TastFileG.structurallyEqual (TastUnpool.ofPools f) (TastUnpool.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f)))
 
 [<Tests>]
 let tests =
@@ -71,7 +71,7 @@ let tests =
                 let f = frozenOfJs "type C() =\n    member this.Id<'T> (x: 'T) : 'T = x\n"
 
                 let methodTypars =
-                    (TastPools.ofPools f).Decls
+                    (TastUnpool.ofPools f).Decls
                     |> EqArray.toList
                     |> List.tryPick (fun d ->
                         match d with

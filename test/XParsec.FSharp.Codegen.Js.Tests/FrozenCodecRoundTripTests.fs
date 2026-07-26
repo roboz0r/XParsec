@@ -144,7 +144,7 @@ let private collect () : Harvest =
             | TDeclG.Type _ -> ()
 
     for p in gated do
-        harvestFile (TastPools.ofPools (frozenOfJs p.Source))
+        harvestFile (TastUnpool.ofPools (frozenOfJs p.Source))
 
     // ── hand-built edge cases: pin every case shape regardless of the corpus ──
     let nsGlobal = NamespaceKey.Global

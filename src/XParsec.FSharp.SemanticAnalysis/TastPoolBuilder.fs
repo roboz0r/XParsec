@@ -442,7 +442,7 @@ module TastPoolBuilder =
     let appendPatTree (b: PoolBuilder) (p: Frozen.TPat) : PatPoolId = TastPools.poolPat (sinkOf b) p
 
     /// The DU subtree a pattern id denotes, resolved across BOTH layers — the inverse of
-    /// `appendPatTree`, node-for-node (`TastPools.substitutePat` re-authors each node from
+    /// `appendPatTree`, node-for-node (`TastUnpool.substitutePat` re-authors each node from
     /// its row, exactly as `ofPools` does for a whole pool).
     ///
     /// This direction exists for the one channel whose far end is still DU-typed: an
@@ -452,7 +452,7 @@ module TastPoolBuilder =
     /// this.
     let rec patTree (b: PoolBuilder) (id: PatPoolId) : Frozen.TPat =
         let row = patRow b id
-        TastPools.substitutePat row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree b))
+        TastUnpool.substitutePat row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree b))
 
     /// The DU subtree an expression id denotes — see `patTree`. A `Var`'s binder edge is
     /// resolved back through the pool's own binder column, so a reference minted in the
@@ -461,7 +461,7 @@ module TastPoolBuilder =
     let rec private exprTree (b: PoolBuilder) (id: ExprPoolId) : Frozen.TExpr =
         let row = exprRow b id
 
-        TastPools.substituteExpr
+        TastUnpool.substituteExpr
             row.Ty
             row.Tok
             (row.VarBinder |> ValueOption.map (binderKey b))
@@ -473,7 +473,7 @@ module TastPoolBuilder =
     let declTree (b: PoolBuilder) (id: DeclPoolId) : Frozen.TDecl =
         let row = declRow b id
 
-        TastPools.substituteDecl
+        TastUnpool.substituteDecl
             (exprTree b)
             row.Payload
             (row.ExprChildren |> Array.map (exprTree b))

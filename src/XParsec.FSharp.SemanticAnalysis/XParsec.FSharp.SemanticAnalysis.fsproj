@@ -37,6 +37,7 @@
     <Compile Include="TastWalk.fs" />
     <Compile Include="TastPoolTypes.fs" />
     <Compile Include="TastPools.fs" />
+    <Compile Include="TastUnpool.fs" />
     <Compile Include="TastPoolBuilder.fs" />
     <!-- After the pools it reads: every accessor body is a column read through a
          `PoolBuilder`, so the access seam depends on the pool, not the reverse. -->

@@ -1345,7 +1345,7 @@ module TastFileG =
            )
 
     /// Whole-file structural equality — the equality a `TastFileG` round-trip (freeze
-    /// → serialize → rebuild, or `TastPools.ofPools ∘ toPools`) is judged by. This is
+    /// → serialize → rebuild, or `TastUnpool.ofPools ∘ toPools`) is judged by. This is
     /// LIBRARY knowledge, not test knowledge: two of the record's twelve fields are
     /// `IReadOnlyDictionary`, which breaks the derived structural `=` on the whole
     /// record, so `a = b` is unsound on a rebuilt file and every consumer that wants

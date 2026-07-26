@@ -22,7 +22,7 @@ let private analyseFrozen (src: string) : FrozenPools =
 /// trees and the `NodeKey`-keyed side tables, which is what `ofPools` re-authors
 /// verbatim — the projection's INPUT is the pools, but its shape reads most directly
 /// here.
-let private duOf (frozen: FrozenPools) : Frozen.TastFile = TastPools.ofPools frozen
+let private duOf (frozen: FrozenPools) : Frozen.TastFile = TastUnpool.ofPools frozen
 
 /// The `TypeKey` of the type declared under `name`, read out of the frozen decls.
 let private typeKeyOf (frozen: FrozenPools) (name: string) : TypeKey =

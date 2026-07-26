@@ -36,10 +36,10 @@ module internal Layout =
         // of them (`StaticFn`/`ModuleValue` keys, the closure capture sets) identify a
         // binding by `NodeKey`, so handing them the pool's `BinderId` form would be a
         // rekey of the whole CLR emit rather than a change at this seam.
-        let moduleMembers = TastPools.binderKeyedMap pools pools.ModuleMembers
-        let genericFnSchemes = TastPools.binderKeyedMap pools pools.GenericFnSchemes
-        let topLevelNames = TastPools.binderKeyedMap pools pools.TopLevelNames
-        let closureReprs = TastPools.binderKeyedMap pools pools.ClosureReprs
+        let moduleMembers = TastUnpool.binderKeyedMap pools pools.ModuleMembers
+        let genericFnSchemes = TastUnpool.binderKeyedMap pools pools.GenericFnSchemes
+        let topLevelNames = TastUnpool.binderKeyedMap pools pools.TopLevelNames
+        let closureReprs = TastUnpool.binderKeyedMap pools pools.ClosureReprs
 
         // A source lambda's verdict, on the lambda ID SPACE: a lambda's dense id is its
         // `ExprPoolId`, so a discovered lambda's verdict is a lookup on the node itself

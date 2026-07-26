@@ -22,7 +22,7 @@ let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
     let lexed, file = parseFile src
 
     let frozen =
-        TastPools.ofPools (Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file)
+        TastUnpool.ofPools (Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file)
 
     TastPools.toPools frozen, frozen
 
@@ -206,7 +206,7 @@ let private checkProgram (src: string) =
     // through the binder pool (not shared from the source), so an inequality is a genuine
     // decl-tree OR key-remap divergence.
     Expect.isTrue
-        (TastFileG.structurallyEqual (TastPools.ofPools pools) frozen)
+        (TastFileG.structurallyEqual (TastUnpool.ofPools pools) frozen)
         "ofPools (toPools f) round-trips to a structurally-equal frozen file"
 
 // Representative programs, spanning binder shapes (lambda / let-in / for), control
@@ -460,7 +460,7 @@ let funVerdictLambdaKeyTests =
                     "verdict's ExprPoolId is the keyed lambda's"
 
                 // (b) `ofPools` reconstructs the map under the ORIGINAL lambda NodeKey.
-                let rebuilt = TastPools.ofPools pools
+                let rebuilt = TastUnpool.ofPools pools
                 Expect.equal rebuilt.FunVerdicts.Count 1 "one rebuilt verdict"
 
                 Expect.equal

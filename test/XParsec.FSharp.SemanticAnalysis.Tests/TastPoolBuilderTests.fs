@@ -7,19 +7,19 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // The stacking gate. `PoolBuilder` stacks an append-only overlay over an immutable
 // `FrozenPools` and presents ONE flat id space, and everything a consumer may assume rests
-// on base ids being preserved exactly — through reads, through mints, and through the
-// freeze back to a plain pool. These tests pin that: a base id reads the base column even
-// after the overlay has grown; an overlay node may name base children and rebuilds into the
-// right tree; a freeze leaves every base column a prefix of the derived one.
+// on base ids being preserved exactly — through reads and through mints. These tests pin
+// that: a base id reads the base column even after the overlay has grown, every base root
+// still drains to the decl it was pooled from, and an overlay node may name base children
+// and drains into the right tree.
 
 /// The base pools with the DU they encode — see `TastPoolsTests.poolsFor`: the freeze
-/// yields pools, `ofPools` re-authors the tree, and `toPools` re-derives the columns from
-/// it, so a base id here is one this build assigned.
+/// yields pools, `TastUnpool.ofPools` re-authors the tree, and `toPools` re-derives the
+/// columns from it, so a base id here is one this build assigned.
 let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
     let lexed, file = parseFile src
 
     let frozen =
-        TastPools.ofPools (Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file)
+        TastUnpool.ofPools (Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file)
 
     TastPools.toPools frozen, frozen
 

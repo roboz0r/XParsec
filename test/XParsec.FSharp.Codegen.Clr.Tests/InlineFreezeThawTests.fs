@@ -116,7 +116,7 @@ let private distinctLeafCount (d: Frozen.TDecl) : int =
 let private freeze (src: string) : Frozen.TastFile =
     let ctx, tast = analyseWithCtx src
     Expect.isEmpty tast.Diagnostics "no diagnostics"
-    TastPools.ofPools (Freeze.run ctx tast)
+    TastUnpool.ofPools (Freeze.run ctx tast)
 
 /// The frozen `let` decl of a single-binding program.
 let private frozenLetDecl (src: string) : Frozen.TDecl =
@@ -217,7 +217,7 @@ let rec private typarArity (ft: FrozenType) : int =
 let private publishing (unitASource: string) : IExternalSymbolProvider =
     let ctx, tastA = analyseWithCtx unitASource
     Expect.isEmpty tastA.Diagnostics "unit A has no diagnostics"
-    let unitA = TastPools.ofPools (Freeze.run ctx tastA)
+    let unitA = TastUnpool.ofPools (Freeze.run ctx tastA)
 
     let published = unitA.InlineBodies |> EqArray.toList
 
@@ -269,7 +269,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 /// leaves an `App` head instead, which reaches no `Const`, so this cannot pass by accident.
 let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
     let lexed, file = parseFile src
-    let tast = TastPools.ofPools (Pipeline.analyse provider src lexed file)
+    let tast = TastUnpool.ofPools (Pipeline.analyse provider src lexed file)
 
     Expect.isEmpty
         (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
