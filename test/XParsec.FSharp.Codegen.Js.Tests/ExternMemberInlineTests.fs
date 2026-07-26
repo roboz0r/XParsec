@@ -91,9 +91,14 @@ let private ftWidget: FrozenType =
 /// A hand-built FROZEN `widget.Poke` member over one value parameter:
 /// `member _.Poke (x: 'paramTy) : int = (# template x : int #)`. Frozen because that is
 /// what the harvest reads — a published inline body never carries a live inference cell.
-let private pokeMemberOf (template: string) (paramTy: FrozenType) : Frozen.TTypeMember =
+let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor.TypeMember =
     let xKey = NodeKey.ofSynthetic 2 NodeKind.SynthLambdaBody
     let thisKey = NodeKey.ofSynthetic 1 NodeKind.SynthLambdaBody
+
+    // The hand-built body is a node of no file, so it gets a pool of its own — the same
+    // zero-column shape an `.fsi`-minted `ValRepr`'s patterns take. `harvestMemberBody`
+    // mints its wrapping lambdas straight into it.
+    let pool = TastPoolBuilder.openEmpty ()
 
     let body =
         TExprG.ILIntrinsic(
@@ -103,6 +108,7 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : Frozen.TType
             ftInt,
             dummyTok
         )
+        |> TastPoolBuilder.appendExprTree pool
 
     {
         Name = "Poke"
@@ -114,13 +120,13 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : Frozen.TType
         BaseKey = ValueNone
         ThisTy = ftWidget
         Params = EqArray.ofList [ (xKey, paramTy) ]
-        Body = body
+        Body = { Pool = pool; Id = body }
         ReturnTy = ftInt
         MethodTypeParams = EqArray.empty
     }
 
 /// `member _.Poke (x: int) : int = (# "$0 + 1" x : int #)`.
-let private pokeMember () : Frozen.TTypeMember = pokeMemberOf "$0 + 1" ftInt
+let private pokeMember () : TastAccessor.TypeMember = pokeMemberOf "$0 + 1" ftInt
 
 // ─── Stage 1c: end-to-end SPLICE proof over the loadable `widget` fixture ────
 //
@@ -361,7 +367,7 @@ let tests =
                 let declKey = SymbolKeyOps.qualifiedTypeKeyOf "widget" 0
 
                 // The exact per-member mint `collectInlineBodies` uses.
-                let mintKey (m: Frozen.TTypeMember) : SymbolKey =
+                let mintKey (m: TastAccessor.TypeMember) : SymbolKey =
                     let kind =
                         match m.Kind with
                         | TMemberKind.Method -> MemberKind.Method
@@ -403,13 +409,17 @@ let tests =
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
                 Expect.isEmpty errors (sprintf "no analysis errors: %A" (errors |> List.map (fun d -> d.Message)))
 
-                // Replicate `SymbolProviders.collectInlineBodies`'s `TDecl.Type` arm
+                // Replicate `SymbolProviders.collectInlineBodies`'s `DeclShape.Type` arm
                 // exactly: for each member-bearing decl, harvest each member.
+                let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+
                 let harvested =
                     [
-                        for d in tast.Decls do
-                            match d with
-                            | TDeclG.Type tdecl ->
+                        for d in TastAccessor.roots pool do
+                            match TastAccessor.declKind d with
+                            | DeclShape.Type ->
+                                let tdecl = TastAccessor.declType d
+
                                 for m in TTypeKindG.members tdecl.Kind do
                                     match SymbolProviders.harvestMemberBody m with
                                     | Some body -> yield m.Name, body

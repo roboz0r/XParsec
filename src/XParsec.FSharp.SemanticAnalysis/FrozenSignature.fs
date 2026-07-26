@@ -160,7 +160,7 @@ module FrozenSignature =
                 Origin = originIn declKey.Namespace
             }
 
-        let memberOf (declKey: TypeKey) (declArity: int) (m: Frozen.TTypeMember) : ExternalMember =
+        let memberOf (declKey: TypeKey) (declArity: int) (m: TastAccessor.TypeMember) : ExternalMember =
             let isValueMember = (m.Kind = TMemberKind.Property)
             let methodArity = m.MethodTypeParams.Length
 
@@ -197,7 +197,7 @@ module FrozenSignature =
         let membersOf
             (declKey: TypeKey)
             (declArity: int)
-            (ms: EqArray<Frozen.TTypeMember>)
+            (ms: EqArray<TastAccessor.TypeMember>)
             : ResizeArray<ExternalMember> =
             let acc = ResizeArray<ExternalMember>()
 
@@ -220,10 +220,25 @@ module FrozenSignature =
                 FrozenFieldTypes = [| for (_, ty) in c.Fields -> ty |]
             }
 
-        // --- type declarations --------------------------------------------------------
-        for decl in frozen.Decls do
+        // --- declarations -------------------------------------------------------------
+        // The file's trees as columns. Nothing here mints, so the overlay stays empty and
+        // this is purely the read seam; the projection never descends into a value
+        // position, only decl HEADS and the opaque type-declaration shape.
+        let pool = TastPoolBuilder.openOver (TastPools.toPools frozen)
+
+        /// A `Type` root whose declaration passes the export threshold — the entire input
+        /// of the type-shape projection, so the threshold is applied in one place rather
+        /// than as a guard on each arm.
+        let (|ExportedTypeDecl|_|) (d: TastAccessor.DeclId) : TastAccessor.TypeDecl option =
+            match TastAccessor.declKind d with
+            | DeclShape.Type ->
+                let td = TastAccessor.declType d
+                if exported td.Key then Some td else None
+            | _ -> None
+
+        for decl in TastAccessor.roots pool do
             match decl with
-            | Frozen.TDecl.Type td when exported td.Key ->
+            | ExportedTypeDecl td ->
                 let typeKey = td.TypeKey
                 let key = SymbolKey.Type typeKey
                 let arity = td.TypeParams.Length
@@ -266,7 +281,7 @@ module FrozenSignature =
                                 }
 
                 match td.Kind with
-                | Frozen.TTypeKind.Record(fields, members, _, _) ->
+                | TTypeKindG.Record(fields, members, _, _) ->
                     let fieldShapes =
                         [|
                             for f in fields ->
@@ -305,7 +320,7 @@ module FrozenSignature =
                             buf.Add candidate
                             recordFieldIndex.[f.Name] <- buf
 
-                | Frozen.TTypeKind.Union(cases, members, _) ->
+                | TTypeKindG.Union(cases, members, _) ->
                     let caseArr = [| for c in cases -> c |]
                     let caseShapes = caseArr |> Array.map caseShapeOf
 
@@ -315,7 +330,7 @@ module FrozenSignature =
 
                     registerCases caseArr caseShapes
 
-                | Frozen.TTypeKind.Class c ->
+                | TTypeKindG.Class c ->
                     // Directly-implemented interfaces as `(compiled-name, type-args)`
                     // pairs — the frozen interface type is a nominal head whose key
                     // renders the name and whose args carry the declaring typars.
@@ -352,7 +367,7 @@ module FrozenSignature =
 
                     register (ExternalTypeShape.Class shape) (ValueSome members)
 
-                | Frozen.TTypeKind.Interface methods ->
+                | TTypeKindG.Interface methods ->
                     // Decurry each abstract method to an `ExternalMember` under the
                     // interface key (mirroring the `Class` arm's `membersOf`, via the
                     // shared `memberFromParts`), so a cross-unit `interface F with member
@@ -377,7 +392,7 @@ module FrozenSignature =
 
                     register (ExternalTypeShape.Class shape) (ValueSome members)
 
-                | Frozen.TTypeKind.Enum cases ->
+                | TTypeKindG.Enum cases ->
                     // Project the closed case→literal table to an `ExternalTypeShape.Enum`,
                     // the shape a later file resolves `(x: E)` / `E.Ci` against — its nominal
                     // identity IS the registered `key`, so no case index is needed (the
@@ -446,11 +461,17 @@ module FrozenSignature =
 
             symbols.[sym.Name] <- sym
 
-        // Non-inline module functions / values survive in `Decls`; their identity is in
-        // `ModuleMembers` (a top-level binding has none, and is never exported).
-        for decl in frozen.Decls do
+        // EVERY module binding rides `Decls`, `inline` ones included (an inline binding is
+        // emitted as an ordinary module function as well as published as a template), and
+        // its identity is in `ModuleMembers` — a top-level binding has none, and is never
+        // exported. A template's entry is re-registered with its body by the loop below,
+        // which runs second and so wins.
+        for decl in TastAccessor.roots pool do
             match decl with
-            | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), _, _, ty) ->
+            | TastAccessor.DLet {
+                                    Binding = TastAccessor.PNamed k
+                                    Ty = ty
+                                } ->
                 match Map.tryFind k frozen.ModuleMembers with
                 | Some info ->
                     match info.Key with
@@ -459,8 +480,12 @@ module FrozenSignature =
                 | None -> ()
             | _ -> ()
 
-        // Inline vocabulary rides `InlineBodies` (Freeze partitioned it out of `Decls`).
-        // The body is the frozen, sibling-rewritten template `Inline.thawBody` splices.
+        // The inline VOCABULARY rides `InlineBodies` — a second, independent tree, not a
+        // projection of the emitted function of the same name (a template is snapshotted
+        // ahead of the expansion walk, so its static-opt clauses and trait calls resolve
+        // against a CALL SITE's operand types). The body is the frozen, sibling-rewritten
+        // template `Inline.thawBody` splices, and it stays DU-typed: it is the cross-unit
+        // wire, and a pool id is meaningless outside the file that issued it.
         for iv in frozen.InlineBodies do
             match iv.Key with
             | SymbolKey.Binding bindingKey when exported iv.Key ->

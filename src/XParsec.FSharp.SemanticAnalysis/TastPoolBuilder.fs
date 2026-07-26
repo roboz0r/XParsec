@@ -396,7 +396,7 @@ module TastPoolBuilder =
         let row' = edit row
         if row' = row then id else appendDecl b row'
 
-    // ── pooling a freshly minted DU tree ────────────────────────────────────
+    // ── the DU bridge, both directions ──────────────────────────────────────
 
     /// Fill in the `Var` reference edge of a row the pooling walk just appended. Private,
     /// and sound only there: the row is the overlay's own, freshly added, and the walk
@@ -435,6 +435,42 @@ module TastPoolBuilder =
     /// Pool a freshly minted pattern subtree — see `appendExprTree`.
     let appendPatTree (b: PoolBuilder) (p: Frozen.TPat) : PatPoolId = TastPools.poolPat (sinkOf b) p
 
+    /// The DU subtree a pattern id denotes, resolved across BOTH layers — the inverse of
+    /// `appendPatTree`, node-for-node (`TastPools.substitutePat` re-authors each node from
+    /// its row, exactly as `ofPools` does for a whole pool).
+    ///
+    /// This direction exists for the one channel whose far end is still DU-typed: an
+    /// inline template crosses the PACKAGE wire as a `Frozen.TDecl` (`Frozen.TInlineBody`),
+    /// and a pool id means nothing outside the pool that issued it, the id space being
+    /// file-scoped. A consumer reading a node of THIS file's tree wants the accessor, not
+    /// this.
+    let rec patTree (b: PoolBuilder) (id: PatPoolId) : Frozen.TPat =
+        let row = patRow b id
+        TastPools.substitutePat row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree b))
+
+    /// The DU subtree an expression id denotes — see `patTree`. A `Var`'s binder edge is
+    /// resolved back through the pool's own binder column, so a reference minted in the
+    /// overlay names the same `NodeKey` it would have read.
+    let rec exprTree (b: PoolBuilder) (id: ExprPoolId) : Frozen.TExpr =
+        let row = exprRow b id
+
+        TastPools.substituteExpr
+            row.Ty
+            row.Tok
+            (row.VarBinder |> ValueOption.map (binderKey b))
+            row.Payload
+            (row.Children |> Array.map (exprTree b))
+            (row.PatChildren |> Array.map (patTree b))
+
+    /// The DU subtree a declaration id denotes — see `patTree`.
+    let declTree (b: PoolBuilder) (id: DeclPoolId) : Frozen.TDecl =
+        let row = declRow b id
+
+        TastPools.substituteDecl
+            (exprTree b)
+            row.Payload
+            (row.ExprChildren |> Array.map (exprTree b))
+            (row.PatChildren |> Array.map (patTree b))
 
     // ── freezing back to a plain pool ───────────────────────────────────────
 

@@ -24,10 +24,11 @@ namespace XParsec.FSharp.SemanticAnalysis
 // SCOPE: NON-inline generic MODULE functions only.
 //  - `let inline` operators are EXEMPT — and NOT because their `.fsi`/`.fs` typars
 //    happen to differ today. An inline body is expanded and SRTP-solved at each call
-//    site; it is NEVER emitted as a fixed-arity generic method, so it has no
-//    emitted/extracted typar order for the contract's order to drive. The signature is
-//    the sole ABI surface, and `Elaborate` drops inline templates, so they never reach
-//    `checkFile`. 4.2 would exempt them even if the body matched the contract exactly.
+//    site, and a use that CAN be spliced never reaches the compiled method, so the
+//    contract's typar order has nothing to drive there. (The binding is also emitted as
+//    an ordinary module function — F# emits both — so it does reach `checkFile`, and
+//    `checkFile` skips it explicitly on `IsInline`.) 4.2 would exempt it even if the
+//    body matched the contract exactly.
 //    (Aside, lest the current state mislead: `ops-platform.fs` implements `(+)` as the
 //    homogeneous `^T -> ^T -> ^T`, while the contract — and real FSharp.Core's body,
 //    `prim-types.fs` `let inline (+) (x:^T) (y:^U) : ^V` — is the general
@@ -112,13 +113,20 @@ module ConformanceTypars =
     /// order to compare. Returns one `TyparMismatch` per generic binding whose inferred
     /// scheme disagrees with its declared one, in source-declaration order.
     let checkFile (provider: IExternalSymbolProvider) (tast: Frozen.TastFile) : TyparMismatch list =
+        let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+
         [
-            for decl in tast.Decls do
+            for decl in TastAccessor.roots pool do
                 match decl with
-                // `Freeze` partitions inline templates out of `Decls` (they are vocabulary,
-                // not code), so a surviving `Let` is never inline; matching `false`
-                // documents the scope and is robust to that changing.
-                | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(key, _, _), _, false, ty) ->
+                // An `inline` binding IS in `Decls` — it is emitted as an ordinary module
+                // function as well as published as a template — so matching `IsInline =
+                // false` is what enforces this pass's scope (see the SCOPE note above),
+                // not a restatement of an upstream partition.
+                | TastAccessor.DLet {
+                                        Binding = TastAccessor.PNamed key
+                                        IsInline = false
+                                        Ty = ty
+                                    } ->
                     let info = Map.tryFind key tast.ModuleMembers
 
                     let nameOpt =
@@ -198,7 +206,7 @@ module ConformanceTypars =
     /// `TTypeKindG.members`); an `Interface`'s abstract methods carry a different
     /// (`TAbstractMethodG`) shape and are not checked here (no concrete `.fs` impl pairs
     /// with them in the same file), and an enum is niladic — both yield no members.
-    let private bodyMembers (kind: Frozen.TTypeKind) : EqArray<Frozen.TTypeMember> = TTypeKindG.members kind
+    let private bodyMembers (kind: TastAccessor.TypeKind) : EqArray<TastAccessor.TypeMember> = TTypeKindG.members kind
 
     /// Check every generic (method-owned-typar) MEMBER of a frozen `.fs` file against
     /// its `.fsi` contract `provider`. For each such member, the published overloads
@@ -209,10 +217,13 @@ module ConformanceTypars =
     /// one `MemberMismatch` per generic member whose `.fs` signature matches no
     /// published overload of its arity, in source-declaration order.
     let checkMembers (provider: IExternalSymbolProvider) (tast: Frozen.TastFile) : MemberMismatch list =
+        let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+
         [
-            for decl in tast.Decls do
-                match decl with
-                | Frozen.TDecl.Type td ->
+            for decl in TastAccessor.roots pool do
+                match TastAccessor.declKind decl with
+                | DeclShape.Type ->
+                    let td = TastAccessor.declType decl
                     let typeName = SymbolKeyOps.qualifiedName td.Key
 
                     for m in bodyMembers td.Kind do

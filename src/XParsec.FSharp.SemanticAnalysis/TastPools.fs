@@ -773,8 +773,13 @@ module TastPools =
     // `exprPayload`), so a new shape fails to compile here. `substitutePat`/`substituteDecl`
     // re-author from their own payload + rebuilt children the same way — no template node,
     // now that the pat and decl pools are columnar too.
+    //
+    // They are the NODE-level inverse, and public because two walks drive them: `ofPools`
+    // below (every root of a whole pool) and `TastPoolBuilder`'s subtree drain (one node
+    // id across the base/overlay stack), which serves the one channel whose far end is
+    // still DU-typed — a package's inline template.
 
-    let private substituteExpr
+    let substituteExpr
         (ty: FrozenType)
         (tok: SyntaxToken)
         (varBinding: NodeKey voption)
@@ -975,12 +980,7 @@ module TastPools =
             TExprG.TypeTest(source, testTy, ty, tok)
         | ExprPayload.TraitCall p -> TExprG.TraitCall(p.Receiver, p.MemberName, EqArray.ofArray es, ty, tok)
 
-    let private substitutePat
-        (ty: FrozenType)
-        (tok: SyntaxToken)
-        (payload: PatPayload)
-        (ps: Frozen.TPat[])
-        : Frozen.TPat =
+    let substitutePat (ty: FrozenType) (tok: SyntaxToken) (payload: PatPayload) (ps: Frozen.TPat[]) : Frozen.TPat =
         match payload with
         // `binding` is supplied from the payload, the pat analogue of `ForTo.var` — it is
         // interned so `Var` references resolve, yet reconstructed verbatim from here.
@@ -1004,7 +1004,7 @@ module TastPools =
     /// A `Type` decl's bodies are named by id INSIDE the payload's declaration shape (not
     /// by the child columns), so this direction needs the id→expr resolver too — the same
     /// `TastConvert.typeDecl` traversal, run at the inverse body mapping.
-    let private substituteDecl
+    let substituteDecl
         (fromExpr: ExprPoolId -> Frozen.TExpr)
         (payload: DeclPayload)
         (es: Frozen.TExpr[])

@@ -41,7 +41,7 @@ module SymbolProviders =
     /// member (`ThisKey = ValueNone`) prepends no `this`. The curried lambda and its
     /// `declTy` (the outer lambda's own arrow type, carrying the declaring + method
     /// typars in curried-param order) match the exact shape `inlineExpand` consumes.
-    /// Only an inline-IL (`Frozen.TExpr.ILIntrinsic`) body is a splice template; any
+    /// Only an inline-IL (`ExprShape.ILIntrinsic`) body is a splice template; any
     /// other member body is a real callable and yields `None`.
     ///
     /// That restriction is load-bearing beyond inlining: a class's compiler-generated
@@ -55,10 +55,17 @@ module SymbolProviders =
     /// use of an internal or private function which is not sufficiently accessible").
     ///
     /// Harvested off the FROZEN member, so the published body is `FrozenType` like every
-    /// other thing crossing the provider seam.
-    let harvestMemberBody (m: Frozen.TTypeMember) : InlineBody option =
-        match m.Body with
-        | TExprG.ILIntrinsic(_, _, _, _, bodyTok) ->
+    /// other thing crossing the provider seam. The wrapping lambdas are minted into the
+    /// pool the member's body already lives in — the body is spliced BY ID, so nothing is
+    /// copied to wrap it — and the finished declaration is drained back to the DU because
+    /// that is the form the package wire carries (a pool id is meaningless in the
+    /// consumer's own pool).
+    let harvestMemberBody (m: TastAccessor.TypeMember) : InlineBody option =
+        match TastAccessor.exprKind m.Body with
+        | ExprShape.ILIntrinsic ->
+            let pool = m.Body.Pool
+            let bodyTok = TastAccessor.exprTok m.Body
+
             let curried =
                 [
                     match m.ThisKey with
@@ -78,7 +85,8 @@ module SymbolProviders =
             for i = curried.Length - 1 downto 0 do
                 let (pk, pty) = curried.[i]
                 let lamTy = FTFun(pty, resultTy)
-                body <- TExprG.Lambda(TPatG.NamedSimple(pk, pty, bodyTok), body, lamTy, bodyTok)
+                let param = TastAccessor.mintNamedPat pool pk pty bodyTok
+                body <- TastAccessor.mintLambda param body lamTy bodyTok
                 resultTy <- lamTy
 
             let declTy = resultTy
@@ -89,7 +97,7 @@ module SymbolProviders =
             let patKey = TastWalk.synthLambdaBodyKey bodyTok
 
             let decl =
-                TDeclG.Let(TPatG.NamedSimple(patKey, declTy, bodyTok), body, true, declTy)
+                TastAccessor.mintLetDecl (TastAccessor.mintNamedPat pool patKey declTy bodyTok) body true declTy
 
             // ParamAttrs aligned to curried position: a leading (default) entry for
             // `this` holds value-param attribute indices at their curried offset. A
@@ -97,7 +105,11 @@ module SymbolProviders =
             // entry is `ParamAttrs.Default`.
             let paramAttrs = Array.create curried.Length ParamAttrs.Default
 
-            Some { Decl = decl; ParamAttrs = paramAttrs }
+            Some
+                {
+                    Decl = TastPoolBuilder.declTree pool decl.Id
+                    ParamAttrs = paramAttrs
+                }
         | _ -> None
 
     /// A unit's published inline vocabulary, read off its FROZEN tree.
@@ -120,16 +132,23 @@ module SymbolProviders =
     let private collectInlineBodies (tast: Frozen.TastFile) : EqArray<Frozen.TInlineValue> * Frozen.TInlineValue list =
         let values = tast.InlineBodies
 
+        // The file's trees as columns, with an append-only overlay for the curried lambda
+        // chains `harvestMemberBody` wraps each harvested body in. The overlay is
+        // discarded with this call: what leaves is the drained DU template, never an id.
+        let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+
         let members =
             [
-                for d in tast.Decls do
-                    match d with
+                for d in TastAccessor.roots pool do
                     // A concrete `(# … #)`-bodied member on ANY member-bearing host
                     // (class / union / record — `TTypeKindG.members`) is a splice
                     // template. A member with a non-inline-IL body is a real callable and
                     // is skipped by `harvestMemberBody`, so a union/record augmentation
                     // with an ordinary member is unaffected.
-                    | TDeclG.Type tdecl ->
+                    match TastAccessor.declKind d with
+                    | DeclShape.Type ->
+                        let tdecl = TastAccessor.declType d
+
                         for m in TTypeKindG.members tdecl.Kind do
                             match harvestMemberBody m with
                             | Some body ->
