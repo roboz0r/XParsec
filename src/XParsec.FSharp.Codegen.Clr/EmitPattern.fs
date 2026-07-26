@@ -340,7 +340,7 @@ module EmitPattern =
                 (fun s p -> buildMatchTest env b s nextLabel p)
         | PatShape.TypeTestAs ->
             let testTy = TastAccessor.patTypeTestTestTy pat
-            let inner = (TastAccessor.patChildren pat).[0]
+            let inner = TastAccessor.patChild pat 0
             // `:? T as x` → `isinst T` then a null check: a non-`T` value yields
             // null (`brfalse` skips the arm). On a match the cast-down value is
             // stored to a `T`-typed local; for a value-type target the `isinst`

@@ -530,7 +530,7 @@ module EmitJs =
         // no-op; emit the source verbatim. The downcast `e :?> T` is likewise identity (no
         // runtime nominal type to check).
         | ExprShape.Upcast
-        | ExprShape.Downcast -> buildExpr ctx (TastAccessor.exprChildren e).[0]
+        | ExprShape.Downcast -> buildExpr ctx (TastAccessor.exprChild e 0)
 
         // `expr when ^T : int = …`: the clauses are a COMPILE-TIME selection made when a
         // splice pins the operand type (`Inline.inlineExpand`). Reaching the backend means

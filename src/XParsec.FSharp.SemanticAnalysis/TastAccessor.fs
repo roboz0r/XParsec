@@ -90,6 +90,25 @@ module TastAccessor =
     let exprPatChildren (e: ExprId) : PatId[] =
         TastPoolBuilder.exprPatChildren e.Pool e.Id |> Array.map (at e)
 
+    // ONE child by position, without materialising the sibling list. `exprChildren` has
+    // to `Array.map` a fresh handle array — the pool column holds bare ids — so a view
+    // that wants two named children (`App`'s fn/arg, `Let`'s value/body) built and threw
+    // away an array per read, on the per-node path both backends' emit walks. Indexing
+    // the column costs nothing. The array forms stay for the views whose payload IS a
+    // list (`RecordCons`, `MethodCall`'s args, the match arms) and for a generic walk.
+
+    /// How many immediate child expressions `e` has — the bound `exprChild` indexes into.
+    let exprChildCount (e: ExprId) : int =
+        (TastPoolBuilder.exprChildren e.Pool e.Id).Length
+
+    /// The `i`-th immediate child expression, in `exprChildren` order.
+    let exprChild (e: ExprId) (i: int) : ExprId =
+        at e (TastPoolBuilder.exprChildren e.Pool e.Id).[i]
+
+    /// The `i`-th owned sub-pattern, in `exprPatChildren` order.
+    let exprPatChild (e: ExprId) (i: int) : PatId =
+        at e (TastPoolBuilder.exprPatChildren e.Pool e.Id).[i]
+
     let private payload (e: ExprId) : ExprPayload = TastPoolBuilder.exprPayload e.Pool e.Id
 
     /// The constant value carried by a `Const` node. Guard with `exprKind` =
@@ -133,11 +152,7 @@ module TastAccessor =
         match payload e with
         | ExprPayload.ExternalMember p ->
             {
-                Receiver =
-                    (if p.HasReceiver then
-                         ValueSome (exprChildren e).[0]
-                     else
-                         ValueNone)
+                Receiver = (if p.HasReceiver then ValueSome(exprChild e 0) else ValueNone)
                 Key = p.Key
                 MemberName = p.MemberName
                 Storage = p.Storage
@@ -176,8 +191,8 @@ module TastAccessor =
         match exprKind e with
         | ExprShape.Lambda ->
             {
-                Param = (exprPatChildren e).[0]
-                Body = (exprChildren e).[0]
+                Param = exprPatChild e 0
+                Body = exprChild e 0
             }
         | _ -> failwith "TastAccessor.exprLambda: not a Lambda node"
 
@@ -197,12 +212,10 @@ module TastAccessor =
     let exprLet (e: ExprId) : LetView =
         match exprKind e with
         | ExprShape.Let ->
-            let es = exprChildren e
-
             {
-                Binding = (exprPatChildren e).[0]
-                Value = es.[0]
-                Body = es.[1]
+                Binding = exprPatChild e 0
+                Value = exprChild e 0
+                Body = exprChild e 1
             }
         | _ -> failwith "TastAccessor.exprLet: not a Let node"
 
@@ -217,8 +230,10 @@ module TastAccessor =
     let exprAssignment (e: ExprId) : AssignmentView =
         match exprKind e with
         | ExprShape.Assignment ->
-            let es = exprChildren e
-            { Lhs = es.[0]; Rhs = es.[1] }
+            {
+                Lhs = exprChild e 0
+                Rhs = exprChild e 1
+            }
         | _ -> failwith "TastAccessor.exprAssignment: not an Assignment node"
 
     /// The scalar payload of an `IfThenElse` node, minus the `ty`/`tok` that
@@ -237,12 +252,10 @@ module TastAccessor =
     let exprIfThenElse (e: ExprId) : IfThenElseView =
         match exprKind e with
         | ExprShape.IfThenElse ->
-            let es = exprChildren e
-
             {
-                Cond = es.[0]
-                ThenExpr = es.[1]
-                ElseExpr = es.[2]
+                Cond = exprChild e 0
+                ThenExpr = exprChild e 1
+                ElseExpr = exprChild e 2
             }
         | _ -> failwith "TastAccessor.exprIfThenElse: not an IfThenElse node"
 
@@ -277,8 +290,10 @@ module TastAccessor =
     let exprApp (e: ExprId) : AppView =
         match exprKind e with
         | ExprShape.App ->
-            let es = exprChildren e
-            { Fn = es.[0]; Arg = es.[1] }
+            {
+                Fn = exprChild e 0
+                Arg = exprChild e 1
+            }
         | _ -> failwith "TastAccessor.exprApp: not an App node"
 
     /// The (field-name, value-expression) pairs a `RecordCons` literal assigns, in source
@@ -324,7 +339,7 @@ module TastAccessor =
         match payload e with
         | ExprPayload.FieldGet fieldName ->
             {
-                Receiver = (exprChildren e).[0]
+                Receiver = exprChild e 0
                 FieldName = fieldName
             }
         | _ -> failwith "TastAccessor.exprFieldGet: not a FieldGet node"
@@ -345,12 +360,10 @@ module TastAccessor =
     let exprFieldSet (e: ExprId) : FieldSetView =
         match payload e with
         | ExprPayload.FieldSet fieldName ->
-            let es = exprChildren e
-
             {
-                Receiver = es.[0]
+                Receiver = exprChild e 0
                 FieldName = fieldName
-                Value = es.[1]
+                Value = exprChild e 1
             }
         | _ -> failwith "TastAccessor.exprFieldSet: not a FieldSet node"
 
@@ -399,7 +412,7 @@ module TastAccessor =
         match payload e with
         | ExprPayload.PropertyGet p ->
             {
-                Receiver = (exprChildren e).[0]
+                Receiver = exprChild e 0
                 Key = p.Key
                 Via = p.Via
             }
@@ -477,7 +490,7 @@ module TastAccessor =
             {
                 Key = p.DeclKey
                 FieldName = p.FieldName
-                Value = (exprChildren e).[0]
+                Value = exprChild e 0
             }
         | _ -> failwith "TastAccessor.exprStaticFieldSet: not a StaticFieldSet node"
 
@@ -541,7 +554,7 @@ module TastAccessor =
         match payload e with
         | ExprPayload.Match guardPresent ->
             {
-                Scrutinee = (exprChildren e).[0]
+                Scrutinee = exprChild e 0
                 Arms = armsOf e guardPresent 1
             }
         | _ -> failwith "TastAccessor.exprMatch: not a Match node"
@@ -558,7 +571,7 @@ module TastAccessor =
         match payload e with
         | ExprPayload.TryWith guardPresent ->
             {
-                Body = (exprChildren e).[0]
+                Body = exprChild e 0
                 Arms = armsOf e guardPresent 1
             }
         | _ -> failwith "TastAccessor.exprTryWith: not a TryWith node"
@@ -574,8 +587,10 @@ module TastAccessor =
     let exprTryFinally (e: ExprId) : TryFinallyView =
         match exprKind e with
         | ExprShape.TryFinally ->
-            let es = exprChildren e
-            { Body = es.[0]; Cleanup = es.[1] }
+            {
+                Body = exprChild e 0
+                Cleanup = exprChild e 1
+            }
         | _ -> failwith "TastAccessor.exprTryFinally: not a TryFinally node"
 
     /// The scalar payload of a `While` node (`while Cond do Body`), minus the `ty`/`tok`
@@ -589,8 +604,10 @@ module TastAccessor =
     let exprWhile (e: ExprId) : WhileView =
         match exprKind e with
         | ExprShape.While ->
-            let es = exprChildren e
-            { Cond = es.[0]; Body = es.[1] }
+            {
+                Cond = exprChild e 0
+                Body = exprChild e 1
+            }
         | _ -> failwith "TastAccessor.exprWhile: not a While node"
 
     /// The scalar payload of a `ForTo` node (`for Var = StartExpr to EndExpr do Body`),
@@ -611,13 +628,11 @@ module TastAccessor =
     let exprForTo (e: ExprId) : ForToView =
         match payload e with
         | ExprPayload.ForTo p ->
-            let es = exprChildren e
-
             {
                 Var = p.Var
-                StartExpr = es.[0]
-                EndExpr = es.[1]
-                Body = es.[2]
+                StartExpr = exprChild e 0
+                EndExpr = exprChild e 1
+                Body = exprChild e 2
             }
         | _ -> failwith "TastAccessor.exprForTo: not a ForTo node"
 
@@ -639,12 +654,10 @@ module TastAccessor =
     let exprForIn (e: ExprId) : ForInView =
         match payload e with
         | ExprPayload.ForIn enumerator ->
-            let es = exprChildren e
-
             {
-                Pat = (exprPatChildren e).[0]
-                Source = es.[0]
-                Body = es.[1]
+                Pat = exprPatChild e 0
+                Source = exprChild e 0
+                Body = exprChild e 1
                 Enumerator = enumerator
             }
         | _ -> failwith "TastAccessor.exprForIn: not a ForIn node"
@@ -667,12 +680,10 @@ module TastAccessor =
     let exprUse (e: ExprId) : UseView =
         match payload e with
         | ExprPayload.Use dispose ->
-            let es = exprChildren e
-
             {
-                Binding = (exprPatChildren e).[0]
-                Value = es.[0]
-                Body = es.[1]
+                Binding = exprPatChild e 0
+                Value = exprChild e 0
+                Body = exprChild e 1
                 Dispose = dispose
             }
         | _ -> failwith "TastAccessor.exprUse: not a Use node"
@@ -782,9 +793,7 @@ module TastAccessor =
     /// first; `failwith` on any other shape.
     let exprStaticOptimizationDefault (e: ExprId) : ExprId =
         match exprKind e with
-        | ExprShape.StaticOptimization ->
-            let es = exprChildren e
-            es.[es.Length - 1]
+        | ExprShape.StaticOptimization -> exprChild e (exprChildCount e - 1)
         | _ -> failwith "TastAccessor.exprStaticOptimizationDefault: not a StaticOptimization node"
 
     // ── patterns ────────────────────────────────────────────────────────────
@@ -801,6 +810,11 @@ module TastAccessor =
     /// The immediate child *patterns*, in source order.
     let patChildren (p: PatId) : PatId[] =
         TastPoolBuilder.patChildren p.Pool p.Id |> Array.map (at p)
+
+    /// The `i`-th immediate sub-pattern, without materialising its siblings — see
+    /// `exprChild`.
+    let patChild (p: PatId) (i: int) : PatId =
+        at p (TastPoolBuilder.patChildren p.Pool p.Id).[i]
 
     let private patPayload (p: PatId) : PatPayload = TastPoolBuilder.patPayload p.Pool p.Id
 
@@ -892,6 +906,13 @@ module TastAccessor =
 
     let private declPayload (d: DeclId) : DeclPayload = TastPoolBuilder.declPayload d.Pool d.Id
 
+    /// The `i`-th expr / pat root of a decl — see `exprChild`.
+    let private declExprChild (d: DeclId) (i: int) : ExprId =
+        at d (TastPoolBuilder.declExprChildren d.Pool d.Id).[i]
+
+    let private declPatChild (d: DeclId) (i: int) : PatId =
+        at d (TastPoolBuilder.declPatChildren d.Pool d.Id).[i]
+
     /// The `type`-declaration payload of a `Type` decl (its `Kind`, `Key`, `Name`, …),
     /// its member/preamble/ctor bodies resolved to handles. Guard with `declKind` =
     /// `DeclShape.Type` first; `failwith` on any other shape.
@@ -906,7 +927,7 @@ module TastAccessor =
     /// `DeclShape.Expression` first; `failwith` on any other shape.
     let declExpression (d: DeclId) : ExprId =
         match declKind d with
-        | DeclShape.Expression -> at d (TastPoolBuilder.declExprChildren d.Pool d.Id).[0]
+        | DeclShape.Expression -> declExprChild d 0
         | _ -> failwith "TastAccessor.declExpression: not an Expression decl"
 
     /// The declared type an `Expression` decl carries alongside its `expr`
@@ -937,8 +958,8 @@ module TastAccessor =
         match declPayload d with
         | DeclPayload.Let p ->
             {
-                Binding = at d (TastPoolBuilder.declPatChildren d.Pool d.Id).[0]
-                Value = at d (TastPoolBuilder.declExprChildren d.Pool d.Id).[0]
+                Binding = declPatChild d 0
+                Value = declExprChild d 0
                 IsInline = p.IsInline
                 Ty = p.Ty
             }

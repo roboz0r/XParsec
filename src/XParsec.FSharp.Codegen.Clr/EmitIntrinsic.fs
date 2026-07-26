@@ -162,7 +162,7 @@ module EmitIntrinsic =
         // be boxed to reach `obj` / an interface; a *generic typar* source
         // (`(x: 'T) :> obj`) must also `box` — a JIT no-op for a reference
         // instantiation but mandatory IL (matching `boxArgIntoObjParam`).
-        let source = (TastAccessor.exprChildren e).[0]
+        let source = TastAccessor.exprChild e 0
         recur env b source
         let srcTy = typeOfExpr source
 
@@ -176,7 +176,7 @@ module EmitIntrinsic =
         // `e :?> T`: `unbox.any` for a value-type target, `castclass` for a
         // reference-type one. Both throw `InvalidCastException` at runtime on
         // a real mismatch.
-        let source = (TastAccessor.exprChildren e).[0]
+        let source = TastAccessor.exprChild e 0
         let ty = TastAccessor.exprTy e
         recur env b source
         let token = env.Provider.TypeToken ty
@@ -190,7 +190,7 @@ module EmitIntrinsic =
         // Reached only via `EmitExpr`'s router.
         // `e :? T` → `isinst T; ldnull; cgt.un` — a non-null `isinst` result
         // (the value really is a `T`) compares greater-than null, yielding 1.
-        let source = (TastAccessor.exprChildren e).[0]
+        let source = TastAccessor.exprChild e 0
         let testTy = TastAccessor.exprTypeTestTestTy e
         recur env b source
         b.Add(ILInstr.Isinst(env.Provider.TypeToken testTy))
