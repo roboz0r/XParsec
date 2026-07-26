@@ -604,9 +604,15 @@ type TDeclG<'ty, 'tok> =
     /// rather than emit a single callable.
     | Let of binding: TPatG<'ty, 'tok> * value: TExprG<'ty, 'tok> * isInline: bool * ty: 'ty
     | Expression of expr: TExprG<'ty, 'tok> * ty: 'ty
-    | Type of TTypeDeclG<'ty, 'tok>
+    | Type of TTypeDeclG<'ty, 'tok, TExprG<'ty, 'tok>>
 
-and TTypeDeclG<'ty, 'tok> =
+/// `'body` abstracts over how a member/preamble/ctor BODY is carried. A body slot is
+/// either the expression tree itself (`TExprG<'ty,'tok>` — every tree-shaped domain,
+/// SemType and frozen alike) or a dense id naming that expression in a pool; the
+/// declaration shape is indifferent to which, holding only the slots and their order.
+/// Nothing structural about a `type` declaration depends on a body being walkable, so
+/// the parameter costs the shape nothing and buys the pooled form a home.
+and TTypeDeclG<'ty, 'tok, 'body> =
     {
         /// Simple (unqualified) type name, e.g. `"Fun"`. The metadata name gets
         /// the arity suffix (`` Fun`2 ``) from `TypeParams.Length`.
@@ -630,7 +636,7 @@ and TTypeDeclG<'ty, 'tok> =
         /// (`FrozenSignature`) can honour it, mirroring the `.fsi` extractor's
         /// `RqaTypes` thread. Default `false`; interfaces / enums leave it unread.
         IsRequireQualifiedAccess: bool
-        Kind: TTypeKindG<'ty, 'tok>
+        Kind: TTypeKindG<'ty, 'tok, 'body>
         /// Equality posture for this type (records / unions / interfaces).
         /// Defaults to `Structural` — interfaces ignore it (no triple is ever
         /// synthesised), records / unions consume it in the codegen loops.
@@ -649,7 +655,7 @@ and TTypeDeclG<'ty, 'tok> =
     /// (`MethodKey`/`FieldKey`/`TypeSlotKey` minting, `provider.RegisterUserType`).
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
 
-and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
+and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'body> =
     /// A nominal type whose members are all abstract and which has no base type /
     /// field.
     | Interface of methods: EqArray<TAbstractMethodG<'ty>>
@@ -663,8 +669,8 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// emission is still deferred.
     | Union of
         cases: EqArray<TUnionCaseG<'ty>> *
-        members: EqArray<TTypeMemberG<'ty, 'tok>> *
-        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>>
+        members: EqArray<TTypeMemberG<'ty, 'body>> *
+        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'body>>>
     /// `fields` are the record's payload in declaration order, paired with their
     /// declared types and mutability. `members` carries augmentation members
     /// (`with member …` / `static member …`). `interfaces` mirrors
@@ -681,8 +687,8 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// record cannot be `[<IsByRefLike>]`.
     | Record of
         fields: EqArray<TRecordFieldG<'ty>> *
-        members: EqArray<TTypeMemberG<'ty, 'tok>> *
-        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>> *
+        members: EqArray<TTypeMemberG<'ty, 'body>> *
+        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'body>>> *
         valueKind: ClassValueKind
     /// Class type emission.
     /// `fields` are mutable instance fields (currently empty);
@@ -723,7 +729,7 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// (the explicit `val [mutable] x: T` instance fields) are populated for both
     /// structs and classes that declare them — each emits a `FieldDefinition` and
     /// a mutable one admits `this.x <- …`.
-    | Class of TClassG<'ty, 'tok>
+    | Class of TClassG<'ty, 'tok, 'body>
     /// `cases` in declaration order, each pairing a case identifier with its
     /// **resolved** compile-time literal (`| C = v`). An enum is `'ty`-free: a
     /// case value is an integer or string literal, never a typed term. The
@@ -734,22 +740,22 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
 
 /// The payload of `TTypeKindG.Class`, lifted out of an 11-wide positional
 /// tuple into a named record. See the `Class` case doc for per-field semantics.
-and TClassG<'ty, 'tok> =
+and TClassG<'ty, 'tok, 'body> =
     {
         Fields: EqArray<TRecordFieldG<'ty>>
         CtorParams: EqArray<TRecordFieldG<'ty>>
-        Members: EqArray<TTypeMemberG<'ty, 'tok>>
+        Members: EqArray<TTypeMemberG<'ty, 'body>>
         BaseType: 'ty voption
-        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>>
+        Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'body>>>
         IsSealed: bool
         /// `static let` / `static do`, in declaration order: the body of the
         /// synthesised `.cctor`. Empty unless the class declares any.
-        StaticPreamble: EqArray<TPreambleEntryG<'ty, 'tok>>
+        StaticPreamble: EqArray<TPreambleEntryG<'ty, 'body>>
         /// Instance `let` / `do`, in declaration order: the tail of the primary ctor,
         /// running after the base-ctor call and the ctor-param field stores. Empty
         /// unless the class declares any; a class with NO primary ctor can never have
         /// one (the front-end rejects it, F#'s FS0963).
-        InstancePreamble: EqArray<TPreambleEntryG<'ty, 'tok>>
+        InstancePreamble: EqArray<TPreambleEntryG<'ty, 'body>>
         /// The `this` binder every instance member body already carries
         /// (`TTypeMemberG.ThisKey`), lifted onto the class because the INSTANCE
         /// preamble's expressions read the class's fields through it too — a ctor-param
@@ -757,8 +763,8 @@ and TClassG<'ty, 'tok> =
         /// `TExpr.FieldGet(TExpr.Var(ThisKey), …)`, so the backend must map this key to
         /// the primary ctor's `this` argument.
         ThisKey: NodeKey
-        SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'tok>>
-        BaseCtorCall: TBaseCtorCallG<'ty, 'tok> voption
+        SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'body>>
+        BaseCtorCall: TBaseCtorCallG<'ty, 'body> voption
         ValueKind: ClassValueKind
         /// True when the class declares a *primary* constructor (`type T(args) =`,
         /// including the parameterless `type T() =`); false for the `val`-field form
@@ -839,7 +845,7 @@ and [<RequireQualifiedAccess>] TMemberKind =
 
 /// An instance member's body sees `this` (its `ThisKey`, resolved to `ldarg.0`)
 /// and its parameters; a static member's body sees only its parameters.
-and TTypeMemberG<'ty, 'tok> =
+and TTypeMemberG<'ty, 'body> =
     {
         Name: string
         IsStatic: bool
@@ -876,7 +882,7 @@ and TTypeMemberG<'ty, 'tok> =
         /// Parameter binders in declaration order (each `ldarg` after `this` for
         /// an instance method); empty for a property or a nullary method.
         Params: EqArray<NodeKey * 'ty>
-        Body: TExprG<'ty, 'tok>
+        Body: 'body
         ReturnTy: 'ty
         /// The member's *own* generic parameters (`member this.Map<'C> …`) — distinct from the declaring
         /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
@@ -909,32 +915,32 @@ and TTypeMemberG<'ty, 'tok> =
 /// instance `let mutable` captured by a preamble closure must stay ONE field, so it must
 /// never reach `RefCellPromotion` (which would fork the storage between a promoted cell in
 /// the closure and the field every member reads).
-and TClassLetG<'ty, 'tok> =
+and TClassLetG<'ty, 'body> =
     {
         Name: string
         Type: 'ty
         /// `let mutable` ⇒ the field is writable.
         IsMutable: bool
-        Init: TExprG<'ty, 'tok>
+        Init: 'body
     }
 
 /// One entry of a class preamble, in DECLARATION order. Interleaving is
 /// order-sensitive (`static let a = f()` / `static do g a` / `static let b = h()`), so a
 /// preamble is one ordered sequence — not parallel lists of lets and dos.
-and [<RequireQualifiedAccess>] TPreambleEntryG<'ty, 'tok> =
-    | Let of TClassLetG<'ty, 'tok>
-    | Do of TExprG<'ty, 'tok>
+and [<RequireQualifiedAccess>] TPreambleEntryG<'ty, 'body> =
+    | Let of TClassLetG<'ty, 'body>
+    | Do of 'body
 
 /// One `let`-preamble binding inside a secondary constructor body
 /// (`new(args) = let x = e in SelfType(...)`). `Binder` is the local's
 /// `NodeKey` (codegen allocates a local slot and a body reference to the name
 /// loads it); `Init` is the right-hand side. Only simple (single-name) binders
 /// are modelled in v1.
-and TCtorLetG<'ty, 'tok> =
+and TCtorLetG<'ty, 'body> =
     {
         Binder: NodeKey
         Type: 'ty
-        Init: TExprG<'ty, 'tok>
+        Init: 'body
     }
 
 /// One `field = expr` initialiser of a secondary constructor's explicit
@@ -943,11 +949,7 @@ and TCtorLetG<'ty, 'tok> =
 /// `val` or a primary-ctor backing field); `Init` is the value stored into it
 /// (`ldarg.0; <Init>; stfld Field`). Used only when a secondary ctor takes the
 /// explicit-init form instead of chaining to the primary ctor.
-and TCtorFieldInitG<'ty, 'tok> =
-    {
-        Field: string
-        Init: TExprG<'ty, 'tok>
-    }
+and TCtorFieldInitG<'body> = { Field: string; Init: 'body }
 
 /// A secondary constructor. Codegen emits a
 /// `.ctor` overload: `Params` are the overload's parameters (`ldarg` after
@@ -963,12 +965,12 @@ and TCtorFieldInitG<'ty, 'tok> =
 ///   declared field (`ldarg.0; <Init>; stfld f`). No primary chain — the fields
 ///   not listed are left default-initialised. `this`'s storage is the freshly
 ///   allocated (zeroed) instance, so `Init` may reference ctor params and lets.
-and TSecondaryCtorG<'ty, 'tok> =
+and TSecondaryCtorG<'ty, 'body> =
     {
         Params: EqArray<NodeKey * 'ty>
-        Lets: EqArray<TCtorLetG<'ty, 'tok>>
-        PrimaryArgs: EqArray<TExprG<'ty, 'tok>>
-        FieldInits: EqArray<TCtorFieldInitG<'ty, 'tok>>
+        Lets: EqArray<TCtorLetG<'ty, 'body>>
+        PrimaryArgs: EqArray<'body>
+        FieldInits: EqArray<TCtorFieldInitG<'body>>
     }
 
 /// An `inherit Base(args)` base-constructor invocation. Codegen wires the primary `.ctor` to chain to the
@@ -978,10 +980,10 @@ and TSecondaryCtorG<'ty, 'tok> =
 /// `this` isn't constructed yet, so an arg can only name a primary-ctor param or
 /// a `static let`). The parent type itself rides the `Class` kind's `baseType`
 /// slot, which also supplies the IL `TypeDefinition.BaseType`.
-and TBaseCtorCallG<'ty, 'tok> =
+and TBaseCtorCallG<'ty, 'body> =
     {
         CtorParams: EqArray<NodeKey * 'ty>
-        Args: EqArray<TExprG<'ty, 'tok>>
+        Args: EqArray<'body>
         /// The chosen base `.ctor`'s identity for an EXTERNAL base (`inherit exn(msg)`),
         /// recorded by `Unification.fillBaseCtorCall` so codegen chains the base ctor by key
         /// rather than re-picking by arity. `ValueNone` for a project-local base (its ctor is
@@ -1166,19 +1168,19 @@ type FormatSeg = FormatSegG<SemType, SyntaxToken>
 type DynFormatHole = DynFormatHoleG<SemType, SyntaxToken>
 type TStaticOptClause = TStaticOptClauseG<SemType, SyntaxToken>
 type TDecl = TDeclG<SemType, SyntaxToken>
-type TTypeDecl = TTypeDeclG<SemType, SyntaxToken>
-type TTypeKind = TTypeKindG<SemType, SyntaxToken>
-type TClass = TClassG<SemType, SyntaxToken>
+type TTypeDecl = TTypeDeclG<SemType, SyntaxToken, TExpr>
+type TTypeKind = TTypeKindG<SemType, SyntaxToken, TExpr>
+type TClass = TClassG<SemType, SyntaxToken, TExpr>
 type TUnionCase = TUnionCaseG<SemType>
 type TEnumCase = TEnumCaseG<SyntaxToken>
 type TRecordField = TRecordFieldG<SemType>
-type TTypeMember = TTypeMemberG<SemType, SyntaxToken>
-type TClassLet = TClassLetG<SemType, SyntaxToken>
-type TPreambleEntry = TPreambleEntryG<SemType, SyntaxToken>
-type TCtorLet = TCtorLetG<SemType, SyntaxToken>
-type TCtorFieldInit = TCtorFieldInitG<SemType, SyntaxToken>
-type TSecondaryCtor = TSecondaryCtorG<SemType, SyntaxToken>
-type TBaseCtorCall = TBaseCtorCallG<SemType, SyntaxToken>
+type TTypeMember = TTypeMemberG<SemType, TExpr>
+type TClassLet = TClassLetG<SemType, TExpr>
+type TPreambleEntry = TPreambleEntryG<SemType, TExpr>
+type TCtorLet = TCtorLetG<SemType, TExpr>
+type TCtorFieldInit = TCtorFieldInitG<TExpr>
+type TSecondaryCtor = TSecondaryCtorG<SemType, TExpr>
+type TBaseCtorCall = TBaseCtorCallG<SemType, TExpr>
 type TAbstractMethod = TAbstractMethodG<SemType>
 type TInlineBody = TInlineBodyG<SemType, SyntaxToken>
 type TInlineValue = TInlineValueG<SemType, SyntaxToken>
@@ -1193,7 +1195,7 @@ module TTypeKindG =
     /// (`SymbolProviders.collectInlineBodies`) and `ConformanceTypars.bodyMembers` —
     /// so neither hard-codes a single kind and a `(# … #)` member on any host is
     /// harvested, not silently dropped.
-    let members (kind: TTypeKindG<'ty, 'tok>) : EqArray<TTypeMemberG<'ty, 'tok>> =
+    let members (kind: TTypeKindG<'ty, 'tok, 'body>) : EqArray<TTypeMemberG<'ty, 'body>> =
         match kind with
         | TTypeKindG.Class c -> c.Members
         | TTypeKindG.Union(_, members, _) -> members
@@ -1204,10 +1206,10 @@ module TTypeKindG =
 [<RequireQualifiedAccess>]
 module TPreambleEntryG =
     /// The `let` binders of a class preamble, in declaration order — the entries that take a
-    /// backing field (a `do` has storage nowhere, only an effect). Generic in `'ty`/`'tok`, so
-    /// this ONE projection serves every consumer — inference-time TAST, frozen TAST, and both
+    /// backing field (a `do` has storage nowhere, only an effect). Generic in `'ty`/`'tok`/`'body`,
+    /// so this ONE projection serves every consumer — inference-time TAST, frozen TAST, and both
     /// backends — rather than one copy per stage.
-    let lets (entries: seq<TPreambleEntryG<'ty, 'tok>>) : TClassLetG<'ty, 'tok> list =
+    let lets (entries: seq<TPreambleEntryG<'ty, 'body>>) : TClassLetG<'ty, 'body> list =
         [
             for e in entries do
                 match e with
@@ -1272,20 +1274,20 @@ module Frozen =
     type TStaticOptConstraint = TStaticOptConstraintG<FrozenType>
     type TStaticOptClause = TStaticOptClauseG<FrozenType, SyntaxToken>
     type TDecl = TDeclG<FrozenType, SyntaxToken>
-    type TTypeDecl = TTypeDeclG<FrozenType, SyntaxToken>
-    type TTypeKind = TTypeKindG<FrozenType, SyntaxToken>
-    type TClass = TClassG<FrozenType, SyntaxToken>
+    type TTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, TExpr>
+    type TTypeKind = TTypeKindG<FrozenType, SyntaxToken, TExpr>
+    type TClass = TClassG<FrozenType, SyntaxToken, TExpr>
     type TUnionCase = TUnionCaseG<FrozenType>
     // Enum cases are `'ty`-free, so the frozen alias is identical to the SemType one.
     type TEnumCase = TEnumCaseG<SyntaxToken>
     type TRecordField = TRecordFieldG<FrozenType>
-    type TTypeMember = TTypeMemberG<FrozenType, SyntaxToken>
-    type TClassLet = TClassLetG<FrozenType, SyntaxToken>
-    type TPreambleEntry = TPreambleEntryG<FrozenType, SyntaxToken>
-    type TCtorLet = TCtorLetG<FrozenType, SyntaxToken>
-    type TCtorFieldInit = TCtorFieldInitG<FrozenType, SyntaxToken>
-    type TSecondaryCtor = TSecondaryCtorG<FrozenType, SyntaxToken>
-    type TBaseCtorCall = TBaseCtorCallG<FrozenType, SyntaxToken>
+    type TTypeMember = TTypeMemberG<FrozenType, TExpr>
+    type TClassLet = TClassLetG<FrozenType, TExpr>
+    type TPreambleEntry = TPreambleEntryG<FrozenType, TExpr>
+    type TCtorLet = TCtorLetG<FrozenType, TExpr>
+    type TCtorFieldInit = TCtorFieldInitG<TExpr>
+    type TSecondaryCtor = TSecondaryCtorG<FrozenType, TExpr>
+    type TBaseCtorCall = TBaseCtorCallG<FrozenType, TExpr>
     type TAbstractMethod = TAbstractMethodG<FrozenType>
     type TInlineBody = TInlineBodyG<FrozenType, SyntaxToken>
     type TInlineValue = TInlineValueG<FrozenType, SyntaxToken>

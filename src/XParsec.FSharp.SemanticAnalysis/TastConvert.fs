@@ -183,7 +183,10 @@ module TastConvert =
             IsMutable = fld.IsMutable
         }
 
-    let typeMember (f: 'a -> 'b) (m: TTypeMemberG<'a, 'tok>) : TTypeMemberG<'b, 'tok> =
+    let typeMember
+        (f: 'a -> 'b)
+        (m: TTypeMemberG<'a, TExprG<'a, 'tok>>)
+        : TTypeMemberG<'b, TExprG<'b, 'tok>> =
         {
             Name = m.Name
             IsStatic = m.IsStatic
@@ -199,7 +202,7 @@ module TastConvert =
             MethodTypeParams = EqArray.map (fun (n, ty) -> n, f ty) m.MethodTypeParams
         }
 
-    let classLet (f: 'a -> 'b) (l: TClassLetG<'a, 'tok>) : TClassLetG<'b, 'tok> =
+    let classLet (f: 'a -> 'b) (l: TClassLetG<'a, TExprG<'a, 'tok>>) : TClassLetG<'b, TExprG<'b, 'tok>> =
         {
             Name = l.Name
             Type = f l.Type
@@ -207,25 +210,34 @@ module TastConvert =
             Init = expr f l.Init
         }
 
-    let preambleEntry (f: 'a -> 'b) (p: TPreambleEntryG<'a, 'tok>) : TPreambleEntryG<'b, 'tok> =
+    let preambleEntry
+        (f: 'a -> 'b)
+        (p: TPreambleEntryG<'a, TExprG<'a, 'tok>>)
+        : TPreambleEntryG<'b, TExprG<'b, 'tok>> =
         match p with
         | TPreambleEntryG.Let l -> TPreambleEntryG.Let(classLet f l)
         | TPreambleEntryG.Do e -> TPreambleEntryG.Do(expr f e)
 
-    let ctorLet (f: 'a -> 'b) (cl: TCtorLetG<'a, 'tok>) : TCtorLetG<'b, 'tok> =
+    let ctorLet (f: 'a -> 'b) (cl: TCtorLetG<'a, TExprG<'a, 'tok>>) : TCtorLetG<'b, TExprG<'b, 'tok>> =
         {
             Binder = cl.Binder
             Type = f cl.Type
             Init = expr f cl.Init
         }
 
-    let ctorFieldInit (f: 'a -> 'b) (fi: TCtorFieldInitG<'a, 'tok>) : TCtorFieldInitG<'b, 'tok> =
+    let ctorFieldInit
+        (f: 'a -> 'b)
+        (fi: TCtorFieldInitG<TExprG<'a, 'tok>>)
+        : TCtorFieldInitG<TExprG<'b, 'tok>> =
         {
             Field = fi.Field
             Init = expr f fi.Init
         }
 
-    let secondaryCtor (f: 'a -> 'b) (sc: TSecondaryCtorG<'a, 'tok>) : TSecondaryCtorG<'b, 'tok> =
+    let secondaryCtor
+        (f: 'a -> 'b)
+        (sc: TSecondaryCtorG<'a, TExprG<'a, 'tok>>)
+        : TSecondaryCtorG<'b, TExprG<'b, 'tok>> =
         {
             Params = EqArray.map (fun (k, ty) -> k, f ty) sc.Params
             Lets = EqArray.map (ctorLet f) sc.Lets
@@ -233,7 +245,10 @@ module TastConvert =
             FieldInits = EqArray.map (ctorFieldInit f) sc.FieldInits
         }
 
-    let baseCtorCall (f: 'a -> 'b) (bc: TBaseCtorCallG<'a, 'tok>) : TBaseCtorCallG<'b, 'tok> =
+    let baseCtorCall
+        (f: 'a -> 'b)
+        (bc: TBaseCtorCallG<'a, TExprG<'a, 'tok>>)
+        : TBaseCtorCallG<'b, TExprG<'b, 'tok>> =
         {
             CtorParams = EqArray.map (fun (k, ty) -> k, f ty) bc.CtorParams
             Args = EqArray.map (expr f) bc.Args
@@ -248,7 +263,7 @@ module TastConvert =
             IsProperty = am.IsProperty
         }
 
-    let kind (f: 'a -> 'b) (k: TTypeKindG<'a, 'tok>) : TTypeKindG<'b, 'tok> =
+    let kind (f: 'a -> 'b) (k: TTypeKindG<'a, 'tok, TExprG<'a, 'tok>>) : TTypeKindG<'b, 'tok, TExprG<'b, 'tok>> =
         match k with
         | TTypeKindG.Interface methods -> TTypeKindG.Interface(EqArray.map (abstractMethod f) methods)
         | TTypeKindG.Union(cases, members, interfaces) ->
@@ -285,7 +300,7 @@ module TastConvert =
                     HasPrimaryCtor = c.HasPrimaryCtor
                 }
 
-    let typeDecl (f: 'a -> 'b) (td: TTypeDeclG<'a, 'tok>) : TTypeDeclG<'b, 'tok> =
+    let typeDecl (f: 'a -> 'b) (td: TTypeDeclG<'a, 'tok, TExprG<'a, 'tok>>) : TTypeDeclG<'b, 'tok, TExprG<'b, 'tok>> =
         {
             Name = td.Name
             TypeKey = td.TypeKey

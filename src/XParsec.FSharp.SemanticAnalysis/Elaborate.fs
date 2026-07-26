@@ -1766,7 +1766,7 @@ module Elaborate =
             let members, _ =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
 
-            let clsG: TClassG<SemType, SyntaxToken> =
+            let clsG: TClass =
                 {
                     Fields = EqArray.empty
                     CtorParams = EqArray.empty
