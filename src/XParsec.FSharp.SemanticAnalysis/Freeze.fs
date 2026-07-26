@@ -334,10 +334,3 @@ module Freeze =
         { converted with
             BindingValReprs = bindingValReprs
         }
-
-    /// Build the id-indexable pools ALONGSIDE the frozen DU. Additive and coexistent:
-    /// the DU `run` returns stays the working representation, and nothing reads the
-    /// pools yet — they exist to be interconverted with (and cross-checked against) the
-    /// DU, and to become the accessor's backing later. Kept a separate step (not folded
-    /// into `run`'s result) so the cache/pipeline plumbing is untouched this step.
-    let buildPools (frozen: Frozen.TastFile) : FrozenPools = TastPools.toPools frozen

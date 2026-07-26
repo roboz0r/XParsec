@@ -33,6 +33,7 @@
     <Compile Include="TEnumCases.fs" />
     <Compile Include="TastWalk.fs" />
     <Compile Include="TastAccessor.fs" />
+    <Compile Include="TastPoolTypes.fs" />
     <Compile Include="TastPools.fs" />
     <Compile Include="TastLower.fs" />
     <Compile Include="TastConvert.fs" />
