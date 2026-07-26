@@ -71,36 +71,15 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
         Expect.equal (TastPoolBuilder.binderKey b id) pools.BinderKeys.[i] "base binder key"
         Expect.equal (TastPoolBuilder.binderNaming b id) pools.BinderNamings.[i] "base binder naming"
 
-/// The base columns are a PREFIX of the derived ones, element for element — the freeze-side
-/// half of id preservation: an id taken before the freeze names the same node after it.
-let private checkBasePrefix (pools: FrozenPools) (derived: FrozenPools) =
-    let prefix (col: 'a[]) (n: int) = Array.sub col 0 n
+/// Every base root drains back to the decl it was pooled from — the end-to-end half of id
+/// preservation, through the ONE way out of a builder that production uses (`declTree`,
+/// the cross-unit inline wire's drain). Run after the overlay has grown, so an id-space
+/// boundary error shows up as a wrong or missing subtree.
+let private checkRootsDrainUnchanged (b: PoolBuilder) (frozen: Frozen.TastFile) =
+    let drained =
+        TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
 
-    let exprN = pools.ExprShapes.Length
-    Expect.equal (prefix derived.ExprShapes exprN) pools.ExprShapes "expr shapes prefix"
-    Expect.equal (prefix derived.ExprTys exprN) pools.ExprTys "expr tys prefix"
-    Expect.equal (prefix derived.ExprToks exprN) pools.ExprToks "expr toks prefix"
-    Expect.equal (prefix derived.ExprChildren exprN) pools.ExprChildren "expr children prefix"
-    Expect.equal (prefix derived.ExprPatChildren exprN) pools.ExprPatChildren "expr pat children prefix"
-    Expect.equal (prefix derived.ExprVarBinder exprN) pools.ExprVarBinder "expr var binder prefix"
-    Expect.equal (prefix derived.ExprPayloads exprN) pools.ExprPayloads "expr payloads prefix"
-
-    let patN = pools.PatShapes.Length
-    Expect.equal (prefix derived.PatShapes patN) pools.PatShapes "pat shapes prefix"
-    Expect.equal (prefix derived.PatTys patN) pools.PatTys "pat tys prefix"
-    Expect.equal (prefix derived.PatToks patN) pools.PatToks "pat toks prefix"
-    Expect.equal (prefix derived.PatChildren patN) pools.PatChildren "pat children prefix"
-    Expect.equal (prefix derived.PatPayloads patN) pools.PatPayloads "pat payloads prefix"
-
-    let declN = pools.DeclShapes.Length
-    Expect.equal (prefix derived.DeclShapes declN) pools.DeclShapes "decl shapes prefix"
-    Expect.equal (prefix derived.DeclExprChildren declN) pools.DeclExprChildren "decl expr children prefix"
-    Expect.equal (prefix derived.DeclPatChildren declN) pools.DeclPatChildren "decl pat children prefix"
-    Expect.equal (prefix derived.DeclPayloads declN) pools.DeclPayloads "decl payloads prefix"
-
-    let binderN = pools.BinderKeys.Length
-    Expect.equal (prefix derived.BinderKeys binderN) pools.BinderKeys "binder keys prefix"
-    Expect.equal (prefix derived.BinderNamings binderN) pools.BinderNamings "binder namings prefix"
+    Expect.equal drained (EqArray.toArray frozen.Decls) "every base root drains to its original decl"
 
 // Programs spanning the domains the stack has to keep straight: a binder reference across
 // decls (`Var` into the binder pool), a composite expr with swappable children, a pattern
@@ -134,20 +113,8 @@ let baseIdTests =
                         "the overlay grew past the base"
 
                     checkBaseIdsResolve pools b
-                    checkBasePrefix pools (TastPoolBuilder.toPools b)
+                    checkRootsDrainUnchanged b frozen
                 }
-
-            test "an overlay nothing roots is invisible to the derived tree" {
-                let pools, frozen = poolsFor "let x = 1\nlet y = x\n"
-                let b = TastPoolBuilder.openOver pools
-                TastPoolBuilder.appendExprTree b (firstLetValue frozen) |> ignore
-
-                // The roots still name the base decls, so the rebuild walks only base ids —
-                // which is the base-id-preservation property, judged end to end.
-                Expect.isTrue
-                    (TastFileG.structurallyEqual (TastPools.ofPools (TastPoolBuilder.toPools b)) frozen)
-                    "the derived pool rebuilds the original file"
-            }
         ]
 
 [<Tests>]
@@ -233,9 +200,14 @@ let appendTests =
                 // mint a second entry.
                 Expect.equal (TastPoolBuilder.internBinder b unseenBinderKey) id "interning is idempotent"
 
-                let derived = TastPoolBuilder.toPools b
-                Expect.equal derived.BinderKeys.Length (pools.BinderKeys.Length + 1) "one binder appended"
-                checkBasePrefix pools derived
+                Expect.equal
+                    (TastPoolBuilder.binderCount b)
+                    (pools.BinderKeys.Length + 1)
+                    "exactly one binder was appended"
+
+                // The base half of the binder space is untouched by the mint.
+                for i in 0 .. pools.BinderKeys.Length - 1 do
+                    Expect.equal (TastPoolBuilder.binderKey b (BinderId i)) pools.BinderKeys.[i] "base binder key"
             }
         ]
 
@@ -293,9 +265,7 @@ let rowCopyTests =
                             }
                         )
 
-                TastPoolBuilder.setRoot b 0 newRoot
-
-                // The oracle: the same file with the tuple's items reversed, built on the
+                // The oracle: the same decl with the tuple's items reversed, built on the
                 // ORIGINAL DU nodes, so tokens and types are the source's exactly.
                 let expected =
                     match (EqArray.toArray frozen.Decls).[0] with
@@ -304,14 +274,22 @@ let rowCopyTests =
                         let reversed =
                             TExprG.Tuple(items |> EqArray.toArray |> Array.rev |> EqArray.ofArray, ty, tok)
 
-                        { frozen with
-                            Decls = EqArray.ofArray [| TDeclG.Let(binding, reversed, isInline, declTy) |]
-                        }
+                        TDeclG.Let(binding, reversed, isInline, declTy)
                     | _ -> failtest "the decl is not a `let` over a Tuple"
 
-                Expect.isTrue
-                    (TastFileG.structurallyEqual (TastPools.ofPools (TastPoolBuilder.toPools b)) expected)
-                    "the derived tree is the original with the tuple's items swapped"
+                // Drained through `declTree`: the derived decl is a node like any other,
+                // reached by the id the copy returned. Nothing repoints the root — a
+                // rewrite hands its caller the new id (`TastAccessor.mapDeclExpr`), which
+                // is why the builder has no root-repointing seam.
+                Expect.equal
+                    (TastPoolBuilder.declTree b newRoot)
+                    expected
+                    "the derived decl is the original with the tuple's items swapped"
+
+                Expect.equal
+                    (TastPoolBuilder.declTree b root)
+                    (EqArray.toArray frozen.Decls).[0]
+                    "the original root is untouched by the copy"
             }
 
             test "a retype copies the row with a different type" {

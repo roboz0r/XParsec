@@ -13,10 +13,9 @@ open XParsec.FSharp.Parser
 //   * ids `0 .. n-1` address the BASE columns, ids `>= n` the overlay's own rows — one flat
 //     id space, one comparison to tell the layers apart, and the base arrays are neither
 //     copied nor touched.
-//   * BASE IDS ARE PRESERVED EXACTLY, including through `toPools` (which concatenates
-//     base-then-overlay). So an edge minted in the overlay may name a base node BY ITS OWN
-//     ID, and any id a consumer cached before the overlay existed stays valid — which is
-//     what makes it sound to stack rather than remap.
+//   * BASE IDS ARE PRESERVED EXACTLY. So an edge minted in the overlay may name a base
+//     node BY ITS OWN ID, and any id a consumer cached before the overlay existed stays
+//     valid — which is what makes it sound to stack rather than remap.
 //
 // The read side therefore never learns there are two layers: it resolves an id and gets a
 // column value. That is the property `TastAccessor` sits on, and the reason a mint
@@ -24,9 +23,13 @@ open XParsec.FSharp.Parser
 //
 // The overlay is held as ARRAYS OF ROWS, not columns: it is small, is appended one whole
 // node at a time, and is read node-at-a-time by the minting site; holding it as rows makes
-// a row indivisible (parallel builders cannot desync) at the cost of one indirection on an
-// overlay read. `toPools` transposes it into the canonical columns, so the STORED layout is
-// unchanged.
+// a row indivisible at the cost of one indirection on an overlay read.
+//
+// A builder is WRITE-ONLY DOWNWARD: it is opened over a base, appended to during one
+// emission, and dropped. There is no collapse back to a plain `FrozenPools` — nothing
+// stores or ships a derived tree (`Freeze.run` is the only producer of the stored form),
+// so the only way OUT of a builder is `declTree`, the DU drain the cross-unit inline
+// wire needs.
 
 /// An append-only overlay stacked over an immutable base `FrozenPools`. See the file
 /// header for the stacking invariant. Not thread-safe: a builder belongs to one backend's
@@ -54,9 +57,6 @@ type PoolBuilder =
             /// sole appender, so the two stay aligned.
             OvBinderKeys: ResizeArray<NodeKey>
             OvBinderNamings: ResizeArray<BinderNaming>
-            /// The file's decl roots, seeded from the base and repointable: a rewrite that
-            /// derives a new top-level decl says so by repointing the root at it.
-            Roots: ResizeArray<DeclPoolId>
             /// `NodeKey` to `BinderId` over BOTH layers, seeded from the base pool's
             /// `BinderKeys`. Interning is keyed by the NodeKey and the naming triple is a
             /// pure function of that key (`BinderNaming.ofKey`), so a minted reference and
@@ -100,16 +100,15 @@ module TastPoolBuilder =
             OvDecls = ResizeArray()
             OvBinderKeys = ResizeArray()
             OvBinderNamings = ResizeArray()
-            Roots = ResizeArray(pools.Roots)
             BinderIndex = index
         }
 
-    /// The zero column set — the base of a pool that is nobody's file. `openOver` this
+    /// The zero column set — the base of a pool that is nobody's file. `openEmpty` this
     /// for nodes that belong to no frozen tree at all: an EXTERNAL symbol's `ValRepr`
     /// patterns are minted from an `.fsi` contract (`TastLower.externalValRepr`) and
     /// index into no file, yet are read through the same accessor as any other pattern,
     /// so they need a pool of their own.
-    let emptyPools: FrozenPools =
+    let private emptyPools: FrozenPools =
         {
             ExprShapes = [||]
             ExprTys = [||]
@@ -199,8 +198,9 @@ module TastPoolBuilder =
             b.OvExprs.[i - b.ExprBase].Payload
 
     /// The whole row at `id` — the base columns gathered, or the overlay row as stored.
-    /// This is what a rewrite starts from: `{ exprRow b id with Children = … }`.
-    let exprRow (b: PoolBuilder) (id: ExprPoolId) : ExprRow =
+    /// This is what a rewrite starts from, and is reached through `copyExprWith` (which
+    /// hands the row to an edit function), never directly.
+    let private exprRow (b: PoolBuilder) (id: ExprPoolId) : ExprRow =
         let (ExprPoolId i) = id
 
         if i < b.ExprBase then
@@ -247,7 +247,7 @@ module TastPoolBuilder =
             b.OvPats.[i - b.PatBase].Payload
 
     /// The whole row at `id` — see `exprRow`.
-    let patRow (b: PoolBuilder) (id: PatPoolId) : PatRow =
+    let private patRow (b: PoolBuilder) (id: PatPoolId) : PatRow =
         let (PatPoolId i) = id
 
         if i < b.PatBase then
@@ -286,7 +286,7 @@ module TastPoolBuilder =
             b.OvDecls.[i - b.DeclBase].Payload
 
     /// The whole row at `id` — see `exprRow`.
-    let declRow (b: PoolBuilder) (id: DeclPoolId) : DeclRow =
+    let private declRow (b: PoolBuilder) (id: DeclPoolId) : DeclRow =
         let (DeclPoolId i) = id
 
         if i < b.DeclBase then
@@ -324,19 +324,21 @@ module TastPoolBuilder =
         | true, id -> ValueSome id
         | false, _ -> ValueNone
 
-    // Each domain's flat id space as it currently stands: every id below the count
-    // resolves, and the next append takes the count itself.
+    // The size of the expr and binder id spaces: every id below the count resolves, and
+    // the next append takes the count itself. Only these two exist because only these
+    // two are asked — the question a caller has is "did this rewrite append?" (of the
+    // expr space) and "did this mint a binder?" (of the binder space). The pat and decl
+    // counts would be surface for symmetry's sake.
 
     let exprCount (b: PoolBuilder) : int = b.ExprBase + b.OvExprs.Count
-    let patCount (b: PoolBuilder) : int = b.PatBase + b.OvPats.Count
-    let declCount (b: PoolBuilder) : int = b.DeclBase + b.OvDecls.Count
     let binderCount (b: PoolBuilder) : int = b.BinderBase + b.OvBinderKeys.Count
 
-    /// The file's decl roots as they stand, in source order.
-    let roots (b: PoolBuilder) : DeclPoolId[] = b.Roots.ToArray()
-
-    /// Repoint the `index`-th decl root — how a whole-decl rewrite publishes its result.
-    let setRoot (b: PoolBuilder) (index: int) (root: DeclPoolId) : unit = b.Roots.[index] <- root
+    /// The file's decl roots, in source order — the base pool's, since nothing derives a
+    /// new top-level decl IN PLACE: a whole-decl rewrite (`TastAccessor.mapDeclExpr`,
+    /// `ClosureVerdictRewrite.retypeDecl`) returns the derived id and its caller carries
+    /// it, so the root array is never repointed. Copied, so a caller cannot reach into
+    /// the immutable base through it.
+    let roots (b: PoolBuilder) : DeclPoolId[] = Array.copy b.Base.Roots
 
     // ── append primitives ───────────────────────────────────────────────────
 
@@ -454,8 +456,9 @@ module TastPoolBuilder =
 
     /// The DU subtree an expression id denotes — see `patTree`. A `Var`'s binder edge is
     /// resolved back through the pool's own binder column, so a reference minted in the
-    /// overlay names the same `NodeKey` it would have read.
-    let rec exprTree (b: PoolBuilder) (id: ExprPoolId) : Frozen.TExpr =
+    /// overlay names the same `NodeKey` it would have read. Reached through `declTree`:
+    /// the cross-unit wire carries whole declarations, never a bare expression.
+    let rec private exprTree (b: PoolBuilder) (id: ExprPoolId) : Frozen.TExpr =
         let row = exprRow b id
 
         TastPools.substituteExpr
@@ -475,45 +478,3 @@ module TastPoolBuilder =
             row.Payload
             (row.ExprChildren |> Array.map (exprTree b))
             (row.PatChildren |> Array.map (patTree b))
-
-    // ── freezing back to a plain pool ───────────────────────────────────────
-
-    /// Base column, then the overlay's rows projected onto it. Base entries keep their
-    /// index, which is what preserves every base id across the freeze.
-    let private concatColumn (baseCol: 'a[]) (overlay: ResizeArray<'row>) (project: 'row -> 'a) : 'a[] =
-        let out = Array.zeroCreate (baseCol.Length + overlay.Count)
-        System.Array.Copy(baseCol, out, baseCol.Length)
-
-        for j in 0 .. overlay.Count - 1 do
-            out.[baseCol.Length + j] <- project overlay.[j]
-
-        out
-
-    /// Collapse the two layers into one plain immutable `FrozenPools` — the derived tree,
-    /// serializable and convertible back to the DU like any other. Base ids survive
-    /// unchanged (the base columns are copied in at their own indices), so an id taken
-    /// before the freeze still names the same node after it. The side tables, the binder
-    /// index's base half and the file residue come from the base pool: they are keyed on
-    /// identities the overlay does not invent.
-    let toPools (b: PoolBuilder) : FrozenPools =
-        { b.Base with
-            ExprShapes = concatColumn b.Base.ExprShapes b.OvExprs (fun r -> r.Shape)
-            ExprTys = concatColumn b.Base.ExprTys b.OvExprs (fun r -> r.Ty)
-            ExprToks = concatColumn b.Base.ExprToks b.OvExprs (fun r -> r.Tok)
-            ExprChildren = concatColumn b.Base.ExprChildren b.OvExprs (fun r -> r.Children)
-            ExprPatChildren = concatColumn b.Base.ExprPatChildren b.OvExprs (fun r -> r.PatChildren)
-            ExprVarBinder = concatColumn b.Base.ExprVarBinder b.OvExprs (fun r -> r.VarBinder)
-            ExprPayloads = concatColumn b.Base.ExprPayloads b.OvExprs (fun r -> r.Payload)
-            PatShapes = concatColumn b.Base.PatShapes b.OvPats (fun r -> r.Shape)
-            PatTys = concatColumn b.Base.PatTys b.OvPats (fun r -> r.Ty)
-            PatToks = concatColumn b.Base.PatToks b.OvPats (fun r -> r.Tok)
-            PatChildren = concatColumn b.Base.PatChildren b.OvPats (fun r -> r.Children)
-            PatPayloads = concatColumn b.Base.PatPayloads b.OvPats (fun r -> r.Payload)
-            DeclShapes = concatColumn b.Base.DeclShapes b.OvDecls (fun r -> r.Shape)
-            DeclExprChildren = concatColumn b.Base.DeclExprChildren b.OvDecls (fun r -> r.ExprChildren)
-            DeclPatChildren = concatColumn b.Base.DeclPatChildren b.OvDecls (fun r -> r.PatChildren)
-            DeclPayloads = concatColumn b.Base.DeclPayloads b.OvDecls (fun r -> r.Payload)
-            Roots = b.Roots.ToArray()
-            BinderKeys = concatColumn b.Base.BinderKeys b.OvBinderKeys id
-            BinderNamings = concatColumn b.Base.BinderNamings b.OvBinderNamings id
-        }
