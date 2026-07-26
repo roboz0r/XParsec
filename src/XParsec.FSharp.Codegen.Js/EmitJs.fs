@@ -161,7 +161,7 @@ module EmitJs =
                         let k = TastAccessor.exprVarBinding head
 
                         match ctx.CompiledFns.TryGetValue k with
-                        | true, cf -> ValueSome(identAt (binderNameOf ctx.Pool ctx.Source k), cf.Groups)
+                        | true, cf -> ValueSome(identAt (binderNameOf ctx.Source k), cf.Groups)
                         | _ -> ValueNone
                     | ExprShape.External ->
                         let ext = TastAccessor.exprExternal head
@@ -702,7 +702,7 @@ module EmitJs =
                     let k = (TastAccessor.patBinder l.Binding).Value
 
                     let binding =
-                        localBinding k l.Body (binderNameOf ctx.Pool ctx.Source k) (buildExpr ctx l.Value)
+                        localBinding k l.Body (binderNameOf ctx.Source k) (buildExpr ctx l.Value)
 
                     binding :: recur l.Body
                 // `let _ = value in body` — discard the value (effects only); body stays in tail
@@ -745,7 +745,7 @@ module EmitJs =
         (cf: CompiledFns.CompiledFn)
         (loc: JsLoc voption)
         : JsExpr =
-        let names = [ for p in cf.Params -> JsFlatFns.paramNameOf ctx.Pool ctx.Source p ]
+        let names = [ for p in cf.Params -> JsFlatFns.paramNameOf ctx.Source p ]
 
         // Only the all-`GSimple` shape maps a self-call's spine one-to-one onto the flat
         // params, so the trampoline is gated on it; otherwise no self-key is offered.
@@ -797,7 +797,7 @@ module EmitJs =
                     let k = (TastAccessor.patBinder l.Binding).Value
 
                     let binding =
-                        localBinding k l.Body (binderNameOf ctx.Pool ctx.Source k) (emitBound ctx k l.Value)
+                        localBinding k l.Body (binderNameOf ctx.Source k) (emitBound ctx k l.Value)
 
                     binding :: buildStatements ctx l.Body
                 // `let _ = value in body` — emit the discarded value as its own statement(s)
@@ -815,7 +815,7 @@ module EmitJs =
             // dance the IL backend needs is unnecessary — `i <= limit` is safe.)
             | ExprShape.ForTo ->
                 let ft = TastAccessor.exprForTo e
-                let name = binderNameOf ctx.Pool ctx.Source ft.Var
+                let name = binderNameOf ctx.Source ft.Var
                 let limit = "_lim" + string (TastAccessor.exprTok e).StartIndex
 
                 [
@@ -1118,7 +1118,7 @@ module EmitJs =
                                 | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx (TastAccessor.exprTok value))
                                 | _ -> emitBound ctx k value
 
-                            topLevelBinding ctx (reassignedAtTop k) (binderNameOf ctx.Pool ctx.Source k) init
+                            topLevelBinding ctx (reassignedAtTop k) (binderNameOf ctx.Source k) init
                         | _ -> failwithf "EmitJs: unsupported declaration %A" decl
                     | DeclShape.Type -> failwithf "EmitJs: unsupported declaration %A" decl
             ]

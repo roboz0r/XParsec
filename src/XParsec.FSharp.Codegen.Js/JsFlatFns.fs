@@ -31,9 +31,9 @@ module JsFlatFns =
 
     /// One flat compiled parameter's JS name: a simple binder reads its own slot; a
     /// destructuring leaf (a nested tuple element) renders as a `[a, b]` pattern.
-    let paramNameOf (pool: PoolBuilder) (source: string voption) (p: TastLower.StaticParam) : string =
+    let paramNameOf (source: string voption) (p: TastLower.StaticParam) : string =
         match p.Pat with
-        | None -> binderNameOf pool source p.Slot
+        | None -> binderNameOf source p.Slot
         | Some pat -> lambdaParamName source pat
 
     /// The SOURCE groups of an EXTERNAL module function, read off the provider's

@@ -92,10 +92,10 @@ module JsEmitHelpers =
         | _ -> (if n.IsSynthetic then "_s" else "_v") + string n.NameIndex
 
     /// The emitted JS name of a binder still referenced by `NodeKey` — the side tables,
-    /// a `ForTo` loop variable, a flattened parameter's slot. Resolves the key to its
-    /// pool binder and names it off the same column every other binder is named from.
-    let binderNameOf (pool: PoolBuilder) (source: string voption) (k: NodeKey) : string =
-        binderName source (TastPoolBuilder.binderNamingOfKey pool k)
+    /// a `ForTo` loop variable, a flattened parameter's slot. `BinderNaming.ofKey` is
+    /// the sole constructor of the pool's naming column, so projecting the key here
+    /// gives the same three bits that column holds, without a pool to resolve against.
+    let binderNameOf (source: string voption) (k: NodeKey) : string = binderName source (BinderNaming.ofKey k)
 
     // ---- Scalar constants ----------------------------------------------------
 

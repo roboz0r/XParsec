@@ -824,11 +824,17 @@ module TastAccessor =
         | PatPayload.NamedSimple binding -> TastPoolBuilder.tryBinderId p.Pool binding
         | _ -> ValueNone
 
-    /// The naming projections of the binder a `NamedSimple` pattern introduces, read off
-    /// the pool's naming column — see `exprVarNaming`.
+    /// The naming projections of the binder a `NamedSimple` pattern introduces.
+    ///
+    /// Straight off the key, NOT through the pool's naming column: `BinderNaming.ofKey`
+    /// is that column's sole constructor, so the two agree by construction and the
+    /// detour would only be a chance to MINT (`internBinder`) a binder from a read —
+    /// which is exactly what `patBinderId` next door refuses to do. `exprVarNaming` is
+    /// the case that genuinely needs the column: a `Var` names its binder by id and has
+    /// no key to project from.
     let patBinderNaming (p: PatId) : BinderNaming voption =
         match patPayload p with
-        | PatPayload.NamedSimple binding -> ValueSome(TastPoolBuilder.binderNamingOfKey p.Pool binding)
+        | PatPayload.NamedSimple binding -> ValueSome(BinderNaming.ofKey binding)
         | _ -> ValueNone
 
     /// The constant value carried by a `Const` pattern. Guard with `patKind` =

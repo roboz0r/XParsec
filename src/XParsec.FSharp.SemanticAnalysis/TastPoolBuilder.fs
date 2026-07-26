@@ -372,13 +372,6 @@ module TastPoolBuilder =
             b.OvBinderNamings.Add(BinderNaming.ofKey k)
             id
 
-    /// The naming triple of the binder a `NodeKey` names, resolved THROUGH the pool.
-    /// The entry point for the cross-references that still carry a key (the side
-    /// tables, a `ForTo` loop variable, a flattened parameter's slot): naming is read
-    /// off `BinderNamings` like any other binder's, so no site derives a name from the
-    /// key's own bits and the naming survives the key's eventual retirement.
-    let binderNamingOfKey (b: PoolBuilder) (k: NodeKey) : BinderNaming = binderNaming b (internBinder b k)
-
     // ── row copies: rewrite without a per-case match ────────────────────────
     //
     // The payoff of the columnar form. A child substitution (what `TastLower.mapChildren`

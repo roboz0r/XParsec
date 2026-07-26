@@ -456,7 +456,7 @@ module EmitJsContext =
         | PatShape.Wildcard -> None, []
         | PatShape.NamedSimple ->
             let k = (TastAccessor.patBinder pat).Value
-            None, [ JsStatement.Const(binderNameOf ctx.Pool ctx.Source k, access) ]
+            None, [ JsStatement.Const(binderNameOf ctx.Source k, access) ]
         | PatShape.Const ->
             let value = TastAccessor.patConstValue pat
             Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []
