@@ -24,6 +24,13 @@ open XParsec.FSharp.Parser
 // hand. Each is a struct of handles and scalars — pool-agnostic, since the handles
 // carry their own pool. The `failwith` guards are the shape contract: read a payload
 // only after `exprKind`/`patKind`/`declKind` (or through the matching recognizer).
+//
+// EVERY eager view guards on the `*Payload` column, never on the `*Shape` tag — one
+// convention, so a reader never has to check which of the two a given accessor used.
+// Payload rather than shape because the payload is the column the view is projecting
+// FROM in all but a handful of cases, so the guard and the read are one fetch. The
+// shape tag is for a consumer's own TOTAL dispatch (the emit routers), where its
+// closed enum is what keeps the match exhaustive.
 
 /// The TAST-shaped accessor. `open` is disallowed so `exprTy`/`patTy` don't collide
 /// with the analysis-time `TastWalk` projections of the same name.
@@ -188,8 +195,8 @@ module TastAccessor =
     /// The payload view of a `Lambda` node. Guard with `exprKind` = `ExprShape.Lambda`
     /// first; `failwith` on any other shape.
     let exprLambda (e: ExprId) : LambdaView =
-        match exprKind e with
-        | ExprShape.Lambda ->
+        match payload e with
+        | ExprPayload.Lambda ->
             {
                 Param = exprPatChild e 0
                 Body = exprChild e 0
@@ -210,8 +217,8 @@ module TastAccessor =
     /// The payload view of a `Let` node. Guard with `exprKind` = `ExprShape.Let` first;
     /// `failwith` on any other shape.
     let exprLet (e: ExprId) : LetView =
-        match exprKind e with
-        | ExprShape.Let ->
+        match payload e with
+        | ExprPayload.Let ->
             {
                 Binding = exprPatChild e 0
                 Value = exprChild e 0
@@ -228,8 +235,8 @@ module TastAccessor =
     /// The payload view of an `Assignment` node. Guard with `exprKind` =
     /// `ExprShape.Assignment` first; `failwith` on any other shape.
     let exprAssignment (e: ExprId) : AssignmentView =
-        match exprKind e with
-        | ExprShape.Assignment ->
+        match payload e with
+        | ExprPayload.Assignment ->
             {
                 Lhs = exprChild e 0
                 Rhs = exprChild e 1
@@ -250,8 +257,8 @@ module TastAccessor =
     /// The payload view of an `IfThenElse` node. Guard with `exprKind` =
     /// `ExprShape.IfThenElse` first; `failwith` on any other shape.
     let exprIfThenElse (e: ExprId) : IfThenElseView =
-        match exprKind e with
-        | ExprShape.IfThenElse ->
+        match payload e with
+        | ExprPayload.IfThenElse ->
             {
                 Cond = exprChild e 0
                 ThenExpr = exprChild e 1
@@ -288,8 +295,8 @@ module TastAccessor =
     /// The payload view of an `App` node. Guard with `exprKind` = `ExprShape.App` first;
     /// `failwith` on any other shape.
     let exprApp (e: ExprId) : AppView =
-        match exprKind e with
-        | ExprShape.App ->
+        match payload e with
+        | ExprPayload.App ->
             {
                 Fn = exprChild e 0
                 Arg = exprChild e 1
@@ -585,8 +592,8 @@ module TastAccessor =
     /// The payload view of a `TryFinally` node. Guard with `exprKind` = `ExprShape.TryFinally`
     /// first; `failwith` on any other shape.
     let exprTryFinally (e: ExprId) : TryFinallyView =
-        match exprKind e with
-        | ExprShape.TryFinally ->
+        match payload e with
+        | ExprPayload.TryFinally ->
             {
                 Body = exprChild e 0
                 Cleanup = exprChild e 1
@@ -602,8 +609,8 @@ module TastAccessor =
     /// The payload view of a `While` node. Guard with `exprKind` = `ExprShape.While` first;
     /// `failwith` on any other shape.
     let exprWhile (e: ExprId) : WhileView =
-        match exprKind e with
-        | ExprShape.While ->
+        match payload e with
+        | ExprPayload.While ->
             {
                 Cond = exprChild e 0
                 Body = exprChild e 1
@@ -792,8 +799,8 @@ module TastAccessor =
     /// pinned an operand type. Guard with `exprKind` = `ExprShape.StaticOptimization`
     /// first; `failwith` on any other shape.
     let exprStaticOptimizationDefault (e: ExprId) : ExprId =
-        match exprKind e with
-        | ExprShape.StaticOptimization -> exprChild e (exprChildCount e - 1)
+        match payload e with
+        | ExprPayload.StaticOptimization _ -> exprChild e (exprChildCount e - 1)
         | _ -> failwith "TastAccessor.exprStaticOptimizationDefault: not a StaticOptimization node"
 
     // ── patterns ────────────────────────────────────────────────────────────
@@ -926,8 +933,8 @@ module TastAccessor =
     /// The body expression of an `Expression` decl. Guard with `declKind` =
     /// `DeclShape.Expression` first; `failwith` on any other shape.
     let declExpression (d: DeclId) : ExprId =
-        match declKind d with
-        | DeclShape.Expression -> declExprChild d 0
+        match declPayload d with
+        | DeclPayload.Expression _ -> declExprChild d 0
         | _ -> failwith "TastAccessor.declExpression: not an Expression decl"
 
     /// The declared type an `Expression` decl carries alongside its `expr`
@@ -1260,13 +1267,6 @@ module TastAccessor =
     let (|ETryWith|_|) (e: ExprId) : TryWithView voption =
         match exprKind e with
         | ExprShape.TryWith -> ValueSome(exprTryWith e)
-        | _ -> ValueNone
-
-    /// A `TryFinally` node → its `TryFinallyView` (`exprTryFinally`).
-    [<return: Struct>]
-    let (|ETryFinally|_|) (e: ExprId) : TryFinallyView voption =
-        match exprKind e with
-        | ExprShape.TryFinally -> ValueSome(exprTryFinally e)
         | _ -> ValueNone
 
     /// An `External` node → its `ExternalView` (`exprExternal`).
