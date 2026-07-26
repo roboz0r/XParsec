@@ -9,14 +9,15 @@ open XParsec.FSharp.Parser
 // "node id k and its children by id" is an O(1) fetch — the random-access shape the
 // projecting consumers want, which a forward-only decode stream could not serve.
 //
-// The pools are BOTH the working representation and the stored one: `TastAccessor` reads
-// these columns and nothing else, and `FrozenCodec.flatten`/`thaw` serialize them. So
-// `FrozenPools` must be a self-contained, serializable value (nothing may ride it that
-// only makes sense with the source file still in hand — see `FrozenFileResidue`). The DU
-// survives alongside as freeze's OUTPUT shape and as a debug/test facility; the pools'
-// correctness obligation is that the two are INTERCONVERTIBLE — `toPools`/`ofPools`
-// round-trip a `Frozen.TastFile` — proven structurally over the corpus by the
-// flatten/thaw gate.
+// The pools are the working representation, the stored one, AND freeze's output:
+// `TastAccessor` reads these columns and nothing else, `FrozenCodec.flatten`/`thaw`
+// serialize them verbatim, and `Freeze.run` yields them. So `FrozenPools` must be a
+// self-contained, serializable value (nothing may ride it that only makes sense with the
+// source file still in hand — see `FrozenFileResidue`). The DU survives as freeze's own
+// internal construction shape, as the cross-unit inline-template wire, and as a debug/test
+// facility; the pools' correctness obligation is that the two are INTERCONVERTIBLE —
+// `toPools`/`ofPools` round-trip a `Frozen.TastFile` — which is what proves the columns
+// carry the whole tree, and is gated structurally over the corpus.
 //
 // Layout: EVERY pool is struct-of-arrays — parallel dense columns indexed by the matching
 // `*PoolId`. The expr columns are `ExprShapes`/`ExprTys`/`ExprToks`, the child-id columns
@@ -352,8 +353,9 @@ type PatPayload =
 /// the `NodeKey` — exactly the bits `binderName` (`JsEmitHelpers.fs`) unpacks: a real
 /// binder recovers its source name by slicing at `Offset`; a synthetic renders as
 /// `_s<NameIndex>`. This is the naming DATA (post-freeze a binder's identity is its
-/// slot, not its key) — kept separately from positional identity so it survives the
-/// `NodeKey` drop once the backing flips off the DU.
+/// slot, not its key) — kept separately from positional identity so it outlives the
+/// `NodeKey`, which `BinderKeys` retains only for the DU round-trip and the few
+/// cross-references still carrying a key.
 [<Struct>]
 type BinderNaming =
     {
@@ -421,11 +423,11 @@ type FrozenFileResidue =
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
     }
 
-/// The frozen-only companion produced alongside the `Frozen.TastFile` DU (by
-/// `TastPools.toPools`): the expr struct-of-arrays columns plus the pat/decl node columns
-/// (indexable by the matching `*PoolId`) and the decl roots the file's `Decls` pooled to, in
-/// source order. Kept OFF `TastFileG` — that record is shared with the `SemType`
-/// instantiation, which has no pools.
+/// THE frozen file: the expr struct-of-arrays columns plus the pat/decl columns (indexable
+/// by the matching `*PoolId`) and the decl roots, in source order. This is what `Freeze.run`
+/// yields and every consumer reads; the `Frozen.TastFile` DU it is built from
+/// (`TastPools.toPools`) does not outlive the freeze. Kept OFF `TastFileG` — that record is
+/// shared with the `SemType` instantiation, which has no pools.
 ///
 /// The binder pool and the dense-keyed side tables give the file's identity keys a
 /// positional home: `Binders` is the distinct binder NodeKeys, indexable by `BinderId`;

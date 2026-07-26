@@ -33,7 +33,7 @@ type private CountingStore() =
 
 /// A real frozen tree for a small program the shared contract stack resolves — the payload the
 /// cache actually round-trips.
-let private frozenSample () : Frozen.TastFile =
+let private frozenSample () : FrozenPools =
     let src = "let add x y = x + y\nlet answer = add 1 40\n"
     let lexed, file = parseFile src
     Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file
@@ -46,7 +46,7 @@ let tests =
             test "an Error from produce is returned and NOT stored" {
                 let store = CountingStore()
 
-                let result: Result<Frozen.TastFile, string> =
+                let result: Result<FrozenPools, string> =
                     FrozenCache.freezeResult store (freezeKey "aa01") (fun () -> Error "front-end failed")
 
                 Expect.equal result (Error "front-end failed") "the produce error propagates"
@@ -60,7 +60,7 @@ let tests =
                 let frozen = frozenSample ()
                 let mutable produced = 0
 
-                let produce () : Result<Frozen.TastFile, string> =
+                let produce () : Result<FrozenPools, string> =
                     produced <- produced + 1
                     Ok frozen
 

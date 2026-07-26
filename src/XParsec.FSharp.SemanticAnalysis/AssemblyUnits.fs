@@ -32,7 +32,7 @@ module AssemblyUnits =
             Path: string
             Input: string
             Lexed: Lexed
-            Frozen: Frozen.TastFile
+            Frozen: FrozenPools
             View: IExternalSymbolProvider
         }
 
@@ -65,7 +65,7 @@ module AssemblyUnits =
     /// `Pipeline.analyseForSelfHost` (a BCL-only self-host package) both have this exact
     /// shape, so a multi-file assembly can be driven through either front end.
     type AnalyseUnit =
-        string -> IExternalSymbolProvider -> string -> Lexed -> ImplementationFile<SyntaxToken> -> Frozen.TastFile
+        string -> IExternalSymbolProvider -> string -> Lexed -> ImplementationFile<SyntaxToken> -> FrozenPools
 
     /// Analyse a multi-file assembly in manifest order through a chosen front end. Each
     /// file resolves the ones BEFORE it — the prior file views composed nearest-first,
@@ -152,5 +152,5 @@ module AssemblyUnits =
     let consolidatedDiagnostics (units: FrozenUnit list) : AnchoredDiagnostic list =
         [
             for u in units do
-                yield! anchorDiagnostics u.Path u.Input u.Frozen.Diagnostics
+                yield! anchorDiagnostics u.Path u.Input u.Frozen.Residue.Diagnostics
         ]

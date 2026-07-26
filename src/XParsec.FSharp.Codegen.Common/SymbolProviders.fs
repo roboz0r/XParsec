@@ -114,10 +114,10 @@ module SymbolProviders =
 
     /// A unit's published inline vocabulary, read off its FROZEN tree.
     ///
-    /// The value half is a straight read: `Freeze` already minted each template's
-    /// `SymbolKey` from its declaring module chain and published it — that identity is
-    /// OWNED, not reconstructed, which is what a multi-file unit (no `.fsi` to recover a
-    /// name against) needs.
+    /// The value half is a straight drain of the pool's own template roots: `Freeze`
+    /// already minted each template's `SymbolKey` from its declaring module chain and
+    /// published it — that identity is OWNED, not reconstructed, which is what a
+    /// multi-file unit (no `.fsi` to recover a name against) needs.
     ///
     /// The member half is harvested here, and its total `MemberKey` is minted DIRECTLY
     /// from the frozen member `m`: at freeze `m.Params` are already `FrozenType`s and
@@ -129,13 +129,27 @@ module SymbolProviders =
     /// overload identity there is no rendered `argSig` for producer and use site to
     /// disagree on; the key `m` mints here is the same one an external entry / use site
     /// mints from the same frozen signature by construction.
-    let private collectInlineBodies (tast: Frozen.TastFile) : EqArray<Frozen.TInlineValue> * Frozen.TInlineValue list =
-        let values = tast.InlineBodies
-
+    let private collectInlineBodies (tast: FrozenPools) : Frozen.TInlineValue list * Frozen.TInlineValue list =
         // The file's trees as columns, with an append-only overlay for the curried lambda
         // chains `harvestMemberBody` wraps each harvested body in. The overlay is
         // discarded with this call: what leaves is the drained DU template, never an id.
-        let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+        let pool = TastPoolBuilder.openOver tast
+
+        // The published VALUE templates, drained off their own pool roots — the wire form
+        // is DU-typed because a pool id means nothing in the consuming unit's pool.
+        let values =
+            [
+                for iv in tast.InlineTemplates ->
+                    {
+                        Key = iv.Key
+                        Body =
+                            {
+                                Decl = TastPoolBuilder.declTree pool iv.Decl
+                                ParamAttrs = iv.ParamAttrs
+                            }
+                    }
+                    : Frozen.TInlineValue
+            ]
 
         let members =
             [

@@ -16,7 +16,7 @@ module Codegen =
         (bclReferences: string list)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
-        (tasts: Frozen.TastFile list)
+        (tasts: FrozenPools list)
         : ClrArtifact =
         // A compilation is an ordered SEQUENCE of frozen units emitted into one assembly;
         // `Layout.buildMany` combines them and the Bind/Prepare loops below iterate every
@@ -90,12 +90,8 @@ module Codegen =
     ///
     /// This is the general entry; `compile` is the length-1 case. Codegen stays agnostic
     /// of the front-end `AssemblyUnits.FrozenUnit`: the caller owns view-composition and
-    /// hands over the already-composed provider + the bare `Frozen.TastFile` list.
-    let compileUnits
-        (symbols: IExternalSymbolProvider)
-        (project: ProjectInfo)
-        (tasts: Frozen.TastFile list)
-        : ClrArtifact =
+    /// hands over the already-composed provider + the bare `FrozenPools` list.
+    let compileUnits (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tasts: FrozenPools list) : ClrArtifact =
         assemble [] symbols project tasts
 
     /// `compileUnits` with the compilation's own BCL surface threaded into the emitted-
@@ -105,7 +101,7 @@ module Codegen =
         (bclReferences: string list)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
-        (tasts: Frozen.TastFile list)
+        (tasts: FrozenPools list)
         : ClrArtifact =
         assemble bclReferences symbols project tasts
 
@@ -115,10 +111,12 @@ module Codegen =
     ///
     /// Cross-package `val inline` bodies are not threaded here: they are spliced
     /// pre-freeze by `Passes.InlineExpansion`, reaching the front end on the resolved
-    /// entries of the same `symbols` provider, so codegen takes no inline-body map — and
-    /// no inline template ever reaches it (`Freeze` keeps them out of `Decls`).
+    /// entries of the same `symbols` provider, so codegen takes no inline-body map. The
+    /// published TEMPLATES are a separate root array (`FrozenPools.InlineTemplates`) that
+    /// emission never walks; an `inline` binding's ordinary compiled function is in
+    /// `Roots` like any other and IS emitted.
     /// The single-file case of `compileUnits`.
-    let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: Frozen.TastFile) : ClrArtifact =
+    let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: FrozenPools) : ClrArtifact =
         compileUnits symbols project [ tast ]
 
     /// `compile` with the compilation's own BCL surface (a TFM ref pack +
@@ -131,7 +129,7 @@ module Codegen =
         (bclReferences: string list)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
-        (tast: Frozen.TastFile)
+        (tast: FrozenPools)
         : ClrArtifact =
         compileUnitsWithBclReferences bclReferences symbols project [ tast ]
 

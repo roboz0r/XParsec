@@ -458,7 +458,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
 /// typar order is inference's own). The snippets reference no external symbols, so
 /// the provider only matters for its absence of interference — the real contract
 /// resolves them identically.
-let private frozenOf (src: string) : Frozen.TastFile =
+let private frozenOf (src: string) : FrozenPools =
     let lexed, file = parseFile src
     Pipeline.analyseForSelfHost "M" realProvider.Value src lexed file
 
@@ -499,7 +499,7 @@ let typarConformanceTests =
                     contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
 
                 let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
 
                 let mismatches = ConformanceTypars.checkFile contract tast
                 Expect.equal (List.length mismatches) 1 "one typar-order mismatch"
@@ -513,7 +513,7 @@ let typarConformanceTests =
                     contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
 
                 let tast = frozenOf "let f (x: 'a) (y: 'b) : 'b = y"
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
 
                 Expect.isEmpty (ConformanceTypars.checkFile contract tast) "appearance-order impl conforms"
             }
@@ -586,7 +586,7 @@ let memberTyparConformanceTests =
                 // `member this.M<'a>(x: 'a) = x` — one method typar, signature `'a -> 'a`
                 // (`M0 -> M0`). The published overload says the same, so it conforms.
                 let tast = frozenOf "type C() =\n    member this.M<'a>(x: 'a) = x"
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
 
                 let contract = memberContractProvider [ mkMember "M" 1 (mAxis 0) (mAxis 0) ]
                 Expect.isEmpty (ConformanceTypars.checkMembers contract tast) "identity generic member conforms"
@@ -598,7 +598,7 @@ let memberTyparConformanceTests =
                 // REVERSED `<'b,'a>` numbering — `(M1 * M0) -> M1` — the member-level twin
                 // of `checkFile`'s `<'b,'a>` drift, caught by the same positional equality.
                 let tast = frozenOf "type C() =\n    member this.M<'a,'b>(x: 'a, y: 'b) = x"
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.isEmpty tast.Residue.Diagnostics "no diagnostics"
 
                 let swapped =
                     mkMember "M" 2 (FTTuple(EqArray.ofList [ mAxis 1; mAxis 0 ])) (mAxis 1)

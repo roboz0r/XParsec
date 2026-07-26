@@ -277,7 +277,7 @@ let tests =
 
             let discover (src: string) : Emit.Closure list =
                 let ctx, tast = analyseWithCtx src
-                let pools = TastPools.toPools (Freeze.run ctx tast)
+                let pools = Freeze.run ctx tast
                 let pool = TastPoolBuilder.openOver pools
                 let lowered0 = Emit.lower (List.ofArray (TastAccessor.roots pool))
                 // No lambda in these sources carries a value-struct verdict, but the

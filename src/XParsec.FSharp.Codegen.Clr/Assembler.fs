@@ -48,7 +48,7 @@ type internal UnitEmit =
 /// `GenericParam` rows are collected and emitted last, sorted by
 /// `CodedIndex.TypeOrMethodDef(owner)` then index, as SRM requires.
 type internal Assembler
-    (symbols: IExternalSymbolProvider, project: ProjectInfo, tasts: Frozen.TastFile list, bclReferences: string list) =
+    (symbols: IExternalSymbolProvider, project: ProjectInfo, tasts: FrozenPools list, bclReferences: string list) =
 
     let ctx = MetadataContext()
     do ctx.AddModuleAndAssembly(project.AssemblyName)
@@ -80,7 +80,7 @@ type internal Assembler
         let d = Dictionary<SymbolKey, string>()
 
         for tast in tasts do
-            for kv in tast.IntrinsicReprKeys do
+            for kv in tast.Residue.IntrinsicReprKeys do
                 d.[kv.Key] <- kv.Value.Platform
 
         d

@@ -31,8 +31,15 @@ let private gated =
 
 /// Freeze each gated program's source ONCE — the front-end pass is the expensive
 /// part; the codec round-trip below is cheap.
-let private frozenFiles: (string * Frozen.TastFile) list =
+let private frozenFiles: (string * FrozenPools) list =
     gated |> List.map (fun p -> p.Name, frozenOfJs p.Source)
+
+/// The round-trip judge. The stored form IS the columns, so equality is taken on the DU
+/// they encode: `FrozenPools` carries two `IReadOnlyDictionary` fields, which a derived
+/// `=` would compare by reference, and `TastFileG.structurallyEqual` is the whole-file
+/// equality that knows better.
+let private survivesRoundTrip (f: FrozenPools) : bool =
+    TastFileG.structurallyEqual (TastPools.ofPools f) (TastPools.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f)))
 
 [<Tests>]
 let tests =
@@ -41,17 +48,15 @@ let tests =
         [
             test "thaw (flatten f) is structurally equal to f over the JS corpus" {
                 for (name, f) in frozenFiles do
-                    let rebuilt = FrozenCodec.thaw (FrozenCodec.flatten f)
-
                     Expect.isTrue
-                        (TastFileG.structurallyEqual f rebuilt)
+                        (survivesRoundTrip f)
                         (sprintf "frozen file for %s did not survive flatten/thaw structurally" name)
             }
 
             // The gate must exercise a non-trivial corpus, else an empty run would make
             // `thaw ∘ flatten = id` vacuously true.
             test "the corpus exercises a non-trivial number of decls" {
-                let totalDecls = frozenFiles |> List.sumBy (fun (_, f) -> f.Decls.Length)
+                let totalDecls = frozenFiles |> List.sumBy (fun (_, f) -> f.Roots.Length)
 
                 Expect.isGreaterThan (List.length frozenFiles) 0 "gated programs"
                 Expect.isGreaterThan totalDecls 20 "total top-level decls across the corpus"
@@ -66,7 +71,7 @@ let tests =
                 let f = frozenOfJs "type C() =\n    member this.Id<'T> (x: 'T) : 'T = x\n"
 
                 let methodTypars =
-                    f.Decls
+                    (TastPools.ofPools f).Decls
                     |> EqArray.toList
                     |> List.tryPick (fun d ->
                         match d with
@@ -87,11 +92,7 @@ let tests =
                     [ "'T", FTTypar(TyparAxis.Method, 0) ]
                     "member's own typar rides as (name, FTTypar(Method, 0))"
 
-                let rebuilt = FrozenCodec.thaw (FrozenCodec.flatten f)
-
-                Expect.isTrue
-                    (TastFileG.structurallyEqual f rebuilt)
-                    "generic-member file survived flatten/thaw structurally"
+                Expect.isTrue (survivesRoundTrip f) "generic-member file survived flatten/thaw structurally"
             }
 
             // The conformance corpus declares no binding whose head pattern introduces no
@@ -112,11 +113,8 @@ let tests =
                     "module M\n\nmodule N =\n    let inline f x = x + 1\n\nlet y = N.f 2\n"
                 ] do
                 test ("a binder-less or unpooled-binder binding head round-trips: " + name) {
-                    let f = frozenOfJs src
-                    let rebuilt = FrozenCodec.thaw (FrozenCodec.flatten f)
-
                     Expect.isTrue
-                        (TastFileG.structurallyEqual f rebuilt)
+                        (survivesRoundTrip (frozenOfJs src))
                         (name + " did not survive flatten/thaw structurally")
                 }
 
@@ -136,11 +134,8 @@ let tests =
                     "type IBox =\n    abstract member Unwrap : unit -> int\n\ntype Box(value: int) =\n    interface IBox with\n        member this.Unwrap() : int = value\n"
                 ] do
                 test ("a type declaration's body slots round-trip: " + name) {
-                    let f = frozenOfJs src
-                    let rebuilt = FrozenCodec.thaw (FrozenCodec.flatten f)
-
                     Expect.isTrue
-                        (TastFileG.structurallyEqual f rebuilt)
+                        (survivesRoundTrip (frozenOfJs src))
                         (name + " did not survive flatten/thaw structurally")
                 }
         ]

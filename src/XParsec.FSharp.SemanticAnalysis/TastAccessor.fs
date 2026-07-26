@@ -813,6 +813,17 @@ module TastAccessor =
         | PatPayload.NamedSimple binding -> ValueSome binding
         | _ -> ValueNone
 
+    /// The POSITIONAL identity of the binder a `NamedSimple` pattern introduces — the id
+    /// the pool's `BinderId`-keyed side tables are keyed by, so a consumer holding the
+    /// defining node looks its entry up directly instead of round-tripping through the
+    /// binder's `NodeKey`. `ValueNone` for a pattern that introduces no binder; also
+    /// `ValueNone` — never a minted id — if the pool never interned the key, so a lookup
+    /// keyed on this can only ever name a binder the tree bears.
+    let patBinderId (p: PatId) : BinderId voption =
+        match patPayload p with
+        | PatPayload.NamedSimple binding -> TastPoolBuilder.tryBinderId p.Pool binding
+        | _ -> ValueNone
+
     /// The naming projections of the binder a `NamedSimple` pattern introduces, read off
     /// the pool's naming column — see `exprVarNaming`.
     let patBinderNaming (p: PatId) : BinderNaming voption =
@@ -1249,6 +1260,12 @@ module TastAccessor =
     /// is `ValueSome` exactly for that shape).
     [<return: Struct>]
     let (|PNamed|_|) (p: PatId) : NodeKey voption = patBinder p
+
+    /// A `NamedSimple` pattern → the POSITIONAL id of the binder it introduces
+    /// (`patBinderId`) — the `PNamed` to reach for when the binder is about to be looked
+    /// up in a `BinderId`-keyed side table.
+    [<return: Struct>]
+    let (|PNamedId|_|) (p: PatId) : BinderId voption = patBinderId p
 
     /// A `Let` decl → its `DeclLetView` (`declLet`).
     [<return: Struct>]

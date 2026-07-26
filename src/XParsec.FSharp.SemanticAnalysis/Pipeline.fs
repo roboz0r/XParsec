@@ -128,15 +128,15 @@ module Pipeline =
 
     /// The production entry: every pass **plus the final `SemType → FrozenType`
     /// freeze**. The SemanticAnalysis assembly's output is
-    /// the frozen tree; codegen consumes it. `SemType` consumers use the `…Sem…`
-    /// variants above.
+    /// the frozen tree AS POOLS; codegen consumes them. `SemType` consumers use the
+    /// `…Sem…` variants above.
     let analyseWithContextFor
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
         (input: string)
         (lexed: Lexed)
         (file: ImplementationFile<SyntaxToken>)
-        : PassContext * Frozen.TastFile =
+        : PassContext * FrozenPools =
         let ctx, tast = analyseSemWithContextFor assemblyName provider input lexed file
         ctx, Freeze.run ctx tast
 
@@ -157,7 +157,7 @@ module Pipeline =
         (input: string)
         (lexed: Lexed)
         (file: ImplementationFile<SyntaxToken>)
-        : PassContext * Frozen.TastFile =
+        : PassContext * FrozenPools =
         analyseWithContextFor "" provider input lexed file
 
     /// The `SemType` (pre-freeze) production entry, discarding the `PassContext`.
@@ -179,7 +179,7 @@ module Pipeline =
         (input: string)
         (lexed: Lexed)
         (file: ImplementationFile<SyntaxToken>)
-        : Frozen.TastFile =
+        : FrozenPools =
         let _, tast = analyseWithContextFor assemblyName provider input lexed file
         tast
 
@@ -196,7 +196,7 @@ module Pipeline =
         (input: string)
         (lexed: Lexed)
         (file: ImplementationFile<SyntaxToken>)
-        : Frozen.TastFile =
+        : FrozenPools =
         analyseFor "" provider input lexed file
 
     /// The self-host **`SemType`** (pre-freeze) entry — like `analyseSem` but a
@@ -237,7 +237,7 @@ module Pipeline =
         (input: string)
         (lexed: Lexed)
         (file: ImplementationFile<SyntaxToken>)
-        : Frozen.TastFile =
+        : FrozenPools =
         let ctx, tast =
             analyseSemWithContextForCore true assemblyName provider input lexed file
 

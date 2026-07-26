@@ -19,7 +19,7 @@ module FrozenCache =
     /// a MISS yield trees that emit byte-identical output (the flatten/thaw round-trip is
     /// codegen-invariant, and compression round-trips exactly), which is the cache's soundness
     /// contract.
-    let freeze (store: ICacheStore) (key: CacheKey) (produce: unit -> Frozen.TastFile) : Frozen.TastFile =
+    let freeze (store: ICacheStore) (key: CacheKey) (produce: unit -> FrozenPools) : FrozenPools =
         match store.TryLoad key with
         | ValueSome blob -> FrozenCodec.thaw (Compression.decompress blob)
         | ValueNone ->
@@ -42,8 +42,8 @@ module FrozenCache =
     let freezeResult
         (store: ICacheStore)
         (key: CacheKey)
-        (produce: unit -> Result<Frozen.TastFile, 'e>)
-        : Result<Frozen.TastFile, 'e> =
+        (produce: unit -> Result<FrozenPools, 'e>)
+        : Result<FrozenPools, 'e> =
         match store.TryLoad key with
         | ValueSome blob -> Ok(FrozenCodec.thaw (Compression.decompress blob))
         | ValueNone ->

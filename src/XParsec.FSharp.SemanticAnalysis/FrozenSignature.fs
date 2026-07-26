@@ -12,7 +12,7 @@ open System.Collections.Generic
 // SAME provider surface: the `.fsi` contract extractor (`VesperLib.toProvider`, from
 // signature SYNTAX) and the DLL metadata reader (`MetadataSymbols`, from emitted IL).
 // It reuses the SAME provider backing (`ExternalSymbolProviders.ofKeyedLeaf`) and
-// emits the SAME entry types, but reads a `Frozen.TastFile` and keeps
+// emits the SAME entry types, but reads a frozen file's `FrozenPools` and keeps
 // INTERNAL-or-better accessibility (same-assembly visible) where the `.fsi` extractor
 // keeps public-only — two thresholds over the ONE honestly-stored `Accessibility`
 // fact.
@@ -31,15 +31,23 @@ module FrozenSignature =
     /// one symbol's two views consistent, and matches the `Declaring`-axis `ValRepr`
     /// the `.fsi` extractor mints (`TastLower.externalValRepr`). The grouping is
     /// untouched — only the embedded typar leaves move axis.
-    let private valReprToDeclaring (pats: PoolBuilder) (vr: Frozen.ValRepr) : TastAccessor.ValRepr =
+    let private valReprToDeclaring
+        (source: PoolBuilder)
+        (pats: PoolBuilder)
+        (vr: PooledValRepr)
+        : TastAccessor.ValRepr =
         // The `ValRepr` traversal is `TastConvert`'s — the same one the freeze and the
         // pool build run — at the axis re-map for both the embedded types and the tuple
         // groups' pattern trees, so the grouping cannot drift from the shape it maps.
-        // The re-axised pattern is a DERIVED tree belonging to no file, so it lands in
-        // the provider's own pool, exactly as an `.fsi`-minted one does.
+        // A tuple group's pattern is a node of the SOURCE file's pool, and the re-axised
+        // copy is a DERIVED tree belonging to no file, so it is drained out of the one and
+        // appended to the provider's own, exactly as an `.fsi`-minted pattern is. Draining
+        // to the DU in between is what carries the leaf-by-leaf axis re-map: there is no
+        // column-level type map, and the target pool is a different pool anyway.
         TastConvert.valRepr
             ConformanceTypars.toDeclaringAxis
-            (TastConvert.pat ConformanceTypars.toDeclaringAxis
+            (TastPoolBuilder.patTree source
+             >> TastConvert.pat ConformanceTypars.toDeclaringAxis
              >> TastPoolBuilder.appendPatTree pats
              >> fun id -> { Pool = pats; Id = id })
             vr
@@ -47,7 +55,7 @@ module FrozenSignature =
     /// Project a frozen implementation file's INTERNAL-or-better signature to a
     /// provider view. `assemblyName` is this unit's home assembly — a file-N entity is
     /// the same assembly as N+1, so it rides every entry's `Origin`.
-    let toProvider (assemblyName: string) (frozen: Frozen.TastFile) : IExternalSymbolProvider =
+    let toProvider (assemblyName: string) (frozen: FrozenPools) : IExternalSymbolProvider =
         // Home origin for an entity in namespace `ns`: this frozen signature's assembly.
         let originIn (ns: NamespaceKey) : SymbolOrigin =
             {
@@ -59,7 +67,7 @@ module FrozenSignature =
         // A key ABSENT from the honestly-stored table is `Public` (an unmarked decl),
         // so it is exported. The `.fsi` extractor thresholds the SAME fact public-only.
         let exported (key: SymbolKey) : bool =
-            match frozen.Accessibility.TryGetValue key with
+            match frozen.Residue.Accessibility.TryGetValue key with
             | true, Accessibility.Private -> false
             | _ -> true
 
@@ -224,7 +232,7 @@ module FrozenSignature =
         // The file's trees as columns. Nothing here mints, so the overlay stays empty and
         // this is purely the read seam; the projection never descends into a value
         // position, only decl HEADS and the opaque type-declaration shape.
-        let pool = TastPoolBuilder.openOver (TastPools.toPools frozen)
+        let pool = TastPoolBuilder.openOver frozen
 
         /// A `Type` root whose declaration passes the export threshold — the entire input
         /// of the type-shape projection, so the threshold is applied in one place rather
@@ -437,25 +445,32 @@ module FrozenSignature =
         // owns: they are derived from the frozen file's, not nodes of it.
         let valReprPats = TastPoolBuilder.openEmpty ()
 
-        let bindingValRepr (k: NodeKey) : TastAccessor.ValRepr voption =
-            match Map.tryFind k frozen.BindingValReprs with
+        // Both binding side tables are read at the binder ID the decl's own head pattern
+        // carries — a template and the ordinary function it was snapshotted from are two
+        // trees over the SAME source binder, so the one id serves both loops below.
+        let bindingValReprs = Map.ofArray frozen.BindingValReprs
+        let bindingTyparArities = Map.ofArray frozen.BindingTyparArities
+        let moduleMembers = Map.ofArray frozen.ModuleMembers
+
+        let bindingValRepr (binder: BinderId) : TastAccessor.ValRepr voption =
+            match Map.tryFind binder bindingValReprs with
             // A value has no lambda groups — `ValueNone`, exactly as the extractor
             // leaves `ValRepr` on a non-function `val`.
-            | Some vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring valReprPats vr)
+            | Some vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring pool valReprPats vr)
             | _ -> ValueNone
 
-        let bindingArity (k: NodeKey) : int =
-            match Map.tryFind k frozen.BindingTyparArities with
+        let bindingArity (binder: BinderId) : int =
+            match Map.tryFind binder bindingTyparArities with
             | Some n -> n
             | None -> 0
 
-        let addValue (bindingKey: BindingKey) (k: NodeKey) (ty: FrozenType) (inlineBody: InlineBody voption) =
+        let addValue (bindingKey: BindingKey) (binder: BinderId) (ty: FrozenType) (inlineBody: InlineBody voption) =
             let scheme = ConformanceTypars.toDeclaringAxis ty
 
             let sym =
-                { ExternalSymbols.scheme bindingKey.Decl bindingKey.Name scheme (bindingArity k) [] with
+                { ExternalSymbols.scheme bindingKey.Decl bindingKey.Name scheme (bindingArity binder) [] with
                     Origin = originIn bindingKey.Decl.Namespace
-                    ValRepr = bindingValRepr k
+                    ValRepr = bindingValRepr binder
                     InlineBody = inlineBody
                 }
 
@@ -469,29 +484,40 @@ module FrozenSignature =
         for decl in TastAccessor.roots pool do
             match decl with
             | TastAccessor.DLet {
-                                    Binding = TastAccessor.PNamed k
+                                    Binding = TastAccessor.PNamedId binder
                                     Ty = ty
                                 } ->
-                match Map.tryFind k frozen.ModuleMembers with
+                match Map.tryFind binder moduleMembers with
                 | Some info ->
                     match info.Key with
-                    | SymbolKey.Binding bindingKey when exported info.Key -> addValue bindingKey k ty ValueNone
+                    | SymbolKey.Binding bindingKey when exported info.Key -> addValue bindingKey binder ty ValueNone
                     | _ -> ()
                 | None -> ()
             | _ -> ()
 
-        // The inline VOCABULARY rides `InlineBodies` — a second, independent tree, not a
-        // projection of the emitted function of the same name (a template is snapshotted
+        // The inline VOCABULARY rides its OWN pool roots — a second, independent tree, not
+        // a projection of the emitted function of the same name (a template is snapshotted
         // ahead of the expansion walk, so its static-opt clauses and trait calls resolve
-        // against a CALL SITE's operand types). The body is the frozen, sibling-rewritten
-        // template `Inline.thawBody` splices, and it stays DU-typed: it is the cross-unit
-        // wire, and a pool id is meaningless outside the file that issued it.
-        for iv in frozen.InlineBodies do
+        // against a CALL SITE's operand types). What ships is the DU drain of that root:
+        // `InlineBody` is the cross-unit wire (`Inline.thawBody` splices it in another
+        // unit), and a pool id is meaningless outside the file that issued it.
+        for iv in frozen.InlineTemplates do
             match iv.Key with
             | SymbolKey.Binding bindingKey when exported iv.Key ->
-                match iv.Body.Decl with
-                | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), _, _, ty) ->
-                    addValue bindingKey k ty (ValueSome iv.Body)
+                let decl = { Pool = pool; Id = iv.Decl }
+
+                match decl with
+                | TastAccessor.DLet {
+                                        Binding = TastAccessor.PNamedId binder
+                                        Ty = ty
+                                    } ->
+                    let body: InlineBody =
+                        {
+                            Decl = TastPoolBuilder.declTree pool iv.Decl
+                            ParamAttrs = iv.ParamAttrs
+                        }
+
+                    addValue bindingKey binder ty (ValueSome body)
                 | _ -> ()
             | _ -> ()
 
@@ -511,7 +537,7 @@ module FrozenSignature =
         // (`obj`), and codegen chains the base-`.ctor` off the canon's own repr, not this
         // field; its ctor set is empty (the impl declares none, and the inherit path reads
         // only the `Class` marker). A scalar primitive projects with `Class = ValueNone`.
-        for KeyValue(key, repr) in frozen.IntrinsicReprKeys do
+        for KeyValue(key, repr) in frozen.Residue.IntrinsicReprKeys do
             match key with
             | SymbolKey.Type typeKey ->
                 let shape =
@@ -546,15 +572,15 @@ module FrozenSignature =
         // `{ platform-repr -> [canon] }` is its inversion; a degenerate self-map (a
         // primitive with no distinct `.fs` repr) is skipped, mirroring the extractor.
         let intrinsicForward =
-            let d = Dictionary<SymbolKey, string>(frozen.IntrinsicReprKeys.Count)
+            let d = Dictionary<SymbolKey, string>(frozen.Residue.IntrinsicReprKeys.Count)
 
-            for KeyValue(key, repr) in frozen.IntrinsicReprKeys do
+            for KeyValue(key, repr) in frozen.Residue.IntrinsicReprKeys do
                 d.[key] <- repr.Platform
 
             d :> IReadOnlyDictionary<_, _>
 
         let intrinsicReverse =
-            frozen.IntrinsicReprKeys
+            frozen.Residue.IntrinsicReprKeys
             |> Seq.choose (fun kv ->
                 if kv.Value.Platform <> SymbolKeyOps.intrinsicName kv.Key then
                     Some(kv.Value.Platform, kv.Key)

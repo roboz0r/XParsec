@@ -54,7 +54,7 @@ module ClrDriver =
             let tast =
                 Pipeline.analyseFor inputs.Project.AssemblyName provider source lexed file
 
-            match tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error) with
+            match tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error) with
             | [] -> Ok(Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project tast)
             | errors -> Error errors
 
@@ -97,7 +97,7 @@ module ClrDriver =
                     let tast =
                         Pipeline.analyseFor inputs.Project.AssemblyName provider source lexed file
 
-                    match tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error) with
+                    match tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error) with
                     | [] -> Ok tast
                     | errors -> Error errors
             )

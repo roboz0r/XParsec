@@ -21,16 +21,25 @@ module internal Layout =
         (closureNamer: Emit.ClosureNamer)
         (symbols: ICodegenSymbols)
         (project: ProjectInfo)
-        (tast: Frozen.TastFile)
+        (pools: FrozenPools)
         : UnitLayout =
         // The file's trees as columns, with an append-only overlay stacked over them.
         // Every node this emission DERIVES — the eta bridges, the closure-verdict
         // retypes, a `use`'s dispose synthetic — is appended to the overlay, and every
         // id the canonical pool already handed out keeps naming the same node, which is
         // what lets the derived nodes be minted mid-emit rather than in one batch.
-        let pools = TastPools.toPools tast
         let pool = TastPoolBuilder.openOver pools
         let decls = TastAccessor.roots pool |> List.ofArray
+
+        // The four binder-keyed side tables the CLR lowering consumes, back in their
+        // `NodeKey` form. `HolderPlan`/`Emit.discoverClosures` and everything downstream
+        // of them (`StaticFn`/`ModuleValue` keys, the closure capture sets) identify a
+        // binding by `NodeKey`, so handing them the pool's `BinderId` form would be a
+        // rekey of the whole CLR emit rather than a change at this seam.
+        let moduleMembers = TastPools.binderKeyedMap pools pools.ModuleMembers
+        let genericFnSchemes = TastPools.binderKeyedMap pools pools.GenericFnSchemes
+        let topLevelNames = TastPools.binderKeyedMap pools pools.TopLevelNames
+        let closureReprs = TastPools.binderKeyedMap pools pools.ClosureReprs
 
         // A source lambda's verdict, on the lambda ID SPACE: a lambda's dense id is its
         // `ExprPoolId`, so a discovered lambda's verdict is a lookup on the node itself
@@ -50,8 +59,8 @@ module internal Layout =
             SymbolKeyOps.moduleKeyOf (ModuleHolder.InNamespace NamespaceKey.Global) project.ModuleName
 
         // `(ns, name)` of every `[<Struct; IsByRefLike>]` type — a top-level value of
-        // such a type can't be a static field; computed from `tast.Decls` since
-        // `Emit.lower` strips the type decls `lowered` would carry.
+        // such a type can't be a static field; computed from the pool's own decl roots
+        // since `Emit.lower` strips the type decls `lowered` would carry.
         let refStructNsNames =
             [
                 for d in decls do
@@ -74,13 +83,7 @@ module internal Layout =
         // closure discovery and `buildMain`, so they see the same nodes the plan was
         // computed from.
         let plan =
-            HolderPlan.create
-                tast.ModuleMembers
-                tast.GenericFnSchemes
-                programHolder
-                tast.TopLevelNames
-                refStructNsNames
-                lowered0
+            HolderPlan.create moduleMembers genericFnSchemes programHolder topLevelNames refStructNsNames lowered0
 
         let lowered = plan.Lowered
 
@@ -146,7 +149,7 @@ module internal Layout =
                 // `discoverClosures` marks a source-lambda argument a value-struct (and
                 // at what flat arity) by node membership — no structural re-derivation.
                 funVerdicts
-                tast.ClosureReprs
+                closureReprs
                 lowered
                 memberRoots
 
@@ -564,13 +567,13 @@ module internal Layout =
     /// regardless of where the `%A` interfaces are declared — they resolve local-or-external
     /// like any nominal (`ClrEnv.coreInterfaceEntity`), and IL imposes no declaration order
     /// within an assembly, so a record may precede the interface it implements.
-    let buildMany (symbols: ICodegenSymbols) (project: ProjectInfo) (tasts: Frozen.TastFile list) : AssemblyLayout =
+    let buildMany (symbols: ICodegenSymbols) (project: ProjectInfo) (tasts: FrozenPools list) : AssemblyLayout =
         let closureNamer = Emit.ClosureNamer()
         let units = tasts |> List.map (buildUnit closureNamer symbols project)
         combine project units
 
     /// Plan the whole assembly from one tast — `buildMany` over a singleton unit list.
-    let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
+    let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: FrozenPools) : AssemblyLayout =
         buildMany symbols project [ tast ]
 
     /// Derive every handle from the layout once: TypeDef handle = position in the

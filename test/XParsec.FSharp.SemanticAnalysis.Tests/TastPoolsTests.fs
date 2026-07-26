@@ -14,9 +14,16 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // agreeing is the cross-check, not a tautology; the reconstruction follows the id columns
 // into the dense pool arrays, so a mis-wired child edge shows up as a fan-out mismatch.
 
+/// The pools under test, with the DU they encode. The freeze yields POOLS; `ofPools`
+/// re-authors the tree they carry, and `toPools` then re-derives every column from THAT
+/// tree — so the gates below judge a genuine interconversion, not the freeze's own pool
+/// against itself.
 let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
     let lexed, file = parseFile src
-    let frozen = Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file
+
+    let frozen =
+        TastPools.ofPools (Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file)
+
     TastPools.toPools frozen, frozen
 
 let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Frozen.TPat) =

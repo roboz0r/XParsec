@@ -313,6 +313,17 @@ module TastPoolBuilder =
         else
             b.OvBinderNamings.[i - b.BinderBase]
 
+    /// The `BinderId` a `NodeKey` names, or `ValueNone` when no definition site in this
+    /// pool introduced it. The READ-ONLY counterpart of `internBinder`: a lookup answers
+    /// only with a binder the pooled tree actually bears, so a side table consulted
+    /// through it cannot silently name a node that does not exist — which is why a
+    /// consumer resolving a key to an id must come through here and not `internBinder`
+    /// (whose mint-on-miss would manufacture the very identity the check is for).
+    let tryBinderId (b: PoolBuilder) (k: NodeKey) : BinderId voption =
+        match b.BinderIndex.TryGetValue k with
+        | true, id -> ValueSome id
+        | false, _ -> ValueNone
+
     // Each domain's flat id space as it currently stands: every id below the count
     // resolves, and the next append takes the count itself.
 
@@ -352,9 +363,9 @@ module TastPoolBuilder =
     /// arrives first creates the entry, and `BinderNaming.ofKey` makes the entry identical
     /// either way.
     let internBinder (b: PoolBuilder) (k: NodeKey) : BinderId =
-        match b.BinderIndex.TryGetValue k with
-        | true, id -> id
-        | false, _ ->
+        match tryBinderId b k with
+        | ValueSome id -> id
+        | ValueNone ->
             let id = BinderId(b.BinderBase + b.OvBinderKeys.Count)
             b.BinderIndex.Add(k, id)
             b.OvBinderKeys.Add k

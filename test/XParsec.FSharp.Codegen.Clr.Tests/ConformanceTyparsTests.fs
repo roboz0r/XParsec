@@ -36,7 +36,7 @@ let tests =
 
                 let tast = Pipeline.analyseForSelfHost "Vesper.List" analysisProvider src lexed file
 
-                Expect.isEmpty tast.Diagnostics "list.fs analyses cleanly"
+                Expect.isEmpty tast.Residue.Diagnostics "list.fs analyses cleanly"
 
                 // The LOOKUP provider DOES include `list.fsi` (the published contract), so
                 // `List.fold` / `List.map` / `List.append` / … resolve to their declared
@@ -76,7 +76,7 @@ let tests =
                     Pipeline.analyseForSelfHost "Vesper.Printf" analysisProvider src lexed file
 
                 let analysisErrors =
-                    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                    tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
                 Expect.isEmpty analysisErrors (sprintf "Vesper.Printf impl analyses cleanly; got %A" analysisErrors)
 

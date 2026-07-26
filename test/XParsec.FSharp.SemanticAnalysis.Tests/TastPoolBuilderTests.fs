@@ -12,9 +12,15 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // after the overlay has grown; an overlay node may name base children and rebuilds into the
 // right tree; a freeze leaves every base column a prefix of the derived one.
 
+/// The base pools with the DU they encode — see `TastPoolsTests.poolsFor`: the freeze
+/// yields pools, `ofPools` re-authors the tree, and `toPools` re-derives the columns from
+/// it, so a base id here is one this build assigned.
 let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
     let lexed, file = parseFile src
-    let frozen = Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file
+
+    let frozen =
+        TastPools.ofPools (Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file)
+
     TastPools.toPools frozen, frozen
 
 /// The value expr of the file's first `Let` decl, as a DU node — a real frozen subtree to

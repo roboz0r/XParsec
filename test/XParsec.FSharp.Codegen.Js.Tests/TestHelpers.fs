@@ -88,10 +88,10 @@ let jsManifests: string list =
 let jsProvider: Lazy<IExternalSymbolProvider> =
     lazy JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) jsManifests
 
-/// Front-end a program to a `Frozen.TastFile`. Fails on any error diagnostic.
+/// Front-end a program to its frozen `FrozenPools`. Fails on any error diagnostic.
 /// Resolves through the real JS-native contract stack (`jsProvider`) — the
 /// superset that replaced the value-only `MockBuiltins` fixture.
-let frozenOf (input: string) : Frozen.TastFile =
+let frozenOf (input: string) : FrozenPools =
     let lexed, file = parseFile input
     let ctx, tast = Pipeline.analyseSemWithContext jsProvider.Value input lexed file
 
@@ -108,7 +108,7 @@ let emit (input: string) : string =
     |> Codegen.toSource
 
 /// Front-end a program through the JS-target provider. Fails on any error diagnostic.
-let frozenOfJs (input: string) : Frozen.TastFile =
+let frozenOfJs (input: string) : FrozenPools =
     let lexed, file = parseFile input
 
     let ctx, tast =
@@ -125,7 +125,7 @@ let frozenOfJs (input: string) : Frozen.TastFile =
 /// byte-identity gates pin (assembly `name`, `name + ".fsx"` source), stripping the trailing
 /// `//# sourceMappingURL` line. Single-sourced so the direct, round-trip, and cache-parity gates
 /// judge the round-tripped/cached tree against the identical emit path — they cannot drift apart.
-let emitFrozenJs (name: string) (src: string) (frozen: Frozen.TastFile) : string =
+let emitFrozenJs (name: string) (src: string) (frozen: FrozenPools) : string =
     let project =
         { JsProjectInfo.defaults name with
             Source = Some { Path = name + ".fsx"; Content = src }
@@ -176,7 +176,7 @@ let coreDepsJsProvider: Lazy<IExternalSymbolProvider> =
 
 /// Front-end + freeze a JS-target package impl. The provider carries only the package's
 /// dependencies — the impl's own in-file types are the resolution authority.
-let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : Frozen.TastFile =
+let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPools =
     let lexed, file = parseFile input
     let ctx, tast = Pipeline.analyseSemForSelfHostWithContext provider input lexed file
 
@@ -311,11 +311,11 @@ let private jsWalkCtx
     (runtime: Map<string, JsRuntimeModule>)
     (exportTopLevel: bool)
     (input: string)
-    (frozen: Frozen.TastFile)
+    (frozen: FrozenPools)
     : EmitJsContext.WalkCtx =
     EmitJsContext.WalkCtx.create
         (ValueSome(EmitJsContext.LineIndex.build input))
-        (TastPoolBuilder.openOver (TastPools.toPools frozen))
+        (TastPoolBuilder.openOver frozen)
         (ValueSome input)
         provider
         (JsImports.create runtime)

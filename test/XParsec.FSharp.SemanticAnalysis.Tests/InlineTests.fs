@@ -38,10 +38,10 @@ let private declType (tast: TastFile) : SemType =
 /// fresh `TyVar` cells.
 ///
 /// This — not `tast.Decls` — is the shape `Inline.inlineExpand` runs on for any GENERIC
-/// template. The post-`freezeTypars` SemType decl in `tast.Decls` deliberately carries
-/// `TyTypar`, not roots: an inline binding is never emitted, so its typars are quantified
-/// unconditionally, which is what lets freeze name them at all. (A SAME-unit splice sees
-/// the roots because `Passes.InlineExpansion` runs BEFORE that cut.)
+/// template. The post-`freezeTypars` SemType decl in `tast.Decls` carries `TyTypar`, not
+/// roots — that cut is what lets freeze NAME the typars — so a decl read out of
+/// `tast.Decls` cannot stand in for the published template. (A SAME-unit splice does see
+/// the roots, because `Passes.InlineExpansion` runs BEFORE that cut.)
 ///
 /// The `namespace` + nested `module` wrapper is not incidental: only a binding with a
 /// declaring MODULE has a holder chain, hence an exportable identity, hence a vocabulary
@@ -52,7 +52,10 @@ let private declType (tast: TastFile) : SemType =
 let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
-    let frozen = Pipeline.analyse realProvider.Value input lexed file
+    // The vocabulary is a pool root array; `ofPools` drains it back to the DU form the
+    // cross-unit wire (and `Inline.thawBody`) speaks.
+    let frozen =
+        TastPools.ofPools (Pipeline.analyse realProvider.Value input lexed file)
 
     match frozen.InlineBodies |> EqArray.toList with
     // Thaw into `ctx0.Store` — the SAME arena `Inline.inlineExpand ctx0` and
@@ -357,7 +360,9 @@ let tests =
 
                 let lexed, file = parseFile input
                 let sem = Pipeline.analyseSem realProvider.Value input lexed file
-                let frozen = Pipeline.analyse realProvider.Value input lexed file
+
+                let frozen =
+                    TastPools.ofPools (Pipeline.analyse realProvider.Value input lexed file)
 
                 // `k` is the module's first decl; its published identity is the one its
                 // `ModuleBindingInfo` mints — the same one the rewrite must have baked in.
@@ -411,7 +416,8 @@ let tests =
                 // exactly what the publish-time free-`Var` check exists to catch.
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
                 let lexed, file = parseFile input
-                let _, frozen = Pipeline.analyseWithContext realProvider.Value input lexed file
+                let _, pools = Pipeline.analyseWithContext realProvider.Value input lexed file
+                let frozen = TastPools.ofPools pools
 
                 Expect.isEmpty (EqArray.toList frozen.InlineBodies) "the un-splice-able template is not published"
 

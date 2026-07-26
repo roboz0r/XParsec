@@ -110,11 +110,13 @@ let private distinctCells (tvs: TyVarId list) : TyVarId list =
 let private distinctLeafCount (d: Frozen.TDecl) : int =
     collectTys d |> List.collect typarLeavesIn |> List.distinct |> List.length
 
-/// The frozen unit of a source.
+/// The frozen unit of a source, as the DU. The freeze yields pools; every assertion in
+/// this file reads whole decl trees and the inline vocabulary in the DU form the
+/// cross-unit wire carries, which is what `ofPools` re-authors.
 let private freeze (src: string) : Frozen.TastFile =
     let ctx, tast = analyseWithCtx src
     Expect.isEmpty tast.Diagnostics "no diagnostics"
-    Freeze.run ctx tast
+    TastPools.ofPools (Freeze.run ctx tast)
 
 /// The frozen `let` decl of a single-binding program.
 let private frozenLetDecl (src: string) : Frozen.TDecl =
@@ -215,7 +217,7 @@ let rec private typarArity (ft: FrozenType) : int =
 let private publishing (unitASource: string) : IExternalSymbolProvider =
     let ctx, tastA = analyseWithCtx unitASource
     Expect.isEmpty tastA.Diagnostics "unit A has no diagnostics"
-    let unitA = Freeze.run ctx tastA
+    let unitA = TastPools.ofPools (Freeze.run ctx tastA)
 
     let published = unitA.InlineBodies |> EqArray.toList
 
@@ -267,7 +269,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 /// leaves an `App` head instead, which reaches no `Const`, so this cannot pass by accident.
 let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
     let lexed, file = parseFile src
-    let tast = Pipeline.analyse provider src lexed file
+    let tast = TastPools.ofPools (Pipeline.analyse provider src lexed file)
 
     Expect.isEmpty
         (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
@@ -324,7 +326,7 @@ let tests =
             // SRTP member constraint has no IL encoding at all, so it does not.
             test "lowering emits a StaticOptimization inline, and drops an SRTP one" {
                 let lowered (src: string) =
-                    TastLower.lower (pooledDecls (freeze src))
+                    TastLower.lower (pooledDecls (TastPools.toPools (freeze src)))
                     |> List.filter (fun d ->
                         match d with
                         | TastAccessor.DLet lv -> lv.IsInline

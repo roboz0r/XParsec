@@ -48,9 +48,8 @@ let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 /// A frozen file's declarations as pool handles — what `Layout.buildUnit` opens before
 /// anything else, so a test that drives a lowering / discovery pass directly starts from
 /// the same representation the backend does.
-let pooledDecls (frozen: Frozen.TastFile) : TastAccessor.DeclId list =
-    TastAccessor.roots (TastPoolBuilder.openOver (TastPools.toPools frozen))
-    |> List.ofArray
+let pooledDecls (frozen: FrozenPools) : TastAccessor.DeclId list =
+    TastAccessor.roots (TastPoolBuilder.openOver frozen) |> List.ofArray
 
 /// Lex + parse a source string; script fragments wrap as `AnonymousModule`.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
@@ -465,8 +464,8 @@ let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifac
     compileContract defaultManifests (ProjectInfo.defaults assemblyName) input
 
 /// The CLR artifacts a frozen-tree round-trip must reconcile against the DIRECT
-/// codegen: the frozen-cache `thaw (flatten frozen)` and the id-pool
-/// `TastPools.ofPools (TastPools.toPools frozen)`. Both are codegen-INVARIANT
+/// codegen: the frozen-cache `thaw (flatten frozen)` and the DU round-trip
+/// `TastPools.toPools (TastPools.ofPools frozen)`. Both are codegen-INVARIANT
 /// obligations over the same tree, so they share the whole parse → analyse → freeze
 /// prefix and differ only by the round-trip applied.
 type ConformanceRoundTripArtifacts =
@@ -475,7 +474,9 @@ type ConformanceRoundTripArtifacts =
         Direct: ClrArtifact
         /// Codegen from `thaw (flatten frozen)` (the serialization round-trip).
         ThawRoundTripped: ClrArtifact
-        /// Codegen from `ofPools (toPools frozen)` (the id-pool round-trip).
+        /// Codegen from `toPools (ofPools frozen)` — the columns drained to the DU and
+        /// re-derived from it, which is what proves the columns are tree-sufficient now
+        /// that the freeze emits them directly.
         PoolRoundTripped: ClrArtifact
     }
 
@@ -494,7 +495,7 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
 
     let frozen = Freeze.run ctx tast
     let thawRoundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
-    let poolRoundTripped = TastPools.ofPools (TastPools.toPools frozen)
+    let poolRoundTripped = TastPools.toPools (TastPools.ofPools frozen)
     let cored = withCore project
 
     {
@@ -817,7 +818,8 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let tast =
         Pipeline.analyseForSelfHost project.AssemblyName provider source lexed file
 
-    let errs = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errs =
+        tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
     if not (List.isEmpty errs) then
         failwithf
@@ -884,7 +886,8 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     let tast =
         Pipeline.analyseForSelfHost project.AssemblyName provider source lexed file
 
-    let errs = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errs =
+        tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
     if not (List.isEmpty errs) then
         failwithf
@@ -1097,7 +1100,7 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
 
     let analysisErrors =
-        tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+        tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
     if not (List.isEmpty analysisErrors) then
         failwithf

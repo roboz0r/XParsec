@@ -107,7 +107,8 @@ let private producerDll: Lazy<string> =
          let lexed, file = parseFile producerFs
          let tast = Pipeline.analyseFor project.AssemblyName provider producerFs lexed file
 
-         let errs = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+         let errs =
+             tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
          if not (List.isEmpty errs) then
              failwithf "EscapeProducer build: %s" (errs |> List.map (fun d -> d.Message) |> String.concat "; ")
@@ -136,7 +137,8 @@ let private runConsumer (expected: string list) (src: string) : unit =
     let lexed, file = parseFile src
     let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
 
-    let errs = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errs =
+        tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
     if not (List.isEmpty errs) then
         failwithf "EscapeConsumer analysis: %s" (errs |> List.map (fun d -> d.Message) |> String.concat "; ")

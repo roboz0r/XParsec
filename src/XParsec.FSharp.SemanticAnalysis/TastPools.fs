@@ -6,9 +6,9 @@ open XParsec.FSharp.Parser
 // wire-shape types (`ExprPoolId`/`ExprPayload`/`FrozenPools`/…) and the design rationale
 // live in `TastPoolTypes.fs`. `toPools` walks the DU assigning each node a dense id and
 // recording its child edges as ids; `ofPools` inverts, rebuilding the DU from the columns
-// alone. They are proven INTERCONVERTIBLE over the corpus, and they are the seam the STORED
-// wire form sits on: `FrozenCodec.flatten` is `toPools` then the column writers, `thaw` their
-// inverse then `ofPools`.
+// alone. `toPools` is the LAST step of the freeze (`Freeze.run`) and its only production
+// caller; `ofPools` has none — it is what makes the interconversion CHECKABLE, and the
+// corpus-wide `ofPools ∘ toPools = id` is the proof that the columns carry the whole tree.
 
 [<RequireQualifiedAccess>]
 module TastPools =
@@ -1015,10 +1015,32 @@ module TastPools =
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
         | DeclPayload.Type td -> TDeclG.Type(TastConvert.typeDecl id fromExpr td)
 
+    /// A dense `BinderId`-keyed side table as the `Map<NodeKey,_>` it was re-keyed FROM,
+    /// resolving each id back through the binder column. Public because two callers need
+    /// it and neither should re-derive the resolution: `ofPools` (rebuilding the whole
+    /// file) and a consumer whose own downstream API is still `NodeKey`-keyed and so
+    /// cannot take the id form (`Layout.buildUnit` feeding the CLR holder plan / closure
+    /// discovery). Prefer the id form where the consumer holds a `BinderId` — this
+    /// direction re-admits keys that name nothing.
+    let binderKeyedMap (pools: FrozenPools) (dense: (BinderId * 'v)[]) : Map<NodeKey, 'v> =
+        dense
+        |> Array.map (fun (BinderId i, v) -> pools.BinderKeys.[i], v)
+        |> Map.ofArray
+
     /// Rebuild the `Frozen.TastFile` DU from the pools — the inverse of `toPools`. The
     /// `Decls` are re-authored from the pool roots and the side tables re-keyed back
-    /// through the binder/lambda id spaces (the interconversion under test); only the
-    /// three `Residue` fields are carried through verbatim, having no pooled form.
+    /// through the binder/lambda id spaces; only the three `Residue` fields are carried
+    /// through verbatim, having no pooled form.
+    ///
+    /// It has NO production caller: the freeze yields pools, every consumer reads pools,
+    /// and `FrozenCodec` stores pools. What it exists for is the OBLIGATION the pools owe
+    /// — that the columns are tree-sufficient. `ofPools (toPools f) = f` structurally,
+    /// over the whole corpus, is the proof that nothing of the tree was lost on the way
+    /// into the columns, and it is checkable only because the DU is still expressible.
+    /// (Corpus gates: `TastPoolsTests`, `Codegen.Clr.Tests/TestHelpers.fs`'s
+    /// `PoolRoundTripped` codegen-invariance.) It is also the drain a test reaches for
+    /// when asserting on whole decl trees, which the accessor's per-node reads do not
+    /// serve.
     let ofPools (pools: FrozenPools) : Frozen.TastFile =
         // Resolve a dense id back to the binder NodeKey it names — the inverse of the
         // `toPools` interning. This is the resolution the reference remap and the side
@@ -1068,8 +1090,8 @@ module TastPools =
         // Rebuild a side table from its dense form, resolving each `BinderId` back to its
         // NodeKey. Reconstructing the maps here (rather than retaining the source file's) is
         // what makes the round-trip prove the key remap, not just the decl trees.
-        // One generic rebuild, parameterized by the inverse key resolver: the binder-keyed
-        // tables pass `binderKey`, `FunVerdicts` passes `lambdaKeyOf`.
+        // The binder-keyed tables go through the shared `binderKeyedMap`; `FunVerdicts` is
+        // the one table on the lambda id space, so it inverts through `lambdaKeyOf`.
         let rebuildSideTable (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) : Map<NodeKey, 'v> =
             dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
@@ -1077,11 +1099,11 @@ module TastPools =
             Decls = decls
             Diagnostics = pools.Residue.Diagnostics
             IntrinsicReprKeys = pools.Residue.IntrinsicReprKeys
-            ModuleMembers = rebuildSideTable binderKey pools.ModuleMembers
-            TopLevelNames = rebuildSideTable binderKey pools.TopLevelNames
-            ClosureReprs = rebuildSideTable binderKey pools.ClosureReprs
+            ModuleMembers = binderKeyedMap pools pools.ModuleMembers
+            TopLevelNames = binderKeyedMap pools pools.TopLevelNames
+            ClosureReprs = binderKeyedMap pools pools.ClosureReprs
             FunVerdicts = rebuildSideTable lambdaKeyOf pools.FunVerdicts
-            GenericFnSchemes = rebuildSideTable binderKey pools.GenericFnSchemes
+            GenericFnSchemes = binderKeyedMap pools pools.GenericFnSchemes
             InlineBodies = inlineBodies
             Accessibility = pools.Residue.Accessibility
             // Both halves invert: the key through the binder pool, the tuple-group pats
@@ -1090,5 +1112,5 @@ module TastPools =
                 pools.BindingValReprs
                 |> Array.map (fun (binder, vr) -> binderKey binder, TastConvert.valRepr id fromPat vr)
                 |> Map.ofArray
-            BindingTyparArities = rebuildSideTable binderKey pools.BindingTyparArities
+            BindingTyparArities = binderKeyedMap pools pools.BindingTyparArities
         }

@@ -13,8 +13,9 @@ open XParsec.FSharp.Parser
 /// `MemoryStream`; the blob is Brotli-wrapped at the store seam (`Compression`), so
 /// nothing here hand-rolls varints or bit-packing.
 ///
-/// The stored form is the pools, not the DU: `flatten` = `TastPools.toPools` then the
-/// column writers, `thaw` their inverse then `TastPools.ofPools`. There is NO recursive
+/// The stored form is the pools, not the DU, and the pools are what the front end now
+/// yields: `flatten` IS the column writers and `thaw` their inverse, with no conversion on
+/// either side. There is NO recursive
 /// `TExpr`/`TDecl`/`TPat` tree codec: every tree the file bears is in the columns, so
 /// wherever a subtree used to be inlined — a `type` declaration's member bodies, an inline
 /// template's decl, a `ValRepr`'s tuple group — a pool id is written instead.
@@ -2272,16 +2273,15 @@ module FrozenCodec =
 
     // ── the whole frozen file (top-level entry points) ──────────────────────
 
-    /// Flatten an entire frozen file to a byte blob: pool the trees and identity keys
-    /// (`TastPools.toPools`), then write the columns. No interning and no compression —
-    /// `Compression` wraps the blob at the store seam, and the cache key hashes INPUTS, not
-    /// the blob, so no byte canonicalization is owed here. `thaw` is the exact inverse.
-    let flatten (f: Frozen.TastFile) : byte[] =
-        toBytes writePools (TastPools.toPools f)
+    /// Flatten an entire frozen file to a byte blob: write the columns. The pools ARE the
+    /// stored form, so this is the column writers and nothing else. No interning and no
+    /// compression — `Compression` wraps the blob at the store seam, and the cache key
+    /// hashes INPUTS, not the blob, so no byte canonicalization is owed here. `thaw` is the
+    /// exact inverse.
+    let flatten (pools: FrozenPools) : byte[] = toBytes writePools pools
 
-    /// Rebuild the frozen file from a `flatten` blob: read the columns, then re-author the
-    /// DU from them (`TastPools.ofPools`). The two `IReadOnlyDictionary` fields come back as
-    /// concrete `Dictionary`s (reference equality), so a whole-record `=` is NOT sound —
-    /// compare with `TastFileG.structurallyEqual`.
-    let thaw (bytes: byte[]) : Frozen.TastFile =
-        TastPools.ofPools (ofBytes readPools bytes)
+    /// Rebuild the frozen file's pools from a `flatten` blob. The `Residue`'s two
+    /// `IReadOnlyDictionary` fields come back as concrete `Dictionary`s (reference
+    /// equality), so a whole-record `=` on a thawed file is NOT sound — compare through
+    /// `TastPools.ofPools` and `TastFileG.structurallyEqual`.
+    let thaw (bytes: byte[]) : FrozenPools = ofBytes readPools bytes

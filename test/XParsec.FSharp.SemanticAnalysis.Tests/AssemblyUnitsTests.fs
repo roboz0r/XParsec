@@ -25,7 +25,7 @@ let private units (results: Result<FrozenUnit, UnitError> list) : FrozenUnit lis
 /// A unit's unresolved-symbol error diagnostics (the front end phrases both the bare and
 /// the qualified miss with an "Unresolved" message).
 let private unresolvedErrors (u: FrozenUnit) : Diagnostic list =
-    u.Frozen.Diagnostics
+    u.Frozen.Residue.Diagnostics
     |> List.filter (fun d -> d.Severity = Severity.Error && d.Message.Contains "Unresolved")
 
 /// A unit's TYPE-RESOLUTION-miss errors, both message families. An unresolved VALUE name
@@ -34,7 +34,7 @@ let private unresolvedErrors (u: FrozenUnit) : Diagnostic list =
 /// cross-unit type-resolution check must catch BOTH — filtering only "Unresolved" let an
 /// annotation-position type miss pass silently (a false green).
 let private definitionErrors (u: FrozenUnit) : Diagnostic list =
-    u.Frozen.Diagnostics
+    u.Frozen.Residue.Diagnostics
     |> List.filter (fun d ->
         d.Severity = Severity.Error
         && (d.Message.Contains "Unresolved" || d.Message.Contains "is not defined")
@@ -78,7 +78,9 @@ module N =
 
                 Expect.isEmpty
                     (definitionErrors f2)
-                    (sprintf "file 2 has no unresolved/undefined-type errors (diagnostics: %A)" f2.Frozen.Diagnostics)
+                    (sprintf
+                        "file 2 has no unresolved/undefined-type errors (diagnostics: %A)"
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             test "file 2 resolves file 1's exports through an OPEN-ed bare reference" {
@@ -103,7 +105,9 @@ module N =
 
                 Expect.isEmpty
                     (definitionErrors f2)
-                    (sprintf "opened bare reference resolves through the view (diagnostics: %A)" f2.Frozen.Diagnostics)
+                    (sprintf
+                        "opened bare reference resolves through the view (diagnostics: %A)"
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             test "FORWARD-only: file 1 cannot resolve a symbol defined only in file 2" {
@@ -277,18 +281,18 @@ module N =
 
                 // No provider-miss field-read error leaked (the pre-R3 failure mode).
                 let unknownRecord =
-                    f2.Frozen.Diagnostics
+                    f2.Frozen.Residue.Diagnostics
                     |> List.filter (fun d -> d.Severity = Severity.Error && d.Message.Contains "Unknown record")
 
                 Expect.isEmpty
                     unknownRecord
                     (sprintf
                         "cross-unit field read must not error 'Unknown record' (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
 
                 Expect.isEmpty
                     (unresolvedErrors f2)
-                    (sprintf "cross-unit field read resolves clean (diagnostics: %A)" f2.Frozen.Diagnostics)
+                    (sprintf "cross-unit field read resolves clean (diagnostics: %A)" f2.Frozen.Residue.Diagnostics)
 
                 // The read types as `int`: `z`'s exported scheme is the field's type,
                 // resolved through the provider's frozen record shape.
@@ -331,7 +335,7 @@ module N =
                 let f2 = all.[1]
 
                 let recordErrors =
-                    f2.Frozen.Diagnostics
+                    f2.Frozen.Residue.Diagnostics
                     |> List.filter (fun d ->
                         d.Severity = Severity.Error
                         && (d.Message.Contains "Unknown record"
@@ -341,13 +345,15 @@ module N =
 
                 Expect.isEmpty
                     recordErrors
-                    (sprintf "cross-unit record construction must resolve clean (diagnostics: %A)" f2.Frozen.Diagnostics)
+                    (sprintf
+                        "cross-unit record construction must resolve clean (diagnostics: %A)"
+                        f2.Frozen.Residue.Diagnostics)
 
                 Expect.isEmpty
                     (unresolvedErrors f2)
                     (sprintf
                         "cross-unit record construction has no unresolved symbols (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
 
                 // Both literals type as `R` (an `FTRecord` whose type key's simple name is R),
                 // proving the construction resolved to unit 1's record, not a fresh TyVar.
@@ -398,7 +404,7 @@ module N =
                 let f2 = all.[1]
 
                 let patternErrors =
-                    f2.Frozen.Diagnostics
+                    f2.Frozen.Residue.Diagnostics
                     |> List.filter (fun d ->
                         d.Severity = Severity.Error
                         && (d.Message.Contains "Unknown record"
@@ -408,13 +414,15 @@ module N =
 
                 Expect.isEmpty
                     patternErrors
-                    (sprintf "cross-unit record pattern must resolve clean (diagnostics: %A)" f2.Frozen.Diagnostics)
+                    (sprintf
+                        "cross-unit record pattern must resolve clean (diagnostics: %A)"
+                        f2.Frozen.Residue.Diagnostics)
 
                 Expect.isEmpty
                     (unresolvedErrors f2)
                     (sprintf
                         "cross-unit record pattern has no unresolved symbols (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             test "file 2 ANNOTATES a value + parameter with a record type declared in file 1" {
@@ -460,14 +468,17 @@ module N =
                     (definitionErrors f2)
                     (sprintf
                         "value/parameter annotation of a cross-unit record resolves clean (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
 
                 // Honest guard: a pure annotation must raise NO error at all (a hidden
                 // unification mismatch would slip past `definitionErrors`, which filters only
                 // the not-defined / unresolved families).
                 Expect.isEmpty
-                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
-                    (sprintf "pure cross-unit annotation raises no error (diagnostics: %A)" f2.Frozen.Diagnostics)
+                    (f2.Frozen.Residue.Diagnostics
+                     |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (sprintf
+                        "pure cross-unit annotation raises no error (diagnostics: %A)"
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             test "file 2's MEMBER signature annotates a type declared in file 1" {
@@ -505,13 +516,16 @@ module N =
                     (definitionErrors f2)
                     (sprintf
                         "member-signature annotation of a cross-unit type resolves clean (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
 
                 // Ctor param + member return both annotate the SAME prior-unit type, so their
                 // one (flattened) identity is used consistently — no error at all.
                 Expect.isEmpty
-                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
-                    (sprintf "member-signature annotation raises no error (diagnostics: %A)" f2.Frozen.Diagnostics)
+                    (f2.Frozen.Residue.Diagnostics
+                     |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (sprintf
+                        "member-signature annotation raises no error (diagnostics: %A)"
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             test "same offset-0 decl in both files does not break resolution" {
@@ -570,10 +584,11 @@ module N =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics
+                     |> List.filter (fun d -> d.Severity = Severity.Error))
                     (sprintf
                         "annotation + construction of a cross-unit module-held record agree on identity (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             // Two cross-unit resolution rules that were OVER-PERMISSIVE while records
@@ -615,13 +630,14 @@ module N =
                 let f2 = all.[1]
 
                 let errs =
-                    f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                    f2.Frozen.Residue.Diagnostics
+                    |> List.filter (fun d -> d.Severity = Severity.Error)
 
                 Expect.isNonEmpty
                     errs
                     (sprintf
                         "bare construction of a cross-unit RQA record must be rejected (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             test "record in an UNOPENED namespace is NOT bare-constructible across units (ambient-scope gate)" {
@@ -655,13 +671,14 @@ module N =
                 let f2 = all.[1]
 
                 let errs =
-                    f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                    f2.Frozen.Residue.Diagnostics
+                    |> List.filter (fun d -> d.Severity = Severity.Error)
 
                 Expect.isNonEmpty
                     errs
                     (sprintf
                         "bare construction of a cross-unit record without the `open` must be rejected (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             test "a cross-unit `member private` does NOT resolve for dispatch (member-level accessibility honoured)" {
@@ -708,7 +725,7 @@ module N =
                 let errorsOf (caller: string) =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", caller ]
                     |> units
-                    |> fun all -> all.[1].Frozen.Diagnostics
+                    |> fun all -> all.[1].Frozen.Residue.Diagnostics
                     |> List.filter (fun d -> d.Severity = Severity.Error)
 
                 let pubErrs = errorsOf publicCaller
@@ -754,10 +771,11 @@ module N =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics
+                     |> List.filter (fun d -> d.Severity = Severity.Error))
                     (sprintf
                         "a prior unit's primitive resolves in a later unit's annotation (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             test "cross-unit INTERFACE MEMBER: a prior unit's abstract method resolves for dispatch + conformance" {
@@ -795,10 +813,11 @@ type IdInt() =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics
+                     |> List.filter (fun d -> d.Severity = Severity.Error))
                     (sprintf
                         "cross-unit interface dispatch + conformance resolve the abstract method (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             // --- the enclosing-namespace rule, both directions ---------------------------
@@ -842,10 +861,11 @@ module N =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics
+                     |> List.filter (fun d -> d.Severity = Severity.Error))
                     (sprintf
                         "a same-namespace later file resolves a prior unit's type bare (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
             }
 
             test "DIFFERENT-namespace later file does NOT resolve a prior unit's type by bare name" {
@@ -879,6 +899,6 @@ module N =
                     (definitionErrors f2)
                     (sprintf
                         "a bare prior-unit type in an UNOPENED different namespace must not resolve (diagnostics: %A)"
-                        f2.Frozen.Diagnostics)
+                        f2.Frozen.Residue.Diagnostics)
             }
         ]

@@ -112,8 +112,12 @@ module ConformanceTypars =
     /// HiddenVal) or that is monomorphic (`TyparArity = 0`) is skipped — it has no typar
     /// order to compare. Returns one `TyparMismatch` per generic binding whose inferred
     /// scheme disagrees with its declared one, in source-declaration order.
-    let checkFile (provider: IExternalSymbolProvider) (tast: Frozen.TastFile) : TyparMismatch list =
-        let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+    let checkFile (provider: IExternalSymbolProvider) (pools: FrozenPools) : TyparMismatch list =
+        let pool = TastPoolBuilder.openOver pools
+        // Both side tables are read at the binder id the decl's own head pattern carries,
+        // so a lookup can only name a binder this tree bears — no `NodeKey` round-trip.
+        let moduleMembers = Map.ofArray pools.ModuleMembers
+        let topLevelNames = Map.ofArray pools.TopLevelNames
 
         [
             for decl in TastAccessor.roots pool do
@@ -123,16 +127,16 @@ module ConformanceTypars =
                 // false` is what enforces this pass's scope (see the SCOPE note above),
                 // not a restatement of an upstream partition.
                 | TastAccessor.DLet {
-                                        Binding = TastAccessor.PNamed key
+                                        Binding = TastAccessor.PNamedId binder
                                         IsInline = false
                                         Ty = ty
                                     } ->
-                    let info = Map.tryFind key tast.ModuleMembers
+                    let info = Map.tryFind binder moduleMembers
 
                     let nameOpt =
                         match info with
                         | Some mi -> Some mi.Name
-                        | None -> Map.tryFind key tast.TopLevelNames
+                        | None -> Map.tryFind binder topLevelNames
 
                     match nameOpt with
                     | None -> ()
@@ -216,8 +220,8 @@ module ConformanceTypars =
     /// skipped — that is member PRESENCE, not this pass's typar-order remit. Returns
     /// one `MemberMismatch` per generic member whose `.fs` signature matches no
     /// published overload of its arity, in source-declaration order.
-    let checkMembers (provider: IExternalSymbolProvider) (tast: Frozen.TastFile) : MemberMismatch list =
-        let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+    let checkMembers (provider: IExternalSymbolProvider) (pools: FrozenPools) : MemberMismatch list =
+        let pool = TastPoolBuilder.openOver pools
 
         [
             for decl in TastAccessor.roots pool do

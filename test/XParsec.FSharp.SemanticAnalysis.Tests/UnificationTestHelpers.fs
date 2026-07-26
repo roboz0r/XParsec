@@ -162,7 +162,9 @@ let hasUnionExhaustivenessWarning (ctx: PassContext) =
 // `SemType → FrozenType` freeze).
 let freezeDecls (input: string) : Frozen.TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyse realProvider.Value input lexed file
+    // The freeze yields pools; these assertions read the decl tree, which `ofPools`
+    // re-authors.
+    TastPools.ofPools (Pipeline.analyse realProvider.Value input lexed file)
 
 // The frozen type of the (sole) top-level `let f` binding.
 let frozenLetTy (file: Frozen.TastFile) : FrozenType =

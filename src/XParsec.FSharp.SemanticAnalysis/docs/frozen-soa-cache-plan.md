@@ -638,7 +638,66 @@ accessor flip, and lets each mint site move to native row-appends on its own sch
     cannot drift. Third time this session: **a side table naming a node the tree does not bear
     is the recurring defect of this codebase's identity model.**
 - **F.4 Migrate the stragglers.** `FrozenSignature`, `ConformanceTypars`, `SymbolProviders`,
-  `Inline.thawBody`. *Gate: green.*
+  `Inline.thawBody`. *Gate: green.* **LANDED** (`d91a5476`). Outcome:
+  - The first three read decl heads / type shapes through `TastAccessor`. `SymbolProviders`
+    mints its curried wrapper lambdas into the pool the harvested body already occupies, so
+    the body is spliced BY ID — the wrap copies nothing.
+  - **`Inline.thawBody` was carved out, and the stated reason for carving it out was wrong.**
+    It is not a serialization concern: `FrozenCodec` never writes an inline body, and
+    `ofPools` REBUILDS `TastFile.InlineBodies` from `FrozenPools.InlineTemplates`. The cache
+    already stores templates pooled; the DU form lives only in memory, across the
+    `ExternalSymbol` provider seam. **Nor is it blocked** — an earlier draft of this entry
+    said "no pooled `SemType` side", which wrongly implies one is wanted. **`SemType` is
+    deliberately DU and stays that way**: the pools are monomorphic in `FrozenType`
+    (`ExprTys: FrozenType[]`), the columnar form stops at the freeze boundary, and nothing
+    downstream wants a `SemType` pool. `thawBody` outputs a `SemType` DU tree either way.
+    The honest reason for the carve-out is that pooling the carrier **buys nothing**: a
+    template is a handful of nodes and would cost ~20 fixed-size column arrays each, and
+    F.4's `declTree` already composes with the existing `TastConvert.decl` to feed it from
+    a pool if that is ever wanted.
+  - Needed one new primitive: **`TastPoolBuilder.exprTree`/`patTree`/`declTree`**, the
+    pool→DU drain for that seam. It re-authors node-for-node with the same
+    `TastPools.substitute*` functions `ofPools` uses (which became public for it), so the
+    two directions cannot diverge.
+  - **Three comments asserted `Freeze` partitions inline templates out of `Decls`** — the
+    `ConformanceTypars` module header, its `checkFile` arm, and two in `FrozenSignature`.
+    False since `07393c50`, and contradicted by `Tast.fs`'s own `Decls` field doc. No
+    behaviour was wrong (`checkFile` already matched `IsInline = false`; `FrozenSignature`'s
+    second loop already overwrote the first) — only the reasons were fiction. A stale
+    *rationale* survives the test suite indefinitely; only reading it catches it.
+  - **Cost incurred, to be repaid by F.5:** `toProvider`, `checkFile`/`checkMembers` and
+    `collectInlineBodies` now call `TastPools.toPools` on files that never reached it before
+    (package `inline-bodies` impls; every file of a multi-file assembly). That is both a
+    per-file cost and a wider exposure surface for the side-table fault above.
 - **F.5 Sever the DU.** `freeze` stops materializing the DU (cheap version: build, `toPools`,
   drop — freeze building columns natively is a separate optimization); delete the DU paths that
-  actually died. *Gate: green.*
+  actually died. *Gate: green.* **LANDED.** Outcome:
+  - `Freeze.run : PassContext -> TastFile -> FrozenPools` = `toFrozenFile >> TastPools.toPools`,
+    the DU builder now `private`. `Pipeline`, `AssemblyUnits`, `FrozenCodec`/`FrozenCache` and
+    every consumer carry pools. **`toPools` call sites in `src/`: 7 → 1** (`Freeze.fs:387`);
+    `ofPools`: **1 → 0**. `flatten` is now only the column writers, `thaw` only the readers.
+  - **Side tables split, as expected.** `ConformanceTypars.checkFile` and
+    `FrozenSignature.toProvider` moved to `BinderId` (the id is already in hand at the decl
+    head) — which also unified `FrozenSignature`'s two `addValue` callers, since the emitted
+    function and its template are two trees over the SAME source binder, so one `BinderId`
+    serves both loops. **`Layout.buildUnit` deliberately did not**: `HolderPlan.create`,
+    `Emit.discoverClosures` and everything downstream (`StaticFn`/`ModuleValue` key sets,
+    capture sets) identify a binding by `NodeKey`, so rekeying is the whole CLR emit, not a
+    change at this seam. It rebuilds via the extracted `TastPools.binderKeyedMap`. **This is
+    the honest scope line for the follow-up hardening plan**: the readers that could cheaply
+    be id-keyed now are; the CLR emit is a separate body of work.
+  - New primitives, each needed by ≥2 sites: `TastPoolBuilder.tryBinderId` (lookup-only, and
+    `internBinder` now routes through it, so there is one lookup shape),
+    `TastAccessor.patBinderId`/`(|PNamedId|_|)` (the id twin of `patBinder`/`PNamed`,
+    returning `ValueNone` rather than minting), `TastPools.binderKeyedMap`.
+  - **A fourth stale-premise comment** (`Codegen.Clr/Codegen.fs:119`, plus `InlineTests.fs:42`)
+    again asserted `Freeze` keeps inline templates out of `Decls`. Together with F.4's three:
+    **five sites carried a premise that died at `07393c50`, and not one test noticed.** A
+    false *rationale* is invisible to every gate this repo has.
+  - **Cost: the round-trip oracle got weaker, unavoidably.** With freeze no longer producing a
+    DU there is no pool-independent tree to compare against, so `poolsFor` is now
+    `toPools (ofPools (freeze …))` — a mutually-inverse pair of bugs in `toPools`/`ofPools`
+    would pass. The CLR `PoolRoundTripped` codegen-invariance gate is the complement that makes
+    that residual risk small (such a pair would also have to preserve emitted IL).
+  - `ofPools` retained with **no production caller**: it is what makes column-sufficiency
+    checkable at all. Doc comment rewritten to claim only that.

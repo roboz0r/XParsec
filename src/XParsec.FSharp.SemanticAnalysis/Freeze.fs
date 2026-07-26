@@ -244,7 +244,12 @@ module Freeze =
 
             false
 
-    let run (ctx: PassContext) (tast: TastFile) : Frozen.TastFile =
+    /// The freeze's own working form. It is DU-shaped because that is what the passes
+    /// below it speak — `TastConvert.file` maps a `TastFileG` node-for-node, and the
+    /// `ValRepr` peel reads a curried lambda spine — and it never leaves this module:
+    /// `run` pools it and drops it. Building the columns natively (skipping this
+    /// materialisation entirely) is a separate optimisation, not a correctness question.
+    let private toFrozenFile (ctx: PassContext) (tast: TastFile) : Frozen.TastFile =
         // ONE fold decides publication and produces the published entries. The inline
         // VOCABULARY predicate (`isInlineVocabulary` + an exportable identity) decides
         // WHAT gets published; `tast.ModuleMembers` — every module-level binder, inline or
@@ -373,3 +378,10 @@ module Freeze =
         { converted with
             BindingValReprs = bindingValReprs
         }
+
+    /// The SemanticAnalysis assembly's OUTPUT: the frozen file as struct-of-arrays pools.
+    /// Every consumer — both backends, the signature projection, the compile cache —
+    /// reads the columns, so this is the one place the DU is pooled and the only place it
+    /// is built.
+    let run (ctx: PassContext) (tast: TastFile) : FrozenPools =
+        toFrozenFile ctx tast |> TastPools.toPools

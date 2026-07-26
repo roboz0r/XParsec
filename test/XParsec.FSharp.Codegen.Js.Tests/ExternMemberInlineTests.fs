@@ -406,12 +406,14 @@ let tests =
                 let lexed, file = TestHelpers.parseFile input
                 let tast = Pipeline.analyse TestHelpers.jsProvider.Value input lexed file
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors =
+                    tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
                 Expect.isEmpty errors (sprintf "no analysis errors: %A" (errors |> List.map (fun d -> d.Message)))
 
                 // Replicate `SymbolProviders.collectInlineBodies`'s `DeclShape.Type` arm
                 // exactly: for each member-bearing decl, harvest each member.
-                let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+                let pool = TastPoolBuilder.openOver tast
 
                 let harvested =
                     [

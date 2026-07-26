@@ -14,13 +14,19 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private asm = "TestAsm"
 
-let private analyseFrozen (src: string) : Frozen.TastFile =
+let private analyseFrozen (src: string) : FrozenPools =
     let lexed, file = parseFile src
     Pipeline.analyseFor asm realProvider.Value src lexed file
 
+/// The pooled file as the `Frozen.TastFile` DU. The assertions below read whole decl
+/// trees and the `NodeKey`-keyed side tables, which is what `ofPools` re-authors
+/// verbatim — the projection's INPUT is the pools, but its shape reads most directly
+/// here.
+let private duOf (frozen: FrozenPools) : Frozen.TastFile = TastPools.ofPools frozen
+
 /// The `TypeKey` of the type declared under `name`, read out of the frozen decls.
-let private typeKeyOf (frozen: Frozen.TastFile) (name: string) : TypeKey =
-    EqArray.toList frozen.Decls
+let private typeKeyOf (frozen: FrozenPools) (name: string) : TypeKey =
+    EqArray.toList (duOf frozen).Decls
     |> List.pick (
         function
         | Frozen.TDecl.Type td when td.Name = name -> Some td.TypeKey
@@ -28,30 +34,34 @@ let private typeKeyOf (frozen: Frozen.TastFile) (name: string) : TypeKey =
     )
 
 /// The augmentation members declared on the type named `name`.
-let private membersOfType (frozen: Frozen.TastFile) (name: string) : Frozen.TTypeMember list =
-    EqArray.toList frozen.Decls
+let private membersOfType (frozen: FrozenPools) (name: string) : Frozen.TTypeMember list =
+    EqArray.toList (duOf frozen).Decls
     |> List.pick (
         function
         | Frozen.TDecl.Type td when td.Name = name -> Some(EqArray.toList (TTypeKindG.members td.Kind))
         | _ -> None
     )
 
-/// Every module-level binding's `(source name, SymbolKey)` — inline vocabulary
-/// included (Freeze partitioned it into `InlineBodies`).
-let private moduleBindings (frozen: Frozen.TastFile) : (string * SymbolKey) list =
+/// Every module-level binding's `(source name, SymbolKey)`. An `inline` binding is
+/// EMITTED as an ordinary module function AND published as a template, so it rides both
+/// `Decls` and the inline vocabulary; the two halves are unioned and deduplicated by the
+/// callers' `List.find`.
+let private moduleBindings (frozen: FrozenPools) : (string * SymbolKey) list =
+    let file = duOf frozen
+
     let fromDecls =
-        EqArray.toList frozen.Decls
+        EqArray.toList file.Decls
         |> List.choose (
             function
             | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), _, _, _) ->
-                match Map.tryFind k frozen.ModuleMembers with
+                match Map.tryFind k file.ModuleMembers with
                 | Some info -> Some(info.Name, info.Key)
                 | None -> None
             | _ -> None
         )
 
     let fromInline =
-        EqArray.toList frozen.InlineBodies
+        EqArray.toList file.InlineBodies
         |> List.choose (fun iv ->
             match iv.Key with
             | SymbolKey.Binding bk -> Some(bk.Name, iv.Key)
@@ -60,7 +70,7 @@ let private moduleBindings (frozen: Frozen.TastFile) : (string * SymbolKey) list
 
     fromDecls @ fromInline
 
-let private bindingKey (frozen: Frozen.TastFile) (name: string) : SymbolKey =
+let private bindingKey (frozen: FrozenPools) (name: string) : SymbolKey =
     moduleBindings frozen |> List.find (fun (n, _) -> n = name) |> snd
 
 /// The grouping SHAPE of a `ValRepr` — one integer per curried group (`0` = lone
@@ -218,7 +228,7 @@ let tests =
                 // (empty) `IntrinsicReprKeys` — the wiring is the assertion.
                 Expect.equal
                     (Seq.length store.IntrinsicForwardRepr)
-                    (Seq.length frozen.IntrinsicReprKeys)
+                    (Seq.length frozen.Residue.IntrinsicReprKeys)
                     "forward repr count matches source"
             }
 

@@ -88,7 +88,7 @@ module Codegen =
         (provider: IExternalSymbolProvider)
         (manifestPaths: string list)
         (project: JsProjectInfo)
-        (tast: Frozen.TastFile)
+        (tast: FrozenPools)
         : JsArtifact =
         // Resolve `runtime-js` assets from the manifest set; only the referenced subset
         // is materialised. `"js"` is the JS backend's target suffix.
@@ -105,7 +105,7 @@ module Codegen =
         // every node this emission derives (the `substVar` splice of an inlinable `let`)
         // is appended to the overlay mid-walk, and every id the canonical pool already
         // handed out keeps naming the same node.
-        let pool = TastPoolBuilder.openOver (TastPools.toPools tast)
+        let pool = TastPoolBuilder.openOver tast
 
         // Source text drives variable naming (recovering source identifiers from binder
         // offsets) independently of whether maps are emitted.
@@ -162,7 +162,7 @@ module Codegen =
 
     /// `compileWith` with the null provider and empty manifest set — for a program
     /// that references no external union/record and imports no package runtime.
-    let compile (project: JsProjectInfo) (tast: Frozen.TastFile) : JsArtifact =
+    let compile (project: JsProjectInfo) (tast: FrozenPools) : JsArtifact =
         compileWith ExternalSymbolProviders.nullProvider [] project tast
 
     let toSource (artifact: JsArtifact) : string = artifact.Source

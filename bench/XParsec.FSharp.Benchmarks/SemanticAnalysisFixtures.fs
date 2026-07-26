@@ -145,7 +145,7 @@ let stageErrorCount (results: Result<AssemblyUnits.FrozenUnit, AssemblyUnits.Uni
             |> List.filter (fun d -> d.Severity = Severity.Error)
             |> List.length
         | Ok u ->
-            u.Frozen.Diagnostics
+            u.Frozen.Residue.Diagnostics
             |> List.filter (fun d -> d.Severity = Severity.Error)
             |> List.length
     )
