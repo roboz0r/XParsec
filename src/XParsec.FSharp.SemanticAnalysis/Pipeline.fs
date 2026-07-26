@@ -73,7 +73,9 @@ module Pipeline =
         // PassContext, so this is how the verdict reaches `discoverClosures`.
         let tast0 =
             { tast0 with
-                ClosureReprs = Regions.closureReprSnapshot ctx
+                // `tast0.Decls` still holds the inline templates (`Freeze` partitions
+                // them out later), so their binders are in the snapshot's key space too.
+                ClosureReprs = Regions.closureReprSnapshot ctx tast0.Decls
                 // Snapshot the node-keyed value-struct closure
                 // verdicts (decided in `inferApp`) onto the TastFile alongside
                 // `ClosureReprs` — codegen has no PassContext, so this is how

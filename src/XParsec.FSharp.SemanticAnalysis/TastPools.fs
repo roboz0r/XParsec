@@ -216,6 +216,48 @@ module TastPools =
         sink.OnExprPooled e id
         id
 
+    /// Intern the binders of a subtree WITHOUT pooling any of its nodes.
+    ///
+    /// The binder pool is its own dense id space (`BinderKeys`), disjoint from the pat
+    /// columns and inverted positionally by `ofPools` — so a binder whose defining
+    /// pattern node is not itself pooled is well-formed. That is what the inline
+    /// VOCABULARY needs: `Freeze` partitions an `inline` binding out of `Decls` into
+    /// `InlineBodies` (a template is not emittable code), and those trees ride the
+    /// residue opaquely, yet the binding is still a `TopLevelNames` / `ModuleMembers` /
+    /// `BindingTyparArities` / `ClosureReprs` key. Without this the enumeration would
+    /// miss a definition site that genuinely exists, and every file declaring a
+    /// module-level `inline` binding would fault in `binderIdOf`.
+    let rec internPatBinders (sink: PoolSink) (p: Frozen.TPat) : unit =
+        match TastAccessor.patBinder p with
+        | ValueSome k -> sink.InternBinder k
+        | ValueNone -> ()
+
+        for sub in TastAccessor.patChildren p do
+            internPatBinders sink sub
+
+    /// The expression analogue of `internPatBinders` — the `ForTo` loop variable (which
+    /// has no pattern node) plus every binder in the sub-patterns an expression owns.
+    let rec internExprBinders (sink: PoolSink) (e: Frozen.TExpr) : unit =
+        match TastAccessor.exprKind e with
+        | ExprShape.ForTo -> sink.InternBinder (TastAccessor.exprForTo e).Var
+        | _ -> ()
+
+        for pc in TastAccessor.exprPatChildren e do
+            internPatBinders sink pc
+
+        for ec in TastAccessor.exprChildren e do
+            internExprBinders sink ec
+
+    /// The decl analogue of `internPatBinders`: the binders of a decl carried opaquely.
+    let internDeclBinders (sink: PoolSink) (d: Frozen.TDecl) : unit =
+        match TastAccessor.declKind d with
+        | DeclShape.Let ->
+            let v = TastAccessor.declLet d
+            internPatBinders sink v.Binding
+            internExprBinders sink v.Value
+        | DeclShape.Expression -> internExprBinders sink (TastAccessor.declExpression d)
+        | DeclShape.Type -> ()
+
     /// Pool a declaration and its expr/pat roots (see `poolPat`). A `Type` decl surfaces
     /// no children — its member bodies ride the payload opaquely.
     let poolDecl (sink: PoolSink) (d: Frozen.TDecl) : DeclPoolId =
@@ -271,6 +313,12 @@ module TastPools =
         // first encounter, alongside the naming triple sourced from that same key. The
         // introducing sites are enumerated off the accessor as the tree is walked, so
         // nothing re-derives which nodes bind.
+        //
+        // The enumeration spans the whole FILE, not just the pooled tree: the emittable
+        // decls plus the inline vocabulary (see `internDeclBinders`), because a side
+        // table may key on a binder in either. Correspondingly a `BinderId` need not
+        // have a pooled pattern node behind it — the binder space is dense and
+        // independent, inverted by position.
         let binderKeys = ResizeArray<NodeKey>()
         let binderNamings = ResizeArray<BinderNaming>()
         let binderIds = System.Collections.Generic.Dictionary<NodeKey, BinderId>()
@@ -337,6 +385,13 @@ module TastPools =
             }
 
         let roots = file.Decls |> EqArray.toArray |> Array.map (poolDecl sink)
+
+        // The emittable decls are not the whole binder story: the inline vocabulary's
+        // templates were partitioned out of `Decls` and ride the residue unpooled, but
+        // the side tables still name their binders (see `internDeclBinders`). Interning
+        // them AFTER the tree walk keeps every pooled node's binder id unchanged.
+        for iv in EqArray.toArray file.InlineBodies do
+            internDeclBinders sink iv.Body.Decl
 
         // Resolve a reference/side-table key to the binder it names. A miss means the
         // referent was minted by no `NamedSimple`/`ForTo` node — an incomplete binder

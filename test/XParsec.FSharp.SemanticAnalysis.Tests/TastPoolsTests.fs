@@ -188,6 +188,55 @@ let private programs =
         "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }\nlet getX (v: R) = v.X\n"
         "for-to loop with mutable accumulator",
         "let sumTo n =\n    let mutable t = 0\n    for i = 1 to n do\n        t <- t + i\n    t\n"
+
+        // Binding heads that introduce NO single binder, or introduce one only behind a
+        // wrapper the frozen tree erases. Each of these once faulted `toPools`: the
+        // side tables were filed under `CstKeys.ofBinding` (the head PATTERN's key),
+        // which for these shapes names a node the frozen tree does not bear — a
+        // `Pat.EnclosedBlock`/`Pat.As` wrapper `translatePat` drops, or a composite /
+        // wildcard pattern that binds no name at all. The producers now file under the
+        // binder the head introduces (`TastWalk.patBinder`), or under nothing.
+        "module-level tuple destructuring", "let p = (1, 2)\nlet (a, b) = p\nlet s = a + b\n"
+        "module-level tuple destructuring without parens", "let p = (1, 2)\nlet a, b = p\nlet s = a + b\n"
+        "module-level nested destructuring", "let p = ((1, 2), 3)\nlet ((a, b), c) = p\nlet s = a + b + c\n"
+        "module-level record destructuring",
+        "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }\nlet { X = xx; Y = yy } = r\nlet s = xx + yy\n"
+        "module-level union destructuring", "type U = | A of int\nlet u = A 1\nlet (A n) = u\nlet s = n + 1\n"
+        "destructuring head with an as-alias", "let p = (1, 2)\nlet (a, b) as q = p\nlet s = a + b\n"
+        "module-level wildcard binding", "let _ = 5\n"
+        "parenthesised simple binding head", "let (x) = 5\nlet y = x + 1\n"
+        "annotated parenthesised simple binding head", "let (x: int) = 5\nlet y = x + 1\n"
+        "parenthesised mutable binding head", "let mutable (m) = 1\nlet f () = m <- m + 1\n"
+        "destructuring and wildcard heads in a named module",
+        "module M\n\nmodule N =\n    let p = (1, 2)\n    let (a, b) = p\n    let (z) = a\n    let _ = b\n"
+
+        // The same non-binder heads INSIDE a body, which reach the pool through
+        // `ClosureReprs` (the escape snapshot) rather than the module-binding tables.
+        "wildcard binding in a function body", "let f x =\n    let _ = x\n    x\n"
+        "wildcard binding in a lambda body", "let f = fun x ->\n    let _ = x\n    x\n"
+        "parenthesised binding head in a function body", "let f x =\n    let (y) = x\n    y\n"
+        "parenthesised use binding head", "let f (d: System.IDisposable) =\n    use (x) = d\n    1\n"
+        "destructuring let ahead of a use in a function body",
+        "let f (d: System.IDisposable * int) =\n    let (a, b) = d\n    use x = a\n    b\n"
+
+        // Inline templates: `Freeze` partitions these out of `Decls`, so their binders
+        // are NOT in the pooled tree — published ones ride `InlineBodies` (which the
+        // pool's binder enumeration now covers), and a top-level one is published
+        // nowhere, so its side-table entries leave the file with it.
+        "top-level inline binding", "module M\nlet inline f x = x + 1\nlet y = f 2\n"
+        "inline binding in a named module", "module M\n\nmodule N =\n    let inline f x = x + 1\n\nlet y = N.f 2\n"
+        "nullary intrinsic alias binding", "module M\n\nmodule N =\n    let undef = (# \"undefined\" #)\n"
+
+        // Shapes that were ALREADY sound, pinned here so a future producer change
+        // cannot silently start filing them under a non-binder key.
+        "destructuring let in a function body", "let f (p: int * int) =\n    let (a, b) = p\n    a + b\n"
+        "module-level operator binding", "module M\nlet (+.) a b = a + b\n"
+        "lambda with a tuple parameter", "let f = fun (a, b) -> a + b\n"
+        "or-pattern arm", "let f x =\n    match x with\n    | 0 | 1 -> 9\n    | _ -> 0\n"
+        "type-test as-pattern arm",
+        "let f (x: int | string) =\n    match x with\n    | :? int as i -> i\n    | _ -> 0\n"
+        "class with a ctor-param-capturing member closure",
+        "type C(a: int) =\n    member this.M(x: int) =\n        let g = fun y -> y + x + a\n        g 1\n"
     ]
 
 [<Tests>]

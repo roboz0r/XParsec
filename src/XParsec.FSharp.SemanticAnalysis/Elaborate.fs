@@ -321,6 +321,25 @@ module Elaborate =
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 
+    /// The identity a module `let` contributes to the FROZEN side tables
+    /// (`ModuleMembers`, `TopLevelNames`, `GenericFnSchemes`, `BindingTyparArities`) —
+    /// the binder its already-translated head pattern introduces, or `ValueNone` when it
+    /// introduces none.
+    ///
+    /// NOT `CstKeys.ofBinding b`. That is the ANALYSIS identity: the content address of
+    /// the head PATTERN node, which is what the type/scheme tables inference filled are
+    /// keyed by, and it stays that. But the frozen tables are re-keyed onto the frozen
+    /// binder pool (`TastPools`), so their keys must be keys the FROZEN TREE bears, and
+    /// the head-pattern key is one only for a bare simple head:
+    ///   * a wrapped head (`let (x) = …`, `let (x: int) = …`) keys the paren/annotation
+    ///     node, which `ElaboratePatterns.translatePat` ERASES — so the entry named a
+    ///     node no reader could reach, and the binding's name/arity were silently lost;
+    ///   * a composite or wildcard head (`let (a, b) = p`, `let _ = e`) introduces no
+    ///     single binder at all, so it has no frozen identity and needs none — every
+    ///     reader of these tables (`Freeze.bindingValReprs`, `FrozenSignature`,
+    ///     `HolderPlan`) looks up a simple binder's key.
+    let private frozenBindingBinder (tpat: TPat) : NodeKey voption = TastWalk.patBinder tpat
+
     /// For a generalised binding, record its frozen typar
     /// BOUNDS, keyed by the binding's `NodeKey`, onto `ctx.GenericFnSchemes`. Each
     /// `Coercion` bound is frozen as a `FrozenConstraint.Coercion(idx, target)`
@@ -333,9 +352,14 @@ module Elaborate =
     /// (A binding with no recorded scheme has no bounds and records nothing — its
     /// absence from the table is equivalent to an empty list; the emitted typar
     /// arity comes independently from `staticFnTypars`' body sweep.)
+    ///
+    /// `binder` is the binding's FROZEN identity (see `frozenBindingBinder`) — the key
+    /// the recorded scheme is filed under. It is distinct from `CstKeys.ofBinding b`,
+    /// which stays the ANALYSIS key the generaliser's own scheme is looked up by.
     let private recordGenericFnScheme
         (ctx: PassContext)
         (b: Binding<SyntaxToken>)
+        (binder: NodeKey)
         (quantEnv: (TyVarId * SemType) list)
         : unit =
         if not (List.isEmpty quantEnv) then
@@ -369,7 +393,7 @@ module Elaborate =
                             | _ -> ()
                     ]
 
-                ctx.GenericFnSchemes.Set(CstKeys.ofBinding b, constraints)
+                ctx.GenericFnSchemes.Set(binder, constraints)
 
     /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and
     /// the body's synthesised `this` self-type: each declared typar zonked to its
@@ -1884,6 +1908,10 @@ module Elaborate =
             [
                 for b in bindings do
                     let tpat = translatePat ctx b.headPat
+                    // Every frozen side table below is filed under THIS key, never under
+                    // `CstKeys.ofBinding b` — see `frozenBindingBinder`. A head pattern
+                    // that introduces no binder records nothing at all.
+                    let binder = frozenBindingBinder tpat
 
                     // Inside a named module: record where this binding's static
                     // method belongs. The emitted method takes its `[<CompiledName>]`
@@ -1895,8 +1923,8 @@ module Elaborate =
                     // (`SymbolProviders`) and codegen key off this same `Name`.
                     match holder with
                     | Some h ->
-                        match memberNameOfBinding ctx b with
-                        | ValueSome nm ->
+                        match memberNameOfBinding ctx b, binder with
+                        | ValueSome nm, ValueSome bk ->
                             let compiledNm =
                                 match VesperLibTypeTranslate.tryCompiledName ctx.Lexed ctx.Input b.attributes with
                                 | ValueSome cn -> cn
@@ -1906,21 +1934,21 @@ module Elaborate =
                             // `SymbolKey` is a direct construction downstream
                             // (`ModuleBindingInfo.Key`), never a dotted-string re-parse.
                             let info: ModuleBindingInfo = { Holder = h; Name = compiledNm }
-                            ctx.Bindings.ModuleMembers.[CstKeys.ofBinding b] <- info
+                            ctx.Bindings.ModuleMembers.[bk] <- info
                             // Capture the binding's declared accessibility under its own
                             // `SymbolKey` (honestly — the file→file projection thresholds
                             // it internal-or-better, the `.fsi` extractor public-only).
                             ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
-                        | ValueNone -> ()
+                        | _ -> ()
                     // A top-level (implicit-Program-module) binding records no
                     // `ModuleBindingInfo`; stash its source name so the backend can
                     // name a top-level value's Program-holder static field. Recorded for every top-level
                     // binding (function or value); only the value collector reads it,
                     // so a top-level function's `fn$<off>` path is untouched.
                     | None ->
-                        match memberNameOfBinding ctx b with
-                        | ValueSome nm -> ctx.Bindings.TopLevelNames.[CstKeys.ofBinding b] <- nm
-                        | ValueNone -> ()
+                        match memberNameOfBinding ctx b, binder with
+                        | ValueSome nm, ValueSome bk -> ctx.Bindings.TopLevelNames.[bk] <- nm
+                        | _ -> ()
 
                     let valT = translateBinding ctx b
                     let declTy = typeOfKey ctx (CstKeys.ofBinding b)
@@ -1988,14 +2016,21 @@ module Elaborate =
                     // Record the binding's frozen typar
                     // bounds using THIS `quantEnv` (the same env `freezeTypars` freezes
                     // the body with, so the bounds' typar indices line up). Read by the
-                    // call-site phantom-typar solve (`EmitCall`).
-                    recordGenericFnScheme ctx b quantEnv
+                    // call-site phantom-typar solve (`EmitCall`). Both this and the arity
+                    // below are filed under the binding's FROZEN identity: the binding's
+                    // typar-axis width is a property of the value the binder names, so a
+                    // binder-less head (`let (a, b) = p`, `let _ = e`) has nowhere to put
+                    // it — and nothing to read it, such a binding never being a callable.
+                    match binder with
+                    | ValueSome bk ->
+                        recordGenericFnScheme ctx b bk quantEnv
 
-                    // Record the binding's typar-axis WIDTH at this single index-minting
-                    // point (`quantEnv` IS the method-axis order), keyed the same as
-                    // `ModuleMembers` (the TPat binder key = `CstKeys.ofBinding b`). The
-                    // frozen→provider projection reads it for `ExternalSymbol.TyparArity`.
-                    ctx.Bindings.BindingTyparArities.[CstKeys.ofBinding b] <- List.length quantEnv
+                        // The binding's typar-axis WIDTH at this single index-minting
+                        // point (`quantEnv` IS the method-axis order), keyed the same as
+                        // `ModuleMembers`. The frozen→provider projection reads it for
+                        // `ExternalSymbol.TyparArity`.
+                        ctx.Bindings.BindingTyparArities.[bk] <- List.length quantEnv
+                    | ValueNone -> ()
 
                     // Drop an E1 format-literal alias binding (`let fmt : Format<…> =
                     // "%d"`): its value froze to a `New PrintfFormat` that is dead —

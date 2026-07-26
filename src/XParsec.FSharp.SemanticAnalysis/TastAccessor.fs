@@ -940,19 +940,9 @@ module TastAccessor =
     /// a `TExpr.Var` references and that naming is computed from. `ValueNone` for a
     /// pattern that binds nothing (`Wildcard`, `Const`, …) or binds through nested
     /// sub-patterns (`Tuple`, `Record`, `Union`, `TypeTestAs`, `Or` — walk
-    /// `patChildren` for those).
-    let patBinder (p: PatId) : NodeKey voption =
-        match p with
-        | TPatG.NamedSimple(binding = binding) -> ValueSome binding
-        | TPatG.Wildcard _
-        | TPatG.Tuple _
-        | TPatG.Const _
-        | TPatG.Record _
-        | TPatG.Union _
-        | TPatG.TypeTestAs _
-        | TPatG.Null _
-        | TPatG.EnumCase _
-        | TPatG.Or _ -> ValueNone
+    /// `patChildren` for those). Delegates to `TastWalk`, which owns the one
+    /// domain-generic definition the pre-freeze side-table producers key on too.
+    let patBinder (p: PatId) : NodeKey voption = TastWalk.patBinder p
 
     /// The immediate child *patterns*, in source order.
     let patChildren (p: PatId) : PatId[] =

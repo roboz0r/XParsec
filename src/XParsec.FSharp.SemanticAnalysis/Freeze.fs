@@ -289,10 +289,45 @@ module Freeze =
                 | None -> ()
             | _ -> ()
 
+        // A template that is dropped from `Decls` and published NOWHERE — a top-level
+        // `let inline`, which has no exportable identity (see above) — takes its binders
+        // out of the file with it: after this fold the frozen file contains no node
+        // introducing them, in `Decls` or in `InlineBodies`. The binder-keyed side
+        // tables must follow, or they describe a definition site the published file does
+        // not have: unreadable (every reader keys off a binder it can reach through one
+        // of those two) and unresolvable by the frozen binder pool, which faults on such
+        // a key. This is the ONE deletion; the tables are otherwise carried verbatim.
+        let unpublishedBinders =
+            let published = System.Collections.Generic.HashSet<NodeKey>(HashIdentity.Structural)
+
+            for iv in inlineBodies do
+                match iv.Body.Decl with
+                | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> published.Add k |> ignore
+                | _ -> ()
+
+            let dropped =
+                [
+                    for d in tast.Decls do
+                        if not (emittable d) then
+                            match d with
+                            // Published: its binders are reachable through `InlineBodies`.
+                            | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) when published.Contains k -> ()
+                            | _ -> yield d
+                ]
+
+            TastWalk.declBinders dropped
+
+        let keepBinder (k: NodeKey) _ = not (unpublishedBinders.Contains k)
+
         let frozen =
             { tast with
                 Decls = tast.Decls |> EqArray.filter emittable
                 InlineBodies = EqArray.ofList (List.ofSeq inlineBodies)
+                ModuleMembers = tast.ModuleMembers |> Map.filter keepBinder
+                TopLevelNames = tast.TopLevelNames |> Map.filter keepBinder
+                ClosureReprs = tast.ClosureReprs |> Map.filter keepBinder
+                GenericFnSchemes = tast.GenericFnSchemes |> Map.filter keepBinder
+                BindingTyparArities = tast.BindingTyparArities |> Map.filter keepBinder
                 // Re-snapshot: the tree's `Diagnostics` were taken BEFORE the freeze, so a
                 // publish-invariant failure raised above would otherwise reach `ctx` and no
                 // one else — and the frozen tree is the assembly's output.

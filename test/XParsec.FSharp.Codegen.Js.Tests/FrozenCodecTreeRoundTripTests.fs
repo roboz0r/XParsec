@@ -93,4 +93,30 @@ let tests =
                     (TastFileG.structurallyEqual f rebuilt)
                     "generic-member file survived flatten/thaw structurally"
             }
+
+            // The conformance corpus declares no binding whose head pattern introduces no
+            // binder, so it never exercised the seam where a side table is filed under a
+            // key the frozen tree does not bear. These pin the shapes END-TO-END through
+            // the stored wire form (`flatten` is `TastPools.toPools` then the column
+            // writers): each once threw out of `toPools` — a file containing one could not
+            // be cached at all — so a regression here is a hard failure, not a diff.
+            // `TastPoolsTests` covers the full shape matrix; this is the serialization face.
+            for name, src in
+                [
+                    "module-level tuple destructuring", "let p = (1, 2)\nlet (a, b) = p\nlet s = a + b\n"
+                    "module-level wildcard binding", "let _ = 5\n"
+                    "parenthesised simple binding head", "let (x) = 5\nlet y = x + 1\n"
+                    "wildcard binding in a function body", "let f x =\n    let _ = x\n    x\n"
+                    "top-level inline binding", "module M\nlet inline f x = x + 1\nlet y = f 2\n"
+                    "inline binding in a named module",
+                    "module M\n\nmodule N =\n    let inline f x = x + 1\n\nlet y = N.f 2\n"
+                ] do
+                test ("a binder-less or unpooled-binder binding head round-trips: " + name) {
+                    let f = frozenOfJs src
+                    let rebuilt = FrozenCodec.thaw (FrozenCodec.flatten f)
+
+                    Expect.isTrue
+                        (TastFileG.structurallyEqual f rebuilt)
+                        (name + " did not survive flatten/thaw structurally")
+                }
         ]

@@ -812,8 +812,19 @@ module Regions =
     /// closure `Closure.SelfKey`s, so non-closure entries are inert. Must run after
     /// `run` has populated both side tables; the Pipeline snapshots the result onto
     /// `TastFile.ClosureReprs`.
-    let closureReprSnapshot (ctx: PassContext) : Map<NodeKey, ClosureRepr> =
+    ///
+    /// `ctx.Bindings.Escape` is keyed by every BINDING SITE that landed in a region, which
+    /// is wider than the binder set — a `let _ = e` binds no name yet has a typed pattern
+    /// node whose tyvar unifies with the rhs's, so it inherits a region. Restricting to
+    /// `decls`' binders is what makes this table's key space honest: `ClosureReprs` ships
+    /// on the frozen file and is re-keyed onto the frozen binder pool, which FAULTS on a
+    /// key naming no binder. A non-binder entry was unreadable anyway (a wildcard can
+    /// never be a closure's `SelfKey`).
+    let closureReprSnapshot (ctx: PassContext) (decls: EqArray<TDecl>) : Map<NodeKey, ClosureRepr> =
+        let binders = TastWalk.declBinders decls
+
         ctx.Bindings.Escape.AsDictionary()
+        |> Seq.filter (fun kv -> binders.Contains kv.Key)
         |> Seq.map (fun kv ->
             let stackEligible =
                 kv.Value = LocalStack
