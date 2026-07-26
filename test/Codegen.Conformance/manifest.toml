@@ -256,3 +256,20 @@ run = ["clr", "js"]
 [[program]]
 path = "records/record-members.fs"
 run = ["clr", "js"]
+
+# ---------------------------------------------------------------------------------------
+# INLINE — `let inline` is an ordinary module function that is ALSO a splice template.
+# Both backends emit the function and both splice the body, and the two have to agree on
+# the answer. These programs are here rather than in a per-backend suite because the
+# failure mode is asymmetric and neither suite would notice its own half: the CLR builds a
+# static method body, JS writes a module-level definition and an export, and a badly
+# emitted one breaks the JS MODULE (a dangling reference fails to load before a line is
+# printed) while merely sitting unused on the CLR. Carrying no `width`, they contribute
+# nothing to the arithmetic matrix.
+[[program]]
+path = "inline/inline-toplevel.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "inline/inline-module.fs"
+run = ["clr", "js"]

@@ -898,6 +898,24 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// Only bindings with at least one non-default parameter register here.
     member val InlineParamAttrs = Dictionary<NodeKey, ParamAttrs[]>() with get
 
+    /// The UNEXPANDED body of each module-level `let inline`, keyed by its
+    /// function-binder `NodeKey` — the form `Freeze` publishes as this unit's inline
+    /// VOCABULARY.
+    ///
+    /// It is a second copy on purpose. The decl of the same name in `TastFile.Decls` is
+    /// the EMITTED ordinary function, and `Passes.InlineExpansion` walks it like any
+    /// other decl so it satisfies codegen's input invariant (no inline call heads, no
+    /// `External` used as a value). That walk is exactly what a TEMPLATE must not
+    /// undergo: an `^T`-constrained body resolves its `StaticOptimization` clauses and
+    /// its trait calls against the CALL SITE's operand types, and expanding it at the
+    /// definition site — where nothing is ground — would bake the generic fallback into
+    /// every future splice. So the emitted form and the published form are genuinely
+    /// different trees, and this holds the one the walk must not touch.
+    ///
+    /// Populated by `Elaborate.run` from the pre-expansion decls, with the SAME typar cut
+    /// applied, so the two forms differ only by the expansion.
+    member val InlineTemplates = Dictionary<NodeKey, TDecl>() with get
+
     /// The facts `ModuleRules` reads, as this compilation unit answers them. The nominal
     /// type names come from the registry the pre-scan filled and the attributes from the
     /// source text, so a module's compiled holder name is the same here as at every other

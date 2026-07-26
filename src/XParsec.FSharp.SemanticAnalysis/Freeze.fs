@@ -150,23 +150,15 @@ module Freeze =
     /// (`Inline.nullaryIntrinsicValueBody`), so no `const undefined = undefined`
     /// definition or import is emitted.
     ///
-    /// EMITTABILITY is a separate question and is NOT this predicate: only the
-    /// `let inline` shape is un-emittable (no backend can lower a template). The
-    /// nullary alias stays in `Decls`, so a vocabulary member is not automatically
-    /// dropped from them — that is `emittable` below.
+    /// Vocabulary membership does NOT remove a decl from `Decls`. An `inline` binding is
+    /// BOTH — F# emits it as an ordinary module function, callable at runtime, *and*
+    /// splices its body at the use sites that can take it. So every vocabulary member
+    /// stays in `Decls` and is emitted; publication here is purely additive.
     let private isInlineVocabulary (d: TDecl) : bool =
         match d with
         | TDecl.Let(TPat.NamedSimple _, _, true, _) -> true
         | TDecl.Let(TPat.NamedSimple _, _, false, _) -> (Inline.nullaryIntrinsicValueBody d).IsSome
         | _ -> false
-
-    /// An inline TEMPLATE is not emittable: no backend has a lowering for one, and both
-    /// drop it independently (`TastLower.lower`, and `Passes.InlineExpansion` leaves it
-    /// unwalked). Dropping it here is what makes that structural rather than repeated.
-    let private emittable (d: TDecl) : bool =
-        match d with
-        | TDecl.Let(isInline = true) -> false
-        | _ -> true
 
     /// Rewrite a template's references to its MODULE-LEVEL SIBLINGS — every one of them,
     /// inline or not — from `Var` to `External`, carrying the sibling's `SymbolKey`.
@@ -259,7 +251,12 @@ module Freeze =
         // not — is what the body is rewritten AGAINST. A template with no
         // `ModuleBindingInfo` (a top-level `let inline` outside any module) has no home
         // module and so no exportable identity: it is spliced within its own unit and
-        // published nowhere.
+        // published nowhere. That is not an inline-specific hole — NO top-level binding
+        // is part of a unit's exported surface (`FrozenSignature` skips them all), because
+        // one may only be declared in an executable's entry file, which nothing links to.
+        //
+        // Publication is ADDITIVE: `Decls` keeps the binding and both backends emit it as
+        // an ordinary module function.
         let inlineBodies = ResizeArray<TInlineValue>()
 
         for d in tast.Decls do
@@ -267,15 +264,30 @@ module Freeze =
             | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) when isInlineVocabulary d ->
                 match Map.tryFind k tast.ModuleMembers with
                 | Some info ->
-                    let rewritten = rewriteSiblingRefs tast.ModuleMembers d
+                    // The TEMPLATE, not `d`. `d` is this binding's emitted ordinary
+                    // function — `Passes.InlineExpansion` walked it, resolving its
+                    // static-opt clauses and trait calls against its own (unground)
+                    // definition site. Splicing that at a consumer would hand it the
+                    // generic fallback for operand types it has ground. The unwalked body
+                    // is what `Elaborate` stashed. A nullary intrinsic ALIAS is not
+                    // `inline`, was walked like any other value, and has no stash — its
+                    // emitted and published forms are the same tree.
+                    let template =
+                        match ctx.InlineTemplates.TryGetValue k with
+                        | true, t -> t
+                        | _ -> d
+
+                    let rewritten = rewriteSiblingRefs tast.ModuleMembers template
 
                     if publishable ctx tast k rewritten then
                         inlineBodies.Add
                             {
-                                // Minted, not recovered. Every OTHER symbol's identity is a side
-                                // effect of emitting it; an inline value is never emitted, so its
-                                // identity must be minted deliberately — here, from the holder
-                                // chain its declaration already knows.
+                                // Minted, not recovered. The identity emission mints for the
+                                // ordinary function is a BACKEND fact; the vocabulary channel
+                                // is resolved in the front end, before any backend has run, so
+                                // it mints its own from the holder chain the declaration
+                                // knows. The two agree by construction — `ModuleBindingInfo.Key`
+                                // is the one place either is derived from.
                                 TInlineValue.Key = info.Key
                                 Body =
                                     {
@@ -289,45 +301,9 @@ module Freeze =
                 | None -> ()
             | _ -> ()
 
-        // A template that is dropped from `Decls` and published NOWHERE — a top-level
-        // `let inline`, which has no exportable identity (see above) — takes its binders
-        // out of the file with it: after this fold the frozen file contains no node
-        // introducing them, in `Decls` or in `InlineBodies`. The binder-keyed side
-        // tables must follow, or they describe a definition site the published file does
-        // not have: unreadable (every reader keys off a binder it can reach through one
-        // of those two) and unresolvable by the frozen binder pool, which faults on such
-        // a key. This is the ONE deletion; the tables are otherwise carried verbatim.
-        let unpublishedBinders =
-            let published = System.Collections.Generic.HashSet<NodeKey>(HashIdentity.Structural)
-
-            for iv in inlineBodies do
-                match iv.Body.Decl with
-                | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> published.Add k |> ignore
-                | _ -> ()
-
-            let dropped =
-                [
-                    for d in tast.Decls do
-                        if not (emittable d) then
-                            match d with
-                            // Published: its binders are reachable through `InlineBodies`.
-                            | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) when published.Contains k -> ()
-                            | _ -> yield d
-                ]
-
-            TastWalk.declBinders dropped
-
-        let keepBinder (k: NodeKey) _ = not (unpublishedBinders.Contains k)
-
         let frozen =
             { tast with
-                Decls = tast.Decls |> EqArray.filter emittable
                 InlineBodies = EqArray.ofList (List.ofSeq inlineBodies)
-                ModuleMembers = tast.ModuleMembers |> Map.filter keepBinder
-                TopLevelNames = tast.TopLevelNames |> Map.filter keepBinder
-                ClosureReprs = tast.ClosureReprs |> Map.filter keepBinder
-                GenericFnSchemes = tast.GenericFnSchemes |> Map.filter keepBinder
-                BindingTyparArities = tast.BindingTyparArities |> Map.filter keepBinder
                 // Re-snapshot: the tree's `Diagnostics` were taken BEFORE the freeze, so a
                 // publish-invariant failure raised above would otherwise reach `ctx` and no
                 // one else — and the frozen tree is the assembly's output.
@@ -338,11 +314,12 @@ module Freeze =
 
         // The SOURCE `ValRepr` grouping, computed now the lambda spine is FROZEN
         // (`peelValRepr`) — backend-neutral, read by both the codegen boundary and
-        // the file→file signature projection so neither recomputes it. A module
-        // function's spine survives in `Decls`; an inline binding's rides
-        // `InlineBodies` (Freeze partitioned it out of `Decls`). A plain value has no
-        // lambda groups and records an empty-`Groups` entry — the projection reads
-        // that as "not a function" (`ExternalSymbol.ValRepr = ValueNone`).
+        // the file→file signature projection so neither recomputes it. `Decls` covers
+        // every module binding including the `inline` ones (the expansion walk does not
+        // touch a binding's lambda SPINE, so the emitted and published forms group
+        // identically). A plain value has no lambda groups and records an
+        // empty-`Groups` entry — the projection reads that as "not a function"
+        // (`ExternalSymbol.ValRepr = ValueNone`).
         let bindingValReprs =
             let d = System.Collections.Generic.Dictionary<NodeKey, Frozen.ValRepr>()
 
@@ -356,11 +333,6 @@ module Freeze =
 
             for decl in converted.Decls do
                 match decl with
-                | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), value, _, _) -> record k value
-                | _ -> ()
-
-            for iv in converted.InlineBodies do
-                match iv.Body.Decl with
                 | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), value, _, _) -> record k value
                 | _ -> ()
 

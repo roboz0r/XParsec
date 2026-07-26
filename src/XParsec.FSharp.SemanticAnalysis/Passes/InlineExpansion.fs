@@ -19,12 +19,17 @@ open XParsec.FSharp.SemanticAnalysis
 // the provider seam: nothing below it can `UnionFind.union` into a producer's cells,
 // because it never holds one.
 //
-// Scope: module-level decls (`TDecl.Let` non-inline values and
+// Scope: EVERY module-level decl (`TDecl.Let` — `inline` or not — and
 // `TDecl.Expression`) AND every expression a `TDecl.Type` carries (member
 // bodies, `static let` inits, secondary-ctor `let`s + chain args, base-ctor
-// args). It deliberately does NOT touch inline TEMPLATES
-// (`TDecl.Let(isInline = true)`) — codegen drops them, and `Freeze` publishes them as
-// vocabulary, so the template-publish path sees them exactly as elaborated.
+// args). An `inline` binding is walked because it is also EMITTED as an ordinary
+// module function, and codegen's input invariant (no inline call heads, no
+// `StaticOptimization`, no `External` used as a value) has to hold of that function
+// like any other. The walked form is therefore the EMITTED one and NOT the published
+// template: `Elaborate.run` snapshots the unwalked body into `ctx.InlineTemplates`
+// first, because a template's static-opt clauses and trait calls must resolve against
+// a CALL SITE's operand types, not against the nothing that is ground at its
+// definition.
 //
 // It also owns the compiler's ONE eta-reification (`etaReify`): an `External` of
 // function type used as a VALUE becomes a closure here, whether or not it has an
@@ -355,6 +360,11 @@ module InlineExpansion =
         // Local module-level `let inline` bindings, keyed by binder NodeKey — the
         // same map codegen's `lowerWith` used to build (now retired). A `Var(k)`
         // use of one of these is a local inline call site.
+        //
+        // Off the INPUT decls, so a splice always takes the TEMPLATE — the body as
+        // elaborated — never this pass's own walked rewrite of the same binding (which is
+        // the ordinary function that binding also emits, already resolved against its
+        // definition site and so wrong to splice anywhere else).
         let localInlines = Dictionary<NodeKey, TDecl>()
 
         for (d, _) in decls do
@@ -892,10 +902,7 @@ module InlineExpansion =
             |> List.map (fun (d, env) ->
                 let d' =
                     match d with
-                    // Inline templates are left untouched (codegen drops them;
-                    // `collectInlineBodies` extracts them raw).
-                    | TDecl.Let(_, _, true, _) -> d
-                    | TDecl.Let(p, value, false, ty) -> TDecl.Let(p, walkExpr value, false, ty)
+                    | TDecl.Let(p, value, isInline, ty) -> TDecl.Let(p, walkExpr value, isInline, ty)
                     | TDecl.Expression(e, ty) -> TDecl.Expression(walkExpr e, ty)
                     | TDecl.Type td -> TDecl.Type { td with Kind = walkKind td.Kind }
 

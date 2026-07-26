@@ -1054,10 +1054,11 @@ type IntrinsicReprInfo =
 
 type TastFileG<'ty, 'tok> =
     {
-        /// Source order. In the FROZEN domain these are the EMITTABLE decls only:
-        /// `Freeze` partitions the inline templates out into `InlineBodies` (an
-        /// inline binding is vocabulary, not code). Pre-freeze they are still here —
-        /// `Passes.InlineExpansion` splices a same-unit inline call off them.
+        /// Source order, every module-level declaration — `inline` bindings INCLUDED, in
+        /// both domains. An inline binding is code as well as vocabulary (it is emitted
+        /// as an ordinary module function and its `InlineBodies` entry is additive), so
+        /// nothing is partitioned out here. `Passes.InlineExpansion` splices a same-unit
+        /// inline call off these.
         Decls: EqArray<TDeclG<'ty, 'tok>>
         /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
         // Qualified: this file `open`s `XParsec.FSharp.Parser`, which also declares a
@@ -1120,13 +1121,23 @@ type TastFileG<'ty, 'tok> =
         /// the backends also splice rather than call), keyed by the identity its home
         /// unit interns it under.
         ///
-        /// Published by `Freeze`, which is also what drops these decls from `Decls`.
-        /// Both halves of that are deliberate and independent: an inline decl is NOT
-        /// emittable (no backend has a lowering for a template), but it IS part of the
-        /// unit's exported vocabulary — a consumer splices it. Dropping it from `Decls`
-        /// without publishing it here would erase it from the unit's surface entirely.
+        /// Published by `Freeze`, ADDITIVELY: the binding also stays in `Decls` and is
+        /// emitted as an ordinary module function, because F# gives an `inline` binding
+        /// both faces and a use that cannot be spliced must have something to call.
         ///
-        /// EMPTY pre-freeze: the SemType tree still carries the templates in `Decls`.
+        /// The entry is a DIFFERENT TREE from the decl of the same name, not a copy of
+        /// it. `Passes.InlineExpansion` walks the emitted form, resolving its
+        /// `StaticOptimization` clauses and trait calls against its own definition site —
+        /// where an `^T` body has nothing ground. A consumer must resolve them against ITS
+        /// operand types, so what is published is the UNEXPANDED body
+        /// (`PassContext.InlineTemplates`).
+        ///
+        /// This is also the ONLY channel for a body with no compiled form at all: an SRTP
+        /// member constraint is not encodable on a CLR generic parameter, so such a
+        /// binding is published here and emitted nowhere (`TastLower.lower`).
+        ///
+        /// EMPTY pre-freeze: the SemType tree carries the templates in `Decls` and the
+        /// unexpanded snapshots on the `PassContext`.
         InlineBodies: EqArray<TInlineValueG<'ty, 'tok>>
         /// Declared accessibility of each top-level EXPORTED entity (type / module
         /// value / inline value), keyed by its `SymbolKey`. Stored HONESTLY (not

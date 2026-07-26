@@ -7,11 +7,11 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The frozen inline-body channel, end to end.
 //
-// 1. `Freeze` PUBLISHES an inline binding (it drops it from the emittable `Decls`, and
-//    that is a different question from whether it is part of the unit's vocabulary), under
-//    a `SymbolKey` it MINTS from the binding's declaring module chain. An inline value is
-//    the one kind of symbol that is exported but never emitted, so nothing else would ever
-//    mint its identity.
+// 1. `Freeze` PUBLISHES an inline binding — additively, since the binding is ALSO emitted
+//    as an ordinary module function and stays in `Decls` — under a `SymbolKey` it MINTS
+//    from the binding's declaring module chain. The identity is minted rather than
+//    recovered because the vocabulary channel is resolved in the front end, before any
+//    backend has run to mint one as a side effect of emitting.
 //
 // 2. A published body carries NO `SemType`. The clause CONSTRAINTS used to be the hole:
 //    `TStaticOptClauseG.Constraints` was a monomorphic `EqArray<TStaticOptConstraint>` —
@@ -150,6 +150,24 @@ let private twoLocalSchemes =
             "    (g, g, h, h)"
         ]
 
+/// A `let inline` whose body is an SRTP MEMBER CONSTRAINT — the one binding shape with no
+/// compiled form on any target. "The type `^T` has a static `+`" is not encodable on a CLR
+/// generic parameter, so there is no signature to emit the function under; F# only makes
+/// such a function callable un-inlined by passing witnesses, which this compiler does not
+/// do. The node is discharged by a SPLICE (`Inline.substMapper` rewrites it to a
+/// `StaticMethodCall` once `^T` is ground to a nominal that carries the member), never at
+/// the definition site.
+let private traitUnit (ns: string) (moduleName: string) =
+    String.concat
+        "\n"
+        [
+            "namespace " + ns
+            ""
+            "module " + moduleName + " ="
+            "    let inline plus (x: ^T) (y: ^T) : ^T ="
+            "        ((^T or ^T): (static member (+): ^T * ^T -> ^T) (x, y))"
+        ]
+
 /// A module-held `let inline` — the only shape with a declaring holder chain, hence an
 /// exportable identity, hence a vocabulary entry. (A top-level inline lives in the
 /// anonymous Program holder and is spliceable only within its own unit.)
@@ -270,18 +288,23 @@ let tests =
     testList
         "InlineFreezeThaw"
         [
-            test "freeze PUBLISHES an inline binding under a minted key, and keeps it out of the emittable Decls" {
+            test "freeze PUBLISHES an inline binding under a minted key, and ALSO keeps it in the emittable Decls" {
                 let frozen = freeze (kindOfUnit "Lib" "Kinds")
 
-                Expect.isEmpty
+                // An `inline` binding is an ordinary module function that is ALSO a
+                // splice template — both, not either. It stays in `Decls` carrying
+                // `IsInline = true`, so a use that cannot be spliced (a first-class
+                // reference, a caller with no ground operand type) has something to call.
+                Expect.equal
                     (frozen.Decls
                      |> EqArray.toList
-                     |> List.filter (fun d ->
+                     |> List.sumBy (fun d ->
                          match d with
-                         | TDeclG.Let(isInline = true) -> true
-                         | _ -> false
+                         | TDeclG.Let(isInline = true) -> 1
+                         | _ -> 0
                      ))
-                    "an inline template is not emittable — it stays out of Decls (no backend can lower one)"
+                    1
+                    "the inline binding is emitted as an ordinary function, flagged inline"
 
                 let published = soleInlineBody (kindOfUnit "Lib" "Kinds")
 
@@ -292,6 +315,37 @@ let tests =
                     published.Key
                     (SymbolKeyOps.moduleValueKey "Lib" "Kinds" "kindOf")
                     "the published identity is the binding's own containment chain"
+            }
+
+            // The two constraint-shaped things a template body can carry pull APART at the
+            // emit seam, and this is the pair that says so. A `StaticOptimization` is a
+            // compile-time CHOICE with a `defaultExpr` fallback for "no type pinned" —
+            // which is exactly what the ordinary compiled function is — so it lowers. An
+            // SRTP member constraint has no IL encoding at all, so it does not.
+            test "lowering emits a StaticOptimization inline, and drops an SRTP one" {
+                let lowered (src: string) =
+                    TastLower.lower (freeze src).Decls
+                    |> List.filter (fun d ->
+                        match d with
+                        | TDeclG.Let(isInline = true) -> true
+                        | _ -> false
+                    )
+
+                Expect.equal
+                    (List.length (lowered (kindOfUnit "Lib" "Kinds")))
+                    1
+                    "a static-optimization body lowers — each backend emits its default clause"
+
+                Expect.isEmpty
+                    (lowered (traitUnit "Lib" "Traits"))
+                    "a trait-call body is template-only: no CLR signature can carry 'has this member'"
+
+                // …and dropping it from emission does NOT drop it from the vocabulary:
+                // the splice channel is the only thing that can ever discharge the node.
+                Expect.equal
+                    (soleInlineBody (traitUnit "Lib" "Traits")).Key
+                    (SymbolKeyOps.moduleValueKey "Lib" "Traits" "plus")
+                    "the un-emittable template is still published for consumers to splice"
             }
 
             test "a published StaticOptimization clause carries no SemType cell — its constraints freeze too" {

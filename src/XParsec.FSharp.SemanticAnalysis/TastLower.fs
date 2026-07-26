@@ -660,15 +660,21 @@ module TastLower =
     /// but that is now an INPUT invariant, not something this establishes.
     ///
     /// Nothing operator- or inline-shaped survives to here. `Passes.InlineExpansion`
-    /// splices every `let inline` body (local and cross-package) by `SymbolKey`,
-    /// beta-reduces it, resolves its `StaticOptimization` clauses, and eta-reifies
-    /// every `External` used as a VALUE — including inside member bodies, which this
+    /// walks every decl — `inline` bindings included — splicing inline call heads
+    /// (local and cross-package) by `SymbolKey`, beta-reducing them, and eta-reifying
+    /// every `External` used as a VALUE, including inside member bodies, which this
     /// lowering never walks. So the frozen decls arriving here carry no inline call
-    /// heads, no `StaticOptimization` nodes, and no `External` function values.
+    /// heads and no `External` function values.
     ///
-    /// What is left is the flattening: drop inline TEMPLATES
-    /// (`TDeclG.Let(isInline)`) and `type` decls (emitted as metadata), and split a
-    /// nested `let` chain into a flat top-level decl list.
+    /// `StaticOptimization` nodes DO survive on an `inline` binding, and are emittable:
+    /// clause selection is a compile-time choice keyed on the operand type, and the node
+    /// carries the `defaultExpr` fallback for exactly the case where no type is pinned —
+    /// which is what the ordinary (non-spliced) function IS. Each backend emits that
+    /// default.
+    ///
+    /// What is left is the flattening: drop `type` decls (emitted as metadata), drop the
+    /// one binding shape that has no IL form at all (`traitCallOnly`), and split a nested
+    /// `let` chain into a flat top-level decl list.
     let lower (decls: EqArray<Frozen.TDecl>) : Frozen.TDecl list =
         let rec lowerExpr (e: Frozen.TExpr) : Frozen.TExpr =
             match e with
@@ -714,10 +720,27 @@ module TastLower =
 
         let result = ResizeArray<Frozen.TDecl>()
 
+        // A body that still carries a `TExprG.TraitCall` is TEMPLATE-ONLY: it has no
+        // compiled form on any target, and never will without witness passing.
+        //
+        // A trait call is "the type `^T` has this member" — a constraint the CLR cannot
+        // encode on a generic parameter, so there is no signature to emit the function
+        // under. `Inline.substMapper` discharges the node by rewriting it to a
+        // `StaticMethodCall` once a SPLICE grounds `^T` to a nominal that carries the
+        // member; at the definition site nothing is ground, so the node stands. This is
+        // narrower than "is `inline`": a `let inline` whose body has no trait call — the
+        // overwhelming majority, `StaticOptimization`-bearing ones included — is emitted
+        // as an ordinary module function like any other binding, and only its use sites
+        // decide whether they splice it or call it.
+        let rec hasTraitCall (e: Frozen.TExpr) : bool =
+            match e with
+            | TExprG.TraitCall _ -> true
+            | _ -> TastAccessor.exprChildren e |> Array.exists hasTraitCall
+
         let lowerOne (d: Frozen.TDecl) =
             match d with
-            | TDeclG.Let(_, _, true, _) -> ()
-            | TDeclG.Let(p, value, false, t) -> result.Add(TDeclG.Let(p, lowerExpr value, false, t))
+            | TDeclG.Let(_, value, true, _) when hasTraitCall value -> ()
+            | TDeclG.Let(p, value, isInline, t) -> result.Add(TDeclG.Let(p, lowerExpr value, isInline, t))
             | TDeclG.Expression(e, t) -> result.Add(TDeclG.Expression(lowerExpr e, t))
             // Type declarations are emitted as metadata, not through the expr stream.
             | TDeclG.Type _ -> ()

@@ -2095,7 +2095,22 @@ module Elaborate =
         // reached by the same `SymbolKey` the use-site node carries. Frozen, so
         // `InlineExpansion` thaws it into this unit's own cells before splicing.
         let elaborateDecls () =
-            elaborate ctx file
+            let elaborated = elaborate ctx file
+
+            // The inline VOCABULARY is snapshotted HERE, ahead of the expansion walk and
+            // under the same typar cut. `InlineExpansion` walks a template like any other
+            // decl (it is emitted as an ordinary function), and that walk resolves
+            // static-opt clauses and trait calls against the types in scope AT THE
+            // DEFINITION — which for an `^T`-constrained template is nothing. A consumer
+            // splicing such a body must resolve them against ITS operand types, so what is
+            // published has to be the tree the walk never saw.
+            for (d, env) in elaborated do
+                match d with
+                | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
+                    ctx.InlineTemplates.[k] <- freezeTypars ctx.Store env d
+                | _ -> ()
+
+            elaborated
             |> InlineExpansion.run ctx
             |> List.map (fun (d, env) -> freezeTypars ctx.Store env d)
 

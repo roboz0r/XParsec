@@ -530,6 +530,14 @@ module EmitJs =
         | ExprShape.Upcast
         | ExprShape.Downcast -> buildExpr ctx (TastAccessor.exprChildren e).[0]
 
+        // `expr when ^T : int = …`: the clauses are a COMPILE-TIME selection made when a
+        // splice pins the operand type (`Inline.inlineExpand`). Reaching the backend means
+        // no type was pinned — this is the `inline` binding's ordinary compiled form, or a
+        // use of it as a first-class value — and the node carries `defaultExpr` for
+        // precisely that case. Emit the default, as the CLR backend does; a clause is an
+        // optimisation over it, never a different meaning.
+        | ExprShape.StaticOptimization -> buildExpr ctx (TastAccessor.exprStaticOptimizationDefault e)
+
         // The tokenful array intrinsics — `Array.zeroCreate` / `arr.[i]` / `arr.[i] <- v`
         // / `arr.Length`, desugared to `newarr`/`ldelem`/`stelem`/`ldlen` (the same
         // mnemonics the CLR backend reads; they are target-neutral, the element-type

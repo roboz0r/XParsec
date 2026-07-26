@@ -502,6 +502,72 @@ accessor flip, and lets each mint site move to native row-appends on its own sch
 
 ### Staging
 
+- **F.0 `let inline` is an ordinary function that is ALSO a template.** A prerequisite for
+  F.1: it removes one of the three carriers F.1 would otherwise have to pool, and closes the
+  bug class the binder-keying fix just cleaned up after.
+
+  **The semantics being corrected.** F# does not skip emitting an `inline` function. It emits a
+  normal module function with that body, callable at runtime, *and* opportunistically splices
+  the body at use sites. Both, not either. Today freeze does neither faithfully:
+  - `Freeze.emittable` drops every `TDecl.Let(isInline = true)` from `Decls`, so **no** inline
+    function is ever emitted — a caller that cannot be inlined has nothing to call.
+  - Publication into `InlineBodies` needs `Map.tryFind k tast.ModuleMembers`, and `Elaborate`
+    fills `ModuleMembers` only when a binding has a holder; a **top-level** `let inline` goes to
+    `TopLevelNames` instead, so it has no minted `SymbolKey` and is published nowhere. It is
+    spliceable within its own unit (`InlineExpansion` runs pre-freeze) and invisible outside —
+    an asymmetry with module-level `inline` that is a fallout of the identity model, not a
+    decision.
+
+  **The target.** An `inline` binding stays in `Decls` with `IsInline = true` — the flag
+  `TDecl.Let` and `DeclPayload.Let` already carry — and both backends emit it as an ordinary
+  module function. `IsInline` becomes a property read off the decl rather than a reason the decl
+  is absent. A top-level `inline` binding gains an exportable identity like any other top-level
+  binding.
+
+  **What `InlineBodies` becomes.** It is purely the CROSS-UNIT export channel — `InlineExpansion`
+  splices within a unit pre-freeze and never reads it; only `SymbolProviders.collectInlineBodies`
+  (serving other units) and `Inline.thawBody` (consuming another unit's template) do. Since the
+  same body now lives in `Decls`, the stored channel is redundant with a projection: the export
+  form is `rewriteSiblingRefs` applied to the decl. Prefer deriving it at the export seam over
+  storing a second copy — but confirm first that the emitted form and the exported form can be
+  the same tree (the export rewrites sibling `Var` references to `External` + `SymbolKey`; the
+  emitted form resolves those `Var`s through the side tables, and `Freeze`'s own comment claims
+  the two agree by construction). If they cannot be the same tree, keep the two forms and say why.
+
+  **LANDED.** Four corrections to the above, all of which the implementation established:
+
+  - **There were THREE drop sites, not two, and the third was the real blocker.**
+    `Passes.InlineExpansion` skipped templates entirely (`InlineExpansion.fs:897`), so every
+    template violated codegen's own input invariant — un-eta'd `External` values, unspliced
+    inline call heads. Three programs crashed on emission until the walk covered them. The two
+    known sites (`Freeze.emittable`, `TastLower.lower`) were the visible half of the problem.
+  - **Emittability splits in two, exactly along the SRTP/static-opt line.** A `TraitCall` body
+    is template-only and always will be: "type `^T` has this member" has no CLR encoding, so
+    there is no signature to emit under, and `Inline.substMapper` discharges the node only when
+    a SPLICE grounds `^T` to a nominal carrying the member. A `StaticOptimization` body IS
+    emittable — clause selection is a compile-time choice and the node carries `defaultExpr`
+    for precisely the un-pinned case, which is what the ordinary compiled form is. The CLR
+    backend already emitted the default; the JS backend had **no arm at all** and fell to a
+    catch-all `failwith`. So the skip is now a checkable predicate on the body
+    (`TastLower.hasTraitCall`), justified at the emit site and far narrower than `isInline` —
+    it fires nowhere in the corpus.
+  - **The emitted and exported forms did NOT unify; both are kept.** Publishing the walked body
+    moved two conformance goldens (`arith-uint32`, `arith-unsigned-div`): definition-site
+    expansion bakes the generic fallback into every future splice, because a template's
+    static-opt clauses and trait calls must resolve against a CALL SITE's operand types, not
+    against the nothing that is ground at its definition. `ctx.InlineTemplates` holds the
+    unwalked snapshot, taken under the same typar cut. **`InlineBodies` therefore stays a real
+    carrier — F.1's carrier list does NOT shrink**, contrary to the hope above.
+  - **The top-level export gap is not inline-specific and was scoped out.** No top-level
+    binding of any kind is exported (`FrozenSignature.fs:446`) — one may only exist in an exe's
+    entry file. A top-level `inline` binding now gains an identity the same way every other
+    top-level binding does: by being emitted. Publishing its template would need either a
+    Program-holder key minted in `Freeze` (backend layout knowledge in the wrong place) or
+    rerouting top-level bindings through `ModuleMembers` (which moves CLR holder placement).
+
+  Goldens: **zero existing goldens moved** — the two-form split is what keeps previously-emitted
+  code identical. Coverage added at `test/Codegen.Conformance/inline/` (top-level and named
+  module), since the corpus previously contained no `let inline` at all.
 - **F.1 Pool the remaining tree carriers.** A `TTypeDecl`'s member bodies (`TExpr` at six sites:
   members incl. interface impls, static/instance preamble `Let.Init` and `Do`, secondary-ctor
   `Lets[].Init`/`PrimaryArgs[]`/`FieldInits[].Init`, base-ctor `Args[]` — and **no `TPat`**
