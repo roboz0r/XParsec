@@ -7,17 +7,17 @@ open XParsec.FSharp.Parser
 
 /// A hand-rolled structural binary (de)serializer for the FROZEN domain, layered:
 /// the leaf domains (`FrozenType` and the `SymbolKey`/`TypeKey` key cluster it
-/// reaches, plus `NodeKey`/`SyntaxToken`), the recursive `TExpr`/`TDecl`/`TPat` tree
-/// codec, and — on top of both — the `FrozenPools` COLUMN codec that `flatten`/`thaw`
-/// actually store. A plain `BinaryWriter`/`BinaryReader` over a `MemoryStream`; the
-/// blob is Brotli-wrapped at the store seam (`Compression`), so nothing here
-/// hand-rolls varints or bit-packing.
+/// reaches, plus `NodeKey`/`SyntaxToken`), the non-tree declaration shell and scalar
+/// clusters a pool payload rides, and — on top of both — the `FrozenPools` COLUMN codec
+/// that `flatten`/`thaw` actually store. A plain `BinaryWriter`/`BinaryReader` over a
+/// `MemoryStream`; the blob is Brotli-wrapped at the store seam (`Compression`), so
+/// nothing here hand-rolls varints or bit-packing.
 ///
 /// The stored form is the pools, not the DU: `flatten` = `TastPools.toPools` then the
-/// column writers, `thaw` their inverse then `TastPools.ofPools`. The tree codec is
-/// still load-bearing, because the pools carry two domains OPAQUELY — a
-/// `DeclPayload.Type`'s member bodies and the `InlineBodies` vocabulary, neither of
-/// which the pool walk reaches.
+/// column writers, `thaw` their inverse then `TastPools.ofPools`. There is NO recursive
+/// `TExpr`/`TDecl`/`TPat` tree codec: every tree the file bears is in the columns, so
+/// wherever a subtree used to be inlined — a `type` declaration's member bodies, an inline
+/// template's decl, a `ValRepr`'s tuple group — a pool id is written instead.
 ///
 /// Two invariants the writer/reader pair upholds:
 ///   * The writer's `match` is EXHAUSTIVE with no catch-all, so a new `FrozenType`
@@ -1062,7 +1062,7 @@ module FrozenCodec =
             Tok = tok
         }
 
-    // ── the term / declaration tree (one mutually recursive writer group) ───
+    // ── the declaration shell + the scalar clusters riding a pool payload ───
     //
     // Instantiated at `<FrozenType, SyntaxToken>` — every `'ty` payload rides
     // `writeFrozenType`, every `'tok` rides `writeSyntaxToken` (both defined in the
@@ -1070,333 +1070,27 @@ module FrozenCodec =
     // new case fails to compile here; each reader reconstructs the case / record
     // DIRECTLY (never a normalizing smart constructor) with `let`-sequenced field
     // reads that provably mirror the writer's emit order.
+    //
+    // There is NO recursive `TExpr`/`TPat`/`TDecl` tree codec any more: every tree in the
+    // file is in the pool columns, so an expression is written as an `ExprPoolId` and a
+    // pattern as a `PatPoolId` wherever one used to be inlined — a `type` declaration's
+    // member bodies, an inline template's decl, a `ValRepr`'s tuple group. What remains
+    // here is the declaration SHELL (which the pooled `Type` payload still carries whole)
+    // plus the scalar clusters an `ExprPayload` rides (`Disposal`, `CallVia`,
+    // `ForInEnumerator`, the static-opt constraints).
 
-    let rec private writeExpr (w: BinaryWriter) (e: Frozen.TExpr) =
-        match e with
-        | TExprG.Const(value, ty, tok) ->
-            w.Write 0uy
-            writeTConstValue w value
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Var(binding, ty, tok) ->
-            w.Write 1uy
-            writeNodeKey w binding
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.External(compiledName, key, ty, tok) ->
-            w.Write 2uy
-            w.Write compiledName
-            writeVOptionWith w writeSymbolKey key
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Lambda(param, body, ty, tok) ->
-            w.Write 3uy
-            writePat w param
-            writeExpr w body
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.App(fn, arg, ty, tok) ->
-            w.Write 4uy
-            writeExpr w fn
-            writeExpr w arg
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Let(binding, value, body, ty, tok) ->
-            w.Write 5uy
-            writePat w binding
-            writeExpr w value
-            writeExpr w body
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Use(binding, value, body, dispose, ty, tok) ->
-            w.Write 6uy
-            writePat w binding
-            writeExpr w value
-            writeExpr w body
-            writeDisposal w dispose
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.IfThenElse(cond, thenExpr, elseExpr, ty, tok) ->
-            w.Write 7uy
-            writeExpr w cond
-            writeExpr w thenExpr
-            writeExpr w elseExpr
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Tuple(items, ty, tok) ->
-            w.Write 8uy
-            writeEqArrayWith w writeExpr items
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Sequential(items, ty, tok) ->
-            w.Write 9uy
-            writeEqArrayWith w writeExpr items
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.While(cond, body, ty, tok) ->
-            w.Write 10uy
-            writeExpr w cond
-            writeExpr w body
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.ForTo(var, identTok, startExpr, endExpr, body, ty, tok) ->
-            w.Write 11uy
-            writeNodeKey w var
-            writeSyntaxToken w identTok
-            writeExpr w startExpr
-            writeExpr w endExpr
-            writeExpr w body
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.ForIn(pat, source, body, enumerator, ty, tok) ->
-            w.Write 12uy
-            writePat w pat
-            writeExpr w source
-            writeExpr w body
-            writeForInEnumerator w enumerator
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Match(scrutinee, arms, ty, tok) ->
-            w.Write 13uy
-            writeExpr w scrutinee
-            writeEqArrayWith w writeMatchArm arms
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.TryWith(body, arms, ty, tok) ->
-            w.Write 14uy
-            writeExpr w body
-            writeEqArrayWith w writeMatchArm arms
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.TryFinally(body, cleanup, ty, tok) ->
-            w.Write 15uy
-            writeExpr w body
-            writeExpr w cleanup
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Assignment(lhs, rhs, ty, tok) ->
-            w.Write 16uy
-            writeExpr w lhs
-            writeExpr w rhs
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Null(ty, tok) ->
-            w.Write 17uy
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Range(startExpr, step, stopExpr, ty, tok) ->
-            w.Write 18uy
-            writeExpr w startExpr
-            writeOptionWith w writeExpr step
-            writeExpr w stopExpr
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.RecordCons(fields, ty, tok) ->
-            w.Write 19uy
+    /// The pool ids, written as plain `int`s — the blob is Brotli-compressed at the store
+    /// seam, which absorbs their width redundancy far more cheaply than a bespoke varint
+    /// would pay for in reader complexity. Defined here rather than with the column codec
+    /// below because the declaration shell names its bodies by id.
+    let private writeExprPoolId (w: BinaryWriter) (ExprPoolId i) = w.Write i
+    let private readExprPoolId (r: BinaryReader) : ExprPoolId = ExprPoolId(r.ReadInt32())
+    let private writePatPoolId (w: BinaryWriter) (PatPoolId i) = w.Write i
+    let private readPatPoolId (r: BinaryReader) : PatPoolId = PatPoolId(r.ReadInt32())
+    let private writeDeclPoolId (w: BinaryWriter) (DeclPoolId i) = w.Write i
+    let private readDeclPoolId (r: BinaryReader) : DeclPoolId = DeclPoolId(r.ReadInt32())
 
-            writeEqArrayWith
-                w
-                (fun w (name: string, e) ->
-                    w.Write name
-                    writeExpr w e
-                )
-                fields
-
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.RecordClone(source, overrides, ty, tok) ->
-            w.Write 20uy
-            writeExpr w source
-
-            writeEqArrayWith
-                w
-                (fun w (name: string, e) ->
-                    w.Write name
-                    writeExpr w e
-                )
-                overrides
-
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.FieldGet(receiver, fieldName, ty, tok) ->
-            w.Write 21uy
-            writeExpr w receiver
-            w.Write fieldName
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.FieldSet(receiver, fieldName, value, ty, tok) ->
-            w.Write 22uy
-            writeExpr w receiver
-            w.Write fieldName
-            writeExpr w value
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.UnionCons(caseName, args, ty, tok) ->
-            w.Write 23uy
-            w.Write caseName
-            writeEqArrayWith w writeExpr args
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.New(className, key, args, ty, tok) ->
-            w.Write 24uy
-            w.Write className
-            writeVOptionWith w writeSymbolKey key
-            writeEqArrayWith w writeExpr args
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.MethodCall(receiver, key, via, args, ty, tok) ->
-            w.Write 25uy
-            writeExpr w receiver
-            writeSymbolKey w key
-            writeCallVia w via
-            writeEqArrayWith w writeExpr args
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.PropertyGet(receiver, key, via, ty, tok) ->
-            w.Write 26uy
-            writeExpr w receiver
-            writeSymbolKey w key
-            writeCallVia w via
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.StaticMethodCall(key, args, ty, tok) ->
-            w.Write 27uy
-            writeSymbolKey w key
-            writeEqArrayWith w writeExpr args
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.StaticPropertyGet(key, ty, tok) ->
-            w.Write 28uy
-            writeSymbolKey w key
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.StaticFieldGet(declKey, fieldName, ty, tok) ->
-            w.Write 29uy
-            writeSymbolKey w declKey
-            w.Write fieldName
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.StaticFieldSet(declKey, fieldName, value, ty, tok) ->
-            w.Write 30uy
-            writeSymbolKey w declKey
-            w.Write fieldName
-            writeExpr w value
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.ExternalMember(receiver, key, memberName, storage, ty, tok) ->
-            w.Write 31uy
-            writeVOptionWith w writeExpr receiver
-            writeSymbolKey w key
-            w.Write memberName
-            writeMemberStorage w storage
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Format(sink, segments, ty, tok) ->
-            w.Write 32uy
-            writeFormatSink w sink
-            writeEqArrayWith w writeFormatSeg segments
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.ILIntrinsic(opCode, typeOperand, args, ty, tok) ->
-            w.Write 33uy
-            w.Write opCode
-            writeVOptionWith w writeFrozenType typeOperand
-            writeEqArrayWith w writeExpr args
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.StaticOptimization(clauses, defaultExpr, ty, tok) ->
-            w.Write 34uy
-            writeEqArrayWith w writeStaticOptClause clauses
-            writeExpr w defaultExpr
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Upcast(source, ty, tok) ->
-            w.Write 35uy
-            writeExpr w source
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.Downcast(source, ty, tok) ->
-            w.Write 36uy
-            writeExpr w source
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.TypeTest(source, testTy, ty, tok) ->
-            w.Write 37uy
-            writeExpr w source
-            writeFrozenType w testTy
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TExprG.TraitCall(receiver, memberName, args, ty, tok) ->
-            w.Write 38uy
-            writeFrozenType w receiver
-            w.Write memberName
-            writeEqArrayWith w writeExpr args
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-
-    and private writePat (w: BinaryWriter) (p: Frozen.TPat) =
-        match p with
-        | TPatG.NamedSimple(binding, ty, tok) ->
-            w.Write 0uy
-            writeNodeKey w binding
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TPatG.Wildcard(ty, tok) ->
-            w.Write 1uy
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TPatG.Tuple(items, ty, tok) ->
-            w.Write 2uy
-            writeEqArrayWith w writePat items
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TPatG.Const(value, ty, tok) ->
-            w.Write 3uy
-            writeTConstValue w value
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TPatG.Record(fields, ty, tok) ->
-            w.Write 4uy
-
-            writeEqArrayWith
-                w
-                (fun w (name: string, sub) ->
-                    w.Write name
-                    writePat w sub
-                )
-                fields
-
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TPatG.Union(caseName, fields, ty, tok) ->
-            w.Write 5uy
-            w.Write caseName
-            writeEqArrayWith w writePat fields
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TPatG.TypeTestAs(testTy, inner, ty, tok) ->
-            w.Write 6uy
-            writeFrozenType w testTy
-            writePat w inner
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TPatG.Null(ty, tok) ->
-            w.Write 7uy
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TPatG.EnumCase(enumKey, caseName, ty, tok) ->
-            w.Write 8uy
-            writeSymbolKey w enumKey
-            w.Write caseName
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-        | TPatG.Or(alts, ty, tok) ->
-            w.Write 9uy
-            writeEqArrayWith w writePat alts
-            writeFrozenType w ty
-            writeSyntaxToken w tok
-
-    and private writeDisposal (w: BinaryWriter) (d: Disposal) =
+    let rec private writeDisposal (w: BinaryWriter) (d: Disposal) =
         match d with
         | Disposal.ViaCapability slot ->
             w.Write 0uy
@@ -1414,51 +1108,6 @@ module FrozenCodec =
             w.Write 2uy
             writeEqArrayWith w writeFrozenType ifaceArgs
 
-    and private writeMatchArm (w: BinaryWriter) (arm: Frozen.TMatchArm) =
-        writePat w arm.Pat
-        writeOptionWith w writeExpr arm.Guard
-        writeExpr w arm.Body
-
-    and private writeFormatSink (w: BinaryWriter) (s: Frozen.FormatSink) =
-        match s with
-        | FormatSinkG.ToStdOut newline ->
-            w.Write 0uy
-            w.Write newline
-        | FormatSinkG.ToStdErr newline ->
-            w.Write 1uy
-            w.Write newline
-        | FormatSinkG.ToWriter(writer, newline) ->
-            w.Write 2uy
-            writeExpr w writer
-            w.Write newline
-        | FormatSinkG.ToBuilder builder ->
-            w.Write 3uy
-            writeExpr w builder
-        | FormatSinkG.ToString -> w.Write 4uy
-
-    and private writeFormatSeg (w: BinaryWriter) (seg: Frozen.FormatSeg) =
-        match seg with
-        | FormatSegG.Lit s ->
-            w.Write 0uy
-            w.Write s
-        | FormatSegG.Hole(spec, e) ->
-            w.Write 1uy
-            writeHoleSpec w spec
-            writeExpr w e
-        | FormatSegG.DynHole hole ->
-            w.Write 2uy
-            writeDynHole w hole
-        | FormatSegG.CallbackHole(spec, residue) ->
-            w.Write 3uy
-            writeHoleSpec w spec
-            writeExpr w residue
-
-    and private writeDynHole (w: BinaryWriter) (h: Frozen.DynFormatHole) =
-        writeVOptionWith w writeExpr h.Width
-        writeVOptionWith w writeExpr h.Precision
-        writeHoleSpec w h.Spec
-        writeExpr w h.Value
-
     and private writeStaticOptConstraint (w: BinaryWriter) (c: Frozen.TStaticOptConstraint) =
         match c with
         | TStaticOptConstraintG.TyconEquals(typar, required) ->
@@ -1468,10 +1117,6 @@ module FrozenCodec =
         | TStaticOptConstraintG.IsStruct typar ->
             w.Write 1uy
             writeFrozenType w typar
-
-    and private writeStaticOptClause (w: BinaryWriter) (c: Frozen.TStaticOptClause) =
-        writeEqArrayWith w writeStaticOptConstraint c.Constraints
-        writeExpr w c.Body
 
     and private writeForInEnumerator (w: BinaryWriter) (e: Frozen.ForInEnumerator) =
         match e with
@@ -1507,25 +1152,12 @@ module FrozenCodec =
             writeTypeKey w iface
             writeEqArrayWith w writeFrozenType ifaceArgs
 
-    // Declaration cluster.
+    // The `type` declaration shell — the one declaration shape a pool payload still
+    // carries whole (`DeclPayload.Type`). Its member / preamble / ctor bodies are pool
+    // ids, so this group bottoms out at `writeExprPoolId` where it once recursed into
+    // `writeExpr`.
 
-    and private writeDecl (w: BinaryWriter) (d: Frozen.TDecl) =
-        match d with
-        | TDeclG.Let(binding, value, isInline, ty) ->
-            w.Write 0uy
-            writePat w binding
-            writeExpr w value
-            w.Write isInline
-            writeFrozenType w ty
-        | TDeclG.Expression(expr, ty) ->
-            w.Write 1uy
-            writeExpr w expr
-            writeFrozenType w ty
-        | TDeclG.Type td ->
-            w.Write 2uy
-            writeTypeDecl w td
-
-    and private writeTypeDecl (w: BinaryWriter) (td: Frozen.TTypeDecl) =
+    and private writeTypeDecl (w: BinaryWriter) (td: PooledTypeDecl) =
         w.Write td.Name
         writeTypeKey w td.TypeKey
         writeOptionWith w (fun w (s: string) -> w.Write s) td.Namespace
@@ -1535,7 +1167,7 @@ module FrozenCodec =
         writeEqualityVerdict w td.EqualitySupport
         writeComparisonVerdict w td.ComparisonSupport
 
-    and private writeTypeKind (w: BinaryWriter) (k: Frozen.TTypeKind) =
+    and private writeTypeKind (w: BinaryWriter) (k: TTypeKindG<FrozenType, SyntaxToken, ExprPoolId>) =
         match k with
         | TTypeKindG.Interface methods ->
             w.Write 0uy
@@ -1560,7 +1192,10 @@ module FrozenCodec =
 
     // Each `interfaces` entry pairs a resolved interface type with its typed member
     // bodies — shared by the class / union / record arms.
-    and private writeInterfaces (w: BinaryWriter) (interfaces: EqArray<FrozenType * EqArray<Frozen.TTypeMember>>) =
+    and private writeInterfaces
+        (w: BinaryWriter)
+        (interfaces: EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, ExprPoolId>>>)
+        =
         writeEqArrayWith
             w
             (fun w (ty, mems) ->
@@ -1569,7 +1204,7 @@ module FrozenCodec =
             )
             interfaces
 
-    and private writeClass (w: BinaryWriter) (c: Frozen.TClass) =
+    and private writeClass (w: BinaryWriter) (c: TClassG<FrozenType, SyntaxToken, ExprPoolId>) =
         writeEqArrayWith w writeRecordField c.Fields
         writeEqArrayWith w writeRecordField c.CtorParams
         writeEqArrayWith w writeTypeMember c.Members
@@ -1584,7 +1219,7 @@ module FrozenCodec =
         writeClassValueKind w c.ValueKind
         w.Write c.HasPrimaryCtor
 
-    and private writeTypeMember (w: BinaryWriter) (m: Frozen.TTypeMember) =
+    and private writeTypeMember (w: BinaryWriter) (m: TTypeMemberG<FrozenType, ExprPoolId>) =
         w.Write m.Name
         w.Write m.IsStatic
         writeAccessibility w m.Accessibility
@@ -1602,35 +1237,35 @@ module FrozenCodec =
             )
             m.Params
 
-        writeExpr w m.Body
+        writeExprPoolId w m.Body
         writeFrozenType w m.ReturnTy
         writeMethodTypeParams w m.MethodTypeParams
 
-    and private writeClassLet (w: BinaryWriter) (l: Frozen.TClassLet) =
+    and private writeClassLet (w: BinaryWriter) (l: TClassLetG<FrozenType, ExprPoolId>) =
         w.Write l.Name
         writeFrozenType w l.Type
         w.Write l.IsMutable
-        writeExpr w l.Init
+        writeExprPoolId w l.Init
 
-    and private writePreambleEntry (w: BinaryWriter) (p: Frozen.TPreambleEntry) =
+    and private writePreambleEntry (w: BinaryWriter) (p: TPreambleEntryG<FrozenType, ExprPoolId>) =
         match p with
         | TPreambleEntryG.Let l ->
             w.Write 0uy
             writeClassLet w l
         | TPreambleEntryG.Do e ->
             w.Write 1uy
-            writeExpr w e
+            writeExprPoolId w e
 
-    and private writeCtorLet (w: BinaryWriter) (cl: Frozen.TCtorLet) =
+    and private writeCtorLet (w: BinaryWriter) (cl: TCtorLetG<FrozenType, ExprPoolId>) =
         writeNodeKey w cl.Binder
         writeFrozenType w cl.Type
-        writeExpr w cl.Init
+        writeExprPoolId w cl.Init
 
-    and private writeCtorFieldInit (w: BinaryWriter) (fi: Frozen.TCtorFieldInit) =
+    and private writeCtorFieldInit (w: BinaryWriter) (fi: TCtorFieldInitG<ExprPoolId>) =
         w.Write fi.Field
-        writeExpr w fi.Init
+        writeExprPoolId w fi.Init
 
-    and private writeSecondaryCtor (w: BinaryWriter) (sc: Frozen.TSecondaryCtor) =
+    and private writeSecondaryCtor (w: BinaryWriter) (sc: TSecondaryCtorG<FrozenType, ExprPoolId>) =
         writeEqArrayWith
             w
             (fun w (k, ty) ->
@@ -1640,10 +1275,10 @@ module FrozenCodec =
             sc.Params
 
         writeEqArrayWith w writeCtorLet sc.Lets
-        writeEqArrayWith w writeExpr sc.PrimaryArgs
+        writeEqArrayWith w writeExprPoolId sc.PrimaryArgs
         writeEqArrayWith w writeCtorFieldInit sc.FieldInits
 
-    and private writeBaseCtorCall (w: BinaryWriter) (bc: Frozen.TBaseCtorCall) =
+    and private writeBaseCtorCall (w: BinaryWriter) (bc: TBaseCtorCallG<FrozenType, ExprPoolId>) =
         writeEqArrayWith
             w
             (fun w (k, ty) ->
@@ -1652,18 +1287,17 @@ module FrozenCodec =
             )
             bc.CtorParams
 
-        writeEqArrayWith w writeExpr bc.Args
+        writeEqArrayWith w writeExprPoolId bc.Args
         writeVOptionWith w writeSymbolKey bc.ChosenCtor
 
-    and private writeInlineBody (w: BinaryWriter) (b: Frozen.TInlineBody) =
-        writeDecl w b.Decl
-        writeArrayWith w writeParamAttrs b.ParamAttrs
-
-    and private writeInlineValue (w: BinaryWriter) (v: Frozen.TInlineValue) =
+    /// A published template: its identity and parameter attributes, its declaration named
+    /// by pool id like any other root.
+    and private writeInlineTemplate (w: BinaryWriter) (v: PooledInlineValue) =
         writeSymbolKey w v.Key
-        writeInlineBody w v.Body
+        writeDeclPoolId w v.Decl
+        writeArrayWith w writeParamAttrs v.ParamAttrs
 
-    and private writeArgGroup (w: BinaryWriter) (g: Frozen.ArgGroup) =
+    and private writeArgGroup (w: BinaryWriter) (g: ArgGroupG<FrozenType, PatPoolId>) =
         match g with
         | ArgGroupG.GUnit ty ->
             w.Write 0uy
@@ -1674,348 +1308,14 @@ module FrozenCodec =
             writeFrozenType w ty
         | ArgGroupG.GTuple pat ->
             w.Write 2uy
-            writePat w pat
+            writePatPoolId w pat
 
-    and private writeValRepr (w: BinaryWriter) (v: Frozen.ValRepr) =
+    and private writeValRepr (w: BinaryWriter) (v: PooledValRepr) =
         w.Write v.Typars
         writeListWith w writeArgGroup v.Groups
         writeFrozenType w v.ResultTy
 
     // ── the mirror reader group ─────────────────────────────────────────────
-
-    let rec private readExpr (r: BinaryReader) : Frozen.TExpr =
-        match r.ReadByte() with
-        | 0uy ->
-            let value = readTConstValue r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Const(value, ty, tok)
-        | 1uy ->
-            let binding = readNodeKey r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Var(binding, ty, tok)
-        | 2uy ->
-            let compiledName = r.ReadString()
-            let key = readVOptionWith r readSymbolKey
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.External(compiledName, key, ty, tok)
-        | 3uy ->
-            let param = readPat r
-            let body = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Lambda(param, body, ty, tok)
-        | 4uy ->
-            let fn = readExpr r
-            let arg = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.App(fn, arg, ty, tok)
-        | 5uy ->
-            let binding = readPat r
-            let value = readExpr r
-            let body = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Let(binding, value, body, ty, tok)
-        | 6uy ->
-            let binding = readPat r
-            let value = readExpr r
-            let body = readExpr r
-            let dispose = readDisposal r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Use(binding, value, body, dispose, ty, tok)
-        | 7uy ->
-            let cond = readExpr r
-            let thenExpr = readExpr r
-            let elseExpr = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.IfThenElse(cond, thenExpr, elseExpr, ty, tok)
-        | 8uy ->
-            let items = EqArray.ofArray (readArrayWith r readExpr)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Tuple(items, ty, tok)
-        | 9uy ->
-            let items = EqArray.ofArray (readArrayWith r readExpr)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Sequential(items, ty, tok)
-        | 10uy ->
-            let cond = readExpr r
-            let body = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.While(cond, body, ty, tok)
-        | 11uy ->
-            let var = readNodeKey r
-            let identTok = readSyntaxToken r
-            let startExpr = readExpr r
-            let endExpr = readExpr r
-            let body = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.ForTo(var, identTok, startExpr, endExpr, body, ty, tok)
-        | 12uy ->
-            let pat = readPat r
-            let source = readExpr r
-            let body = readExpr r
-            let enumerator = readForInEnumerator r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.ForIn(pat, source, body, enumerator, ty, tok)
-        | 13uy ->
-            let scrutinee = readExpr r
-            let arms = EqArray.ofArray (readArrayWith r readMatchArm)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Match(scrutinee, arms, ty, tok)
-        | 14uy ->
-            let body = readExpr r
-            let arms = EqArray.ofArray (readArrayWith r readMatchArm)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.TryWith(body, arms, ty, tok)
-        | 15uy ->
-            let body = readExpr r
-            let cleanup = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.TryFinally(body, cleanup, ty, tok)
-        | 16uy ->
-            let lhs = readExpr r
-            let rhs = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Assignment(lhs, rhs, ty, tok)
-        | 17uy ->
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Null(ty, tok)
-        | 18uy ->
-            let startExpr = readExpr r
-            let step = readOptionWith r readExpr
-            let stopExpr = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Range(startExpr, step, stopExpr, ty, tok)
-        | 19uy ->
-            let fields =
-                EqArray.ofArray (
-                    readArrayWith
-                        r
-                        (fun r ->
-                            let name = r.ReadString()
-                            let e = readExpr r
-                            name, e
-                        )
-                )
-
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.RecordCons(fields, ty, tok)
-        | 20uy ->
-            let source = readExpr r
-
-            let overrides =
-                EqArray.ofArray (
-                    readArrayWith
-                        r
-                        (fun r ->
-                            let name = r.ReadString()
-                            let e = readExpr r
-                            name, e
-                        )
-                )
-
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.RecordClone(source, overrides, ty, tok)
-        | 21uy ->
-            let receiver = readExpr r
-            let fieldName = r.ReadString()
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.FieldGet(receiver, fieldName, ty, tok)
-        | 22uy ->
-            let receiver = readExpr r
-            let fieldName = r.ReadString()
-            let value = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.FieldSet(receiver, fieldName, value, ty, tok)
-        | 23uy ->
-            let caseName = r.ReadString()
-            let args = EqArray.ofArray (readArrayWith r readExpr)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.UnionCons(caseName, args, ty, tok)
-        | 24uy ->
-            let className = r.ReadString()
-            let key = readVOptionWith r readSymbolKey
-            let args = EqArray.ofArray (readArrayWith r readExpr)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.New(className, key, args, ty, tok)
-        | 25uy ->
-            let receiver = readExpr r
-            let key = readSymbolKey r
-            let via = readCallVia r
-            let args = EqArray.ofArray (readArrayWith r readExpr)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.MethodCall(receiver, key, via, args, ty, tok)
-        | 26uy ->
-            let receiver = readExpr r
-            let key = readSymbolKey r
-            let via = readCallVia r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.PropertyGet(receiver, key, via, ty, tok)
-        | 27uy ->
-            let key = readSymbolKey r
-            let args = EqArray.ofArray (readArrayWith r readExpr)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.StaticMethodCall(key, args, ty, tok)
-        | 28uy ->
-            let key = readSymbolKey r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.StaticPropertyGet(key, ty, tok)
-        | 29uy ->
-            let declKey = readSymbolKey r
-            let fieldName = r.ReadString()
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.StaticFieldGet(declKey, fieldName, ty, tok)
-        | 30uy ->
-            let declKey = readSymbolKey r
-            let fieldName = r.ReadString()
-            let value = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.StaticFieldSet(declKey, fieldName, value, ty, tok)
-        | 31uy ->
-            let receiver = readVOptionWith r readExpr
-            let key = readSymbolKey r
-            let memberName = r.ReadString()
-            let storage = readMemberStorage r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.ExternalMember(receiver, key, memberName, storage, ty, tok)
-        | 32uy ->
-            let sink = readFormatSink r
-            let segments = EqArray.ofArray (readArrayWith r readFormatSeg)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Format(sink, segments, ty, tok)
-        | 33uy ->
-            let opCode = r.ReadString()
-            let typeOperand = readVOptionWith r readFrozenType
-            let args = EqArray.ofArray (readArrayWith r readExpr)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.ILIntrinsic(opCode, typeOperand, args, ty, tok)
-        | 34uy ->
-            let clauses = EqArray.ofArray (readArrayWith r readStaticOptClause)
-            let defaultExpr = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.StaticOptimization(clauses, defaultExpr, ty, tok)
-        | 35uy ->
-            let source = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Upcast(source, ty, tok)
-        | 36uy ->
-            let source = readExpr r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.Downcast(source, ty, tok)
-        | 37uy ->
-            let source = readExpr r
-            let testTy = readFrozenType r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.TypeTest(source, testTy, ty, tok)
-        | 38uy ->
-            let receiver = readFrozenType r
-            let memberName = r.ReadString()
-            let args = EqArray.ofArray (readArrayWith r readExpr)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TExprG.TraitCall(receiver, memberName, args, ty, tok)
-        | b -> failwithf "FrozenCodec: unknown TExpr tag %d" b
-
-    and private readPat (r: BinaryReader) : Frozen.TPat =
-        match r.ReadByte() with
-        | 0uy ->
-            let binding = readNodeKey r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.NamedSimple(binding, ty, tok)
-        | 1uy ->
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.Wildcard(ty, tok)
-        | 2uy ->
-            let items = EqArray.ofArray (readArrayWith r readPat)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.Tuple(items, ty, tok)
-        | 3uy ->
-            let value = readTConstValue r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.Const(value, ty, tok)
-        | 4uy ->
-            let fields =
-                EqArray.ofArray (
-                    readArrayWith
-                        r
-                        (fun r ->
-                            let name = r.ReadString()
-                            let sub = readPat r
-                            name, sub
-                        )
-                )
-
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.Record(fields, ty, tok)
-        | 5uy ->
-            let caseName = r.ReadString()
-            let fields = EqArray.ofArray (readArrayWith r readPat)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.Union(caseName, fields, ty, tok)
-        | 6uy ->
-            let testTy = readFrozenType r
-            let inner = readPat r
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.TypeTestAs(testTy, inner, ty, tok)
-        | 7uy ->
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.Null(ty, tok)
-        | 8uy ->
-            let enumKey = readSymbolKey r
-            let caseName = r.ReadString()
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.EnumCase(enumKey, caseName, ty, tok)
-        | 9uy ->
-            let alts = EqArray.ofArray (readArrayWith r readPat)
-            let ty = readFrozenType r
-            let tok = readSyntaxToken r
-            TPatG.Or(alts, ty, tok)
-        | b -> failwithf "FrozenCodec: unknown TPat tag %d" b
 
     and private readDisposal (r: BinaryReader) : Disposal =
         match r.ReadByte() with
@@ -2031,56 +1331,6 @@ module FrozenCodec =
         | 2uy -> CallVia.Interface(EqArray.ofArray (readArrayWith r readFrozenType))
         | b -> failwithf "FrozenCodec: unknown CallVia tag %d" b
 
-    and private readMatchArm (r: BinaryReader) : Frozen.TMatchArm =
-        let pat = readPat r
-        let guard = readOptionWith r readExpr
-        let body = readExpr r
-
-        {
-            Pat = pat
-            Guard = guard
-            Body = body
-        }
-
-    and private readFormatSink (r: BinaryReader) : Frozen.FormatSink =
-        match r.ReadByte() with
-        | 0uy -> FormatSinkG.ToStdOut(r.ReadBoolean())
-        | 1uy -> FormatSinkG.ToStdErr(r.ReadBoolean())
-        | 2uy ->
-            let writer = readExpr r
-            let newline = r.ReadBoolean()
-            FormatSinkG.ToWriter(writer, newline)
-        | 3uy -> FormatSinkG.ToBuilder(readExpr r)
-        | 4uy -> FormatSinkG.ToString
-        | b -> failwithf "FrozenCodec: unknown FormatSink tag %d" b
-
-    and private readFormatSeg (r: BinaryReader) : Frozen.FormatSeg =
-        match r.ReadByte() with
-        | 0uy -> FormatSegG.Lit(r.ReadString())
-        | 1uy ->
-            let spec = readHoleSpec r
-            let e = readExpr r
-            FormatSegG.Hole(spec, e)
-        | 2uy -> FormatSegG.DynHole(readDynHole r)
-        | 3uy ->
-            let spec = readHoleSpec r
-            let residue = readExpr r
-            FormatSegG.CallbackHole(spec, residue)
-        | b -> failwithf "FrozenCodec: unknown FormatSeg tag %d" b
-
-    and private readDynHole (r: BinaryReader) : Frozen.DynFormatHole =
-        let width = readVOptionWith r readExpr
-        let precision = readVOptionWith r readExpr
-        let spec = readHoleSpec r
-        let value = readExpr r
-
-        {
-            Width = width
-            Precision = precision
-            Spec = spec
-            Value = value
-        }
-
     and private readStaticOptConstraint (r: BinaryReader) : Frozen.TStaticOptConstraint =
         match r.ReadByte() with
         | 0uy ->
@@ -2089,15 +1339,6 @@ module FrozenCodec =
             TStaticOptConstraintG.TyconEquals(typar, required)
         | 1uy -> TStaticOptConstraintG.IsStruct(readFrozenType r)
         | b -> failwithf "FrozenCodec: unknown TStaticOptConstraint tag %d" b
-
-    and private readStaticOptClause (r: BinaryReader) : Frozen.TStaticOptClause =
-        let constraints = EqArray.ofArray (readArrayWith r readStaticOptConstraint)
-        let body = readExpr r
-
-        {
-            Constraints = constraints
-            Body = body
-        }
 
     and private readForInEnumerator (r: BinaryReader) : Frozen.ForInEnumerator =
         match r.ReadByte() with
@@ -2134,22 +1375,7 @@ module FrozenCodec =
             ForInEnumMembersG.ConstrainedInterface(iface, ifaceArgs)
         | b -> failwithf "FrozenCodec: unknown ForInEnumMembers tag %d" b
 
-    and private readDecl (r: BinaryReader) : Frozen.TDecl =
-        match r.ReadByte() with
-        | 0uy ->
-            let binding = readPat r
-            let value = readExpr r
-            let isInline = r.ReadBoolean()
-            let ty = readFrozenType r
-            TDeclG.Let(binding, value, isInline, ty)
-        | 1uy ->
-            let expr = readExpr r
-            let ty = readFrozenType r
-            TDeclG.Expression(expr, ty)
-        | 2uy -> TDeclG.Type(readTypeDecl r)
-        | b -> failwithf "FrozenCodec: unknown TDecl tag %d" b
-
-    and private readTypeDecl (r: BinaryReader) : Frozen.TTypeDecl =
+    and private readTypeDecl (r: BinaryReader) : PooledTypeDecl =
         let name = r.ReadString()
         let typeKey = readTypeKey r
         let ns = readOptionWith r (fun r -> r.ReadString())
@@ -2170,7 +1396,7 @@ module FrozenCodec =
             ComparisonSupport = comparisonSupport
         }
 
-    and private readTypeKind (r: BinaryReader) : Frozen.TTypeKind =
+    and private readTypeKind (r: BinaryReader) : TTypeKindG<FrozenType, SyntaxToken, ExprPoolId> =
         match r.ReadByte() with
         | 0uy -> TTypeKindG.Interface(EqArray.ofArray (readArrayWith r readAbstractMethod))
         | 1uy ->
@@ -2188,7 +1414,7 @@ module FrozenCodec =
         | 4uy -> TTypeKindG.Enum(EqArray.ofArray (readArrayWith r readEnumCase))
         | b -> failwithf "FrozenCodec: unknown TTypeKind tag %d" b
 
-    and private readInterfaces (r: BinaryReader) : EqArray<FrozenType * EqArray<Frozen.TTypeMember>> =
+    and private readInterfaces (r: BinaryReader) : EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, ExprPoolId>>> =
         EqArray.ofArray (
             readArrayWith
                 r
@@ -2199,7 +1425,7 @@ module FrozenCodec =
                 )
         )
 
-    and private readClass (r: BinaryReader) : Frozen.TClass =
+    and private readClass (r: BinaryReader) : TClassG<FrozenType, SyntaxToken, ExprPoolId> =
         let fields = EqArray.ofArray (readArrayWith r readRecordField)
         let ctorParams = EqArray.ofArray (readArrayWith r readRecordField)
         let members = EqArray.ofArray (readArrayWith r readTypeMember)
@@ -2230,7 +1456,7 @@ module FrozenCodec =
             HasPrimaryCtor = hasPrimaryCtor
         }
 
-    and private readTypeMember (r: BinaryReader) : Frozen.TTypeMember =
+    and private readTypeMember (r: BinaryReader) : TTypeMemberG<FrozenType, ExprPoolId> =
         let name = r.ReadString()
         let isStatic = r.ReadBoolean()
         let accessibility = readAccessibility r
@@ -2251,7 +1477,7 @@ module FrozenCodec =
                     )
             )
 
-        let body = readExpr r
+        let body = readExprPoolId r
         let returnTy = readFrozenType r
         let methodTypeParams = readMethodTypeParams r
 
@@ -2270,11 +1496,11 @@ module FrozenCodec =
             MethodTypeParams = methodTypeParams
         }
 
-    and private readClassLet (r: BinaryReader) : Frozen.TClassLet =
+    and private readClassLet (r: BinaryReader) : TClassLetG<FrozenType, ExprPoolId> =
         let name = r.ReadString()
         let ty = readFrozenType r
         let isMutable = r.ReadBoolean()
-        let init = readExpr r
+        let init = readExprPoolId r
 
         {
             Name = name
@@ -2283,16 +1509,16 @@ module FrozenCodec =
             Init = init
         }
 
-    and private readPreambleEntry (r: BinaryReader) : Frozen.TPreambleEntry =
+    and private readPreambleEntry (r: BinaryReader) : TPreambleEntryG<FrozenType, ExprPoolId> =
         match r.ReadByte() with
         | 0uy -> TPreambleEntryG.Let(readClassLet r)
-        | 1uy -> TPreambleEntryG.Do(readExpr r)
+        | 1uy -> TPreambleEntryG.Do(readExprPoolId r)
         | b -> failwithf "FrozenCodec: unknown TPreambleEntry tag %d" b
 
-    and private readCtorLet (r: BinaryReader) : Frozen.TCtorLet =
+    and private readCtorLet (r: BinaryReader) : TCtorLetG<FrozenType, ExprPoolId> =
         let binder = readNodeKey r
         let ty = readFrozenType r
-        let init = readExpr r
+        let init = readExprPoolId r
 
         {
             Binder = binder
@@ -2300,12 +1526,12 @@ module FrozenCodec =
             Init = init
         }
 
-    and private readCtorFieldInit (r: BinaryReader) : Frozen.TCtorFieldInit =
+    and private readCtorFieldInit (r: BinaryReader) : TCtorFieldInitG<ExprPoolId> =
         let field = r.ReadString()
-        let init = readExpr r
+        let init = readExprPoolId r
         { Field = field; Init = init }
 
-    and private readSecondaryCtor (r: BinaryReader) : Frozen.TSecondaryCtor =
+    and private readSecondaryCtor (r: BinaryReader) : TSecondaryCtorG<FrozenType, ExprPoolId> =
         let parameters =
             EqArray.ofArray (
                 readArrayWith
@@ -2318,7 +1544,7 @@ module FrozenCodec =
             )
 
         let lets = EqArray.ofArray (readArrayWith r readCtorLet)
-        let primaryArgs = EqArray.ofArray (readArrayWith r readExpr)
+        let primaryArgs = EqArray.ofArray (readArrayWith r readExprPoolId)
         let fieldInits = EqArray.ofArray (readArrayWith r readCtorFieldInit)
 
         {
@@ -2328,7 +1554,7 @@ module FrozenCodec =
             FieldInits = fieldInits
         }
 
-    and private readBaseCtorCall (r: BinaryReader) : Frozen.TBaseCtorCall =
+    and private readBaseCtorCall (r: BinaryReader) : TBaseCtorCallG<FrozenType, ExprPoolId> =
         let ctorParams =
             EqArray.ofArray (
                 readArrayWith
@@ -2340,7 +1566,7 @@ module FrozenCodec =
                     )
             )
 
-        let args = EqArray.ofArray (readArrayWith r readExpr)
+        let args = EqArray.ofArray (readArrayWith r readExprPoolId)
         let chosenCtor = readVOptionWith r readSymbolKey
 
         {
@@ -2349,27 +1575,28 @@ module FrozenCodec =
             ChosenCtor = chosenCtor
         }
 
-    and private readInlineBody (r: BinaryReader) : Frozen.TInlineBody =
-        let decl = readDecl r
-        let paramAttrs = readArrayWith r readParamAttrs
-        { Decl = decl; ParamAttrs = paramAttrs }
-
-    and private readInlineValue (r: BinaryReader) : Frozen.TInlineValue =
+    and private readInlineTemplate (r: BinaryReader) : PooledInlineValue =
         let key = readSymbolKey r
-        let body = readInlineBody r
-        { Key = key; Body = body }
+        let decl = readDeclPoolId r
+        let paramAttrs = readArrayWith r readParamAttrs
 
-    and private readArgGroup (r: BinaryReader) : Frozen.ArgGroup =
+        {
+            Key = key
+            Decl = decl
+            ParamAttrs = paramAttrs
+        }
+
+    and private readArgGroup (r: BinaryReader) : ArgGroupG<FrozenType, PatPoolId> =
         match r.ReadByte() with
         | 0uy -> ArgGroupG.GUnit(readFrozenType r)
         | 1uy ->
             let slot = readNodeKey r
             let ty = readFrozenType r
             ArgGroupG.GSimple(slot, ty)
-        | 2uy -> ArgGroupG.GTuple(readPat r)
+        | 2uy -> ArgGroupG.GTuple(readPatPoolId r)
         | b -> failwithf "FrozenCodec: unknown ArgGroup tag %d" b
 
-    and private readValRepr (r: BinaryReader) : Frozen.ValRepr =
+    and private readValRepr (r: BinaryReader) : PooledValRepr =
         let typars = r.ReadInt32()
         let groups = readListWith r readArgGroup
         let resultTy = readFrozenType r
@@ -2392,12 +1619,6 @@ module FrozenCodec =
     // discipline `TastPools.exprPayload`/`substituteExpr` hold — so a new payload or shape
     // case fails to compile here rather than serializing as a silent alias.
 
-    let private writeExprPoolId (w: BinaryWriter) (ExprPoolId i) = w.Write i
-    let private readExprPoolId (r: BinaryReader) : ExprPoolId = ExprPoolId(r.ReadInt32())
-    let private writePatPoolId (w: BinaryWriter) (PatPoolId i) = w.Write i
-    let private readPatPoolId (r: BinaryReader) : PatPoolId = PatPoolId(r.ReadInt32())
-    let private writeDeclPoolId (w: BinaryWriter) (DeclPoolId i) = w.Write i
-    let private readDeclPoolId (r: BinaryReader) : DeclPoolId = DeclPoolId(r.ReadInt32())
     let private writeBinderId (w: BinaryWriter) (BinderId i) = w.Write i
     let private readBinderId (r: BinaryReader) : BinderId = BinderId(r.ReadInt32())
 
@@ -2911,8 +2132,6 @@ module FrozenCodec =
                 |}
         | b -> failwithf "FrozenCodec: unknown PatPayload tag %d" b
 
-    // A `Type` decl's member bodies are the one tree the pools do NOT hold — they ride the
-    // DU codec here, opaquely, exactly as `DeclPayload.Type` carries them.
     let private writeDeclPayload (w: BinaryWriter) (p: DeclPayload) =
         match p with
         | DeclPayload.Let p ->
@@ -2936,25 +2155,21 @@ module FrozenCodec =
         | 2uy -> DeclPayload.Type(readTypeDecl r)
         | b -> failwithf "FrozenCodec: unknown DeclPayload tag %d" b
 
-    /// The four not-yet-pooled fields, verbatim. `InlineBodies` is the vocabulary whose
-    /// bodies ride the DU decl codec (`writeInlineValue` → `writeDecl`) — the second of the
-    /// two domains the pools carry opaquely.
+    /// The three not-yet-pooled fields, verbatim — none of them a tree, so this writer
+    /// bottoms out entirely in the leaf codecs.
     let private writeResidue (w: BinaryWriter) (res: FrozenFileResidue) =
         writeListWith w writeDiagnostic res.Diagnostics
         writeSymbolDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
-        writeEqArrayWith w writeInlineValue res.InlineBodies
         writeSymbolDict w writeAccessibility res.Accessibility
 
     let private readResidue (r: BinaryReader) : FrozenFileResidue =
         let diagnostics = readListWith r readDiagnostic
         let intrinsicReprKeys = readSymbolDict r readIntrinsicReprInfo
-        let inlineBodies = EqArray.ofArray (readArrayWith r readInlineValue)
         let accessibility = readSymbolDict r readAccessibility
 
         {
             Diagnostics = diagnostics
             IntrinsicReprKeys = intrinsicReprKeys
-            InlineBodies = inlineBodies
             Accessibility = accessibility
         }
 
@@ -2976,6 +2191,7 @@ module FrozenCodec =
         writeIdColumn w writePatPoolId p.DeclPatChildren
         writeArrayWith w writeDeclPayload p.DeclPayloads
         writeArrayWith w writeDeclPoolId p.Roots
+        writeArrayWith w writeInlineTemplate p.InlineTemplates
         writeArrayWith w writeNodeKey p.BinderKeys
         writeArrayWith w writeBinderNaming p.BinderNamings
         writeResidue w p.Residue
@@ -3005,6 +2221,7 @@ module FrozenCodec =
         let declPatChildren = readIdColumn r readPatPoolId
         let declPayloads = readArrayWith r readDeclPayload
         let roots = readArrayWith r readDeclPoolId
+        let inlineTemplates = readArrayWith r readInlineTemplate
         let binderKeys = readArrayWith r readNodeKey
         let binderNamings = readArrayWith r readBinderNaming
         let residue = readResidue r
@@ -3040,6 +2257,7 @@ module FrozenCodec =
             DeclPatChildren = declPatChildren
             DeclPayloads = declPayloads
             Roots = roots
+            InlineTemplates = inlineTemplates
             BinderKeys = binderKeys
             BinderNamings = binderNamings
             Residue = residue

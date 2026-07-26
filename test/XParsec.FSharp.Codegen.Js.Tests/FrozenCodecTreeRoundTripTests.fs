@@ -119,4 +119,28 @@ let tests =
                         (TastFileG.structurallyEqual f rebuilt)
                         (name + " did not survive flatten/thaw structurally")
                 }
+
+            // A `type` declaration's bodies are the one place the stored form names an
+            // expression by pool id from INSIDE a declaration SHAPE rather than from a
+            // child column, so the shape's writer and reader must stay in lockstep slot
+            // for slot. The corpus declares no class preamble, secondary ctor, base-ctor
+            // call or interface impl, so these drive the slots a plain `member` misses.
+            for name, src in
+                [
+                    "static and instance preamble",
+                    "type C(a: int) =\n    static let s = 1\n    let b = a + 1\n    do ()\n    member this.M() = b + s\n"
+                    "secondary constructor", "type C(x: int) =\n    new() = C(0)\n    member this.X = x\n"
+                    "base-ctor call",
+                    "type Shape(x: int) =\n    member this.Raw = x\n\ntype Circle(r: int, t: int) =\n    inherit Shape(t)\n    member this.Radius = r\n"
+                    "interface implementation",
+                    "type IBox =\n    abstract member Unwrap : unit -> int\n\ntype Box(value: int) =\n    interface IBox with\n        member this.Unwrap() : int = value\n"
+                ] do
+                test ("a type declaration's body slots round-trip: " + name) {
+                    let f = frozenOfJs src
+                    let rebuilt = FrozenCodec.thaw (FrozenCodec.flatten f)
+
+                    Expect.isTrue
+                        (TastFileG.structurallyEqual f rebuilt)
+                        (name + " did not survive flatten/thaw structurally")
+                }
         ]

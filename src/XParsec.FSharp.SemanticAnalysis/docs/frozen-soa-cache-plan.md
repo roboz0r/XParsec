@@ -568,12 +568,36 @@ accessor flip, and lets each mint site move to native row-appends on its own sch
   Goldens: **zero existing goldens moved** — the two-form split is what keeps previously-emitted
   code identical. Coverage added at `test/Codegen.Conformance/inline/` (top-level and named
   module), since the corpus previously contained no `let inline` at all.
-- **F.1 Pool the remaining tree carriers.** A `TTypeDecl`'s member bodies (`TExpr` at six sites:
-  members incl. interface impls, static/instance preamble `Let.Init` and `Do`, secondary-ctor
-  `Lets[].Init`/`PrimaryArgs[]`/`FieldInits[].Init`, base-ctor `Args[]` — and **no `TPat`**
-  directly, every param being a bare `NodeKey * 'ty`), `InlineBodies`' decl trees, and the
-  `ValRepr` pats. The file residue shrinks to diagnostics + the two `SymbolKey` dictionaries,
-  neither of which holds a tree. *Gate: round-trip + goldens.*
+- **F.1 Pool the remaining tree carriers. LANDED.** A `TTypeDecl`'s member bodies (`TExpr` at
+  seven slots; **no `TPat`** directly, every param being a bare `NodeKey * 'ty`), `InlineBodies`'
+  decl trees, and the `ValRepr` pats. **`FrozenFileResidue` is now `Diagnostics` +
+  `IntrinsicReprKeys` + `Accessibility` — no tree.**
+
+  - `DeclPayload.Type` carries `TTypeDeclG<FrozenType, SyntaxToken, ExprPoolId>` — the F.1a
+    `'body` parameter paying off exactly as intended: same spine, ids in the body slots. The ids
+    ride the *shape*, not `DeclExprChildren`, because which body fills which slot is structure a
+    flat child column cannot express without a re-nesting record.
+  - `FrozenPools.InlineTemplates` is its own root array. Template and emitted function stay two
+    independent trees (F.0), neither derived from the other.
+  - `ValReprG`/`ArgGroupG`/`StaticParamG`/`CompiledFormG` took `'pat` and dropped the
+    now-phantom `'tok`. The file's `BindingValReprs` sits at `PatPoolId`; `ExternalSymbol.ValRepr`
+    stays at the DU, since `.fsi`-minted pats belong to no file — the split the flip's
+    external-symbol pat pool needs.
+  - **No third walk.** `TastConvert`'s type-decl and compiled-form clusters became *bifunctors*
+    in `('ty,'body)` / `('ty,'pat)`; the `'ty` freeze is the diagonal, pooling is
+    `typeDecl id (poolExpr sink)` and draining is `typeDecl id fromExpr`.
+    `FrozenSignature.valReprToDeclaring` collapsed onto the same traversal.
+  - **A new binder class surfaced:** a type decl binds `this`/`base`/member params/ctor
+    params/ctor locals with **no pattern node**, and member bodies name them by `Var` — so
+    `binderIdOf` faulted until `TTypeDeclG.boundKeys` interned them. Pattern-less binders are a
+    real category; the flip must not assume a binder implies a `TPatG`.
+  - **Deleted:** the `internDeclBinders`/`internExprBinders`/`internPatBinders` helpers (the
+    normal walk reaches templates now) and **the entire DU tree codec** — `writeExpr`/`writePat`/
+    `writeDecl` and mirrors, ~640 lines, nothing rides opaquely any more. This is what B.k+7
+    called for; it lands here because F.1 is what made it dead.
+  - Corpus gap closed: it contained no class preamble, secondary ctor, `inherit`, or interface
+    impl, so those four went into the round-trip and serialization gates, with a non-vacuity
+    test asserting each newly-pooled domain is actually non-empty.
 - **F.2 The stacked builder.** The base/overlay pool type, the flat id space, `appendTree`, and
   the row-copy primitives. Unused. *Gate: unit tests on the stack — base ids resolve unchanged,
   overlay edges may name base nodes.*

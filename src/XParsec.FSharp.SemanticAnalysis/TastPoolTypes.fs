@@ -27,9 +27,13 @@ open XParsec.FSharp.Parser
 // `ty`/`tok`, the child expr/pat ids, and (for exprs) the `Var` binder id, all of which live
 // in the columns. So NO pool holds a DU node: the whole `TExprG`/`TPat`/`TDecl` subtree
 // dissolves into columns, which is the point — a retained node drags its entire nested body
-// along with it, so freeze could never stop materializing the DU. (A `Type` decl's member
-// bodies are the one exception: they ride `DeclPayload.Type`'s `TTypeDecl` opaquely, NOT
-// pooled — the same opaque treatment the retained `Node` gave them, existing behavior.)
+// along with it, so freeze could never stop materializing the DU.
+//
+// That now holds for EVERY tree the file bears, not just the emittable decls. The three
+// carriers that used to hold trees opaquely are pooled roots like any other: a `Type` decl's
+// member bodies (`PooledTypeDecl` — ids in the declaration shape), the inline vocabulary
+// (`InlineTemplates` — its own root array), and a binding's `ValRepr` tuple-group patterns
+// (`PooledValRepr`). `FrozenFileResidue` correspondingly holds NO tree at all.
 //
 // A payload case that is a COMPOSITE carrier (`Match`/`TryWith` arms, `Format`
 // segments, `StaticOptimization` clauses, `Range` step, `RecordCons`/`RecordClone`
@@ -44,10 +48,14 @@ open XParsec.FSharp.Parser
 //
 // Identity, too, goes positional: a binder's identity after freeze IS its slot in a
 // dedicated `Binders` column, not its 64-bit content key. Every distinct NodeKey a
-// simple binder introduces (`NamedSimple.binding`, `ForTo.var`) is interned to a
-// `BinderId`; the cross-references that named a definition by content key during
-// analysis — `Var.binding` and six of the seven `Map<NodeKey,_>` side tables — name it
-// by that id in the pool form. (The seventh, `FunVerdicts`, is keyed by a lambda-EXPRESSION
+// definition site introduces is interned to a `BinderId` — the pattern/loop binders
+// (`NamedSimple.binding`, `ForTo.var`) and the bare key slots a type declaration binds
+// with no pattern node behind them (`TTypeDeclG.boundKeys`: a member's `this`/`base`
+// and parameters, a ctor's parameters and locals), which its member BODIES name by
+// `Var` exactly as a function body names a `let`. The cross-references that named a
+// definition by content key during analysis — `Var.binding` and six of the seven
+// `Map<NodeKey,_>` side tables — name it by that id in the pool form. (The seventh,
+// `FunVerdicts`, is keyed by a lambda-EXPRESSION
 // key, not a binder, and takes the lambda id space — its dense id is the lambda's
 // `ExprPoolId`.) `ofPools` resolves each id back through `Binders` to the retained
 // NodeKey, so the round-trip exercises the remap rather than copying the keys back
@@ -68,12 +76,41 @@ type PatPoolId = | PatPoolId of int
 type DeclPoolId = | DeclPoolId of int
 
 /// A dense pool index into `FrozenPools.Binders` — the positional identity a frozen
-/// binder takes on once kind dissolves. A binder is a NodeKey a `NamedSimple` pattern
-/// or a `ForTo` loop variable INTRODUCES; the cross-references that named it by 64-bit
-/// content key during analysis (`Var.binding`, the side-table keys) name it by this id
-/// in the pool form.
+/// binder takes on once kind dissolves. A binder is a NodeKey a definition site
+/// INTRODUCES — a `NamedSimple` pattern, a `ForTo` loop variable, or one of a type
+/// declaration's pattern-less key slots (`TTypeDeclG.boundKeys`); the cross-references
+/// that named it by 64-bit content key during analysis (`Var.binding`, the side-table
+/// keys) name it by this id in the pool form.
 [<Struct>]
 type BinderId = | BinderId of int
+
+/// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
+/// by pool id instead of carrying the tree. The declaration SHAPE is unchanged — which body
+/// fills which slot is structure a flat child column could not express without a re-nesting
+/// record, so the ids ride the shape rather than `DeclExprChildren`. Both directions are
+/// `TastConvert.typeDecl` at the matching body mapping, so nothing re-derives the shape.
+type PooledTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, ExprPoolId>
+
+/// A binding's SOURCE arity with its tuple-group patterns named by pool id — the file's own
+/// `ValRepr`s, whose pats ARE nodes of the pooled tree (`peelValRepr` reads the frozen
+/// lambda spine). Distinct from `Frozen.ValRepr`, which stays at the pattern TREE because an
+/// EXTERNAL symbol's pats are minted from an `.fsi` contract and index into no file's pool.
+type PooledValRepr = ValReprG<FrozenType, PatPoolId>
+
+/// One entry of the pooled inline VOCABULARY: a published template's identity and parameter
+/// attributes, with its declaration named by pool id.
+///
+/// A template is a SEPARATE ROOT from the emitted function of the same name, and the two
+/// trees are deliberately NOT shared: `Freeze` publishes the UNWALKED snapshot, because a
+/// template's static-opt clauses and trait calls must resolve against a CALL SITE's operand
+/// types rather than against the nothing that is ground at its definition. Pooling preserves
+/// that split by giving the templates their own roots.
+type PooledInlineValue =
+    {
+        Key: SymbolKey
+        Decl: DeclPoolId
+        ParamAttrs: ParamAttrs[]
+    }
 
 /// The residual, EXPRESSION-FREE shape of a `Format` node's sink — its kind plus the
 /// non-expr data (`ToWriter`/`ToStdOut`/`ToStdErr`'s trailing-newline flag). The sink's
@@ -102,7 +139,7 @@ type FormatSegShape =
 /// The residual payload of a frozen expression node — one case per `ExprShape`, carrying
 /// ONLY the fields left after the columnar split drops `ty`/`tok` (the `ExprTys`/`ExprToks`
 /// columns), the child expr ids (`ExprChildren`), the owned pat ids (`ExprPatChildren`),
-/// and the `Var` binder id (`ExprVarBinder`). Mirrors `FrozenCodec.writeExpr` for what each
+/// and the `Var` binder id (`ExprVarBinder`). Mirrors `FrozenCodec.writeExprPayload` for what each
 /// case carries beyond those. A composite carrier (`Match`/`TryWith`/`Range`/`RecordCons`/
 /// `RecordClone`/`Format`/`StaticOptimization`/`ExternalMember`) additionally records the
 /// STRUCTURE needed to redistribute the flat child columns back into their nested shape.
@@ -212,7 +249,7 @@ type ExprPayload =
 /// The residual payload of a frozen pattern node — one case per `PatShape`, carrying ONLY
 /// the fields left after the columnar split drops `ty`/`tok` (the `PatTys`/`PatToks`
 /// columns) and the child sub-pat ids (`PatChildren`, in `TastAccessor.patChildren` order;
-/// patterns own no child expressions). Mirrors `FrozenCodec.writePat` for what each case
+/// patterns own no child expressions). Mirrors `FrozenCodec.writePatPayload` for what each case
 /// carries beyond those. Exhaustive: a new `TPat`/`PatShape` case fails to compile at
 /// `patPayload`/`substitutePat`.
 [<RequireQualifiedAccess>]
@@ -272,7 +309,7 @@ module BinderNaming =
 /// The residual payload of a frozen declaration node — one case per `DeclShape`. A decl
 /// carries no uniform node-level `ty`/`tok` (there are no `DeclTys`/`DeclToks` columns), so
 /// each case rides whatever type/scalars it needs. Its child expr/pat roots live in the
-/// `DeclExprChildren`/`DeclPatChildren` columns. Mirrors `FrozenCodec.writeDecl`. Exhaustive:
+/// `DeclExprChildren`/`DeclPatChildren` columns. Mirrors `FrozenCodec.writeDeclPayload`. Exhaustive:
 /// a new `TDecl`/`DeclShape` case fails to compile at `declPayload`/`substituteDecl`.
 [<RequireQualifiedAccess>]
 type DeclPayload =
@@ -281,22 +318,23 @@ type DeclPayload =
     | Let of {| IsInline: bool; Ty: FrozenType |}
     /// The decl's declared type; the body is the sole expr child.
     | Expression of FrozenType
-    /// The whole `type` declaration, VERBATIM. Its member bodies are NOT pooled — they ride
-    /// opaquely here exactly as the retained `Node` did, which is `TastAccessor.declType`'s
-    /// existing, intended behavior (a `Type` decl surfaces no expr/pat children).
-    | Type of Frozen.TTypeDecl
+    /// The `type` declaration's spine, its seven body slots holding pool ids rather than
+    /// expression trees (`PooledTypeDecl`). A `Type` decl still surfaces no
+    /// `DeclExprChildren` — its bodies are named by id INSIDE the declaration shape, which
+    /// is what keeps "which body fills which slot" expressed by the shape itself.
+    | Type of PooledTypeDecl
 
-/// Everything of a `Frozen.TastFile` that has NO pooled form yet — the file MINUS its decl
-/// trees (the columns) and MINUS the seven side tables (the dense `BinderId`/`ExprPoolId`
-/// associations). Exactly these four fields, each for its own reason:
+/// Everything of a `Frozen.TastFile` that has NO pooled form — the file MINUS its trees (the
+/// columns) and MINUS the seven side tables (the dense `BinderId`/`ExprPoolId` associations).
+/// NO field here carries a tree, which is the property that matters: every expression and
+/// pattern in the file is in the columns, so the residue can never drag a subtree along.
+/// Exactly these three fields, each for its own reason:
 ///
 ///   * `Diagnostics` — a flat list keyed by `NodeKey`, in no pooled domain (a diagnostic can
 ///     name a node the emittable tree does not contain, so it cannot take a pool id).
 ///   * `IntrinsicReprKeys` / `Accessibility` — the two `SymbolKey`-keyed dictionaries. Their
 ///     key space is the SYMBOL identity, not the positional node identity the pools give, so
 ///     they are untouched by the dense-id remap.
-///   * `InlineBodies` — the inline VOCABULARY. Its bodies are `TDeclG` trees that ride the DU
-///     codec opaquely (they are templates, not emittable code, so no pool walk reaches them).
 ///
 /// Naming the residue is the point: `FrozenPools` is then a self-contained, serializable
 /// value, and what remains outside the columnar form is visible in the type rather than
@@ -309,7 +347,6 @@ type FrozenFileResidue =
         // the same shadowing `TastFileG.Diagnostics` guards against.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>
-        InlineBodies: EqArray<Frozen.TInlineValue>
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
     }
 
@@ -365,7 +402,12 @@ type FrozenPools =
         /// The pool ids of the source file's `Decls`, in source order — the entry points
         /// for a pool walk / rebuild.
         Roots: DeclPoolId[]
-        /// The distinct simple-binder entries as two parallel columns indexed by `BinderId`,
+        /// The inline vocabulary's roots: one per published template, in publication order.
+        /// A SECOND root array rather than entries of `Roots`, because a template is not an
+        /// emittable decl and must not be walked as one — and it is a genuinely distinct
+        /// tree from the emitted function of the same name (see `PooledInlineValue`).
+        InlineTemplates: PooledInlineValue[]
+        /// The distinct binder entries as two parallel columns indexed by `BinderId`,
         /// its OWN dense arrays disjoint from `Pats`: `BinderKeys` retains each binder's whole
         /// original `NodeKey` — the identity `Var.binding` and the side tables resolve against,
         /// and the DU round-trip's carrier for the `Raw` bits (kind included) the trees still
@@ -393,7 +435,7 @@ type FrozenPools =
         /// `NodeKey.ofToken … ExprLambda` `TastWalk.lambdaKey` computes), the Node now gone.
         FunVerdicts: (ExprPoolId * FunVerdict)[]
         GenericFnSchemes: (BinderId * FrozenConstraint list)[]
-        BindingValReprs: (BinderId * Frozen.ValRepr)[]
+        BindingValReprs: (BinderId * PooledValRepr)[]
         BindingTyparArities: (BinderId * int)[]
     }
 

@@ -34,6 +34,24 @@ let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Frozen.TExpr)
     Array.iter2 (checkExpr pools) pools.ExprChildren.[i] duExprKids
     Array.iter2 (checkPat pools) pools.ExprPatChildren.[i] duPatKids
 
+/// A type declaration's body slots in traversal order, gathered by running the SAME
+/// traversal the pool build and drain run (`TastConvert.typeDecl` at a collecting body
+/// mapping). Reusing it is what keeps this check from drifting away from the set of slots
+/// that are actually pooled — a newly-added body slot appears here for free.
+let private bodySlots (td: TTypeDeclG<FrozenType, SyntaxToken, 'body>) : 'body[] =
+    let slots = ResizeArray<'body>()
+
+    TastConvert.typeDecl
+        id
+        (fun b ->
+            slots.Add b
+            b
+        )
+        td
+    |> ignore
+
+    slots.ToArray()
+
 let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
     Expect.equal pools.DeclShapes.[i] (TastAccessor.declKind du) "decl shape"
 
@@ -51,6 +69,18 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
     | DeclShape.Type ->
         Expect.equal pools.DeclExprChildren.[i].Length 0 "type decl surfaces no expr child"
         Expect.equal pools.DeclPatChildren.[i].Length 0 "type decl surfaces no pat child"
+
+        // The member / preamble / ctor bodies are not children — they are named by id
+        // INSIDE the payload's declaration shape, which is what keeps "which body fills
+        // which slot" expressed by the shape. Zip the pooled ids against the DU's bodies
+        // in slot order and check each pooled subtree against the one it stands for.
+        match pools.DeclPayloads.[i] with
+        | DeclPayload.Type td ->
+            let ids = bodySlots td
+            let bodies = bodySlots (TastAccessor.declType du)
+            Expect.equal ids.Length bodies.Length "one pooled body id per type-decl body slot"
+            Array.iter2 (checkExpr pools) ids bodies
+        | p -> failtestf "a Type decl's pool payload is %A, not DeclPayload.Type" p
 
 /// The id-resolution gate: the `ExprVarBinder` column is populated EXACTLY at the `Var`
 /// slots (each to an in-range `BinderId`), and each of the seven side-table keys resolves
@@ -76,8 +106,10 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
 
     // Each dense side table is the source map re-keyed onto its id space: same cardinality,
     // and every dense key resolves (through the given resolver) to a NodeKey the source map
-    // holds.
-    let checkTable (name: string) (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) (source: Map<NodeKey, 'v>) =
+    // holds. Only the KEYS are compared — a dense value need not be the source value's type
+    // (`BindingValReprs` pools its patterns), and the values' faithfulness is the
+    // round-trip gate's business, not this one's.
+    let checkTable (name: string) (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) (source: Map<NodeKey, 'w>) =
         Expect.equal dense.Length source.Count (name + " dense form covers the source map 1:1")
 
         for (id, _) in dense do
@@ -237,6 +269,21 @@ let private programs =
         "let f (x: int | string) =\n    match x with\n    | :? int as i -> i\n    | _ -> 0\n"
         "class with a ctor-param-capturing member closure",
         "type C(a: int) =\n    member this.M(x: int) =\n        let g = fun y -> y + x + a\n        g 1\n"
+
+        // A type declaration's BODIES are pooled, and they are the only trees reached
+        // through the declaration shape rather than through a decl's child columns. These
+        // walk the remaining body slots — the static / instance preamble, a secondary
+        // ctor's primary-chain args, a base-ctor call's args, an interface impl's members
+        // — each of which also binds keys (`this`, member / ctor parameters) that no
+        // pattern node introduces, so a `Var` naming one is exactly what the binder
+        // enumeration must cover.
+        "class with static and instance preamble entries",
+        "type C(a: int) =\n    static let s = 1\n    let b = a + 1\n    do ()\n    member this.M() = b + s\n"
+        "class with a secondary constructor", "type C(x: int) =\n    new() = C(0)\n    member this.X = x\n"
+        "derived class with a base-ctor call",
+        "type Shape(x: int) =\n    member this.Raw = x\n\ntype Circle(r: int, t: int) =\n    inherit Shape(t)\n    member this.Radius = r\n"
+        "class with an interface implementation",
+        "type IBox =\n    abstract member Unwrap : unit -> int\n\ntype Box(value: int) =\n    interface IBox with\n        member this.Unwrap() : int = value\n"
     ]
 
 [<Tests>]
@@ -268,6 +315,91 @@ let binderNamingMintInvariantTests =
                     programs |> List.sumBy (fun (_, src) -> checkMintInvariant (snd (poolsFor src)))
 
                 Expect.isGreaterThan total 0 "at least one real binder is correlated to its node token"
+            }
+        ]
+
+// Every tree the frozen file bears is in the pools — the type declarations' member bodies,
+// the inline vocabulary, and the `ValRepr` tuple-group patterns included. The round-trip
+// gate above proves that faithfully, but only for the domains the program set actually
+// CONTAINS: a file with no type declaration proves nothing about pooled member bodies. So
+// count the three, and fail loudly if the set stops populating any of them.
+
+/// The three formerly-opaque carriers, counted over one program's pools.
+let private carrierCounts (pools: FrozenPools) =
+    let memberBodies =
+        pools.DeclPayloads
+        |> Array.sumBy (fun p ->
+            match p with
+            | DeclPayload.Type td -> (bodySlots td).Length
+            | DeclPayload.Let _
+            | DeclPayload.Expression _ -> 0
+        )
+
+    let tupleGroups =
+        pools.BindingValReprs
+        |> Array.sumBy (fun (_, vr) ->
+            vr.Groups
+            |> List.sumBy (fun g ->
+                match g with
+                | ArgGroupG.GTuple _ -> 1
+                | ArgGroupG.GUnit _
+                | ArgGroupG.GSimple _ -> 0
+            )
+        )
+
+    {|
+        MemberBodies = memberBodies
+        InlineTemplates = pools.InlineTemplates.Length
+        TupleGroups = tupleGroups
+    |}
+
+[<Tests>]
+let pooledCarrierCoverageTests =
+    testList
+        "TastPools holds every tree the frozen file bears"
+        [
+            test "the program set populates all three formerly-opaque carriers" {
+                let totals =
+                    programs
+                    |> List.map (fun (_, src) -> carrierCounts (fst (poolsFor src)))
+                    |> List.fold
+                        (fun (b, i, t) c -> b + c.MemberBodies, i + c.InlineTemplates, t + c.TupleGroups)
+                        (0, 0, 0)
+
+                let (memberBodies, inlineTemplates, tupleGroups) = totals
+                Expect.isGreaterThan memberBodies 0 "a type declaration's member bodies are pooled"
+                Expect.isGreaterThan inlineTemplates 0 "an inline template is pooled as its own root"
+                Expect.isGreaterThan tupleGroups 0 "a ValRepr tuple group's pattern is pooled"
+            }
+
+            // Every id the three carriers name must resolve into the columns — the property a
+            // structural round-trip can satisfy vacuously if a carrier is empty, and the one
+            // that would break first if a body/template/group were pooled into the wrong space.
+            test "every carrier id indexes its own pool" {
+                for _, src in programs do
+                    let pools, _ = poolsFor src
+
+                    let inExprs (ExprPoolId i) =
+                        Expect.isTrue (i >= 0 && i < pools.ExprShapes.Length) "body id is an expr pool entry"
+
+                    for p in pools.DeclPayloads do
+                        match p with
+                        | DeclPayload.Type td -> Array.iter inExprs (bodySlots td)
+                        | DeclPayload.Let _
+                        | DeclPayload.Expression _ -> ()
+
+                    for t in pools.InlineTemplates do
+                        let (DeclPoolId i) = t.Decl
+                        Expect.isTrue (i >= 0 && i < pools.DeclShapes.Length) "template id is a decl pool entry"
+
+                    for _, vr in pools.BindingValReprs do
+                        for g in vr.Groups do
+                            match g with
+                            | ArgGroupG.GTuple(PatPoolId i) ->
+                                Expect.isTrue (i >= 0 && i < pools.PatShapes.Length) "group id is a pat pool entry"
+                                Expect.equal pools.PatShapes.[i] PatShape.Tuple "a GTuple names a Tuple pattern"
+                            | ArgGroupG.GUnit _
+                            | ArgGroupG.GSimple _ -> ()
             }
         ]
 

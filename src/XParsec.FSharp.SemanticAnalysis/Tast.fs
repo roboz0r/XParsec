@@ -546,11 +546,13 @@ and TStaticOptClauseG<'ty, 'tok> =
 /// One flattened compiled parameter. A simple binder's `Slot` is referenced by
 /// the body directly; a destructuring leaf carries `Pat = Some …` and a synthetic
 /// `Slot` the backend spills + `bindPattern`s.
-and StaticParamG<'ty, 'tok> =
+///
+/// `'pat` abstracts over how the destructuring pattern is carried — see `ArgGroupG`.
+and StaticParamG<'ty, 'pat> =
     {
         Slot: NodeKey
         Ty: 'ty
-        Pat: TPatG<'ty, 'tok> option
+        Pat: 'pat option
     }
 
 /// One curried argument group of a function's SOURCE signature — the distinction
@@ -558,18 +560,26 @@ and StaticParamG<'ty, 'tok> =
 /// params when it is the sole group; `GSimple` is one non-tuple param; `GTuple`
 /// (`fun (a, b, …) -> …`) carries the whole tuple pattern, which full-F#
 /// flattening expands to one flat param per element.
-and [<RequireQualifiedAccess>] ArgGroupG<'ty, 'tok> =
+///
+/// `'pat` abstracts over how the tuple pattern is carried, exactly as `'body` does
+/// for a type declaration's member bodies: either the pattern tree itself
+/// (`TPatG<'ty,'tok>`) or a dense id naming it in a pool. The two instantiations are
+/// NOT interchangeable and the split is deliberate — a FILE's own `ValRepr` is pooled
+/// alongside the tree it was peeled from, whereas an EXTERNAL symbol's is minted from
+/// an `.fsi` contract (`TastLower.externalValRepr`) and belongs to no file, so it has
+/// no pool to index into and stays at the tree.
+and [<RequireQualifiedAccess>] ArgGroupG<'ty, 'pat> =
     | GUnit of ty: 'ty
     | GSimple of slot: NodeKey * ty: 'ty
-    | GTuple of pat: TPatG<'ty, 'tok>
+    | GTuple of pat: 'pat
 
 /// The SOURCE signature — the `ValReprInfo` analogue. `Groups.Length` is the
 /// number of applications a saturated call consumes; `ResultTy` is the source
 /// (NOT unit-erased) result type.
-and ValReprG<'ty, 'tok> =
+and ValReprG<'ty, 'pat> =
     {
         Typars: int
-        Groups: ArgGroupG<'ty, 'tok> list
+        Groups: ArgGroupG<'ty, 'pat> list
         ResultTy: 'ty
     }
 
@@ -580,9 +590,9 @@ and [<RequireQualifiedAccess>] CompiledReturnG<'ty> =
 
 /// The flat compiled signature derived from a `ValReprG`: tuple-flattened,
 /// lone-unit-erased parameters and the `void`-normalised return.
-and CompiledFormG<'ty, 'tok> =
+and CompiledFormG<'ty, 'pat> =
     {
-        Params: StaticParamG<'ty, 'tok> list
+        Params: StaticParamG<'ty, 'pat> list
         Return: CompiledReturnG<'ty>
     }
 
@@ -1158,7 +1168,10 @@ type TastFileG<'ty, 'tok> =
         /// EMPTY pre-freeze — `Freeze.run` fills it. Lives here, not on
         /// `ModuleBindingInfo`, because `ValReprG` is defined in this file (a
         /// compile-order wall: `ModuleBindingInfo` in `SideTypes.fs` precedes it).
-        BindingValReprs: Map<NodeKey, ValReprG<'ty, 'tok>>
+        /// Instantiated at the file's OWN pattern trees: a binding's tuple group is a
+        /// node of the very tree this record's `Decls` hold (`peelValRepr` reads the
+        /// frozen lambda spine), which is what lets the pooled form name it by id.
+        BindingValReprs: Map<NodeKey, ValReprG<'ty, TPatG<'ty, 'tok>>>
         /// A module binding's single value/function typar-axis width, minted where the
         /// method-axis indices are minted (`Elaborate.mkMethodQuantEnv`). Keyed by the
         /// binding's headPat `NodeKey`; the projection reads it for
@@ -1213,6 +1226,88 @@ module TTypeKindG =
         | TTypeKindG.Record(_, members, _, _) -> members
         | TTypeKindG.Interface _
         | TTypeKindG.Enum _ -> EqArray.empty
+
+    /// The INTERFACE-IMPLEMENTATION member bodies a type kind carries (`interface IFace
+    /// with member …`), flattened across every implemented interface — the companion to
+    /// `members`, which yields only the type's own augmentation members. The two together
+    /// are every member body under a type declaration. `Interface` (abstract, bodyless)
+    /// and `Enum` (literal cases only) carry none.
+    let interfaceMembers (kind: TTypeKindG<'ty, 'tok, 'body>) : TTypeMemberG<'ty, 'body> seq =
+        let flatten (ifaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'body>>>) =
+            seq {
+                for (_, ms) in EqArray.toArray ifaces do
+                    yield! EqArray.toArray ms
+            }
+
+        match kind with
+        | TTypeKindG.Class c -> flatten c.Interfaces
+        | TTypeKindG.Union(_, _, ifaces) -> flatten ifaces
+        | TTypeKindG.Record(_, _, ifaces, _) -> flatten ifaces
+        | TTypeKindG.Interface _
+        | TTypeKindG.Enum _ -> Seq.empty
+
+[<RequireQualifiedAccess>]
+module TTypeDeclG =
+    /// Every `NodeKey` a type declaration BINDS with no pattern node to introduce it.
+    ///
+    /// A member body names its receiver and its parameters by `TExpr.Var`, exactly as a
+    /// function body names a `let` or a lambda parameter — but those definition sites are
+    /// bare `NodeKey` slots on the declaration shape (`ThisKey` / `BaseKey` / `Params`,
+    /// the class's own `ThisKey`, a secondary ctor's `Params` and `Lets[].Binder`, the
+    /// base-ctor call's view of the primary ctor's params), NOT `TPatG.NamedSimple`
+    /// nodes. So a consumer that enumerates definition sites by walking PATTERNS sees
+    /// none of them, and any attempt to resolve such a `Var` to its definition comes up
+    /// empty. This is that missing half of the enumeration, and it is why the two are
+    /// separate projections rather than one walk: they read different slots.
+    ///
+    /// `'body`-blind — it touches no body — so it serves the tree form and any pooled
+    /// (`'body = <id>`) form alike.
+    let boundKeys (td: TTypeDeclG<'ty, 'tok, 'body>) : NodeKey seq =
+        let ofMember (m: TTypeMemberG<'ty, 'body>) =
+            seq {
+                match m.ThisKey with
+                | ValueSome k -> yield k
+                | ValueNone -> ()
+
+                match m.BaseKey with
+                | ValueSome k -> yield k
+                | ValueNone -> ()
+
+                for (k, _) in EqArray.toArray m.Params do
+                    yield k
+            }
+
+        seq {
+            for m in EqArray.toArray (TTypeKindG.members td.Kind) do
+                yield! ofMember m
+
+            for m in TTypeKindG.interfaceMembers td.Kind do
+                yield! ofMember m
+
+            match td.Kind with
+            | TTypeKindG.Class c ->
+                // The class-wide `this`: the INSTANCE preamble's expressions read the
+                // class's fields through it, so it is a definition site of preamble
+                // bodies as well as of the members that carry their own copy.
+                yield c.ThisKey
+
+                for sc in EqArray.toArray c.SecondaryCtors do
+                    for (k, _) in EqArray.toArray sc.Params do
+                        yield k
+
+                    for l in EqArray.toArray sc.Lets do
+                        yield l.Binder
+
+                match c.BaseCtorCall with
+                | ValueSome bc ->
+                    for (k, _) in EqArray.toArray bc.CtorParams do
+                        yield k
+                | ValueNone -> ()
+            | TTypeKindG.Interface _
+            | TTypeKindG.Union _
+            | TTypeKindG.Record _
+            | TTypeKindG.Enum _ -> ()
+        }
 
 [<RequireQualifiedAccess>]
 module TPreambleEntryG =
@@ -1304,8 +1399,12 @@ module Frozen =
     type TInlineValue = TInlineValueG<FrozenType, SyntaxToken>
     type TastFile = TastFileG<FrozenType, SyntaxToken>
     type ForInEnumerator = ForInEnumeratorG<FrozenType>
-    type StaticParam = StaticParamG<FrozenType, SyntaxToken>
-    type ArgGroup = ArgGroupG<FrozenType, SyntaxToken>
-    type ValRepr = ValReprG<FrozenType, SyntaxToken>
+    // The TREE instantiation of the compiled-form cluster: `'pat` is the frozen pattern
+    // node itself. This is the form an EXTERNAL symbol carries (`ExternalSymbol.ValRepr`),
+    // whose pats are minted from an `.fsi` contract and belong to no file — see
+    // `ArgGroupG`. The file's own `BindingValReprs` names its pats by pool id instead.
+    type StaticParam = StaticParamG<FrozenType, TPat>
+    type ArgGroup = ArgGroupG<FrozenType, TPat>
+    type ValRepr = ValReprG<FrozenType, TPat>
     type CompiledReturn = CompiledReturnG<FrozenType>
-    type CompiledForm = CompiledFormG<FrozenType, SyntaxToken>
+    type CompiledForm = CompiledFormG<FrozenType, TPat>

@@ -32,17 +32,10 @@ module FrozenSignature =
     /// the `.fsi` extractor mints (`TastLower.externalValRepr`). The grouping is
     /// untouched — only the embedded typar leaves move axis.
     let private valReprToDeclaring (vr: Frozen.ValRepr) : Frozen.ValRepr =
-        { vr with
-            Groups =
-                vr.Groups
-                |> List.map (
-                    function
-                    | ArgGroupG.GUnit ty -> ArgGroupG.GUnit(ConformanceTypars.toDeclaringAxis ty)
-                    | ArgGroupG.GSimple(slot, ty) -> ArgGroupG.GSimple(slot, ConformanceTypars.toDeclaringAxis ty)
-                    | ArgGroupG.GTuple pat -> ArgGroupG.GTuple(TastConvert.pat ConformanceTypars.toDeclaringAxis pat)
-                )
-            ResultTy = ConformanceTypars.toDeclaringAxis vr.ResultTy
-        }
+        // The `ValRepr` traversal is `TastConvert`'s — the same one the freeze and the
+        // pool build run — at the axis re-map for both the embedded types and the tuple
+        // groups' pattern trees, so the grouping cannot drift from the shape it maps.
+        TastConvert.valRepr ConformanceTypars.toDeclaringAxis (TastConvert.pat ConformanceTypars.toDeclaringAxis) vr
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a
     /// provider view. `assemblyName` is this unit's home assembly — a file-N entity is

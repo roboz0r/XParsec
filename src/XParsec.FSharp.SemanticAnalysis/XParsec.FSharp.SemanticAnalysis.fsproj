@@ -29,6 +29,10 @@
     <Compile Include="PrintfHoleForm.fs" />
     <Compile Include="SideTypes.fs" />
     <Compile Include="Tast.fs" />
+    <!-- Immediately after the shapes it is a functor over, and BEFORE the pools: the
+         pool build/drain reuse its type-declaration and compiled-form traversals rather
+         than hand-rolling a second walk of those shapes. It depends on `Tast.fs` alone. -->
+    <Compile Include="TastConvert.fs" />
     <Compile Include="TEnumCases.fs" />
     <Compile Include="TastWalk.fs" />
     <Compile Include="TastAccessor.fs" />
@@ -39,7 +43,6 @@
          `TastPoolTypes`/`TastPools`, not the other way round. -->
     <Compile Include="FrozenCodec.fs" />
     <Compile Include="TastLower.fs" />
-    <Compile Include="TastConvert.fs" />
     <Compile Include="ExternalSymbols.fs" />
     <Compile Include="ExternalSymbolProviders.fs" />
     <Compile Include="BuiltinTypes.fs" />

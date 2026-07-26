@@ -11,6 +11,13 @@ namespace XParsec.FSharp.SemanticAnalysis
 // it is a separate, total functor. F#'s incomplete-match check fires here when the
 // TAST grows a case — the same enumeration guarantee `TastWalk` gives.
 //
+// Two of the clusters are BIFUNCTORS, not `'ty`-only maps: the type declaration is
+// generic in `('ty, 'body)` and the compiled form in `('ty, 'pat)`. The `'ty` freeze is
+// just the diagonal (`fBody = expr f`, `fPat = pat f`), while the frozen POOLS instantiate
+// the second parameter at a dense id and run the very same traversals in both directions.
+// Keeping them here rather than re-walking those shapes in `TastPools` is what stops the
+// declaration spine — the seven body slots especially — from being enumerated twice.
+//
 // Non-`'ty` payload is copied verbatim: NodeKey / SymbolKey / CallVia / TConstValue
 // / TMemberKind / PrintfSpec.HoleKind / the verdict fields / the side maps.
 // `TTypeMemberG.MethodTypeParams : EqArray<string * 'ty>` is NOT such a payload — it
@@ -183,7 +190,15 @@ module TastConvert =
             IsMutable = fld.IsMutable
         }
 
-    let typeMember (f: 'a -> 'b) (m: TTypeMemberG<'a, TExprG<'a, 'tok>>) : TTypeMemberG<'b, TExprG<'b, 'tok>> =
+    // ── the type-declaration cluster: a BIFUNCTOR in `('ty, 'body)` ─────────
+    //
+    // Every function below maps the embedded types through `fTy` AND the member /
+    // preamble / ctor BODIES through `fBody`, independently. The `'ty`-only freeze runs
+    // it at `fBody = expr fTy` (`decl` below); a body-POOLING pass runs it at `fTy = id`
+    // and `fBody = <expr → pool id>`, and its inverse at `fBody = <pool id → expr>`. So
+    // the seven body slots and the declaration spine around them are enumerated in ONE
+    // place, and neither pooling direction is a second hand-written walk of this shape.
+    let typeMember (fTy: 'a -> 'b) (fBody: 'ba -> 'bb) (m: TTypeMemberG<'a, 'ba>) : TTypeMemberG<'b, 'bb> =
         {
             Name = m.Name
             IsStatic = m.IsStatic
@@ -192,54 +207,51 @@ module TastConvert =
             IsOverride = m.IsOverride
             ThisKey = m.ThisKey
             BaseKey = m.BaseKey
-            ThisTy = f m.ThisTy
-            Params = EqArray.map (fun (k, ty) -> k, f ty) m.Params
-            Body = expr f m.Body
-            ReturnTy = f m.ReturnTy
-            MethodTypeParams = EqArray.map (fun (n, ty) -> n, f ty) m.MethodTypeParams
+            ThisTy = fTy m.ThisTy
+            Params = EqArray.map (fun (k, ty) -> k, fTy ty) m.Params
+            Body = fBody m.Body
+            ReturnTy = fTy m.ReturnTy
+            MethodTypeParams = EqArray.map (fun (n, ty) -> n, fTy ty) m.MethodTypeParams
         }
 
-    let classLet (f: 'a -> 'b) (l: TClassLetG<'a, TExprG<'a, 'tok>>) : TClassLetG<'b, TExprG<'b, 'tok>> =
+    let classLet (fTy: 'a -> 'b) (fBody: 'ba -> 'bb) (l: TClassLetG<'a, 'ba>) : TClassLetG<'b, 'bb> =
         {
             Name = l.Name
-            Type = f l.Type
+            Type = fTy l.Type
             IsMutable = l.IsMutable
-            Init = expr f l.Init
+            Init = fBody l.Init
         }
 
-    let preambleEntry (f: 'a -> 'b) (p: TPreambleEntryG<'a, TExprG<'a, 'tok>>) : TPreambleEntryG<'b, TExprG<'b, 'tok>> =
+    let preambleEntry (fTy: 'a -> 'b) (fBody: 'ba -> 'bb) (p: TPreambleEntryG<'a, 'ba>) : TPreambleEntryG<'b, 'bb> =
         match p with
-        | TPreambleEntryG.Let l -> TPreambleEntryG.Let(classLet f l)
-        | TPreambleEntryG.Do e -> TPreambleEntryG.Do(expr f e)
+        | TPreambleEntryG.Let l -> TPreambleEntryG.Let(classLet fTy fBody l)
+        | TPreambleEntryG.Do e -> TPreambleEntryG.Do(fBody e)
 
-    let ctorLet (f: 'a -> 'b) (cl: TCtorLetG<'a, TExprG<'a, 'tok>>) : TCtorLetG<'b, TExprG<'b, 'tok>> =
+    let ctorLet (fTy: 'a -> 'b) (fBody: 'ba -> 'bb) (cl: TCtorLetG<'a, 'ba>) : TCtorLetG<'b, 'bb> =
         {
             Binder = cl.Binder
-            Type = f cl.Type
-            Init = expr f cl.Init
+            Type = fTy cl.Type
+            Init = fBody cl.Init
         }
 
-    let ctorFieldInit (f: 'a -> 'b) (fi: TCtorFieldInitG<TExprG<'a, 'tok>>) : TCtorFieldInitG<TExprG<'b, 'tok>> =
+    let ctorFieldInit (fBody: 'ba -> 'bb) (fi: TCtorFieldInitG<'ba>) : TCtorFieldInitG<'bb> =
         {
             Field = fi.Field
-            Init = expr f fi.Init
+            Init = fBody fi.Init
         }
 
-    let secondaryCtor
-        (f: 'a -> 'b)
-        (sc: TSecondaryCtorG<'a, TExprG<'a, 'tok>>)
-        : TSecondaryCtorG<'b, TExprG<'b, 'tok>> =
+    let secondaryCtor (fTy: 'a -> 'b) (fBody: 'ba -> 'bb) (sc: TSecondaryCtorG<'a, 'ba>) : TSecondaryCtorG<'b, 'bb> =
         {
-            Params = EqArray.map (fun (k, ty) -> k, f ty) sc.Params
-            Lets = EqArray.map (ctorLet f) sc.Lets
-            PrimaryArgs = EqArray.map (expr f) sc.PrimaryArgs
-            FieldInits = EqArray.map (ctorFieldInit f) sc.FieldInits
+            Params = EqArray.map (fun (k, ty) -> k, fTy ty) sc.Params
+            Lets = EqArray.map (ctorLet fTy fBody) sc.Lets
+            PrimaryArgs = EqArray.map fBody sc.PrimaryArgs
+            FieldInits = EqArray.map (ctorFieldInit fBody) sc.FieldInits
         }
 
-    let baseCtorCall (f: 'a -> 'b) (bc: TBaseCtorCallG<'a, TExprG<'a, 'tok>>) : TBaseCtorCallG<'b, TExprG<'b, 'tok>> =
+    let baseCtorCall (fTy: 'a -> 'b) (fBody: 'ba -> 'bb) (bc: TBaseCtorCallG<'a, 'ba>) : TBaseCtorCallG<'b, 'bb> =
         {
-            CtorParams = EqArray.map (fun (k, ty) -> k, f ty) bc.CtorParams
-            Args = EqArray.map (expr f) bc.Args
+            CtorParams = EqArray.map (fun (k, ty) -> k, fTy ty) bc.CtorParams
+            Args = EqArray.map fBody bc.Args
             ChosenCtor = bc.ChosenCtor
         }
 
@@ -251,51 +263,50 @@ module TastConvert =
             IsProperty = am.IsProperty
         }
 
-    let kind (f: 'a -> 'b) (k: TTypeKindG<'a, 'tok, TExprG<'a, 'tok>>) : TTypeKindG<'b, 'tok, TExprG<'b, 'tok>> =
+    let kind (fTy: 'a -> 'b) (fBody: 'ba -> 'bb) (k: TTypeKindG<'a, 'tok, 'ba>) : TTypeKindG<'b, 'tok, 'bb> =
+        let mem = typeMember fTy fBody
+        let ifaces = EqArray.map (fun (ity, ms) -> fTy ity, EqArray.map mem ms)
+
         match k with
-        | TTypeKindG.Interface methods -> TTypeKindG.Interface(EqArray.map (abstractMethod f) methods)
+        | TTypeKindG.Interface methods -> TTypeKindG.Interface(EqArray.map (abstractMethod fTy) methods)
         | TTypeKindG.Union(cases, members, interfaces) ->
-            TTypeKindG.Union(
-                EqArray.map (unionCase f) cases,
-                EqArray.map (typeMember f) members,
-                EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces
-            )
+            TTypeKindG.Union(EqArray.map (unionCase fTy) cases, EqArray.map mem members, ifaces interfaces)
         | TTypeKindG.Record(fields, members, interfaces, valueKind) ->
             TTypeKindG.Record(
-                EqArray.map (recordField f) fields,
-                EqArray.map (typeMember f) members,
-                EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces,
+                EqArray.map (recordField fTy) fields,
+                EqArray.map mem members,
+                ifaces interfaces,
                 valueKind
             )
-        // Enum cases carry no `'ty` (the value is a resolved literal), so the kind
-        // passes through the SemType→FrozenType convert unchanged.
+        // Enum cases carry no `'ty` (the value is a resolved literal) and no body, so the
+        // kind passes through unchanged whichever mapping is running.
         | TTypeKindG.Enum cases -> TTypeKindG.Enum cases
         | TTypeKindG.Class c ->
             TTypeKindG.Class
                 {
-                    Fields = EqArray.map (recordField f) c.Fields
-                    CtorParams = EqArray.map (recordField f) c.CtorParams
-                    Members = EqArray.map (typeMember f) c.Members
-                    BaseType = ValueOption.map f c.BaseType
-                    Interfaces = EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) c.Interfaces
+                    Fields = EqArray.map (recordField fTy) c.Fields
+                    CtorParams = EqArray.map (recordField fTy) c.CtorParams
+                    Members = EqArray.map mem c.Members
+                    BaseType = ValueOption.map fTy c.BaseType
+                    Interfaces = ifaces c.Interfaces
                     IsSealed = c.IsSealed
-                    StaticPreamble = EqArray.map (preambleEntry f) c.StaticPreamble
-                    InstancePreamble = EqArray.map (preambleEntry f) c.InstancePreamble
+                    StaticPreamble = EqArray.map (preambleEntry fTy fBody) c.StaticPreamble
+                    InstancePreamble = EqArray.map (preambleEntry fTy fBody) c.InstancePreamble
                     ThisKey = c.ThisKey
-                    SecondaryCtors = EqArray.map (secondaryCtor f) c.SecondaryCtors
-                    BaseCtorCall = ValueOption.map (baseCtorCall f) c.BaseCtorCall
+                    SecondaryCtors = EqArray.map (secondaryCtor fTy fBody) c.SecondaryCtors
+                    BaseCtorCall = ValueOption.map (baseCtorCall fTy fBody) c.BaseCtorCall
                     ValueKind = c.ValueKind
                     HasPrimaryCtor = c.HasPrimaryCtor
                 }
 
-    let typeDecl (f: 'a -> 'b) (td: TTypeDeclG<'a, 'tok, TExprG<'a, 'tok>>) : TTypeDeclG<'b, 'tok, TExprG<'b, 'tok>> =
+    let typeDecl (fTy: 'a -> 'b) (fBody: 'ba -> 'bb) (td: TTypeDeclG<'a, 'tok, 'ba>) : TTypeDeclG<'b, 'tok, 'bb> =
         {
             Name = td.Name
             TypeKey = td.TypeKey
             Namespace = td.Namespace
             TypeParams = td.TypeParams
             IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
-            Kind = kind f td.Kind
+            Kind = kind fTy fBody td.Kind
             EqualitySupport = td.EqualitySupport
             ComparisonSupport = td.ComparisonSupport
         }
@@ -304,7 +315,8 @@ module TastConvert =
         match d with
         | TDeclG.Let(binding, value, isInline, ty) -> TDeclG.Let(pat f binding, expr f value, isInline, f ty)
         | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f e, f ty)
-        | TDeclG.Type td -> TDeclG.Type(typeDecl f td)
+        // The `'ty`-only conversion is the bifunctor at `fBody = expr f`.
+        | TDeclG.Type td -> TDeclG.Type(typeDecl f (expr f) td)
 
     let inlineBody (f: 'a -> 'b) (ib: TInlineBodyG<'a, 'tok>) : TInlineBodyG<'b, 'tok> =
         {
@@ -312,17 +324,20 @@ module TastConvert =
             ParamAttrs = ib.ParamAttrs
         }
 
-    let argGroup (f: 'a -> 'b) (g: ArgGroupG<'a, 'tok>) : ArgGroupG<'b, 'tok> =
+    // The compiled-form cluster, likewise a bifunctor — in `('ty, 'pat)`. The `'ty`-only
+    // conversion runs it at `fPat = pat fTy`; the file's own `ValRepr`s are POOLED by
+    // running it at `fTy = id` and `fPat = <pat → pool id>`, and rebuilt by its inverse.
+    let argGroup (fTy: 'a -> 'b) (fPat: 'pa -> 'pb) (g: ArgGroupG<'a, 'pa>) : ArgGroupG<'b, 'pb> =
         match g with
-        | ArgGroupG.GUnit ty -> ArgGroupG.GUnit(f ty)
-        | ArgGroupG.GSimple(slot, ty) -> ArgGroupG.GSimple(slot, f ty)
-        | ArgGroupG.GTuple p -> ArgGroupG.GTuple(pat f p)
+        | ArgGroupG.GUnit ty -> ArgGroupG.GUnit(fTy ty)
+        | ArgGroupG.GSimple(slot, ty) -> ArgGroupG.GSimple(slot, fTy ty)
+        | ArgGroupG.GTuple p -> ArgGroupG.GTuple(fPat p)
 
-    let valRepr (f: 'a -> 'b) (vr: ValReprG<'a, 'tok>) : ValReprG<'b, 'tok> =
+    let valRepr (fTy: 'a -> 'b) (fPat: 'pa -> 'pb) (vr: ValReprG<'a, 'pa>) : ValReprG<'b, 'pb> =
         {
             Typars = vr.Typars
-            Groups = vr.Groups |> List.map (argGroup f)
-            ResultTy = f vr.ResultTy
+            Groups = vr.Groups |> List.map (argGroup fTy fPat)
+            ResultTy = fTy vr.ResultTy
         }
 
     let inlineValue (f: 'a -> 'b) (iv: TInlineValueG<'a, 'tok>) : TInlineValueG<'b, 'tok> =
@@ -351,5 +366,5 @@ module TastConvert =
             // Generic in `'ty`; converted per-entry. Empty pre-freeze (`Freeze.run`
             // fills the frozen table from the frozen lambda spines), so this is an
             // identity on the empty map on the one path that runs it.
-            BindingValReprs = tf.BindingValReprs |> Map.map (fun _ vr -> valRepr f vr)
+            BindingValReprs = tf.BindingValReprs |> Map.map (fun _ vr -> valRepr f (pat f) vr)
         }
