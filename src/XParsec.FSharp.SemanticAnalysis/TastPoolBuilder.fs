@@ -108,50 +108,11 @@ module TastPoolBuilder =
             BinderIndex = index
         }
 
-    /// The zero column set — the base of a pool that is nobody's file. `openEmpty` this
-    /// for nodes that belong to no frozen tree at all: an EXTERNAL symbol's `ValRepr`
-    /// patterns are minted from an `.fsi` contract (`TastLower.externalValRepr`) and
-    /// index into no file, yet are read through the same accessor as any other pattern,
-    /// so they need a pool of their own.
-    let private emptyPools: FrozenPools =
-        {
-            ExprShapes = [||]
-            ExprTys = [||]
-            ExprToks = [||]
-            ExprChildren = [||]
-            ExprPatChildren = [||]
-            ExprVarBinder = [||]
-            ExprPayloads = [||]
-            PatShapes = [||]
-            PatTys = [||]
-            PatToks = [||]
-            PatChildren = [||]
-            PatPayloads = [||]
-            DeclShapes = [||]
-            DeclExprChildren = [||]
-            DeclPatChildren = [||]
-            DeclPayloads = [||]
-            Roots = [||]
-            InlineTemplates = [||]
-            BinderKeys = [||]
-            BinderNamings = [||]
-            Residue =
-                {
-                    Diagnostics = []
-                    IntrinsicReprKeys = readOnlyDict []
-                    Accessibility = readOnlyDict []
-                }
-            ModuleMembers = [||]
-            TopLevelNames = [||]
-            ClosureReprs = [||]
-            FunVerdicts = [||]
-            GenericFnSchemes = [||]
-            BindingValReprs = [||]
-            BindingTyparArities = [||]
-        }
-
-    /// A builder over no base at all — see `emptyPools`.
-    let openEmpty () : PoolBuilder = openOver emptyPools
+    /// A builder over no base at all — for nodes that belong to no frozen tree: an
+    /// EXTERNAL symbol's `ValRepr` patterns are minted from an `.fsi` contract
+    /// (`TastLower.externalValRepr`) and index into no file, yet are read through the
+    /// same accessor as any other pattern, so they need a pool of their own.
+    let openEmpty () : PoolBuilder = openOver FrozenPools.empty
 
     // ── the stacked read surface ────────────────────────────────────────────
     //

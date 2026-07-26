@@ -395,10 +395,10 @@ module internal ClosureVerdictRewrite =
 
                 rw e
 
-        let retypeDecl (d: TastAccessor.DeclId) : TastAccessor.DeclId =
-            match TastAccessor.declKind d with
-            | DeclShape.Type -> d
-            | _ -> TastAccessor.mapDeclExpr retypeBody d
+        // No `Type` arm: a `type` decl surfaces no `DeclExprChildren` (its member bodies
+        // are named by id inside the payload), so the mapping is already the identity on
+        // one and returns the decl's own id.
+        let retypeDecl (d: TastAccessor.DeclId) : TastAccessor.DeclId = TastAccessor.mapDeclExpr retypeBody d
 
         {
             RetypeBody = retypeBody

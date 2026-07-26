@@ -14,7 +14,10 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // Two round-trips ride the same gate, sharing one freeze per program:
 //   * `thaw (flatten frozen)` — the frozen-cache serialization round-trip.
-//   * `ofPools (toPools frozen)` — the id-pool round-trip. This is the corpus-wide
+//   * `toPools (ofPools frozen)` — the id-pool round-trip. The freeze yields POOLS, so
+//     this is the composition that exists: drain the columns to the DU, re-derive every
+//     column from THAT (`TestHelpers.compileConformanceDirectAndRoundTripped`). It is the
+//     corpus-wide
 //     proof that the pools are interconvertible with the DU over EVERY shape the CLR
 //     backend exercises (`ILIntrinsic`, `StaticOptimization`, `TraitCall`, the casts,
 //     `TryWith`/`TryFinally`, `MethodCall`/`PropertyGet`, …), which the small in-project
@@ -60,7 +63,7 @@ let tests =
                     Expect.equal
                         (digest arts.PoolRoundTripped)
                         directDigest
-                        "ofPools (toPools frozen) emits a structurally identical assembly"
+                        "toPools (ofPools frozen) emits a structurally identical assembly"
                 }
 
             // The gate must exercise a non-trivial corpus, else an empty run would

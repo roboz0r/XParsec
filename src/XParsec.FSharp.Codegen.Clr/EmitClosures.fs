@@ -529,12 +529,9 @@ module EmitClosures =
                     | _ -> TastAccessor.mintAppSpine (rw head) args
                 | _ -> TastAccessor.mapChildren rw e
 
-            decls
-            |> List.map (fun d ->
-                match TastAccessor.declKind d with
-                | DeclShape.Type -> d
-                | _ -> TastAccessor.mapDeclExpr rw d
-            )
+            // A `type` decl surfaces no `DeclExprChildren`, so the mapping is already the
+            // identity on one — no arm needed to spare it.
+            decls |> List.map (TastAccessor.mapDeclExpr rw)
 
     /// The static-method-eligible top-level functions — the ONE genuinely
     /// CLR-intrinsic demotion axis (capture), computed on its own so the bridge pass

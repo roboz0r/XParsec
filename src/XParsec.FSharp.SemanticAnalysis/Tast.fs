@@ -739,7 +739,7 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'body> =
     /// (the explicit `val [mutable] x: T` instance fields) are populated for both
     /// structs and classes that declare them — each emits a `FieldDefinition` and
     /// a mutable one admits `this.x <- …`.
-    | Class of TClassG<'ty, 'tok, 'body>
+    | Class of TClassG<'ty, 'body>
     /// `cases` in declaration order, each pairing a case identifier with its
     /// **resolved** compile-time literal (`| C = v`). An enum is `'ty`-free: a
     /// case value is an integer or string literal, never a typed term. The
@@ -750,7 +750,11 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok, 'body> =
 
 /// The payload of `TTypeKindG.Class`, lifted out of an 11-wide positional
 /// tuple into a named record. See the `Class` case doc for per-field semantics.
-and TClassG<'ty, 'tok, 'body> =
+///
+/// No `'tok`: nothing a class carries is token-bearing — every member / preamble /
+/// ctor slot went to `'body` and the field shapes are `'ty`-only. (`TTypeKindG` keeps
+/// `'tok` for `Enum`'s case identifiers, which are the kind's only tokens.)
+and TClassG<'ty, 'body> =
     {
         Fields: EqArray<TRecordFieldG<'ty>>
         CtorParams: EqArray<TRecordFieldG<'ty>>
@@ -1194,7 +1198,7 @@ type TStaticOptClause = TStaticOptClauseG<SemType, SyntaxToken>
 type TDecl = TDeclG<SemType, SyntaxToken>
 type TTypeDecl = TTypeDeclG<SemType, SyntaxToken, TExpr>
 type TTypeKind = TTypeKindG<SemType, SyntaxToken, TExpr>
-type TClass = TClassG<SemType, SyntaxToken, TExpr>
+type TClass = TClassG<SemType, TExpr>
 type TUnionCase = TUnionCaseG<SemType>
 type TEnumCase = TEnumCaseG<SyntaxToken>
 type TRecordField = TRecordFieldG<SemType>
@@ -1382,7 +1386,7 @@ module Frozen =
     type TDecl = TDeclG<FrozenType, SyntaxToken>
     type TTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, TExpr>
     type TTypeKind = TTypeKindG<FrozenType, SyntaxToken, TExpr>
-    type TClass = TClassG<FrozenType, SyntaxToken, TExpr>
+    type TClass = TClassG<FrozenType, TExpr>
     type TUnionCase = TUnionCaseG<FrozenType>
     // Enum cases are `'ty`-free, so the frozen alias is identical to the SemType one.
     type TEnumCase = TEnumCaseG<SyntaxToken>

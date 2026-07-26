@@ -1205,7 +1205,7 @@ module FrozenCodec =
             )
             interfaces
 
-    and private writeClass (w: BinaryWriter) (c: TClassG<FrozenType, SyntaxToken, ExprPoolId>) =
+    and private writeClass (w: BinaryWriter) (c: TClassG<FrozenType, ExprPoolId>) =
         writeEqArrayWith w writeRecordField c.Fields
         writeEqArrayWith w writeRecordField c.CtorParams
         writeEqArrayWith w writeTypeMember c.Members
@@ -1426,7 +1426,7 @@ module FrozenCodec =
                 )
         )
 
-    and private readClass (r: BinaryReader) : TClassG<FrozenType, SyntaxToken, ExprPoolId> =
+    and private readClass (r: BinaryReader) : TClassG<FrozenType, ExprPoolId> =
         let fields = EqArray.ofArray (readArrayWith r readRecordField)
         let ctorParams = EqArray.ofArray (readArrayWith r readRecordField)
         let members = EqArray.ofArray (readArrayWith r readTypeMember)

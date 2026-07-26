@@ -47,7 +47,7 @@ module TastAccessor =
     /// `Frozen.TTypeDecl`, ids in the body slots.
     type TypeDecl = TTypeDeclG<FrozenType, SyntaxToken, ExprId>
     type TypeKind = TTypeKindG<FrozenType, SyntaxToken, ExprId>
-    type Class = TClassG<FrozenType, SyntaxToken, ExprId>
+    type Class = TClassG<FrozenType, ExprId>
     type TypeMember = TTypeMemberG<FrozenType, ExprId>
     type ClassLet = TClassLetG<FrozenType, ExprId>
     type PreambleEntry = TPreambleEntryG<FrozenType, ExprId>

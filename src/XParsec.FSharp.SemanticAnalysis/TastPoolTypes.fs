@@ -511,6 +511,52 @@ type FrozenPools =
         BindingTyparArities: (BinderId * int)[]
     }
 
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module FrozenPools =
+
+    /// The zero column set — a pool that is nobody's file. Lives with the type because it
+    /// is a property OF the type (28 fields, all empty), not of any one consumer:
+    /// `TastPoolBuilder.openEmpty` stacks an overlay on it for nodes that belong to no
+    /// frozen tree at all (an EXTERNAL symbol's `.fsi`-minted `ValRepr` patterns, a
+    /// provider's re-axised copies), and they are read through the same accessor as any
+    /// other node.
+    let empty: FrozenPools =
+        {
+            ExprShapes = [||]
+            ExprTys = [||]
+            ExprToks = [||]
+            ExprChildren = [||]
+            ExprPatChildren = [||]
+            ExprVarBinder = [||]
+            ExprPayloads = [||]
+            PatShapes = [||]
+            PatTys = [||]
+            PatToks = [||]
+            PatChildren = [||]
+            PatPayloads = [||]
+            DeclShapes = [||]
+            DeclExprChildren = [||]
+            DeclPatChildren = [||]
+            DeclPayloads = [||]
+            Roots = [||]
+            InlineTemplates = [||]
+            BinderKeys = [||]
+            BinderNamings = [||]
+            Residue =
+                {
+                    Diagnostics = []
+                    IntrinsicReprKeys = readOnlyDict []
+                    Accessibility = readOnlyDict []
+                }
+            ModuleMembers = [||]
+            TopLevelNames = [||]
+            ClosureReprs = [||]
+            FunVerdicts = [||]
+            GenericFnSchemes = [||]
+            BindingValReprs = [||]
+            BindingTyparArities = [||]
+        }
+
 // ── the ROW view: one node's slice across the parallel columns ──────────────
 //
 // A `*Row` is the TRANSPOSE of the columns at one id — every column value of a single
