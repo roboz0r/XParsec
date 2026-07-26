@@ -1019,6 +1019,31 @@ module TastAccessor =
             collectSpine ((app.Arg, exprTy e, exprTok e) :: acc) app.Fn
         | _ -> e, acc
 
+    /// Rewrite a curried `App` chain IN PLACE: `fArg` on each argument, `fHead` on the
+    /// spine's head. The id-preserving counterpart of `collectSpine` + `mintAppSpine`,
+    /// for a rewrite that must decide something about the HEAD (is this call saturated?)
+    /// yet leave the spine's own nodes alone: every `App` is a row copy, so a chain whose
+    /// head and arguments all stay put keeps every id it already had. Peeling to a list
+    /// and re-applying would mint a fresh node per level unconditionally.
+    let rec mapSpine (fHead: ExprId -> ExprId) (fArg: ExprId -> ExprId) (e: ExprId) : ExprId =
+        match exprKind e with
+        | ExprShape.App ->
+            let app = exprApp e
+            let fn = mapSpine fHead fArg app.Fn
+            let arg = fArg app.Arg
+
+            at
+                e
+                (TastPoolBuilder.copyExprWith
+                    e.Pool
+                    e.Id
+                    (fun row ->
+                        { row with
+                            Children = [| fn.Id; arg.Id |]
+                        }
+                    ))
+        | _ -> fHead e
+
     // ── minting ─────────────────────────────────────────────────────────────
     //
     // The append side of the seam: a derived node is a ROW, written straight into the

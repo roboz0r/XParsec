@@ -515,18 +515,28 @@ module EmitClosures =
                 | TastAccessor.EVar k when arity.ContainsKey k -> buildEta e arity.[k]
                 | TastAccessor.EApp _ ->
                     let head, args = TastAccessor.collectSpine [] e
-                    let args = args |> List.map (fun (a, t, tk) -> rw a, t, tk)
 
                     match head with
-                    | TastAccessor.EVar k when arity.ContainsKey k ->
-                        if List.length args >= arity.[k] then
-                            // Saturated (or over-applied): the head stays a direct
-                            // `call`; the residual spine over-applies `f`'s result.
-                            TastAccessor.mintAppSpine head args
-                        else
-                            // Under-application: partially apply the eta closure.
-                            TastAccessor.mintAppSpine (buildEta head arity.[k]) args
-                    | _ -> TastAccessor.mintAppSpine (rw head) args
+                    | TastAccessor.EVar k when arity.ContainsKey k && List.length args < arity.[k] ->
+                        // Under-application: partially apply the eta closure. The head is
+                        // a freshly minted closure, so this spine is genuinely new.
+                        TastAccessor.mintAppSpine
+                            (buildEta head arity.[k])
+                            (args |> List.map (fun (a, t, tk) -> rw a, t, tk))
+                    | _ ->
+                        // The spine STANDS: a saturated (or over-applied) eligible head
+                        // stays a direct `call` and everything else recurses, so only the
+                        // arguments and a non-eligible head can move. Rewriting in place
+                        // keeps each `App`'s own id — the rows that did not change are not
+                        // re-appended.
+                        TastAccessor.mapSpine
+                            (fun h ->
+                                match h with
+                                | TastAccessor.EVar k when arity.ContainsKey k -> h
+                                | _ -> rw h
+                            )
+                            rw
+                            e
                 | _ -> TastAccessor.mapChildren rw e
 
             // A `type` decl surfaces no `DeclExprChildren`, so the mapping is already the
