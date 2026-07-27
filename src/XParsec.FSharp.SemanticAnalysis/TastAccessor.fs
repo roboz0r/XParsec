@@ -32,8 +32,8 @@ open XParsec.FSharp.Parser
 // shape tag is for a consumer's own TOTAL dispatch (the emit routers), where its
 // closed enum is what keeps the match exhaustive.
 //
-// A view with a RECOGNIZER — the accessor in pattern position — is written ONCE, as
-// the recognizer, and the eager form derives from it:
+// EVERY view is written ONCE, as a RECOGNIZER — the accessor in pattern position — and
+// its eager form is `expect` applied to that recognizer and nothing else:
 //
 //     match e with
 //     | EForTo ft -> ...        // ft : ForToView, bound once
@@ -47,19 +47,21 @@ open XParsec.FSharp.Parser
 // that re-dispatched on the shape tag and then called an eager view would fetch two
 // columns and match twice, on the per-node path of both backends' emit walks.
 //
-// That derivation is `expect`, not a per-accessor habit: an eager accessor with a
-// recognizer is `expect <message> <recognizer>` and nothing else, so it cannot come to
-// guard on a case other than the one it names. The accessors WITHOUT a recognizer
-// project straight off the payload in a body of their own — a recognizer for each would
-// be surface no consumer matches on.
+// No accessor is exempt. An eager form written with its own `match … | _ -> failwith`
+// would restate the guard the recognizer already holds, and the two would then be free
+// to name different cases; going through `expect` means an accessor cannot come to guard
+// on a case other than the one it projects. A recognizer nothing outside this file
+// matches on is `private` — that is the cost of the rule, and it is only surface.
 //
-// A recognizer exists for exactly the shapes a consumer matches in a *partial* dispatch
-// (one that ends in a `| _ ->` fall-through). A *total* dispatch over every shape — the
-// emit routers (`EmitExpr.buildExpr`, `EmitPattern`, the `Emit.fs` decl loop) — matches
-// the `exprKind`/`patKind`/`declKind` tag instead, which the closed
-// `ExprShape`/`PatShape`/`DeclShape` enum keeps exhaustive: a new case breaks those
-// matches at compile time. `RequireQualifiedAccess` means they are used qualified
-// (`TastAccessor.EForTo`).
+// Where one payload case has several eager readers (`New`'s class name and chosen ctor,
+// `ILIntrinsic`'s opcode and type operand), there is still ONE recognizer, returning the
+// whole view, and each reader is a field of it.
+//
+// A *total* dispatch over every shape — the emit routers (`EmitExpr.buildExpr`,
+// `EmitPattern`, the `Emit.fs` decl loop) — matches the `exprKind`/`patKind`/`declKind`
+// tag instead, which the closed `ExprShape`/`PatShape`/`DeclShape` enum keeps exhaustive:
+// a new case breaks those matches at compile time. `RequireQualifiedAccess` means the
+// recognizers are used qualified (`TastAccessor.EForTo`).
 
 /// The TAST-shaped accessor. `open` is disallowed so `exprTy`/`patTy` don't collide
 /// with the analysis-time `TastWalk` projections of the same name.
@@ -157,12 +159,17 @@ module TastAccessor =
 
     let private payload (e: ExprId) : ExprPayload = TastPoolBuilder.exprPayload e.Pool e.Id
 
+    /// A `Const` node → the constant value it carries.
+    [<return: Struct>]
+    let private (|EConst|_|) (e: ExprId) : TConstValue voption =
+        match payload e with
+        | ExprPayload.Const value -> ValueSome value
+        | _ -> ValueNone
+
     /// The constant value carried by a `Const` node. Guard with `exprKind` =
     /// `ExprShape.Const` first; `failwith` on any other shape.
     let exprConstValue (e: ExprId) : TConstValue =
-        match payload e with
-        | ExprPayload.Const value -> value
-        | _ -> failwith "TastAccessor.exprConstValue: not a Const node"
+        expect "TastAccessor.exprConstValue: not a Const node" (|EConst|_|) e
 
     /// A `Var` node → the binder it references, the `NodeKey` a preceding binder
     /// introduced. Declines on every other shape (only a `Var` fills the reference
@@ -177,13 +184,18 @@ module TastAccessor =
     let exprVarBinding (e: ExprId) : NodeKey =
         expect "TastAccessor.exprVarBinding: not a Var node" (|EVar|_|) e
 
+    /// A `Var` node → the naming projections of the binder it references. Guards on the
+    /// reference column, like `EVar`, rather than on the payload — only a `Var` fills it.
+    [<return: Struct>]
+    let private (|EVarNaming|_|) (e: ExprId) : BinderNaming voption =
+        TastPoolBuilder.exprVarBinder e.Pool e.Id
+        |> ValueOption.map (TastPoolBuilder.binderNaming e.Pool)
+
     /// The naming projections of the binder a `Var` node references — what a backend
     /// emits its name from, read off the pool's naming column rather than the key's own
     /// bits. Guard with `exprKind` = `ExprShape.Var` first; `failwith` on any other shape.
     let exprVarNaming (e: ExprId) : BinderNaming =
-        match TastPoolBuilder.exprVarBinder e.Pool e.Id with
-        | ValueSome b -> TastPoolBuilder.binderNaming e.Pool b
-        | ValueNone -> failwith "TastAccessor.exprVarNaming: not a Var node"
+        expect "TastAccessor.exprVarNaming: not a Var node" (|EVarNaming|_|) e
 
     /// The scalar payload of an `ExternalMember` node, minus the `ty`/`tok` that
     /// `exprTy`/`exprTok` already carry. `Receiver` is a payload sub-expression named
@@ -220,25 +232,41 @@ module TastAccessor =
     let exprExternalMember (e: ExprId) : ExternalMemberView =
         expect "TastAccessor.exprExternalMember: not an ExternalMember node" (|EExternalMember|_|) e
 
-    /// The IL opcode string of an `ILIntrinsic` node — the `$N`-templated instruction.
-    /// Its `args` are the node's `exprChildren` and its `typeOperand` is carried
-    /// separately. Guard with `exprKind` = `ExprShape.ILIntrinsic` first; `failwith` on
-    /// any other shape.
-    let exprILIntrinsicOpCode (e: ExprId) : string =
-        match payload e with
-        | ExprPayload.ILIntrinsic p -> p.OpCode
-        | _ -> failwith "TastAccessor.exprILIntrinsicOpCode: not an ILIntrinsic node"
+    /// The scalar payload of an `ILIntrinsic` node — the `$N`-templated instruction and
+    /// its type operand, minus the `ty`/`tok` the node also carries. Its `args` are the
+    /// node's `exprChildren`.
+    [<Struct>]
+    type ILIntrinsicView =
+        {
+            OpCode: string
+            /// The `<T>` the opcode takes — the element type of
+            /// `newarr`/`ldelem`/`stelem`/`ldobj`, the boxed type of `box`, the zeroed
+            /// type of `ilzero` — `ValueNone` for the type-free arithmetic / `throw` /
+            /// reinterpret opcodes. Distinct from the result `ty` (`exprTy`).
+            TypeOperand: FrozenType voption
+        }
 
-    /// The type operand `<T>` an `ILIntrinsic` node carries — the element type of
-    /// `newarr`/`ldelem`/`stelem`/`ldobj`, the boxed type of `box`, the zeroed type of
-    /// `ilzero` — or `ValueNone` for the type-free arithmetic/`throw`/reinterpret
-    /// opcodes. Carried separately from the `args` (`exprChildren`) and the result `ty`
-    /// (`exprTy`). Guard with `exprKind` = `ExprShape.ILIntrinsic` first; `failwith` on
-    /// any other shape.
-    let exprILIntrinsicTypeOperand (e: ExprId) : FrozenType voption =
+    /// An `ILIntrinsic` node → its `ILIntrinsicView`.
+    [<return: Struct>]
+    let private (|EILIntrinsic|_|) (e: ExprId) : ILIntrinsicView voption =
         match payload e with
-        | ExprPayload.ILIntrinsic p -> p.TypeOperand
-        | _ -> failwith "TastAccessor.exprILIntrinsicTypeOperand: not an ILIntrinsic node"
+        | ExprPayload.ILIntrinsic p ->
+            ValueSome
+                {
+                    OpCode = p.OpCode
+                    TypeOperand = p.TypeOperand
+                }
+        | _ -> ValueNone
+
+    /// The IL opcode string of an `ILIntrinsic` node. Guard with `exprKind` =
+    /// `ExprShape.ILIntrinsic` first; `failwith` on any other shape.
+    let exprILIntrinsicOpCode (e: ExprId) : string =
+        (expect "TastAccessor.exprILIntrinsicOpCode: not an ILIntrinsic node" (|EILIntrinsic|_|) e).OpCode
+
+    /// The type operand `<T>` an `ILIntrinsic` node carries. Guard with `exprKind` =
+    /// `ExprShape.ILIntrinsic` first; `failwith` on any other shape.
+    let exprILIntrinsicTypeOperand (e: ExprId) : FrozenType voption =
+        (expect "TastAccessor.exprILIntrinsicTypeOperand: not an ILIntrinsic node" (|EILIntrinsic|_|) e).TypeOperand
 
     /// The scalar payload of a `Lambda` node, minus the `ty`/`tok` that
     /// `exprTy`/`exprTok` already carry. `Body` is the sole `exprChildren` entry; the
@@ -298,16 +326,22 @@ module TastAccessor =
     [<Struct>]
     type AssignmentView = { Lhs: ExprId; Rhs: ExprId }
 
+    /// An `Assignment` node → its `AssignmentView`.
+    [<return: Struct>]
+    let private (|EAssignment|_|) (e: ExprId) : AssignmentView voption =
+        match payload e with
+        | ExprPayload.Assignment ->
+            ValueSome
+                {
+                    Lhs = exprChild e 0
+                    Rhs = exprChild e 1
+                }
+        | _ -> ValueNone
+
     /// The payload view of an `Assignment` node. Guard with `exprKind` =
     /// `ExprShape.Assignment` first; `failwith` on any other shape.
     let exprAssignment (e: ExprId) : AssignmentView =
-        match payload e with
-        | ExprPayload.Assignment ->
-            {
-                Lhs = exprChild e 0
-                Rhs = exprChild e 1
-            }
-        | _ -> failwith "TastAccessor.exprAssignment: not an Assignment node"
+        expect "TastAccessor.exprAssignment: not an Assignment node" (|EAssignment|_|) e
 
     /// The scalar payload of an `IfThenElse` node, minus the `ty`/`tok` that
     /// `exprTy`/`exprTok` already carry — the three branch nodes `exprChildren` yields,
@@ -320,17 +354,23 @@ module TastAccessor =
             ElseExpr: ExprId
         }
 
+    /// An `IfThenElse` node → its `IfThenElseView`.
+    [<return: Struct>]
+    let private (|EIfThenElse|_|) (e: ExprId) : IfThenElseView voption =
+        match payload e with
+        | ExprPayload.IfThenElse ->
+            ValueSome
+                {
+                    Cond = exprChild e 0
+                    ThenExpr = exprChild e 1
+                    ElseExpr = exprChild e 2
+                }
+        | _ -> ValueNone
+
     /// The payload view of an `IfThenElse` node. Guard with `exprKind` =
     /// `ExprShape.IfThenElse` first; `failwith` on any other shape.
     let exprIfThenElse (e: ExprId) : IfThenElseView =
-        match payload e with
-        | ExprPayload.IfThenElse ->
-            {
-                Cond = exprChild e 0
-                ThenExpr = exprChild e 1
-                ElseExpr = exprChild e 2
-            }
-        | _ -> failwith "TastAccessor.exprIfThenElse: not an IfThenElse node"
+        expect "TastAccessor.exprIfThenElse: not an IfThenElse node" (|EIfThenElse|_|) e
 
     /// The scalar payload of an `External` node, minus the `ty`/`tok` that
     /// `exprTy`/`exprTok` already carry.
@@ -381,13 +421,18 @@ module TastAccessor =
     let exprApp (e: ExprId) : AppView =
         expect "TastAccessor.exprApp: not an App node" (|EApp|_|) e
 
+    /// A `RecordCons` node → its (field-name, value-expression) pairs, in source order.
+    [<return: Struct>]
+    let private (|ERecordCons|_|) (e: ExprId) : (string * ExprId)[] voption =
+        match payload e with
+        | ExprPayload.RecordCons fieldNames -> ValueSome(Array.map2 (fun n v -> (n, v)) fieldNames (exprChildren e))
+        | _ -> ValueNone
+
     /// The (field-name, value-expression) pairs a `RecordCons` literal assigns, in source
     /// order — the labels `exprChildren` drops. Guard with `exprKind` =
     /// `ExprShape.RecordCons` first; `failwith` on any other shape.
     let exprRecordConsFields (e: ExprId) : (string * ExprId)[] =
-        match payload e with
-        | ExprPayload.RecordCons fieldNames -> Array.map2 (fun n v -> (n, v)) fieldNames (exprChildren e)
-        | _ -> failwith "TastAccessor.exprRecordConsFields: not a RecordCons node"
+        expect "TastAccessor.exprRecordConsFields: not a RecordCons node" (|ERecordCons|_|) e
 
     /// The scalar payload of a `RecordClone` node (`{ source with … }`), minus the
     /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Overrides` are the
@@ -399,18 +444,24 @@ module TastAccessor =
             Overrides: (string * ExprId)[]
         }
 
-    /// The payload view of a `RecordClone` node. Guard with `exprKind` =
-    /// `ExprShape.RecordClone` first; `failwith` on any other shape.
-    let exprRecordClone (e: ExprId) : RecordCloneView =
+    /// A `RecordClone` node → its `RecordCloneView`.
+    [<return: Struct>]
+    let private (|ERecordClone|_|) (e: ExprId) : RecordCloneView voption =
         match payload e with
         | ExprPayload.RecordClone overrideNames ->
             let es = exprChildren e
 
-            {
-                Source = es.[0]
-                Overrides = Array.map2 (fun n v -> (n, v)) overrideNames es.[1..]
-            }
-        | _ -> failwith "TastAccessor.exprRecordClone: not a RecordClone node"
+            ValueSome
+                {
+                    Source = es.[0]
+                    Overrides = Array.map2 (fun n v -> (n, v)) overrideNames es.[1..]
+                }
+        | _ -> ValueNone
+
+    /// The payload view of a `RecordClone` node. Guard with `exprKind` =
+    /// `ExprShape.RecordClone` first; `failwith` on any other shape.
+    let exprRecordClone (e: ExprId) : RecordCloneView =
+        expect "TastAccessor.exprRecordClone: not a RecordClone node" (|ERecordClone|_|) e
 
     /// The scalar payload of a `FieldGet` node (`receiver.FieldName`), minus the
     /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Receiver` is the sole
@@ -446,42 +497,70 @@ module TastAccessor =
             Value: ExprId
         }
 
+    /// A `FieldSet` node → its `FieldSetView`.
+    [<return: Struct>]
+    let private (|EFieldSet|_|) (e: ExprId) : FieldSetView voption =
+        match payload e with
+        | ExprPayload.FieldSet fieldName ->
+            ValueSome
+                {
+                    Receiver = exprChild e 0
+                    FieldName = fieldName
+                    Value = exprChild e 1
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `FieldSet` node. Guard with `exprKind` =
     /// `ExprShape.FieldSet` first; `failwith` on any other shape.
     let exprFieldSet (e: ExprId) : FieldSetView =
+        expect "TastAccessor.exprFieldSet: not a FieldSet node" (|EFieldSet|_|) e
+
+    /// A `UnionCons` node → the union case name it constructs.
+    [<return: Struct>]
+    let private (|EUnionCons|_|) (e: ExprId) : string voption =
         match payload e with
-        | ExprPayload.FieldSet fieldName ->
-            {
-                Receiver = exprChild e 0
-                FieldName = fieldName
-                Value = exprChild e 1
-            }
-        | _ -> failwith "TastAccessor.exprFieldSet: not a FieldSet node"
+        | ExprPayload.UnionCons caseName -> ValueSome caseName
+        | _ -> ValueNone
 
     /// The union case name a `UnionCons` node constructs. Its `args` are the node's
     /// `exprChildren` and its `ty` is `exprTy`. Guard with `exprKind` =
     /// `ExprShape.UnionCons` first; `failwith` on any other shape.
     let exprUnionConsCaseName (e: ExprId) : string =
-        match payload e with
-        | ExprPayload.UnionCons caseName -> caseName
-        | _ -> failwith "TastAccessor.exprUnionConsCaseName: not a UnionCons node"
+        expect "TastAccessor.exprUnionConsCaseName: not a UnionCons node" (|EUnionCons|_|) e
 
-    /// The class name a `New` node constructs. Its `args` are the node's `exprChildren`
-    /// and its `ty` is `exprTy`. Guard with `exprKind` = `ExprShape.New` first; `failwith`
-    /// on any other shape.
+    /// The scalar payload of a `New` node, minus the `ty`/`tok` the node also carries.
+    /// Its `args` are the node's `exprChildren`.
+    [<Struct>]
+    type NewView =
+        {
+            ClassName: string
+            /// The overload identity the front end chose — the key that disambiguates a
+            /// same-arity external-ctor candidate set, `ValueNone` when arity alone
+            /// suffices.
+            ChosenCtor: SymbolKey voption
+        }
+
+    /// A `New` node → its `NewView`.
+    [<return: Struct>]
+    let private (|ENew|_|) (e: ExprId) : NewView voption =
+        match payload e with
+        | ExprPayload.New p ->
+            ValueSome
+                {
+                    ClassName = p.ClassName
+                    ChosenCtor = p.Key
+                }
+        | _ -> ValueNone
+
+    /// The class name a `New` node constructs. Guard with `exprKind` = `ExprShape.New`
+    /// first; `failwith` on any other shape.
     let exprNewClassName (e: ExprId) : string =
-        match payload e with
-        | ExprPayload.New p -> p.ClassName
-        | _ -> failwith "TastAccessor.exprNewClassName: not a New node"
+        (expect "TastAccessor.exprNewClassName: not a New node" (|ENew|_|) e).ClassName
 
-    /// The recorded overload identity a `New` node's front end chose — the key that
-    /// disambiguates a same-arity external-ctor candidate set (`ValueNone` when arity
-    /// alone suffices). Guard with `exprKind` = `ExprShape.New` first; `failwith` on
-    /// any other shape.
+    /// The recorded overload identity a `New` node's front end chose. Guard with
+    /// `exprKind` = `ExprShape.New` first; `failwith` on any other shape.
     let exprNewChosenCtor (e: ExprId) : SymbolKey voption =
-        match payload e with
-        | ExprPayload.New p -> p.Key
-        | _ -> failwith "TastAccessor.exprNewChosenCtor: not a New node"
+        (expect "TastAccessor.exprNewChosenCtor: not a New node" (|ENew|_|) e).ChosenCtor
 
     /// The scalar payload of a `PropertyGet` node — the receiver, the resolved member
     /// key, and the dispatch `Via`, minus the `ty`/`tok` the node also carries.
@@ -497,17 +576,23 @@ module TastAccessor =
             Via: CallVia<FrozenType>
         }
 
+    /// A `PropertyGet` node → its `PropertyGetView`.
+    [<return: Struct>]
+    let private (|EPropertyGet|_|) (e: ExprId) : PropertyGetView voption =
+        match payload e with
+        | ExprPayload.PropertyGet p ->
+            ValueSome
+                {
+                    Receiver = exprChild e 0
+                    Key = p.Key
+                    Via = p.Via
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `PropertyGet` node. Guard with `exprKind` =
     /// `ExprShape.PropertyGet` first; `failwith` on any other shape.
     let exprPropertyGet (e: ExprId) : PropertyGetView =
-        match payload e with
-        | ExprPayload.PropertyGet p ->
-            {
-                Receiver = exprChild e 0
-                Key = p.Key
-                Via = p.Via
-            }
-        | _ -> failwith "TastAccessor.exprPropertyGet: not a PropertyGet node"
+        expect "TastAccessor.exprPropertyGet: not a PropertyGet node" (|EPropertyGet|_|) e
 
     /// The scalar payload of a `MethodCall` node — the receiver, the resolved member key,
     /// the dispatch `Via`, and the argument expressions, minus the `ty`/`tok` the node also
@@ -524,43 +609,60 @@ module TastAccessor =
             Args: EqArray<ExprId>
         }
 
-    /// The payload view of a `MethodCall` node. Guard with `exprKind` =
-    /// `ExprShape.MethodCall` first; `failwith` on any other shape.
-    let exprMethodCall (e: ExprId) : MethodCallView =
+    /// A `MethodCall` node → its `MethodCallView`.
+    [<return: Struct>]
+    let private (|EMethodCall|_|) (e: ExprId) : MethodCallView voption =
         match payload e with
         | ExprPayload.MethodCall p ->
             let es = exprChildren e
 
-            {
-                Receiver = es.[0]
-                Key = p.Key
-                Via = p.Via
-                Args = EqArray.ofArray es.[1..]
-            }
-        | _ -> failwith "TastAccessor.exprMethodCall: not a MethodCall node"
+            ValueSome
+                {
+                    Receiver = es.[0]
+                    Key = p.Key
+                    Via = p.Via
+                    Args = EqArray.ofArray es.[1..]
+                }
+        | _ -> ValueNone
+
+    /// The payload view of a `MethodCall` node. Guard with `exprKind` =
+    /// `ExprShape.MethodCall` first; `failwith` on any other shape.
+    let exprMethodCall (e: ExprId) : MethodCallView =
+        expect "TastAccessor.exprMethodCall: not a MethodCall node" (|EMethodCall|_|) e
+
+    /// A `StaticPropertyGet` node → its resolved member key.
+    [<return: Struct>]
+    let private (|EStaticPropertyGet|_|) (e: ExprId) : SymbolKey voption =
+        match payload e with
+        | ExprPayload.StaticPropertyGet key -> ValueSome key
+        | _ -> ValueNone
 
     /// The resolved member key of a `StaticPropertyGet` node. Guard with `exprKind` =
     /// `ExprShape.StaticPropertyGet` first; `failwith` on any other shape.
     let exprStaticPropertyGetKey (e: ExprId) : SymbolKey =
-        match payload e with
-        | ExprPayload.StaticPropertyGet key -> key
-        | _ -> failwith "TastAccessor.exprStaticPropertyGetKey: not a StaticPropertyGet node"
+        expect "TastAccessor.exprStaticPropertyGetKey: not a StaticPropertyGet node" (|EStaticPropertyGet|_|) e
 
     /// The scalar payload of a `StaticFieldGet` node — the declaring class key and the
     /// backing-field name, minus the `ty`/`tok` the node also carries.
     [<Struct>]
     type StaticFieldGetView = { Key: SymbolKey; FieldName: string }
 
+    /// A `StaticFieldGet` node → its `StaticFieldGetView`.
+    [<return: Struct>]
+    let private (|EStaticFieldGet|_|) (e: ExprId) : StaticFieldGetView voption =
+        match payload e with
+        | ExprPayload.StaticFieldGet p ->
+            ValueSome
+                {
+                    Key = p.DeclKey
+                    FieldName = p.FieldName
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `StaticFieldGet` node. Guard with `exprKind` =
     /// `ExprShape.StaticFieldGet` first; `failwith` on any other shape.
     let exprStaticFieldGet (e: ExprId) : StaticFieldGetView =
-        match payload e with
-        | ExprPayload.StaticFieldGet p ->
-            {
-                Key = p.DeclKey
-                FieldName = p.FieldName
-            }
-        | _ -> failwith "TastAccessor.exprStaticFieldGet: not a StaticFieldGet node"
+        expect "TastAccessor.exprStaticFieldGet: not a StaticFieldGet node" (|EStaticFieldGet|_|) e
 
     /// The scalar payload of a `StaticFieldSet` node — the declaring class key, the
     /// backing-field name, and the stored value, minus the `ty`/`tok` the node also
@@ -573,25 +675,36 @@ module TastAccessor =
             Value: ExprId
         }
 
+    /// A `StaticFieldSet` node → its `StaticFieldSetView`.
+    [<return: Struct>]
+    let private (|EStaticFieldSet|_|) (e: ExprId) : StaticFieldSetView voption =
+        match payload e with
+        | ExprPayload.StaticFieldSet p ->
+            ValueSome
+                {
+                    Key = p.DeclKey
+                    FieldName = p.FieldName
+                    Value = exprChild e 0
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `StaticFieldSet` node. Guard with `exprKind` =
     /// `ExprShape.StaticFieldSet` first; `failwith` on any other shape.
     let exprStaticFieldSet (e: ExprId) : StaticFieldSetView =
+        expect "TastAccessor.exprStaticFieldSet: not a StaticFieldSet node" (|EStaticFieldSet|_|) e
+
+    /// A `StaticMethodCall` node → its resolved member key.
+    [<return: Struct>]
+    let private (|EStaticMethodCall|_|) (e: ExprId) : SymbolKey voption =
         match payload e with
-        | ExprPayload.StaticFieldSet p ->
-            {
-                Key = p.DeclKey
-                FieldName = p.FieldName
-                Value = exprChild e 0
-            }
-        | _ -> failwith "TastAccessor.exprStaticFieldSet: not a StaticFieldSet node"
+        | ExprPayload.StaticMethodCall key -> ValueSome key
+        | _ -> ValueNone
 
     /// The resolved member key of a `StaticMethodCall` node. Its `args` are the node's
     /// `exprChildren`. Guard with `exprKind` = `ExprShape.StaticMethodCall` first;
     /// `failwith` on any other shape.
     let exprStaticMethodCallKey (e: ExprId) : SymbolKey =
-        match payload e with
-        | ExprPayload.StaticMethodCall key -> key
-        | _ -> failwith "TastAccessor.exprStaticMethodCallKey: not a StaticMethodCall node"
+        expect "TastAccessor.exprStaticMethodCallKey: not a StaticMethodCall node" (|EStaticMethodCall|_|) e
 
     /// One arm of a `Match` / `TryWith`, its pattern and guard/body expressions held as
     /// handles — the `'pat`/`'e` instantiation of the one arm shape (`TMatchArmG`), so a
@@ -660,16 +773,22 @@ module TastAccessor =
     [<Struct>]
     type TryFinallyView = { Body: ExprId; Cleanup: ExprId }
 
+    /// A `TryFinally` node → its `TryFinallyView`.
+    [<return: Struct>]
+    let private (|ETryFinally|_|) (e: ExprId) : TryFinallyView voption =
+        match payload e with
+        | ExprPayload.TryFinally ->
+            ValueSome
+                {
+                    Body = exprChild e 0
+                    Cleanup = exprChild e 1
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `TryFinally` node. Guard with `exprKind` = `ExprShape.TryFinally`
     /// first; `failwith` on any other shape.
     let exprTryFinally (e: ExprId) : TryFinallyView =
-        match payload e with
-        | ExprPayload.TryFinally ->
-            {
-                Body = exprChild e 0
-                Cleanup = exprChild e 1
-            }
-        | _ -> failwith "TastAccessor.exprTryFinally: not a TryFinally node"
+        expect "TastAccessor.exprTryFinally: not a TryFinally node" (|ETryFinally|_|) e
 
     /// The scalar payload of a `While` node (`while Cond do Body`), minus the `ty`/`tok`
     /// that `exprTy`/`exprTok` already carry — the two nodes `exprChildren` yields, named
@@ -677,16 +796,22 @@ module TastAccessor =
     [<Struct>]
     type WhileView = { Cond: ExprId; Body: ExprId }
 
+    /// A `While` node → its `WhileView`.
+    [<return: Struct>]
+    let private (|EWhile|_|) (e: ExprId) : WhileView voption =
+        match payload e with
+        | ExprPayload.While ->
+            ValueSome
+                {
+                    Cond = exprChild e 0
+                    Body = exprChild e 1
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `While` node. Guard with `exprKind` = `ExprShape.While` first;
     /// `failwith` on any other shape.
     let exprWhile (e: ExprId) : WhileView =
-        match payload e with
-        | ExprPayload.While ->
-            {
-                Cond = exprChild e 0
-                Body = exprChild e 1
-            }
-        | _ -> failwith "TastAccessor.exprWhile: not a While node"
+        expect "TastAccessor.exprWhile: not a While node" (|EWhile|_|) e
 
     /// The scalar payload of a `ForTo` node (`for Var = StartExpr to EndExpr do Body`),
     /// minus the `identTok`/`ty`/`tok` the node also carries. `StartExpr`/`EndExpr`/`Body`
@@ -800,10 +925,10 @@ module TastAccessor =
             Segments: FormatSeg[]
         }
 
-    /// The payload view of a `Format` node — `ExprPayload.format`, the re-nesting shared
-    /// with the pool drain, driven off this node's child column. Guard with `exprKind` =
-    /// `ExprShape.Format` first; `failwith` on any other shape.
-    let exprFormat (e: ExprId) : FormatView =
+    /// A `Format` node → its `FormatView`, through `ExprPayload.format` — the re-nesting
+    /// shared with the pool drain, driven off this node's child column.
+    [<return: Struct>]
+    let private (|EFormat|_|) (e: ExprId) : FormatView voption =
         match payload e with
         | ExprPayload.Format p ->
             // No leading children of its own: the sink's sub-expression is the first thing
@@ -811,28 +936,47 @@ module TastAccessor =
             let sink, segments =
                 ExprPayload.format p.Sink p.Segments (ExprPayload.cursor (exprChildren e) 0)
 
-            { Sink = sink; Segments = segments }
-        | _ -> failwith "TastAccessor.exprFormat: not a Format node"
+            ValueSome { Sink = sink; Segments = segments }
+        | _ -> ValueNone
+
+    /// The payload view of a `Format` node. Guard with `exprKind` = `ExprShape.Format`
+    /// first; `failwith` on any other shape.
+    let exprFormat (e: ExprId) : FormatView =
+        expect "TastAccessor.exprFormat: not a Format node" (|EFormat|_|) e
+
+    /// A `TypeTest` node → its tested-against type `T`.
+    [<return: Struct>]
+    let private (|ETypeTest|_|) (e: ExprId) : FrozenType voption =
+        match payload e with
+        | ExprPayload.TypeTest testTy -> ValueSome testTy
+        | _ -> ValueNone
 
     /// The tested-against type `T` of a `TypeTest` node (`e :? T`) — the `isinst`
     /// operand. Distinct from `exprTy`, which is always `bool` (the test's result). The
     /// tested `source` is the sole `exprChildren` entry. Guard with `exprKind` =
     /// `ExprShape.TypeTest` first; `failwith` on any other shape.
     let exprTypeTestTestTy (e: ExprId) : FrozenType =
-        match payload e with
-        | ExprPayload.TypeTest testTy -> testTy
-        | _ -> failwith "TastAccessor.exprTypeTestTestTy: not a TypeTest node"
+        expect "TastAccessor.exprTypeTestTestTy: not a TypeTest node" (|ETypeTest|_|) e
 
-    /// The fallback (dynamic) default expression of a `StaticOptimization` node — the
+    /// A `StaticOptimization` node → its fallback (dynamic) default expression — the
     /// branch F# selects when no type-specialized clause's constraints hold, and the LAST
     /// of the node's `exprChildren` (the clause bodies precede it). It is also the only
     /// branch codegen emits: reaching a backend unresolved means inline expansion never
-    /// pinned an operand type. Guard with `exprKind` = `ExprShape.StaticOptimization`
-    /// first; `failwith` on any other shape.
-    let exprStaticOptimizationDefault (e: ExprId) : ExprId =
+    /// pinned an operand type.
+    [<return: Struct>]
+    let private (|EStaticOptimizationDefault|_|) (e: ExprId) : ExprId voption =
         match payload e with
-        | ExprPayload.StaticOptimization _ -> exprChild e (exprChildCount e - 1)
-        | _ -> failwith "TastAccessor.exprStaticOptimizationDefault: not a StaticOptimization node"
+        | ExprPayload.StaticOptimization _ -> ValueSome(exprChild e (exprChildCount e - 1))
+        | _ -> ValueNone
+
+    /// The fallback (dynamic) default expression of a `StaticOptimization` node. Guard
+    /// with `exprKind` = `ExprShape.StaticOptimization` first; `failwith` on any other
+    /// shape.
+    let exprStaticOptimizationDefault (e: ExprId) : ExprId =
+        expect
+            "TastAccessor.exprStaticOptimizationDefault: not a StaticOptimization node"
+            (|EStaticOptimizationDefault|_|)
+            e
 
     // ── patterns ────────────────────────────────────────────────────────────
 
@@ -900,27 +1044,42 @@ module TastAccessor =
         | PatPayload.NamedSimple binding -> ValueSome(BinderNaming.ofKey binding)
         | _ -> ValueNone
 
+    /// A `Const` pattern → the constant value it carries.
+    [<return: Struct>]
+    let private (|PConst|_|) (p: PatId) : TConstValue voption =
+        match patPayload p with
+        | PatPayload.Const value -> ValueSome value
+        | _ -> ValueNone
+
     /// The constant value carried by a `Const` pattern. Guard with `patKind` =
     /// `PatShape.Const` first; `failwith` on any other shape.
     let patConstValue (p: PatId) : TConstValue =
+        expect "TastAccessor.patConstValue: not a Const pattern" (|PConst|_|) p
+
+    /// A `Union` pattern → the union case name it discriminates on.
+    [<return: Struct>]
+    let private (|PUnion|_|) (p: PatId) : string voption =
         match patPayload p with
-        | PatPayload.Const value -> value
-        | _ -> failwith "TastAccessor.patConstValue: not a Const pattern"
+        | PatPayload.Union caseName -> ValueSome caseName
+        | _ -> ValueNone
 
     /// The union case name a `Union` pattern discriminates on. Guard with `patKind` =
     /// `PatShape.Union` first; `failwith` on any other shape.
     let patUnionCaseName (p: PatId) : string =
+        expect "TastAccessor.patUnionCaseName: not a Union pattern" (|PUnion|_|) p
+
+    /// A `Record` pattern → its (field-name, sub-pattern) pairs.
+    [<return: Struct>]
+    let private (|PRecord|_|) (p: PatId) : (string * PatId)[] voption =
         match patPayload p with
-        | PatPayload.Union caseName -> caseName
-        | _ -> failwith "TastAccessor.patUnionCaseName: not a Union pattern"
+        | PatPayload.Record fieldNames -> ValueSome(Array.map2 (fun n sub -> (n, sub)) fieldNames (patChildren p))
+        | _ -> ValueNone
 
     /// The (field-name, sub-pattern) pairs a `Record` pattern binds — the labels
     /// `patChildren` drops. Guard with `patKind` = `PatShape.Record` first; `failwith`
     /// on any other shape.
     let patRecordFields (p: PatId) : (string * PatId)[] =
-        match patPayload p with
-        | PatPayload.Record fieldNames -> Array.map2 (fun n sub -> (n, sub)) fieldNames (patChildren p)
-        | _ -> failwith "TastAccessor.patRecordFields: not a Record pattern"
+        expect "TastAccessor.patRecordFields: not a Record pattern" (|PRecord|_|) p
 
     /// The scalar payload of an `EnumCase` pattern — the case's `enumKey`/`caseName`
     /// identity, minus the `ty`/`tok` that `patTy`/`patTok` already carry.
@@ -928,25 +1087,36 @@ module TastAccessor =
     type EnumCasePatView =
         { EnumKey: SymbolKey; CaseName: string }
 
+    /// An `EnumCase` pattern → its `EnumCasePatView`.
+    [<return: Struct>]
+    let private (|PEnumCase|_|) (p: PatId) : EnumCasePatView voption =
+        match patPayload p with
+        | PatPayload.EnumCase v ->
+            ValueSome
+                {
+                    EnumKey = v.EnumKey
+                    CaseName = v.CaseName
+                }
+        | _ -> ValueNone
+
     /// The payload view of an `EnumCase` pattern. Guard with `patKind` =
     /// `PatShape.EnumCase` first; `failwith` on any other shape.
     let patEnumCase (p: PatId) : EnumCasePatView =
+        expect "TastAccessor.patEnumCase: not an EnumCase pattern" (|PEnumCase|_|) p
+
+    /// A `TypeTestAs` pattern → its tested-against type `T`.
+    [<return: Struct>]
+    let private (|PTypeTestAs|_|) (p: PatId) : FrozenType voption =
         match patPayload p with
-        | PatPayload.EnumCase v ->
-            {
-                EnumKey = v.EnumKey
-                CaseName = v.CaseName
-            }
-        | _ -> failwith "TastAccessor.patEnumCase: not an EnumCase pattern"
+        | PatPayload.TypeTestAs testTy -> ValueSome testTy
+        | _ -> ValueNone
 
     /// The tested-against type `T` of a `TypeTestAs` pattern (`:? T as x`) — the
     /// `isinst` operand. Distinct from `patTy`, which is the scrutinee's (matched)
     /// type. The bound inner sub-pattern (the `as`-name) is `patChildren.[0]`. Guard
     /// with `patKind` = `PatShape.TypeTestAs` first; `failwith` on any other shape.
     let patTypeTestTestTy (p: PatId) : FrozenType =
-        match patPayload p with
-        | PatPayload.TypeTestAs testTy -> testTy
-        | _ -> failwith "TastAccessor.patTypeTestTestTy: not a TypeTestAs pattern"
+        expect "TastAccessor.patTypeTestTestTy: not a TypeTestAs pattern" (|PTypeTestAs|_|) p
 
     // ── declarations ────────────────────────────────────────────────────────
 
@@ -962,15 +1132,21 @@ module TastAccessor =
     let private declPatChild (d: DeclId) (i: int) : PatId =
         at d (TastPoolBuilder.declPatChildren d.Pool d.Id).[i]
 
+    /// A `Type` decl → its declaration payload, member/preamble/ctor bodies resolved to
+    /// handles.
+    [<return: Struct>]
+    let private (|DType|_|) (d: DeclId) : TypeDecl voption =
+        match declPayload d with
+        // The seven body slots are enumerated by `TastConvert` — the same traversal the
+        // pool build and drain run — so nothing here re-derives the declaration shape.
+        | DeclPayload.Type td -> ValueSome(TastConvert.typeDecl id (at d) td)
+        | _ -> ValueNone
+
     /// The `type`-declaration payload of a `Type` decl (its `Kind`, `Key`, `Name`, …),
     /// its member/preamble/ctor bodies resolved to handles. Guard with `declKind` =
     /// `DeclShape.Type` first; `failwith` on any other shape.
     let declType (d: DeclId) : TypeDecl =
-        match declPayload d with
-        // The seven body slots are enumerated by `TastConvert` — the same traversal the
-        // pool build and drain run — so nothing here re-derives the declaration shape.
-        | DeclPayload.Type td -> TastConvert.typeDecl id (at d) td
-        | _ -> failwith "TastAccessor.declType: not a Type decl"
+        expect "TastAccessor.declType: not a Type decl" (|DType|_|) d
 
     /// An `Expression` decl → its body expression and the declared slot type it carries
     /// alongside (the type a value-producing consumer must preserve when reconstructing
