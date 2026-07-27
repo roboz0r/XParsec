@@ -72,10 +72,11 @@ type PoolBuilder =
 ///
 /// Equality is the pool's identity plus the id (hence `ReferenceEquality` on
 /// `PoolBuilder`), so two ids denote the same node only when they came from the same
-/// pool. No consumer keys a dictionary on a handle TODAY — the six identity tables key
-/// on the bare `ExprPoolId` and get their disambiguation from being per-unit
-/// (`LayoutModel.UnitLayout.FunVerdicts`) — but a handle is the key that would not need
-/// that argument.
+/// pool. That is why the identity tables an assembly's emit carries key on the HANDLE
+/// (`LayoutModel.UnitLayout.FunVerdicts`, `EmitTypes.EmitContext`'s `…ByNode` set):
+/// a bare `ExprPoolId` would be sound only for as long as no two units' tables met,
+/// since every pool numbers from 0 and a foreign id would name a different node rather
+/// than miss.
 [<Struct; NoComparison>]
 type Handle<'Id> = { Pool: PoolBuilder; Id: 'Id }
 

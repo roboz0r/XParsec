@@ -51,9 +51,9 @@ module internal ClosureVerdictRewrite =
         }
 
     /// Build the rewrite from the backend-neutral inputs:
-    /// * `closureValueTypeByNode` — each value-struct closure's Lambda node, by POOL
-    ///   ID → its minted `<closure>$` value-struct `FrozenType`.
-    /// * `funVerdicts` — a source-lambda node's POOL ID → its `FunVerdict`; the
+    /// * `closureValueTypeByNode` — each value-struct closure's Lambda NODE (a pool id
+    ///   with the pool that issued it) → its minted `<closure>$` value-struct `FrozenType`.
+    /// * `funVerdicts` — a source-lambda NODE → its `FunVerdict`; the
     ///   `ResultTyparPos` names the type-arg POSITION its `'TFunc` occupies in the
     ///   producing transformer's result nominal (the only field this pass reads).
     /// * `enumeratorOf` — the seq→enumerator witness: given a (rewritten) seq nominal,
@@ -63,8 +63,8 @@ module internal ClosureVerdictRewrite =
     ///   binding's nested `'E` slot NODE-KEYED, never by matching an arrow leaf.
     /// * `moduleValues` — each stored module value as `(key, declared type, initialiser)`.
     let build
-        (closureValueTypeByNode: IReadOnlyDictionary<ExprPoolId, FrozenType>)
-        (funVerdicts: IReadOnlyDictionary<ExprPoolId, FunVerdict>)
+        (closureValueTypeByNode: IReadOnlyDictionary<TastAccessor.ExprId, FrozenType>)
+        (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)
         (enumeratorOf: FrozenType -> FrozenType voption)
         (moduleValues: (NodeKey * FrozenType * TastAccessor.ExprId) seq)
         : Rewrite =
@@ -81,7 +81,7 @@ module internal ClosureVerdictRewrite =
         // (`appOwnVerdict`). Built first so every downstream consumer (`collect`,
         // `appOwnVerdict`, the for-in leaf set) shares it.
         let closureNodeVerdict =
-            let d = Dictionary<ExprPoolId, struct (FrozenType * int)>()
+            let d = Dictionary<TastAccessor.ExprId, struct (FrozenType * int)>()
 
             for KeyValue(node, closureFt) in closureValueTypeByNode do
                 match funVerdicts.TryGetValue node with
@@ -204,7 +204,7 @@ module internal ClosureVerdictRewrite =
                     | _ -> ()
 
             let rec collect (e: TastAccessor.ExprId) =
-                match closureNodeVerdict.TryGetValue e.Id with
+                match closureNodeVerdict.TryGetValue e with
                 | true, struct (closureFt, idx) -> slots.[idx] <- closureFt
                 | false, _ -> ()
 
@@ -293,7 +293,7 @@ module internal ClosureVerdictRewrite =
             let rec scan (e: TastAccessor.ExprId) : struct (FrozenType * int) voption =
                 match e with
                 | TastAccessor.EApp app ->
-                    match closureNodeVerdict.TryGetValue app.Arg.Id with
+                    match closureNodeVerdict.TryGetValue app.Arg with
                     | true, v -> ValueSome v
                     | false, _ -> scan app.Fn
                 | _ -> ValueNone

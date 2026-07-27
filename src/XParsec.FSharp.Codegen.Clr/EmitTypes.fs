@@ -417,18 +417,18 @@ module EmitTypes =
         {
             Provider: ICodegenProvider
             Ctx: MetadataContext
-            ClosureByNode: Dictionary<ExprPoolId, Closure>
-            CtorHandleByNode: Dictionary<ExprPoolId, EntityHandle>
+            ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
+            CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             /// A non-capturing, monomorphic closure's cached `instance` field:
             /// a `Lambda` node here loads its one cached singleton
             /// with `ldsfld` instead of `newobj`'ing per construction.
-            CachedClosureFieldByNode: Dictionary<ExprPoolId, EntityHandle>
+            CachedClosureFieldByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             /// A captureless `Stack` (value-struct) closure
             /// `Lambda` node → its synthetic encodable `FrozenType` (its by-value
             /// local + the constrained-slot `MethodSpec` type-argument) and its
             /// closure-`TypeDef` handle (`initobj` operand).
-            ClosureValueTypeByNode: Dictionary<ExprPoolId, FrozenType>
-            ClosureTypeDefByNode: Dictionary<ExprPoolId, EntityHandle>
+            ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
+            ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
@@ -461,15 +461,15 @@ module EmitTypes =
             Provider: ICodegenProvider
             Ctx: MetadataContext
             Slots: Dictionary<NodeKey, int>
-            ClosureByNode: Dictionary<ExprPoolId, Closure>
-            CtorHandleByNode: Dictionary<ExprPoolId, EntityHandle>
+            ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
+            CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             /// Cached non-capturing closure singleton fields;
             /// a `Lambda` value here `ldsfld`s instead of `newobj`ing.
-            CachedClosureFieldByNode: Dictionary<ExprPoolId, EntityHandle>
+            CachedClosureFieldByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             /// Value-struct closures: synthetic encodable
             /// `FrozenType` + closure-`TypeDef` handle per `Stack` `Lambda` node.
-            ClosureValueTypeByNode: Dictionary<ExprPoolId, FrozenType>
-            ClosureTypeDefByNode: Dictionary<ExprPoolId, EntityHandle>
+            ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
+            ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             Args: Dictionary<NodeKey, int>
             SelfKey: NodeKey voption
             CaptureFields: Dictionary<NodeKey, EntityHandle>

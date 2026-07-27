@@ -312,7 +312,7 @@ module EmitConstruct =
     /// it. Its absence is a broken invariant (discovery missed a lambda), so each
     /// caller faults rather than silently degrading.
     let private closureOf (env: EmitEnv) (e: TastAccessor.ExprId) : Closure =
-        match env.ClosureByNode.TryGetValue e.Id with
+        match env.ClosureByNode.TryGetValue e with
         | true, closure -> closure
         | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
 
@@ -334,7 +334,7 @@ module EmitConstruct =
         (closureFt: FrozenType)
         : unit =
         let closure = closureOf env e
-        let closureHandle = env.ClosureTypeDefByNode.[e.Id]
+        let closureHandle = env.ClosureTypeDefByNode.[e]
         let slot = b.Local closureFt
         b.Add(ILInstr.Ldloca slot)
 
@@ -345,7 +345,7 @@ module EmitConstruct =
                 buildVarLoad env b k
 
             let ctorHandle =
-                match env.CtorHandleByNode.TryGetValue e.Id with
+                match env.CtorHandleByNode.TryGetValue e with
                 | true, ctor -> ctor
                 | false, _ ->
                     failwith "Emit: value-struct closure constructor not yet emitted (leaves-first ordering broken)"
@@ -369,7 +369,7 @@ module EmitConstruct =
 
         let ctorHandle =
             if closure.Typars = 0 then
-                match env.CtorHandleByNode.TryGetValue e.Id with
+                match env.CtorHandleByNode.TryGetValue e with
                 | true, ctor -> ctor
                 | false, _ -> failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
             else
@@ -401,9 +401,9 @@ module EmitConstruct =
     let buildLambda (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         // Reached only via `EmitExpr`'s router; the node's discovered closure mode
         // (value-struct / cached singleton / heap `newobj`) selects the construction.
-        match env.ClosureValueTypeByNode.TryGetValue e.Id with
+        match env.ClosureValueTypeByNode.TryGetValue e with
         | true, closureFt -> buildValueStructClosure env b e closureFt
         | false, _ ->
-            match env.CachedClosureFieldByNode.TryGetValue e.Id with
+            match env.CachedClosureFieldByNode.TryGetValue e with
             | true, cachedField -> b.Add(ILInstr.Ldsfld cachedField)
             | false, _ -> buildHeapClosure env b e

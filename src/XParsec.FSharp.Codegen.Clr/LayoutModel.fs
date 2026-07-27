@@ -321,15 +321,16 @@ type internal UnitLayout =
         Lowered: TastAccessor.DeclId list
         Plan: HolderPlan
         Closures: EmitTypes.Closure list
-        ClosureByNode: Dictionary<ExprPoolId, EmitTypes.Closure>
+        ClosureByNode: Dictionary<TastAccessor.ExprId, EmitTypes.Closure>
         Partitioned: PartitionedTypeDecls
-        /// This unit's source-lambda value-struct closure verdicts, on ITS OWN pool's
-        /// lambda id space. It rides the unit rather than a single ctor-level table
-        /// because an `ExprPoolId` is only meaningful RELATIVE to the pool that issued
-        /// it: two units' pools both number from 0, so a foreign unit's id would not
-        /// miss — it would silently name a DIFFERENT node. Per-unit scoping is what makes
-        /// the bare id a sound key here; merging these across units would not be.
-        FunVerdicts: IReadOnlyDictionary<ExprPoolId, FunVerdict>
+        /// This unit's source-lambda value-struct closure verdicts, keyed by the lambda
+        /// NODE — the id together with the pool that issued it. A bare `ExprPoolId` is
+        /// only meaningful relative to that pool: two units' pools both number from 0,
+        /// so a foreign unit's id would not miss, it would silently name a DIFFERENT
+        /// node. The handle carries its pool and a `PoolBuilder` compares by reference,
+        /// so a cross-unit lookup misses like any other absent key and per-unit scoping
+        /// is no longer the thing keeping this sound.
+        FunVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>
         /// Whether this unit carries the entry point (`Main`). `buildUnit` leaves it FALSE
         /// — the OutputKind decision belongs to the whole assembly, not a file — and
         /// `combine` stamps it TRUE on the single entry unit (an executable's last file)

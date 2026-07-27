@@ -281,8 +281,13 @@ let tests =
                 let pool = TastPoolBuilder.openOver pools
                 let lowered0 = Emit.lower (List.ofArray (TastAccessor.roots pool))
                 // No lambda in these sources carries a value-struct verdict, but the
-                // discovery signature is the pooled one, so feed it the pooled table.
-                let funVerdicts = readOnlyDict pools.FunVerdicts
+                // discovery signature is the pooled one, so feed it the pooled table —
+                // node-keyed, as `Layout.buildUnit` does.
+                let funVerdicts =
+                    pools.FunVerdicts
+                    |> Array.map (fun (id, v) -> ({ Pool = pool; Id = id }: TastAccessor.ExprId), v)
+                    |> DenseTable.index
+
                 let moduleValues = Emit.collectModuleValues tast.ModuleMembers lowered0
                 let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
 

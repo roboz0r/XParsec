@@ -181,7 +181,7 @@ module EmitCall =
                 let recipeFnTy =
                     if
                         spineArgs
-                        |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg.Id)
+                        |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg)
                     then
                         // NOTE the spine tuple's middle element is the partial-application
                         // RESULT type at that step, not the argument's own type — read the
@@ -190,7 +190,7 @@ module EmitCall =
                         let argTys =
                             spineArgs
                             |> List.map (fun (arg, _, _) ->
-                                match env.ClosureValueTypeByNode.TryGetValue arg.Id with
+                                match env.ClosureValueTypeByNode.TryGetValue arg with
                                 | true, closureFt -> closureFt
                                 | false, _ -> typeOfExpr arg
                             )
@@ -294,7 +294,7 @@ module EmitCall =
                     // maps one-to-one onto the flat parameter index.
                     leading
                     |> List.iteri (fun i (arg, _, _) ->
-                        match env.ClosureValueTypeByNode.TryGetValue arg.Id with
+                        match env.ClosureValueTypeByNode.TryGetValue arg with
                         | true, closureFt ->
                             if i < List.length sm.ParamTys then
                                 match sm.ParamTys.[i] with

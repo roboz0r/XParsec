@@ -737,7 +737,7 @@ module EmitClosures =
 
     /// Enumerate every `Lambda` in the lowered tree leaves-first (a closure before
     /// any closure that constructs it), with its capture set; returns a dictionary
-    /// mapping each lambda node (by pool id) to its `Closure`. `staticFnKeys`'
+    /// mapping each lambda NODE to its `Closure`. `staticFnKeys`'
     /// outer lambdas are *not* closures (only their bodies are walked for inner
     /// closures), since a reference to one is a direct call. A closure walked from
     /// a generic static fn's body inherits that fn's `staticFnTypars` on its
@@ -770,17 +770,17 @@ module EmitClosures =
     /// `ofToken … ExprLambda`) indexes the verdict map. Walking every lambda and
     /// testing membership covers project-local and external heads in one path.
     let private collectStackLambdaArgs
-        (funVerdicts: IReadOnlyDictionary<ExprPoolId, FunVerdict>)
+        (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)
         (decls: TastAccessor.DeclId list)
         (memberRoots: MemberClosureRoot list)
-        : Dictionary<ExprPoolId, int> =
-        let stackNodes = Dictionary<ExprPoolId, int>()
+        : Dictionary<TastAccessor.ExprId, int> =
+        let stackNodes = Dictionary<TastAccessor.ExprId, int>()
 
         let rec walk (e: TastAccessor.ExprId) =
             (match TastAccessor.exprKind e with
              | ExprShape.Lambda ->
-                 match funVerdicts.TryGetValue e.Id with
-                 | true, v -> stackNodes.[e.Id] <- v.Arity
+                 match funVerdicts.TryGetValue e with
+                 | true, v -> stackNodes.[e] <- v.Arity
                  | false, _ -> ()
              | _ -> ())
 
@@ -834,13 +834,13 @@ module EmitClosures =
         (staticFnKeys: HashSet<NodeKey>)
         (moduleValueKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
-        (funVerdicts: IReadOnlyDictionary<ExprPoolId, FunVerdict>)
+        (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)
         (closureReprs: Map<NodeKey, ClosureRepr>)
         (decls: TastAccessor.DeclId list)
         (memberRoots: MemberClosureRoot list)
-        : Closure list * Dictionary<ExprPoolId, Closure> =
-        let order = ResizeArray<ExprPoolId>()
-        let lookup = Dictionary<ExprPoolId, Closure>()
+        : Closure list * Dictionary<TastAccessor.ExprId, Closure> =
+        let order = ResizeArray<TastAccessor.ExprId>()
+        let lookup = Dictionary<TastAccessor.ExprId, Closure>()
 
         // Source lambdas threaded through a constrained `Fun`2`/`Fun`3`
         // slot — eligible for the value-struct closure shape, mapped to their flat
@@ -863,7 +863,7 @@ module EmitClosures =
         // flat `Fun`3` slot). Only an anonymous monomorphic lambda the verdict reached.
         let valueStructArity (currentTypars: int) (selfKey: NodeKey voption) (e: TastAccessor.ExprId) : int =
             if currentTypars = 0 && ValueOption.isNone selfKey then
-                match stackLambdaArgs.TryGetValue e.Id with
+                match stackLambdaArgs.TryGetValue e with
                 | true, arity -> arity
                 | false, _ -> 1
             else
@@ -990,9 +990,7 @@ module EmitClosures =
                 // the combinator stays escape-free (no `ref struct`). Everything else is
                 // heap.
                 let isValueStruct =
-                    currentTypars = 0
-                    && ValueOption.isNone selfKey
-                    && stackLambdaArgs.ContainsKey e.Id
+                    currentTypars = 0 && ValueOption.isNone selfKey && stackLambdaArgs.ContainsKey e
 
                 let c =
                     {
@@ -1013,8 +1011,8 @@ module EmitClosures =
                         ExtraParams = extraParams
                     }
 
-                lookup.[e.Id] <- c
-                order.Add e.Id
+                lookup.[e] <- c
+                order.Add e
 
             match e with
             | TastAccessor.ELambda lam ->

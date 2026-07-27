@@ -43,8 +43,13 @@ module internal Layout =
 
         // A source lambda's verdict, on the lambda ID SPACE: a lambda's dense id is its
         // `ExprPoolId`, so a discovered lambda's verdict is a lookup on the node itself
-        // rather than a key recomputed from its token.
-        let funVerdicts = DenseTable.index pools.FunVerdicts
+        // rather than a key recomputed from its token. Keyed by the NODE (id + the pool
+        // that issued it), not the bare id: two units' pools both number from 0, so a bare
+        // id would not miss across units — it would silently name a different node.
+        let funVerdicts =
+            pools.FunVerdicts
+            |> Array.map (fun (id, v) -> ({ Pool = pool; Id = id }: TastAccessor.ExprId), v)
+            |> DenseTable.index
 
         let lowered0 = Emit.lower decls
         // The anonymous "Program" holder's key — a module of that name in the global
