@@ -61,8 +61,13 @@ module Cache =
     /// Bumped whenever a change to a cached derivation must invalidate every blob it has ever
     /// produced — a fix to `freeze` cannot be allowed to read back its own stale output. One
     /// definition site, folded into every key so a blob from a prior compiler is unreachable.
+    ///
+    /// A change to the WIRE SHAPE counts, not just to what `freeze` computes: the input hash
+    /// says what a blob was derived from, never how it was encoded, so a `FrozenCodec` field
+    /// that changes order or representation lands a stale blob at the same
+    /// `FileSystemStore` path and misparses. Bump on any edit to `writePools`/`readPools`.
     [<Literal>]
-    let CodeVersion = 1
+    let CodeVersion = 2
 
     /// A process-lifetime store backed by a dictionary. `CacheKey` is a record, so its structural
     /// equality keys the map directly with no custom comparer.

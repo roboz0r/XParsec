@@ -445,11 +445,10 @@ module FrozenSignature =
         // owns: they are derived from the frozen file's, not nodes of it.
         let valReprPats = TastPoolBuilder.openEmpty ()
 
-        // Both binding side tables are read at the binder ID the decl's own head pattern
+        // Every binding fact below is read at the binder ID the decl's own head pattern
         // carries — a template and the ordinary function it was snapshotted from are two
         // trees over the SAME source binder, so the one id serves both loops below.
         let bindingValReprs = DenseTable.index frozen.BindingValReprs
-        let bindingTyparArities = DenseTable.index frozen.BindingTyparArities
         let moduleMembers = DenseTable.index frozen.ModuleMembers
 
         let bindingValRepr (binder: BinderId) : TastAccessor.ValRepr voption =
@@ -459,16 +458,16 @@ module FrozenSignature =
             | true, vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring pool valReprPats vr)
             | _ -> ValueNone
 
-        let bindingArity (binder: BinderId) : int =
-            match bindingTyparArities.TryGetValue binder with
-            | true, n -> n
-            | _ -> 0
-
         let addValue (bindingKey: BindingKey) (binder: BinderId) (ty: FrozenType) (inlineBody: InlineBody voption) =
             let scheme = ConformanceTypars.toDeclaringAxis ty
 
             let sym =
-                { ExternalSymbols.scheme bindingKey.Decl bindingKey.Name scheme (bindingArity binder) [] with
+                { ExternalSymbols.scheme
+                      bindingKey.Decl
+                      bindingKey.Name
+                      scheme
+                      (FrozenPools.typarArity frozen binder)
+                      [] with
                     Origin = originIn bindingKey.Decl.Namespace
                     ValRepr = bindingValRepr binder
                     InlineBody = inlineBody

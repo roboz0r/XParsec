@@ -18,15 +18,18 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 //   | program                             | tree codec | pool columns |
 //   |-------------------------------------|-----------:|-------------:|
 //   | curried fns                         |        391 |          475 |
-//   | record type + literal + field get   |        214 |          258 |
-//   | match + for-to + mutable accumulator|        382 |          468 |
+//   | record type + literal + field get   |        214 |          255 |
+//   | match + for-to + mutable accumulator|        382 |          469 |
 //
 // (The pool figures moved down from 504 / 282 / 508 as data the blob already carried
 // elsewhere came out: the redundant `BinderNamings` column, the re-pooled `ValRepr`
 // tuple-group patterns, and then the three SHAPE columns — a node's tag is a projection
 // of its payload, so it was a byte per node per domain for a fact the payload's own tag
-// already stored. The ceilings below are unchanged: they exist to catch a LARGE
-// inflation, not to track the number.)
+// already stored. Turning the two per-binder scalars into `BinderColumn`s then traded 4 id
+// bytes per ENTRY for one presence byte per BINDER, which is a small win where the entries
+// are dense against the binder pool and a small loss where they are sparse. The ceilings
+// below are unchanged throughout: they exist to catch a LARGE inflation, not to track the
+// number.)
 //
 // The pool form is ~22% LARGER, and that is inherent to it rather than a defect: the recursive
 // tree codec encodes the tree spine implicitly in its nesting (zero bytes), whereas the columnar

@@ -95,12 +95,13 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
         | p -> failtestf "a Type decl's pool payload is %A, not DeclPayload.Type" p
 
 /// The id-resolution gate: the `ExprVarBinder` column is populated EXACTLY at the `Var`
-/// slots (each to an in-range `BinderId`), and each of the seven side-table keys resolves
-/// to a `BinderId`/`ExprPoolId`. A binder the enumeration missed shows up as an unresolved
+/// slots (each to an in-range `BinderId`), and each side table's source keys land on a
+/// `BinderId`/`ExprPoolId`. A binder the enumeration missed shows up as an unresolved
 /// reference (a `toPools` fault). That each `Var` resolves to its OWN binder key is proven
-/// by the round-trip gate (which rebuilds every `Var.binding` from this column). The dense
+/// by the round-trip gate (which rebuilds every `Var.binding` from this column). The pooled
 /// side tables must also cover the source maps 1:1 — a dropped or duplicated key would
-/// desync the rebuilt map from the original.
+/// desync the rebuilt map from the original — whether they keep their key (`DenseTable`) or
+/// have given it up for a position (`BinderColumn`).
 let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
     let binderKey (BinderId i) = pools.BinderKeys.[i]
     // `FunVerdicts` is keyed by the lambda id space, not the binder pool; the Node is gone,
@@ -128,6 +129,24 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
         for (id, _) in dense do
             Expect.isTrue (Set.contains (resolve id) sourceKeys) (name + " dense key resolves to a source key")
 
+    // A per-binder COLUMN (`BinderColumn`) holds no key, so what is checked is the FILLED
+    // SLOTS: one per source entry, each at the slot of the binder that entry named. The
+    // column is also aligned to `BinderKeys`, which a keyed table has no obligation to be.
+    let checkColumn (name: string) (col: BinderColumn<'v>) (sourceKeys: Set<NodeKey>) =
+        Expect.equal col.Length pools.BinderKeys.Length (name + " column is aligned with the binder pool")
+
+        let filled =
+            [|
+                for i in 0 .. col.Length - 1 do
+                    if col.[i].IsSome then
+                        yield binderKey (BinderId i)
+            |]
+
+        Expect.equal filled.Length sourceKeys.Count (name + " column covers the source map 1:1")
+
+        for k in filled do
+            Expect.isTrue (Set.contains k sourceKeys) (name + " filled slot is a source key's binder")
+
     // The source keys in the address space the resolvers answer in: a binder-keyed table is
     // widened (`BinderKey.widenMap`), `FunVerdicts` is already lambda-key-shaped.
     let keysOf (m: Map<NodeKey, 'w>) =
@@ -137,11 +156,11 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
     let lambdaSource (m: Map<NodeKey, 'w>) = keysOf m
 
     checkTable "ModuleMembers" binderKey pools.ModuleMembers (binderSource frozen.ModuleMembers)
-    checkTable "TopLevelNames" binderKey pools.TopLevelNames (binderSource frozen.TopLevelNames)
     checkTable "ClosureReprs" binderKey pools.ClosureReprs (binderSource frozen.ClosureReprs)
     checkTable "FunVerdicts" lambdaKeyOf pools.FunVerdicts (lambdaSource frozen.FunVerdicts)
     checkTable "GenericFnSchemes" binderKey pools.GenericFnSchemes (binderSource frozen.GenericFnSchemes)
-    checkTable "BindingTyparArities" binderKey pools.BindingTyparArities (binderSource frozen.BindingTyparArities)
+    checkColumn "TopLevelNames" pools.TopLevelNames (binderSource frozen.TopLevelNames)
+    checkColumn "BindingTyparArities" pools.BindingTyparArities (binderSource frozen.BindingTyparArities)
 
 /// A binding's recorded arity is READ OFF the pooled spine, so a tuple group's pattern must
 /// BE the spine node it was peeled from. A re-pooled copy would be structurally equal and
@@ -619,6 +638,11 @@ let staleSideTableEntryTests =
 
             // The SAME dropped binder in a different table: the reported name tracks the
             // table, so it is diagnostic rather than a constant that happens to read right.
+            //
+            // This one also pins that giving up the STORED key does not give up the check.
+            // `BindingTyparArities` reaches the pools as a `BinderColumn` — no key at all —
+            // yet the producer's key still has to name a slot for the fill to have one to
+            // write, so it goes through the same `binderIdOf` and faults the same way.
             test "a retained BindingTyparArities entry faults, naming that table" {
                 let dropped = lastBindingDropped ()
 

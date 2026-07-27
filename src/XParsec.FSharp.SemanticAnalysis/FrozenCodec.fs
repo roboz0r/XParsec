@@ -1640,8 +1640,18 @@ module FrozenCodec =
     let private readIdColumn (r: BinaryReader) (readId: BinaryReader -> 'id) : 'id[][] =
         readArrayWith r (fun r -> readArrayWith r readId)
 
+    /// A per-binder column (`BinderColumn`) — one optional value per binder slot, in
+    /// `BinderKeys` order. NO id is written: the slot's position IS the binder, which is
+    /// the whole property of the column form, so the wire carries a presence byte where the
+    /// keyed form carried four id bytes plus a value.
+    let private writeBinderColumn (w: BinaryWriter) (writeVal: BinaryWriter -> 'v -> unit) (col: BinderColumn<'v>) =
+        writeArrayWith w (fun w v -> writeVOptionWith w writeVal v) col
+
+    let private readBinderColumn (r: BinaryReader) (readVal: BinaryReader -> 'v) : BinderColumn<'v> =
+        readArrayWith r (fun r -> readVOptionWith r readVal)
+
     /// A dense side table — the `(id, value)` association a `Map<NodeKey,_>` was re-keyed
-    /// to. Generic over BOTH codecs, so the six `BinderId`-keyed tables and the one
+    /// to. Generic over BOTH codecs, so the `BinderId`-keyed tables and the one
     /// `ExprPoolId`-keyed (`FunVerdicts`) share this single pair.
     let private writeDenseTable
         (w: BinaryWriter)
@@ -2051,12 +2061,12 @@ module FrozenCodec =
         writeArrayWith w writeNodeKey p.BinderKeys
         writeResidue w p.Residue
         writeDenseTable w writeBinderId writeModuleBindingInfo p.ModuleMembers
-        writeDenseTable w writeBinderId (fun w (s: string) -> w.Write s) p.TopLevelNames
         writeDenseTable w writeBinderId writeClosureRepr p.ClosureReprs
         writeDenseTable w writeExprPoolId writeFunVerdict p.FunVerdicts
         writeDenseTable w writeBinderId (fun w cs -> writeListWith w writeFrozenConstraint cs) p.GenericFnSchemes
         writeDenseTable w writeBinderId writeValRepr p.BindingValReprs
-        writeDenseTable w writeBinderId (fun w (i: int) -> w.Write i) p.BindingTyparArities
+        writeBinderColumn w (fun w (s: string) -> w.Write s) p.TopLevelNames
+        writeBinderColumn w (fun w (i: int) -> w.Write i) p.BindingTyparArities
 
     let private readPools (r: BinaryReader) : FrozenPools =
         let exprTys = readArrayWith r readFrozenType
@@ -2077,9 +2087,6 @@ module FrozenCodec =
         let binderKeys = readArrayWith r readNodeKey
         let residue = readResidue r
         let moduleMembers = readDenseTable r readBinderId readModuleBindingInfo
-
-        let topLevelNames = readDenseTable r readBinderId (fun r -> r.ReadString())
-
         let closureReprs = readDenseTable r readBinderId readClosureRepr
         let funVerdicts = readDenseTable r readExprPoolId readFunVerdict
 
@@ -2087,8 +2094,8 @@ module FrozenCodec =
             readDenseTable r readBinderId (fun r -> readListWith r readFrozenConstraint)
 
         let bindingValReprs = readDenseTable r readBinderId readValRepr
-
-        let bindingTyparArities = readDenseTable r readBinderId (fun r -> r.ReadInt32())
+        let topLevelNames = readBinderColumn r (fun r -> r.ReadString())
+        let bindingTyparArities = readBinderColumn r (fun r -> r.ReadInt32())
 
         {
             ExprTys = exprTys
@@ -2109,11 +2116,11 @@ module FrozenCodec =
             BinderKeys = binderKeys
             Residue = residue
             ModuleMembers = moduleMembers
-            TopLevelNames = topLevelNames
             ClosureReprs = closureReprs
             FunVerdicts = funVerdicts
             GenericFnSchemes = genericFnSchemes
             BindingValReprs = bindingValReprs
+            TopLevelNames = topLevelNames
             BindingTyparArities = bindingTyparArities
         }
 

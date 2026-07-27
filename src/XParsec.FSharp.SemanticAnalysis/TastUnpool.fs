@@ -14,7 +14,7 @@ open XParsec.FSharp.Parser
 //     by `TastPoolBuilder`'s subtree drain (`declTree`) for the one channel whose far end
 //     is still DU-typed: a package's inline template crosses the wire as a
 //     `Frozen.TDecl`, a pool id being meaningless outside the pool that issued it.
-//   * `nodeKeyedSideTables` — the four binder-keyed side tables back as the
+//   * `nodeKeyedSideTables` — the four per-binder side tables back as the
 //     `Map<NodeKey,_>`s they were re-keyed from, for a consumer whose own downstream API
 //     is still `NodeKey`-keyed (`Layout.buildUnit` feeding the CLR holder plan / closure
 //     discovery). One named seam, because that is debt to be closed, not a facility.
@@ -242,7 +242,20 @@ module TastUnpool =
     let private binderKeyedMap (resolve: BinderId -> 'k) (dense: (BinderId * 'v)[]) : Map<'k, 'v> =
         dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
-    /// The four binder-keyed side tables a CLR emit consumes, back in `NodeKey` form.
+    /// The same drain for a per-binder COLUMN (`BinderColumn`): the key the fill consumed is
+    /// re-minted from the slot's own position, which is the only place it can come from now
+    /// — a filled slot is an entry, an empty one is no entry, and there is no third state a
+    /// stored key could have put the map in.
+    let private binderColumnMap (resolve: BinderId -> 'k) (col: BinderColumn<'v>) : Map<'k, 'v> =
+        Map.ofSeq
+            [
+                for i in 0 .. col.Length - 1 do
+                    match col.[i] with
+                    | ValueSome v -> yield resolve (BinderId i), v
+                    | ValueNone -> ()
+            ]
+
+    /// The four per-binder side tables a CLR emit consumes, back in `NodeKey` form.
     ///
     /// This is DEBT, deliberately given one name and one home rather than four call
     /// sites. `HolderPlan.create` and `Emit.discoverClosures` — and everything downstream
@@ -267,7 +280,7 @@ module TastUnpool =
 
         {
             ModuleMembers = binderKeyedMap widen pools.ModuleMembers
-            TopLevelNames = binderKeyedMap widen pools.TopLevelNames
+            TopLevelNames = binderColumnMap widen pools.TopLevelNames
             ClosureReprs = binderKeyedMap widen pools.ClosureReprs
             GenericFnSchemes = binderKeyedMap widen pools.GenericFnSchemes
         }
@@ -366,15 +379,16 @@ module TastUnpool =
 
         // Reconstructing the side-table maps here (rather than retaining the source
         // file's) is what makes the round-trip prove the key remap, not just the decl
-        // trees. The binder-keyed five go through the shared `binderKeyedMap`, resolving
-        // through the projections the rebuild collected; `FunVerdicts` is the one on the
-        // lambda id space, so it inverts through `lambdaKeyOf` right where it is built.
+        // trees. The keyed binder tables go through the shared `binderKeyedMap` and the two
+        // per-binder COLUMNS through `binderColumnMap`, both resolving through the
+        // projections the rebuild collected; `FunVerdicts` is the one on the lambda id
+        // space, so it inverts through `lambdaKeyOf` right where it is built.
         {
             Decls = decls
             Diagnostics = pools.Residue.Diagnostics
             IntrinsicReprKeys = pools.Residue.IntrinsicReprKeys
             ModuleMembers = binderKeyedMap readmittedBinder pools.ModuleMembers
-            TopLevelNames = binderKeyedMap readmittedBinder pools.TopLevelNames
+            TopLevelNames = binderColumnMap readmittedBinder pools.TopLevelNames
             ClosureReprs = binderKeyedMap readmittedBinder pools.ClosureReprs
             FunVerdicts = pools.FunVerdicts |> Array.map (fun (id, v) -> lambdaKeyOf id, v) |> Map.ofArray
             GenericFnSchemes = binderKeyedMap readmittedBinder pools.GenericFnSchemes
@@ -384,5 +398,5 @@ module TastUnpool =
             // lambda spine, so `toPools` re-derives it off the columns rather than the DU
             // ferrying it across — which is also why the round trip does not have to
             // reconstruct it to stay faithful.
-            BindingTyparArities = binderKeyedMap readmittedBinder pools.BindingTyparArities
+            BindingTyparArities = binderColumnMap readmittedBinder pools.BindingTyparArities
         }

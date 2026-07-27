@@ -516,11 +516,6 @@ module TastPools =
         (pools: FrozenPools)
         (binderIdOf: string -> NodeKey -> BinderId)
         : DenseTable<BinderId, PooledValRepr> =
-        // The typar-axis width in the ID domain — `pools` already carries the remapped
-        // column, so this reads the very table it ships with rather than a second
-        // NodeKey-keyed copy of it.
-        let typarArities = DenseTable.index pools.BindingTyparArities
-
         let unLambda (ExprPoolId i) =
             match pools.ExprPayloads.[i] with
             | ExprPayload.Lambda -> ValueSome(struct (pools.ExprPatChildren.[i].[0], pools.ExprChildren.[i].[0]))
@@ -560,10 +555,11 @@ module TastPools =
                                 // A plain value has no lambda groups and records an
                                 // empty-`Groups` entry, which the file→file signature
                                 // projection reads as "not a function".
-                                Typars =
-                                    match typarArities.TryGetValue id with
-                                    | true, n -> n
-                                    | false, _ -> 0
+                                //
+                                // `pools` already carries the filled column, so the width
+                                // comes from the very one it ships with rather than from a
+                                // second NodeKey-keyed copy of it.
+                                Typars = FrozenPools.typarArity pools id
                                 Groups = groups
                                 ResultTy = pools.ExprTys.[b]
                             }
@@ -759,6 +755,20 @@ module TastPools =
         let remapSideTable (resolve: 'k -> 'id) (m: Map<'k, 'v>) : ('id * 'v)[] =
             m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 
+        // A per-binder SCALAR goes into a COLUMN instead (`BinderColumn`): the producer's
+        // key is resolved here — through the same `binderIdOf`, so the reachability policy
+        // above applies to it unchanged — and then DROPPED, the fact landing at the binder's
+        // own slot. What that removes is the stored key, and with it the possibility of a
+        // stale entry surviving the freeze at all.
+        let binderColumn (referent: string) (m: Map<BinderKey, 'v>) : BinderColumn<'v> =
+            let col = Array.create binderKeys.Count ValueNone
+
+            for KeyValue(k, v) in m do
+                let (BinderId i) = binderIdOf referent k
+                col.[i] <- ValueSome v
+
+            col
+
         // Every column is snapshotted here and NOTHING below appends: the derived table
         // that follows only READS the pools, so the record's field order carries no
         // correctness weight.
@@ -787,13 +797,13 @@ module TastPools =
                         Accessibility = file.Accessibility
                     }
                 ModuleMembers = remapSideTable (binderIdOf "ModuleMembers") file.ModuleMembers
-                TopLevelNames = remapSideTable (binderIdOf "TopLevelNames") file.TopLevelNames
                 ClosureReprs = remapSideTable (binderIdOf "ClosureReprs") file.ClosureReprs
                 FunVerdicts = remapSideTable (lambdaIdOf "FunVerdicts") file.FunVerdicts
                 GenericFnSchemes = remapSideTable (binderIdOf "GenericFnSchemes") file.GenericFnSchemes
                 // Derived below, off the pools themselves.
                 BindingValReprs = [||]
-                BindingTyparArities = remapSideTable (binderIdOf "BindingTyparArities") file.BindingTyparArities
+                TopLevelNames = binderColumn "TopLevelNames" file.TopLevelNames
+                BindingTyparArities = binderColumn "BindingTyparArities" file.BindingTyparArities
             }
 
         { pools with

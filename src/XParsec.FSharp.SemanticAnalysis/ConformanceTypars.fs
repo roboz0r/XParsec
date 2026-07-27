@@ -114,10 +114,10 @@ module ConformanceTypars =
     /// scheme disagrees with its declared one, in source-declaration order.
     let checkFile (provider: IExternalSymbolProvider) (pools: FrozenPools) : TyparMismatch list =
         let pool = TastPoolBuilder.openOver pools
-        // Both side tables are read at the binder id the decl's own head pattern carries,
-        // so a lookup can only name a binder this tree bears — no `NodeKey` round-trip.
+        // Both the member table and the name column are read at the binder id the decl's own
+        // head pattern carries, so a lookup can only name a binder this tree bears — no
+        // `NodeKey` round-trip.
         let moduleMembers = DenseTable.index pools.ModuleMembers
-        let topLevelNames = DenseTable.index pools.TopLevelNames
 
         [
             for decl in TastAccessor.roots pool do
@@ -140,9 +140,9 @@ module ConformanceTypars =
                         match info with
                         | Some mi -> Some mi.Name
                         | None ->
-                            match topLevelNames.TryGetValue binder with
-                            | true, n -> Some n
-                            | _ -> None
+                            match BinderColumn.tryItem pools.TopLevelNames binder with
+                            | ValueSome n -> Some n
+                            | ValueNone -> None
 
                     match nameOpt with
                     | None -> ()

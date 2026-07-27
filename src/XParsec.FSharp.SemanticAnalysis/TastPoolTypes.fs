@@ -65,7 +65,10 @@ open XParsec.FSharp.Parser
 // side tables — name it by that id in the pool form. (The seventh,
 // `FunVerdicts`, is keyed by a lambda-EXPRESSION
 // key, not a binder, and takes the lambda id space — its dense id is the lambda's
-// `ExprPoolId`.) `ofPools` resolves each id back through `BinderKeys` to the retained
+// `ExprPoolId`.) Two of the six go further and name it by nothing at all: a per-binder
+// SCALAR is a `BinderColumn`, positionally aligned with `BinderKeys`, so there is no
+// stored key left to go stale (see `BinderColumn` for when that applies and when it does
+// not). `ofPools` resolves each id back through `BinderKeys` to the retained
 // NodeKey, so the round-trip exercises the remap rather than copying the keys back
 // verbatim: a reference or side-table key that resolves to no interned binder faults
 // here, which is the gate that keeps the enumeration honest. (Kind is not stored — its
@@ -189,6 +192,31 @@ module DenseTable =
                 failwithf "DenseTable.index: id %O appears twice" id
 
         d
+
+/// A per-binder SCALAR in its stored form: a COLUMN, one slot per `FrozenPools.BinderKeys`
+/// entry and in that same order, `ValueNone` where the binder carries no such fact.
+///
+/// The point is what it does NOT have. A `DenseTable<BinderId, _>` still holds a key, and a
+/// key can name a binder the frozen file does not bear — the stale-entry defect
+/// `TastPools.toPools`' `binderIdOf` faults on. A column has no key to be stale: the fact is
+/// AT the binder, so it cannot desync from it, and the producer's key is consumed once at
+/// fill time and never stored. Only a per-binder fact that is genuinely independent of the
+/// node AND scalar takes this form; a per-binder record or list stays a `DenseTable`, since
+/// a column of them would be mostly empty payloads rather than mostly empty slots.
+type BinderColumn<'v> = 'v voption[]
+
+[<RequireQualifiedAccess>]
+module BinderColumn =
+
+    /// The fact recorded for `id`, if any — the one read every consumer makes, so the
+    /// absence convention is stated once here rather than at each of them.
+    ///
+    /// An id PAST the column's end also reads `ValueNone`, and honestly: the binder id
+    /// space is STACKED (`TastPoolBuilder.internBinder` mints ids above the base pool's
+    /// `BinderKeys`, which is what the columns are aligned to), and a binder a lowering
+    /// minted is not a source binding, so it has no such fact by construction.
+    let tryItem (col: BinderColumn<'v>) (BinderId i) : 'v voption =
+        if i < col.Length then col.[i] else ValueNone
 
 /// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
 /// by pool id instead of carrying the tree. The declaration SHAPE is unchanged — which body
@@ -652,7 +680,8 @@ module DeclPayload =
         | DeclPayload.Type _ -> DeclShape.Type
 
 /// Everything of a `Frozen.TastFile` that has NO pooled form — the file MINUS its trees (the
-/// columns) and MINUS the seven side tables (the dense `BinderId`/`ExprPoolId` associations).
+/// columns) and MINUS the seven side tables (the dense `BinderId`/`ExprPoolId` associations
+/// and the two per-binder `BinderColumn`s).
 /// NO field here carries a tree, which is the property that matters: every expression and
 /// pattern in the file is in the columns, so the residue can never drag a subtree along.
 /// Exactly these three fields, each for its own reason:
@@ -683,12 +712,13 @@ type FrozenFileResidue =
 /// (`TastPools.toPools`) does not outlive the freeze. Kept OFF `TastFileG` — that record is
 /// shared with the `SemType` instantiation, which has no pools.
 ///
-/// The binder pool and the dense-keyed side tables give the file's identity keys a
-/// positional home: `BinderKeys` is the distinct binder NodeKeys, indexable by `BinderId`;
-/// the source file's side tables are re-expressed as `BinderId`-keyed (or, for
-/// `FunVerdicts`, `ExprPoolId`-keyed) associations. `ofPools` rebuilds the maps from these,
-/// so the round-trip proves the remap is a faithful bijection over every referenced binder
-/// rather than trivially copying the source maps.
+/// The binder pool and the dense side tables give the file's identity keys a positional
+/// home: `BinderKeys` is the distinct binder NodeKeys, indexable by `BinderId`; the source
+/// file's side tables are re-expressed as `BinderId`-keyed (or, for `FunVerdicts`,
+/// `ExprPoolId`-keyed) associations, and the two that are per-binder SCALARS shed the key
+/// entirely for a slot aligned with `BinderKeys` (`BinderColumn`). `ofPools` rebuilds the
+/// maps from these, so the round-trip proves the remap is a faithful bijection over every
+/// referenced binder rather than trivially copying the source maps.
 type FrozenPools =
     {
         /// The expression pool as struct-of-arrays: these columns are parallel, each
@@ -743,11 +773,12 @@ type FrozenPools =
         BinderKeys: NodeKey[]
         /// The not-yet-pooled remainder of the source file, carried verbatim.
         Residue: FrozenFileResidue
-        /// Six of the seven source `Map<NodeKey,_>` side tables, re-keyed by `BinderId`.
+        /// The source `Map<NodeKey,_>` side tables that keep a KEY, re-keyed by `BinderId`.
         /// `ofPools` rebuilds each map from its dense form; a reader indexes it with
-        /// `DenseTable.index`.
+        /// `DenseTable.index`. A per-binder table is here rather than a `BinderColumn`
+        /// because its value is not a scalar — a record, a list, or (`ClosureReprs`) a fact
+        /// its own producer already filters against the tree.
         ModuleMembers: DenseTable<BinderId, ModuleBindingInfo>
-        TopLevelNames: DenseTable<BinderId, string>
         ClosureReprs: DenseTable<BinderId, ClosureRepr>
         /// The one side table keyed by a lambda-EXPRESSION `NodeKey` (a source lambda's
         /// `TastWalk.lambdaKey`, kind `ExprLambda`) rather than a binder, so it is re-keyed
@@ -758,7 +789,15 @@ type FrozenPools =
         FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
         GenericFnSchemes: DenseTable<BinderId, FrozenConstraint list>
         BindingValReprs: DenseTable<BinderId, PooledValRepr>
-        BindingTyparArities: DenseTable<BinderId, int>
+        /// The two per-binder SCALARS, held as `BinderColumn`s — positionally aligned with
+        /// `BinderKeys`, no key. `TopLevelNames` is a top-level (implicit-`Program`-module)
+        /// binding's source name, which the backend names its Program-holder slot by;
+        /// `BindingTyparArities` is a binding's typar-axis width at the index-minting point
+        /// (`Elaborate`'s `quantEnv`), read for `ExternalSymbol.TyparArity` and for a
+        /// `PooledValRepr`'s `Typars`. Both are sparse over the binder pool — most binders
+        /// are parameters and locals — so most slots are `ValueNone`.
+        TopLevelNames: BinderColumn<string>
+        BindingTyparArities: BinderColumn<int>
     }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -795,13 +834,25 @@ module FrozenPools =
                     Accessibility = readOnlyDict []
                 }
             ModuleMembers = [||]
-            TopLevelNames = [||]
             ClosureReprs = [||]
             FunVerdicts = [||]
             GenericFnSchemes = [||]
             BindingValReprs = [||]
+            // Zero binders, so the columns are zero-length — aligned with `BinderKeys`
+            // exactly as a filled pool's are.
+            TopLevelNames = [||]
             BindingTyparArities = [||]
         }
+
+    /// The typar-axis width recorded for `binder`, an empty slot reading 0. That is not a
+    /// fallback but the ANSWER: `Elaborate` files an arity only for a binding whose head
+    /// introduces a binder, and a binder with no recorded width quantifies nothing. One
+    /// home, because two readers defaulting apart is how a value silently regeneralises —
+    /// `TastPools`' `PooledValRepr.Typars` and `FrozenSignature`'s
+    /// `ExternalSymbol.TyparArity` are the same fact and must agree.
+    let typarArity (pools: FrozenPools) (binder: BinderId) : int =
+        BinderColumn.tryItem pools.BindingTyparArities binder
+        |> ValueOption.defaultValue 0
 
 // ── the ROW view: one node's slice across the parallel columns ──────────────
 //
