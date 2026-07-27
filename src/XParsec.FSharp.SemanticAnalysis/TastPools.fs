@@ -512,9 +512,17 @@ module TastPools =
     /// projects is for the two to be computed apart.
     ///
     /// `ArgGroups.peel` is the walk; the readers below are the only column-domain part.
+    ///
+    /// `tryBinderId` is the RAW lookup, not one of the two faulting resolvers: the key this
+    /// reads is a `PatPayload.NamedSimple` of the pool's own head pattern, which `poolPat`
+    /// interned as it appended that very node. So a miss here is not a producer filing a
+    /// surplus entry (`binderIdOf`) nor a reference to an unwalked definition site
+    /// (`binderIdOfRef`) — both of those are about keys that arrived from OUTSIDE the walk.
+    /// It can only be the interning failing to cover a node the walk itself pooled, and it
+    /// says so.
     let private bindingValReprs
         (pools: FrozenPools)
-        (binderIdOf: string -> NodeKey -> BinderId)
+        (tryBinderId: NodeKey -> BinderId voption)
         : DenseTable<BinderId, PooledValRepr> =
         let unLambda (ExprPoolId i) =
             match pools.ExprPayloads.[i] with
@@ -547,7 +555,14 @@ module TastPools =
                     | PatPayload.NamedSimple binding ->
                         let groups, body = ArgGroups.peel unLambda facts pools.DeclExprChildren.[d].[0]
                         let (ExprPoolId b) = body
-                        let id = binderIdOf "BindingValReprs" binding
+
+                        let id =
+                            match tryBinderId binding with
+                            | ValueSome id -> id
+                            | ValueNone ->
+                                failwithf
+                                    "TastPools.toPools: the pooled head pattern binding %O was never interned — the binder enumeration does not cover a node the walk itself pooled"
+                                    binding
 
                         yield
                             id,
@@ -807,5 +822,5 @@ module TastPools =
             }
 
         { pools with
-            BindingValReprs = bindingValReprs pools binderIdOfRef
+            BindingValReprs = bindingValReprs pools tryBinderId
         }
