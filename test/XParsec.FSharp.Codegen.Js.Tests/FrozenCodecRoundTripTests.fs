@@ -122,19 +122,10 @@ let private collect () : Harvest =
                 match c with
                 | FrozenConstraint.Coercion(_, target) -> visitFt target
 
-        for KeyValue(k, vr) in file.BindingValReprs do
-            nks.Add k |> ignore
-            visitFt vr.ResultTy
-
-            for g in vr.Groups do
-                match g with
-                | ArgGroupG.GUnit ty -> visitFt ty
-                | ArgGroupG.GSimple(slot, ty) ->
-                    nks.Add slot |> ignore
-                    visitFt ty
-                // A tuple group's frozen pattern tree is reached only by the full
-                // expr/decl walk the tree codec brings; the leaf gate skips it.
-                | ArgGroupG.GTuple _ -> ()
+        // No `BindingValReprs` harvest: the DU carries none — a binding's source arity is
+        // a PROJECTION of its lambda spine that `TastPools.toPools` derives off the
+        // columns, so every type and slot it names is already reached by the spine walk
+        // this harvest runs.
 
         // Real frozen tokens, shallowly: the source anchor of each top-level decl body.
         for decl in file.Decls do

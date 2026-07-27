@@ -360,11 +360,9 @@ module TastUnpool =
             GenericFnSchemes = binderKeyedMap pools pools.GenericFnSchemes
             InlineBodies = inlineBodies
             Accessibility = pools.Residue.Accessibility
-            // Both halves invert: the key through the binder pool, the tuple-group pats
-            // through the pat columns.
-            BindingValReprs =
-                pools.BindingValReprs
-                |> Array.map (fun (binder, vr) -> binderKey binder, TastConvert.valRepr id fromPat vr)
-                |> Map.ofArray
+            // No `BindingValReprs`: the DU does not carry one. It is a PROJECTION of the
+            // lambda spine, so `toPools` re-derives it off the columns rather than the DU
+            // ferrying it across — which is also why the round trip does not have to
+            // reconstruct it to stay faithful.
             BindingTyparArities = binderKeyedMap pools pools.BindingTyparArities
         }

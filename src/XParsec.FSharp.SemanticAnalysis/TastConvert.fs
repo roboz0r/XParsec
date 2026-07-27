@@ -363,8 +363,4 @@ module TastConvert =
             // `'ty`-free snapshot fields carried verbatim, like `IntrinsicReprKeys`.
             Accessibility = tf.Accessibility
             BindingTyparArities = tf.BindingTyparArities
-            // Generic in `'ty`; converted per-entry. Empty pre-freeze (`Freeze.run`
-            // fills the frozen table from the frozen lambda spines), so this is an
-            // identity on the empty map on the one path that runs it.
-            BindingValReprs = tf.BindingValReprs |> Map.map (fun _ vr -> valRepr f (pat f) vr)
         }

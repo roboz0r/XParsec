@@ -85,7 +85,6 @@ let tests =
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
                         Accessibility = System.Collections.Generic.Dictionary()
-                        BindingValReprs = Map.empty
                         BindingTyparArities = Map.empty
                     }
 
@@ -146,7 +145,6 @@ let tests =
                         FunVerdicts = Map.empty
                         GenericFnSchemes = Map.empty
                         Accessibility = System.Collections.Generic.Dictionary()
-                        BindingValReprs = Map.empty
                         BindingTyparArities = Map.empty
                     }
 

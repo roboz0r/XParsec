@@ -557,6 +557,68 @@ module TastPools =
                 Payload = declPayload sink d
             }
 
+    /// The SOURCE arity of every module binding, READ OFF THE POOLED SPINE — the columns
+    /// `toPools` has just filled, so a tuple group's pattern IS the lambda-spine node it
+    /// was peeled from and not a re-pooled copy of it. Derived rather than carried: it is a
+    /// projection of the tree, and the only way for a projection to disagree with what it
+    /// projects is for the two to be computed apart.
+    ///
+    /// `ArgGroups.peel` is the walk; the readers below are the only column-domain part.
+    let private bindingValReprs
+        (pools: FrozenPools)
+        (typarArities: Map<NodeKey, int>)
+        (binderIdOf: string -> NodeKey -> BinderId)
+        : DenseTable<BinderId, PooledValRepr> =
+        let unLambda (ExprPoolId i) =
+            match pools.ExprShapes.[i] with
+            | ExprShape.Lambda -> ValueSome(struct (pools.ExprPatChildren.[i].[0], pools.ExprChildren.[i].[0]))
+            | _ -> ValueNone
+
+        let facts (PatPoolId i) : ArgGroups.ParamPatFacts =
+            {
+                Shape = pools.PatShapes.[i]
+                Ty = pools.PatTys.[i]
+                Binder =
+                    match pools.PatPayloads.[i] with
+                    | PatPayload.NamedSimple binding -> ValueSome binding
+                    | _ -> ValueNone
+                ConstValue =
+                    match pools.PatPayloads.[i] with
+                    | PatPayload.Const value -> ValueSome value
+                    | _ -> ValueNone
+            }
+
+        [|
+            for DeclPoolId d in pools.Roots do
+                match pools.DeclShapes.[d] with
+                | DeclShape.Let ->
+                    let (PatPoolId head) = pools.DeclPatChildren.[d].[0]
+
+                    match pools.PatPayloads.[head] with
+                    // Only a simple binder has a side-table identity; a destructuring or
+                    // wildcard head introduces none and needs none (see `TastWalk.patBinder`).
+                    | PatPayload.NamedSimple binding ->
+                        let groups, body = ArgGroups.peel unLambda facts pools.DeclExprChildren.[d].[0]
+                        let (ExprPoolId b) = body
+
+                        yield
+                            binderIdOf "BindingValReprs" binding,
+                            {
+                                // A plain value has no lambda groups and records an
+                                // empty-`Groups` entry, which the file→file signature
+                                // projection reads as "not a function".
+                                Typars =
+                                    match Map.tryFind binding typarArities with
+                                    | Some n -> n
+                                    | None -> 0
+                                Groups = groups
+                                ResultTy = pools.ExprTys.[b]
+                            }
+                    | _ -> ()
+                | DeclShape.Expression
+                | DeclShape.Type -> ()
+        |]
+
     /// Pool the frozen tree of `file.Decls`, assigning each reachable node a dense id
     /// and recording its child edges as ids.
     let toPools (file: Frozen.TastFile) : FrozenPools =
@@ -680,18 +742,6 @@ module TastPools =
                 }
             )
 
-        // A binding's `ValRepr` tuple-group patterns, pooled through the same walk. They
-        // are STRUCTURALLY the lambda-spine pats `peelValRepr` read off the frozen tree,
-        // but they take their own pool entries rather than resolving to the tree's: the
-        // build keeps no node→id index (identity after freeze is positional, and a `ValRepr`
-        // is derived, not shared), so re-pooling is what keeps the pat columns the single
-        // home for every pattern. Done HERE and not in the record below: `Map.map` is eager
-        // and appends to the pat/binder builders, which the record's earlier fields have
-        // already snapshotted by the time it would run there.
-        let pooledValReprs =
-            file.BindingValReprs
-            |> Map.map (fun _ vr -> TastConvert.valRepr id (poolPat sink) vr)
-
         // Resolve a reference/side-table key to the binder it names. A miss means the
         // referent was introduced by no definition site the walk covers — an incomplete
         // binder enumeration, which is exactly the failure the id-resolution gate exists
@@ -725,37 +775,46 @@ module TastPools =
         let remapSideTable (resolve: NodeKey -> 'id) (m: Map<NodeKey, 'v>) : ('id * 'v)[] =
             m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 
-        {
-            ExprShapes = exprShapes.ToArray()
-            ExprTys = exprTys.ToArray()
-            ExprToks = exprToks.ToArray()
-            ExprChildren = exprChildrenCol.ToArray()
-            ExprPatChildren = exprPatChildrenCol.ToArray()
-            ExprVarBinder = exprVarBinder
-            ExprPayloads = exprPayloads.ToArray()
-            PatShapes = patShapes.ToArray()
-            PatTys = patTys.ToArray()
-            PatToks = patToks.ToArray()
-            PatChildren = patChildrenCol.ToArray()
-            PatPayloads = patPayloads.ToArray()
-            DeclShapes = declShapes.ToArray()
-            DeclExprChildren = declExprChildrenCol.ToArray()
-            DeclPatChildren = declPatChildrenCol.ToArray()
-            DeclPayloads = declPayloads.ToArray()
-            Roots = roots
-            InlineTemplates = inlineTemplates
-            BinderKeys = binderKeys.ToArray()
-            Residue =
-                {
-                    Diagnostics = file.Diagnostics
-                    IntrinsicReprKeys = file.IntrinsicReprKeys
-                    Accessibility = file.Accessibility
-                }
-            ModuleMembers = remapSideTable (binderIdOf "ModuleMembers") file.ModuleMembers
-            TopLevelNames = remapSideTable (binderIdOf "TopLevelNames") file.TopLevelNames
-            ClosureReprs = remapSideTable (binderIdOf "ClosureReprs") file.ClosureReprs
-            FunVerdicts = remapSideTable (lambdaIdOf "FunVerdicts") file.FunVerdicts
-            GenericFnSchemes = remapSideTable (binderIdOf "GenericFnSchemes") file.GenericFnSchemes
-            BindingValReprs = remapSideTable (binderIdOf "BindingValReprs") pooledValReprs
-            BindingTyparArities = remapSideTable (binderIdOf "BindingTyparArities") file.BindingTyparArities
+        // Every column is snapshotted here and NOTHING below appends: the derived table
+        // that follows only READS the pools, so the record's field order carries no
+        // correctness weight.
+        let pools =
+            {
+                ExprShapes = exprShapes.ToArray()
+                ExprTys = exprTys.ToArray()
+                ExprToks = exprToks.ToArray()
+                ExprChildren = exprChildrenCol.ToArray()
+                ExprPatChildren = exprPatChildrenCol.ToArray()
+                ExprVarBinder = exprVarBinder
+                ExprPayloads = exprPayloads.ToArray()
+                PatShapes = patShapes.ToArray()
+                PatTys = patTys.ToArray()
+                PatToks = patToks.ToArray()
+                PatChildren = patChildrenCol.ToArray()
+                PatPayloads = patPayloads.ToArray()
+                DeclShapes = declShapes.ToArray()
+                DeclExprChildren = declExprChildrenCol.ToArray()
+                DeclPatChildren = declPatChildrenCol.ToArray()
+                DeclPayloads = declPayloads.ToArray()
+                Roots = roots
+                InlineTemplates = inlineTemplates
+                BinderKeys = binderKeys.ToArray()
+                Residue =
+                    {
+                        Diagnostics = file.Diagnostics
+                        IntrinsicReprKeys = file.IntrinsicReprKeys
+                        Accessibility = file.Accessibility
+                    }
+                ModuleMembers = remapSideTable (binderIdOf "ModuleMembers") file.ModuleMembers
+                TopLevelNames = remapSideTable (binderIdOf "TopLevelNames") file.TopLevelNames
+                ClosureReprs = remapSideTable (binderIdOf "ClosureReprs") file.ClosureReprs
+                FunVerdicts = remapSideTable (lambdaIdOf "FunVerdicts") file.FunVerdicts
+                GenericFnSchemes = remapSideTable (binderIdOf "GenericFnSchemes") file.GenericFnSchemes
+                // Derived below, off the pools themselves.
+                BindingValReprs = [||]
+                BindingTyparArities = remapSideTable (binderIdOf "BindingTyparArities") file.BindingTyparArities
+            }
+
+        { pools with
+            BindingValReprs = bindingValReprs pools file.BindingTyparArities binderIdOf
         }

@@ -315,73 +315,15 @@ module Freeze =
                 Diagnostics = List.ofSeq ctx.Diagnostics
             }
 
-        let converted = TastConvert.file (freezeTy ctx.Store (schemeBinders ctx)) frozen
-
-        // The SOURCE `ValRepr` grouping, computed now the lambda spine is FROZEN
-        // (`peelValRepr`) — backend-neutral, read by both the codegen boundary and
-        // the file→file signature projection so neither recomputes it. `Decls` covers
-        // every module binding including the `inline` ones (the expansion walk does not
-        // touch a binding's lambda SPINE, so the emitted and published forms group
-        // identically). A plain value has no lambda groups and records an
-        // empty-`Groups` entry — the projection reads that as "not a function"
-        // (`ExternalSymbol.ValRepr = ValueNone`).
-        let bindingValReprs =
-            let d = System.Collections.Generic.Dictionary<NodeKey, Frozen.ValRepr>()
-
-            // The curried-lambda peel on the DU spine this freeze has just produced —
-            // the one point where the source arity is read before the tree is pooled.
-            // Only the READING of a parameter pattern is written here; which group it
-            // makes is `TastLower.argGroupOfParam`, the same rule the pooled peel runs.
-            let rec peel (e: Frozen.TExpr) : Frozen.ArgGroup list * Frozen.TExpr =
-                match e with
-                | TExprG.Lambda(param = param; body = body) ->
-                    let facts: TastLower.ParamPatFacts =
-                        {
-                            Shape = TastPools.patShape param
-                            Ty = TastWalk.patTy param
-                            Binder = TastWalk.patBinder param
-                            ConstValue =
-                                match param with
-                                | TPatG.Const(value = value) -> ValueSome value
-                                | _ -> ValueNone
-                        }
-
-                    match TastLower.argGroupOfParam facts param with
-                    | ValueSome g ->
-                        let gs, b = peel body
-                        g :: gs, b
-                    | ValueNone -> [], e
-                | _ -> [], e
-
-            let record (k: NodeKey) (value: Frozen.TExpr) =
-                let typars =
-                    match Map.tryFind k converted.BindingTyparArities with
-                    | Some n -> n
-                    | None -> 0
-
-                let groups, body = peel value
-
-                d.[k] <-
-                    {
-                        Typars = typars
-                        Groups = groups
-                        ResultTy = TastWalk.exprTy body
-                    }
-
-            for decl in converted.Decls do
-                match decl with
-                | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), value, _, _) -> record k value
-                | _ -> ()
-
-            d |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
-
-        { converted with
-            BindingValReprs = bindingValReprs
-        }
+        TastConvert.file (freezeTy ctx.Store (schemeBinders ctx)) frozen
 
     /// The SemanticAnalysis assembly's OUTPUT: the frozen file as struct-of-arrays pools.
     /// Every consumer — both backends, the signature projection, the compile cache —
     /// reads the columns, so this is the one place the DU is pooled and the only place it
     /// is built.
+    ///
+    /// The SOURCE `ValRepr` grouping is not computed here: it is a PROJECTION of the
+    /// pooled lambda spine, so `TastPools.toPools` derives it off the columns it has just
+    /// filled and a tuple group's pattern is the spine node itself.
     let run (ctx: PassContext) (tast: TastFile) : FrozenPools =
         toFrozenFile ctx tast |> TastPools.toPools

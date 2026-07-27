@@ -30,11 +30,13 @@ open XParsec.FSharp.Parser
 // dissolves into columns, which is the point — a retained node drags its entire nested body
 // along with it, so freeze could never stop materializing the DU.
 //
-// That now holds for EVERY tree the file bears, not just the emittable decls. The three
-// carriers that used to hold trees opaquely are pooled roots like any other: a `Type` decl's
-// member bodies (`PooledTypeDecl` — ids in the declaration shape), the inline vocabulary
-// (`InlineTemplates` — its own root array), and a binding's `ValRepr` tuple-group patterns
-// (`PooledValRepr`). `FrozenFileResidue` correspondingly holds NO tree at all.
+// That now holds for EVERY tree the file bears, not just the emittable decls. The two
+// carriers that used to hold trees opaquely are pooled like any other: a `Type` decl's
+// member bodies (`PooledTypeDecl` — ids in the declaration shape) and the inline
+// vocabulary (`InlineTemplates` — its own root array). The third, a binding's `ValRepr`
+// tuple-group patterns (`PooledValRepr`), holds no tree of its own at all: it names the
+// LAMBDA SPINE's own pattern nodes, being derived from that spine rather than carried
+// alongside it. `FrozenFileResidue` correspondingly holds NO tree either.
 //
 // A payload case that is a COMPOSITE carrier (`Match`/`TryWith` arms, `Format`
 // segments, `StaticOptimization` clauses, `Range` step, `RecordCons`/`RecordClone`
@@ -189,10 +191,67 @@ module DenseTable =
 type PooledTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, ExprPoolId>
 
 /// A binding's SOURCE arity with its tuple-group patterns named by pool id — the file's own
-/// `ValRepr`s, whose pats ARE nodes of the pooled tree (`peelValRepr` reads the frozen
-/// lambda spine). Distinct from `Frozen.ValRepr`, which stays at the pattern TREE because an
-/// EXTERNAL symbol's pats are minted from an `.fsi` contract and index into no file's pool.
+/// `ValRepr`s, whose pats ARE nodes of the pooled tree (the peel reads the pooled lambda
+/// spine, so a group's pattern is the very node the spine bears, not a copy of it).
+/// Distinct from `Frozen.ValRepr`, which stays at the pattern TREE because an EXTERNAL
+/// symbol's pats are minted from an `.fsi` contract and index into no file's pool.
 type PooledValRepr = ValReprG<FrozenType, PatPoolId>
+
+/// The SOURCE-arity grouping rule and the curried peel that applies it — written ONCE,
+/// here rather than with the rest of the compiled-form machinery (`TastLower`), because
+/// `PatShape` is the pool vocabulary and the pool build is the earliest caller.
+///
+/// Both the rule and the LOOP are domain-agnostic: a caller supplies a reader for its own
+/// representation (the raw columns at `TastPools.toPools`, node handles at
+/// `TastLower.peelValRepr`) and the arity itself is not restated. Two peels that agreed
+/// only by review is exactly how a binding's recorded arity came to be able to disagree
+/// with the spine it was read from.
+[<RequireQualifiedAccess>]
+module ArgGroups =
+
+    /// What the grouping rule reads off ONE curried parameter pattern: its shape, its
+    /// type, the binder it introduces (`NamedSimple` only), and its constant value
+    /// (`Const` only). Named rather than a positional tuple because each domain's reader
+    /// fills it and none should have to remember an argument order.
+    [<Struct>]
+    type ParamPatFacts =
+        {
+            Shape: PatShape
+            Ty: FrozenType
+            Binder: NodeKey voption
+            ConstValue: TConstValue voption
+        }
+
+    /// The SOURCE grouping of one curried parameter: a simple binder is a `GSimple`; a
+    /// `()` parameter is a `GUnit` (the lone-erasable `let f () = …` shape); a tuple
+    /// parameter is a `GTuple` carrying the WHOLE pattern, since flattening is
+    /// `TastLower.compiledOf`'s job and the source grouping must survive; anything else is
+    /// not a parameter group at all and stops the peel.
+    let ofParam (facts: ParamPatFacts) (pat: 'p) : ArgGroupG<FrozenType, 'p> voption =
+        match facts.Shape, facts.Binder, facts.ConstValue with
+        | PatShape.NamedSimple, ValueSome k, _ -> ValueSome(ArgGroupG.GSimple(k, facts.Ty))
+        | PatShape.Const, _, ValueSome TConstValue.Unit -> ValueSome(ArgGroupG.GUnit facts.Ty)
+        | PatShape.Tuple, _, _ -> ValueSome(ArgGroupG.GTuple pat)
+        | _ -> ValueNone
+
+    /// Peel a curried lambda chain into its source groups and the residual body. The
+    /// caller supplies only how to READ its representation — `unLambda` opens one lambda
+    /// into its `(param, body)` and declines on anything else, `facts` reads a parameter
+    /// pattern — so the walk, the grouping and the stopping condition exist once for every
+    /// domain that has a spine.
+    let rec peel
+        (unLambda: 'e -> struct ('p * 'e) voption)
+        (facts: 'p -> ParamPatFacts)
+        (e: 'e)
+        : ArgGroupG<FrozenType, 'p> list * 'e =
+        match unLambda e with
+        | ValueSome(struct (param, body)) ->
+            match ofParam (facts param) param with
+            | ValueSome g ->
+                let gs, residual = peel unLambda facts body
+                g :: gs, residual
+            | ValueNone -> [], e
+        | ValueNone -> [], e
 
 /// One entry of the pooled inline VOCABULARY: a published template's identity and parameter
 /// attributes, with its declaration named by pool id.

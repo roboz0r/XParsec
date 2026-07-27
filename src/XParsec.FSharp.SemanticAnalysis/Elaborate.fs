@@ -2181,7 +2181,6 @@ module Elaborate =
                 :> System.Collections.Generic.IReadOnlyDictionary<_, _>
             // The `ValRepr` grouping is a FREEZE product (it reads the frozen lambda
             // spine) — empty here, filled by `Freeze.run`.
-            BindingValReprs = Map.empty
             BindingTyparArities =
                 ctx.Bindings.BindingTyparArities
                 |> Seq.map (fun kv -> kv.Key, kv.Value)

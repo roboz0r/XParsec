@@ -1163,19 +1163,6 @@ type TastFileG<'ty, 'tok> =
         /// accessibility rides `TTypeMemberG.Accessibility` (physically on the member,
         /// not here), read on the same threshold by the projection's member filter.
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
-        /// A module binding's SOURCE `ValRepr` (curried / tupled group structure),
-        /// keyed by the binding's headPat `NodeKey`. Computed UPSTREAM at FREEZE
-        /// (`TastLower.peelValRepr`, while the lambda spine is intact) — backend-neutral,
-        /// so the codegen boundary and the file→file signature projection read ONE
-        /// grouping. A value (no lambda groups) records an empty-`Groups` entry, which
-        /// the projection reads as "not a function" (`ExternalSymbol.ValRepr = ValueNone`).
-        /// EMPTY pre-freeze — `Freeze.run` fills it. Lives here, not on
-        /// `ModuleBindingInfo`, because `ValReprG` is defined in this file (a
-        /// compile-order wall: `ModuleBindingInfo` in `SideTypes.fs` precedes it).
-        /// Instantiated at the file's OWN pattern trees: a binding's tuple group is a
-        /// node of the very tree this record's `Decls` hold (`peelValRepr` reads the
-        /// frozen lambda spine), which is what lets the pooled form name it by id.
-        BindingValReprs: Map<NodeKey, ValReprG<'ty, TPatG<'ty, 'tok>>>
         /// A module binding's single value/function typar-axis width, minted where the
         /// method-axis indices are minted (`Elaborate.mkMethodQuantEnv`). Keyed by the
         /// binding's headPat `NodeKey`; the projection reads it for
@@ -1367,7 +1354,6 @@ module TastFileG =
         && a.GenericFnSchemes = b.GenericFnSchemes
         && a.InlineBodies = b.InlineBodies
         && dictEqual a.Accessibility b.Accessibility
-        && a.BindingValReprs = b.BindingValReprs
         && a.BindingTyparArities = b.BindingTyparArities
 
 // Parallel frozen aliases. Codegen and the freeze step speak these; the bare names
@@ -1406,7 +1392,8 @@ module Frozen =
     // The TREE instantiation of the compiled-form cluster: `'pat` is the frozen pattern
     // node itself. This is the form an EXTERNAL symbol carries (`ExternalSymbol.ValRepr`),
     // whose pats are minted from an `.fsi` contract and belong to no file — see
-    // `ArgGroupG`. The file's own `BindingValReprs` names its pats by pool id instead.
+    // `ArgGroupG`. A file's OWN `ValRepr`s are `PooledValRepr`, derived from its columns
+    // and naming their pats by pool id (`FrozenPools.BindingValReprs`).
     type StaticParam = StaticParamG<FrozenType, TPat>
     type ArgGroup = ArgGroupG<FrozenType, TPat>
     type ValRepr = ValReprG<FrozenType, TPat>

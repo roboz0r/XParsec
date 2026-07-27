@@ -233,37 +233,6 @@ module TastLower =
         | FTUnit -> true
         | _ -> false
 
-    /// What the source-arity grouping rule reads off ONE curried parameter pattern:
-    /// its shape, its type, the binder it introduces (`NamedSimple` only), and its
-    /// constant value (`Const` only). Named rather than a positional tuple because the
-    /// rule is called from both pattern domains and neither should have to remember an
-    /// argument order.
-    [<Struct>]
-    type ParamPatFacts =
-        {
-            Shape: PatShape
-            Ty: FrozenType
-            Binder: NodeKey voption
-            ConstValue: TConstValue voption
-        }
-
-    /// The SOURCE grouping of one curried parameter — the arity rule, written once: a
-    /// simple binder is a `GSimple`; a `()` parameter is a `GUnit` (the lone-erasable
-    /// `let f () = …` shape); a tuple parameter is a `GTuple` carrying the WHOLE
-    /// pattern, since flattening is `compiledOf`'s job and the source grouping must
-    /// survive; anything else is not a parameter group at all and stops the peel.
-    ///
-    /// Generic in the pattern so it runs unchanged on both sides of the freeze/pool
-    /// boundary: `Freeze` groups a binding's parameters off the DU lambda spine it has
-    /// just built, and everything after it off the pooled spine. Only the READING of a
-    /// pattern differs between the two; the rule does not.
-    let argGroupOfParam (facts: ParamPatFacts) (pat: 'p) : ArgGroupG<FrozenType, 'p> voption =
-        match facts.Shape, facts.Binder, facts.ConstValue with
-        | PatShape.NamedSimple, ValueSome k, _ -> ValueSome(ArgGroupG.GSimple(k, facts.Ty))
-        | PatShape.Const, _, ValueSome TConstValue.Unit -> ValueSome(ArgGroupG.GUnit facts.Ty)
-        | PatShape.Tuple, _, _ -> ValueSome(ArgGroupG.GTuple pat)
-        | _ -> ValueNone
-
     /// Peel up to `n` top-level `->` arrows off a frozen type (all of them when
     /// `n < 0`), returning each as a `(domain, codomain)` pair in order. One home for
     /// the `peelN` / `arrows` / `decurryFrozen` walks that were copied across
@@ -353,30 +322,30 @@ module TastLower =
                     | _ -> [ pt ]
             )
 
-    /// Peel a curried `Lambda` chain into its source `ArgGroup`s and the residual
-    /// body (the `peelLambda` walk, recording groups rather than flattened params).
-    /// A tuple group keeps its whole pattern — flattening is `compiledOf`'s job, so
-    /// the source grouping survives here.
-    let rec peelValRepr (e: TastAccessor.ExprId) : ArgGroup list * TastAccessor.ExprId =
-        match e with
-        | TastAccessor.ELambda lam ->
-            let facts =
-                {
-                    Shape = TastAccessor.patKind lam.Param
-                    Ty = TastAccessor.patTy lam.Param
-                    Binder = TastAccessor.patBinder lam.Param
-                    ConstValue =
-                        match TastAccessor.patKind lam.Param with
-                        | PatShape.Const -> ValueSome(TastAccessor.patConstValue lam.Param)
-                        | _ -> ValueNone
-                }
+    /// Peel a curried `Lambda` chain into its source `ArgGroup`s and the residual body —
+    /// `ArgGroups.peel` over node handles. Only the two READERS are here; the walk, the
+    /// grouping and the stopping condition are the shared rule, which the pool build runs
+    /// over its raw columns.
+    let peelValRepr (e: TastAccessor.ExprId) : ArgGroup list * TastAccessor.ExprId =
+        let unLambda (e: TastAccessor.ExprId) =
+            match e with
+            | TastAccessor.ELambda lam -> ValueSome(struct (lam.Param, lam.Body))
+            | _ -> ValueNone
 
-            match argGroupOfParam facts lam.Param with
-            | ValueSome g ->
-                let gs, b = peelValRepr lam.Body
-                g :: gs, b
-            | ValueNone -> [], e
-        | _ -> [], e
+        let facts (p: TastAccessor.PatId) : ArgGroups.ParamPatFacts =
+            let shape = TastAccessor.patKind p
+
+            {
+                Shape = shape
+                Ty = TastAccessor.patTy p
+                Binder = TastAccessor.patBinder p
+                ConstValue =
+                    match shape with
+                    | PatShape.Const -> ValueSome(TastAccessor.patConstValue p)
+                    | _ -> ValueNone
+            }
+
+        ArgGroups.peel unLambda facts e
 
     /// `peelValRepr` projected to one flat parameter per SOURCE group — the shape a
     /// static-method emission binds its arg slots from. A unit group gets a synthetic
