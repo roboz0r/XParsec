@@ -117,42 +117,63 @@ module TastPoolBuilder =
     // comparison. These are the per-domain equivalents of reading `FrozenPools.ExprPayloads.[i]`
     // and friends directly, and are what `TastAccessor` reads instead, so it never has to know
     // which layer answered.
+    //
+    // The layer arithmetic itself is the three `read*` resolvers below and nowhere else.
+    // It is the file header's stacking invariant written as code, so an accessor cannot
+    // hold a different version of it — which is the whole risk of a surface where every
+    // member would otherwise restate the same comparison and the same `- Base` offset.
+    // `inline` + `InlineIfLambda`, so a read is still one comparison and one array index.
 
-    let exprTy (b: PoolBuilder) (ExprPoolId i) : FrozenType =
+    let inline private readExpr
+        (b: PoolBuilder)
+        (ExprPoolId i)
+        ([<InlineIfLambda>] ofBase: FrozenPools -> int -> 'a)
+        ([<InlineIfLambda>] ofRow: ExprRow -> 'a)
+        : 'a =
         if i < b.ExprBase then
-            b.Base.ExprTys.[i]
+            ofBase b.Base i
         else
-            b.OvExprs.[i - b.ExprBase].Ty
+            ofRow b.OvExprs.[i - b.ExprBase]
 
-    let exprTok (b: PoolBuilder) (ExprPoolId i) : SyntaxToken =
-        if i < b.ExprBase then
-            b.Base.ExprToks.[i]
+    let inline private readPat
+        (b: PoolBuilder)
+        (PatPoolId i)
+        ([<InlineIfLambda>] ofBase: FrozenPools -> int -> 'a)
+        ([<InlineIfLambda>] ofRow: PatRow -> 'a)
+        : 'a =
+        if i < b.PatBase then
+            ofBase b.Base i
         else
-            b.OvExprs.[i - b.ExprBase].Tok
+            ofRow b.OvPats.[i - b.PatBase]
 
-    let exprChildren (b: PoolBuilder) (ExprPoolId i) : ExprPoolId[] =
-        if i < b.ExprBase then
-            b.Base.ExprChildren.[i]
+    let inline private readDecl
+        (b: PoolBuilder)
+        (DeclPoolId i)
+        ([<InlineIfLambda>] ofBase: FrozenPools -> int -> 'a)
+        ([<InlineIfLambda>] ofRow: DeclRow -> 'a)
+        : 'a =
+        if i < b.DeclBase then
+            ofBase b.Base i
         else
-            b.OvExprs.[i - b.ExprBase].Children
+            ofRow b.OvDecls.[i - b.DeclBase]
 
-    let exprPatChildren (b: PoolBuilder) (ExprPoolId i) : PatPoolId[] =
-        if i < b.ExprBase then
-            b.Base.ExprPatChildren.[i]
-        else
-            b.OvExprs.[i - b.ExprBase].PatChildren
+    let exprTy (b: PoolBuilder) (id: ExprPoolId) : FrozenType =
+        readExpr b id (fun p i -> p.ExprTys.[i]) (fun r -> r.Ty)
 
-    let exprVarBinder (b: PoolBuilder) (ExprPoolId i) : BinderId voption =
-        if i < b.ExprBase then
-            b.Base.ExprVarBinder.[i]
-        else
-            b.OvExprs.[i - b.ExprBase].VarBinder
+    let exprTok (b: PoolBuilder) (id: ExprPoolId) : SyntaxToken =
+        readExpr b id (fun p i -> p.ExprToks.[i]) (fun r -> r.Tok)
 
-    let exprPayload (b: PoolBuilder) (ExprPoolId i) : ExprPayload =
-        if i < b.ExprBase then
-            b.Base.ExprPayloads.[i]
-        else
-            b.OvExprs.[i - b.ExprBase].Payload
+    let exprChildren (b: PoolBuilder) (id: ExprPoolId) : ExprPoolId[] =
+        readExpr b id (fun p i -> p.ExprChildren.[i]) (fun r -> r.Children)
+
+    let exprPatChildren (b: PoolBuilder) (id: ExprPoolId) : PatPoolId[] =
+        readExpr b id (fun p i -> p.ExprPatChildren.[i]) (fun r -> r.PatChildren)
+
+    let exprVarBinder (b: PoolBuilder) (id: ExprPoolId) : BinderId voption =
+        readExpr b id (fun p i -> p.ExprVarBinder.[i]) (fun r -> r.VarBinder)
+
+    let exprPayload (b: PoolBuilder) (id: ExprPoolId) : ExprPayload =
+        readExpr b id (fun p i -> p.ExprPayloads.[i]) (fun r -> r.Payload)
 
     /// The node's shape tag — projected from the payload column, not read from one of its
     /// own, so it is the tag of the payload this very node carries.
@@ -162,94 +183,76 @@ module TastPoolBuilder =
     /// This is what a rewrite starts from, and is reached through `copyExprWith` (which
     /// hands the row to an edit function), never directly.
     let private exprRow (b: PoolBuilder) (id: ExprPoolId) : ExprRow =
-        let (ExprPoolId i) = id
+        readExpr
+            b
+            id
+            (fun p i ->
+                {
+                    Ty = p.ExprTys.[i]
+                    Tok = p.ExprToks.[i]
+                    Children = p.ExprChildren.[i]
+                    PatChildren = p.ExprPatChildren.[i]
+                    VarBinder = p.ExprVarBinder.[i]
+                    Payload = p.ExprPayloads.[i]
+                }
+            )
+            (fun r -> r)
 
-        if i < b.ExprBase then
-            {
-                Ty = b.Base.ExprTys.[i]
-                Tok = b.Base.ExprToks.[i]
-                Children = b.Base.ExprChildren.[i]
-                PatChildren = b.Base.ExprPatChildren.[i]
-                VarBinder = b.Base.ExprVarBinder.[i]
-                Payload = b.Base.ExprPayloads.[i]
-            }
-        else
-            b.OvExprs.[i - b.ExprBase]
+    let patTy (b: PoolBuilder) (id: PatPoolId) : FrozenType =
+        readPat b id (fun p i -> p.PatTys.[i]) (fun r -> r.Ty)
 
-    let patTy (b: PoolBuilder) (PatPoolId i) : FrozenType =
-        if i < b.PatBase then
-            b.Base.PatTys.[i]
-        else
-            b.OvPats.[i - b.PatBase].Ty
+    let patTok (b: PoolBuilder) (id: PatPoolId) : SyntaxToken =
+        readPat b id (fun p i -> p.PatToks.[i]) (fun r -> r.Tok)
 
-    let patTok (b: PoolBuilder) (PatPoolId i) : SyntaxToken =
-        if i < b.PatBase then
-            b.Base.PatToks.[i]
-        else
-            b.OvPats.[i - b.PatBase].Tok
+    let patChildren (b: PoolBuilder) (id: PatPoolId) : PatPoolId[] =
+        readPat b id (fun p i -> p.PatChildren.[i]) (fun r -> r.Children)
 
-    let patChildren (b: PoolBuilder) (PatPoolId i) : PatPoolId[] =
-        if i < b.PatBase then
-            b.Base.PatChildren.[i]
-        else
-            b.OvPats.[i - b.PatBase].Children
-
-    let patPayload (b: PoolBuilder) (PatPoolId i) : PatPayload =
-        if i < b.PatBase then
-            b.Base.PatPayloads.[i]
-        else
-            b.OvPats.[i - b.PatBase].Payload
+    let patPayload (b: PoolBuilder) (id: PatPoolId) : PatPayload =
+        readPat b id (fun p i -> p.PatPayloads.[i]) (fun r -> r.Payload)
 
     /// The pattern's shape tag — see `exprShape`.
     let patShape (b: PoolBuilder) (id: PatPoolId) : PatShape = PatPayload.shape (patPayload b id)
 
     /// The whole row at `id` — see `exprRow`.
     let private patRow (b: PoolBuilder) (id: PatPoolId) : PatRow =
-        let (PatPoolId i) = id
+        readPat
+            b
+            id
+            (fun p i ->
+                {
+                    Ty = p.PatTys.[i]
+                    Tok = p.PatToks.[i]
+                    Children = p.PatChildren.[i]
+                    Payload = p.PatPayloads.[i]
+                }
+            )
+            (fun r -> r)
 
-        if i < b.PatBase then
-            {
-                Ty = b.Base.PatTys.[i]
-                Tok = b.Base.PatToks.[i]
-                Children = b.Base.PatChildren.[i]
-                Payload = b.Base.PatPayloads.[i]
-            }
-        else
-            b.OvPats.[i - b.PatBase]
+    let declExprChildren (b: PoolBuilder) (id: DeclPoolId) : ExprPoolId[] =
+        readDecl b id (fun p i -> p.DeclExprChildren.[i]) (fun r -> r.ExprChildren)
 
-    let declExprChildren (b: PoolBuilder) (DeclPoolId i) : ExprPoolId[] =
-        if i < b.DeclBase then
-            b.Base.DeclExprChildren.[i]
-        else
-            b.OvDecls.[i - b.DeclBase].ExprChildren
+    let declPatChildren (b: PoolBuilder) (id: DeclPoolId) : PatPoolId[] =
+        readDecl b id (fun p i -> p.DeclPatChildren.[i]) (fun r -> r.PatChildren)
 
-    let declPatChildren (b: PoolBuilder) (DeclPoolId i) : PatPoolId[] =
-        if i < b.DeclBase then
-            b.Base.DeclPatChildren.[i]
-        else
-            b.OvDecls.[i - b.DeclBase].PatChildren
-
-    let declPayload (b: PoolBuilder) (DeclPoolId i) : DeclPayload =
-        if i < b.DeclBase then
-            b.Base.DeclPayloads.[i]
-        else
-            b.OvDecls.[i - b.DeclBase].Payload
+    let declPayload (b: PoolBuilder) (id: DeclPoolId) : DeclPayload =
+        readDecl b id (fun p i -> p.DeclPayloads.[i]) (fun r -> r.Payload)
 
     /// The declaration's shape tag — see `exprShape`.
     let declShape (b: PoolBuilder) (id: DeclPoolId) : DeclShape = DeclPayload.shape (declPayload b id)
 
     /// The whole row at `id` — see `exprRow`.
     let private declRow (b: PoolBuilder) (id: DeclPoolId) : DeclRow =
-        let (DeclPoolId i) = id
-
-        if i < b.DeclBase then
-            {
-                ExprChildren = b.Base.DeclExprChildren.[i]
-                PatChildren = b.Base.DeclPatChildren.[i]
-                Payload = b.Base.DeclPayloads.[i]
-            }
-        else
-            b.OvDecls.[i - b.DeclBase]
+        readDecl
+            b
+            id
+            (fun p i ->
+                {
+                    ExprChildren = p.DeclExprChildren.[i]
+                    PatChildren = p.DeclPatChildren.[i]
+                    Payload = p.DeclPayloads.[i]
+                }
+            )
+            (fun r -> r)
 
     /// The `NodeKey` a binder id names — base or minted.
     let binderKey (b: PoolBuilder) (BinderId i) : NodeKey =
