@@ -690,23 +690,50 @@ module TastPools =
                 }
             )
 
+        // THE lookup: the dense id the enumeration above interned a key under. Written
+        // once because both faults below ARE this lookup missing; what differs is only
+        // what a miss means, and that is what each of them says.
+        let tryBinderId (k: NodeKey) : BinderId voption =
+            match binderIds.TryGetValue k with
+            | true, id -> ValueSome id
+            | false, _ -> ValueNone
+
         // Resolve a REFERENCE to the binder it names — a `Var`'s binding edge, or a row
         // derived off the columns. A miss means the referent was introduced by no
         // definition site the walk covers: an incomplete binder enumeration, which is
         // exactly the failure the id-resolution gate exists to surface. A reference is
         // written by whoever resolved the name, so it arrives as a bare `NodeKey`.
         let binderIdOfRef (referent: string) (k: NodeKey) : BinderId =
-            match binderIds.TryGetValue k with
-            | true, id -> id
-            | false, _ ->
+            match tryBinderId k with
+            | ValueSome id -> id
+            | ValueNone ->
                 failwithf "TastPools.toPools: %s key %O references a binder no definition site introduced" referent k
 
-        // The same resolution for a SIDE TABLE, whose keys are binders by construction.
-        // The fault is then reachable only for a key naming a real binder whose
-        // declaration was dropped before the freeze — never for one naming a non-binder
-        // node, which `BinderKey` makes unwritable.
+        // SIDE-TABLE REACHABILITY — and THE POLICY every binder-keyed table is held to.
+        //
+        // `BinderKey`'s private constructor already makes a key naming a NON-binder
+        // unwritable. What is left is the other half: a key naming a real binder whose
+        // declaration was dropped before the freeze. The entry then addresses nothing, and
+        // its reader gets a silent miss where a fact was recorded.
+        //
+        // The policy is FAULT BY DEFAULT. A new binder-keyed table inherits this check by
+        // being remapped at all, and the fix for a fault is at the PRODUCER: prune the
+        // entry where the declaration is pruned, the way `Elaborate.translateModuleElem`
+        // records no binder for a binding it elides. Dropping the surplus key here instead
+        // is permitted only where the producer can argue, AT ITSELF, that its surplus is
+        // inert — `Regions.closureReprSnapshot` is the one table that does, and it filters
+        // in its own body, which is where such an argument has to live to stay checkable
+        // against the code it is about.
         let binderIdOf (referent: string) (b: BinderKey) : BinderId =
-            binderIdOfRef referent (BinderKey.toNodeKey b)
+            let k = BinderKey.toNodeKey b
+
+            match tryBinderId k with
+            | ValueSome id -> id
+            | ValueNone ->
+                failwithf
+                    "TastPools.toPools: %s entry %O names a binder no declaration in the frozen file introduces — prune the entry where its declaration is pruned"
+                    referent
+                    k
 
         // The lambda-key analogue: a `FunVerdicts` key that names no pooled lambda is the
         // honest failure a lambda-keyed entry naming no pooled lambda should be.

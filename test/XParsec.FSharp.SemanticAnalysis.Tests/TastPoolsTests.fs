@@ -536,3 +536,104 @@ let funVerdictLambdaKeyTests =
                 Expect.throws (fun () -> TastPools.toPools injected |> ignore) "unresolved lambda-keyed verdict faults"
             }
         ]
+
+// The REACHABILITY half of side-table identity: an entry keyed by a real binder whose
+// declaration was then dropped, which is what a producer that prunes a decl and forgets its
+// side-table entry leaves behind. `BinderKey`'s constructor is private, so this cannot be
+// staged by minting a key from an arbitrary `NodeKey` — the only way in is the defect's own
+// shape, and that is the shape worth pinning anyway.
+//
+// What the fault has to say is WHICH table still holds the entry: several producers file
+// into several binder-keyed tables, and "an entry is stale" does not say whose bug it is.
+
+/// Two module bindings that nothing references, so dropping the second takes nothing with
+/// it — a surviving `Var` naming it would fault as an incomplete binder ENUMERATION, a
+/// different failure under a different message, and the test would pass for the wrong reason.
+let private staleEntrySrc = "module M\n\nmodule N =\n    let a = 1\n    let b = 2\n"
+
+/// `staleEntrySrc` frozen with its LAST binding's declaration removed AND every side-table
+/// entry for that binder stripped — the producer-side fix applied. Re-adding the entry to
+/// exactly one table is then what makes the reported table name unambiguous.
+let private lastBindingDropped () =
+    let _, frozen = poolsFor staleEntrySrc
+    let decls = EqArray.toArray frozen.Decls
+
+    let index, binder =
+        seq { 0 .. decls.Length - 1 }
+        |> Seq.rev
+        |> Seq.pick (fun i ->
+            match decls.[i] with
+            | TDeclG.Let(binding = binding) ->
+                match BinderKey.ofPat binding with
+                | ValueSome b -> Some(i, b)
+                | ValueNone -> None
+            | TDeclG.Expression _
+            | TDeclG.Type _ -> None
+        )
+
+    {|
+        Binder = binder
+        // Kept so the stale entry re-added below is the producer's own value, not a
+        // fabricated one — the entry is genuine; only its declaration is gone.
+        Member = Map.find binder frozen.ModuleMembers
+        Pruned =
+            { frozen with
+                Decls = EqArray.ofArray (Array.removeAt index decls)
+                ModuleMembers = Map.remove binder frozen.ModuleMembers
+                TopLevelNames = Map.remove binder frozen.TopLevelNames
+                ClosureReprs = Map.remove binder frozen.ClosureReprs
+                GenericFnSchemes = Map.remove binder frozen.GenericFnSchemes
+                BindingTyparArities = Map.remove binder frozen.BindingTyparArities
+            }
+    |}
+
+[<Tests>]
+let staleSideTableEntryTests =
+    testList
+        "TastPools faults on a side-table entry whose declaration left the tree"
+        [
+            // The control: the fault below is caused by the STALE ENTRY, not by the decl
+            // being gone. Pruning both is the fix the fault demands, and it pools cleanly.
+            test "a declaration pruned together with its entries pools cleanly" {
+                let dropped = lastBindingDropped ()
+                TastPools.toPools dropped.Pruned |> ignore
+            }
+
+            test "a retained ModuleMembers entry faults, naming that table" {
+                let dropped = lastBindingDropped ()
+
+                let injected =
+                    { dropped.Pruned with
+                        ModuleMembers = Map.add dropped.Binder dropped.Member dropped.Pruned.ModuleMembers
+                    }
+
+                Expect.throwsC
+                    (fun () -> TastPools.toPools injected |> ignore)
+                    (fun ex ->
+                        Expect.stringContains
+                            ex.Message
+                            "ModuleMembers"
+                            "the fault names the table holding the stale entry"
+                    )
+            }
+
+            // The SAME dropped binder in a different table: the reported name tracks the
+            // table, so it is diagnostic rather than a constant that happens to read right.
+            test "a retained BindingTyparArities entry faults, naming that table" {
+                let dropped = lastBindingDropped ()
+
+                let injected =
+                    { dropped.Pruned with
+                        BindingTyparArities = Map.add dropped.Binder 0 dropped.Pruned.BindingTyparArities
+                    }
+
+                Expect.throwsC
+                    (fun () -> TastPools.toPools injected |> ignore)
+                    (fun ex ->
+                        Expect.stringContains
+                            ex.Message
+                            "BindingTyparArities"
+                            "the fault names the table holding the stale entry"
+                    )
+            }
+        ]

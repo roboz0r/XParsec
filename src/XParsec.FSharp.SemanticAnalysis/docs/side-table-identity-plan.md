@@ -119,28 +119,36 @@ Retype: the four `PassContext` binding dictionaries + `PassContext`'s `SideTable
 
 ### Tier 3 — the backstop for reachability, and the filter/fault distinction
 
-At the end of `Freeze.run`, with tree and tables both in hand, walk the binder set once and
-check every table key against it. **Do not apply one policy to all seven.**
+**Landed as a policy statement and a test, NOT as a second walk.** The check this tier asked
+for already exists: `Freeze.run` *is* `toFrozenFile … |> TastPools.toPools`, and `toPools`'
+`binderIdOf` resolves every binder-keyed table's keys against the pool's own binder
+enumeration, faulting by table name on a miss. A separate walk at `Freeze.run` would be a
+second whole-file binder enumeration standing beside the pool's — and it would have to be a
+*new* one, since `TastWalk.declBinders` deliberately excludes type-decl binders
+(`BinderKey.ofTypeDecl` is the other half). So the tier's content is the policy, not the code:
 
-- **Filter** (drop silently) where surplus keys are provably inert — `ClosureReprs` already
-  does this, and argues it at `Regions.closureReprSnapshot`: a non-binder can never be a
-  closure's `SelfKey`, so the entry was unreadable anyway.
-- **Fault** where a missing entry is a silent wrong answer — `ModuleMembers`, `TopLevelNames`.
-  Defect #2 lost a name silently for as long as it lived; filtering there would have *hidden*
-  it. Faulting must name **which table** and **which key**; `binderIdOf` already takes the
-  table name as its `referent` argument and reports both, so this tier inherits that rather
-  than having to build it.
+- **Fault by default.** Every binder-keyed table is remapped through `binderIdOf` and so
+  inherits the check; a fault is fixed at the **producer**, by pruning the entry where the
+  declaration is pruned (defect #3: `Elaborate.translateModuleElem` records no binder for an
+  elided E1 alias; defect #4 stopped existing when publication became additive at `07393c50`
+  and no decl is pruned for it).
+- **Filter** only where the producer can argue at itself that its surplus is inert —
+  `Regions.closureReprSnapshot` is the one, and it filters in its own body rather than at the
+  validation site, which is where the argument stays checkable.
 
-This is ~20 lines and is the only tier that catches #3 and #4.
+The rule is stated once, at `binderIdOf`. The negative test cannot mint a bad key (Tier 2
+made the constructor private), so it stages the defect's real shape: a genuine binder whose
+declaration is removed while one table's entry stays.
 
 ## Staging
 
 - **G.1** `BinderKey` + retype the sinks (`PassContext`, `SideTable`, `TastFileG`, `toPools`
   remap). Compiler-driven; every producer either already has a projection in hand or is a
   genuine bug. Fold the Tier 0 comment sweep into the files touched. *Gate: green.*
-- **G.2** Freeze-time validation, per-table filter-or-fault as above, with table-naming
-  diagnostics. Add a test that a synthetic bad entry is reported by table name — the current
-  suites cover this only by accident. *Gate: green, plus the new negative test.*
+- **G.2** ✅ Freeze-time validation. No second check: the fault-by-default policy is stated
+  at `binderIdOf`, whose side-table failure now reads as the stale-entry defect it is rather
+  than borrowing the reference resolver's wording, and three tests pin that a retained entry
+  for a removed declaration faults *by table name* (and that pruning both pools cleanly).
 - **G.3** Columnise `TopLevelNames` and `BindingTyparArities` onto the binder pool. *Gate:
   green; blob size may move — record it, do not chase it.*
 
