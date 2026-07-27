@@ -53,13 +53,10 @@ type PoolBuilder =
             OvExprs: ResizeArray<ExprRow>
             OvPats: ResizeArray<PatRow>
             OvDecls: ResizeArray<DeclRow>
-            /// The overlay binder columns, appended in lockstep by `internBinder` — the
-            /// sole appender, so the two stay aligned.
+            /// The overlay binder column — `internBinder` is its sole appender.
             OvBinderKeys: ResizeArray<NodeKey>
-            OvBinderNamings: ResizeArray<BinderNaming>
             /// `NodeKey` to `BinderId` over BOTH layers, seeded from the base pool's
-            /// `BinderKeys`. Interning is keyed by the NodeKey and the naming triple is a
-            /// pure function of that key (`BinderNaming.ofKey`), so a minted reference and
+            /// `BinderKeys`. Interning is keyed by the NodeKey, so a minted reference and
             /// the binder's own defining node land on the same id whichever is walked
             /// first.
             BinderIndex: Dictionary<NodeKey, BinderId>
@@ -104,7 +101,6 @@ module TastPoolBuilder =
             OvPats = ResizeArray()
             OvDecls = ResizeArray()
             OvBinderKeys = ResizeArray()
-            OvBinderNamings = ResizeArray()
             BinderIndex = index
         }
 
@@ -272,12 +268,10 @@ module TastPoolBuilder =
         else
             b.OvBinderKeys.[i - b.BinderBase]
 
-    /// The naming triple a binder id names — base or minted.
-    let binderNaming (b: PoolBuilder) (BinderId i) : BinderNaming =
-        if i < b.BinderBase then
-            b.Base.BinderNamings.[i]
-        else
-            b.OvBinderNamings.[i - b.BinderBase]
+    /// The naming triple a binder id names — projected from that binder's key, not read
+    /// from a column of its own. `BinderNaming.ofKey` is a total function of the key, so
+    /// a stored naming column would put the same three bits on the wire twice.
+    let binderNaming (b: PoolBuilder) (id: BinderId) : BinderNaming = BinderNaming.ofKey (binderKey b id)
 
     /// The `BinderId` a `NodeKey` names, or `ValueNone` when no definition site in this
     /// pool introduced it. The READ-ONLY counterpart of `internBinder`: a lookup answers
@@ -328,8 +322,7 @@ module TastPoolBuilder =
     /// The `BinderId` a `NodeKey` names, minting one in the overlay if the base pool never
     /// interned it. Idempotent in the key, which is what lets a minted `Var` reference
     /// resolve before (or without) its defining pattern being appended: whichever site
-    /// arrives first creates the entry, and `BinderNaming.ofKey` makes the entry identical
-    /// either way.
+    /// arrives first creates the entry, and the entry is the key either way.
     let internBinder (b: PoolBuilder) (k: NodeKey) : BinderId =
         match tryBinderId b k with
         | ValueSome id -> id
@@ -337,7 +330,6 @@ module TastPoolBuilder =
             let id = BinderId(b.BinderBase + b.OvBinderKeys.Count)
             b.BinderIndex.Add(k, id)
             b.OvBinderKeys.Add k
-            b.OvBinderNamings.Add(BinderNaming.ofKey k)
             id
 
     // ── row copies: rewrite without a per-case match ────────────────────────

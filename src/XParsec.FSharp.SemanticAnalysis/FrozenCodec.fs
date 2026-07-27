@@ -1770,22 +1770,6 @@ module FrozenCodec =
     let private writePatShape (w: BinaryWriter) (s: PatShape) = w.Write(patShapeTag s)
     let private writeDeclShape (w: BinaryWriter) (s: DeclShape) = w.Write(declShapeTag s)
 
-    let private writeBinderNaming (w: BinaryWriter) (n: BinderNaming) =
-        w.Write n.IsSynthetic
-        w.Write n.Offset
-        w.Write n.NameIndex
-
-    let private readBinderNaming (r: BinaryReader) : BinderNaming =
-        let isSynthetic = r.ReadBoolean()
-        let offset = r.ReadInt32()
-        let nameIndex = r.ReadInt32()
-
-        {
-            IsSynthetic = isSynthetic
-            Offset = offset
-            NameIndex = nameIndex
-        }
-
     let private writeFormatSinkShape (w: BinaryWriter) (s: FormatSinkShape) =
         match s with
         | FormatSinkShape.ToStdOut newline ->
@@ -2168,7 +2152,6 @@ module FrozenCodec =
         writeArrayWith w writeDeclPoolId p.Roots
         writeArrayWith w writeInlineTemplate p.InlineTemplates
         writeArrayWith w writeNodeKey p.BinderKeys
-        writeArrayWith w writeBinderNaming p.BinderNamings
         writeResidue w p.Residue
         writeDenseTable w writeBinderId writeModuleBindingInfo p.ModuleMembers
         writeDenseTable w writeBinderId (fun w (s: string) -> w.Write s) p.TopLevelNames
@@ -2198,7 +2181,6 @@ module FrozenCodec =
         let roots = readArrayWith r readDeclPoolId
         let inlineTemplates = readArrayWith r readInlineTemplate
         let binderKeys = readArrayWith r readNodeKey
-        let binderNamings = readArrayWith r readBinderNaming
         let residue = readResidue r
         let moduleMembers = readDenseTable r readBinderId readModuleBindingInfo
 
@@ -2234,7 +2216,6 @@ module FrozenCodec =
             Roots = roots
             InlineTemplates = inlineTemplates
             BinderKeys = binderKeys
-            BinderNamings = binderNamings
             Residue = residue
             ModuleMembers = moduleMembers
             TopLevelNames = topLevelNames

@@ -129,20 +129,6 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
     checkTable "BindingValReprs" binderKey pools.BindingValReprs frozen.BindingValReprs
     checkTable "BindingTyparArities" binderKey pools.BindingTyparArities frozen.BindingTyparArities
 
-/// The naming triple each binder entry carries must equal its retained `Key`'s
-/// projections (`IsSynthetic`/`Offset`/`NameIndex`) — the guard that `toPools` sourced
-/// `Naming` from the key itself, so the pool names a binder EXACTLY as `binderName` names
-/// its `NodeKey`. This is what lets the naming data outlive the key at the backing flip.
-let private checkBinderNaming (pools: FrozenPools) =
-    Array.iter2
-        (fun (naming: BinderNaming) (key: NodeKey) ->
-            Expect.equal naming.IsSynthetic key.IsSynthetic "binder naming IsSynthetic tracks its key"
-            Expect.equal naming.Offset key.Offset "binder naming Offset tracks its key"
-            Expect.equal naming.NameIndex key.NameIndex "binder naming NameIndex tracks its key"
-        )
-        pools.BinderNamings
-        pools.BinderKeys
-
 // The mint invariant the naming-preserving backing flip rests on: a REAL (non-synthetic)
 // binder's `Offset` IS the binder NODE's own token `StartIndex` (`NamedSimple.tok`, read
 // via `patTok`; `ForTo.identTok`), so a real binder is name-recoverable from its node with
@@ -194,7 +180,6 @@ let private checkProgram (src: string) =
     Expect.equal pools.Roots.Length duDecls.Length "one root per emittable decl"
     Array.iter2 (checkDecl pools) pools.Roots duDecls
     checkIdResolution pools frozen
-    checkBinderNaming pools
 
     // The interconversion gate: `ofPools ∘ toPools` reconstructs a structurally-equal
     // `Frozen.TastFile`. Compared DIRECTLY, DU value against DU value — the serializer is

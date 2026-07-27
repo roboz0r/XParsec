@@ -69,7 +69,8 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
     for i in 0 .. pools.BinderKeys.Length - 1 do
         let id = BinderId i
         Expect.equal (TastPoolBuilder.binderKey b id) pools.BinderKeys.[i] "base binder key"
-        Expect.equal (TastPoolBuilder.binderNaming b id) pools.BinderNamings.[i] "base binder naming"
+
+        Expect.equal (TastPoolBuilder.binderNaming b id) (BinderNaming.ofKey pools.BinderKeys.[i]) "base binder naming"
 
 /// Every base root drains back to the decl it was pooled from — the end-to-end half of id
 /// preservation, through the ONE way out of a builder that production uses (`declTree`,

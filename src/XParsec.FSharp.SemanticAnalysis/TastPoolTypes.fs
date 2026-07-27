@@ -349,12 +349,16 @@ type PatPayload =
         |}
 
 /// The three naming projections a backend reads off a binder to emit its name WITHOUT
-/// the `NodeKey` — exactly the bits `binderName` (`JsEmitHelpers.fs`) unpacks: a real
-/// binder recovers its source name by slicing at `Offset`; a synthetic renders as
-/// `_s<NameIndex>`. This is the naming DATA (post-freeze a binder's identity is its
-/// slot, not its key) — kept separately from positional identity so it outlives the
-/// `NodeKey`, which `BinderKeys` retains only for the DU round-trip and the few
-/// cross-references still carrying a key.
+/// the whole `NodeKey` — exactly the bits `binderName` (`JsEmitHelpers.fs`) unpacks: a
+/// real binder recovers its source name by slicing at `Offset`; a synthetic renders as
+/// `_s<NameIndex>`. It is the naming DATA, separated from the key so a consumer holding
+/// only a `BinderId` can name what it names (`TastAccessor.exprVarNaming`).
+///
+/// NOT a stored column. It is a total function of the binder's retained `NodeKey`
+/// (`ofKey`, its sole constructor), so storing it beside `FrozenPools.BinderKeys` would
+/// put the same three bits on the wire twice; `TastPoolBuilder.binderNaming` projects it
+/// on read instead. When the key itself retires this becomes the column that replaces
+/// it — one representation at a time, never both.
 [<Struct>]
 type BinderNaming =
     {
@@ -367,10 +371,8 @@ type BinderNaming =
 module BinderNaming =
 
     /// The naming triple IS the key's own projections — the same three bits `binderName`
-    /// reads — so a pooled binder names identically to its `NodeKey` by construction, and
-    /// stays correct after the key itself retires. Sole constructor: every site that interns
-    /// a binder (the initial pool build, an overlay builder's mint) derives the triple here
-    /// so no site can drift from `binderName`.
+    /// reads — so a pooled binder names identically to its `NodeKey` by construction.
+    /// Sole constructor, so no site can drift from `binderName`.
     let ofKey (k: NodeKey) : BinderNaming =
         {
             IsSynthetic = k.IsSynthetic
@@ -479,18 +481,15 @@ type FrozenPools =
         /// emittable decl and must not be walked as one — and it is a genuinely distinct
         /// tree from the emitted function of the same name (see `PooledInlineValue`).
         InlineTemplates: PooledInlineValue[]
-        /// The distinct binder entries as two parallel columns indexed by `BinderId`,
-        /// its OWN dense arrays disjoint from `Pats`: `BinderKeys` retains each binder's whole
-        /// original `NodeKey` — the identity `Var.binding` and the side tables resolve against,
-        /// and the DU round-trip's carrier for the `Raw` bits (kind included) the trees still
-        /// reconstruct from, so the key cannot be dropped while the backing is DU-form.
-        /// `BinderNamings` carries the three projections a backend names the binder by, sourced
-        /// at `toPools` from the SAME key (`IsSynthetic`/`Offset`/`NameIndex`) so it is faithful
-        /// to `binderName` by construction — the naming data that outlives the `NodeKey`. A
-        /// `NamedSimple` pattern still also appears in the pat columns for the tree walk; these
-        /// are the additional dense columns references resolve against, not a re-pointing.
+        /// The distinct binder entries as ONE dense column indexed by `BinderId`, its own
+        /// array disjoint from `Pats`: each binder's whole original `NodeKey` — the identity
+        /// `Var.binding` and the side tables resolve against, and the DU round-trip's carrier
+        /// for the `Raw` bits (kind included) the trees still reconstruct from, so the key
+        /// cannot be dropped while the backing is DU-form. The naming a backend emits is a
+        /// projection OF this column, not a second one beside it (`BinderNaming`). A
+        /// `NamedSimple` pattern still also appears in the pat columns for the tree walk; this
+        /// is the additional dense column references resolve against, not a re-pointing.
         BinderKeys: NodeKey[]
-        BinderNamings: BinderNaming[]
         /// The not-yet-pooled remainder of the source file, carried verbatim.
         Residue: FrozenFileResidue
         /// Six of the seven source `Map<NodeKey,_>` side tables, re-keyed by `BinderId`
@@ -515,7 +514,7 @@ type FrozenPools =
 module FrozenPools =
 
     /// The zero column set — a pool that is nobody's file. Lives with the type because it
-    /// is a property OF the type (28 fields, all empty), not of any one consumer:
+    /// is a property OF the type, not of any one consumer:
     /// `TastPoolBuilder.openEmpty` stacks an overlay on it for nodes that belong to no
     /// frozen tree at all (an EXTERNAL symbol's `.fsi`-minted `ValRepr` patterns, a
     /// provider's re-axised copies), and they are read through the same accessor as any
@@ -541,7 +540,6 @@ module FrozenPools =
             Roots = [||]
             InlineTemplates = [||]
             BinderKeys = [||]
-            BinderNamings = [||]
             Residue =
                 {
                     Diagnostics = []

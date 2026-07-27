@@ -588,9 +588,8 @@ module TastPools =
         let declPatChildrenCol = ResizeArray<PatPoolId[]>()
         let declPayloads = ResizeArray<DeclPayload>()
 
-        // The binder pool as two parallel columns: each distinct NodeKey a definition site
-        // introduces, interned to a dense `BinderId` on first encounter, alongside the
-        // naming triple sourced from that same key. The introducing sites are enumerated
+        // The binder pool: each distinct NodeKey a definition site introduces, interned to
+        // a dense `BinderId` on first encounter. The introducing sites are enumerated
         // off the accessor (pattern / loop binders) and off `TTypeDeclG.boundKeys` (a type
         // declaration's pattern-less key slots) as the trees are walked, so nothing
         // re-derives which nodes bind.
@@ -601,7 +600,6 @@ module TastPools =
         // it (a `this` slot has none anywhere) — the binder space is dense and independent,
         // inverted by position.
         let binderKeys = ResizeArray<NodeKey>()
-        let binderNamings = ResizeArray<BinderNaming>()
         let binderIds = System.Collections.Generic.Dictionary<NodeKey, BinderId>()
 
         // The lambda id space: a source lambda's dense id IS its `ExprPoolId` (positional
@@ -617,8 +615,6 @@ module TastPools =
             | false, _ ->
                 binderIds.Add(k, BinderId binderKeys.Count)
                 binderKeys.Add k
-                // The naming slot stays aligned with `binderKeys` by appending in lockstep.
-                binderNamings.Add(BinderNaming.ofKey k)
 
         // The sink: rows land at the end of the column builders, so a node's id is the
         // count at the moment it is added. `ExprRow.VarBinder` is dropped here — the `Var`
@@ -749,7 +745,6 @@ module TastPools =
             Roots = roots
             InlineTemplates = inlineTemplates
             BinderKeys = binderKeys.ToArray()
-            BinderNamings = binderNamings.ToArray()
             Residue =
                 {
                     Diagnostics = file.Diagnostics
