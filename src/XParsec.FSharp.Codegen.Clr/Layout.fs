@@ -31,15 +31,10 @@ module internal Layout =
         let pool = TastPoolBuilder.openOver pools
         let decls = TastAccessor.roots pool |> List.ofArray
 
-        // The four binder-keyed side tables the CLR lowering consumes, back in their
-        // `NodeKey` form. `HolderPlan`/`Emit.discoverClosures` and everything downstream
-        // of them (`StaticFn`/`ModuleValue` keys, the closure capture sets) identify a
-        // binding by `NodeKey`, so handing them the pool's `BinderId` form would be a
-        // rekey of the whole CLR emit rather than a change at this seam.
-        let moduleMembers = TastUnpool.binderKeyedMap pools pools.ModuleMembers
-        let genericFnSchemes = TastUnpool.binderKeyedMap pools pools.GenericFnSchemes
-        let topLevelNames = TastUnpool.binderKeyedMap pools pools.TopLevelNames
-        let closureReprs = TastUnpool.binderKeyedMap pools pools.ClosureReprs
+        // The binder-keyed side tables the CLR lowering consumes, back in their `NodeKey`
+        // form — the one seam that undoes the pool's dense identity, and the whole reason
+        // it is a single named call (see `TastUnpool.nodeKeyedSideTables`).
+        let sideTables = TastUnpool.nodeKeyedSideTables pools
 
         // A source lambda's verdict, on the lambda ID SPACE: a lambda's dense id is its
         // `ExprPoolId`, so a discovered lambda's verdict is a lookup on the node itself
@@ -85,7 +80,13 @@ module internal Layout =
         // closure discovery and `buildMain`, so they see the same nodes the plan was
         // computed from.
         let plan =
-            HolderPlan.create moduleMembers genericFnSchemes programHolder topLevelNames refStructNsNames lowered0
+            HolderPlan.create
+                sideTables.ModuleMembers
+                sideTables.GenericFnSchemes
+                programHolder
+                sideTables.TopLevelNames
+                refStructNsNames
+                lowered0
 
         let lowered = plan.Lowered
 
@@ -151,7 +152,7 @@ module internal Layout =
                 // `discoverClosures` marks a source-lambda argument a value-struct (and
                 // at what flat arity) by node membership — no structural re-derivation.
                 funVerdicts
-                closureReprs
+                sideTables.ClosureReprs
                 lowered
                 memberRoots
 

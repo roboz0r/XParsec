@@ -14,9 +14,10 @@ open XParsec.FSharp.Parser
 //     by `TastPoolBuilder`'s subtree drain (`declTree`) for the one channel whose far end
 //     is still DU-typed: a package's inline template crosses the wire as a
 //     `Frozen.TDecl`, a pool id being meaningless outside the pool that issued it.
-//   * `binderKeyedMap` — a dense side table back as the `Map<NodeKey,_>` it was re-keyed
-//     from, for a consumer whose own downstream API is still `NodeKey`-keyed
-//     (`Layout.buildUnit` feeding the CLR holder plan / closure discovery).
+//   * `nodeKeyedSideTables` — the four binder-keyed side tables back as the
+//     `Map<NodeKey,_>`s they were re-keyed from, for a consumer whose own downstream API
+//     is still `NodeKey`-keyed (`Layout.buildUnit` feeding the CLR holder plan / closure
+//     discovery). One named seam, because that is debt to be closed, not a facility.
 //
 // `ofPools` — the whole-file drain — has NONE, and that is the point of it: it is what
 // makes the columns' tree-sufficiency CHECKABLE.
@@ -225,16 +226,43 @@ module TastUnpool =
         | DeclPayload.Type td -> TDeclG.Type(TastConvert.typeDecl id fromExpr td)
 
     /// A dense `BinderId`-keyed side table as the `Map<NodeKey,_>` it was re-keyed FROM,
-    /// resolving each id back through the binder column. Public because two callers need
-    /// it and neither should re-derive the resolution: `ofPools` (rebuilding the whole
-    /// file) and a consumer whose own downstream API is still `NodeKey`-keyed and so
-    /// cannot take the id form (`Layout.buildUnit` feeding the CLR holder plan / closure
-    /// discovery). Prefer the id form where the consumer holds a `BinderId` — this
-    /// direction re-admits keys that name nothing.
-    let binderKeyedMap (pools: FrozenPools) (dense: (BinderId * 'v)[]) : Map<NodeKey, 'v> =
+    /// resolving each id back through the binder column. PRIVATE: the id form is the one
+    /// that can only name a binder the tree bears, and a `Map<NodeKey,_>` gives that up
+    /// — it re-admits keys that name nothing. Exactly two things may undo the remap, and
+    /// both are in this file: `ofPools`, which rebuilds the whole file, and
+    /// `nodeKeyedSideTables`, the single named seam below.
+    let private binderKeyedMap (pools: FrozenPools) (dense: (BinderId * 'v)[]) : Map<NodeKey, 'v> =
         dense
         |> Array.map (fun (BinderId i, v) -> pools.BinderKeys.[i], v)
         |> Map.ofArray
+
+    /// The four binder-keyed side tables a CLR emit consumes, back in `NodeKey` form.
+    ///
+    /// This is DEBT, deliberately given one name and one home rather than four call
+    /// sites. `HolderPlan.create` and `Emit.discoverClosures` — and everything downstream
+    /// of them (`StaticFn`/`ModuleValue` key sets, the closure capture sets) — identify a
+    /// binding by `NodeKey`, so the pool's dense identity is undone here and re-derived
+    /// nowhere else. Rekeying that chain onto `BinderId` is the whole CLR emit and is a
+    /// separate body of work; until it happens, closing this seam is one edit at one
+    /// place, and no other consumer can widen back to `NodeKey` behind its own guard.
+    ///
+    /// `FunVerdicts` is not here: it is on the lambda id space and its consumer already
+    /// keys on the node.
+    type NodeKeyedSideTables =
+        {
+            ModuleMembers: Map<NodeKey, ModuleBindingInfo>
+            TopLevelNames: Map<NodeKey, string>
+            ClosureReprs: Map<NodeKey, ClosureRepr>
+            GenericFnSchemes: Map<NodeKey, FrozenConstraint list>
+        }
+
+    let nodeKeyedSideTables (pools: FrozenPools) : NodeKeyedSideTables =
+        {
+            ModuleMembers = binderKeyedMap pools pools.ModuleMembers
+            TopLevelNames = binderKeyedMap pools pools.TopLevelNames
+            ClosureReprs = binderKeyedMap pools pools.ClosureReprs
+            GenericFnSchemes = binderKeyedMap pools pools.GenericFnSchemes
+        }
 
     /// Rebuild the `Frozen.TastFile` DU from the pools — the inverse of `toPools`. The
     /// `Decls` are re-authored from the pool roots and the side tables re-keyed back
@@ -296,14 +324,11 @@ module TastUnpool =
             )
             |> EqArray.ofArray
 
-        // Rebuild a side table from its dense form, resolving each `BinderId` back to its
-        // NodeKey. Reconstructing the maps here (rather than retaining the source file's) is
-        // what makes the round-trip prove the key remap, not just the decl trees.
-        // The binder-keyed tables go through the shared `binderKeyedMap`; `FunVerdicts` is
-        // the one table on the lambda id space, so it inverts through `lambdaKeyOf`.
-        let rebuildSideTable (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) : Map<NodeKey, 'v> =
-            dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
-
+        // Reconstructing the side-table maps here (rather than retaining the source
+        // file's) is what makes the round-trip prove the key remap, not just the decl
+        // trees. The binder-keyed six go through the shared `binderKeyedMap`;
+        // `FunVerdicts` is the one on the lambda id space, so it inverts through
+        // `lambdaKeyOf` right where it is built.
         {
             Decls = decls
             Diagnostics = pools.Residue.Diagnostics
@@ -311,7 +336,7 @@ module TastUnpool =
             ModuleMembers = binderKeyedMap pools pools.ModuleMembers
             TopLevelNames = binderKeyedMap pools pools.TopLevelNames
             ClosureReprs = binderKeyedMap pools pools.ClosureReprs
-            FunVerdicts = rebuildSideTable lambdaKeyOf pools.FunVerdicts
+            FunVerdicts = pools.FunVerdicts |> Array.map (fun (id, v) -> lambdaKeyOf id, v) |> Map.ofArray
             GenericFnSchemes = binderKeyedMap pools pools.GenericFnSchemes
             InlineBodies = inlineBodies
             Accessibility = pools.Residue.Accessibility
