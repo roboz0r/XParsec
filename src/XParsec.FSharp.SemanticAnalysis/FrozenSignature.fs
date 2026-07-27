@@ -475,11 +475,45 @@ module FrozenSignature =
 
             symbols.[sym.Name] <- sym
 
+        // The inline VOCABULARY, indexed by the binder it is published FOR — the join key
+        // for the one registration loop below.
+        //
+        // A template rides its OWN pool root: a second, independent tree, not a projection
+        // of the emitted function of the same name (it is snapshotted ahead of the
+        // expansion walk, so its static-opt clauses and trait calls resolve against a CALL
+        // SITE's operand types). But it is a tree over the SAME source binder, which is
+        // what lets the two meet here rather than as two passes over one dictionary where
+        // the later write happened to win. What ships is the DU drain of the root:
+        // `InlineBody` is the cross-unit wire (`Inline.thawBody` splices it in another
+        // unit), and a pool id is meaningless outside the file that issued it.
+        let inlineBodyOf =
+            let d = Dictionary<BinderId, InlineBody>(frozen.InlineTemplates.Length)
+
+            for iv in frozen.InlineTemplates do
+                match { Pool = pool; Id = iv.Decl } with
+                | TastAccessor.DLet {
+                                        Binding = TastAccessor.PNamedId binder
+                                    } ->
+                    d.[binder] <-
+                        {
+                            Decl = TastPoolBuilder.declTree pool iv.Decl
+                            ParamAttrs = iv.ParamAttrs
+                        }
+                | _ -> ()
+
+            d
+
         // EVERY module binding rides `Decls`, `inline` ones included (an inline binding is
         // emitted as an ordinary module function as well as published as a template), and
         // its identity is in `ModuleMembers` — a top-level binding has none, and is never
-        // exported. A template's entry is re-registered with its body by the loop below,
-        // which runs second and so wins.
+        // exported. So ONE loop registers them all, and a template is not a second entry
+        // that overwrites the first: it is the binding's `InlineBody`, looked up at the
+        // binder the decl already carries.
+        //
+        // That also means ONE export threshold, applied to `ModuleBindingInfo.Key`. The
+        // template's own `PooledInlineValue.Key` is minted from the same place
+        // (`Freeze.toFrozenFile`), so consulting it separately only created somewhere for
+        // the two to disagree.
         for decl in TastAccessor.roots pool do
             match decl with
             | TastAccessor.DLet {
@@ -489,34 +523,14 @@ module FrozenSignature =
                 match moduleMembers.TryGetValue binder with
                 | true, info ->
                     match info.Key with
-                    | SymbolKey.Binding bindingKey when exported info.Key -> addValue bindingKey binder ty ValueNone
+                    | SymbolKey.Binding bindingKey when exported info.Key ->
+                        let inlineBody =
+                            match inlineBodyOf.TryGetValue binder with
+                            | true, body -> ValueSome body
+                            | _ -> ValueNone
+
+                        addValue bindingKey binder ty inlineBody
                     | _ -> ()
-                | _ -> ()
-            | _ -> ()
-
-        // The inline VOCABULARY rides its OWN pool roots — a second, independent tree, not
-        // a projection of the emitted function of the same name (a template is snapshotted
-        // ahead of the expansion walk, so its static-opt clauses and trait calls resolve
-        // against a CALL SITE's operand types). What ships is the DU drain of that root:
-        // `InlineBody` is the cross-unit wire (`Inline.thawBody` splices it in another
-        // unit), and a pool id is meaningless outside the file that issued it.
-        for iv in frozen.InlineTemplates do
-            match iv.Key with
-            | SymbolKey.Binding bindingKey when exported iv.Key ->
-                let decl = { Pool = pool; Id = iv.Decl }
-
-                match decl with
-                | TastAccessor.DLet {
-                                        Binding = TastAccessor.PNamedId binder
-                                        Ty = ty
-                                    } ->
-                    let body: InlineBody =
-                        {
-                            Decl = TastPoolBuilder.declTree pool iv.Decl
-                            ParamAttrs = iv.ParamAttrs
-                        }
-
-                    addValue bindingKey binder ty (ValueSome body)
                 | _ -> ()
             | _ -> ()
 
