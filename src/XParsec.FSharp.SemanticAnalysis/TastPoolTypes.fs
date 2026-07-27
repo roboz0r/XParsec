@@ -155,6 +155,32 @@ type DeclPoolId = | DeclPoolId of int
 [<Struct>]
 type BinderId = | BinderId of int
 
+/// A side table in its STORED form: a sparse association over a dense id space — an entry
+/// iff the source `Map<NodeKey, _>` held that binder / lambda. An array because that is
+/// what the wire and the round-trip want; it answers no question on its own, so every
+/// consumer indexes it first (`DenseTable.index`).
+type DenseTable<'id, 'v> = ('id * 'v)[]
+
+[<RequireQualifiedAccess>]
+module DenseTable =
+
+    /// The stored table as the LOOKUP every consumer turns it into. One container choice,
+    /// made once: a `Dictionary` over keys that are already dense ints, rather than each
+    /// reader picking its own (an `F# Map` tree here, a hand-filled `Dictionary` loop
+    /// there) and restating why.
+    ///
+    /// A repeated id FAULTS rather than letting the later entry win. The tables are built
+    /// from a `Map`, so a repeat means the producer lost an entry — which `readOnlyDict`
+    /// would swallow.
+    let index (table: DenseTable<'id, 'v>) : System.Collections.Generic.IReadOnlyDictionary<'id, 'v> =
+        let d = System.Collections.Generic.Dictionary<'id, 'v>(table.Length)
+
+        for (id, v) in table do
+            if not (d.TryAdd(id, v)) then
+                failwithf "DenseTable.index: id %O appears twice" id
+
+        d
+
 /// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
 /// by pool id instead of carrying the tree. The declaration SHAPE is unchanged — which body
 /// fills which slot is structure a flat child column could not express without a re-nesting
@@ -492,22 +518,22 @@ type FrozenPools =
         BinderKeys: NodeKey[]
         /// The not-yet-pooled remainder of the source file, carried verbatim.
         Residue: FrozenFileResidue
-        /// Six of the seven source `Map<NodeKey,_>` side tables, re-keyed by `BinderId`
-        /// (a sparse association — a binder appears iff the map held it). `ofPools`
-        /// rebuilds each map from its dense form.
-        ModuleMembers: (BinderId * ModuleBindingInfo)[]
-        TopLevelNames: (BinderId * string)[]
-        ClosureReprs: (BinderId * ClosureRepr)[]
+        /// Six of the seven source `Map<NodeKey,_>` side tables, re-keyed by `BinderId`.
+        /// `ofPools` rebuilds each map from its dense form; a reader indexes it with
+        /// `DenseTable.index`.
+        ModuleMembers: DenseTable<BinderId, ModuleBindingInfo>
+        TopLevelNames: DenseTable<BinderId, string>
+        ClosureReprs: DenseTable<BinderId, ClosureRepr>
         /// The one side table keyed by a lambda-EXPRESSION `NodeKey` (a source lambda's
         /// `TastWalk.lambdaKey`, kind `ExprLambda`) rather than a binder, so it is re-keyed
         /// onto the lambda id space — a lambda's dense id IS its `ExprPoolId` (positional:
         /// every `Lambda` expr is already pooled), off the binder pool. `ofPools` inverts
         /// by recomputing that key from the lambda's `ExprToks` column (the same
         /// `NodeKey.ofToken … ExprLambda` `TastWalk.lambdaKey` computes), the Node now gone.
-        FunVerdicts: (ExprPoolId * FunVerdict)[]
-        GenericFnSchemes: (BinderId * FrozenConstraint list)[]
-        BindingValReprs: (BinderId * PooledValRepr)[]
-        BindingTyparArities: (BinderId * int)[]
+        FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
+        GenericFnSchemes: DenseTable<BinderId, FrozenConstraint list>
+        BindingValReprs: DenseTable<BinderId, PooledValRepr>
+        BindingTyparArities: DenseTable<BinderId, int>
     }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

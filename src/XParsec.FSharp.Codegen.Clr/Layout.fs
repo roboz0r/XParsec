@@ -44,10 +44,7 @@ module internal Layout =
         // A source lambda's verdict, on the lambda ID SPACE: a lambda's dense id is its
         // `ExprPoolId`, so a discovered lambda's verdict is a lookup on the node itself
         // rather than a key recomputed from its token.
-        let funVerdicts = Dictionary<ExprPoolId, FunVerdict>()
-
-        for (id, v) in pools.FunVerdicts do
-            funVerdicts.[id] <- v
+        let funVerdicts = DenseTable.index pools.FunVerdicts
 
         let lowered0 = Emit.lower decls
         // The anonymous "Program" holder's key — a module of that name in the global

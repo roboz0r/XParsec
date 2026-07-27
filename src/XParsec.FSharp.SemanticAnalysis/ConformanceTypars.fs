@@ -116,8 +116,8 @@ module ConformanceTypars =
         let pool = TastPoolBuilder.openOver pools
         // Both side tables are read at the binder id the decl's own head pattern carries,
         // so a lookup can only name a binder this tree bears — no `NodeKey` round-trip.
-        let moduleMembers = Map.ofArray pools.ModuleMembers
-        let topLevelNames = Map.ofArray pools.TopLevelNames
+        let moduleMembers = DenseTable.index pools.ModuleMembers
+        let topLevelNames = DenseTable.index pools.TopLevelNames
 
         [
             for decl in TastAccessor.roots pool do
@@ -131,12 +131,18 @@ module ConformanceTypars =
                                         IsInline = false
                                         Ty = ty
                                     } ->
-                    let info = Map.tryFind binder moduleMembers
+                    let info =
+                        match moduleMembers.TryGetValue binder with
+                        | true, mi -> Some mi
+                        | _ -> None
 
                     let nameOpt =
                         match info with
                         | Some mi -> Some mi.Name
-                        | None -> Map.tryFind binder topLevelNames
+                        | None ->
+                            match topLevelNames.TryGetValue binder with
+                            | true, n -> Some n
+                            | _ -> None
 
                     match nameOpt with
                     | None -> ()

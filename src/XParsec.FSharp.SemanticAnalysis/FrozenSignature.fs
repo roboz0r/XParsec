@@ -448,21 +448,21 @@ module FrozenSignature =
         // Both binding side tables are read at the binder ID the decl's own head pattern
         // carries — a template and the ordinary function it was snapshotted from are two
         // trees over the SAME source binder, so the one id serves both loops below.
-        let bindingValReprs = Map.ofArray frozen.BindingValReprs
-        let bindingTyparArities = Map.ofArray frozen.BindingTyparArities
-        let moduleMembers = Map.ofArray frozen.ModuleMembers
+        let bindingValReprs = DenseTable.index frozen.BindingValReprs
+        let bindingTyparArities = DenseTable.index frozen.BindingTyparArities
+        let moduleMembers = DenseTable.index frozen.ModuleMembers
 
         let bindingValRepr (binder: BinderId) : TastAccessor.ValRepr voption =
-            match Map.tryFind binder bindingValReprs with
+            match bindingValReprs.TryGetValue binder with
             // A value has no lambda groups — `ValueNone`, exactly as the extractor
             // leaves `ValRepr` on a non-function `val`.
-            | Some vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring pool valReprPats vr)
+            | true, vr when not (List.isEmpty vr.Groups) -> ValueSome(valReprToDeclaring pool valReprPats vr)
             | _ -> ValueNone
 
         let bindingArity (binder: BinderId) : int =
-            match Map.tryFind binder bindingTyparArities with
-            | Some n -> n
-            | None -> 0
+            match bindingTyparArities.TryGetValue binder with
+            | true, n -> n
+            | _ -> 0
 
         let addValue (bindingKey: BindingKey) (binder: BinderId) (ty: FrozenType) (inlineBody: InlineBody voption) =
             let scheme = ConformanceTypars.toDeclaringAxis ty
@@ -487,12 +487,12 @@ module FrozenSignature =
                                     Binding = TastAccessor.PNamedId binder
                                     Ty = ty
                                 } ->
-                match Map.tryFind binder moduleMembers with
-                | Some info ->
+                match moduleMembers.TryGetValue binder with
+                | true, info ->
                     match info.Key with
                     | SymbolKey.Binding bindingKey when exported info.Key -> addValue bindingKey binder ty ValueNone
                     | _ -> ()
-                | None -> ()
+                | _ -> ()
             | _ -> ()
 
         // The inline VOCABULARY rides its OWN pool roots — a second, independent tree, not
