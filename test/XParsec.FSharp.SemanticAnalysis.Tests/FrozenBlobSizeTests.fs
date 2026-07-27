@@ -17,16 +17,18 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 //
 //   | program                             | tree codec | pool columns |
 //   |-------------------------------------|-----------:|-------------:|
-//   | curried fns                         |        391 |          494 |
-//   | record type + literal + field get   |        214 |          271 |
-//   | match + for-to + mutable accumulator|        382 |          492 |
+//   | curried fns                         |        391 |          475 |
+//   | record type + literal + field get   |        214 |          258 |
+//   | match + for-to + mutable accumulator|        382 |          468 |
 //
-// (The pool figures moved down from 504 / 282 / 508 when the redundant `BinderNamings`
-// column and the re-pooled `ValRepr` tuple-group patterns came out — both were data the
-// blob already carried elsewhere. The ceilings below are unchanged: they exist to catch a
-// LARGE inflation, not to track the number.)
+// (The pool figures moved down from 504 / 282 / 508 as data the blob already carried
+// elsewhere came out: the redundant `BinderNamings` column, the re-pooled `ValRepr`
+// tuple-group patterns, and then the three SHAPE columns — a node's tag is a projection
+// of its payload, so it was a byte per node per domain for a fact the payload's own tag
+// already stored. The ceilings below are unchanged: they exist to catch a LARGE
+// inflation, not to track the number.)
 //
-// The pool form is ~28% LARGER, and that is inherent to it rather than a defect: the recursive
+// The pool form is ~22% LARGER, and that is inherent to it rather than a defect: the recursive
 // tree codec encodes the tree spine implicitly in its nesting (zero bytes), whereas the columnar
 // form must name every child edge explicitly — a length prefix plus a 4-byte dense id per edge,
 // per domain — which is precisely what buys O(1) id-indexed access. The compensating size work is

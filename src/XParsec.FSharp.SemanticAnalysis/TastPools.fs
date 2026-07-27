@@ -17,54 +17,14 @@ module TastPools =
 
     // ── the DU vocabulary ───────────────────────────────────────────────────
     //
-    // Shape tag and child enumeration read off a `Frozen.*` node. This is the LAST
-    // place a frozen DU is walked — every consumer reads the columns — so the tree
+    // Payload projection and child enumeration read off a `Frozen.*` node. This is the
+    // LAST place a frozen DU is walked — every consumer reads the columns — so the tree
     // shape is written down exactly once, here, and the child ORDER these produce IS
     // the order of the `ExprChildren`/`ExprPatChildren`/`PatChildren` columns. Each
     // match is exhaustive with no catch-all: a new `TExprG`/`TPatG`/`TDeclG` case
-    // fails to compile rather than silently escaping the pool.
-
-    let exprShape (e: Frozen.TExpr) : ExprShape =
-        match e with
-        | TExprG.Const _ -> ExprShape.Const
-        | TExprG.Var _ -> ExprShape.Var
-        | TExprG.External _ -> ExprShape.External
-        | TExprG.Lambda _ -> ExprShape.Lambda
-        | TExprG.App _ -> ExprShape.App
-        | TExprG.Let _ -> ExprShape.Let
-        | TExprG.Use _ -> ExprShape.Use
-        | TExprG.IfThenElse _ -> ExprShape.IfThenElse
-        | TExprG.Tuple _ -> ExprShape.Tuple
-        | TExprG.Sequential _ -> ExprShape.Sequential
-        | TExprG.While _ -> ExprShape.While
-        | TExprG.ForTo _ -> ExprShape.ForTo
-        | TExprG.ForIn _ -> ExprShape.ForIn
-        | TExprG.Match _ -> ExprShape.Match
-        | TExprG.TryWith _ -> ExprShape.TryWith
-        | TExprG.TryFinally _ -> ExprShape.TryFinally
-        | TExprG.Assignment _ -> ExprShape.Assignment
-        | TExprG.Null _ -> ExprShape.Null
-        | TExprG.Range _ -> ExprShape.Range
-        | TExprG.RecordCons _ -> ExprShape.RecordCons
-        | TExprG.RecordClone _ -> ExprShape.RecordClone
-        | TExprG.FieldGet _ -> ExprShape.FieldGet
-        | TExprG.FieldSet _ -> ExprShape.FieldSet
-        | TExprG.UnionCons _ -> ExprShape.UnionCons
-        | TExprG.New _ -> ExprShape.New
-        | TExprG.MethodCall _ -> ExprShape.MethodCall
-        | TExprG.PropertyGet _ -> ExprShape.PropertyGet
-        | TExprG.StaticMethodCall _ -> ExprShape.StaticMethodCall
-        | TExprG.StaticPropertyGet _ -> ExprShape.StaticPropertyGet
-        | TExprG.StaticFieldGet _ -> ExprShape.StaticFieldGet
-        | TExprG.StaticFieldSet _ -> ExprShape.StaticFieldSet
-        | TExprG.ExternalMember _ -> ExprShape.ExternalMember
-        | TExprG.Format _ -> ExprShape.Format
-        | TExprG.ILIntrinsic _ -> ExprShape.ILIntrinsic
-        | TExprG.StaticOptimization _ -> ExprShape.StaticOptimization
-        | TExprG.Upcast _ -> ExprShape.Upcast
-        | TExprG.Downcast _ -> ExprShape.Downcast
-        | TExprG.TypeTest _ -> ExprShape.TypeTest
-        | TExprG.TraitCall _ -> ExprShape.TraitCall
+    // fails to compile rather than silently escaping the pool. A node's SHAPE tag is not
+    // among them — it is `ExprPayload.shape` of the payload these produce, never a
+    // second match over the DU.
 
     /// The immediate child *expressions*, in evaluation order. Sub-patterns are NOT
     /// children (see `exprPatChildren`); composite carriers with no node identity of
@@ -268,23 +228,6 @@ module TastPools =
 
         acc.ToArray()
 
-    /// Public because the source-arity peel runs on BOTH sides of the freeze: `Freeze`
-    /// groups a binding's parameters off the DU spine it has just built, the backends
-    /// off the pooled one, and both classify a parameter through the one rule
-    /// (`TastLower.argGroupOfParam`) — which needs this tag in the DU domain too.
-    let patShape (p: Frozen.TPat) : PatShape =
-        match p with
-        | TPatG.NamedSimple _ -> PatShape.NamedSimple
-        | TPatG.Wildcard _ -> PatShape.Wildcard
-        | TPatG.Tuple _ -> PatShape.Tuple
-        | TPatG.Const _ -> PatShape.Const
-        | TPatG.Record _ -> PatShape.Record
-        | TPatG.Union _ -> PatShape.Union
-        | TPatG.TypeTestAs _ -> PatShape.TypeTestAs
-        | TPatG.Null _ -> PatShape.Null
-        | TPatG.EnumCase _ -> PatShape.EnumCase
-        | TPatG.Or _ -> PatShape.Or
-
     /// The immediate sub-patterns, in source order (patterns own no child expressions).
     let patChildren (p: Frozen.TPat) : Frozen.TPat[] =
         let acc = ResizeArray<Frozen.TPat>()
@@ -309,18 +252,16 @@ module TastPools =
 
         acc.ToArray()
 
-    let declShape (d: Frozen.TDecl) : DeclShape =
-        match d with
-        | TDeclG.Let _ -> DeclShape.Let
-        | TDeclG.Expression _ -> DeclShape.Expression
-        | TDeclG.Type _ -> DeclShape.Type
-
     /// The residual payload of a frozen expression node — its fields MINUS `ty`/`tok`, the
     /// child expr ids (`exprChildren`), the owned pat ids (`exprPatChildren`), and the `Var`
     /// binder id. The exact inverse of `substituteExpr`, mirroring `FrozenCodec.writeExprPayload`
     /// for what each case emits beyond those. Exhaustive on the DU with no catch-all, so a
     /// new `TExprG` case fails to compile here.
-    let private exprPayload (e: Frozen.TExpr) : ExprPayload =
+    ///
+    /// Public as the DU-domain counterpart of the `ExprPayloads` column: the pool-build
+    /// gate checks a pooled node against the payload the DU node projects to, which is
+    /// the whole residual rather than just its tag.
+    let exprPayload (e: Frozen.TExpr) : ExprPayload =
         // Per-arm guard-presence flags — the only residual structure a `Match`/`TryWith`
         // records (the arm pats/guards/bodies themselves ride the child columns); this is
         // what `substituteExpr.buildArms` re-nests them by.
@@ -426,8 +367,8 @@ module TastPools =
     /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
     /// child sub-pat ids (`patChildren`). The exact inverse of `substitutePat`, mirroring
     /// `FrozenCodec.writePatPayload`. Exhaustive with no catch-all, so a new `TPat` case fails to
-    /// compile here.
-    let private patPayload (p: Frozen.TPat) : PatPayload =
+    /// compile here. Public for the same reason as `exprPayload`.
+    let patPayload (p: Frozen.TPat) : PatPayload =
         match p with
         | TPatG.NamedSimple(binding = binding) -> PatPayload.NamedSimple binding
         | TPatG.Wildcard _ -> PatPayload.Wildcard
@@ -445,6 +386,21 @@ module TastPools =
                     CaseName = caseName
                 |}
 
+    /// The id-keyed record a row cannot carry, reported as the walk appends the node it
+    /// belongs to. One case per such record, so the datum a case carries is the one that
+    /// case needs and there is no argument that is meaningful only under some other
+    /// field's value. The DU node is deliberately NOT passed: a sink must be expressible
+    /// without one, since the columns are Node-sufficient.
+    [<RequireQualifiedAccess>]
+    type PooledEvent =
+        /// A `Var`'s reference edge. The walk cannot fill it — binder ids are the sink's
+        /// to assign, and a `Var` may name a binder the walk has not reached — so it
+        /// reports the `NodeKey` and the sink resolves it onto `ExprVarBinder`.
+        | VarRef of binder: NodeKey * at: ExprPoolId
+        /// A source lambda's slot in the lambda id space, with the token
+        /// `TastWalk.lambdaKey` computes its key from.
+        | LambdaPooled of tok: SyntaxToken * at: ExprPoolId
+
     /// Where a pooling walk PUTS the rows it produces. The walk itself — which nodes
     /// exist, in what order, and which child edges they carry — is `poolExpr`/`poolPat`/
     /// `poolDecl` below and exists exactly once; a sink decides only where a row lands and
@@ -458,15 +414,9 @@ module TastPools =
             AddExpr: ExprRow -> ExprPoolId
             AddPat: PatRow -> PatPoolId
             AddDecl: DeclRow -> DeclPoolId
-            /// Called with each pooled expr node's row, the binder `NodeKey` it
-            /// references when it is a `Var` (`ValueNone` at every other shape), and the
-            /// id its row took. The hook for the id-keyed records a row cannot carry: a
-            /// `Var`'s binder reference (which the walk leaves `ValueNone`, binder ids
-            /// being the sink's to assign) and a lambda's entry in the lambda id space
-            /// (recoverable from the row's `Tok`). The DU node is deliberately NOT
-            /// passed: a sink must be expressible without one, since the columns are
-            /// Node-sufficient.
-            OnExprPooled: ExprRow -> NodeKey voption -> ExprPoolId -> unit
+            /// Called once per pooled expr node that carries an id-keyed record, after
+            /// its row is added. Not called at all for a node that carries none.
+            OnExprPooled: PooledEvent -> unit
         }
 
     /// Pool a pattern subtree post-order: a node's children are pooled before the node
@@ -480,7 +430,6 @@ module TastPools =
 
         sink.AddPat
             {
-                Shape = patShape p
                 Ty = TastWalk.patTy p
                 Tok = TastWalk.patTok p
                 Children = kids
@@ -492,20 +441,15 @@ module TastPools =
     let rec poolExpr (sink: PoolSink) (e: Frozen.TExpr) : ExprPoolId =
         // A `ForTo` binds its loop variable with no pattern node behind it, so the
         // intern cannot ride `poolPat`.
-        let varBinding =
-            match e with
-            | TExprG.ForTo(var = var) ->
-                sink.InternBinder var
-                ValueNone
-            | TExprG.Var(binding = binding) -> ValueSome binding
-            | _ -> ValueNone
+        match e with
+        | TExprG.ForTo(var = var) -> sink.InternBinder var
+        | _ -> ()
 
         let exprKids = exprChildren e |> Array.map (poolExpr sink)
         let patKids = exprPatChildren e |> Array.map (poolPat sink)
 
         let row =
             {
-                Shape = exprShape e
                 Ty = TastWalk.exprTy e
                 Tok = TastWalk.exprTok e
                 Children = exprKids
@@ -515,7 +459,12 @@ module TastPools =
             }
 
         let id = sink.AddExpr row
-        sink.OnExprPooled row varBinding id
+
+        match e with
+        | TExprG.Var(binding = binding) -> sink.OnExprPooled(PooledEvent.VarRef(binding, id))
+        | TExprG.Lambda _ -> sink.OnExprPooled(PooledEvent.LambdaPooled(row.Tok, id))
+        | _ -> ()
+
         id
 
     /// The residual payload of a frozen declaration node — its fields MINUS the child
@@ -551,7 +500,6 @@ module TastPools =
 
         sink.AddDecl
             {
-                Shape = declShape d
                 ExprChildren = exprKids
                 PatChildren = patKids
                 Payload = declPayload sink d
@@ -570,13 +518,13 @@ module TastPools =
         (binderIdOf: string -> NodeKey -> BinderId)
         : DenseTable<BinderId, PooledValRepr> =
         let unLambda (ExprPoolId i) =
-            match pools.ExprShapes.[i] with
-            | ExprShape.Lambda -> ValueSome(struct (pools.ExprPatChildren.[i].[0], pools.ExprChildren.[i].[0]))
+            match pools.ExprPayloads.[i] with
+            | ExprPayload.Lambda -> ValueSome(struct (pools.ExprPatChildren.[i].[0], pools.ExprChildren.[i].[0]))
             | _ -> ValueNone
 
         let facts (PatPoolId i) : ArgGroups.ParamPatFacts =
             {
-                Shape = pools.PatShapes.[i]
+                Shape = PatPayload.shape pools.PatPayloads.[i]
                 Ty = pools.PatTys.[i]
                 Binder =
                     match pools.PatPayloads.[i] with
@@ -590,8 +538,8 @@ module TastPools =
 
         [|
             for DeclPoolId d in pools.Roots do
-                match pools.DeclShapes.[d] with
-                | DeclShape.Let ->
+                match pools.DeclPayloads.[d] with
+                | DeclPayload.Let _ ->
                     let (PatPoolId head) = pools.DeclPatChildren.[d].[0]
 
                     match pools.PatPayloads.[head] with
@@ -615,8 +563,8 @@ module TastPools =
                                 ResultTy = pools.ExprTys.[b]
                             }
                     | _ -> ()
-                | DeclShape.Expression
-                | DeclShape.Type -> ()
+                | DeclPayload.Expression _
+                | DeclPayload.Type _ -> ()
         |]
 
     /// Pool the frozen tree of `file.Decls`, assigning each reachable node a dense id
@@ -624,7 +572,6 @@ module TastPools =
     let toPools (file: Frozen.TastFile) : FrozenPools =
         // The expression pool as parallel column builders (struct-of-arrays); all are
         // appended together per node so they stay index-aligned by `ExprPoolId`.
-        let exprShapes = ResizeArray<ExprShape>()
         let exprTys = ResizeArray<FrozenType>()
         let exprToks = ResizeArray<SyntaxToken>()
         let exprChildrenCol = ResizeArray<ExprPoolId[]>()
@@ -638,14 +585,12 @@ module TastPools =
 
         // The pattern pool as parallel column builders (struct-of-arrays), index-aligned by
         // `PatPoolId`.
-        let patShapes = ResizeArray<PatShape>()
         let patTys = ResizeArray<FrozenType>()
         let patToks = ResizeArray<SyntaxToken>()
         let patChildrenCol = ResizeArray<PatPoolId[]>()
         let patPayloads = ResizeArray<PatPayload>()
 
         // The declaration pool as parallel column builders, index-aligned by `DeclPoolId`.
-        let declShapes = ResizeArray<DeclShape>()
         let declExprChildrenCol = ResizeArray<ExprPoolId[]>()
         let declPatChildrenCol = ResizeArray<PatPoolId[]>()
         let declPayloads = ResizeArray<DeclPayload>()
@@ -687,8 +632,7 @@ module TastPools =
                 InternBinder = internBinder
                 AddExpr =
                     fun row ->
-                        let id = exprShapes.Count
-                        exprShapes.Add row.Shape
+                        let id = exprPayloads.Count
                         exprTys.Add row.Ty
                         exprToks.Add row.Tok
                         exprChildrenCol.Add row.Children
@@ -697,8 +641,7 @@ module TastPools =
                         ExprPoolId id
                 AddPat =
                     fun row ->
-                        let id = patShapes.Count
-                        patShapes.Add row.Shape
+                        let id = patPayloads.Count
                         patTys.Add row.Ty
                         patToks.Add row.Tok
                         patChildrenCol.Add row.Children
@@ -706,8 +649,7 @@ module TastPools =
                         PatPoolId id
                 AddDecl =
                     fun row ->
-                        let id = declShapes.Count
-                        declShapes.Add row.Shape
+                        let id = declPayloads.Count
                         declExprChildrenCol.Add row.ExprChildren
                         declPatChildrenCol.Add row.PatChildren
                         declPayloads.Add row.Payload
@@ -716,12 +658,11 @@ module TastPools =
                 // lambda's positional identity is its slot, stamped so `FunVerdicts`
                 // (lambda-expression-keyed) resolves onto it.
                 OnExprPooled =
-                    fun row varBinding (ExprPoolId id) ->
-                        match row.Shape with
-                        | ExprShape.Var -> varBindings.Add(struct (id, varBinding.Value))
+                    fun ev ->
+                        match ev with
+                        | PooledEvent.VarRef(binder, ExprPoolId id) -> varBindings.Add(struct (id, binder))
                         // The same key `TastWalk.lambdaKey` computes, off the row's token.
-                        | ExprShape.Lambda -> lambdaIds.[NodeKey.ofToken row.Tok NodeKind.ExprLambda] <- ExprPoolId id
-                        | _ -> ()
+                        | PooledEvent.LambdaPooled(tok, id) -> lambdaIds.[NodeKey.ofToken tok NodeKind.ExprLambda] <- id
             }
 
         let roots = file.Decls |> EqArray.toArray |> Array.map (poolDecl sink)
@@ -762,7 +703,7 @@ module TastPools =
         // Second pass: now the enumeration is complete, route each `Var`'s reference edge
         // to its binder's dense id — the sparse `ExprVarBinder` column (`ValueNone` at
         // every non-`Var` slot).
-        let exprVarBinder: BinderId voption[] = Array.create exprShapes.Count ValueNone
+        let exprVarBinder: BinderId voption[] = Array.create exprPayloads.Count ValueNone
 
         for (struct (id, key)) in varBindings do
             exprVarBinder.[id] <- ValueSome(binderIdOf "Var" key)
@@ -780,19 +721,16 @@ module TastPools =
         // correctness weight.
         let pools =
             {
-                ExprShapes = exprShapes.ToArray()
                 ExprTys = exprTys.ToArray()
                 ExprToks = exprToks.ToArray()
                 ExprChildren = exprChildrenCol.ToArray()
                 ExprPatChildren = exprPatChildrenCol.ToArray()
                 ExprVarBinder = exprVarBinder
                 ExprPayloads = exprPayloads.ToArray()
-                PatShapes = patShapes.ToArray()
                 PatTys = patTys.ToArray()
                 PatToks = patToks.ToArray()
                 PatChildren = patChildrenCol.ToArray()
                 PatPayloads = patPayloads.ToArray()
-                DeclShapes = declShapes.ToArray()
                 DeclExprChildren = declExprChildrenCol.ToArray()
                 DeclPatChildren = declPatChildrenCol.ToArray()
                 DeclPayloads = declPayloads.ToArray()

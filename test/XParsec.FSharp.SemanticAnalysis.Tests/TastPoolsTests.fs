@@ -27,13 +27,13 @@ let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
     TastPools.toPools frozen, frozen
 
 let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Frozen.TPat) =
-    Expect.equal pools.PatShapes.[i] (TastPools.patShape du) "pat shape"
+    Expect.equal pools.PatPayloads.[i] (TastPools.patPayload du) "pat payload"
     let duKids = TastPools.patChildren du
     Expect.equal pools.PatChildren.[i].Length duKids.Length "pat child fan-out"
     Array.iter2 (checkPat pools) pools.PatChildren.[i] duKids
 
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Frozen.TExpr) =
-    Expect.equal pools.ExprShapes.[i] (TastPools.exprShape du) "expr shape"
+    Expect.equal pools.ExprPayloads.[i] (TastPools.exprPayload du) "expr payload"
     let duExprKids = TastPools.exprChildren du
     let duPatKids = TastPools.exprPatChildren du
     Expect.equal pools.ExprChildren.[i].Length duExprKids.Length "expr child fan-out"
@@ -60,19 +60,25 @@ let private bodySlots (td: TTypeDeclG<FrozenType, SyntaxToken, 'body>) : 'body[]
     slots.ToArray()
 
 let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
-    Expect.equal pools.DeclShapes.[i] (TastPools.declShape du) "decl shape"
+    // The pooled shape is its payload's (`DeclPayload.shape`); each arm asserts the one
+    // the DU case it is standing in calls for, so the correspondence is checked without
+    // a second DU→shape match to keep in step.
+    let shapeIs = Expect.equal (DeclPayload.shape pools.DeclPayloads.[i])
 
     match du with
     | TDeclG.Let(binding = binding; value = value) ->
+        shapeIs DeclShape.Let "decl shape"
         Expect.equal pools.DeclExprChildren.[i].Length 1 "let decl one value child"
         Expect.equal pools.DeclPatChildren.[i].Length 1 "let decl one binding child"
         checkExpr pools pools.DeclExprChildren.[i].[0] value
         checkPat pools pools.DeclPatChildren.[i].[0] binding
     | TDeclG.Expression(expr = expr) ->
+        shapeIs DeclShape.Expression "decl shape"
         Expect.equal pools.DeclExprChildren.[i].Length 1 "expression decl one child"
         Expect.equal pools.DeclPatChildren.[i].Length 0 "expression decl no pat child"
         checkExpr pools pools.DeclExprChildren.[i].[0] expr
     | TDeclG.Type duTd ->
+        shapeIs DeclShape.Type "decl shape"
         Expect.equal pools.DeclExprChildren.[i].Length 0 "type decl surfaces no expr child"
         Expect.equal pools.DeclPatChildren.[i].Length 0 "type decl surfaces no pat child"
 
@@ -102,8 +108,8 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
     let lambdaKeyOf (ExprPoolId i) =
         NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda
 
-    for i in 0 .. pools.ExprShapes.Length - 1 do
-        match pools.ExprShapes.[i], pools.ExprVarBinder.[i] with
+    for i in 0 .. pools.ExprPayloads.Length - 1 do
+        match ExprPayload.shape pools.ExprPayloads.[i], pools.ExprVarBinder.[i] with
         | ExprShape.Var, ValueSome(BinderId b) ->
             Expect.isTrue (b >= 0 && b < pools.BinderKeys.Length) "Var binder id is an interned binder"
         | ExprShape.Var, ValueNone -> failtest "a Var pool entry carries no resolved binder id"
@@ -140,8 +146,8 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
 let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
     let lambdaParams = System.Collections.Generic.HashSet<PatPoolId>()
 
-    for i in 0 .. pools.ExprShapes.Length - 1 do
-        if pools.ExprShapes.[i] = ExprShape.Lambda then
+    for i in 0 .. pools.ExprPayloads.Length - 1 do
+        if pools.ExprPayloads.[i] = ExprPayload.Lambda then
             lambdaParams.Add pools.ExprPatChildren.[i].[0] |> ignore
 
     for _, vr in pools.BindingValReprs do
@@ -155,7 +161,7 @@ let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
     let namedLetRoots =
         pools.Roots
         |> Array.filter (fun (DeclPoolId d) ->
-            pools.DeclShapes.[d] = DeclShape.Let
+            DeclPayload.shape pools.DeclPayloads.[d] = DeclShape.Let
             && (let (PatPoolId head) = pools.DeclPatChildren.[d].[0]
 
                 match pools.PatPayloads.[head] with
@@ -410,7 +416,7 @@ let pooledCarrierCoverageTests =
                     let pools, _ = poolsFor src
 
                     let inExprs (ExprPoolId i) =
-                        Expect.isTrue (i >= 0 && i < pools.ExprShapes.Length) "body id is an expr pool entry"
+                        Expect.isTrue (i >= 0 && i < pools.ExprPayloads.Length) "body id is an expr pool entry"
 
                     for p in pools.DeclPayloads do
                         match p with
@@ -420,14 +426,18 @@ let pooledCarrierCoverageTests =
 
                     for t in pools.InlineTemplates do
                         let (DeclPoolId i) = t.Decl
-                        Expect.isTrue (i >= 0 && i < pools.DeclShapes.Length) "template id is a decl pool entry"
+                        Expect.isTrue (i >= 0 && i < pools.DeclPayloads.Length) "template id is a decl pool entry"
 
                     for _, vr in pools.BindingValReprs do
                         for g in vr.Groups do
                             match g with
                             | ArgGroupG.GTuple(PatPoolId i) ->
-                                Expect.isTrue (i >= 0 && i < pools.PatShapes.Length) "group id is a pat pool entry"
-                                Expect.equal pools.PatShapes.[i] PatShape.Tuple "a GTuple names a Tuple pattern"
+                                Expect.isTrue (i >= 0 && i < pools.PatPayloads.Length) "group id is a pat pool entry"
+
+                                Expect.equal
+                                    (PatPayload.shape pools.PatPayloads.[i])
+                                    PatShape.Tuple
+                                    "a GTuple names a Tuple pattern"
                             | ArgGroupG.GUnit _
                             | ArgGroupG.GSimple _ -> ()
             }
@@ -443,9 +453,9 @@ let pooledCarrierCoverageTests =
 /// The first `Lambda` expr pool entry's key — the frozen lambda to key the verdict on,
 /// recomputed from its `ExprToks` column (the Node is gone) as `ofPools` does.
 let private firstLambdaKey (pools: FrozenPools) : NodeKey =
-    seq { 0 .. pools.ExprShapes.Length - 1 }
+    seq { 0 .. pools.ExprPayloads.Length - 1 }
     |> Seq.pick (fun i ->
-        match pools.ExprShapes.[i] with
+        match ExprPayload.shape pools.ExprPayloads.[i] with
         | ExprShape.Lambda -> Some(NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda)
         | _ -> None
     )
@@ -476,7 +486,11 @@ let funVerdictLambdaKeyTests =
                 Expect.equal pools.FunVerdicts.Length 1 "one pooled verdict"
                 let (ExprPoolId i, v) = pools.FunVerdicts.[0]
                 Expect.equal v verdict "pooled verdict value preserved"
-                Expect.equal pools.ExprShapes.[i] ExprShape.Lambda "verdict id names a Lambda entry"
+
+                Expect.equal
+                    (ExprPayload.shape pools.ExprPayloads.[i])
+                    ExprShape.Lambda
+                    "verdict id names a Lambda entry"
 
                 Expect.equal
                     (NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda)

@@ -1624,9 +1624,9 @@ module FrozenCodec =
     //
     // The payload tag writers below are EXHAUSTIVE with no catch-all — the same discipline
     // `TastPools.exprPayload`/`substituteExpr` hold — so a new payload case fails to
-    // compile here rather than serializing as a silent alias. The SHAPE tags are all-nullary
-    // and single-sourced from one array instead; see `shapeTags` for how completeness is
-    // held there.
+    // compile here rather than serializing as a silent alias. A node's SHAPE tag has no
+    // writer at all: it is a projection of the payload (`ExprPayload.shape`), so the
+    // payload's tag byte already carries it.
 
     let private writeBinderId (w: BinaryWriter) (BinderId i) = w.Write i
     let private readBinderId (r: BinaryReader) : BinderId = BinderId(r.ReadInt32())
@@ -1669,112 +1669,6 @@ module FrozenCodec =
                 let v = readVal r
                 id, v
             )
-
-    // A shape tag is one byte, and — unlike every other tagged case in this file — its
-    // numbering is written down ONCE. `ExprShape`/`PatShape`/`DeclShape` are all-nullary,
-    // so the whole codec for one is a single declaration-ordered array: an entry's INDEX
-    // is the byte it stores as, and the same array inverts a byte on read. A
-    // writer/reader disagreement is no longer expressible, where before it was two
-    // hand-typed numberings that had to agree by eye.
-    //
-    // What that costs, and how it is bought back: the writer is no longer an exhaustive
-    // match, so a new case does not fail to COMPILE here. `shapeTags` instead checks at
-    // module init that the array is a BIJECTION onto the type's cases — no duplicates,
-    // and exactly as many entries as the type declares — so a case added without
-    // extending the array faults the first time anything touches the codec rather than
-    // serializing as a silent alias of another shape. The array's ORDER is the wire
-    // format: append to it, never permute it.
-
-    let private shapeTags (name: string) (byTag: 'a[]) : ('a -> byte) * (BinaryReader -> 'a) =
-        let toTag = System.Collections.Generic.Dictionary<'a, byte>(byTag.Length)
-
-        byTag |> Array.iteri (fun i c -> toTag.[c] <- byte i)
-
-        if toTag.Count <> byTag.Length then
-            failwithf "FrozenCodec: the %s tag table lists a case twice" name
-
-        let declared = Reflection.FSharpType.GetUnionCases(typeof<'a>).Length
-
-        if byTag.Length <> declared then
-            failwithf "FrozenCodec: %s declares %d cases but its tag table lists %d" name declared byTag.Length
-
-        let read (r: BinaryReader) =
-            let b = r.ReadByte()
-
-            if int b >= byTag.Length then
-                failwithf "FrozenCodec: unknown %s tag %d" name b
-
-            byTag.[int b]
-
-        (fun s -> toTag.[s]), read
-
-    let private exprShapeTag, readExprShape =
-        shapeTags
-            "ExprShape"
-            [|
-                ExprShape.Const
-                ExprShape.Var
-                ExprShape.External
-                ExprShape.Lambda
-                ExprShape.App
-                ExprShape.Let
-                ExprShape.Use
-                ExprShape.IfThenElse
-                ExprShape.Tuple
-                ExprShape.Sequential
-                ExprShape.While
-                ExprShape.ForTo
-                ExprShape.ForIn
-                ExprShape.Match
-                ExprShape.TryWith
-                ExprShape.TryFinally
-                ExprShape.Assignment
-                ExprShape.Null
-                ExprShape.Range
-                ExprShape.RecordCons
-                ExprShape.RecordClone
-                ExprShape.FieldGet
-                ExprShape.FieldSet
-                ExprShape.UnionCons
-                ExprShape.New
-                ExprShape.MethodCall
-                ExprShape.PropertyGet
-                ExprShape.StaticMethodCall
-                ExprShape.StaticPropertyGet
-                ExprShape.StaticFieldGet
-                ExprShape.StaticFieldSet
-                ExprShape.ExternalMember
-                ExprShape.Format
-                ExprShape.ILIntrinsic
-                ExprShape.StaticOptimization
-                ExprShape.Upcast
-                ExprShape.Downcast
-                ExprShape.TypeTest
-                ExprShape.TraitCall
-            |]
-
-    let private patShapeTag, readPatShape =
-        shapeTags
-            "PatShape"
-            [|
-                PatShape.NamedSimple
-                PatShape.Wildcard
-                PatShape.Tuple
-                PatShape.Const
-                PatShape.Record
-                PatShape.Union
-                PatShape.TypeTestAs
-                PatShape.Null
-                PatShape.EnumCase
-                PatShape.Or
-            |]
-
-    let private declShapeTag, readDeclShape =
-        shapeTags "DeclShape" [| DeclShape.Let; DeclShape.Expression; DeclShape.Type |]
-
-    let private writeExprShape (w: BinaryWriter) (s: ExprShape) = w.Write(exprShapeTag s)
-    let private writePatShape (w: BinaryWriter) (s: PatShape) = w.Write(patShapeTag s)
-    let private writeDeclShape (w: BinaryWriter) (s: DeclShape) = w.Write(declShapeTag s)
 
     let private writeFormatSinkShape (w: BinaryWriter) (s: FormatSinkShape) =
         match s with
@@ -2139,19 +2033,16 @@ module FrozenCodec =
         }
 
     let private writePools (w: BinaryWriter) (p: FrozenPools) =
-        writeArrayWith w writeExprShape p.ExprShapes
         writeArrayWith w writeFrozenType p.ExprTys
         writeArrayWith w writeSyntaxToken p.ExprToks
         writeIdColumn w writeExprPoolId p.ExprChildren
         writeIdColumn w writePatPoolId p.ExprPatChildren
         writeArrayWith w (fun w b -> writeVOptionWith w writeBinderId b) p.ExprVarBinder
         writeArrayWith w writeExprPayload p.ExprPayloads
-        writeArrayWith w writePatShape p.PatShapes
         writeArrayWith w writeFrozenType p.PatTys
         writeArrayWith w writeSyntaxToken p.PatToks
         writeIdColumn w writePatPoolId p.PatChildren
         writeArrayWith w writePatPayload p.PatPayloads
-        writeArrayWith w writeDeclShape p.DeclShapes
         writeIdColumn w writeExprPoolId p.DeclExprChildren
         writeIdColumn w writePatPoolId p.DeclPatChildren
         writeArrayWith w writeDeclPayload p.DeclPayloads
@@ -2168,19 +2059,16 @@ module FrozenCodec =
         writeDenseTable w writeBinderId (fun w (i: int) -> w.Write i) p.BindingTyparArities
 
     let private readPools (r: BinaryReader) : FrozenPools =
-        let exprShapes = readArrayWith r readExprShape
         let exprTys = readArrayWith r readFrozenType
         let exprToks = readArrayWith r readSyntaxToken
         let exprChildren = readIdColumn r readExprPoolId
         let exprPatChildren = readIdColumn r readPatPoolId
         let exprVarBinder = readArrayWith r (fun r -> readVOptionWith r readBinderId)
         let exprPayloads = readArrayWith r readExprPayload
-        let patShapes = readArrayWith r readPatShape
         let patTys = readArrayWith r readFrozenType
         let patToks = readArrayWith r readSyntaxToken
         let patChildren = readIdColumn r readPatPoolId
         let patPayloads = readArrayWith r readPatPayload
-        let declShapes = readArrayWith r readDeclShape
         let declExprChildren = readIdColumn r readExprPoolId
         let declPatChildren = readIdColumn r readPatPoolId
         let declPayloads = readArrayWith r readDeclPayload
@@ -2203,19 +2091,16 @@ module FrozenCodec =
         let bindingTyparArities = readDenseTable r readBinderId (fun r -> r.ReadInt32())
 
         {
-            ExprShapes = exprShapes
             ExprTys = exprTys
             ExprToks = exprToks
             ExprChildren = exprChildren
             ExprPatChildren = exprPatChildren
             ExprVarBinder = exprVarBinder
             ExprPayloads = exprPayloads
-            PatShapes = patShapes
             PatTys = patTys
             PatToks = patToks
             PatChildren = patChildren
             PatPayloads = patPayloads
-            DeclShapes = declShapes
             DeclExprChildren = declExprChildren
             DeclPatChildren = declPatChildren
             DeclPayloads = declPayloads

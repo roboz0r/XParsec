@@ -94,9 +94,9 @@ module TastPoolBuilder =
 
         {
             Base = pools
-            ExprBase = pools.ExprShapes.Length
-            PatBase = pools.PatShapes.Length
-            DeclBase = pools.DeclShapes.Length
+            ExprBase = pools.ExprPayloads.Length
+            PatBase = pools.PatPayloads.Length
+            DeclBase = pools.DeclPayloads.Length
             BinderBase = pools.BinderKeys.Length
             OvExprs = ResizeArray()
             OvPats = ResizeArray()
@@ -117,12 +117,6 @@ module TastPoolBuilder =
     // comparison. These are the per-domain equivalents of reading `FrozenPools.ExprShapes.[i]`
     // and friends directly, and are what `TastAccessor` reads
     // instead, so it never has to know which layer answered.
-
-    let exprShape (b: PoolBuilder) (ExprPoolId i) : ExprShape =
-        if i < b.ExprBase then
-            b.Base.ExprShapes.[i]
-        else
-            b.OvExprs.[i - b.ExprBase].Shape
 
     let exprTy (b: PoolBuilder) (ExprPoolId i) : FrozenType =
         if i < b.ExprBase then
@@ -160,6 +154,10 @@ module TastPoolBuilder =
         else
             b.OvExprs.[i - b.ExprBase].Payload
 
+    /// The node's shape tag — projected from the payload column, not read from one of its
+    /// own, so it is the tag of the payload this very node carries.
+    let exprShape (b: PoolBuilder) (id: ExprPoolId) : ExprShape = ExprPayload.shape (exprPayload b id)
+
     /// The whole row at `id` — the base columns gathered, or the overlay row as stored.
     /// This is what a rewrite starts from, and is reached through `copyExprWith` (which
     /// hands the row to an edit function), never directly.
@@ -168,7 +166,6 @@ module TastPoolBuilder =
 
         if i < b.ExprBase then
             {
-                Shape = b.Base.ExprShapes.[i]
                 Ty = b.Base.ExprTys.[i]
                 Tok = b.Base.ExprToks.[i]
                 Children = b.Base.ExprChildren.[i]
@@ -178,12 +175,6 @@ module TastPoolBuilder =
             }
         else
             b.OvExprs.[i - b.ExprBase]
-
-    let patShape (b: PoolBuilder) (PatPoolId i) : PatShape =
-        if i < b.PatBase then
-            b.Base.PatShapes.[i]
-        else
-            b.OvPats.[i - b.PatBase].Shape
 
     let patTy (b: PoolBuilder) (PatPoolId i) : FrozenType =
         if i < b.PatBase then
@@ -209,13 +200,15 @@ module TastPoolBuilder =
         else
             b.OvPats.[i - b.PatBase].Payload
 
+    /// The pattern's shape tag — see `exprShape`.
+    let patShape (b: PoolBuilder) (id: PatPoolId) : PatShape = PatPayload.shape (patPayload b id)
+
     /// The whole row at `id` — see `exprRow`.
     let private patRow (b: PoolBuilder) (id: PatPoolId) : PatRow =
         let (PatPoolId i) = id
 
         if i < b.PatBase then
             {
-                Shape = b.Base.PatShapes.[i]
                 Ty = b.Base.PatTys.[i]
                 Tok = b.Base.PatToks.[i]
                 Children = b.Base.PatChildren.[i]
@@ -223,12 +216,6 @@ module TastPoolBuilder =
             }
         else
             b.OvPats.[i - b.PatBase]
-
-    let declShape (b: PoolBuilder) (DeclPoolId i) : DeclShape =
-        if i < b.DeclBase then
-            b.Base.DeclShapes.[i]
-        else
-            b.OvDecls.[i - b.DeclBase].Shape
 
     let declExprChildren (b: PoolBuilder) (DeclPoolId i) : ExprPoolId[] =
         if i < b.DeclBase then
@@ -248,13 +235,15 @@ module TastPoolBuilder =
         else
             b.OvDecls.[i - b.DeclBase].Payload
 
+    /// The declaration's shape tag — see `exprShape`.
+    let declShape (b: PoolBuilder) (id: DeclPoolId) : DeclShape = DeclPayload.shape (declPayload b id)
+
     /// The whole row at `id` — see `exprRow`.
     let private declRow (b: PoolBuilder) (id: DeclPoolId) : DeclRow =
         let (DeclPoolId i) = id
 
         if i < b.DeclBase then
             {
-                Shape = b.Base.DeclShapes.[i]
                 ExprChildren = b.Base.DeclExprChildren.[i]
                 PatChildren = b.Base.DeclPatChildren.[i]
                 Payload = b.Base.DeclPayloads.[i]
@@ -420,10 +409,12 @@ module TastPoolBuilder =
             AddPat = appendPat b
             AddDecl = appendDecl b
             OnExprPooled =
-                fun _ varBinding id ->
-                    match varBinding with
-                    | ValueSome k -> setVarBinder b id (internBinder b k)
-                    | ValueNone -> ()
+                fun ev ->
+                    match ev with
+                    | TastPools.PooledEvent.VarRef(binder, id) -> setVarBinder b id (internBinder b binder)
+                    // The overlay keeps no lambda id space: `FunVerdicts` is the frozen
+                    // file's own table and a minted lambda has no verdict in it.
+                    | TastPools.PooledEvent.LambdaPooled _ -> ()
         }
 
     /// Pool a freshly minted DU subtree into the overlay and return its flat id. This is

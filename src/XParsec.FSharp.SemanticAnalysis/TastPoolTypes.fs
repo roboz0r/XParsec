@@ -19,16 +19,21 @@ open XParsec.FSharp.Parser
 // carry the whole tree, and is gated structurally over the corpus.
 //
 // Layout: EVERY pool is struct-of-arrays — parallel dense columns indexed by the matching
-// `*PoolId`. The expr columns are `ExprShapes`/`ExprTys`/`ExprToks`, the child-id columns
+// `*PoolId`. The expr columns are `ExprTys`/`ExprToks`, the child-id columns
 // `ExprChildren`/`ExprPatChildren`, the sparse `ExprVarBinder`, plus `ExprPayloads`; the pat
-// columns `PatShapes`/`PatTys`/`PatToks`/`PatChildren` plus `PatPayloads`; the decl columns
-// `DeclShapes`/`DeclExprChildren`/`DeclPatChildren` plus `DeclPayloads` (decls carry no
-// node-level `ty`/`tok`, so the type rides the payload). Each `*Payloads` array is a typed
+// columns `PatTys`/`PatToks`/`PatChildren` plus `PatPayloads`; the decl columns
+// `DeclExprChildren`/`DeclPatChildren` plus `DeclPayloads` (decls carry no node-level
+// `ty`/`tok`, so the type rides the payload). Each `*Payloads` array is a typed
 // side array carrying ONLY a node's residual scalars/structure — its fields MINUS the
 // `ty`/`tok`, the child expr/pat ids, and (for exprs) the `Var` binder id, all of which live
 // in the columns. So NO pool holds a DU node: the whole `TExprG`/`TPat`/`TDecl` subtree
 // dissolves into columns, which is the point — a retained node drags its entire nested body
 // along with it, so freeze could never stop materializing the DU.
+//
+// There is no separate SHAPE column. A node's `ExprShape`/`PatShape`/`DeclShape` — the tag
+// a consumer's total dispatch matches on — is a total function of its payload
+// (`ExprPayload.shape` and friends, the only constructors of one), so storing it beside the
+// payload would be the same fact twice, in two places that could contradict each other.
 //
 // That now holds for EVERY tree the file bears, not just the emittable decls. The two
 // carriers that used to hold trees opaquely are pooled like any other: a `Type` decl's
@@ -67,11 +72,13 @@ open XParsec.FSharp.Parser
 // only role was to make a content key unique, which positional ids now do.)
 
 /// The post-freeze shape tag of an expression node — one case per `TExprG` case, and
-/// the `ExprShapes` tag column's element type. This is NOT `NodeKind`: `NodeKind` is
-/// the pre-freeze CST content-address role, which freeze dissolves (plan § *Freeze
-/// regime*). The case names mirror `TExprG` (documented there); a new `TExprG` case
-/// makes the exhaustive matches that build and drain the columns fail to compile, so
-/// this stays in lockstep.
+/// the vocabulary a consumer's TOTAL dispatch matches on (`TastAccessor.exprKind`).
+/// This is NOT `NodeKind`: `NodeKind` is the pre-freeze CST content-address role, which
+/// freeze dissolves. The case names mirror `TExprG` (documented there).
+///
+/// NOT a stored column. A node's shape is a total function of its `ExprPayload`
+/// (`ExprPayload.shape`, the sole way to obtain one from a node), which is why there is
+/// no way for the two to disagree and nothing puts the tag on the wire twice.
 [<RequireQualifiedAccess>]
 type ExprShape =
     | Const
@@ -115,7 +122,7 @@ type ExprShape =
     | TraitCall
 
 /// The post-freeze shape tag of a pattern node — one case per `TPatG` case (mirrors
-/// `ExprShape`'s relationship to `TExprG`).
+/// `ExprShape`'s relationship to `TExprG`, `PatPayload.shape` included).
 [<RequireQualifiedAccess>]
 type PatShape =
     | NamedSimple
@@ -402,6 +409,56 @@ type ExprPayload =
             MemberName: string
         |}
 
+[<RequireQualifiedAccess>]
+module ExprPayload =
+
+    /// The shape tag of a node carrying this payload — the SOLE way to obtain an
+    /// `ExprShape` for a node, so a node's tag and its payload cannot disagree. There is
+    /// one payload case per shape, which is why this is total and injective; the tag is
+    /// therefore neither a column nor a wire field, only a projection taken on read.
+    /// Exhaustive with no catch-all, so a new case fails to compile here.
+    let shape (p: ExprPayload) : ExprShape =
+        match p with
+        | ExprPayload.Const _ -> ExprShape.Const
+        | ExprPayload.Var -> ExprShape.Var
+        | ExprPayload.External _ -> ExprShape.External
+        | ExprPayload.Lambda -> ExprShape.Lambda
+        | ExprPayload.App -> ExprShape.App
+        | ExprPayload.Let -> ExprShape.Let
+        | ExprPayload.Use _ -> ExprShape.Use
+        | ExprPayload.IfThenElse -> ExprShape.IfThenElse
+        | ExprPayload.Tuple -> ExprShape.Tuple
+        | ExprPayload.Sequential -> ExprShape.Sequential
+        | ExprPayload.While -> ExprShape.While
+        | ExprPayload.ForTo _ -> ExprShape.ForTo
+        | ExprPayload.ForIn _ -> ExprShape.ForIn
+        | ExprPayload.Match _ -> ExprShape.Match
+        | ExprPayload.TryWith _ -> ExprShape.TryWith
+        | ExprPayload.TryFinally -> ExprShape.TryFinally
+        | ExprPayload.Assignment -> ExprShape.Assignment
+        | ExprPayload.Null -> ExprShape.Null
+        | ExprPayload.Range _ -> ExprShape.Range
+        | ExprPayload.RecordCons _ -> ExprShape.RecordCons
+        | ExprPayload.RecordClone _ -> ExprShape.RecordClone
+        | ExprPayload.FieldGet _ -> ExprShape.FieldGet
+        | ExprPayload.FieldSet _ -> ExprShape.FieldSet
+        | ExprPayload.UnionCons _ -> ExprShape.UnionCons
+        | ExprPayload.New _ -> ExprShape.New
+        | ExprPayload.MethodCall _ -> ExprShape.MethodCall
+        | ExprPayload.PropertyGet _ -> ExprShape.PropertyGet
+        | ExprPayload.StaticMethodCall _ -> ExprShape.StaticMethodCall
+        | ExprPayload.StaticPropertyGet _ -> ExprShape.StaticPropertyGet
+        | ExprPayload.StaticFieldGet _ -> ExprShape.StaticFieldGet
+        | ExprPayload.StaticFieldSet _ -> ExprShape.StaticFieldSet
+        | ExprPayload.ExternalMember _ -> ExprShape.ExternalMember
+        | ExprPayload.Format _ -> ExprShape.Format
+        | ExprPayload.ILIntrinsic _ -> ExprShape.ILIntrinsic
+        | ExprPayload.StaticOptimization _ -> ExprShape.StaticOptimization
+        | ExprPayload.Upcast -> ExprShape.Upcast
+        | ExprPayload.Downcast -> ExprShape.Downcast
+        | ExprPayload.TypeTest _ -> ExprShape.TypeTest
+        | ExprPayload.TraitCall _ -> ExprShape.TraitCall
+
 /// The residual payload of a frozen pattern node — one case per `PatShape`, carrying ONLY
 /// the fields left after the columnar split drops `ty`/`tok` (the `PatTys`/`PatToks`
 /// columns) and the child sub-pat ids (`PatChildren`, in `TastPools.patChildren` order;
@@ -435,6 +492,20 @@ type PatPayload =
 
 [<RequireQualifiedAccess>]
 module PatPayload =
+
+    /// The shape tag of a pattern carrying this payload — see `ExprPayload.shape`.
+    let shape (p: PatPayload) : PatShape =
+        match p with
+        | PatPayload.NamedSimple _ -> PatShape.NamedSimple
+        | PatPayload.Wildcard -> PatShape.Wildcard
+        | PatPayload.Null -> PatShape.Null
+        | PatPayload.Tuple -> PatShape.Tuple
+        | PatPayload.Or -> PatShape.Or
+        | PatPayload.Const _ -> PatShape.Const
+        | PatPayload.Record _ -> PatShape.Record
+        | PatPayload.Union _ -> PatShape.Union
+        | PatPayload.TypeTestAs _ -> PatShape.TypeTestAs
+        | PatPayload.EnumCase _ -> PatShape.EnumCase
 
     /// Map every `FrozenType` a pattern payload EMBEDS. Only `TypeTestAs` carries one (the
     /// `isinst` operand); a node's own type is the `PatTys` column and is mapped there, so
@@ -504,6 +575,16 @@ type DeclPayload =
     /// is what keeps "which body fills which slot" expressed by the shape itself.
     | Type of PooledTypeDecl
 
+[<RequireQualifiedAccess>]
+module DeclPayload =
+
+    /// The shape tag of a declaration carrying this payload — see `ExprPayload.shape`.
+    let shape (p: DeclPayload) : DeclShape =
+        match p with
+        | DeclPayload.Let _ -> DeclShape.Let
+        | DeclPayload.Expression _ -> DeclShape.Expression
+        | DeclPayload.Type _ -> DeclShape.Type
+
 /// Everything of a `Frozen.TastFile` that has NO pooled form — the file MINUS its trees (the
 /// columns) and MINUS the seven side tables (the dense `BinderId`/`ExprPoolId` associations).
 /// NO field here carries a tree, which is the property that matters: every expression and
@@ -545,14 +626,14 @@ type FrozenFileResidue =
 type FrozenPools =
     {
         /// The expression pool as struct-of-arrays: these columns are parallel, each
-        /// indexed by `ExprPoolId`. `ExprShapes` is the tag column; `ExprTys`/`ExprToks`
-        /// the node's `ty`/`tok`; `ExprChildren` the immediate child-expr ids in
-        /// `TastPools.exprChildren` order; `ExprPatChildren` the owned pat ids in
-        /// `TastPools.exprPatChildren` order; `ExprVarBinder` the `Var` reference id
-        /// (`ValueSome` only at a `Var`); `ExprPayloads` the residual per-case payload.
-        /// No DU node is retained — the columns are Node-sufficient, which the round-trip
-        /// gate proves.
-        ExprShapes: ExprShape[]
+        /// indexed by `ExprPoolId`. `ExprTys`/`ExprToks` are the node's `ty`/`tok`;
+        /// `ExprChildren` the immediate child-expr ids in `TastPools.exprChildren` order;
+        /// `ExprPatChildren` the owned pat ids in `TastPools.exprPatChildren` order;
+        /// `ExprVarBinder` the `Var` reference id (`ValueSome` only at a `Var`);
+        /// `ExprPayloads` the residual per-case payload, which is also the node's shape
+        /// tag (`ExprPayload.shape`) — there is no separate tag column, so the two cannot
+        /// disagree. No DU node is retained — the columns are Node-sufficient, which the
+        /// round-trip gate proves.
         ExprTys: FrozenType[]
         ExprToks: SyntaxToken[]
         ExprChildren: ExprPoolId[][]
@@ -560,22 +641,20 @@ type FrozenPools =
         ExprVarBinder: BinderId voption[]
         ExprPayloads: ExprPayload[]
         /// The pattern pool as struct-of-arrays: parallel columns indexed by `PatPoolId`.
-        /// `PatShapes` is the tag column; `PatTys`/`PatToks` the node's `ty`/`tok`;
-        /// `PatChildren` the immediate sub-pat ids in `TastPools.patChildren` order
-        /// (patterns own no child expressions); `PatPayloads` the residual per-case payload.
-        /// No DU node is retained.
-        PatShapes: PatShape[]
+        /// `PatTys`/`PatToks` are the node's `ty`/`tok`; `PatChildren` the immediate
+        /// sub-pat ids in `TastPools.patChildren` order (patterns own no child
+        /// expressions); `PatPayloads` the residual per-case payload, tag included. No DU
+        /// node is retained.
         PatTys: FrozenType[]
         PatToks: SyntaxToken[]
         PatChildren: PatPoolId[][]
         PatPayloads: PatPayload[]
-        /// The declaration pool as struct-of-arrays, indexed by `DeclPoolId`. `DeclShapes`
-        /// is the tag column; `DeclExprChildren`/`DeclPatChildren` the decl's immediate
-        /// expr/pat roots (the `Let` binding's value + head pattern, or the `Expression`
-        /// body — a `Type` decl surfaces none); `DeclPayloads` the residual per-case payload
-        /// (which also carries the decl's type, there being no node-level `ty` column). No
-        /// DU node is retained.
-        DeclShapes: DeclShape[]
+        /// The declaration pool as struct-of-arrays, indexed by `DeclPoolId`.
+        /// `DeclExprChildren`/`DeclPatChildren` are the decl's immediate expr/pat roots
+        /// (the `Let` binding's value + head pattern, or the `Expression` body — a `Type`
+        /// decl surfaces none); `DeclPayloads` the residual per-case payload, tag included
+        /// (it also carries the decl's type, there being no node-level `ty` column). No DU
+        /// node is retained.
         DeclExprChildren: ExprPoolId[][]
         DeclPatChildren: PatPoolId[][]
         DeclPayloads: DeclPayload[]
@@ -627,19 +706,16 @@ module FrozenPools =
     /// other node.
     let empty: FrozenPools =
         {
-            ExprShapes = [||]
             ExprTys = [||]
             ExprToks = [||]
             ExprChildren = [||]
             ExprPatChildren = [||]
             ExprVarBinder = [||]
             ExprPayloads = [||]
-            PatShapes = [||]
             PatTys = [||]
             PatToks = [||]
             PatChildren = [||]
             PatPayloads = [||]
-            DeclShapes = [||]
             DeclExprChildren = [||]
             DeclPatChildren = [||]
             DeclPayloads = [||]
@@ -671,10 +747,11 @@ module FrozenPools =
 // DU node. The columns stay the storage form; rows never accumulate anywhere the layout
 // matters.
 
-/// One expression node's slice across the `Expr*` columns, in column order.
+/// One expression node's slice across the `Expr*` columns, in column order. No `Shape`:
+/// the tag is `ExprPayload.shape Payload`, so a row cannot be minted with a tag that
+/// contradicts what it carries.
 type ExprRow =
     {
-        Shape: ExprShape
         Ty: FrozenType
         Tok: SyntaxToken
         Children: ExprPoolId[]
@@ -687,10 +764,10 @@ type ExprRow =
         Payload: ExprPayload
     }
 
-/// One pattern node's slice across the `Pat*` columns, in column order.
+/// One pattern node's slice across the `Pat*` columns, in column order — see `ExprRow`
+/// for why there is no `Shape`.
 type PatRow =
     {
-        Shape: PatShape
         Ty: FrozenType
         Tok: SyntaxToken
         Children: PatPoolId[]
@@ -701,7 +778,6 @@ type PatRow =
 /// node-level `ty`/`tok` — its type rides the payload).
 type DeclRow =
     {
-        Shape: DeclShape
         ExprChildren: ExprPoolId[]
         PatChildren: PatPoolId[]
         Payload: DeclPayload

@@ -41,9 +41,8 @@ let private unseenBinderKey = NodeKey.ofSource 9_000_000 NodeKind.PatIdent
 /// a layer check that got its boundary wrong (or an overlay that shadowed the base) shows
 /// up here rather than only at the freeze.
 let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
-    for i in 0 .. pools.ExprShapes.Length - 1 do
+    for i in 0 .. pools.ExprPayloads.Length - 1 do
         let id = ExprPoolId i
-        Expect.equal (TastPoolBuilder.exprShape b id) pools.ExprShapes.[i] "base expr shape"
         Expect.equal (TastPoolBuilder.exprTy b id) pools.ExprTys.[i] "base expr ty"
         Expect.equal (TastPoolBuilder.exprTok b id) pools.ExprToks.[i] "base expr tok"
         Expect.equal (TastPoolBuilder.exprChildren b id) pools.ExprChildren.[i] "base expr children"
@@ -51,17 +50,15 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
         Expect.equal (TastPoolBuilder.exprVarBinder b id) pools.ExprVarBinder.[i] "base expr var binder"
         Expect.equal (TastPoolBuilder.exprPayload b id) pools.ExprPayloads.[i] "base expr payload"
 
-    for i in 0 .. pools.PatShapes.Length - 1 do
+    for i in 0 .. pools.PatPayloads.Length - 1 do
         let id = PatPoolId i
-        Expect.equal (TastPoolBuilder.patShape b id) pools.PatShapes.[i] "base pat shape"
         Expect.equal (TastPoolBuilder.patTy b id) pools.PatTys.[i] "base pat ty"
         Expect.equal (TastPoolBuilder.patTok b id) pools.PatToks.[i] "base pat tok"
         Expect.equal (TastPoolBuilder.patChildren b id) pools.PatChildren.[i] "base pat children"
         Expect.equal (TastPoolBuilder.patPayload b id) pools.PatPayloads.[i] "base pat payload"
 
-    for i in 0 .. pools.DeclShapes.Length - 1 do
+    for i in 0 .. pools.DeclPayloads.Length - 1 do
         let id = DeclPoolId i
-        Expect.equal (TastPoolBuilder.declShape b id) pools.DeclShapes.[i] "base decl shape"
         Expect.equal (TastPoolBuilder.declExprChildren b id) pools.DeclExprChildren.[i] "base decl expr children"
         Expect.equal (TastPoolBuilder.declPatChildren b id) pools.DeclPatChildren.[i] "base decl pat children"
         Expect.equal (TastPoolBuilder.declPayload b id) pools.DeclPayloads.[i] "base decl payload"
@@ -109,7 +106,7 @@ let baseIdTests =
 
                     Expect.isGreaterThan
                         (TastPoolBuilder.exprCount b)
-                        pools.ExprShapes.Length
+                        pools.ExprPayloads.Length
                         "the overlay grew past the base"
 
                     checkBaseIdsResolve pools b
@@ -126,13 +123,13 @@ let appendTests =
                 let pools, frozen = poolsFor "let p = (1, 2)\n"
                 let b = TastPoolBuilder.openOver pools
                 let du = firstLetValue frozen
-                let baseCount = pools.ExprShapes.Length
+                let baseCount = pools.ExprPayloads.Length
 
                 let id = TastPoolBuilder.appendExprTree b du
                 let (ExprPoolId i) = id
                 Expect.isGreaterThanOrEqual i baseCount "the appended root is an overlay id"
 
-                Expect.equal (TastPoolBuilder.exprShape b id) (TastPools.exprShape du) "appended shape"
+                Expect.equal (TastPoolBuilder.exprPayload b id) (TastPools.exprPayload du) "appended payload"
                 Expect.equal (TastPoolBuilder.exprTy b id) (TastWalk.exprTy du) "appended ty"
                 Expect.equal (TastPoolBuilder.exprTok b id) (TastWalk.exprTok du) "appended tok"
 
@@ -357,6 +354,6 @@ let rowCopyTests =
                     root
                     "unchanged decl edges reuse the row"
 
-                Expect.equal (TastPoolBuilder.exprCount b) pools.ExprShapes.Length "nothing was appended"
+                Expect.equal (TastPoolBuilder.exprCount b) pools.ExprPayloads.Length "nothing was appended"
             }
         ]

@@ -1198,14 +1198,17 @@ module TastAccessor =
     // Each takes the pool from a handle it is already holding, so no site threads a
     // builder alongside the nodes.
 
-    let private mintExpr (pool: PoolBuilder) (shape: ExprShape) ty tok children patChildren pl : ExprId =
+    // The payload IS the shape (`ExprPayload.shape`), so a mint names the node's form
+    // once, in the payload it supplies — there is no second tag argument to disagree
+    // with it.
+
+    let private mintExpr (pool: PoolBuilder) ty tok children patChildren pl : ExprId =
         {
             Pool = pool
             Id =
                 TastPoolBuilder.appendExpr
                     pool
                     {
-                        Shape = shape
                         Ty = ty
                         Tok = tok
                         Children = children
@@ -1226,7 +1229,6 @@ module TastAccessor =
                 TastPoolBuilder.appendExpr
                     pool
                     {
-                        Shape = ExprShape.Var
                         Ty = ty
                         Tok = tok
                         Children = [||]
@@ -1238,7 +1240,7 @@ module TastAccessor =
 
     /// `fn arg`, typed with the application's result type.
     let mintApp (fn: ExprId) (arg: ExprId) (ty: FrozenType) (tok: SyntaxToken) : ExprId =
-        mintExpr fn.Pool ExprShape.App ty tok [| fn.Id; arg.Id |] [||] ExprPayload.App
+        mintExpr fn.Pool ty tok [| fn.Id; arg.Id |] [||] ExprPayload.App
 
     /// Re-apply a head to a spine of `(arg, result type, token)` levels — the inverse
     /// of `collectSpine`.
@@ -1247,7 +1249,7 @@ module TastAccessor =
 
     /// `fun param -> body`.
     let mintLambda (param: PatId) (body: ExprId) (ty: FrozenType) (tok: SyntaxToken) : ExprId =
-        mintExpr body.Pool ExprShape.Lambda ty tok [| body.Id |] [| param.Id |] ExprPayload.Lambda
+        mintExpr body.Pool ty tok [| body.Id |] [| param.Id |] ExprPayload.Lambda
 
     /// `receiver.Key args` — an instance call on a project-local member.
     let mintMethodCall
@@ -1260,21 +1262,19 @@ module TastAccessor =
         : ExprId =
         mintExpr
             receiver.Pool
-            ExprShape.MethodCall
             ty
             tok
             (Array.append [| receiver.Id |] (args |> Array.map (fun a -> a.Id)))
             [||]
             (ExprPayload.MethodCall {| Key = key; Via = via |})
 
-    let private mintPat (pool: PoolBuilder) (shape: PatShape) ty tok children pl : PatId =
+    let private mintPat (pool: PoolBuilder) ty tok children pl : PatId =
         {
             Pool = pool
             Id =
                 TastPoolBuilder.appendPat
                     pool
                     {
-                        Shape = shape
                         Ty = ty
                         Tok = tok
                         Children = children
@@ -1285,15 +1285,15 @@ module TastAccessor =
     /// A simple binder pattern, introducing `binding`.
     let mintNamedPat (pool: PoolBuilder) (binding: NodeKey) (ty: FrozenType) (tok: SyntaxToken) : PatId =
         TastPoolBuilder.internBinder pool binding |> ignore
-        mintPat pool PatShape.NamedSimple ty tok [||] (PatPayload.NamedSimple binding)
+        mintPat pool ty tok [||] (PatPayload.NamedSimple binding)
 
     /// An anonymous `_` pattern.
     let mintWildcardPat (pool: PoolBuilder) (ty: FrozenType) (tok: SyntaxToken) : PatId =
-        mintPat pool PatShape.Wildcard ty tok [||] PatPayload.Wildcard
+        mintPat pool ty tok [||] PatPayload.Wildcard
 
     /// A tuple pattern over `items`.
     let mintTuplePat (pool: PoolBuilder) (items: PatId[]) (ty: FrozenType) (tok: SyntaxToken) : PatId =
-        mintPat pool PatShape.Tuple ty tok (items |> Array.map (fun i -> i.Id)) PatPayload.Tuple
+        mintPat pool ty tok (items |> Array.map (fun i -> i.Id)) PatPayload.Tuple
 
     /// A top-level `let binding = value` declaration.
     let mintLetDecl (binding: PatId) (value: ExprId) (isInline: bool) (ty: FrozenType) : DeclId =
@@ -1303,7 +1303,6 @@ module TastAccessor =
                 TastPoolBuilder.appendDecl
                     value.Pool
                     {
-                        Shape = DeclShape.Let
                         ExprChildren = [| value.Id |]
                         PatChildren = [| binding.Id |]
                         Payload = DeclPayload.Let {| IsInline = isInline; Ty = ty |}
@@ -1318,7 +1317,6 @@ module TastAccessor =
                 TastPoolBuilder.appendDecl
                     expr.Pool
                     {
-                        Shape = DeclShape.Expression
                         ExprChildren = [| expr.Id |]
                         PatChildren = [||]
                         Payload = DeclPayload.Expression ty
