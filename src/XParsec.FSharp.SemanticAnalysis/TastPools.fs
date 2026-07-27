@@ -410,7 +410,7 @@ module TastPools =
         {
             /// Called for every binder a walked node INTRODUCES (a `NamedSimple` pattern's
             /// binding, a `ForTo` loop variable), before the node's row is added.
-            InternBinder: NodeKey -> unit
+            InternBinder: BinderKey -> unit
             AddExpr: ExprRow -> ExprPoolId
             AddPat: PatRow -> PatPoolId
             AddDecl: DeclRow -> DeclPoolId
@@ -422,7 +422,7 @@ module TastPools =
     /// Pool a pattern subtree post-order: a node's children are pooled before the node
     /// itself, so every child id its row names already resolves.
     let rec poolPat (sink: PoolSink) (p: Frozen.TPat) : PatPoolId =
-        match TastWalk.patBinder p with
+        match BinderKey.ofPat p with
         | ValueSome k -> sink.InternBinder k
         | ValueNone -> ()
 
@@ -441,9 +441,9 @@ module TastPools =
     let rec poolExpr (sink: PoolSink) (e: Frozen.TExpr) : ExprPoolId =
         // A `ForTo` binds its loop variable with no pattern node behind it, so the
         // intern cannot ride `poolPat`.
-        match e with
-        | TExprG.ForTo(var = var) -> sink.InternBinder var
-        | _ -> ()
+        match BinderKey.ofExpr e with
+        | ValueSome k -> sink.InternBinder k
+        | ValueNone -> ()
 
         let exprKids = exprChildren e |> Array.map (poolExpr sink)
         let patKids = exprPatChildren e |> Array.map (poolPat sink)
@@ -483,7 +483,7 @@ module TastPools =
         | TDeclG.Let(isInline = isInline; ty = ty) -> DeclPayload.Let {| IsInline = isInline; Ty = ty |}
         | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
         | TDeclG.Type td ->
-            for k in TTypeDeclG.boundKeys td do
+            for k in BinderKey.ofTypeDecl td do
                 sink.InternBinder k
 
             DeclPayload.Type(TastConvert.typeDecl id (poolExpr sink) td)
@@ -514,9 +514,13 @@ module TastPools =
     /// `ArgGroups.peel` is the walk; the readers below are the only column-domain part.
     let private bindingValReprs
         (pools: FrozenPools)
-        (typarArities: Map<NodeKey, int>)
         (binderIdOf: string -> NodeKey -> BinderId)
         : DenseTable<BinderId, PooledValRepr> =
+        // The typar-axis width in the ID domain — `pools` already carries the remapped
+        // column, so this reads the very table it ships with rather than a second
+        // NodeKey-keyed copy of it.
+        let typarArities = DenseTable.index pools.BindingTyparArities
+
         let unLambda (ExprPoolId i) =
             match pools.ExprPayloads.[i] with
             | ExprPayload.Lambda -> ValueSome(struct (pools.ExprPatChildren.[i].[0], pools.ExprChildren.[i].[0]))
@@ -544,21 +548,22 @@ module TastPools =
 
                     match pools.PatPayloads.[head] with
                     // Only a simple binder has a side-table identity; a destructuring or
-                    // wildcard head introduces none and needs none (see `TastWalk.patBinder`).
+                    // wildcard head introduces none and needs none (see `BinderKey.ofPat`).
                     | PatPayload.NamedSimple binding ->
                         let groups, body = ArgGroups.peel unLambda facts pools.DeclExprChildren.[d].[0]
                         let (ExprPoolId b) = body
+                        let id = binderIdOf "BindingValReprs" binding
 
                         yield
-                            binderIdOf "BindingValReprs" binding,
+                            id,
                             {
                                 // A plain value has no lambda groups and records an
                                 // empty-`Groups` entry, which the file→file signature
                                 // projection reads as "not a function".
                                 Typars =
-                                    match Map.tryFind binding typarArities with
-                                    | Some n -> n
-                                    | None -> 0
+                                    match typarArities.TryGetValue id with
+                                    | true, n -> n
+                                    | false, _ -> 0
                                 Groups = groups
                                 ResultTy = pools.ExprTys.[b]
                             }
@@ -596,10 +601,10 @@ module TastPools =
         let declPayloads = ResizeArray<DeclPayload>()
 
         // The binder pool: each distinct NodeKey a definition site introduces, interned to
-        // a dense `BinderId` on first encounter. The introducing sites are enumerated
-        // off the accessor (pattern / loop binders) and off `TTypeDeclG.boundKeys` (a type
-        // declaration's pattern-less key slots) as the trees are walked, so nothing
-        // re-derives which nodes bind.
+        // a dense `BinderId` on first encounter. The introducing sites are enumerated by
+        // the `BinderKey` projections (`ofPat` / `ofExpr` / `ofTypeDecl`) as the trees are
+        // walked, so nothing re-derives which nodes bind — and the side tables remapped
+        // below were filed through those same projections.
         //
         // The enumeration spans the whole FILE, because a side table may key on a binder in
         // any of its trees — and every tree the file bears is now pooled, so ONE walk covers
@@ -616,7 +621,9 @@ module TastPools =
         // by, so the pool key space matches the DU lookup key by construction.
         let lambdaIds = System.Collections.Generic.Dictionary<NodeKey, ExprPoolId>()
 
-        let internBinder (k: NodeKey) : unit =
+        let internBinder (b: BinderKey) : unit =
+            let k = BinderKey.toNodeKey b
+
             match binderIds.TryGetValue k with
             | true, _ -> ()
             | false, _ ->
@@ -683,15 +690,23 @@ module TastPools =
                 }
             )
 
-        // Resolve a reference/side-table key to the binder it names. A miss means the
-        // referent was introduced by no definition site the walk covers — an incomplete
-        // binder enumeration, which is exactly the failure the id-resolution gate exists
-        // to surface.
-        let binderIdOf (referent: string) (k: NodeKey) : BinderId =
+        // Resolve a REFERENCE to the binder it names — a `Var`'s binding edge, or a row
+        // derived off the columns. A miss means the referent was introduced by no
+        // definition site the walk covers: an incomplete binder enumeration, which is
+        // exactly the failure the id-resolution gate exists to surface. A reference is
+        // written by whoever resolved the name, so it arrives as a bare `NodeKey`.
+        let binderIdOfRef (referent: string) (k: NodeKey) : BinderId =
             match binderIds.TryGetValue k with
             | true, id -> id
             | false, _ ->
                 failwithf "TastPools.toPools: %s key %O references a binder no definition site introduced" referent k
+
+        // The same resolution for a SIDE TABLE, whose keys are binders by construction.
+        // The fault is then reachable only for a key naming a real binder whose
+        // declaration was dropped before the freeze — never for one naming a non-binder
+        // node, which `BinderKey` makes unwritable.
+        let binderIdOf (referent: string) (b: BinderKey) : BinderId =
+            binderIdOfRef referent (BinderKey.toNodeKey b)
 
         // The lambda-key analogue: a `FunVerdicts` key that names no pooled lambda is the
         // honest failure a lambda-keyed entry naming no pooled lambda should be.
@@ -706,14 +721,15 @@ module TastPools =
         let exprVarBinder: BinderId voption[] = Array.create exprPayloads.Count ValueNone
 
         for (struct (id, key)) in varBindings do
-            exprVarBinder.[id] <- ValueSome(binderIdOf "Var" key)
+            exprVarBinder.[id] <- ValueSome(binderIdOfRef "Var" key)
 
         // One generic remap over the side tables, parameterized by the key resolver: the
         // binder-keyed tables pass `binderIdOf`, `FunVerdicts` passes `lambdaIdOf`. A second
-        // resolver, not a second remap, so the two id spaces share one enumeration. Each
+        // resolver, not a second remap, so the two id spaces share one enumeration — and
+        // the resolver's own key type is what says which space a table is in. Each
         // call site applies the resolver to its table's NAME first, so an unresolvable key
         // says which table holds it.
-        let remapSideTable (resolve: NodeKey -> 'id) (m: Map<NodeKey, 'v>) : ('id * 'v)[] =
+        let remapSideTable (resolve: 'k -> 'id) (m: Map<'k, 'v>) : ('id * 'v)[] =
             m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 
         // Every column is snapshotted here and NOTHING below appends: the derived table
@@ -754,5 +770,5 @@ module TastPools =
             }
 
         { pools with
-            BindingValReprs = bindingValReprs pools file.BindingTyparArities binderIdOf
+            BindingValReprs = bindingValReprs pools binderIdOfRef
         }

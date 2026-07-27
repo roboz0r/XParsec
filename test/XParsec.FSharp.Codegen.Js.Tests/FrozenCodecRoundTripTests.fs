@@ -94,20 +94,23 @@ let private collect () : Harvest =
             | MemberKind.Property -> ()
 
     let harvestFile (file: Frozen.TastFile) =
+        // The harvest is over the NodeKeys a file mentions, so the binder-keyed tables are
+        // widened here (`BinderKey.toNodeKey`) — `FunVerdicts`, on the lambda id space,
+        // already speaks it.
         for KeyValue(k, _) in file.ModuleMembers do
-            nks.Add k |> ignore
+            nks.Add(BinderKey.toNodeKey k) |> ignore
 
         for KeyValue(k, _) in file.TopLevelNames do
-            nks.Add k |> ignore
+            nks.Add(BinderKey.toNodeKey k) |> ignore
 
         for KeyValue(k, _) in file.ClosureReprs do
-            nks.Add k |> ignore
+            nks.Add(BinderKey.toNodeKey k) |> ignore
 
         for KeyValue(k, _) in file.FunVerdicts do
             nks.Add k |> ignore
 
         for KeyValue(k, _) in file.BindingTyparArities do
-            nks.Add k |> ignore
+            nks.Add(BinderKey.toNodeKey k) |> ignore
 
         for k in file.IntrinsicReprKeys.Keys do
             visitSym k
@@ -116,7 +119,7 @@ let private collect () : Harvest =
             visitSym k
 
         for KeyValue(k, constraints) in file.GenericFnSchemes do
-            nks.Add k |> ignore
+            nks.Add(BinderKey.toNodeKey k) |> ignore
 
             for c in constraints do
                 match c with

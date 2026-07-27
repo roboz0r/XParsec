@@ -225,16 +225,22 @@ module TastUnpool =
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
         | DeclPayload.Type td -> TDeclG.Type(TastConvert.typeDecl id fromExpr td)
 
-    /// A dense `BinderId`-keyed side table as the `Map<NodeKey,_>` it was re-keyed FROM,
-    /// resolving each id back through the binder column. PRIVATE: the id form is the one
-    /// that can only name a binder the tree bears, and a `Map<NodeKey,_>` gives that up
-    /// — it re-admits keys that name nothing. Exactly two things may undo the remap, and
-    /// both are in this file: `ofPools`, which rebuilds the whole file, and
-    /// `nodeKeyedSideTables`, the single named seam below.
-    let private binderKeyedMap (pools: FrozenPools) (dense: (BinderId * 'v)[]) : Map<NodeKey, 'v> =
-        dense
-        |> Array.map (fun (BinderId i, v) -> pools.BinderKeys.[i], v)
-        |> Map.ofArray
+    /// A dense `BinderId` back to the `NodeKey` it was interned from — the raw inverse of
+    /// the `toPools` interning, landing in the space that addresses every node rather than
+    /// in `BinderKey`. ONE home, because widening is the move this file must not make
+    /// casually: each caller is a reference (`ofPools`' `Var` binding edge), the named CLR
+    /// debt seam (`nodeKeyedSideTables`), or the re-admission's own lookup key — never a
+    /// way back into the binder domain, which only `BinderKey`'s projections grant.
+    let private widenBinderId (pools: FrozenPools) (BinderId i) : NodeKey = pools.BinderKeys.[i]
+
+    /// A dense `BinderId`-keyed side table as the keyed `Map` it was re-keyed FROM, each
+    /// id resolved by the caller's own inverse of the interning. PRIVATE, and the resolver
+    /// is the caller's, because the two callers land in different key spaces and only one
+    /// of them may: `ofPools` rebuilds the tree, so it can hand back a `BinderKey` it
+    /// PROJECTED from a rebuilt node, while `nodeKeyedSideTables` has no tree and so can
+    /// only widen to `NodeKey` — which is exactly the debt it is named for.
+    let private binderKeyedMap (resolve: BinderId -> 'k) (dense: (BinderId * 'v)[]) : Map<'k, 'v> =
+        dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
     /// The four binder-keyed side tables a CLR emit consumes, back in `NodeKey` form.
     ///
@@ -257,11 +263,13 @@ module TastUnpool =
         }
 
     let nodeKeyedSideTables (pools: FrozenPools) : NodeKeyedSideTables =
+        let widen = widenBinderId pools
+
         {
-            ModuleMembers = binderKeyedMap pools pools.ModuleMembers
-            TopLevelNames = binderKeyedMap pools pools.TopLevelNames
-            ClosureReprs = binderKeyedMap pools pools.ClosureReprs
-            GenericFnSchemes = binderKeyedMap pools pools.GenericFnSchemes
+            ModuleMembers = binderKeyedMap widen pools.ModuleMembers
+            TopLevelNames = binderKeyedMap widen pools.TopLevelNames
+            ClosureReprs = binderKeyedMap widen pools.ClosureReprs
+            GenericFnSchemes = binderKeyedMap widen pools.GenericFnSchemes
         }
 
     /// Rebuild the `Frozen.TastFile` DU from the pools — the inverse of `toPools`. The
@@ -279,10 +287,28 @@ module TastUnpool =
     /// when asserting on whole decl trees, which the accessor's per-node reads do not
     /// serve.
     let ofPools (pools: FrozenPools) : Frozen.TastFile =
-        // Resolve a dense id back to the binder NodeKey it names — the inverse of the
-        // `toPools` interning. This is the resolution the reference remap and the side
-        // tables both invert through.
-        let binderKey (BinderId i) : NodeKey = pools.BinderKeys.[i]
+        // Bound once, for the two things here that speak the reference space: the `Var`
+        // binding edge below, and the re-admission's lookup key. The side tables do NOT
+        // invert through it — they go through `readmittedBinder`.
+        let widen = widenBinderId pools
+
+        // The binder column back in the BINDER key space, re-admitted by PROJECTION and
+        // never by fiat: as the trees below are rebuilt, each node is asked what it binds
+        // with the same `BinderKey` constructors `toPools` interned by, and only what they
+        // answer can key a rebuilt side table. So the drain cannot mint a binder identity
+        // the tree does not bear — the round trip proves the key remap, not just the
+        // shapes.
+        let readmitted = System.Collections.Generic.Dictionary<NodeKey, BinderKey>()
+
+        let readmit (b: BinderKey) : unit = readmitted.[BinderKey.toNodeKey b] <- b
+
+        let readmittedBinder (id: BinderId) : BinderKey =
+            let k = widen id
+
+            match readmitted.TryGetValue k with
+            | true, b -> b
+            | false, _ ->
+                failwithf "TastUnpool.ofPools: binder %O (%O) is interned but no rebuilt node introduces it" id k
 
         // The inverse of the lambda id space: a lambda's `ExprPoolId` back to the `NodeKey`
         // codegen looks its verdict up under. With the Node gone, recompute that key from
@@ -293,18 +319,32 @@ module TastUnpool =
 
         let rec fromPat (PatPoolId i) : Frozen.TPat =
             let ps = pools.PatChildren.[i] |> Array.map fromPat
-            substitutePat pools.PatTys.[i] pools.PatToks.[i] pools.PatPayloads.[i] ps
+            let p = substitutePat pools.PatTys.[i] pools.PatToks.[i] pools.PatPayloads.[i] ps
+            BinderKey.ofPat p |> ValueOption.iter readmit
+            p
 
         let rec fromExpr (ExprPoolId i) : Frozen.TExpr =
             let es = pools.ExprChildren.[i] |> Array.map fromExpr
             let ps = pools.ExprPatChildren.[i] |> Array.map fromPat
-            let varBinding = pools.ExprVarBinder.[i] |> ValueOption.map binderKey
-            substituteExpr pools.ExprTys.[i] pools.ExprToks.[i] varBinding pools.ExprPayloads.[i] es ps
+            let varBinding = pools.ExprVarBinder.[i] |> ValueOption.map widen
+
+            let e =
+                substituteExpr pools.ExprTys.[i] pools.ExprToks.[i] varBinding pools.ExprPayloads.[i] es ps
+
+            BinderKey.ofExpr e |> ValueOption.iter readmit
+            e
 
         let fromDecl (DeclPoolId i) : Frozen.TDecl =
             let es = pools.DeclExprChildren.[i] |> Array.map fromExpr
             let ps = pools.DeclPatChildren.[i] |> Array.map fromPat
-            substituteDecl fromExpr pools.DeclPayloads.[i] es ps
+            let d = substituteDecl fromExpr pools.DeclPayloads.[i] es ps
+
+            match d with
+            | TDeclG.Type td -> Seq.iter readmit (BinderKey.ofTypeDecl td)
+            | TDeclG.Let _
+            | TDeclG.Expression _ -> ()
+
+            d
 
         let decls = pools.Roots |> Array.map fromDecl |> EqArray.ofArray
 
@@ -326,23 +366,23 @@ module TastUnpool =
 
         // Reconstructing the side-table maps here (rather than retaining the source
         // file's) is what makes the round-trip prove the key remap, not just the decl
-        // trees. The binder-keyed six go through the shared `binderKeyedMap`;
-        // `FunVerdicts` is the one on the lambda id space, so it inverts through
-        // `lambdaKeyOf` right where it is built.
+        // trees. The binder-keyed five go through the shared `binderKeyedMap`, resolving
+        // through the projections the rebuild collected; `FunVerdicts` is the one on the
+        // lambda id space, so it inverts through `lambdaKeyOf` right where it is built.
         {
             Decls = decls
             Diagnostics = pools.Residue.Diagnostics
             IntrinsicReprKeys = pools.Residue.IntrinsicReprKeys
-            ModuleMembers = binderKeyedMap pools pools.ModuleMembers
-            TopLevelNames = binderKeyedMap pools pools.TopLevelNames
-            ClosureReprs = binderKeyedMap pools pools.ClosureReprs
+            ModuleMembers = binderKeyedMap readmittedBinder pools.ModuleMembers
+            TopLevelNames = binderKeyedMap readmittedBinder pools.TopLevelNames
+            ClosureReprs = binderKeyedMap readmittedBinder pools.ClosureReprs
             FunVerdicts = pools.FunVerdicts |> Array.map (fun (id, v) -> lambdaKeyOf id, v) |> Map.ofArray
-            GenericFnSchemes = binderKeyedMap pools pools.GenericFnSchemes
+            GenericFnSchemes = binderKeyedMap readmittedBinder pools.GenericFnSchemes
             InlineBodies = inlineBodies
             Accessibility = pools.Residue.Accessibility
             // No `BindingValReprs`: the DU does not carry one. It is a PROJECTION of the
             // lambda spine, so `toPools` re-derives it off the columns rather than the DU
             // ferrying it across — which is also why the round trip does not have to
             // reconstruct it to stay faithful.
-            BindingTyparArities = binderKeyedMap pools pools.BindingTyparArities
+            BindingTyparArities = binderKeyedMap readmittedBinder pools.BindingTyparArities
         }

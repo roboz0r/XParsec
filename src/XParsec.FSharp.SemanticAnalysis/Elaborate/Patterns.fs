@@ -219,8 +219,9 @@ module internal ElaboratePatterns =
         | Pat.Op _ ->
             // Operator-named binding head (`let (=) x y = …`): a single binder,
             // shaped like a `Pat.NamedSimple`. Its source name is the operator's
-            // compiled name (`memberNameOfBinding` → `op_Equality`); the key
-            // matches `CstKeys.ofBinding`, so the binding's `ModuleMembers` entry
-            // (and thus the cross-package inline-body loader) finds it.
+            // compiled name (`memberNameOfBinding` → `op_Equality`). Being a
+            // `NamedSimple` is what gives it a frozen identity at all
+            // (`BinderKey.ofPat`), and so a `ModuleMembers` entry for the
+            // cross-package inline-body loader to find.
             TPat.NamedSimple(key, ty, tok)
         | _ -> failwithf "Elaborate.translatePat: TODO %A" p

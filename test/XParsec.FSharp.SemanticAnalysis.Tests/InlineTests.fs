@@ -366,13 +366,18 @@ let tests =
 
                 // `k` is the module's first decl; its published identity is the one its
                 // `ModuleBindingInfo` mints — the same one the rewrite must have baked in.
-                let kKey =
+                let kBinder =
                     match sem.Decls.[0] with
-                    | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> k
+                    | TDecl.Let(head, _, _, _) ->
+                        match BinderKey.ofPat head with
+                        | ValueSome b -> b
+                        | ValueNone -> failtest "expected `let k` to introduce a binder"
                     | other -> failtestf "expected `let k` first, got %A" other
 
+                let kKey = BinderKey.toNodeKey kBinder
+
                 let expected =
-                    match Map.tryFind kKey sem.ModuleMembers with
+                    match Map.tryFind kBinder sem.ModuleMembers with
                     | Some info -> info.Key
                     | None -> failtest "`k` has no ModuleBindingInfo"
 

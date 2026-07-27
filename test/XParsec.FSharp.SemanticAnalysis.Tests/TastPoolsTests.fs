@@ -122,18 +122,26 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
     // — and the values' faithfulness is the round-trip gate's business, not this one's.
     // `BindingValReprs` is absent: it is DERIVED off the columns rather than re-keyed from
     // a source map, and has its own gate (`checkValReprPatsAreSpineNodes`).
-    let checkTable (name: string) (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) (source: Map<NodeKey, 'w>) =
-        Expect.equal dense.Length source.Count (name + " dense form covers the source map 1:1")
+    let checkTable (name: string) (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) (sourceKeys: Set<NodeKey>) =
+        Expect.equal dense.Length sourceKeys.Count (name + " dense form covers the source map 1:1")
 
         for (id, _) in dense do
-            Expect.isTrue (Map.containsKey (resolve id) source) (name + " dense key resolves to a source key")
+            Expect.isTrue (Set.contains (resolve id) sourceKeys) (name + " dense key resolves to a source key")
 
-    checkTable "ModuleMembers" binderKey pools.ModuleMembers frozen.ModuleMembers
-    checkTable "TopLevelNames" binderKey pools.TopLevelNames frozen.TopLevelNames
-    checkTable "ClosureReprs" binderKey pools.ClosureReprs frozen.ClosureReprs
-    checkTable "FunVerdicts" lambdaKeyOf pools.FunVerdicts frozen.FunVerdicts
-    checkTable "GenericFnSchemes" binderKey pools.GenericFnSchemes frozen.GenericFnSchemes
-    checkTable "BindingTyparArities" binderKey pools.BindingTyparArities frozen.BindingTyparArities
+    // The source keys in the address space the resolvers answer in: a binder-keyed table is
+    // widened (`BinderKey.widenMap`), `FunVerdicts` is already lambda-key-shaped.
+    let keysOf (m: Map<NodeKey, 'w>) =
+        m |> Map.toSeq |> Seq.map fst |> Set.ofSeq
+
+    let binderSource (m: Map<BinderKey, 'w>) = keysOf (BinderKey.widenMap m)
+    let lambdaSource (m: Map<NodeKey, 'w>) = keysOf m
+
+    checkTable "ModuleMembers" binderKey pools.ModuleMembers (binderSource frozen.ModuleMembers)
+    checkTable "TopLevelNames" binderKey pools.TopLevelNames (binderSource frozen.TopLevelNames)
+    checkTable "ClosureReprs" binderKey pools.ClosureReprs (binderSource frozen.ClosureReprs)
+    checkTable "FunVerdicts" lambdaKeyOf pools.FunVerdicts (lambdaSource frozen.FunVerdicts)
+    checkTable "GenericFnSchemes" binderKey pools.GenericFnSchemes (binderSource frozen.GenericFnSchemes)
+    checkTable "BindingTyparArities" binderKey pools.BindingTyparArities (binderSource frozen.BindingTyparArities)
 
 /// A binding's recorded arity is READ OFF the pooled spine, so a tuple group's pattern must
 /// BE the spine node it was peeled from. A re-pooled copy would be structurally equal and
@@ -188,8 +196,8 @@ let private checkMintInvariant (frozen: Frozen.TastFile) : int =
             Expect.equal k.Offset tok.StartIndex (sprintf "real %s binder offset is its node token StartIndex" what)
 
     let rec walkPat (p: Frozen.TPat) =
-        match TastWalk.patBinder p with
-        | ValueSome k -> checkReal k (TastWalk.patTok p) "NamedSimple"
+        match BinderKey.ofPat p with
+        | ValueSome k -> checkReal (BinderKey.toNodeKey k) (TastWalk.patTok p) "NamedSimple"
         | ValueNone -> ()
 
         for sub in TastPools.patChildren p do
@@ -258,7 +266,7 @@ let private programs =
         // which for these shapes names a node the frozen tree does not bear — a
         // `Pat.EnclosedBlock`/`Pat.As` wrapper `translatePat` drops, or a composite /
         // wildcard pattern that binds no name at all. The producers now file under the
-        // binder the head introduces (`TastWalk.patBinder`), or under nothing.
+        // binder the head introduces (`BinderKey.ofPat`), or under nothing.
         "module-level tuple destructuring", "let p = (1, 2)\nlet (a, b) = p\nlet s = a + b\n"
         "module-level tuple destructuring without parens", "let p = (1, 2)\nlet a, b = p\nlet s = a + b\n"
         "module-level nested destructuring", "let p = ((1, 2), 3)\nlet ((a, b), c) = p\nlet s = a + b + c\n"

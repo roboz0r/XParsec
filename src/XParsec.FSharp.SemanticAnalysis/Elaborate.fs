@@ -322,7 +322,7 @@ module Elaborate =
         | ValueNone -> false
 
     /// For a generalised binding, record its frozen typar
-    /// BOUNDS, keyed by the binding's `NodeKey`, onto `ctx.GenericFnSchemes`. Each
+    /// BOUNDS, keyed by the binding's binder, onto `ctx.GenericFnSchemes`. Each
     /// `Coercion` bound is frozen as a `FrozenConstraint.Coercion(idx, target)`
     /// template over the METHOD typars: the target is remapped through the SAME
     /// `quantEnv` the body freezes with (so its typar leaves get the identical
@@ -334,14 +334,14 @@ module Elaborate =
     /// absence from the table is equivalent to an empty list; the emitted typar
     /// arity comes independently from `staticFnTypars`' body sweep.)
     ///
-    /// `binder` is the binding's FROZEN identity (`TastWalk.patBinder` of the head
-    /// pattern, THE definition of "is a binder" both sides of the freeze) — the key
-    /// the recorded scheme is filed under. It is distinct from `CstKeys.ofBinding b`,
-    /// which stays the ANALYSIS key the generaliser's own scheme is looked up by.
+    /// The two keys in scope here are of different types on purpose: `binder` is the
+    /// binding's FROZEN identity (what the scheme is filed under), while
+    /// `CstKeys.ofBinding b` is the ANALYSIS key the generaliser's own scheme is looked up
+    /// by — a `NodeKey`, and so unfileable here.
     let private recordGenericFnScheme
         (ctx: PassContext)
         (b: Binding<SyntaxToken>)
-        (binder: NodeKey)
+        (binder: BinderKey)
         (quantEnv: (TyVarId * SemType) list)
         : unit =
         if not (List.isEmpty quantEnv) then
@@ -1901,25 +1901,16 @@ module Elaborate =
                     // The identity this binding contributes to the FROZEN side tables
                     // (`ModuleMembers`, `TopLevelNames`, `GenericFnSchemes`,
                     // `BindingTyparArities`): the binder its already-translated head
-                    // pattern introduces, or `ValueNone` when it introduces none — in
-                    // which case the tables below record nothing at all.
+                    // pattern introduces (`BinderKey.ofPat`, which is also where the
+                    // shapes that introduce none are enumerated), or `ValueNone` — in
+                    // which case the tables below record nothing at all, every reader of
+                    // them (`FrozenSignature`, `HolderPlan`) looking up a simple binder.
                     //
-                    // NOT `CstKeys.ofBinding b`. That is the ANALYSIS identity — the
-                    // content address of the head PATTERN node, which the type/scheme
-                    // tables inference filled are keyed by, and it stays that. The frozen
-                    // tables are re-keyed onto the frozen binder pool (`TastPools`), so
-                    // their keys must be keys the FROZEN TREE bears, and the head-pattern
-                    // key is one only for a bare simple head:
-                    //   * a wrapped head (`let (x) = …`, `let (x: int) = …`) keys the
-                    //     paren/annotation node, which `ElaboratePatterns.translatePat`
-                    //     ERASES — so the entry named a node no reader could reach, and
-                    //     the binding's name/arity were silently lost;
-                    //   * a composite or wildcard head (`let (a, b) = p`, `let _ = e`)
-                    //     introduces no single binder at all, so it has no frozen identity
-                    //     and needs none — every reader of these tables
-                    //     (`Freeze.bindingValReprs`, `FrozenSignature`, `HolderPlan`)
-                    //     looks up a simple binder's key.
-                    let binder = if elided then ValueNone else TastWalk.patBinder tpat
+                    // Read off the TRANSLATED head, never the CST binding: the analysis
+                    // identity `CstKeys.ofBinding b` addresses the head PATTERN node,
+                    // which for a wrapped head (`let (x) = …`, `let (x: int) = …`) is a
+                    // node `ElaboratePatterns.translatePat` ERASES.
+                    let binder = if elided then ValueNone else BinderKey.ofPat tpat
 
                     // Inside a named module: record where this binding's static
                     // method belongs. The emitted method takes its `[<CompiledName>]`
@@ -2157,7 +2148,7 @@ module Elaborate =
             // which type it names.
             IntrinsicReprKeys = System.Collections.Generic.Dictionary(ctx.Types.IntrinsicReprKeys)
             // Snapshot the named-module placements: the backend keys
-            // off a binding's `NodeKey.Raw` to emit it on its holder type.
+            // off a binding's identity to emit it on its holder type.
             ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
             // Snapshot the top-level (implicit-Program-module) binding names so the
             // backend can name a top-level value's static field.

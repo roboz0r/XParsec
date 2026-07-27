@@ -404,7 +404,11 @@ module TastPoolBuilder =
     /// binder-id assignment differ.
     let private sinkOf (b: PoolBuilder) : TastPools.PoolSink =
         {
-            InternBinder = internBinder b >> ignore
+            // The overlay's binder index is keyed by `NodeKey` because it must also admit a
+            // REFERENCE (`VarRef` below, a payload's `NamedSimple` slot in
+            // `copyPatTreeInto`), which names its binder that way; the walk's definition
+            // sites widen into it.
+            InternBinder = BinderKey.toNodeKey >> internBinder b >> ignore
             AddExpr = appendExpr b
             AddPat = appendPat b
             AddDecl = appendDecl b

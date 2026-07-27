@@ -807,7 +807,7 @@ module Regions =
     /// Fold the codegen stack/heap verdict for every binder: `ClosureRepr.Stack` iff the
     /// binder is both frame-confined by lifetime (`Axis 1` `EscapeState.LocalStack`)
     /// and free of any heap-repr channel (`Axis 2` `RegionRepr.StackOnlyEligible`);
-    /// everything else is `Heap`. Keyed by `NodeKey.Raw`. The map covers all
+    /// everything else is `Heap`. The map covers all
     /// binders, not only closures — codegen's `discoverClosures` only ever looks up
     /// closure `Closure.SelfKey`s, so non-closure entries are inert. Must run after
     /// `run` has populated both side tables; the Pipeline snapshots the result onto
@@ -815,29 +815,33 @@ module Regions =
     ///
     /// `ctx.Bindings.Escape` is keyed by every BINDING SITE that landed in a region, which
     /// is wider than the binder set — a `let _ = e` binds no name yet has a typed pattern
-    /// node whose tyvar unifies with the rhs's, so it inherits a region. Restricting to
-    /// `decls`' binders is what makes this table's key space honest: `ClosureReprs` ships
-    /// on the frozen file and is re-keyed onto the frozen binder pool, which FAULTS on a
-    /// key naming no binder. A non-binder entry was unreadable anyway (a wildcard can
-    /// never be a closure's `SelfKey`).
-    let closureReprSnapshot (ctx: PassContext) (decls: EqArray<TDecl>) : Map<NodeKey, ClosureRepr> =
-        let binders = TastWalk.declBinders decls
+    /// node whose tyvar unifies with the rhs's, so it inherits a region. So the walk is
+    /// driven by `decls`' BINDERS (`TastWalk.declBinders`) and reads the wider table, not
+    /// the other way round: what is filed is then a `BinderKey` by construction, and a
+    /// non-binder region entry is simply never asked for (it was unreadable anyway — a
+    /// wildcard can never be a closure's `SelfKey`).
+    let closureReprSnapshot (ctx: PassContext) (decls: EqArray<TDecl>) : Map<BinderKey, ClosureRepr> =
+        Map.ofSeq (
+            seq {
+                for binder in TastWalk.declBinders decls do
+                    let key = BinderKey.toNodeKey binder
 
-        ctx.Bindings.Escape.AsDictionary()
-        |> Seq.filter (fun kv -> binders.Contains kv.Key)
-        |> Seq.map (fun kv ->
-            let stackEligible =
-                kv.Value = LocalStack
-                && (
-                    match ctx.Bindings.Repr.TryGetValue kv.Key with
-                    | ValueSome RegionRepr.StackOnlyEligible -> true
-                    | _ -> false
-                )
+                    match ctx.Bindings.Escape.TryGetValue key with
+                    | ValueNone -> ()
+                    | ValueSome escape ->
+                        let stackEligible =
+                            escape = LocalStack
+                            && (
+                                match ctx.Bindings.Repr.TryGetValue key with
+                                | ValueSome RegionRepr.StackOnlyEligible -> true
+                                | _ -> false
+                            )
 
-            kv.Key,
-            (if stackEligible then
-                 ClosureRepr.Stack
-             else
-                 ClosureRepr.Heap)
+                        yield
+                            binder,
+                            (if stackEligible then
+                                 ClosureRepr.Stack
+                             else
+                                 ClosureRepr.Heap)
+            }
         )
-        |> Map.ofSeq

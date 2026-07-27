@@ -146,39 +146,6 @@ module TastWalk =
         | TPatG.EnumCase(ty = ty)
         | TPatG.Or(ty = ty) -> ty
 
-    /// The single binder a pattern INTRODUCES — the identity a `TExpr.Var` references,
-    /// that naming is computed from, and that the frozen binder pool interns.
-    /// `ValueNone` for a pattern that binds nothing (`Wildcard`, `Const`, …) or that
-    /// binds only through nested sub-patterns (`Tuple`, `Record`, `Union`, `TypeTestAs`,
-    /// `Or` — walk the children for those).
-    ///
-    /// THE definition of "is a binder", and generic over the domain on purpose: the
-    /// pre-freeze producers of the binder-keyed side tables (`Elaborate`, `Regions`)
-    /// decide what to key on with the SAME function the post-freeze pool enumerates
-    /// with (`TastPools.toPools`, via `TastWalk.patBinder`), so the two cannot
-    /// drift. They must not: `toPools` FAULTS on a side-table key that names no pooled
-    /// binder, so a producer keying on a non-binder node is a hard failure on the
-    /// serialization path, not a stale entry.
-    ///
-    /// Note what is deliberately NOT a binder: a `let` whose head pattern is composite
-    /// or wildcard (`let (a, b) = p`, `let _ = e`) introduces no single binder, so it
-    /// has no side-table identity — and it needs none, every reader of those tables
-    /// looking up a simple binder's key. (A CST `Pat.As` alias — `| 0 as z ->` — is a
-    /// binder the frozen tree does not carry at all: `ElaboratePatterns.translatePat`
-    /// drops the alias name, so there is no `TPatG` node here to answer for it.)
-    let patBinder (p: TPatG<'ty, 'tok>) : NodeKey voption =
-        match p with
-        | TPatG.NamedSimple(binding = binding) -> ValueSome binding
-        | TPatG.Wildcard _
-        | TPatG.Tuple _
-        | TPatG.Const _
-        | TPatG.Record _
-        | TPatG.Union _
-        | TPatG.TypeTestAs _
-        | TPatG.Null _
-        | TPatG.EnumCase _
-        | TPatG.Or _ -> ValueNone
-
     let patTok (p: TPatG<'ty, 'tok>) : 'tok =
         match p with
         | TPatG.NamedSimple(tok = tok)
@@ -964,31 +931,31 @@ module TastWalk =
             iterExpr it arm.Body
 
     /// Every binder a set of declarations introduces, anywhere in their trees: the
-    /// pattern binders (`patBinder`) plus the `ForTo` loop variables, which have no
-    /// pattern node. A `Type` decl contributes none — its member bodies are walked by
-    /// no pass here (see `Regions.run`).
+    /// pattern binders (`BinderKey.ofPat`) plus the `ForTo` loop variables
+    /// (`BinderKey.ofExpr`), which have no pattern node. A `Type` decl contributes none —
+    /// its member bodies are walked by no pass here (see `Regions.run`) — so this is NOT
+    /// the whole-file binder set (`BinderKey.ofTypeDecl` is the other half).
     ///
     /// This is the pre-freeze twin of the frozen binder pool's enumeration
-    /// (`TastPools.toPools`), which is why the binder-keyed side tables are restricted
-    /// against it: `toPools` FAULTS on a key naming no binder, so a table shipped on the
-    /// frozen file may only key on binders the file bears.
-    let declBinders (decls: TDeclG<SemType, SyntaxToken> seq) : HashSet<NodeKey> =
-        let acc = HashSet<NodeKey>(HashIdentity.Structural)
+    /// (`TastPools.toPools`), which is why a table restricted against it is honest: both
+    /// sides enumerate through the same projections.
+    let declBinders (decls: TDeclG<SemType, SyntaxToken> seq) : HashSet<BinderKey> =
+        let acc = HashSet<BinderKey>(HashIdentity.Structural)
 
         let it =
             { identityIter with
                 VisitPat =
                     fun _ p ->
-                        match patBinder p with
+                        match BinderKey.ofPat p with
                         | ValueSome k -> acc.Add k |> ignore
                         | ValueNone -> ()
 
                         true
                 VisitExpr =
                     fun _ e ->
-                        match e with
-                        | TExpr.ForTo(var = v) -> acc.Add v |> ignore
-                        | _ -> ()
+                        match BinderKey.ofExpr e with
+                        | ValueSome k -> acc.Add k |> ignore
+                        | ValueNone -> ()
 
                         true
             }

@@ -178,6 +178,11 @@ module Freeze =
     /// So the rewrite map is `tast.ModuleMembers`, NOT the inline vocabulary: a template
     /// may reference an ordinary module value (`let k = 3` / `let inline addK x = x + k`),
     /// and that reference is just as un-splice-able as a reference to a sibling template.
+    ///
+    /// Taken in the REFERENCE domain (`Map<NodeKey, _>`): what drives the lookup is a
+    /// `TExpr.Var`, which names its binder by `NodeKey`. The caller widens the
+    /// binder-keyed table once (`BinderKey.toNodeKey`) rather than this walk re-admitting
+    /// a key per node.
     let private rewriteSiblingRefs (siblings: Map<NodeKey, ModuleBindingInfo>) (d: TDecl) : TDecl =
         let mapper: TastWalk.Mapper =
             { TastWalk.identityMapper with
@@ -226,17 +231,24 @@ module Freeze =
     /// `ModuleBindingInfo` to key. Giving those an identity (a `Program`-holder
     /// `ModuleKey`) would empty this arm of population, and is the eventual fix. Until
     /// then the boundary refuses what it cannot represent, loudly.
-    let private publishable (ctx: PassContext) (tast: TastFile) (binder: NodeKey) (rewritten: TDecl) : bool =
+    let private publishable
+        (ctx: PassContext)
+        (topLevelNames: Map<NodeKey, string>)
+        (binder: BinderKey)
+        (rewritten: TDecl)
+        : bool =
         match freeVarsOfBody rewritten with
         | [] -> true
         | free ->
+            // The free `Var`s are references, so the name lookup is in the reference
+            // domain too — the caller widens once, as for `rewriteSiblingRefs`.
             let name (k: NodeKey) =
-                match Map.tryFind k tast.TopLevelNames with
+                match Map.tryFind k topLevelNames with
                 | Some n -> n
                 | None -> string k
 
             ctx.Error(
-                binder,
+                BinderKey.toNodeKey binder,
                 sprintf
                     "This inline binding cannot be published: its body references %s, which has no exportable identity (a top-level binding declares no module, so it has no symbol key a consumer could resolve). Move it into a module."
                     (free |> List.map (fun k -> sprintf "'%s'" (name k)) |> String.concat ", ")
@@ -264,11 +276,26 @@ module Freeze =
         // an ordinary module function.
         let inlineBodies = ResizeArray<TInlineValue>()
 
+        // The two binder-keyed tables the publish path reads by REFERENCE rather than by
+        // definition site: the sibling rewrite is driven by the `TExpr.Var`s of a body, the
+        // name lookup by its free `Var`s.
+        let siblingsByRef = BinderKey.widenMap tast.ModuleMembers
+        let topLevelNamesByRef = BinderKey.widenMap tast.TopLevelNames
+
+        let publishedInfo (head: TPat) =
+            match BinderKey.ofPat head with
+            | ValueNone -> ValueNone
+            | ValueSome binder ->
+                match Map.tryFind binder tast.ModuleMembers with
+                | Some info -> ValueSome(struct (binder, info))
+                | None -> ValueNone
+
         for d in tast.Decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) when isInlineVocabulary d ->
-                match Map.tryFind k tast.ModuleMembers with
-                | Some info ->
+            | TDecl.Let(head, _, _, _) when isInlineVocabulary d ->
+                match publishedInfo head with
+                | ValueSome(binder, info) ->
+                    let k = BinderKey.toNodeKey binder
                     // The TEMPLATE, not `d`. `d` is this binding's emitted ordinary
                     // function — `Passes.InlineExpansion` walked it, resolving its
                     // static-opt clauses and trait calls against its own (unground)
@@ -282,9 +309,9 @@ module Freeze =
                         | true, t -> t
                         | _ -> d
 
-                    let rewritten = rewriteSiblingRefs tast.ModuleMembers template
+                    let rewritten = rewriteSiblingRefs siblingsByRef template
 
-                    if publishable ctx tast k rewritten then
+                    if publishable ctx topLevelNamesByRef binder rewritten then
                         inlineBodies.Add
                             {
                                 // Minted, not recovered. The identity emission mints for the
@@ -303,7 +330,7 @@ module Freeze =
                                             | _ -> [||]
                                     }
                             }
-                | None -> ()
+                | ValueNone -> ()
             | _ -> ()
 
         let frozen =

@@ -8,25 +8,37 @@ open XParsec.FSharp.Parser
 // The per-file side tables (all in-flight semantic information — the CST is
 // never mutated) and the PassContext that carries them through the passes.
 
+/// The one side-table container, parameterized by the KEY SPACE its entries are addressed
+/// in. Two spaces exist and they are not interchangeable — see the abbreviations below.
 [<Sealed>]
-type SideTable<'V>() =
-    let dict = Dictionary<NodeKey, 'V>(HashIdentity.Structural)
+type KeyedTable<'K, 'V when 'K: equality>() =
+    let dict = Dictionary<'K, 'V>(HashIdentity.Structural)
 
     member _.Count = dict.Count
 
-    member _.TryGetValue(key: NodeKey) =
+    member _.TryGetValue(key: 'K) =
         match dict.TryGetValue(key) with
         | true, v -> ValueSome v
         | false, _ -> ValueNone
 
-    member _.Set(key: NodeKey, value: 'V) = dict[key] <- value
+    member _.Set(key: 'K, value: 'V) = dict[key] <- value
 
-    member _.Remove(key: NodeKey) = dict.Remove key |> ignore
+    member _.Remove(key: 'K) = dict.Remove key |> ignore
 
-    member _.ContainsKey(key: NodeKey) = dict.ContainsKey key
+    member _.ContainsKey(key: 'K) = dict.ContainsKey key
 
     /// Callers must treat the returned dictionary as read-only once Elaborate starts.
-    member _.AsDictionary() : IReadOnlyDictionary<NodeKey, 'V> = dict :> _
+    member _.AsDictionary() : IReadOnlyDictionary<'K, 'V> = dict :> _
+
+/// A fact about ANY node, addressed by its `NodeKey` — the in-flight form most passes
+/// speak, since a stamp is filed against the node the pass was looking at.
+type SideTable<'V> = KeyedTable<NodeKey, 'V>
+
+/// A fact about a BINDER, addressed by the definition site itself (`BinderKey`). For a
+/// table that is snapshotted onto the frozen file and re-keyed onto the frozen binder pool:
+/// the pool's remap (`TastPools.toPools`) faults on a key naming no interned binder, and
+/// `BinderKey` is what makes such a key unwritable in the first place.
+type BinderTable<'V> = KeyedTable<BinderKey, 'V>
 
 [<AutoOpen>]
 module SideTablePatterns =
@@ -65,17 +77,17 @@ type PassContextBindings =
         /// `RequiresHeapRepr` there.
         Repr: SideTable<RegionRepr>
         /// Module-level bindings inside a named `module Foo = …`: each
-        /// binding's `NodeKey` → where its emitted static method belongs (a real
+        /// binding's binder → where its emitted static method belongs (a real
         /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
         /// Populated by `Elaborate` and snapshotted into `TastFile.ModuleMembers`; the
         /// backend keys off it to name + place a module function (`ListModule::fold`).
-        ModuleMembers: Dictionary<NodeKey, ModuleBindingInfo>
+        ModuleMembers: Dictionary<BinderKey, ModuleBindingInfo>
         /// A *top-level* (implicit-"Program"-module, `holder = None`) binding's
-        /// `NodeKey` → its source name. Top-level bindings record no
+        /// binder → its source name. Top-level bindings record no
         /// `ModuleBindingInfo`, so this is the only name source for a top-level value
         /// lowered to a Program-holder static field. Consulted only by the value
         /// collector, so top-level functions keep their `fn$<off>` holderless path.
-        TopLevelNames: Dictionary<NodeKey, string>
+        TopLevelNames: Dictionary<BinderKey, string>
         /// A `let` binding's explicitly-declared `<'b,'a>` typars, in SOURCE order,
         /// each paired with the `TypeVar` inference seeded for it. Captured by
         /// `Infer.inferBinding` while the binding's transient `TyparScope` is live
@@ -91,10 +103,10 @@ type PassContextBindings =
         /// export filters each apply their own threshold over the one fact. Type MEMBER
         /// accessibility rides `TTypeMemberG.Accessibility` on the member, not here.
         Accessibility: Dictionary<SymbolKey, Accessibility>
-        /// A module binding's typar-axis width, keyed by the binding's headPat
-        /// `NodeKey`. Recorded by `Elaborate` at the single method-axis index-minting
+        /// A module binding's typar-axis width, keyed by the binder its head pattern
+        /// introduces. Recorded by `Elaborate` at the single method-axis index-minting
         /// point (`mkMethodQuantEnv`); snapshotted into `TastFile.BindingTyparArities`.
-        BindingTyparArities: Dictionary<NodeKey, int>
+        BindingTyparArities: Dictionary<BinderKey, int>
     }
 
 module PassContextBindings =
@@ -821,12 +833,12 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// lambda with no entry is the ordinary curried closure.
     member val FunVerdicts = SideTable<FunVerdict>() with get
     /// A project-local generalised binding's
-    /// `NodeKey` → its frozen typar bounds (`FrozenConstraint` list). Written by
+    /// binder → its frozen typar bounds (`FrozenConstraint` list). Written by
     /// `Elaborate.translateModuleElem` at the single index-minting point (so the
     /// bounds' typar leaves carry the SAME method-axis indices the body freezes
     /// with), snapshotted by `Elaborate.run` onto `TastFile.GenericFnSchemes`. Read
     /// by the call-site phantom-typar solve (`EmitCall`).
-    member val GenericFnSchemes = SideTable<FrozenConstraint list>() with get
+    member val GenericFnSchemes = BinderTable<FrozenConstraint list>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
     /// the typar / required type translated to `SemType` while the binding's typar

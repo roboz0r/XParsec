@@ -55,17 +55,17 @@ open XParsec.FSharp.Parser
 // per-case matches, each exhaustive so a new `TExprG`/`ExprShape` case fails to compile.
 //
 // Identity, too, goes positional: a binder's identity after freeze IS its slot in a
-// dedicated `Binders` column, not its 64-bit content key. Every distinct NodeKey a
+// dedicated `BinderKeys` column, not its 64-bit content key. Every distinct NodeKey a
 // definition site introduces is interned to a `BinderId` — the pattern/loop binders
-// (`NamedSimple.binding`, `ForTo.var`) and the bare key slots a type declaration binds
-// with no pattern node behind them (`TTypeDeclG.boundKeys`: a member's `this`/`base`
+// (`BinderKey.ofPat`, `BinderKey.ofExpr`) and the bare key slots a type declaration binds
+// with no pattern node behind them (`BinderKey.ofTypeDecl`: a member's `this`/`base`
 // and parameters, a ctor's parameters and locals), which its member BODIES name by
 // `Var` exactly as a function body names a `let`. The cross-references that named a
 // definition by content key during analysis — `Var.binding` and six of the seven
-// `Map<NodeKey,_>` side tables — name it by that id in the pool form. (The seventh,
+// side tables — name it by that id in the pool form. (The seventh,
 // `FunVerdicts`, is keyed by a lambda-EXPRESSION
 // key, not a binder, and takes the lambda id space — its dense id is the lambda's
-// `ExprPoolId`.) `ofPools` resolves each id back through `Binders` to the retained
+// `ExprPoolId`.) `ofPools` resolves each id back through `BinderKeys` to the retained
 // NodeKey, so the round-trip exercises the remap rather than copying the keys back
 // verbatim: a reference or side-table key that resolves to no interned binder faults
 // here, which is the gate that keeps the enumeration honest. (Kind is not stored — its
@@ -155,12 +155,12 @@ type PatPoolId = | PatPoolId of int
 [<Struct>]
 type DeclPoolId = | DeclPoolId of int
 
-/// A dense pool index into `FrozenPools.Binders` — the positional identity a frozen
+/// A dense pool index into `FrozenPools.BinderKeys` — the positional identity a frozen
 /// binder takes on once kind dissolves. A binder is a NodeKey a definition site
 /// INTRODUCES — a `NamedSimple` pattern, a `ForTo` loop variable, or one of a type
-/// declaration's pattern-less key slots (`TTypeDeclG.boundKeys`); the cross-references
-/// that named it by 64-bit content key during analysis (`Var.binding`, the side-table
-/// keys) name it by this id in the pool form.
+/// declaration's pattern-less key slots (the `BinderKey` projections); the
+/// cross-references that named it by 64-bit content key during analysis (`Var.binding`,
+/// the side-table keys) name it by this id in the pool form.
 [<Struct>]
 type BinderId = | BinderId of int
 
@@ -684,11 +684,11 @@ type FrozenFileResidue =
 /// shared with the `SemType` instantiation, which has no pools.
 ///
 /// The binder pool and the dense-keyed side tables give the file's identity keys a
-/// positional home: `Binders` is the distinct binder NodeKeys, indexable by `BinderId`;
-/// the source file's seven `Map<NodeKey,_>` side tables are re-expressed as `BinderId`-keyed
-/// associations. `ofPools` rebuilds the maps from these (resolving each `BinderId` back
-/// through `Binders`), so the round-trip proves the remap is a faithful bijection over
-/// every referenced binder rather than trivially copying the source maps.
+/// positional home: `BinderKeys` is the distinct binder NodeKeys, indexable by `BinderId`;
+/// the source file's side tables are re-expressed as `BinderId`-keyed (or, for
+/// `FunVerdicts`, `ExprPoolId`-keyed) associations. `ofPools` rebuilds the maps from these,
+/// so the round-trip proves the remap is a faithful bijection over every referenced binder
+/// rather than trivially copying the source maps.
 type FrozenPools =
     {
         /// The expression pool as struct-of-arrays: these columns are parallel, each

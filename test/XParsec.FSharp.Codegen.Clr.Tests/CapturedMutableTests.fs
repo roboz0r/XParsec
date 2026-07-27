@@ -288,7 +288,12 @@ let tests =
                     |> Array.map (fun (id, v) -> ({ Pool = pool; Id = id }: TastAccessor.ExprId), v)
                     |> DenseTable.index
 
-                let moduleValues = Emit.collectModuleValues tast.ModuleMembers lowered0
+                // The binder-keyed tables in the node-keyed form the CLR emit's API takes,
+                // through the one seam that undoes the pool remap — as `Layout.buildUnit`
+                // does, so this harness cannot drift from the real path.
+                let sideTables = TastUnpool.nodeKeyedSideTables pools
+
+                let moduleValues = Emit.collectModuleValues sideTables.ModuleMembers lowered0
                 let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
 
                 // Mirror `HolderPlan.create`: the capture-only eligible set drives
@@ -305,9 +310,9 @@ let tests =
 
                 let staticFns =
                     Emit.collectStaticFns
-                        tast.ModuleMembers
+                        sideTables.ModuleMembers
                         programHolder
-                        tast.GenericFnSchemes
+                        sideTables.GenericFnSchemes
                         eligible
                         (CompiledFns.gather lowered)
 
@@ -323,7 +328,7 @@ let tests =
                         moduleValueKeys
                         typarsMap
                         funVerdicts
-                        tast.ClosureReprs
+                        sideTables.ClosureReprs
                         lowered
                         []
 
