@@ -5,8 +5,9 @@ open XParsec.FSharp.Parser
 // The FILL direction of the id-indexable frozen pools: `toPools` walks the `Frozen.*` DU
 // assigning each node a dense id and recording its child edges as ids. The drain —
 // `substitute*` and `ofPools`, rebuilding the DU from the columns alone — is
-// `TastUnpool.fs`; the wire-shape types (`ExprPoolId`/`ExprPayload`/`FrozenPools`/…) and
-// the design rationale are `TastPoolTypes.fs`.
+// `TastUnpool.fs`; the wire-shape types are split by scope, one NODE
+// (`ExprPoolId`/`ExprPayload`/`ExprRow`/…, `TastPoolNodes.fs`) versus the whole FILE
+// (`FrozenPools` and its side-table containers, `TastPoolTypes.fs`).
 //
 // `toPools` is the LAST step of the freeze (`Freeze.run`) and its only production caller.
 // The corpus-wide `TastUnpool.ofPools ∘ toPools = id` is the proof that the columns carry

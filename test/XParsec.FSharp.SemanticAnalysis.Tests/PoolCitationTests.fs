@@ -6,7 +6,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
 // The pool columns are cited BY NAME throughout the SemanticAnalysis and codegen sources —
-// the design rationale in `TastPoolTypes.fs`, the ordering coupling in `TastPools.fs`, the
+// the layout rationale in `TastPoolTypes.fs`, the ordering coupling in `TastPools.fs`, the
 // layer arithmetic in `TastPoolBuilder.fs`. A citation is prose, so removing a column does
 // not break it: `TastPoolBuilder`'s read-surface header went on naming `FrozenPools.ExprShapes`
 // for the whole life of the branch that deleted that column.

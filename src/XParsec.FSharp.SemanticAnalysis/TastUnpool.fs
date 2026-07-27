@@ -4,7 +4,8 @@ open XParsec.FSharp.Parser
 
 // The DRAIN direction of the frozen pools: columns back to the `Frozen.*` DU. Its
 // inverse — the DU vocabulary, the pooling walk and `toPools` — is `TastPools.fs`, and
-// the wire-shape types are `TastPoolTypes.fs`. Split from the fill so the two directions
+// the wire-shape types are `TastPoolNodes.fs` (one node) and `TastPoolTypes.fs` (the
+// whole file). Split from the fill so the two directions
 // are separately readable and the compiler's dependency edge says which way the data
 // flows: this file reads `TastPools`, never the reverse.
 //
