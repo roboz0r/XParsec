@@ -44,18 +44,36 @@ let private blobSizes (src: string) : struct (int * int) =
     let raw = FrozenCodec.flatten frozen
     struct (raw.Length, (Compression.compress raw).Length)
 
+/// One measured program and the ceiling its compressed blob must stay under.
+type private SizedProgram =
+    {
+        Name: string
+        Source: string
+        Ceiling: int
+    }
+
 /// A small representative set spanning the shapes that dominate a real file's blob: curried
-/// bindings and applications, a type declaration with fields (a `DeclPayload.Type`, carried
-/// opaquely), and control flow with several binders — each with its measured ceiling.
+/// bindings and applications, a type declaration whose member bodies are named by pool id
+/// (a `DeclPayload.Type`), and control flow with several binders — each with its measured
+/// ceiling.
 let private programs =
     [
-        "curried fns", "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n", 640
-        "record type + literal + field get",
-        "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }\nlet getX (v: R) = v.X\n",
-        360
-        "match + for-to + mutable accumulator",
-        "let classify x =\n    match x with\n    | 0 -> 1\n    | _ -> 2\n\nlet sumTo n =\n    let mutable t = 0\n    for i = 1 to n do\n        t <- t + i\n    t\n",
-        640
+        {
+            Name = "curried fns"
+            Source = "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n"
+            Ceiling = 640
+        }
+        {
+            Name = "record type + literal + field get"
+            Source = "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }\nlet getX (v: R) = v.X\n"
+            Ceiling = 360
+        }
+        {
+            Name = "match + for-to + mutable accumulator"
+            Source =
+                "let classify x =\n    match x with\n    | 0 -> 1\n    | _ -> 2\n\nlet sumTo n =\n    let mutable t = 0\n    for i = 1 to n do\n        t <- t + i\n    t\n"
+            Ceiling = 640
+        }
     ]
 
 [<Tests>]
@@ -63,14 +81,14 @@ let tests =
     testList
         "Frozen blob size"
         [
-            for name, src, ceiling in programs do
-                test name {
-                    let struct (raw, compressed) = blobSizes src
+            for p in programs do
+                test p.Name {
+                    let struct (raw, compressed) = blobSizes p.Source
 
                     // Reported on failure so a re-measure needs no instrumentation run.
                     Expect.isLessThan
                         compressed
-                        ceiling
-                        (sprintf "%s: compressed %d bytes (raw %d) exceeds the recorded ceiling" name compressed raw)
+                        p.Ceiling
+                        (sprintf "%s: compressed %d bytes (raw %d) exceeds the recorded ceiling" p.Name compressed raw)
                 }
         ]

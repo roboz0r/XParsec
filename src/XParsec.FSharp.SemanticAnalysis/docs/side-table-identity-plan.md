@@ -2,15 +2,19 @@
 
 *Ephemeral. Scopes one body of work; delete when it lands.*
 
-Follows the frozen-SoA pool arc (`frozen-soa-cache-plan.md`, F.0–F.5). That work made the
-defect below **loud** — `TastPools.toPools` now runs on every compile and faults on it — but
-did not make it **impossible**. This plan does the second part.
+Follows the frozen-SoA pool arc, whose plan doc has been deleted now that the work landed
+(the code is its record). That work made the defect below **loud** — `TastPools.toPools`
+now runs on every compile and faults on it — but did not make it **impossible**. This plan
+does the second part.
+
+Cites here name a **function or field**, never a line: this plan is about premises rotting
+unnoticed, and a line number is the fastest-rotting cite there is.
 
 ## The defect
 
 **A side table keyed by a `NodeKey` that no node in the frozen tree bears.** It fired four
-times during the pool arc, each time as a `failwith` in `toPools`' `binderIdOf`
-(`TastPools.fs:705`, `:712`):
+times during the pool arc, each time as a `failwith` in `TastPools.toPools`' `binderIdOf`
+(and its lambda-space twin `lambdaIdOf`):
 
 | # | Site | Cause |
 |---|---|---|
@@ -37,23 +41,25 @@ can catch a false *rationale*. See "Tier 0".
 
 ## Inventory
 
-Post-F.5 the `Map<NodeKey, _>` forms are **freeze-internal** (`TastFileG` no longer leaves
-`Freeze`), so changing their key type is cheap — the blast radius is `PassContext` → `Freeze`
-→ `toPools`, not the whole compiler.
+Now that the freeze yields pools, the `Map<NodeKey, _>` forms are **freeze-internal**
+(`TastFileG` no longer leaves `Freeze`), so changing their key type is cheap — the blast
+radius is `PassContext` → `Freeze` → `toPools`, not the whole compiler.
 
 | Table | Pool form | Producer | Discipline today |
 |---|---|---|---|
-| `ModuleMembers` | `(BinderId * _)[]` | `Elaborate.fs:1945` | guarded by `frozenBindingBinder` — **convention** |
-| `TopLevelNames` | `(BinderId * _)[]` | `Elaborate.fs:1958` | same — **convention** |
-| `BindingTyparArities` | `(BinderId * _)[]` | `Elaborate.fs:2040` | same — **convention** |
-| `GenericFnSchemes` | `(BinderId * _)[]` | `Elaborate.fs:396` | `binder: NodeKey` **parameter** — weakest |
-| `ClosureReprs` | `(BinderId * _)[]` | `Regions.fs:823` | **filtered against `TastWalk.declBinders`** ✅ |
-| `BindingValReprs` | `(BinderId * _)[]` | `Freeze.fs:351` | **derived from the tree it ships with** ✅ |
-| `FunVerdicts` | `(ExprPoolId * _)[]` | `InferApp.fs:90`, `:145` | lambda id space, separate concern |
+| `ModuleMembers` | `(BinderId * _)[]` | `Elaborate.elaborateBinding` | guarded by `TastWalk.patBinder` of the head pattern — **convention** |
+| `TopLevelNames` | `(BinderId * _)[]` | `Elaborate.elaborateBinding` | same — **convention** |
+| `BindingTyparArities` | `(BinderId * _)[]` | `Elaborate.elaborateBinding` | same — **convention** |
+| `GenericFnSchemes` | `(BinderId * _)[]` | `Elaborate.recordGenericFnScheme` | `binder: NodeKey` **parameter** — weakest |
+| `ClosureReprs` | `(BinderId * _)[]` | `Regions.closureReprSnapshot` | **filtered against `TastWalk.declBinders`** ✅ |
+| `BindingValReprs` | `(BinderId * _)[]` | `TastPools.bindingValReprs` | **derived from the columns it ships with** ✅ |
+| `FunVerdicts` | `(ExprPoolId * _)[]` | `InferApp` | lambda id space, separate concern |
 
 Two are already honest by construction, and by **two different mechanisms** worth naming:
 `closureReprSnapshot` *intersects* with the tree's binder set; `BindingValReprs` is *computed
-from* the tree. Everything above them relies on a human writing the right expression.
+from* the tree — it is read off the POOLED lambda spine in `toPools`, after the columns are
+filled, so it cannot name a node the columns do not hold. Everything above them relies on a
+human writing the right expression.
 
 ## Root cause: `NodeKey` is the over-wide type
 
@@ -61,7 +67,7 @@ from* the tree. Everything above them relies on a human writing the right expres
 `NodeKey`; so is `CstKeys.ofBinding b`; so is `CstKeys.ofPat b.headPat`. `Dictionary<NodeKey,
 'V>` accepts all of them.
 
-`recordGenericFnScheme` (`Elaborate.fs:359-396`) is the hazard in one function: it takes
+`Elaborate.recordGenericFnScheme` is the hazard in one function: it takes
 `binder: NodeKey`, whose doc has to *explain in prose* that it is "distinct from
 `CstKeys.ofBinding b`, which stays the ANALYSIS key" — and then uses `CstKeys.ofBinding b`
 four lines later, for the lookup. Two keys of the same type in one scope, one correct, one
@@ -78,10 +84,15 @@ binder/identity comments. Do it in the same pass as Tier 2, on the files touched
 
 ### Tier 1 — the real fix, applied selectively: no key at all
 
-A fact attached to a node cannot desync from it. `BinderNamings` is already a **column** —
-positionally aligned, no key — and has never had this bug. `TopLevelNames` and
-`BindingTyparArities` are per-binder scalars in exactly that shape and should become columns
-on the binder pool.
+A fact attached to a node cannot desync from it. The strongest form of that is not even a
+column: a fact that is a **projection** of what it is attached to cannot be stored wrong
+because it is not stored at all — `BinderNaming` is `BinderNaming.ofKey` of the binder's own
+key (the `BinderNamings` column this plan originally pointed at has since been deleted for
+exactly that reason), and a node's `ExprShape` is `ExprPayload.shape` of its payload.
+
+Where a fact is genuinely independent of the node, a **column** — positionally aligned, no
+key — is the next best thing. `TopLevelNames` and `BindingTyparArities` are per-binder
+scalars in exactly that shape and should become columns on the binder pool.
 
 `ModuleMembers` (a record), `GenericFnSchemes` (a list) and `ClosureReprs` are also per-binder
 but not scalar; columnising them is a bigger change and is **not** proposed here. `FunVerdicts`
@@ -103,7 +114,7 @@ The `private` constructor is the whole mechanism: `CstKeys.ofBinding b` cannot b
 `#2` become compile errors. The projections already exist and are already the single
 definitions of "is a binder" — this only stops anything *else* reaching the sink.
 
-Retype: the four `PassContext` dictionaries + `SideTable<'V>` (`PassContext.fs:12`), the
+Retype: the four `PassContext` binding dictionaries + `PassContext`'s `SideTable<'V>`, the
 `TastFileG` map fields, and `toPools`' remap input.
 
 ### Tier 3 — the backstop for reachability, and the filter/fault distinction
@@ -112,12 +123,13 @@ At the end of `Freeze.run`, with tree and tables both in hand, walk the binder s
 check every table key against it. **Do not apply one policy to all seven.**
 
 - **Filter** (drop silently) where surplus keys are provably inert — `ClosureReprs` already
-  does this, and argues it at `Regions.fs:821`: a non-binder can never be a closure's
-  `SelfKey`, so the entry was unreadable anyway.
+  does this, and argues it at `Regions.closureReprSnapshot`: a non-binder can never be a
+  closure's `SelfKey`, so the entry was unreadable anyway.
 - **Fault** where a missing entry is a silent wrong answer — `ModuleMembers`, `TopLevelNames`.
   Defect #2 lost a name silently for as long as it lived; filtering there would have *hidden*
-  it. Faulting must name **which table** and **which key**, which the current `binderIdOf`
-  message cannot (it sees only a key).
+  it. Faulting must name **which table** and **which key**; `binderIdOf` already takes the
+  table name as its `referent` argument and reports both, so this tier inherits that rather
+  than having to build it.
 
 This is ~20 lines and is the only tier that catches #3 and #4.
 
@@ -139,20 +151,21 @@ Each is independently landable; G.3 is optional and lowest value.
 - **The CLR emit's `NodeKey` identity.** `HolderPlan.create`, `Emit.discoverClosures` and
   everything downstream (`StaticFn`/`ModuleValue` key sets, capture sets) identify a binding
   by `NodeKey`; `Layout.buildUnit` deliberately rebuilds the maps via
-  `TastPools.binderKeyedMap` for them. Rekeying that is the whole CLR emit and is a separate
-  body of work — **if it is worth doing at all**, which this plan does not assert.
+  `TastUnpool.nodeKeyedSideTables` for them — one named seam, so closing it is one edit.
+  Rekeying that chain is the whole CLR emit and is a separate body of work — **if it is
+  worth doing at all**, which this plan does not assert.
 - **`SemType` stays a DU.** The columns are monomorphic in `FrozenType` and stop at the freeze
   boundary. Nothing here changes that.
 - **`| pat as name ->`** remains unsupported (`translatePat`'s `Pat.As` arm drops the alias, so
   no `TPatG` node carries the key). It is a *tree modelling* gap needing a `TPatG` case, not a
   side-table one. Out of scope; queue separately.
 - **`TastAccessor.patBinderId` returning `ValueNone`** on an un-interned binder is a silent
-  fall-through (noted at F.5). Tier 3 covers the tables; this accessor is not a table and is
+  fall-through. Tier 3 covers the tables; this accessor is not a table and is
   sound today because every pat reachable from a root is interned. Revisit only if that
   invariant weakens.
 
 ## Gates
 
-Build 0 warnings / 0 errors; SA **1170**, Codegen.Js **507**, Codegen.Clr **1417**, Vesper
+Build 0 warnings / 0 errors; SA **1169**, Codegen.Js **507**, Codegen.Clr **1417**, Vesper
 **51**; **no golden may move** (`git status --porcelain | rg -c 'goldens/|Codegen\.Conformance/'`
 → `0`). A moved golden is a real behaviour change: stop and report it.

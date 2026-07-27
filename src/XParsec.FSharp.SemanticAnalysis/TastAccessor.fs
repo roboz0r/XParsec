@@ -1065,8 +1065,9 @@ module TastAccessor =
         let kids = exprChildren e |> Array.map (fun c -> (f c).Id)
         at e (TastPoolBuilder.copyExprWith e.Pool e.Id (fun row -> { row with Children = kids }))
 
-    /// `mapChildren` with the result discarded — the one-shot discovery /
-    /// free-variable pre-passes.
+    /// Visit each immediate child expression — the one-shot discovery / free-variable
+    /// pre-passes. NOT `mapChildren` with the result thrown away: `mapChildren` copies a
+    /// row when a child moves, and a visit must append nothing.
     let iterChildren (f: ExprId -> unit) (e: ExprId) : unit =
         for c in exprChildren e do
             f c

@@ -334,7 +334,8 @@ module Elaborate =
     /// absence from the table is equivalent to an empty list; the emitted typar
     /// arity comes independently from `staticFnTypars`' body sweep.)
     ///
-    /// `binder` is the binding's FROZEN identity (see `frozenBindingBinder`) — the key
+    /// `binder` is the binding's FROZEN identity (`TastWalk.patBinder` of the head
+    /// pattern, THE definition of "is a binder" both sides of the freeze) — the key
     /// the recorded scheme is filed under. It is distinct from `CstKeys.ofBinding b`,
     /// which stays the ANALYSIS key the generaliser's own scheme is looked up by.
     let private recordGenericFnScheme

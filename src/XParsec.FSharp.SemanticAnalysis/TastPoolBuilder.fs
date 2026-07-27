@@ -324,7 +324,7 @@ module TastPoolBuilder =
 
     // ── row copies: rewrite without a per-case match ────────────────────────
     //
-    // The payoff of the columnar form. A child substitution (what `TastLower.mapChildren`
+    // The payoff of the columnar form. A child substitution (what `TastAccessor.mapChildren`
     // does) or a retype (what a closure-verdict rewrite does) is a row copy with one field
     // replaced — no match on the node's shape, no per-case reconstruction, and every
     // untouched child edge is carried across as the id it already was.
