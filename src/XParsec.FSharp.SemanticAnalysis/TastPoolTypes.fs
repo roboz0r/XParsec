@@ -374,6 +374,27 @@ type PatPayload =
             CaseName: string
         |}
 
+[<RequireQualifiedAccess>]
+module PatPayload =
+
+    /// Map every `FrozenType` a pattern payload EMBEDS. Only `TypeTestAs` carries one (the
+    /// `isinst` operand); a node's own type is the `PatTys` column and is mapped there, so
+    /// this is the residue a column-level retype (`TastPoolBuilder.copyPatTreeInto`) would
+    /// otherwise miss. Exhaustive with no catch-all, so a case that grows a type field
+    /// fails to compile here.
+    let mapTys (f: FrozenType -> FrozenType) (p: PatPayload) : PatPayload =
+        match p with
+        | PatPayload.TypeTestAs testTy -> PatPayload.TypeTestAs(f testTy)
+        | PatPayload.NamedSimple _
+        | PatPayload.Wildcard
+        | PatPayload.Null
+        | PatPayload.Tuple
+        | PatPayload.Or
+        | PatPayload.Const _
+        | PatPayload.Record _
+        | PatPayload.Union _
+        | PatPayload.EnumCase _ -> p
+
 /// The three naming projections a backend reads off a binder to emit its name WITHOUT
 /// the whole `NodeKey` — exactly the bits `binderName` (`JsEmitHelpers.fs`) unpacks: a
 /// real binder recovers its source name by slicing at `Offset`; a synthetic renders as

@@ -360,6 +360,41 @@ module TastPoolBuilder =
         let row' = edit row
         if row' = row then id else appendDecl b row'
 
+    /// Copy the pattern subtree at `id` into `dest`, mapping every type it carries through
+    /// `fTy` — the node types (the `PatTys` column) and the types a payload embeds
+    /// (`PatPayload.mapTys`). The COLUMN-level retype: a row copy per node with `Ty`
+    /// replaced and the children repointed at their copies, so shape / tok / payload ride
+    /// across with no per-case match on the pattern's form.
+    ///
+    /// `dest` may be a different pool from `b` — a consumer handing out a DERIVED tree
+    /// (`FrozenSignature`'s axis re-map) owns its own pool, since the copy is no node of
+    /// the source file. Without this a retype had to drain the subtree to the DU, map it
+    /// there, and re-pool it, which is a round trip through the representation the pools
+    /// replaced.
+    let rec copyPatTreeInto
+        (dest: PoolBuilder)
+        (fTy: FrozenType -> FrozenType)
+        (b: PoolBuilder)
+        (id: PatPoolId)
+        : PatPoolId =
+        let row = patRow b id
+        let kids = row.Children |> Array.map (copyPatTreeInto dest fTy b)
+
+        // A `NamedSimple` copy introduces the SAME binder as its original, so the
+        // destination interns it: a reference minted against `dest` must resolve, and a
+        // retype changes types, never identity.
+        match row.Payload with
+        | PatPayload.NamedSimple binding -> internBinder dest binding |> ignore
+        | _ -> ()
+
+        appendPat
+            dest
+            { row with
+                Ty = fTy row.Ty
+                Children = kids
+                Payload = PatPayload.mapTys fTy row.Payload
+            }
+
     // ── the DU bridge, both directions ──────────────────────────────────────
 
     /// Fill in the `Var` reference edge of a row the pooling walk just appended. Private,
@@ -396,19 +431,17 @@ module TastPoolBuilder =
     /// move to native row appends on its own schedule.
     let appendExprTree (b: PoolBuilder) (e: Frozen.TExpr) : ExprPoolId = TastPools.poolExpr (sinkOf b) e
 
-    /// Pool a freshly minted pattern subtree — see `appendExprTree`.
-    let appendPatTree (b: PoolBuilder) (p: Frozen.TPat) : PatPoolId = TastPools.poolPat (sinkOf b) p
-
-    /// The DU subtree a pattern id denotes, resolved across BOTH layers — the inverse of
-    /// `appendPatTree`, node-for-node (`TastUnpool.substitutePat` re-authors each node from
-    /// its row, exactly as `ofPools` does for a whole pool).
+    /// The DU subtree a pattern id denotes, resolved across BOTH layers, node-for-node
+    /// (`TastUnpool.substitutePat` re-authors each node from its row, exactly as `ofPools`
+    /// does for a whole pool).
     ///
     /// This direction exists for the one channel whose far end is still DU-typed: an
     /// inline template crosses the PACKAGE wire as a `Frozen.TDecl` (`Frozen.TInlineBody`),
     /// and a pool id means nothing outside the pool that issued it, the id space being
-    /// file-scoped. A consumer reading a node of THIS file's tree wants the accessor, not
-    /// this.
-    let rec patTree (b: PoolBuilder) (id: PatPoolId) : Frozen.TPat =
+    /// file-scoped. Private, and reached through `declTree`: a consumer moving a pattern
+    /// between POOLS wants `copyPatTreeInto`, which stays in the columns, and one reading a
+    /// node of this file's tree wants the accessor.
+    let rec private patTree (b: PoolBuilder) (id: PatPoolId) : Frozen.TPat =
         let row = patRow b id
         TastUnpool.substitutePat row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree b))
 

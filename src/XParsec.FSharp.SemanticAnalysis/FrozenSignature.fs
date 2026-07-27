@@ -40,16 +40,16 @@ module FrozenSignature =
         // pool build run — at the axis re-map for both the embedded types and the tuple
         // groups' pattern trees, so the grouping cannot drift from the shape it maps.
         // A tuple group's pattern is a node of the SOURCE file's pool, and the re-axised
-        // copy is a DERIVED tree belonging to no file, so it is drained out of the one and
-        // appended to the provider's own, exactly as an `.fsi`-minted pattern is. Draining
-        // to the DU in between is what carries the leaf-by-leaf axis re-map: there is no
-        // column-level type map, and the target pool is a different pool anyway.
+        // copy is a DERIVED tree belonging to no file, so it is copied column-to-column
+        // into the provider's own pool, exactly where an `.fsi`-minted pattern lands.
         TastConvert.valRepr
             ConformanceTypars.toDeclaringAxis
-            (TastPoolBuilder.patTree source
-             >> TastConvert.pat ConformanceTypars.toDeclaringAxis
-             >> TastPoolBuilder.appendPatTree pats
-             >> fun id -> { Pool = pats; Id = id })
+            (fun id ->
+                {
+                    Pool = pats
+                    Id = TastPoolBuilder.copyPatTreeInto pats ConformanceTypars.toDeclaringAxis source id
+                }
+            )
             vr
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a
