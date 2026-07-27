@@ -604,22 +604,10 @@ module TastAccessor =
     /// children belong to the node itself rather than an arm (`Match`'s scrutinee /
     /// `TryWith`'s body).
     let private armsOf (e: ExprId) (guardPresent: bool[]) (lead: int) : Arm[] =
-        let es = exprChildren e
-        let ps = exprPatChildren e
-        let mutable ei = lead
-        let mutable pi = 0
-
-        let nextE () =
-            let x = es.[ei] in
-            ei <- ei + 1
-            x
-
-        let nextP () =
-            let x = ps.[pi] in
-            pi <- pi + 1
-            x
-
-        ExprPayload.arms guardPresent nextP nextE
+        ExprPayload.arms
+            guardPresent
+            (ExprPayload.cursor (exprPatChildren e) 0)
+            (ExprPayload.cursor (exprChildren e) lead)
 
     /// The scalar payload of a `Match` node — the scrutinee and the arms, minus the
     /// `ty`/`tok` the node also carries.
@@ -818,15 +806,11 @@ module TastAccessor =
     let exprFormat (e: ExprId) : FormatView =
         match payload e with
         | ExprPayload.Format p ->
-            let es = exprChildren e
-            let mutable i = 0
+            // No leading children of its own: the sink's sub-expression is the first thing
+            // `exprChildren` yields, which is where `ExprPayload.format` starts.
+            let sink, segments =
+                ExprPayload.format p.Sink p.Segments (ExprPayload.cursor (exprChildren e) 0)
 
-            let next () =
-                let x = es.[i]
-                i <- i + 1
-                x
-
-            let sink, segments = ExprPayload.format p.Sink p.Segments next
             { Sink = sink; Segments = segments }
         | _ -> failwith "TastAccessor.exprFormat: not a Format node"
 

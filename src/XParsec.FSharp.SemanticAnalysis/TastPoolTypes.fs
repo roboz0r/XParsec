@@ -495,8 +495,22 @@ module ExprPayload =
     // cursor order it implies are the same whichever domain is being rebuilt, so the walk
     // lives here, ONCE, generic over what a child is: `TastUnpool` drives it with DU
     // subtrees, `TastAccessor` with node handles, and the two cannot re-nest the same
-    // columns differently. The cursors must be handed in already positioned past the
-    // node's own leading children (`Match`'s scrutinee, `TryWith`'s body).
+    // columns differently.
+
+    /// A reader that draws a node's children in column order, one per call — what the
+    /// re-nesting walks below consume. `start` skips the node's own LEADING children, which
+    /// belong to it rather than to a carrier (`Match`'s scrutinee, `TryWith`'s body).
+    ///
+    /// Here rather than at each caller: the walks take a cursor because the ORDER is the
+    /// coupling they exist to hold, and three domains hand-rolling the same mutable index
+    /// is three places for that order to be started from the wrong offset.
+    let cursor (xs: 'a[]) (start: int) : unit -> 'a =
+        let mutable i = start
+
+        fun () ->
+            let x = xs.[i]
+            i <- i + 1
+            x
 
     /// Re-nest the arm children of a `Match`/`TryWith`: each arm draws its pat, then its
     /// guard when `guardPresent` says it has one, then its body — the order

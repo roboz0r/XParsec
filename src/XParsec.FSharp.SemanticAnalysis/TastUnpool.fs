@@ -40,18 +40,11 @@ module TastUnpool =
         (es: Frozen.TExpr[])
         (ps: Frozen.TPat[])
         : Frozen.TExpr =
-        let mutable ei = 0
-        let mutable pi = 0
-
-        let nextE () =
-            let x = es.[ei] in
-            ei <- ei + 1
-            x
-
-        let nextP () =
-            let x = ps.[pi] in
-            pi <- pi + 1
-            x
+        // A decl's own leading children are all its own, so both cursors start at 0; the
+        // `Match`/`TryWith` arms below draw from `nextE` only after the node has taken its
+        // scrutinee / body from it.
+        let nextE = ExprPayload.cursor es 0
+        let nextP = ExprPayload.cursor ps 0
 
         // The arm / format re-nesting is `ExprPayload.arms` / `ExprPayload.format` — the
         // one walk over the flat child columns, shared with the accessor's views, so the
@@ -149,11 +142,9 @@ module TastUnpool =
             TExprG.FieldSet(receiver, fieldName, value, ty, tok)
         | ExprPayload.UnionCons caseName -> TExprG.UnionCons(caseName, EqArray.ofArray es, ty, tok)
         | ExprPayload.New p -> TExprG.New(p.ClassName, p.Key, EqArray.ofArray es, ty, tok)
-        | ExprPayload.MethodCall p ->
-            let receiver = nextE ()
-            // The remaining `es` (after the receiver) are exactly the args, in order.
-            let args = es.[ei..] |> EqArray.ofArray
-            TExprG.MethodCall(receiver, p.Key, p.Via, args, ty, tok)
+        // Wholly POSITIONAL, not a cursor draw: the children are the receiver followed by
+        // exactly the args, so the split is the same index either way.
+        | ExprPayload.MethodCall p -> TExprG.MethodCall(es.[0], p.Key, p.Via, EqArray.ofArray es.[1..], ty, tok)
         | ExprPayload.PropertyGet p ->
             let receiver = nextE ()
             TExprG.PropertyGet(receiver, p.Key, p.Via, ty, tok)
