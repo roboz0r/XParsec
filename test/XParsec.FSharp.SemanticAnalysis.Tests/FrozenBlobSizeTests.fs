@@ -42,9 +42,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// Freeze `src` and return the raw and compressed blob lengths — the pair the cache actually
 /// trades off (`FrozenCache` stores the compressed form).
 let private blobSizes (src: string) : struct (int * int) =
-    let lexed, file = parseFile src
-    let frozen = Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file
-    let raw = FrozenCodec.flatten frozen
+    let raw = FrozenCodec.flatten (freezeFor src)
     struct (raw.Length, (Compression.compress raw).Length)
 
 /// One measured program and the ceiling its compressed blob must stay under.

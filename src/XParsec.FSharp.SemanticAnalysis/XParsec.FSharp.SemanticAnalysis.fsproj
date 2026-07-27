@@ -28,10 +28,13 @@
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="PrintfHoleForm.fs" />
     <Compile Include="SideTypes.fs" />
+    <Compile Include="TastExpr.fs" />
+    <Compile Include="TastDecl.fs" />
     <Compile Include="Tast.fs" />
     <!-- Immediately after the shapes it is a functor over, and BEFORE the pools: the
          pool build/drain reuse its type-declaration and compiled-form traversals rather
-         than hand-rolling a second walk of those shapes. It depends on `Tast.fs` alone. -->
+         than hand-rolling a second walk of those shapes. It depends on the shape files
+         alone. -->
     <Compile Include="TastConvert.fs" />
     <Compile Include="TEnumCases.fs" />
     <Compile Include="TastWalk.fs" />
@@ -40,11 +43,19 @@
     <Compile Include="TastPools.fs" />
     <Compile Include="TastUnpool.fs" />
     <Compile Include="TastPoolBuilder.fs" />
-    <!-- After the pools it reads: every accessor body is a column read through a
-         `PoolBuilder`, so the access seam depends on the pool, not the reverse. -->
+    <!-- After the pools they read: every accessor body is a column read through a
+         `PoolBuilder`, so the access seam depends on the pool, not the reverse. The
+         shapes it hands back are declared first, holding pool handles and no reads. -->
+    <Compile Include="TastNodeViews.fs" />
     <Compile Include="TastAccessor.fs" />
-    <!-- After the pools: `FrozenCodec` serializes the POOL columns, so it depends on
-         `TastPoolTypes`/`TastPools`, not the other way round. -->
+    <!-- After the pools: the codec serializes the POOL columns, so it depends on
+         `TastPoolTypes`/`TastPools`, not the other way round. Its four modules are in
+         layer order — stream/leaf primitives, then the type domain, then the declaration
+         shell, then the columns `flatten`/`thaw` store — each reading only the ones above
+         it. -->
+    <Compile Include="FrozenCodecPrimitives.fs" />
+    <Compile Include="FrozenCodecTypes.fs" />
+    <Compile Include="FrozenCodecDecls.fs" />
     <Compile Include="FrozenCodec.fs" />
     <Compile Include="TastLower.fs" />
     <Compile Include="ExternalSymbols.fs" />

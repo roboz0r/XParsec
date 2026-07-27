@@ -630,6 +630,31 @@ type ExprRow =
         Payload: ExprPayload
     }
 
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module ExprRow =
+
+    /// Would appending `b` in place of `a` change anything? The unchanged test a row copy
+    /// turns on (`TastPoolBuilder.copyExprWith`), and the same answer `a = b` gives.
+    ///
+    /// Written out per field rather than left to structural equality because of what the
+    /// fields are. An edit REPLACES one field and carries the rest across, so the carried
+    /// fields are the very same objects on both sides — but F#'s generated record equality
+    /// calls each field's own `Equals` with no physical-identity check, so `a = b` walks the
+    /// node's whole `FrozenType` and payload to re-discover that they never moved. On the
+    /// per-node path of both backends' rewrite walks that is the dominant cost of a rewrite
+    /// that changes nothing.
+    ///
+    /// The child columns are the one pair compared by VALUE: a child substitution mints a
+    /// fresh array even when every id in it is unchanged, and that is exactly the case that
+    /// must still answer "same".
+    let same (a: ExprRow) (b: ExprRow) : bool =
+        (obj.ReferenceEquals(a.Ty, b.Ty) || a.Ty = b.Ty)
+        && a.Tok = b.Tok
+        && a.Children = b.Children
+        && a.PatChildren = b.PatChildren
+        && a.VarBinder = b.VarBinder
+        && (obj.ReferenceEquals(a.Payload, b.Payload) || a.Payload = b.Payload)
+
 /// One pattern node's slice across the `Pat*` columns, in column order — see `ExprRow`
 /// for why there is no `Shape`.
 type PatRow =
@@ -648,3 +673,14 @@ type DeclRow =
         PatChildren: PatPoolId[]
         Payload: DeclPayload
     }
+
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module DeclRow =
+
+    /// The unchanged test for a decl row copy — see `ExprRow.same` for why the fields are
+    /// compared one at a time. A `Type` decl's payload is the whole declaration shape, so
+    /// the physical-identity shortcut on `Payload` matters most here.
+    let same (a: DeclRow) (b: DeclRow) : bool =
+        a.ExprChildren = b.ExprChildren
+        && a.PatChildren = b.PatChildren
+        && (obj.ReferenceEquals(a.Payload, b.Payload) || a.Payload = b.Payload)

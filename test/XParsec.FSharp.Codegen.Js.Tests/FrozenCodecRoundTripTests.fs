@@ -8,9 +8,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The leaf-codec gate: `FrozenCodec.read (write x) = x` STRUCTURALLY for every value in
-// the leaf domains — `FrozenType`, the `SymbolKey`/`TypeKey` key cluster, `NodeKey`, and
-// `SyntaxToken`. Data comes from two sources: the frozen conformance corpus (realistic
+// The leaf-codec gate: `read (write x) = x` STRUCTURALLY for every value in the leaf
+// domains — `FrozenType`, the `SymbolKey`/`TypeKey` key cluster (`FrozenCodecTypes`),
+// `NodeKey`, and `SyntaxToken` (`FrozenCodecPrimitives`). Data comes from two sources: the frozen conformance corpus (realistic
 // breadth), harvested from the leaf-bearing side tables + FrozenType child-walk of each
 // `Frozen.TastFile` (no full expr/decl tree walk — that arrives with the tree codec), and
 // hand-built edge cases that pin EVERY case shape the corpus may not exercise (an `FTOr`
@@ -323,7 +323,7 @@ let private collect () : Harvest =
     }
 
 let private roundTrips (write: System.IO.BinaryWriter -> 'a -> unit) (read: System.IO.BinaryReader -> 'a) (x: 'a) =
-    FrozenCodec.ofBytes read (FrozenCodec.toBytes write x)
+    FrozenCodecPrimitives.ofBytes read (FrozenCodecPrimitives.toBytes write x)
 
 [<Tests>]
 let tests =
@@ -334,28 +334,37 @@ let tests =
         [
             test "FrozenType round-trips structurally" {
                 for ft in h.FrozenTypes do
-                    Expect.equal (roundTrips FrozenCodec.writeFrozenType FrozenCodec.readFrozenType ft) ft "FrozenType"
+                    Expect.equal
+                        (roundTrips FrozenCodecTypes.writeFrozenType FrozenCodecTypes.readFrozenType ft)
+                        ft
+                        "FrozenType"
             }
 
             test "SymbolKey round-trips structurally" {
                 for sk in h.SymbolKeys do
-                    Expect.equal (roundTrips FrozenCodec.writeSymbolKey FrozenCodec.readSymbolKey sk) sk "SymbolKey"
+                    Expect.equal
+                        (roundTrips FrozenCodecTypes.writeSymbolKey FrozenCodecTypes.readSymbolKey sk)
+                        sk
+                        "SymbolKey"
             }
 
             test "TypeKey round-trips structurally" {
                 for tk in h.TypeKeys do
-                    Expect.equal (roundTrips FrozenCodec.writeTypeKey FrozenCodec.readTypeKey tk) tk "TypeKey"
+                    Expect.equal (roundTrips FrozenCodecTypes.writeTypeKey FrozenCodecTypes.readTypeKey tk) tk "TypeKey"
             }
 
             test "NodeKey round-trips (Raw verbatim)" {
                 for nk in h.NodeKeys do
-                    Expect.equal (roundTrips FrozenCodec.writeNodeKey FrozenCodec.readNodeKey nk) nk "NodeKey"
+                    Expect.equal
+                        (roundTrips FrozenCodecPrimitives.writeNodeKey FrozenCodecPrimitives.readNodeKey nk)
+                        nk
+                        "NodeKey"
             }
 
             test "SyntaxToken round-trips structurally" {
                 for tok in h.Tokens do
                     Expect.equal
-                        (roundTrips FrozenCodec.writeSyntaxToken FrozenCodec.readSyntaxToken tok)
+                        (roundTrips FrozenCodecPrimitives.writeSyntaxToken FrozenCodecPrimitives.readSyntaxToken tok)
                         tok
                         "SyntaxToken"
             }

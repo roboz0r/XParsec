@@ -13,12 +13,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// A real `FrozenCodec.flatten` blob: freeze a small program the shared contract stack resolves,
 /// then flatten it. This is the representative payload the cache actually stores.
 let private realFrozenBlob () : byte[] =
-    let src =
-        "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n"
-
-    let lexed, file = parseFile src
-    let frozen = Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file
-    FrozenCodec.flatten frozen
+    FrozenCodec.flatten (freezeFor "let add x y = x + y\nlet twice f x = f (f x)\nlet answer = twice (add 1) 40\n")
 
 [<Tests>]
 let tests =

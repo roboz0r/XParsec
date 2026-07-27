@@ -12,12 +12,6 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // the projector's internal tables; identities are read out of the frozen file (the
 // projection's INPUT) and the provider is asked to answer them.
 
-let private asm = "TestAsm"
-
-let private analyseFrozen (src: string) : FrozenPools =
-    let lexed, file = parseFile src
-    Pipeline.analyseFor asm realProvider.Value src lexed file
-
 /// The pooled file as the `Frozen.TastFile` DU. The assertions below read whole decl
 /// trees and the `NodeKey`-keyed side tables, which is what `ofPools` re-authors
 /// verbatim — the projection's INPUT is the pools, but its shape reads most directly
@@ -122,26 +116,26 @@ let tests =
         "FrozenSignature projection"
         [
             test "record / union / class types project with home-assembly origin" {
-                let frozen = analyseFrozen projectionSrc
-                let provider = FrozenSignature.toProvider asm frozen
+                let frozen = freezeFor projectionSrc
+                let provider = FrozenSignature.toProvider testAsm frozen
                 let store = provider :> IExternalSymbolStore
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Box")) with
                 | ValueSome(ExternalTypeShape.Record(1, fields, origin)) ->
                     Expect.equal (fields |> Array.map (fun f -> f.Name)) [| "value" |] "Box field names"
-                    Expect.equal origin.Home.AssemblyOption (ValueSome asm) "Box carries home-assembly origin"
+                    Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Box carries home-assembly origin"
                 | other -> failtestf "Box did not project as a generic Record: %A" other
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Opt")) with
                 | ValueSome(ExternalTypeShape.Union(1, cases, _, origin)) ->
                     Expect.equal (cases |> Array.map (fun c -> c.Name)) [| "Nope"; "Just" |] "Opt case names"
-                    Expect.equal origin.Home.AssemblyOption (ValueSome asm) "Opt carries home-assembly origin"
+                    Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Opt carries home-assembly origin"
                 | other -> failtestf "Opt did not project as a generic Union: %A" other
             }
 
             test "union cases resolve by bare case name" {
-                let frozen = analyseFrozen projectionSrc
-                let resolver = FrozenSignature.toProvider asm frozen :> IExternalSymbolResolver
+                let frozen = freezeFor projectionSrc
+                let resolver = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolResolver
 
                 match resolver.TryLookupUnionCase "Just" with
                 | ValueSome uc ->
@@ -158,8 +152,8 @@ let tests =
             }
 
             test "augmentation members project on the store face" {
-                let frozen = analyseFrozen projectionSrc
-                let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
+                let frozen = freezeFor projectionSrc
+                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
                 let widgetKey = SymbolKey.Type(typeKeyOf frozen "Widget")
 
                 let memberName = membersOfType frozen "Widget" |> List.head |> (fun m -> m.Name)
@@ -170,8 +164,8 @@ let tests =
             }
 
             test "module values project; mono vs generic arity preserved" {
-                let frozen = analyseFrozen projectionSrc
-                let provider = FrozenSignature.toProvider asm frozen
+                let frozen = freezeFor projectionSrc
+                let provider = FrozenSignature.toProvider testAsm frozen
                 let store = provider :> IExternalSymbolStore
                 let resolver = provider :> IExternalSymbolResolver
 
@@ -195,8 +189,8 @@ let tests =
             }
 
             test "let inline carries a frozen inline body" {
-                let frozen = analyseFrozen projectionSrc
-                let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
+                let frozen = freezeFor projectionSrc
+                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
 
                 match store.TryLookupByKey(bindingKey frozen "twice") with
                 | ValueSome s -> Expect.isTrue s.InlineBody.IsSome "twice publishes its inline body"
@@ -204,8 +198,8 @@ let tests =
             }
 
             test "internal-or-better filter: private dropped, internal kept" {
-                let frozen = analyseFrozen projectionSrc
-                let provider = FrozenSignature.toProvider asm frozen
+                let frozen = freezeFor projectionSrc
+                let provider = FrozenSignature.toProvider testAsm frozen
                 let store = provider :> IExternalSymbolStore
                 let resolver = provider :> IExternalSymbolResolver
 
@@ -225,8 +219,8 @@ let tests =
             }
 
             test "IntrinsicForwardRepr passes this unit's IntrinsicReprKeys through verbatim" {
-                let frozen = analyseFrozen projectionSrc
-                let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
+                let frozen = freezeFor projectionSrc
+                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
                 // A plain impl unit declares no intrinsics, so the forward axis is its
                 // (empty) `IntrinsicReprKeys` — the wiring is the assertion.
                 Expect.equal
@@ -277,8 +271,8 @@ module M =
 "
 
                 // Project the `.fs`.
-                let frozen = analyseFrozen implSrc
-                let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
+                let frozen = freezeFor implSrc
+                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
 
                 // Extract the `.fsi`, canonicalizing primitives through the SAME provider
                 // the front end used, so both sides mint one `int` identity.
@@ -358,8 +352,8 @@ module M =
     type R = { X: int; Y: int }
 "
 
-                let frozen = analyseFrozen src
-                let resolver = FrozenSignature.toProvider asm frozen :> IExternalSymbolResolver
+                let frozen = freezeFor src
+                let resolver = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolResolver
                 let rName = SymbolKeyOps.typeMetaName (typeKeyOf frozen "R")
 
                 for field in [ "X"; "Y" ] do
@@ -396,8 +390,8 @@ module M =
         | Down = 1
 "
 
-                let frozen = analyseFrozen src
-                let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
+                let frozen = freezeFor src
+                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Direction")) with
                 | ValueSome(ExternalTypeShape.Enum(cases, origin)) ->
@@ -408,7 +402,7 @@ module M =
                         [| ExternalEnumCaseValue.IntVal 0L; ExternalEnumCaseValue.IntVal 1L |]
                         "case int64 values"
 
-                    Expect.equal origin.Home.AssemblyOption (ValueSome asm) "Direction carries home-assembly origin"
+                    Expect.equal origin.Home.AssemblyOption (ValueSome testAsm) "Direction carries home-assembly origin"
                 | other -> failtestf "Direction did not project as an Enum: %A" other
             }
 
@@ -423,8 +417,8 @@ module M =
         | Off = \"off\"
 "
 
-                let frozen = analyseFrozen src
-                let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
+                let frozen = freezeFor src
+                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Mode")) with
                 | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
@@ -447,8 +441,8 @@ module M =
     type Box<'T> = { Value: 'T }
 "
 
-                let frozen = analyseFrozen src
-                let resolver = FrozenSignature.toProvider asm frozen :> IExternalSymbolResolver
+                let frozen = freezeFor src
+                let resolver = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolResolver
 
                 match resolver.TryRecordsWithField "Value" with
                 | [| c |] ->
@@ -471,8 +465,8 @@ module M =
     type B = { Shared: int; OnlyB: int }
 "
 
-                let frozen = analyseFrozen src
-                let resolver = FrozenSignature.toProvider asm frozen :> IExternalSymbolResolver
+                let frozen = freezeFor src
+                let resolver = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolResolver
                 let aName = SymbolKeyOps.typeMetaName (typeKeyOf frozen "A")
                 let bName = SymbolKeyOps.typeMetaName (typeKeyOf frozen "B")
 

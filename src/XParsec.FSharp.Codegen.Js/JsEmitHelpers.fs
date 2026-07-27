@@ -239,10 +239,8 @@ module JsEmitHelpers =
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
 
-            match TastAccessor.patKind l.Binding with
-            | PatShape.NamedSimple ->
-                let k = (TastAccessor.patBinder l.Binding).Value
-
+            match l.Binding with
+            | TastAccessor.PNamed k ->
                 if
                     isPureValue l.Value
                     && not (isAssignedIn k l.Body)
@@ -261,15 +259,17 @@ module JsEmitHelpers =
     // TODO: tuple leaves smuggle a destructuring pattern through a `string` (emitted
     // verbatim). `Arrow.parameters` wants a real `JsPattern` for object-destructuring.
     let rec lambdaParamName (source: string voption) (p: TastAccessor.PatId) : string =
-        match TastAccessor.patKind p with
-        | PatShape.NamedSimple -> binderName source (TastAccessor.patBinderNaming p).Value
-        | PatShape.Wildcard -> "_w" + string (TastAccessor.patTok p).StartIndex
-        | PatShape.Const when TastAccessor.patConstValue p = TConstValue.Unit ->
-            "_u" + string (TastAccessor.patTok p).StartIndex
-        | PatShape.Tuple ->
-            let parts = TastAccessor.patChildren p |> Array.map (lambdaParamName source)
-            "[" + System.String.Join(", ", parts) + "]"
-        | _ -> failwithf "EmitJs: unsupported lambda parameter pattern %A" p
+        match p with
+        | TastAccessor.PNamedNaming naming -> binderName source naming
+        | _ ->
+            match TastAccessor.patKind p with
+            | PatShape.Wildcard -> "_w" + string (TastAccessor.patTok p).StartIndex
+            | PatShape.Const when TastAccessor.patConstValue p = TConstValue.Unit ->
+                "_u" + string (TastAccessor.patTok p).StartIndex
+            | PatShape.Tuple ->
+                let parts = TastAccessor.patChildren p |> Array.map (lambdaParamName source)
+                "[" + System.String.Join(", ", parts) + "]"
+            | _ -> failwithf "EmitJs: unsupported lambda parameter pattern %A" p
 
     /// Peel a curried `Lambda` chain into its parameter names and the innermost
     /// body. The inverse of the nested-arrow emission.

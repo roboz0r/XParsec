@@ -317,10 +317,9 @@ module TastUnpool =
 
         // The inverse of the lambda id space: a lambda's `ExprPoolId` back to the `NodeKey`
         // codegen looks its verdict up under. With the Node gone, recompute that key from
-        // the lambda's `ExprToks` column — the same `NodeKey.ofToken … ExprLambda`
-        // `TastWalk.lambdaKey` computes, and the construction `toPools` keyed it by.
-        let lambdaKeyOf (ExprPoolId i) : NodeKey =
-            NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda
+        // the lambda's `ExprToks` column — `NodeKey.ofLambdaTok`, the construction `toPools`
+        // stamped the id space with.
+        let lambdaKeyOf (ExprPoolId i) : NodeKey = NodeKey.ofLambdaTok pools.ExprToks.[i]
 
         let rec fromPat (PatPoolId i) : Frozen.TPat =
             let ps = pools.PatChildren.[i] |> Array.map fromPat
@@ -375,6 +374,11 @@ module TastUnpool =
         // per-binder COLUMNS through `binderColumnMap`, both resolving through the
         // projections the rebuild collected; `FunVerdicts` is the one on the lambda id
         // space, so it inverts through `lambdaKeyOf` right where it is built.
+        //
+        // That inverse FOLDS: several ids may carry one key (every copy of a spliced inline
+        // body's lambda keeps its definition-site token), and `toPools` gave each of them
+        // the same verdict, so collapsing them onto the one key restores the source map
+        // exactly rather than picking a winner.
         {
             Decls = decls
             Diagnostics = pools.Residue.Diagnostics

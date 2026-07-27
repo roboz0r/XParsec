@@ -344,14 +344,13 @@ module TastPoolBuilder =
     let copyExprWith (b: PoolBuilder) (id: ExprPoolId) (edit: ExprRow -> ExprRow) : ExprPoolId =
         let row = exprRow b id
         let row' = edit row
-        if row' = row then id else appendExpr b row'
-
+        if ExprRow.same row' row then id else appendExpr b row'
 
     /// Append a copy of decl row `id` with `edit` applied — see `copyExprWith`.
     let copyDeclWith (b: PoolBuilder) (id: DeclPoolId) (edit: DeclRow -> DeclRow) : DeclPoolId =
         let row = declRow b id
         let row' = edit row
-        if row' = row then id else appendDecl b row'
+        if DeclRow.same row' row then id else appendDecl b row'
 
     /// Copy the pattern subtree at `id` into `dest`, mapping every type it carries through
     /// `fTy` — the node types (the `PatTys` column) and the types a payload embeds

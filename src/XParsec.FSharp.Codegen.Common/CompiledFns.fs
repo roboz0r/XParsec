@@ -85,33 +85,34 @@ module CompiledFns =
         [
             for d in decls do
                 match d with
-                | TastAccessor.DLet lv when (TastAccessor.patBinder lv.Binding).IsSome ->
-                    let k = (TastAccessor.patBinder lv.Binding).Value
+                | TastAccessor.DLet lv ->
+                    match lv.Binding with
+                    | TastAccessor.PNamed k ->
+                        match TastLower.peelValRepr lv.Value with
+                        | (_ :: _ as groups), body ->
+                            let resultTy = TastAccessor.exprTy body
 
-                    match TastLower.peelValRepr lv.Value with
-                    | (_ :: _ as groups), body ->
-                        let resultTy = TastAccessor.exprTy body
+                            let vr: TastLower.ValRepr =
+                                {
+                                    Typars = 0 // unused by `compiledOf`; the real count is a backend concern
+                                    Groups = groups
+                                    ResultTy = resultTy
+                                }
 
-                        let vr: TastLower.ValRepr =
+                            let cf = TastLower.compiledOf vr
+
                             {
-                                Typars = 0 // unused by `compiledOf`; the real count is a backend concern
+                                Key = k
                                 Groups = groups
+                                Params = cf.Params
+                                Body = body
                                 ResultTy = resultTy
+                                ReturnsVoid =
+                                    match cf.Return with
+                                    | CompiledReturnG.RVoid -> true
+                                    | CompiledReturnG.RValue _ -> false
                             }
-
-                        let cf = TastLower.compiledOf vr
-
-                        {
-                            Key = k
-                            Groups = groups
-                            Params = cf.Params
-                            Body = body
-                            ResultTy = resultTy
-                            ReturnsVoid =
-                                match cf.Return with
-                                | CompiledReturnG.RVoid -> true
-                                | CompiledReturnG.RValue _ -> false
-                        }
-                    | [], _ -> ()
+                        | [], _ -> ()
+                    | _ -> ()
                 | _ -> ()
         ]

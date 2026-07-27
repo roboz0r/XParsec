@@ -399,7 +399,7 @@ module TastPools =
         /// reports the `NodeKey` and the sink resolves it onto `ExprVarBinder`.
         | VarRef of binder: NodeKey * at: ExprPoolId
         /// A source lambda's slot in the lambda id space, with the token
-        /// `TastWalk.lambdaKey` computes its key from.
+        /// `NodeKey.ofLambdaTok` computes its key from.
         | LambdaPooled of tok: SyntaxToken * at: ExprPoolId
 
     /// Where a pooling walk PUTS the rows it produces. The walk itself — which nodes
@@ -514,7 +514,7 @@ module TastPools =
     ///
     /// `ArgGroups.peel` is the walk; the readers below are the only column-domain part.
     ///
-    /// `tryBinderId` is the RAW lookup, not one of the two faulting resolvers: the key this
+    /// `internedBinderId` is the RAW lookup, not one of the two faulting resolvers: the key this
     /// reads is a `PatPayload.NamedSimple` of the pool's own head pattern, which `poolPat`
     /// interned as it appended that very node. So a miss here is not a producer filing a
     /// surplus entry (`binderIdOf`) nor a reference to an unwalked definition site
@@ -523,7 +523,7 @@ module TastPools =
     /// says so.
     let private bindingValReprs
         (pools: FrozenPools)
-        (tryBinderId: NodeKey -> BinderId voption)
+        (internedBinderId: NodeKey -> BinderId voption)
         : DenseTable<BinderId, PooledValRepr> =
         let unLambda (ExprPoolId i) =
             match pools.ExprPayloads.[i] with
@@ -558,7 +558,7 @@ module TastPools =
                         let (ExprPoolId b) = body
 
                         let id =
-                            match tryBinderId binding with
+                            match internedBinderId binding with
                             | ValueSome id -> id
                             | ValueNone ->
                                 failwithf
@@ -626,12 +626,19 @@ module TastPools =
         let binderKeys = ResizeArray<NodeKey>()
         let binderIds = System.Collections.Generic.Dictionary<NodeKey, BinderId>()
 
-        // The lambda id space: a source lambda's dense id IS its `ExprPoolId` (positional
-        // — every `Lambda` expr is already in the `Expr*` columns). `FunVerdicts`, the one side table
-        // keyed by a lambda-EXPRESSION key rather than a binder, resolves against this map;
-        // it is recorded under the SAME `TastWalk.lambdaKey` codegen looks the verdict up
-        // by, so the pool key space matches the DU lookup key by construction.
-        let lambdaIds = System.Collections.Generic.Dictionary<NodeKey, ExprPoolId>()
+        // The lambda id space: a source lambda's dense id IS its `ExprPoolId` (positional —
+        // every `Lambda` expr is already in the `Expr*` columns), paired with the key its
+        // `FunVerdicts` entry is filed under (`NodeKey.ofLambdaTok`).
+        //
+        // A LIST, not a key→id map, because the key is one-to-MANY over this space and a map
+        // could only keep one of the nodes. Two lambdas share a key whenever they share a
+        // source token, which is routine: `Inline.freshen` renames a spliced body's binders
+        // but carries its tokens across, so every splice of an `inline` body re-pools that
+        // body's lambdas under their definition-site keys — and the published TEMPLATE is a
+        // second tree over the same source as the emitted function it was stashed from. The
+        // verdict belongs to ALL of them; a map would have silently given it to whichever was
+        // pooled last, and left every other copy to emit as an ordinary heap closure.
+        let lambdaSlots = ResizeArray<struct (ExprPoolId * NodeKey)>()
 
         let internBinder (b: BinderKey) : unit =
             let k = BinderKey.toNodeKey b
@@ -680,8 +687,7 @@ module TastPools =
                     fun ev ->
                         match ev with
                         | PooledEvent.VarRef(binder, ExprPoolId id) -> varBindings.Add(struct (id, binder))
-                        // The same key `TastWalk.lambdaKey` computes, off the row's token.
-                        | PooledEvent.LambdaPooled(tok, id) -> lambdaIds.[NodeKey.ofToken tok NodeKind.ExprLambda] <- id
+                        | PooledEvent.LambdaPooled(tok, id) -> lambdaSlots.Add(struct (id, NodeKey.ofLambdaTok tok))
             }
 
         let roots = file.Decls |> EqArray.toArray |> Array.map (poolDecl sink)
@@ -705,7 +711,7 @@ module TastPools =
         // THE lookup: the dense id the enumeration above interned a key under. Written
         // once because both faults below ARE this lookup missing; what differs is only
         // what a miss means, and that is what each of them says.
-        let tryBinderId (k: NodeKey) : BinderId voption =
+        let internedBinderId (k: NodeKey) : BinderId voption =
             match binderIds.TryGetValue k with
             | true, id -> ValueSome id
             | false, _ -> ValueNone
@@ -716,7 +722,7 @@ module TastPools =
         // exactly the failure the id-resolution gate exists to surface. A reference is
         // written by whoever resolved the name, so it arrives as a bare `NodeKey`.
         let binderIdOfRef (referent: string) (k: NodeKey) : BinderId =
-            match tryBinderId k with
+            match internedBinderId k with
             | ValueSome id -> id
             | ValueNone ->
                 failwithf "TastPools.toPools: %s key %O references a binder no definition site introduced" referent k
@@ -739,7 +745,7 @@ module TastPools =
         let binderIdOf (referent: string) (b: BinderKey) : BinderId =
             let k = BinderKey.toNodeKey b
 
-            match tryBinderId k with
+            match internedBinderId k with
             | ValueSome id -> id
             | ValueNone ->
                 failwithf
@@ -747,12 +753,33 @@ module TastPools =
                     referent
                     k
 
-        // The lambda-key analogue: a `FunVerdicts` key that names no pooled lambda is the
-        // honest failure a lambda-keyed entry naming no pooled lambda should be.
-        let lambdaIdOf (referent: string) (k: NodeKey) : ExprPoolId =
-            match lambdaIds.TryGetValue k with
-            | true, id -> id
-            | false, _ -> failwithf "TastPools.toPools: %s key %O names no pooled lambda" referent k
+        // `FunVerdicts` onto the lambda id space, driven from the ID side: every pooled
+        // lambda is offered the key it was stamped with, and a lambda whose key carries a
+        // verdict takes a row. Driving it from the KEY side instead is what a `Map` remap
+        // would do, and it can only pick ONE lambda per key — see `lambdaSlots` for why
+        // that is the wrong arity.
+        //
+        // The reachability check the key side did own still holds, and is made explicitly:
+        // a verdict key that stamped no pooled lambda is a table entry addressing nothing,
+        // the same defect `binderIdOf` faults on for the binder-keyed tables.
+        let funVerdicts =
+            let matched = System.Collections.Generic.HashSet<NodeKey>()
+
+            let rows =
+                [|
+                    for struct (id, k) in lambdaSlots do
+                        match Map.tryFind k file.FunVerdicts with
+                        | Some v ->
+                            matched.Add k |> ignore
+                            yield id, v
+                        | None -> ()
+                |]
+
+            for KeyValue(k, _) in file.FunVerdicts do
+                if not (matched.Contains k) then
+                    failwithf "TastPools.toPools: FunVerdicts key %O names no pooled lambda" k
+
+            rows
 
         // Second pass: now the enumeration is complete, route each `Var`'s reference edge
         // to its binder's dense id — the sparse `ExprVarBinder` column (`ValueNone` at
@@ -762,12 +789,11 @@ module TastPools =
         for (struct (id, key)) in varBindings do
             exprVarBinder.[id] <- ValueSome(binderIdOfRef "Var" key)
 
-        // One generic remap over the side tables, parameterized by the key resolver: the
-        // binder-keyed tables pass `binderIdOf`, `FunVerdicts` passes `lambdaIdOf`. A second
-        // resolver, not a second remap, so the two id spaces share one enumeration — and
-        // the resolver's own key type is what says which space a table is in. Each
-        // call site applies the resolver to its table's NAME first, so an unresolvable key
-        // says which table holds it.
+        // One generic remap over the BINDER-keyed side tables, parameterized by the key
+        // resolver so an unresolvable key says which table holds it (each call site applies
+        // the resolver to its table's name first). `FunVerdicts` does not come through here:
+        // its key space is one-to-many over the ids it maps to, so it is built from the id
+        // side above.
         let remapSideTable (resolve: 'k -> 'id) (m: Map<'k, 'v>) : ('id * 'v)[] =
             m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 
@@ -814,7 +840,7 @@ module TastPools =
                     }
                 ModuleMembers = remapSideTable (binderIdOf "ModuleMembers") file.ModuleMembers
                 ClosureReprs = remapSideTable (binderIdOf "ClosureReprs") file.ClosureReprs
-                FunVerdicts = remapSideTable (lambdaIdOf "FunVerdicts") file.FunVerdicts
+                FunVerdicts = funVerdicts
                 GenericFnSchemes = remapSideTable (binderIdOf "GenericFnSchemes") file.GenericFnSchemes
                 // Derived below, off the pools themselves.
                 BindingValReprs = [||]
@@ -823,5 +849,5 @@ module TastPools =
             }
 
         { pools with
-            BindingValReprs = bindingValReprs pools tryBinderId
+            BindingValReprs = bindingValReprs pools internedBinderId
         }

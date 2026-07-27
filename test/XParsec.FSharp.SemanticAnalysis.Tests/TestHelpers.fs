@@ -154,6 +154,26 @@ let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =
         | Result.Ok(FSharpAst.SignatureFile f) -> lexed, f
         | Result.Ok ast -> failwithf "unexpected AST: %A" ast
 
+/// The assembly name every freeze in these suites is taken under. Shared because a
+/// consumer of the frozen output (`FrozenSignature.toProvider`) must be handed the SAME
+/// name the freeze stamped its origins with — two spellings of it can drift apart.
+let testAsm = "TestAsm"
+
+/// Freeze `src` through the whole front end: the pooled output the cache stores, the codec
+/// flattens, and the signature projection reads. Raises on lex/parse failure.
+let freezeFor (src: string) : FrozenPools =
+    let lexed, file = parseFile src
+    Pipeline.analyseFor testAsm realProvider.Value src lexed file
+
+/// The pools under test, with the DU they encode. The freeze yields POOLS; `ofPools`
+/// re-authors the tree they carry, and `toPools` then re-derives every column from THAT
+/// tree — so a gate over the returned pair judges a genuine interconversion rather than
+/// the freeze's own pools against themselves, and every pool id is one this rebuild
+/// assigned.
+let poolsFor (src: string) : FrozenPools * Frozen.TastFile =
+    let frozen = TastUnpool.ofPools (freezeFor src)
+    TastPools.toPools frozen, frozen
+
 /// Parse `input` and run the front-end passes up to NameResolution against
 /// `provider` — the shared harness of the stamp suites, which assert on the side
 /// tables NameResolution writes. (Run `Passes.Unification.run` on the returned

@@ -12,17 +12,6 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // still drains to the decl it was pooled from, and an overlay node may name base children
 // and drains into the right tree.
 
-/// The base pools with the DU they encode — see `TastPoolsTests.poolsFor`: the freeze
-/// yields pools, `TastUnpool.ofPools` re-authors the tree, and `toPools` re-derives the
-/// columns from it, so a base id here is one this build assigned.
-let private poolsFor (src: string) : FrozenPools * Frozen.TastFile =
-    let lexed, file = parseFile src
-
-    let frozen =
-        TastUnpool.ofPools (Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file)
-
-    TastPools.toPools frozen, frozen
-
 /// The value expr of the file's first `Let` decl, as a DU node — a real frozen subtree to
 /// hand a mint site, and (with its root's `DeclExprChildren`) its base pool id.
 let private firstLetValue (frozen: Frozen.TastFile) : Frozen.TExpr =

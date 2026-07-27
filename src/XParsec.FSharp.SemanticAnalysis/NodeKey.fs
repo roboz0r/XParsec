@@ -230,3 +230,14 @@ module NodeKey =
         NodeKey(off ||| k ||| synBit)
 
     let ofToken (firstToken: SyntaxToken) (kind: NodeKind) : NodeKey = ofSource firstToken.StartIndex kind
+
+    /// THE key a source lambda's `FunVerdicts` entry is filed and looked up under, recomputed
+    /// from the lambda's own anchor token.
+    ///
+    /// One home because the producer and the two consumers are in three different domains and
+    /// none of them holds the others' representation: `InferApp` files the verdict off a CST
+    /// pattern token, `TastPools.toPools` stamps the pooled lambda's id space off the frozen
+    /// row's token, and `TastUnpool.ofPools` inverts that id back off the `ExprToks` column. A
+    /// verdict filed under one spelling and sought under another does not fault — it silently
+    /// resolves to no lambda, and the closure it was about is emitted as if no verdict existed.
+    let ofLambdaTok (anchor: SyntaxToken) : NodeKey = ofToken anchor NodeKind.ExprLambda

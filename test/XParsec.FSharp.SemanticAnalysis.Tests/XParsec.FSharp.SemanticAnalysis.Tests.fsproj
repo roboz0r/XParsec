@@ -17,7 +17,7 @@
     <Compile Include="TastPoolsTests.fs" />
     <Compile Include="TastPoolBuilderTests.fs" />
     <Compile Include="FrozenBlobSizeTests.fs" />
-    <Compile Include="PoolCitationTests.fs" />
+    <Compile Include="CitationTests.fs" />
     <Compile Include="SymbolKeyTests.fs" />
     <Compile Include="UnionFindTests.fs" />
     <Compile Include="CstKeysTests.fs" />

@@ -98,26 +98,26 @@ module EmitJs =
             | _ ->
                 let l = TastAccessor.exprLet e
 
-                match TastAccessor.patKind l.Binding with
+                match l.Binding with
                 // Non-pure (or mutable) `let` in expression position: JS has no let-expression,
                 // so lowers to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once,
                 // and (for a mutable binder) reassignable as the arrow parameter.
-                | PatShape.NamedSimple ->
-                    let name = binderName ctx.Source (TastAccessor.patBinderNaming l.Binding).Value
-
+                | TastAccessor.PNamedNaming naming ->
                     JsExpr.Call(
-                        JsExpr.Arrow([ name ], JsFnBody.Expr(buildExpr ctx l.Body), ValueNone),
+                        JsExpr.Arrow([ binderName ctx.Source naming ], JsFnBody.Expr(buildExpr ctx l.Body), ValueNone),
                         [ buildExpr ctx l.Value ],
                         loc
                     )
 
-                // `let _ = value in body` — a Wildcard binder discards the value, kept only for
-                // its effects (`let _ = renderInto buf` over `|> ignore`, which leaves a bare
-                // recipe value). A pure value contributes nothing, so drop it; otherwise a comma
-                // sequence evaluates `value` then yields `body` (JS has no let-expression).
-                | PatShape.Wildcard when isPureValue l.Value -> buildExpr ctx l.Body
-                | PatShape.Wildcard -> JsExpr.Sequence([ buildExpr ctx l.Value; buildExpr ctx l.Body ], loc)
-                | _ -> failwithf "EmitJs: unsupported expression %A" e
+                | _ ->
+                    match TastAccessor.patKind l.Binding with
+                    // `let _ = value in body` — a Wildcard binder discards the value, kept only for
+                    // its effects (`let _ = renderInto buf` over `|> ignore`, which leaves a bare
+                    // recipe value). A pure value contributes nothing, so drop it; otherwise a comma
+                    // sequence evaluates `value` then yields `body` (JS has no let-expression).
+                    | PatShape.Wildcard when isPureValue l.Value -> buildExpr ctx l.Body
+                    | PatShape.Wildcard -> JsExpr.Sequence([ buildExpr ctx l.Value; buildExpr ctx l.Body ], loc)
+                    | _ -> failwithf "EmitJs: unsupported expression %A" e
 
         // Anonymous lambda — no binder key, so no self-tail-call analysis applies.
         | ExprShape.Lambda -> emitFunction ctx ValueNone e
@@ -697,19 +697,19 @@ module EmitJs =
             | ExprShape.Let ->
                 let l = TastAccessor.exprLet e
 
-                match TastAccessor.patKind l.Binding with
-                | PatShape.NamedSimple ->
-                    let k = (TastAccessor.patBinder l.Binding).Value
-
+                match l.Binding with
+                | TastAccessor.PNamed k ->
                     let binding =
                         localBinding k l.Body (binderNameOf ctx.Source k) (buildExpr ctx l.Value)
 
                     binding :: recur l.Body
-                // `let _ = value in body` — discard the value (effects only); body stays in tail
-                // position. A pure value drops away (see `buildExpr`).
-                | PatShape.Wildcard when isPureValue l.Value -> recur l.Body
-                | PatShape.Wildcard -> buildStatements ctx l.Value @ recur l.Body
-                | _ -> [ JsStatement.Return(buildExpr ctx e) ]
+                | _ ->
+                    match TastAccessor.patKind l.Binding with
+                    // `let _ = value in body` — discard the value (effects only); body stays in tail
+                    // position. A pure value drops away (see `buildExpr`).
+                    | PatShape.Wildcard when isPureValue l.Value -> recur l.Body
+                    | PatShape.Wildcard -> buildStatements ctx l.Value @ recur l.Body
+                    | _ -> [ JsStatement.Return(buildExpr ctx e) ]
             | ExprShape.Sequential ->
                 let xs = TastAccessor.exprChildren e
 
@@ -791,20 +791,20 @@ module EmitJs =
             | ExprShape.Let ->
                 let l = TastAccessor.exprLet e
 
-                match TastAccessor.patKind l.Binding with
+                match l.Binding with
                 // A mutable binder emits a reassignable `let`; an immutable one a `const`.
-                | PatShape.NamedSimple ->
-                    let k = (TastAccessor.patBinder l.Binding).Value
-
+                | TastAccessor.PNamed k ->
                     let binding =
                         localBinding k l.Body (binderNameOf ctx.Source k) (emitBound ctx k l.Value)
 
                     binding :: buildStatements ctx l.Body
-                // `let _ = value in body` — emit the discarded value as its own statement(s)
-                // (effects only), then the body. A pure value drops away (see `buildExpr`).
-                | PatShape.Wildcard when isPureValue l.Value -> buildStatements ctx l.Body
-                | PatShape.Wildcard -> buildStatements ctx l.Value @ buildStatements ctx l.Body
-                | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
+                | _ ->
+                    match TastAccessor.patKind l.Binding with
+                    // `let _ = value in body` — emit the discarded value as its own statement(s)
+                    // (effects only), then the body. A pure value drops away (see `buildExpr`).
+                    | PatShape.Wildcard when isPureValue l.Value -> buildStatements ctx l.Body
+                    | PatShape.Wildcard -> buildStatements ctx l.Value @ buildStatements ctx l.Body
+                    | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
             // `while cond do body` as a bare loop statement (no IIFE wrapper needed here).
             | ExprShape.While ->
                 let w = TastAccessor.exprWhile e
@@ -895,10 +895,12 @@ module EmitJs =
     /// the body can't name it. Only simple/wildcard binders are supported; a
     /// destructuring binder (e.g. a tuple pattern) is rejected.
     and private patBinderName (ctx: WalkCtx) (prefix: string) (binding: TastAccessor.PatId) : string =
-        match TastAccessor.patKind binding with
-        | PatShape.NamedSimple -> binderName ctx.Source (TastAccessor.patBinderNaming binding).Value
-        | PatShape.Wildcard -> prefix + string (TastAccessor.patTok binding).StartIndex
-        | _ -> failwithf "EmitJs: unsupported single binder pattern %A" binding
+        match binding with
+        | TastAccessor.PNamedNaming naming -> binderName ctx.Source naming
+        | _ ->
+            match TastAccessor.patKind binding with
+            | PatShape.Wildcard -> prefix + string (TastAccessor.patTok binding).StartIndex
+            | _ -> failwithf "EmitJs: unsupported single binder pattern %A" binding
 
     and private useBinderName (ctx: WalkCtx) (binding: TastAccessor.PatId) : string = patBinderName ctx "_use" binding
 
@@ -1107,9 +1109,8 @@ module EmitJs =
                     | DeclShape.Let ->
                         let dl = TastAccessor.declLet decl
 
-                        match TastAccessor.patKind dl.Binding with
-                        | PatShape.NamedSimple ->
-                            let k = (TastAccessor.patBinder dl.Binding).Value
+                        match dl.Binding with
+                        | TastAccessor.PNamed k ->
                             let value = dl.Value
                             // A module FUNCTION emits FLAT (Fable-style); a plain value
                             // routes through `emitBound` (closures stay curried).

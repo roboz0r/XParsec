@@ -206,12 +206,16 @@ type FrozenPools =
         /// its own producer already filters against the tree.
         ModuleMembers: DenseTable<BinderId, ModuleBindingInfo>
         ClosureReprs: DenseTable<BinderId, ClosureRepr>
-        /// The one side table keyed by a lambda-EXPRESSION `NodeKey` (a source lambda's
-        /// `TastWalk.lambdaKey`, kind `ExprLambda`) rather than a binder, so it is re-keyed
-        /// onto the lambda id space — a lambda's dense id IS its `ExprPoolId` (positional:
-        /// every `Lambda` expr is already pooled), off the binder pool. `ofPools` inverts
-        /// by recomputing that key from the lambda's `ExprToks` column (the same
-        /// `NodeKey.ofToken … ExprLambda` `TastWalk.lambdaKey` computes), the Node now gone.
+        /// The one side table keyed by a lambda-EXPRESSION `NodeKey` (`NodeKey.ofLambdaTok`)
+        /// rather than a binder, so it is re-keyed onto the lambda id space — a lambda's
+        /// dense id IS its `ExprPoolId` (positional: every `Lambda` expr is already pooled),
+        /// off the binder pool. `ofPools` inverts by recomputing that key from the lambda's
+        /// `ExprToks` column, the Node now gone.
+        ///
+        /// The re-key is NOT a bijection and must not be built as one: the key is
+        /// one-to-MANY over this space, since a spliced inline body and the template it was
+        /// spliced from carry their definition-site tokens into every copy. So several rows
+        /// may hold the same verdict, and the inverse folds them back onto the one key.
         FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
         GenericFnSchemes: DenseTable<BinderId, FrozenConstraint list>
         BindingValReprs: DenseTable<BinderId, PooledValRepr>

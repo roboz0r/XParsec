@@ -19,10 +19,9 @@ open XParsec.FSharp.Parser
 // pools that are not a file's tree coexist with it (an `.fsi`-minted `ValRepr`'s
 // patterns index into their own; see `TastLower.externalValRepr`).
 //
-// The `…View` records are the payload seam: a node's fields MINUS the child edges and
-// the `ty`/`tok`, named by role, so a consumer never positions into `exprChildren` by
-// hand. Each is a struct of handles and scalars — pool-agnostic, since the handles
-// carry their own pool. The `failwith` guards are the shape contract: read a payload
+// The shapes an accessor yields — the handles, the handle-carrying instantiations, the
+// `…View` payload records — are `TastNodeViews.fs`, and re-exported below so a consumer
+// names this module alone. The `failwith` guards are the shape contract: read a payload
 // only after `exprKind`/`patKind`/`declKind` (or through the matching recognizer).
 //
 // EVERY view guards on the `*Payload` column, never on the `*Shape` tag — one
@@ -68,34 +67,58 @@ open XParsec.FSharp.Parser
 [<RequireQualifiedAccess>]
 module TastAccessor =
 
-    // The node handles: a dense id in a pool, carried with the pool.
-    type ExprId = Handle<ExprPoolId>
-    type PatId = Handle<PatPoolId>
-    type DeclId = Handle<DeclPoolId>
-
-    /// The `type`-declaration cluster with its member/preamble/ctor BODY slots holding
-    /// handles — the shape `TTypeDeclG`'s `'body` parameter exists for. Same spine as
-    /// `Frozen.TTypeDecl`, ids in the body slots.
-    type TypeDecl = TTypeDeclG<FrozenType, SyntaxToken, ExprId>
-    type TypeKind = TTypeKindG<FrozenType, SyntaxToken, ExprId>
-    type Class = TClassG<FrozenType, ExprId>
-    type TypeMember = TTypeMemberG<FrozenType, ExprId>
-    type ClassLet = TClassLetG<FrozenType, ExprId>
-    type PreambleEntry = TPreambleEntryG<FrozenType, ExprId>
-    type CtorLet = TCtorLetG<FrozenType, ExprId>
-    type CtorFieldInit = TCtorFieldInitG<ExprId>
-    type SecondaryCtor = TSecondaryCtorG<FrozenType, ExprId>
-    type BaseCtorCall = TBaseCtorCallG<FrozenType, ExprId>
-
-    /// The compiled-form cluster with its tuple-group / destructuring patterns held as
-    /// handles — the `'pat` instantiation every consumer reads, whether the pats came
-    /// from a file's own pool (`peelValRepr` off the frozen lambda spine) or from the
-    /// standalone pool an `.fsi` contract's are minted into.
-    type StaticParam = StaticParamG<FrozenType, PatId>
-    type ArgGroup = ArgGroupG<FrozenType, PatId>
-    type ValRepr = ValReprG<FrozenType, PatId>
-    type CompiledReturn = CompiledReturnG<FrozenType>
-    type CompiledForm = CompiledFormG<FrozenType, PatId>
+    // Every shape an accessor below yields, re-exported under the module that PRODUCES
+    // it: the declarations sit together in `TastNodeViews`, and a consumer names one
+    // module for both the reader and what it hands back. Abbreviations are compile-time,
+    // so `TastAccessor.LambdaView` and `TastNodeViews.LambdaView` are the one type.
+    type ExprId = TastNodeViews.ExprId
+    type PatId = TastNodeViews.PatId
+    type DeclId = TastNodeViews.DeclId
+    type TypeDecl = TastNodeViews.TypeDecl
+    type TypeKind = TastNodeViews.TypeKind
+    type Class = TastNodeViews.Class
+    type TypeMember = TastNodeViews.TypeMember
+    type ClassLet = TastNodeViews.ClassLet
+    type PreambleEntry = TastNodeViews.PreambleEntry
+    type CtorLet = TastNodeViews.CtorLet
+    type CtorFieldInit = TastNodeViews.CtorFieldInit
+    type SecondaryCtor = TastNodeViews.SecondaryCtor
+    type BaseCtorCall = TastNodeViews.BaseCtorCall
+    type StaticParam = TastNodeViews.StaticParam
+    type ArgGroup = TastNodeViews.ArgGroup
+    type ValRepr = TastNodeViews.ValRepr
+    type CompiledReturn = TastNodeViews.CompiledReturn
+    type CompiledForm = TastNodeViews.CompiledForm
+    type ExternalMemberView = TastNodeViews.ExternalMemberView
+    type ILIntrinsicView = TastNodeViews.ILIntrinsicView
+    type LambdaView = TastNodeViews.LambdaView
+    type LetView = TastNodeViews.LetView
+    type AssignmentView = TastNodeViews.AssignmentView
+    type IfThenElseView = TastNodeViews.IfThenElseView
+    type ExternalView = TastNodeViews.ExternalView
+    type AppView = TastNodeViews.AppView
+    type RecordCloneView = TastNodeViews.RecordCloneView
+    type FieldGetView = TastNodeViews.FieldGetView
+    type FieldSetView = TastNodeViews.FieldSetView
+    type NewView = TastNodeViews.NewView
+    type PropertyGetView = TastNodeViews.PropertyGetView
+    type MethodCallView = TastNodeViews.MethodCallView
+    type StaticFieldGetView = TastNodeViews.StaticFieldGetView
+    type StaticFieldSetView = TastNodeViews.StaticFieldSetView
+    type Arm = TastNodeViews.Arm
+    type MatchView = TastNodeViews.MatchView
+    type TryWithView = TastNodeViews.TryWithView
+    type TryFinallyView = TastNodeViews.TryFinallyView
+    type WhileView = TastNodeViews.WhileView
+    type ForToView = TastNodeViews.ForToView
+    type ForInView = TastNodeViews.ForInView
+    type UseView = TastNodeViews.UseView
+    type FormatSink = TastNodeViews.FormatSink
+    type FormatSeg = TastNodeViews.FormatSeg
+    type DynFormatHole = TastNodeViews.DynFormatHole
+    type FormatView = TastNodeViews.FormatView
+    type EnumCasePatView = TastNodeViews.EnumCasePatView
+    type DeclLetView = TastNodeViews.DeclLetView
 
     /// A sibling id in the same pool. Every child edge resolves through this, so the
     /// pool propagates down a walk without any consumer naming it.
@@ -197,18 +220,6 @@ module TastAccessor =
     let exprVarNaming (e: ExprId) : BinderNaming =
         expect "TastAccessor.exprVarNaming: not a Var node" (|EVarNaming|_|) e
 
-    /// The scalar payload of an `ExternalMember` node, minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry. `Receiver` is a payload sub-expression named
-    /// by role (the member's target), not a positional `exprChildren` entry.
-    [<Struct>]
-    type ExternalMemberView =
-        {
-            Receiver: ExprId voption
-            Key: SymbolKey
-            MemberName: string
-            Storage: MemberStorage
-        }
-
     /// An `ExternalMember` node → its `ExternalMemberView`.
     [<return: Struct>]
     let (|EExternalMember|_|) (e: ExprId) : ExternalMemberView voption =
@@ -232,20 +243,6 @@ module TastAccessor =
     let exprExternalMember (e: ExprId) : ExternalMemberView =
         expect "TastAccessor.exprExternalMember: not an ExternalMember node" (|EExternalMember|_|) e
 
-    /// The scalar payload of an `ILIntrinsic` node — the `$N`-templated instruction and
-    /// its type operand, minus the `ty`/`tok` the node also carries. Its `args` are the
-    /// node's `exprChildren`.
-    [<Struct>]
-    type ILIntrinsicView =
-        {
-            OpCode: string
-            /// The `<T>` the opcode takes — the element type of
-            /// `newarr`/`ldelem`/`stelem`/`ldobj`, the boxed type of `box`, the zeroed
-            /// type of `ilzero` — `ValueNone` for the type-free arithmetic / `throw` /
-            /// reinterpret opcodes. Distinct from the result `ty` (`exprTy`).
-            TypeOperand: FrozenType voption
-        }
-
     /// An `ILIntrinsic` node → its `ILIntrinsicView`.
     [<return: Struct>]
     let private (|EILIntrinsic|_|) (e: ExprId) : ILIntrinsicView voption =
@@ -268,12 +265,6 @@ module TastAccessor =
     let exprILIntrinsicTypeOperand (e: ExprId) : FrozenType voption =
         (expect "TastAccessor.exprILIntrinsicTypeOperand: not an ILIntrinsic node" (|EILIntrinsic|_|) e).TypeOperand
 
-    /// The scalar payload of a `Lambda` node, minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry. `Body` is the sole `exprChildren` entry; the
-    /// `Param` pattern is not an expression child.
-    [<Struct>]
-    type LambdaView = { Param: PatId; Body: ExprId }
-
     /// A `Lambda` node → its `LambdaView`.
     [<return: Struct>]
     let (|ELambda|_|) (e: ExprId) : LambdaView voption =
@@ -290,17 +281,6 @@ module TastAccessor =
     /// first; `failwith` on any other shape.
     let exprLambda (e: ExprId) : LambdaView =
         expect "TastAccessor.exprLambda: not a Lambda node" (|ELambda|_|) e
-
-    /// The scalar payload of a `Let` node, minus the `ty`/`tok` that `exprTy`/`exprTok`
-    /// already carry. `Value`/`Body` are the two `exprChildren` entries; the `Binding`
-    /// pattern is not an expression child.
-    [<Struct>]
-    type LetView =
-        {
-            Binding: PatId
-            Value: ExprId
-            Body: ExprId
-        }
 
     /// A `Let` node → its `LetView`.
     [<return: Struct>]
@@ -320,12 +300,6 @@ module TastAccessor =
     let exprLet (e: ExprId) : LetView =
         expect "TastAccessor.exprLet: not a Let node" (|ELet|_|) e
 
-    /// The scalar payload of an `Assignment` node (`lhs <- rhs`), minus the `ty`/`tok`
-    /// that `exprTy`/`exprTok` already carry — the same two nodes `exprChildren` yields,
-    /// named by role.
-    [<Struct>]
-    type AssignmentView = { Lhs: ExprId; Rhs: ExprId }
-
     /// An `Assignment` node → its `AssignmentView`.
     [<return: Struct>]
     let private (|EAssignment|_|) (e: ExprId) : AssignmentView voption =
@@ -342,17 +316,6 @@ module TastAccessor =
     /// `ExprShape.Assignment` first; `failwith` on any other shape.
     let exprAssignment (e: ExprId) : AssignmentView =
         expect "TastAccessor.exprAssignment: not an Assignment node" (|EAssignment|_|) e
-
-    /// The scalar payload of an `IfThenElse` node, minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry — the three branch nodes `exprChildren` yields,
-    /// named by role.
-    [<Struct>]
-    type IfThenElseView =
-        {
-            Cond: ExprId
-            ThenExpr: ExprId
-            ElseExpr: ExprId
-        }
 
     /// An `IfThenElse` node → its `IfThenElseView`.
     [<return: Struct>]
@@ -372,15 +335,6 @@ module TastAccessor =
     let exprIfThenElse (e: ExprId) : IfThenElseView =
         expect "TastAccessor.exprIfThenElse: not an IfThenElse node" (|EIfThenElse|_|) e
 
-    /// The scalar payload of an `External` node, minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry.
-    [<Struct>]
-    type ExternalView =
-        {
-            CompiledName: string
-            Key: SymbolKey voption
-        }
-
     /// An `External` node → its `ExternalView`.
     [<return: Struct>]
     let (|EExternal|_|) (e: ExprId) : ExternalView voption =
@@ -397,12 +351,6 @@ module TastAccessor =
     /// `ExprShape.External` first; `failwith` on any other shape.
     let exprExternal (e: ExprId) : ExternalView =
         expect "TastAccessor.exprExternal: not an External node" (|EExternal|_|) e
-
-    /// The scalar payload of an `App` node (`fn arg`), minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry — the same two nodes `exprChildren` yields, named
-    /// by role.
-    [<Struct>]
-    type AppView = { Fn: ExprId; Arg: ExprId }
 
     /// An `App` node → its `AppView`.
     [<return: Struct>]
@@ -434,16 +382,6 @@ module TastAccessor =
     let exprRecordConsFields (e: ExprId) : (string * ExprId)[] =
         expect "TastAccessor.exprRecordConsFields: not a RecordCons node" (|ERecordCons|_|) e
 
-    /// The scalar payload of a `RecordClone` node (`{ source with … }`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Overrides` are the
-    /// (field-name, replacement) pairs — the labels `exprChildren` drops.
-    [<Struct>]
-    type RecordCloneView =
-        {
-            Source: ExprId
-            Overrides: (string * ExprId)[]
-        }
-
     /// A `RecordClone` node → its `RecordCloneView`.
     [<return: Struct>]
     let private (|ERecordClone|_|) (e: ExprId) : RecordCloneView voption =
@@ -463,12 +401,6 @@ module TastAccessor =
     let exprRecordClone (e: ExprId) : RecordCloneView =
         expect "TastAccessor.exprRecordClone: not a RecordClone node" (|ERecordClone|_|) e
 
-    /// The scalar payload of a `FieldGet` node (`receiver.FieldName`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Receiver` is the sole
-    /// `exprChildren` entry, named by role.
-    [<Struct>]
-    type FieldGetView = { Receiver: ExprId; FieldName: string }
-
     /// A `FieldGet` node → its `FieldGetView`.
     [<return: Struct>]
     let (|EFieldGet|_|) (e: ExprId) : FieldGetView voption =
@@ -485,17 +417,6 @@ module TastAccessor =
     /// `ExprShape.FieldGet` first; `failwith` on any other shape.
     let exprFieldGet (e: ExprId) : FieldGetView =
         expect "TastAccessor.exprFieldGet: not a FieldGet node" (|EFieldGet|_|) e
-
-    /// The scalar payload of a `FieldSet` node (`receiver.FieldName <- value`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry — the two nodes `exprChildren`
-    /// yields, named by role, plus the field label.
-    [<Struct>]
-    type FieldSetView =
-        {
-            Receiver: ExprId
-            FieldName: string
-            Value: ExprId
-        }
 
     /// A `FieldSet` node → its `FieldSetView`.
     [<return: Struct>]
@@ -528,18 +449,6 @@ module TastAccessor =
     let exprUnionConsCaseName (e: ExprId) : string =
         expect "TastAccessor.exprUnionConsCaseName: not a UnionCons node" (|EUnionCons|_|) e
 
-    /// The scalar payload of a `New` node, minus the `ty`/`tok` the node also carries.
-    /// Its `args` are the node's `exprChildren`.
-    [<Struct>]
-    type NewView =
-        {
-            ClassName: string
-            /// The overload identity the front end chose — the key that disambiguates a
-            /// same-arity external-ctor candidate set, `ValueNone` when arity alone
-            /// suffices.
-            ChosenCtor: SymbolKey voption
-        }
-
     /// A `New` node → its `NewView`.
     [<return: Struct>]
     let private (|ENew|_|) (e: ExprId) : NewView voption =
@@ -562,20 +471,6 @@ module TastAccessor =
     let exprNewChosenCtor (e: ExprId) : SymbolKey voption =
         (expect "TastAccessor.exprNewChosenCtor: not a New node" (|ENew|_|) e).ChosenCtor
 
-    /// The scalar payload of a `PropertyGet` node — the receiver, the resolved member
-    /// key, and the dispatch `Via`, minus the `ty`/`tok` the node also carries.
-    /// `Receiver` is the sole `exprChildren` entry, named by role. `Via` distinguishes a
-    /// grounded self/base access from a `constrained.`-dispatched typar-interface one
-    /// (`CallVia.Interface`) — a distinction the CLR backend dispatches on; a target that
-    /// ignores it simply does not read the field.
-    [<Struct>]
-    type PropertyGetView =
-        {
-            Receiver: ExprId
-            Key: SymbolKey
-            Via: CallVia<FrozenType>
-        }
-
     /// A `PropertyGet` node → its `PropertyGetView`.
     [<return: Struct>]
     let private (|EPropertyGet|_|) (e: ExprId) : PropertyGetView voption =
@@ -593,21 +488,6 @@ module TastAccessor =
     /// `ExprShape.PropertyGet` first; `failwith` on any other shape.
     let exprPropertyGet (e: ExprId) : PropertyGetView =
         expect "TastAccessor.exprPropertyGet: not a PropertyGet node" (|EPropertyGet|_|) e
-
-    /// The scalar payload of a `MethodCall` node — the receiver, the resolved member key,
-    /// the dispatch `Via`, and the argument expressions, minus the `ty`/`tok` the node also
-    /// carries. `Args` is ONLY the `args` field — NOT `exprChildren` (which merges the
-    /// receiver in ahead of the args). `Via` distinguishes a grounded self/base call from a
-    /// `constrained.`-dispatched typar-interface one (`CallVia.Interface`) — a distinction
-    /// the CLR backend dispatches on; a target that ignores it does not read it.
-    [<Struct>]
-    type MethodCallView =
-        {
-            Receiver: ExprId
-            Key: SymbolKey
-            Via: CallVia<FrozenType>
-            Args: EqArray<ExprId>
-        }
 
     /// A `MethodCall` node → its `MethodCallView`.
     [<return: Struct>]
@@ -642,11 +522,6 @@ module TastAccessor =
     let exprStaticPropertyGetKey (e: ExprId) : SymbolKey =
         expect "TastAccessor.exprStaticPropertyGetKey: not a StaticPropertyGet node" (|EStaticPropertyGet|_|) e
 
-    /// The scalar payload of a `StaticFieldGet` node — the declaring class key and the
-    /// backing-field name, minus the `ty`/`tok` the node also carries.
-    [<Struct>]
-    type StaticFieldGetView = { Key: SymbolKey; FieldName: string }
-
     /// A `StaticFieldGet` node → its `StaticFieldGetView`.
     [<return: Struct>]
     let private (|EStaticFieldGet|_|) (e: ExprId) : StaticFieldGetView voption =
@@ -663,17 +538,6 @@ module TastAccessor =
     /// `ExprShape.StaticFieldGet` first; `failwith` on any other shape.
     let exprStaticFieldGet (e: ExprId) : StaticFieldGetView =
         expect "TastAccessor.exprStaticFieldGet: not a StaticFieldGet node" (|EStaticFieldGet|_|) e
-
-    /// The scalar payload of a `StaticFieldSet` node — the declaring class key, the
-    /// backing-field name, and the stored value, minus the `ty`/`tok` the node also
-    /// carries. `Value` is the sole `exprChildren` entry, named by role.
-    [<Struct>]
-    type StaticFieldSetView =
-        {
-            Key: SymbolKey
-            FieldName: string
-            Value: ExprId
-        }
 
     /// A `StaticFieldSet` node → its `StaticFieldSetView`.
     [<return: Struct>]
@@ -706,12 +570,6 @@ module TastAccessor =
     let exprStaticMethodCallKey (e: ExprId) : SymbolKey =
         expect "TastAccessor.exprStaticMethodCallKey: not a StaticMethodCall node" (|EStaticMethodCall|_|) e
 
-    /// One arm of a `Match` / `TryWith`, its pattern and guard/body expressions held as
-    /// handles — the `'pat`/`'e` instantiation of the one arm shape (`TMatchArmG`), so a
-    /// consumer that scopes the arm's binders over its guard and body reads the same
-    /// record whichever domain it is in.
-    type Arm = TMatchArmG<PatId, ExprId>
-
     /// The children of the arms, re-nested — `ExprPayload.arms`, the walk shared with the
     /// pool drain, driven off this node's child columns. `lead` is how many leading expr
     /// children belong to the node itself rather than an arm (`Match`'s scrutinee /
@@ -721,11 +579,6 @@ module TastAccessor =
             guardPresent
             (ExprPayload.cursor (exprPatChildren e) 0)
             (ExprPayload.cursor (exprChildren e) lead)
-
-    /// The scalar payload of a `Match` node — the scrutinee and the arms, minus the
-    /// `ty`/`tok` the node also carries.
-    [<Struct>]
-    type MatchView = { Scrutinee: ExprId; Arms: Arm[] }
 
     /// A `Match` node → its `MatchView`.
     [<return: Struct>]
@@ -744,12 +597,6 @@ module TastAccessor =
     let exprMatch (e: ExprId) : MatchView =
         expect "TastAccessor.exprMatch: not a Match node" (|EMatch|_|) e
 
-    /// The scalar payload of a `TryWith` node — the guarded body and the handler arms,
-    /// minus the `ty`/`tok` the node also carries. `Body` is the sole positional
-    /// `exprChildren` head.
-    [<Struct>]
-    type TryWithView = { Body: ExprId; Arms: Arm[] }
-
     /// A `TryWith` node → its `TryWithView`.
     [<return: Struct>]
     let (|ETryWith|_|) (e: ExprId) : TryWithView voption =
@@ -766,12 +613,6 @@ module TastAccessor =
     /// first; `failwith` on any other shape.
     let exprTryWith (e: ExprId) : TryWithView =
         expect "TastAccessor.exprTryWith: not a TryWith node" (|ETryWith|_|) e
-
-    /// The scalar payload of a `TryFinally` node (`try Body finally Cleanup`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry — the two `exprChildren` entries,
-    /// named by role. `Body` carries the node's `ty`; `Cleanup` is unit.
-    [<Struct>]
-    type TryFinallyView = { Body: ExprId; Cleanup: ExprId }
 
     /// A `TryFinally` node → its `TryFinallyView`.
     [<return: Struct>]
@@ -790,12 +631,6 @@ module TastAccessor =
     let exprTryFinally (e: ExprId) : TryFinallyView =
         expect "TastAccessor.exprTryFinally: not a TryFinally node" (|ETryFinally|_|) e
 
-    /// The scalar payload of a `While` node (`while Cond do Body`), minus the `ty`/`tok`
-    /// that `exprTy`/`exprTok` already carry — the two nodes `exprChildren` yields, named
-    /// by role.
-    [<Struct>]
-    type WhileView = { Cond: ExprId; Body: ExprId }
-
     /// A `While` node → its `WhileView`.
     [<return: Struct>]
     let private (|EWhile|_|) (e: ExprId) : WhileView voption =
@@ -812,19 +647,6 @@ module TastAccessor =
     /// `failwith` on any other shape.
     let exprWhile (e: ExprId) : WhileView =
         expect "TastAccessor.exprWhile: not a While node" (|EWhile|_|) e
-
-    /// The scalar payload of a `ForTo` node (`for Var = StartExpr to EndExpr do Body`),
-    /// minus the `identTok`/`ty`/`tok` the node also carries. `StartExpr`/`EndExpr`/`Body`
-    /// are the three `exprChildren` entries, named by role; `Var` is the loop binder,
-    /// which has no pattern node behind it.
-    [<Struct>]
-    type ForToView =
-        {
-            Var: NodeKey
-            StartExpr: ExprId
-            EndExpr: ExprId
-            Body: ExprId
-        }
 
     /// A `ForTo` node → its `ForToView`.
     [<return: Struct>]
@@ -845,19 +667,6 @@ module TastAccessor =
     let exprForTo (e: ExprId) : ForToView =
         expect "TastAccessor.exprForTo: not a ForTo node" (|EForTo|_|) e
 
-    /// The scalar payload of a `ForIn` node (`for Pat in Source do Body`), minus the
-    /// `ty`/`tok` the node also carries. `Source`/`Body` are the two `exprChildren`
-    /// entries; `Pat` is a pattern (not an expression child) and `Enumerator` records
-    /// how the source yields its enumerator (the front-end resolution codegen dispatches on).
-    [<Struct>]
-    type ForInView =
-        {
-            Pat: PatId
-            Source: ExprId
-            Body: ExprId
-            Enumerator: Frozen.ForInEnumerator
-        }
-
     /// A `ForIn` node → its `ForInView`.
     [<return: Struct>]
     let (|EForIn|_|) (e: ExprId) : ForInView voption =
@@ -877,19 +686,6 @@ module TastAccessor =
     let exprForIn (e: ExprId) : ForInView =
         expect "TastAccessor.exprForIn: not a ForIn node" (|EForIn|_|) e
 
-    /// The scalar payload of a `Use` node (`use Binding = Value in Body`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Value`/`Body` are the two
-    /// `exprChildren` entries; `Binding` is a pattern (not an expression child) and
-    /// `Dispose` the resolved disposal path.
-    [<Struct>]
-    type UseView =
-        {
-            Binding: PatId
-            Value: ExprId
-            Body: ExprId
-            Dispose: Disposal
-        }
-
     /// A `Use` node → its `UseView`.
     [<return: Struct>]
     let (|EUse|_|) (e: ExprId) : UseView voption =
@@ -908,22 +704,6 @@ module TastAccessor =
     /// `failwith` on any other shape.
     let exprUse (e: ExprId) : UseView =
         expect "TastAccessor.exprUse: not a Use node" (|EUse|_|) e
-
-    /// The format cluster with its sub-expressions held as handles — the `'e`
-    /// instantiation of the one sink / segment / dyn-hole shape, so a formatter replays
-    /// the same records here as in the tree domain.
-    type FormatSink = FormatSinkG<ExprId>
-    type FormatSeg = FormatSegG<FrozenType, SyntaxToken, ExprId>
-    type DynFormatHole = DynFormatHoleG<FrozenType, SyntaxToken, ExprId>
-
-    /// The scalar payload of a `Format` node — the sink and the interleaved
-    /// literal/hole segments, minus the `ty`/`tok` the node also carries.
-    [<Struct>]
-    type FormatView =
-        {
-            Sink: FormatSink
-            Segments: FormatSeg[]
-        }
 
     /// A `Format` node → its `FormatView`, through `ExprPayload.format` — the re-nesting
     /// shared with the pool drain, driven off this node's child column.
@@ -1044,6 +824,12 @@ module TastAccessor =
         | PatPayload.NamedSimple binding -> ValueSome(BinderNaming.ofKey binding)
         | _ -> ValueNone
 
+    /// A `NamedSimple` pattern → the naming projections of the binder it introduces
+    /// (`patBinderNaming`) — the `PNamed` to reach for when the binder is about to be
+    /// spelled as an emitted identifier rather than looked up.
+    [<return: Struct>]
+    let (|PNamedNaming|_|) (p: PatId) : BinderNaming voption = patBinderNaming p
+
     /// A `Const` pattern → the constant value it carries.
     [<return: Struct>]
     let private (|PConst|_|) (p: PatId) : TConstValue voption =
@@ -1080,12 +866,6 @@ module TastAccessor =
     /// on any other shape.
     let patRecordFields (p: PatId) : (string * PatId)[] =
         expect "TastAccessor.patRecordFields: not a Record pattern" (|PRecord|_|) p
-
-    /// The scalar payload of an `EnumCase` pattern — the case's `enumKey`/`caseName`
-    /// identity, minus the `ty`/`tok` that `patTy`/`patTok` already carry.
-    [<Struct>]
-    type EnumCasePatView =
-        { EnumKey: SymbolKey; CaseName: string }
 
     /// An `EnumCase` pattern → its `EnumCasePatView`.
     [<return: Struct>]
@@ -1173,19 +953,6 @@ module TastAccessor =
             expect "TastAccessor.declExpressionTy: not an Expression decl" (|DExpression|_|) d
 
         ty
-
-    /// The payload of a `Let` decl. `Binding` is the bound pattern, `Value` its
-    /// initializer, `IsInline` whether the binding expands per call site, `Ty` the
-    /// binding's declared type (the slot type a value-producing consumer allocates for
-    /// it — distinct from `exprTy Value` for a destructuring binding).
-    [<Struct>]
-    type DeclLetView =
-        {
-            Binding: PatId
-            Value: ExprId
-            IsInline: bool
-            Ty: FrozenType
-        }
 
     /// A `Let` decl → its `DeclLetView`.
     [<return: Struct>]

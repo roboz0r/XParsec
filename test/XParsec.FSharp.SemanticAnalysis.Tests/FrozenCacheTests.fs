@@ -34,9 +34,7 @@ type private CountingStore() =
 /// A real frozen tree for a small program the shared contract stack resolves — the payload the
 /// cache actually round-trips.
 let private frozenSample () : FrozenPools =
-    let src = "let add x y = x + y\nlet answer = add 1 40\n"
-    let lexed, file = parseFile src
-    Pipeline.analyseFor "TestAsm" realProvider.Value src lexed file
+    freezeFor "let add x y = x + y\nlet answer = add 1 40\n"
 
 [<Tests>]
 let tests =
