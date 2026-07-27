@@ -591,51 +591,38 @@ module TastAccessor =
         | ExprPayload.StaticMethodCall key -> key
         | _ -> failwith "TastAccessor.exprStaticMethodCallKey: not a StaticMethodCall node"
 
-    /// One arm of a `Match` / `TryWith` — its scrutinee pattern, its optional guard, and
-    /// its body. The arm is a composite carrier with no node identity of its own: its
-    /// pieces live in the child columns, and this re-nests them for a consumer that
-    /// must scope the arm's pattern binders over its guard and body.
-    [<Struct>]
-    type ArmView =
-        {
-            Pat: PatId
-            Guard: ExprId voption
-            Body: ExprId
-        }
+    /// One arm of a `Match` / `TryWith`, its pattern and guard/body expressions held as
+    /// handles — the `'pat`/`'e` instantiation of the one arm shape (`TMatchArmG`), so a
+    /// consumer that scopes the arm's binders over its guard and body reads the same
+    /// record whichever domain it is in.
+    type Arm = TMatchArmG<PatId, ExprId>
 
-    /// Re-nest the flat child columns into arms: each arm draws its pat, then its
-    /// optional guard (present per `guardPresent`), then its body — the order the pool
-    /// build enumerated them in. `lead` is how many leading expr children belong to the
-    /// node itself rather than an arm (`Match`'s scrutinee / `TryWith`'s body).
-    let private armsOf (e: ExprId) (guardPresent: bool[]) (lead: int) : ArmView[] =
+    /// The children of the arms, re-nested — `ExprPayload.arms`, the walk shared with the
+    /// pool drain, driven off this node's child columns. `lead` is how many leading expr
+    /// children belong to the node itself rather than an arm (`Match`'s scrutinee /
+    /// `TryWith`'s body).
+    let private armsOf (e: ExprId) (guardPresent: bool[]) (lead: int) : Arm[] =
         let es = exprChildren e
         let ps = exprPatChildren e
-        let mutable i = lead
+        let mutable ei = lead
+        let mutable pi = 0
 
-        guardPresent
-        |> Array.mapi (fun a hasGuard ->
-            let guard =
-                if hasGuard then
-                    let g = ValueSome es.[i]
-                    i <- i + 1
-                    g
-                else
-                    ValueNone
+        let nextE () =
+            let x = es.[ei] in
+            ei <- ei + 1
+            x
 
-            let body = es.[i]
-            i <- i + 1
+        let nextP () =
+            let x = ps.[pi] in
+            pi <- pi + 1
+            x
 
-            {
-                Pat = ps.[a]
-                Guard = guard
-                Body = body
-            }
-        )
+        ExprPayload.arms guardPresent nextP nextE
 
     /// The scalar payload of a `Match` node — the scrutinee and the arms, minus the
     /// `ty`/`tok` the node also carries.
     [<Struct>]
-    type MatchView = { Scrutinee: ExprId; Arms: ArmView[] }
+    type MatchView = { Scrutinee: ExprId; Arms: Arm[] }
 
     /// A `Match` node → its `MatchView`.
     [<return: Struct>]
@@ -660,7 +647,7 @@ module TastAccessor =
     /// minus the `ty`/`tok` the node also carries. `Body` is the sole positional
     /// `exprChildren` head.
     [<Struct>]
-    type TryWithView = { Body: ExprId; Arms: ArmView[] }
+    type TryWithView = { Body: ExprId; Arms: Arm[] }
 
     /// A `TryWith` node → its `TryWithView`.
     [<return: Struct>]
@@ -817,55 +804,28 @@ module TastAccessor =
         | EUse v -> v
         | _ -> failwith "TastAccessor.exprUse: not a Use node"
 
-    /// The expression-bearing shape of a `Format` node's sink, its sub-expression
-    /// (`ToWriter`'s writer, `ToBuilder`'s builder) resolved to a handle. It heads the
-    /// node's `exprChildren`, ahead of the segment children.
-    [<RequireQualifiedAccess>]
-    type FormatSinkView =
-        | ToStdOut of nlOut: bool
-        | ToStdErr of nlErr: bool
-        | ToWriter of writer: ExprId * nlWriter: bool
-        | ToBuilder of builder: ExprId
-        | ToString
-
-    /// A `%*.*f`-style hole whose width and/or precision are runtime values. Same field
-    /// names as `DynFormatHoleG`, the shape it re-nests: the dimensions ride
-    /// `exprChildren` (width, then precision, then the value) and the presence flags in
-    /// the payload say which are there.
-    [<Struct>]
-    type DynHoleView =
-        {
-            Width: ExprId voption
-            Precision: ExprId voption
-            Spec: Frozen.HoleSpec
-            Value: ExprId
-        }
-
-    /// One `Format` segment with its sub-expressions resolved to handles — the flat
-    /// child columns re-nested into the literal / hole shape a formatter replays.
-    [<RequireQualifiedAccess>]
-    type FormatSegView =
-        | Lit of text: string
-        | Hole of spec: Frozen.HoleSpec * value: ExprId
-        | DynHole of DynHoleView
-        | CallbackHole of cbSpec: Frozen.HoleSpec * residue: ExprId
+    /// The format cluster with its sub-expressions held as handles — the `'e`
+    /// instantiation of the one sink / segment / dyn-hole shape, so a formatter replays
+    /// the same records here as in the tree domain.
+    type FormatSink = FormatSinkG<ExprId>
+    type FormatSeg = FormatSegG<FrozenType, SyntaxToken, ExprId>
+    type DynFormatHole = DynFormatHoleG<FrozenType, SyntaxToken, ExprId>
 
     /// The scalar payload of a `Format` node — the sink and the interleaved
     /// literal/hole segments, minus the `ty`/`tok` the node also carries.
     [<Struct>]
     type FormatView =
         {
-            Sink: FormatSinkView
-            Segments: FormatSegView[]
+            Sink: FormatSink
+            Segments: FormatSeg[]
         }
 
-    /// The payload view of a `Format` node. Guard with `exprKind` = `ExprShape.Format`
-    /// first; `failwith` on any other shape.
+    /// The payload view of a `Format` node — `ExprPayload.format`, the re-nesting shared
+    /// with the pool drain, driven off this node's child column. Guard with `exprKind` =
+    /// `ExprShape.Format` first; `failwith` on any other shape.
     let exprFormat (e: ExprId) : FormatView =
         match payload e with
         | ExprPayload.Format p ->
-            // The sink's own child is consumed BEFORE the segment children — the order
-            // the pool build enumerated them, which the segment loop then continues.
             let es = exprChildren e
             let mutable i = 0
 
@@ -874,34 +834,7 @@ module TastAccessor =
                 i <- i + 1
                 x
 
-            let sink =
-                match p.Sink with
-                | FormatSinkShape.ToWriter newline -> FormatSinkView.ToWriter(next (), newline)
-                | FormatSinkShape.ToBuilder -> FormatSinkView.ToBuilder(next ())
-                | FormatSinkShape.ToStdOut newline -> FormatSinkView.ToStdOut newline
-                | FormatSinkShape.ToStdErr newline -> FormatSinkView.ToStdErr newline
-                | FormatSinkShape.ToString -> FormatSinkView.ToString
-
-            let segments =
-                p.Segments
-                |> Array.map (fun seg ->
-                    match seg with
-                    | FormatSegShape.Lit s -> FormatSegView.Lit s
-                    | FormatSegShape.Hole spec -> FormatSegView.Hole(spec, next ())
-                    | FormatSegShape.DynHole(hasWidth, hasPrecision, spec) ->
-                        let width = if hasWidth then ValueSome(next ()) else ValueNone
-                        let precision = if hasPrecision then ValueSome(next ()) else ValueNone
-
-                        FormatSegView.DynHole
-                            {
-                                Width = width
-                                Precision = precision
-                                Spec = spec
-                                Value = next ()
-                            }
-                    | FormatSegShape.CallbackHole spec -> FormatSegView.CallbackHole(spec, next ())
-                )
-
+            let sink, segments = ExprPayload.format p.Sink p.Segments next
             { Sink = sink; Segments = segments }
         | _ -> failwith "TastAccessor.exprFormat: not a Format node"
 

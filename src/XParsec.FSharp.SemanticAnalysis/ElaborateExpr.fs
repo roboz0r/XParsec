@@ -600,8 +600,8 @@ module internal ElaborateExpr =
                     | Rule.Rule(pat = pat; guard = guard; expr = body) ->
                         let guardT =
                             match guard with
-                            | ValueSome(PatternGuard(expr = g)) -> Some(translateExpr ctx g)
-                            | ValueNone -> None
+                            | ValueSome(PatternGuard(expr = g)) -> ValueSome(translateExpr ctx g)
+                            | ValueNone -> ValueNone
 
                         yield
                             {

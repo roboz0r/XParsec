@@ -52,25 +52,11 @@ module TastUnpool =
             pi <- pi + 1
             x
 
-        // Re-nest the flat child columns into `Match`/`TryWith` arms: each arm draws its
-        // pat, then its optional guard (present per `guardPresent`), then its body — the
-        // exact order `TastPools.exprChildren`/`exprPatChildren` enumerated them, which
-        // `exprPayload.armGuards` recorded the flags for. `Match`'s scrutinee / `TryWith`'s
-        // body are consumed by the caller BEFORE this, so the cursors are already advanced.
+        // The arm / format re-nesting is `ExprPayload.arms` / `ExprPayload.format` — the
+        // one walk over the flat child columns, shared with the accessor's views, so the
+        // two directions cannot disagree about the order the columns are consumed in.
         let buildArms (guardPresent: bool[]) : EqArray<Frozen.TMatchArm> =
-            guardPresent
-            |> Array.map (fun hasGuard ->
-                let pat = nextP ()
-                let guard = if hasGuard then Some(nextE ()) else None
-                let body = nextE ()
-
-                {
-                    Pat = pat
-                    Guard = guard
-                    Body = body
-                }
-            )
-            |> EqArray.ofArray
+            ExprPayload.arms guardPresent nextP nextE |> EqArray.ofArray
 
         match payload with
         // `binding` is supplied from the dense id, so the round-trip exercises the remap.
@@ -178,39 +164,8 @@ module TastUnpool =
             let receiver' = if p.HasReceiver then ValueSome(nextE ()) else ValueNone
             TExprG.ExternalMember(receiver', p.Key, p.MemberName, p.Storage, ty, tok)
         | ExprPayload.Format p ->
-            // The sink child (writer / builder) is consumed BEFORE the segment children —
-            // the order `exprChildren` yields, which the segment loop then continues.
-            let sink' =
-                match p.Sink with
-                | FormatSinkShape.ToWriter newline -> FormatSinkG.ToWriter(nextE (), newline)
-                | FormatSinkShape.ToBuilder -> FormatSinkG.ToBuilder(nextE ())
-                | FormatSinkShape.ToStdOut newline -> FormatSinkG.ToStdOut newline
-                | FormatSinkShape.ToStdErr newline -> FormatSinkG.ToStdErr newline
-                | FormatSinkShape.ToString -> FormatSinkG.ToString
-
-            let segments' =
-                p.Segments
-                |> Array.map (fun seg ->
-                    match seg with
-                    | FormatSegShape.Lit s -> FormatSegG.Lit s
-                    | FormatSegShape.Hole spec -> FormatSegG.Hole(spec, nextE ())
-                    | FormatSegShape.DynHole(hasWidth, hasPrecision, spec) ->
-                        let width = if hasWidth then ValueSome(nextE ()) else ValueNone
-                        let precision = if hasPrecision then ValueSome(nextE ()) else ValueNone
-                        let value = nextE ()
-
-                        FormatSegG.DynHole
-                            {
-                                Width = width
-                                Precision = precision
-                                Spec = spec
-                                Value = value
-                            }
-                    | FormatSegShape.CallbackHole spec -> FormatSegG.CallbackHole(spec, nextE ())
-                )
-                |> EqArray.ofArray
-
-            TExprG.Format(sink', segments', ty, tok)
+            let sink', segments' = ExprPayload.format p.Sink p.Segments nextE
+            TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
         | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
         | ExprPayload.StaticOptimization clauseConstraints ->
             let clauses' =

@@ -772,16 +772,18 @@ module TastWalk =
         | ValueNone ->
             let pat' = mapPat m arm.Pat
 
-            let guard' =
-                match arm.Guard with
-                | Some g ->
-                    let g' = mapExpr m g
-                    if refEq g' g then arm.Guard else Some g'
-                | None -> arm.Guard
+            let guard' = arm.Guard |> ValueOption.map (mapExpr m)
+
+            // The guard's PRESENCE is carried across, so it moved exactly when the
+            // expression inside it did — which `refEq` cannot ask of the `voption` itself.
+            let guardMoved =
+                match arm.Guard, guard' with
+                | ValueSome g, ValueSome g' -> not (refEq g' g)
+                | _ -> false
 
             let body' = mapExpr m arm.Body
 
-            if refEq pat' arm.Pat && refEq guard' arm.Guard && refEq body' arm.Body then
+            if refEq pat' arm.Pat && not guardMoved && refEq body' arm.Body then
                 arm
             else
                 {
@@ -958,7 +960,7 @@ module TastWalk =
     and iterArm (it: Iter) (arm: TMatchArm) : unit =
         if it.VisitArm it arm then
             iterPat it arm.Pat
-            arm.Guard |> Option.iter (iterExpr it)
+            arm.Guard |> ValueOption.iter (iterExpr it)
             iterExpr it arm.Body
 
     /// Every binder a set of declarations introduces, anywhere in their trees: the
@@ -1107,7 +1109,7 @@ module TastWalk =
                 VisitArm =
                     fun it arm ->
                         let added = addBinders arm.Pat
-                        arm.Guard |> Option.iter (iterExpr it)
+                        arm.Guard |> ValueOption.iter (iterExpr it)
                         iterExpr it arm.Body
                         removeBinders added
                         false

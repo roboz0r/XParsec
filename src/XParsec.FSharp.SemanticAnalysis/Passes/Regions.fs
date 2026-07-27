@@ -485,7 +485,7 @@ module Regions =
     /// for capture edges, and return the body's region. Shared by both joiners.
     and private inferRegionArm (s: State) (ctx: PassContext) (arm: TMatchArm) : RegionId =
         registerParam s ctx arm.Pat
-        arm.Guard |> Option.iter (fun g -> inferRegion s ctx g |> ignore)
+        arm.Guard |> ValueOption.iter (fun g -> inferRegion s ctx g |> ignore)
         inferRegion s ctx arm.Body
 
     /// Run a binding group: bump the let-level, pre-mint a closure region for

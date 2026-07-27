@@ -273,11 +273,19 @@ type TExprG<'ty, 'tok> =
     /// `scrutinee` and each `arms.[i].Pat` share the same type; every
     /// `arms.[i].Body` shares `ty`. `function` desugars to a Match over a
     /// synthetic parameter — same TExpr shape.
-    | Match of scrutinee: TExprG<'ty, 'tok> * arms: EqArray<TMatchArmG<'ty, 'tok>> * ty: 'ty * tok: 'tok
+    | Match of
+        scrutinee: TExprG<'ty, 'tok> *
+        arms: EqArray<TMatchArmG<TPatG<'ty, 'tok>, TExprG<'ty, 'tok>>> *
+        ty: 'ty *
+        tok: 'tok
     /// `try body with | pat -> arm`. `body` and every `arms.[i].Body`
     /// share `ty`; arm patterns currently bind against a fresh TypeVar
     /// (no `exn` type yet).
-    | TryWith of body: TExprG<'ty, 'tok> * arms: EqArray<TMatchArmG<'ty, 'tok>> * ty: 'ty * tok: 'tok
+    | TryWith of
+        body: TExprG<'ty, 'tok> *
+        arms: EqArray<TMatchArmG<TPatG<'ty, 'tok>, TExprG<'ty, 'tok>>> *
+        ty: 'ty *
+        tok: 'tok
     /// `try body finally cleanup`. `body` carries `ty`; `cleanup` is unit.
     | TryFinally of body: TExprG<'ty, 'tok> * cleanup: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// `lhs <- rhs`. Always types as unit.
@@ -389,7 +397,11 @@ type TExprG<'ty, 'tok> =
     /// the format literal rewrites the call's arity/arg-types, so the node carries
     /// printf semantics a generic call node cannot. `ty` is the call's result
     /// (`unit` for `printf`/`printfn`, `string` for `sprintf`).
-    | Format of sink: FormatSinkG<'ty, 'tok> * segments: EqArray<FormatSegG<'ty, 'tok>> * ty: 'ty * tok: 'tok
+    | Format of
+        sink: FormatSinkG<TExprG<'ty, 'tok>> *
+        segments: EqArray<FormatSegG<'ty, 'tok, TExprG<'ty, 'tok>>> *
+        ty: 'ty *
+        tok: 'tok
     /// Value-level inline IL: `(# "opcode" args : retTy #)`. `opCode` is the
     /// stitched instruction mnemonic (e.g. `"ceq"`, `"add"`), `args` the operand
     /// expressions in source order, `ty` the declared result type. Codegen emits
@@ -465,11 +477,18 @@ type TExprG<'ty, 'tok> =
     /// one receiver) is what buys that.
     | TraitCall of receiver: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
 
-and TMatchArmG<'ty, 'tok> =
+/// One arm of a `Match` / `TryWith`. `'pat`/`'e` abstract over how the arm's pattern and
+/// its guard/body expressions are carried, exactly as `'body` does for a type
+/// declaration's member bodies: either the trees themselves or the handles naming them
+/// in a pool. An arm is a COMPOSITE CARRIER with no node identity of its own — the pool
+/// flattens its pieces into the child columns — so the re-nesting that puts them back
+/// (`ExprPayload.arms`) is written once, against this one shape, rather than once per
+/// domain.
+and TMatchArmG<'pat, 'e> =
     {
-        Pat: TPatG<'ty, 'tok>
-        Guard: TExprG<'ty, 'tok> option
-        Body: TExprG<'ty, 'tok>
+        Pat: 'pat
+        Guard: 'e voption
+        Body: 'e
     }
 
 /// Kept abstract from CLR specifics so an alternate target (JS → template
@@ -478,17 +497,20 @@ and TMatchArmG<'ty, 'tok> =
 /// applied (`ToWriter` for `fprintf`/`fprintfn`, `ToBuilder` for `bprintf`).
 /// `ToWriter`'s `newline` records the trailing `\n` (`fprintfn` sets it,
 /// `fprintf` does not), mirroring `ToStdOut`/`ToStdErr`; `ToBuilder` carries no
-/// newline (F# has no `bprintfn`).
-and [<RequireQualifiedAccess>] FormatSinkG<'ty, 'tok> =
+/// newline (F# has no `bprintfn`). `'e` abstracts over how the sink's own
+/// sub-expression is carried — see `TMatchArmG`, which the format cluster mirrors: a
+/// sink and its segments are composite carriers the pool flattens, re-nested once by
+/// `ExprPayload.format`.
+and [<RequireQualifiedAccess>] FormatSinkG<'e> =
     | ToStdOut of newline: bool
     | ToStdErr of newline: bool
-    | ToWriter of writer: TExprG<'ty, 'tok> * newline: bool
-    | ToBuilder of TExprG<'ty, 'tok>
+    | ToWriter of writer: 'e * newline: bool
+    | ToBuilder of 'e
     | ToString
 
-and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
+and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok, 'e> =
     | Lit of string
-    | Hole of HoleSpecG<'ty, 'tok> * TExprG<'ty, 'tok>
+    | Hole of HoleSpecG<'ty, 'tok> * 'e
     /// A hole with one or both dimensions supplied as runtime arguments — star width
     /// (`%*d`, `%-*d`, `%*A`) and/or star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`,
     /// `%+.*f`, `%.*A`). The curried application evaluates the dimension args *before*
@@ -498,7 +520,7 @@ and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
     /// `PrintWidth.Star` (width) and `Prec.Star` / `PrintSize.Star` (precision) agree
     /// with which of `Width`/`Precision` are present — all constructed from the same
     /// placeholder.
-    | DynHole of DynFormatHoleG<'ty, 'tok>
+    | DynHole of DynFormatHoleG<'ty, 'tok, 'e>
     /// A `%a` / `%t` printer-callback hole (`HoleForm.Callback`), lowered
     /// capture-first to an ordinary residue-*string* expression Elaborate synthesises:
     /// `sprintf` splices the callback's returned string (`cb unit [value]`); the
@@ -507,19 +529,19 @@ and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
     /// inside it as ordinary sub-exprs, so every traversal walks it with no special
     /// arm), and both backends emit it exactly as a `%s` hole — no sink knowledge in
     /// codegen. The segment stays distinct only to record `%a`/`%t` provenance.
-    | CallbackHole of spec: HoleSpecG<'ty, 'tok> * residue: TExprG<'ty, 'tok>
+    | CallbackHole of spec: HoleSpecG<'ty, 'tok> * residue: 'e
 
 /// A `FormatSegG.DynHole` payload: the hole's spec + value, plus whichever
 /// dimension args the curried application supplies at runtime. `Width` is present
 /// iff the width is a star (`%*…`), `Precision` iff the precision is a star
 /// (`%.*…`); at least one is present (a plain hole stays `FormatSegG.Hole`). Fields
 /// are named (not a wide tuple) so consumers read `Width`/`Precision` by intent.
-and DynFormatHoleG<'ty, 'tok> =
+and DynFormatHoleG<'ty, 'tok, 'e> =
     {
-        Width: TExprG<'ty, 'tok> voption
-        Precision: TExprG<'ty, 'tok> voption
+        Width: 'e voption
+        Precision: 'e voption
         Spec: HoleSpecG<'ty, 'tok>
-        Value: TExprG<'ty, 'tok>
+        Value: 'e
     }
 
 /// One clause of a `TExpr.StaticOptimization`. `Constraints` is the `and`-joined
@@ -1177,10 +1199,10 @@ type TastFileG<'ty, 'tok> =
 type TPat = TPatG<SemType, SyntaxToken>
 type HoleSpec = HoleSpecG<SemType, SyntaxToken>
 type TExpr = TExprG<SemType, SyntaxToken>
-type TMatchArm = TMatchArmG<SemType, SyntaxToken>
-type FormatSink = FormatSinkG<SemType, SyntaxToken>
-type FormatSeg = FormatSegG<SemType, SyntaxToken>
-type DynFormatHole = DynFormatHoleG<SemType, SyntaxToken>
+type TMatchArm = TMatchArmG<TPat, TExpr>
+type FormatSink = FormatSinkG<TExpr>
+type FormatSeg = FormatSegG<SemType, SyntaxToken, TExpr>
+type DynFormatHole = DynFormatHoleG<SemType, SyntaxToken, TExpr>
 type TStaticOptClause = TStaticOptClauseG<SemType, SyntaxToken>
 type TDecl = TDeclG<SemType, SyntaxToken>
 type TTypeDecl = TTypeDeclG<SemType, SyntaxToken, TExpr>
@@ -1363,10 +1385,10 @@ module Frozen =
     type TPat = TPatG<FrozenType, SyntaxToken>
     type HoleSpec = HoleSpecG<FrozenType, SyntaxToken>
     type TExpr = TExprG<FrozenType, SyntaxToken>
-    type TMatchArm = TMatchArmG<FrozenType, SyntaxToken>
-    type FormatSink = FormatSinkG<FrozenType, SyntaxToken>
-    type FormatSeg = FormatSegG<FrozenType, SyntaxToken>
-    type DynFormatHole = DynFormatHoleG<FrozenType, SyntaxToken>
+    type TMatchArm = TMatchArmG<TPat, TExpr>
+    type FormatSink = FormatSinkG<TExpr>
+    type FormatSeg = FormatSegG<FrozenType, SyntaxToken, TExpr>
+    type DynFormatHole = DynFormatHoleG<FrozenType, SyntaxToken, TExpr>
     type TStaticOptConstraint = TStaticOptConstraintG<FrozenType>
     type TStaticOptClause = TStaticOptClauseG<FrozenType, SyntaxToken>
     type TDecl = TDeclG<FrozenType, SyntaxToken>

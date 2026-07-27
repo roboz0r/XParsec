@@ -73,8 +73,8 @@ module TastPools =
 
             for arm in arms do
                 match arm.Guard with
-                | Some g -> acc.Add g
-                | None -> ()
+                | ValueSome g -> acc.Add g
+                | ValueNone -> ()
 
                 acc.Add arm.Body
         | TExprG.TryWith(body = body; arms = arms) ->
@@ -82,8 +82,8 @@ module TastPools =
 
             for arm in arms do
                 match arm.Guard with
-                | Some g -> acc.Add g
-                | None -> ()
+                | ValueSome g -> acc.Add g
+                | ValueNone -> ()
 
                 acc.Add arm.Body
         | TExprG.TryFinally(body = body; cleanup = cleanup) ->

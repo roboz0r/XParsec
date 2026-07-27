@@ -599,11 +599,11 @@ module EmitJs =
             let arg = EmitJsFormat.buildFormatArg buildExpr ctx fv.Segments
 
             match fv.Sink with
-            | TastAccessor.FormatSinkView.ToStdOut true -> JsExpr.Call(console "log", [ arg ], loc)
-            | TastAccessor.FormatSinkView.ToStdErr true -> JsExpr.Call(console "error", [ arg ], loc)
+            | FormatSinkG.ToStdOut true -> JsExpr.Call(console "log", [ arg ], loc)
+            | FormatSinkG.ToStdErr true -> JsExpr.Call(console "error", [ arg ], loc)
             // `sprintf` (`State = unit`, `Residue = string`): the spliced concatenation
             // IS the result string, yielded directly as a value (no console call).
-            | TastAccessor.FormatSinkView.ToString -> arg
+            | FormatSinkG.ToString -> arg
             | other -> failwithf "EmitJs: unsupported format sink %A" other
 
         | _ -> failwithf "EmitJs: unsupported expression %A" e
@@ -613,7 +613,7 @@ module EmitJs =
     /// (wildcard / bare variable, `test = None`) emits a bare `Block` so its
     /// bindings stay scoped (two arms may bind the same source name); a refutable
     /// arm guards that block with `if (test)`.
-    and private buildMatchArm (ctx: WalkCtx) (access: JsExpr) (arm: TastAccessor.ArmView) : JsStatement list =
+    and private buildMatchArm (ctx: WalkCtx) (access: JsExpr) (arm: TastAccessor.Arm) : JsStatement list =
         let test, binds = compileMatchPattern ctx access arm.Pat
 
         let inner =

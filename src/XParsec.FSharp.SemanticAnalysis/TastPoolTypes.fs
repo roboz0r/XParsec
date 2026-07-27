@@ -459,6 +459,72 @@ module ExprPayload =
         | ExprPayload.TypeTest _ -> ExprShape.TypeTest
         | ExprPayload.TraitCall _ -> ExprShape.TraitCall
 
+    // ── re-nesting the flat child columns ───────────────────────────────────
+    //
+    // A composite carrier — an arm, a format sink, a format segment — has no node
+    // identity of its own, so the pool flattens its pieces into the child columns and the
+    // payload keeps only the STRUCTURE needed to put them back. That structure and the
+    // cursor order it implies are the same whichever domain is being rebuilt, so the walk
+    // lives here, ONCE, generic over what a child is: `TastUnpool` drives it with DU
+    // subtrees, `TastAccessor` with node handles, and the two cannot re-nest the same
+    // columns differently. The cursors must be handed in already positioned past the
+    // node's own leading children (`Match`'s scrutinee, `TryWith`'s body).
+
+    /// Re-nest the arm children of a `Match`/`TryWith`: each arm draws its pat, then its
+    /// guard when `guardPresent` says it has one, then its body — the order
+    /// `TastPools.exprChildren`/`exprPatChildren` enumerated them in. Arm count is the
+    /// flag array's length.
+    let arms (guardPresent: bool[]) (nextPat: unit -> 'pat) (nextExpr: unit -> 'e) : TMatchArmG<'pat, 'e>[] =
+        guardPresent
+        |> Array.map (fun hasGuard ->
+            let pat = nextPat ()
+            let guard = if hasGuard then ValueSome(nextExpr ()) else ValueNone
+
+            {
+                Pat = pat
+                Guard = guard
+                Body = nextExpr ()
+            }
+        )
+
+    /// Re-nest the children of a `Format`: the sink's own sub-expression first (the order
+    /// `TastPools.exprChildren` yields), then each segment's, with the dyn-hole presence
+    /// flags saying which dimensions are there.
+    let format
+        (sink: FormatSinkShape)
+        (segments: FormatSegShape[])
+        (nextExpr: unit -> 'e)
+        : FormatSinkG<'e> * FormatSegG<FrozenType, SyntaxToken, 'e>[] =
+        let sink' =
+            match sink with
+            | FormatSinkShape.ToWriter newline -> FormatSinkG.ToWriter(nextExpr (), newline)
+            | FormatSinkShape.ToBuilder -> FormatSinkG.ToBuilder(nextExpr ())
+            | FormatSinkShape.ToStdOut newline -> FormatSinkG.ToStdOut newline
+            | FormatSinkShape.ToStdErr newline -> FormatSinkG.ToStdErr newline
+            | FormatSinkShape.ToString -> FormatSinkG.ToString
+
+        let segments' =
+            segments
+            |> Array.map (fun seg ->
+                match seg with
+                | FormatSegShape.Lit s -> FormatSegG.Lit s
+                | FormatSegShape.Hole spec -> FormatSegG.Hole(spec, nextExpr ())
+                | FormatSegShape.DynHole(hasWidth, hasPrecision, spec) ->
+                    let width = if hasWidth then ValueSome(nextExpr ()) else ValueNone
+                    let precision = if hasPrecision then ValueSome(nextExpr ()) else ValueNone
+
+                    FormatSegG.DynHole
+                        {
+                            Width = width
+                            Precision = precision
+                            Spec = spec
+                            Value = nextExpr ()
+                        }
+                | FormatSegShape.CallbackHole spec -> FormatSegG.CallbackHole(spec, nextExpr ())
+            )
+
+        sink', segments'
+
 /// The residual payload of a frozen pattern node — one case per `PatShape`, carrying ONLY
 /// the fields left after the columnar split drops `ty`/`tok` (the `PatTys`/`PatToks`
 /// columns) and the child sub-pat ids (`PatChildren`, in `TastPools.patChildren` order;

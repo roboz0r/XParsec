@@ -456,7 +456,7 @@ module EmitJsFormat =
                 | PrintfHoleForm.Alignment.Star leftJustify -> Option.Some(padDyn leftJustify)
 
             wrapDims (emitField fmt wrap)
-        // `%a`/`%t` callback holes ride a `TastAccessor.FormatSegView.CallbackHole` whose residue string
+        // `%a`/`%t` callback holes ride a `FormatSegG.CallbackHole` whose residue string
         // is spliced directly; a callback spec's `HoleForm` is provenance only and never
         // reaches this per-hole projection.
         | HoleSpecSource.Classified(HoleForm.Callback _) ->
@@ -467,18 +467,18 @@ module EmitJsFormat =
     let buildFormatArg
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
-        (segments: TastAccessor.FormatSegView[])
+        (segments: TastAccessor.FormatSeg[])
         : JsExpr =
         let buildHole = buildHole buildExpr ctx
 
         match segments with
-        | [| TastAccessor.FormatSegView.Lit s |] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
-        | [| TastAccessor.FormatSegView.Hole(hole, operand) |] -> buildHole hole operand ValueNone ValueNone
-        | [| TastAccessor.FormatSegView.DynHole d |] -> buildHole d.Spec d.Value d.Width d.Precision
+        | [| FormatSegG.Lit s |] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
+        | [| FormatSegG.Hole(hole, operand) |] -> buildHole hole operand ValueNone ValueNone
+        | [| FormatSegG.DynHole d |] -> buildHole d.Spec d.Value d.Width d.Precision
         // `%a`/`%t`: Elaborate lowered the callback to an ordinary residue-string expr; the
         // splice is just that expr (on JS only `sprintf`'s `cb(undefined)[(v)]` reaches
         // here — writer/builder `%a` diagnoses at the capability gate before Elaborate).
-        | [| TastAccessor.FormatSegView.CallbackHole(_, residue) |] -> buildExpr ctx residue
+        | [| FormatSegG.CallbackHole(_, residue) |] -> buildExpr ctx residue
         | _ ->
             let pieces = ResizeArray<JsRawSeg>()
             // Seed with `""` so the first `+` already concatenates strings, even
@@ -489,14 +489,11 @@ module EmitJsFormat =
                 pieces.Add(JsRawSeg.Verbatim " + ")
 
                 match seg with
-                | TastAccessor.FormatSegView.Lit s ->
-                    pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String s, ValueNone)))
-                | TastAccessor.FormatSegView.Hole(hole, operand) ->
+                | FormatSegG.Lit s -> pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String s, ValueNone)))
+                | FormatSegG.Hole(hole, operand) ->
                     pieces.Add(JsRawSeg.Hole(buildHole hole operand ValueNone ValueNone))
-                | TastAccessor.FormatSegView.DynHole d ->
-                    pieces.Add(JsRawSeg.Hole(buildHole d.Spec d.Value d.Width d.Precision))
-                | TastAccessor.FormatSegView.CallbackHole(_, residue) ->
-                    pieces.Add(JsRawSeg.Hole(buildExpr ctx residue))
+                | FormatSegG.DynHole d -> pieces.Add(JsRawSeg.Hole(buildHole d.Spec d.Value d.Width d.Precision))
+                | FormatSegG.CallbackHole(_, residue) -> pieces.Add(JsRawSeg.Hole(buildExpr ctx residue))
 
             JsExpr.Raw(List.ofSeq pieces, ValueNone)
 

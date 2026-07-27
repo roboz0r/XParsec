@@ -131,10 +131,13 @@ module TastConvert =
         | TExprG.TraitCall(recv, n, args, ty, tok) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty, tok)
         | TExprG.TypeTest(src, testTy, ty, tok) -> TExprG.TypeTest(pe src, f testTy, f ty, tok)
 
-    and arm (f: 'a -> 'b) (a: TMatchArmG<'a, 'tok>) : TMatchArmG<'b, 'tok> =
+    and arm
+        (f: 'a -> 'b)
+        (a: TMatchArmG<TPatG<'a, 'tok>, TExprG<'a, 'tok>>)
+        : TMatchArmG<TPatG<'b, 'tok>, TExprG<'b, 'tok>> =
         {
             Pat = pat f a.Pat
-            Guard = Option.map (expr f) a.Guard
+            Guard = ValueOption.map (expr f) a.Guard
             Body = expr f a.Body
         }
 
@@ -144,7 +147,7 @@ module TastConvert =
         | CallVia.Base -> CallVia.Base
         | CallVia.Interface ifaceArgs -> CallVia.Interface(EqArray.map f ifaceArgs)
 
-    and sinkOf (f: 'a -> 'b) (s: FormatSinkG<'a, 'tok>) : FormatSinkG<'b, 'tok> =
+    and sinkOf (f: 'a -> 'b) (s: FormatSinkG<TExprG<'a, 'tok>>) : FormatSinkG<TExprG<'b, 'tok>> =
         match s with
         | FormatSinkG.ToStdOut nl -> FormatSinkG.ToStdOut nl
         | FormatSinkG.ToStdErr nl -> FormatSinkG.ToStdErr nl
@@ -152,7 +155,7 @@ module TastConvert =
         | FormatSinkG.ToBuilder w -> FormatSinkG.ToBuilder(expr f w)
         | FormatSinkG.ToString -> FormatSinkG.ToString
 
-    and segOf (f: 'a -> 'b) (seg: FormatSegG<'a, 'tok>) : FormatSegG<'b, 'tok> =
+    and segOf (f: 'a -> 'b) (seg: FormatSegG<'a, 'tok, TExprG<'a, 'tok>>) : FormatSegG<'b, 'tok, TExprG<'b, 'tok>> =
         match seg with
         | FormatSegG.Lit lit -> FormatSegG.Lit lit
         | FormatSegG.Hole(h, a) -> FormatSegG.Hole(hole f h, expr f a)

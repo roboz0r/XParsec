@@ -267,10 +267,10 @@ type private Renderer() =
                 this.Pat arm.Pat
 
                 match arm.Guard with
-                | Some g ->
+                | ValueSome g ->
                     push " when "
                     this.Expr g
-                | None -> ()
+                | ValueNone -> ()
 
                 push " -> "
                 this.Expr arm.Body
@@ -285,10 +285,10 @@ type private Renderer() =
                 this.Pat arm.Pat
 
                 match arm.Guard with
-                | Some g ->
+                | ValueSome g ->
                     push " when "
                     this.Expr g
-                | None -> ()
+                | ValueNone -> ()
 
                 push " -> "
                 this.Expr arm.Body
