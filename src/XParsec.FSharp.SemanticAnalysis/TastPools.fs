@@ -611,7 +611,7 @@ module TastPools =
         let binderIds = System.Collections.Generic.Dictionary<NodeKey, BinderId>()
 
         // The lambda id space: a source lambda's dense id IS its `ExprPoolId` (positional
-        // — every `Lambda` expr is already in `Exprs`). `FunVerdicts`, the one side table
+        // — every `Lambda` expr is already in the `Expr*` columns). `FunVerdicts`, the one side table
         // keyed by a lambda-EXPRESSION key rather than a binder, resolves against this map;
         // it is recorded under the SAME `TastWalk.lambdaKey` codegen looks the verdict up
         // by, so the pool key space matches the DU lookup key by construction.

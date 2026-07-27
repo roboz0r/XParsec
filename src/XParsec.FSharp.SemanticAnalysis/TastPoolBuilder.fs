@@ -114,9 +114,9 @@ module TastPoolBuilder =
     // ── the stacked read surface ────────────────────────────────────────────
     //
     // One accessor per column, each resolving a FLAT id across the two layers with a single
-    // comparison. These are the per-domain equivalents of reading `FrozenPools.ExprShapes.[i]`
-    // and friends directly, and are what `TastAccessor` reads
-    // instead, so it never has to know which layer answered.
+    // comparison. These are the per-domain equivalents of reading `FrozenPools.ExprPayloads.[i]`
+    // and friends directly, and are what `TastAccessor` reads instead, so it never has to know
+    // which layer answered.
 
     let exprTy (b: PoolBuilder) (ExprPoolId i) : FrozenType =
         if i < b.ExprBase then

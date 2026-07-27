@@ -101,7 +101,9 @@ module Inline =
     /// the alias can never lose or duplicate an operand. `InlineExpansion` splices it at
     /// each `External` reference; `Freeze` publishes it in the unit's inline vocabulary
     /// (it is a splice template, `inline` keyword or not) so a consumer's provider serves
-    /// the body. It IS still emittable — unlike a `let inline` — so it stays in `Decls`.
+    /// the body. Publication is additive, here as for a `let inline`: the binding stays in
+    /// `Decls`, and it is the JS backend's own reference splicing — not the freeze — that
+    /// leaves it with no lowered definition.
     let nullaryIntrinsicValueBody (decl: TDecl) : TExpr voption =
         match decl with
         | TDecl.Let(_, (TExpr.ILIntrinsic(_, _, args, _, _) as body), _, _) when args.Length = 0 -> ValueSome body

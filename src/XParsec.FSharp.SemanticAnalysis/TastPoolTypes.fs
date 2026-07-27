@@ -146,15 +146,15 @@ type DeclShape =
     | Expression
     | Type
 
-/// A dense pool index into a `FrozenPools.Exprs` column.
+/// A dense pool index into the parallel `FrozenPools.Expr*` columns.
 [<Struct>]
 type ExprPoolId = | ExprPoolId of int
 
-/// A dense pool index into a `FrozenPools.Pats` column.
+/// A dense pool index into the parallel `FrozenPools.Pat*` columns.
 [<Struct>]
 type PatPoolId = | PatPoolId of int
 
-/// A dense pool index into a `FrozenPools.Decls` column.
+/// A dense pool index into the parallel `FrozenPools.Decl*` columns.
 [<Struct>]
 type DeclPoolId = | DeclPoolId of int
 
@@ -763,7 +763,7 @@ type FrozenPools =
         /// tree from the emitted function of the same name (see `PooledInlineValue`).
         InlineTemplates: PooledInlineValue[]
         /// The distinct binder entries as ONE dense column indexed by `BinderId`, its own
-        /// array disjoint from `Pats`: each binder's whole original `NodeKey` — the identity
+        /// array disjoint from the `Pat*` columns: each binder's whole original `NodeKey` — the identity
         /// `Var.binding` and the side tables resolve against, and the DU round-trip's carrier
         /// for the `Raw` bits (kind included) the trees still reconstruct from, so the key
         /// cannot be dropped while the backing is DU-form. The naming a backend emits is a
