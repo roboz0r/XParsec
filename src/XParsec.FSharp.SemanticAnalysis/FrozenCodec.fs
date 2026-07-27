@@ -138,7 +138,9 @@ module FrozenCodec =
     // The domains interlock — a `MemberKey.ArgSig` is `EqArray<FrozenType>`, and an
     // `FTConst` carries a `SymbolKey` — so their writers (and readers) are one `rec`
     // group. Readers use explicit `let` sequencing, never positional constructor-arg
-    // evaluation, so field read order provably matches the writer's emit order.
+    // evaluation, so field read order provably matches the writer's emit order — and each
+    // reader sits directly under the writer it must mirror, so "provably" means readable
+    // side by side rather than checked across a file.
 
     let rec writeFrozenType (w: BinaryWriter) (t: FrozenType) =
         match t with
@@ -202,75 +204,7 @@ module FrozenCodec =
             w.Write 14uy
             w.Write name
 
-    and private writeFtArray (w: BinaryWriter) (xs: EqArray<FrozenType>) = writeEqArrayWith w writeFrozenType xs
-
-    and writeSymbolKey (w: BinaryWriter) (k: SymbolKey) =
-        match k with
-        | SymbolKey.Type tk ->
-            w.Write 0uy
-            writeTypeKey w tk
-        | SymbolKey.Binding bk ->
-            w.Write 1uy
-            writeBindingKey w bk
-        | SymbolKey.Member mk ->
-            w.Write 2uy
-            writeMemberKey w mk
-
-    and writeTypeKey (w: BinaryWriter) (k: TypeKey) =
-        writeTypeHolder w k.Holder
-        w.Write k.Name
-        w.Write k.TyparArity
-
-    and private writeTypeHolder (w: BinaryWriter) (h: TypeHolder) =
-        match h with
-        | TypeHolder.InNamespace ns ->
-            w.Write 0uy
-            writeNamespaceKey w ns
-        | TypeHolder.InModule m ->
-            w.Write 1uy
-            writeModuleKey w m
-        | TypeHolder.InType outer ->
-            w.Write 2uy
-            writeTypeKey w outer
-
-    and private writeNamespaceKey (w: BinaryWriter) (ns: NamespaceKey) = writeStringArray w ns.Path
-
-    and private writeModuleKey (w: BinaryWriter) (m: ModuleKey) =
-        writeModuleHolder w m.Holder
-        w.Write m.Name
-
-    and private writeModuleHolder (w: BinaryWriter) (h: ModuleHolder) =
-        match h with
-        | ModuleHolder.InNamespace ns ->
-            w.Write 0uy
-            writeNamespaceKey w ns
-        | ModuleHolder.InModule parent ->
-            w.Write 1uy
-            writeModuleKey w parent
-
-    and private writeBindingKey (w: BinaryWriter) (b: BindingKey) =
-        writeModuleHolder w b.Decl
-        w.Write b.Name
-
-    and private writeMemberKey (w: BinaryWriter) (m: MemberKey) =
-        writeTypeKey w m.Decl
-        w.Write m.Name
-        writeFtArray w m.ArgSig
-        w.Write m.MethodTyparArity
-        writeMemberKind w m.Kind
-
-    and private writeMemberKind (w: BinaryWriter) (k: MemberKind) =
-        match k with
-        | MemberKind.Method -> w.Write 0uy
-        | MemberKind.Property -> w.Write 1uy
-        | MemberKind.InterfaceMethod iface ->
-            w.Write 2uy
-            writeTypeKey w iface
-        | MemberKind.ExplicitInterfaceImpl iface ->
-            w.Write 3uy
-            writeTypeKey w iface
-
-    let rec readFrozenType (r: BinaryReader) : FrozenType =
+    and readFrozenType (r: BinaryReader) : FrozenType =
         match r.ReadByte() with
         | 0uy ->
             let key = readSymbolKey r
@@ -328,8 +262,22 @@ module FrozenCodec =
         | 14uy -> FTUnknown(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown FrozenType tag %d" b
 
+    and private writeFtArray (w: BinaryWriter) (xs: EqArray<FrozenType>) = writeEqArrayWith w writeFrozenType xs
+
     and private readFtArray (r: BinaryReader) : EqArray<FrozenType> =
         EqArray.ofArray (readArrayWith r readFrozenType)
+
+    and writeSymbolKey (w: BinaryWriter) (k: SymbolKey) =
+        match k with
+        | SymbolKey.Type tk ->
+            w.Write 0uy
+            writeTypeKey w tk
+        | SymbolKey.Binding bk ->
+            w.Write 1uy
+            writeBindingKey w bk
+        | SymbolKey.Member mk ->
+            w.Write 2uy
+            writeMemberKey w mk
 
     and readSymbolKey (r: BinaryReader) : SymbolKey =
         match r.ReadByte() with
@@ -337,6 +285,11 @@ module FrozenCodec =
         | 1uy -> SymbolKey.Binding(readBindingKey r)
         | 2uy -> SymbolKey.Member(readMemberKey r)
         | b -> failwithf "FrozenCodec: unknown SymbolKey tag %d" b
+
+    and writeTypeKey (w: BinaryWriter) (k: TypeKey) =
+        writeTypeHolder w k.Holder
+        w.Write k.Name
+        w.Write k.TyparArity
 
     and readTypeKey (r: BinaryReader) : TypeKey =
         let holder = readTypeHolder r
@@ -349,6 +302,18 @@ module FrozenCodec =
             TyparArity = arity
         }
 
+    and private writeTypeHolder (w: BinaryWriter) (h: TypeHolder) =
+        match h with
+        | TypeHolder.InNamespace ns ->
+            w.Write 0uy
+            writeNamespaceKey w ns
+        | TypeHolder.InModule m ->
+            w.Write 1uy
+            writeModuleKey w m
+        | TypeHolder.InType outer ->
+            w.Write 2uy
+            writeTypeKey w outer
+
     and private readTypeHolder (r: BinaryReader) : TypeHolder =
         match r.ReadByte() with
         | 0uy -> TypeHolder.InNamespace(readNamespaceKey r)
@@ -356,12 +321,27 @@ module FrozenCodec =
         | 2uy -> TypeHolder.InType(readTypeKey r)
         | b -> failwithf "FrozenCodec: unknown TypeHolder tag %d" b
 
+    and private writeNamespaceKey (w: BinaryWriter) (ns: NamespaceKey) = writeStringArray w ns.Path
+
     and private readNamespaceKey (r: BinaryReader) : NamespaceKey = { Path = readStringArray r }
+
+    and private writeModuleKey (w: BinaryWriter) (m: ModuleKey) =
+        writeModuleHolder w m.Holder
+        w.Write m.Name
 
     and private readModuleKey (r: BinaryReader) : ModuleKey =
         let holder = readModuleHolder r
         let name = r.ReadString()
         { Holder = holder; Name = name }
+
+    and private writeModuleHolder (w: BinaryWriter) (h: ModuleHolder) =
+        match h with
+        | ModuleHolder.InNamespace ns ->
+            w.Write 0uy
+            writeNamespaceKey w ns
+        | ModuleHolder.InModule parent ->
+            w.Write 1uy
+            writeModuleKey w parent
 
     and private readModuleHolder (r: BinaryReader) : ModuleHolder =
         match r.ReadByte() with
@@ -369,10 +349,21 @@ module FrozenCodec =
         | 1uy -> ModuleHolder.InModule(readModuleKey r)
         | b -> failwithf "FrozenCodec: unknown ModuleHolder tag %d" b
 
+    and private writeBindingKey (w: BinaryWriter) (b: BindingKey) =
+        writeModuleHolder w b.Decl
+        w.Write b.Name
+
     and private readBindingKey (r: BinaryReader) : BindingKey =
         let decl = readModuleHolder r
         let name = r.ReadString()
         { Decl = decl; Name = name }
+
+    and private writeMemberKey (w: BinaryWriter) (m: MemberKey) =
+        writeTypeKey w m.Decl
+        w.Write m.Name
+        writeFtArray w m.ArgSig
+        w.Write m.MethodTyparArity
+        writeMemberKind w m.Kind
 
     and private readMemberKey (r: BinaryReader) : MemberKey =
         let decl = readTypeKey r
@@ -388,6 +379,17 @@ module FrozenCodec =
             MethodTyparArity = methodTyparArity
             Kind = kind
         }
+
+    and private writeMemberKind (w: BinaryWriter) (k: MemberKind) =
+        match k with
+        | MemberKind.Method -> w.Write 0uy
+        | MemberKind.Property -> w.Write 1uy
+        | MemberKind.InterfaceMethod iface ->
+            w.Write 2uy
+            writeTypeKey w iface
+        | MemberKind.ExplicitInterfaceImpl iface ->
+            w.Write 3uy
+            writeTypeKey w iface
 
     and private readMemberKind (r: BinaryReader) : MemberKind =
         match r.ReadByte() with
@@ -1065,6 +1067,12 @@ module FrozenCodec =
 
     // ── the declaration shell + the scalar clusters riding a pool payload ───
     //
+    // Each writer is followed IMMEDIATELY by its reader. They have to agree field for
+    // field, in order, and nothing but review makes them: putting the pair on one screen
+    // is the whole of that review. (They were two groups, a couple of hundred lines
+    // apart, when a `TTypeMember`'s ten-field emit order had to be checked against a
+    // reader you could not see at the same time.)
+    //
     // Instantiated at `<FrozenType, SyntaxToken>` — every `'ty` payload rides
     // `writeFrozenType`, every `'tok` rides `writeSyntaxToken` (both defined in the
     // leaf group above). Each writer's `match` is EXHAUSTIVE with no catch-all, so a
@@ -1101,6 +1109,13 @@ module FrozenCodec =
             writeSymbolKey w key
         | Disposal.Unresolved -> w.Write 2uy
 
+    and private readDisposal (r: BinaryReader) : Disposal =
+        match r.ReadByte() with
+        | 0uy -> Disposal.ViaCapability(readSymbolKey r)
+        | 1uy -> Disposal.ViaOwnMember(readSymbolKey r)
+        | 2uy -> Disposal.Unresolved
+        | b -> failwithf "FrozenCodec: unknown Disposal tag %d" b
+
     and private writeCallVia (w: BinaryWriter) (v: CallVia<FrozenType>) =
         match v with
         | CallVia.Self -> w.Write 0uy
@@ -1108,6 +1123,13 @@ module FrozenCodec =
         | CallVia.Interface ifaceArgs ->
             w.Write 2uy
             writeEqArrayWith w writeFrozenType ifaceArgs
+
+    and private readCallVia (r: BinaryReader) : CallVia<FrozenType> =
+        match r.ReadByte() with
+        | 0uy -> CallVia.Self
+        | 1uy -> CallVia.Base
+        | 2uy -> CallVia.Interface(EqArray.ofArray (readArrayWith r readFrozenType))
+        | b -> failwithf "FrozenCodec: unknown CallVia tag %d" b
 
     and private writeStaticOptConstraint (w: BinaryWriter) (c: Frozen.TStaticOptConstraint) =
         match c with
@@ -1118,6 +1140,15 @@ module FrozenCodec =
         | TStaticOptConstraintG.IsStruct typar ->
             w.Write 1uy
             writeFrozenType w typar
+
+    and private readStaticOptConstraint (r: BinaryReader) : Frozen.TStaticOptConstraint =
+        match r.ReadByte() with
+        | 0uy ->
+            let typar = readFrozenType r
+            let required = readFrozenType r
+            TStaticOptConstraintG.TyconEquals(typar, required)
+        | 1uy -> TStaticOptConstraintG.IsStruct(readFrozenType r)
+        | b -> failwithf "FrozenCodec: unknown TStaticOptConstraint tag %d" b
 
     and private writeForInEnumerator (w: BinaryWriter) (e: Frozen.ForInEnumerator) =
         match e with
@@ -1130,6 +1161,18 @@ module FrozenCodec =
             w.Write isValueType
             w.Write dispose
 
+    and private readForInEnumerator (r: BinaryReader) : Frozen.ForInEnumerator =
+        match r.ReadByte() with
+        | 0uy -> ForInEnumeratorG.Interface
+        | 1uy ->
+            let enumeratorTy = readFrozenType r
+            let getEnumerator = readForInGetEnum r
+            let members = readForInEnumMembers r
+            let isValueType = r.ReadBoolean()
+            let dispose = r.ReadBoolean()
+            ForInEnumeratorG.Pattern(enumeratorTy, getEnumerator, members, isValueType, dispose)
+        | b -> failwithf "FrozenCodec: unknown ForInEnumerator tag %d" b
+
     and private writeForInGetEnum (w: BinaryWriter) (g: ForInGetEnumG<FrozenType>) =
         match g with
         | ForInGetEnumG.External getEnumerator ->
@@ -1140,6 +1183,16 @@ module FrozenCodec =
             w.Write 2uy
             writeTypeKey w iface
             writeEqArrayWith w writeFrozenType ifaceArgs
+
+    and private readForInGetEnum (r: BinaryReader) : ForInGetEnumG<FrozenType> =
+        match r.ReadByte() with
+        | 0uy -> ForInGetEnumG.External(readSymbolKey r)
+        | 1uy -> ForInGetEnumG.Local
+        | 2uy ->
+            let iface = readTypeKey r
+            let ifaceArgs = EqArray.ofArray (readArrayWith r readFrozenType)
+            ForInGetEnumG.ConstrainedInterface(iface, ifaceArgs)
+        | b -> failwithf "FrozenCodec: unknown ForInGetEnum tag %d" b
 
     and private writeForInEnumMembers (w: BinaryWriter) (m: ForInEnumMembersG<FrozenType>) =
         match m with
@@ -1152,6 +1205,19 @@ module FrozenCodec =
             w.Write 2uy
             writeTypeKey w iface
             writeEqArrayWith w writeFrozenType ifaceArgs
+
+    and private readForInEnumMembers (r: BinaryReader) : ForInEnumMembersG<FrozenType> =
+        match r.ReadByte() with
+        | 0uy ->
+            let moveNext = readSymbolKey r
+            let current = readSymbolKey r
+            ForInEnumMembersG.External(moveNext, current)
+        | 1uy -> ForInEnumMembersG.Local
+        | 2uy ->
+            let iface = readTypeKey r
+            let ifaceArgs = EqArray.ofArray (readArrayWith r readFrozenType)
+            ForInEnumMembersG.ConstrainedInterface(iface, ifaceArgs)
+        | b -> failwithf "FrozenCodec: unknown ForInEnumMembers tag %d" b
 
     // The `type` declaration shell — the one declaration shape a pool payload still
     // carries whole (`DeclPayload.Type`). Its member / preamble / ctor bodies are pool
@@ -1167,6 +1233,27 @@ module FrozenCodec =
         writeTypeKind w td.Kind
         writeEqualityVerdict w td.EqualitySupport
         writeComparisonVerdict w td.ComparisonSupport
+
+    and private readTypeDecl (r: BinaryReader) : PooledTypeDecl =
+        let name = r.ReadString()
+        let typeKey = readTypeKey r
+        let ns = readOptionWith r (fun r -> r.ReadString())
+        let typeParams = readStringArray r
+        let isRqa = r.ReadBoolean()
+        let kind = readTypeKind r
+        let equalitySupport = readEqualityVerdict r
+        let comparisonSupport = readComparisonVerdict r
+
+        {
+            Name = name
+            TypeKey = typeKey
+            Namespace = ns
+            TypeParams = typeParams
+            IsRequireQualifiedAccess = isRqa
+            Kind = kind
+            EqualitySupport = equalitySupport
+            ComparisonSupport = comparisonSupport
+        }
 
     and private writeTypeKind (w: BinaryWriter) (k: TTypeKindG<FrozenType, SyntaxToken, ExprPoolId>) =
         match k with
@@ -1191,212 +1278,6 @@ module FrozenCodec =
             w.Write 4uy
             writeEqArrayWith w writeEnumCase cases
 
-    // Each `interfaces` entry pairs a resolved interface type with its typed member
-    // bodies — shared by the class / union / record arms.
-    and private writeInterfaces
-        (w: BinaryWriter)
-        (interfaces: EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, ExprPoolId>>>)
-        =
-        writeEqArrayWith
-            w
-            (fun w (ty, mems) ->
-                writeFrozenType w ty
-                writeEqArrayWith w writeTypeMember mems
-            )
-            interfaces
-
-    and private writeClass (w: BinaryWriter) (c: TClassG<FrozenType, ExprPoolId>) =
-        writeEqArrayWith w writeRecordField c.Fields
-        writeEqArrayWith w writeRecordField c.CtorParams
-        writeEqArrayWith w writeTypeMember c.Members
-        writeVOptionWith w writeFrozenType c.BaseType
-        writeInterfaces w c.Interfaces
-        w.Write c.IsSealed
-        writeEqArrayWith w writePreambleEntry c.StaticPreamble
-        writeEqArrayWith w writePreambleEntry c.InstancePreamble
-        writeNodeKey w c.ThisKey
-        writeEqArrayWith w writeSecondaryCtor c.SecondaryCtors
-        writeVOptionWith w writeBaseCtorCall c.BaseCtorCall
-        writeClassValueKind w c.ValueKind
-        w.Write c.HasPrimaryCtor
-
-    and private writeTypeMember (w: BinaryWriter) (m: TTypeMemberG<FrozenType, ExprPoolId>) =
-        w.Write m.Name
-        w.Write m.IsStatic
-        writeAccessibility w m.Accessibility
-        writeTMemberKind w m.Kind
-        w.Write m.IsOverride
-        writeVOptionWith w writeNodeKey m.ThisKey
-        writeVOptionWith w writeNodeKey m.BaseKey
-        writeFrozenType w m.ThisTy
-
-        writeEqArrayWith
-            w
-            (fun w (k, ty) ->
-                writeNodeKey w k
-                writeFrozenType w ty
-            )
-            m.Params
-
-        writeExprPoolId w m.Body
-        writeFrozenType w m.ReturnTy
-        writeMethodTypeParams w m.MethodTypeParams
-
-    and private writeClassLet (w: BinaryWriter) (l: TClassLetG<FrozenType, ExprPoolId>) =
-        w.Write l.Name
-        writeFrozenType w l.Type
-        w.Write l.IsMutable
-        writeExprPoolId w l.Init
-
-    and private writePreambleEntry (w: BinaryWriter) (p: TPreambleEntryG<FrozenType, ExprPoolId>) =
-        match p with
-        | TPreambleEntryG.Let l ->
-            w.Write 0uy
-            writeClassLet w l
-        | TPreambleEntryG.Do e ->
-            w.Write 1uy
-            writeExprPoolId w e
-
-    and private writeCtorLet (w: BinaryWriter) (cl: TCtorLetG<FrozenType, ExprPoolId>) =
-        writeNodeKey w cl.Binder
-        writeFrozenType w cl.Type
-        writeExprPoolId w cl.Init
-
-    and private writeCtorFieldInit (w: BinaryWriter) (fi: TCtorFieldInitG<ExprPoolId>) =
-        w.Write fi.Field
-        writeExprPoolId w fi.Init
-
-    and private writeSecondaryCtor (w: BinaryWriter) (sc: TSecondaryCtorG<FrozenType, ExprPoolId>) =
-        writeEqArrayWith
-            w
-            (fun w (k, ty) ->
-                writeNodeKey w k
-                writeFrozenType w ty
-            )
-            sc.Params
-
-        writeEqArrayWith w writeCtorLet sc.Lets
-        writeEqArrayWith w writeExprPoolId sc.PrimaryArgs
-        writeEqArrayWith w writeCtorFieldInit sc.FieldInits
-
-    and private writeBaseCtorCall (w: BinaryWriter) (bc: TBaseCtorCallG<FrozenType, ExprPoolId>) =
-        writeEqArrayWith
-            w
-            (fun w (k, ty) ->
-                writeNodeKey w k
-                writeFrozenType w ty
-            )
-            bc.CtorParams
-
-        writeEqArrayWith w writeExprPoolId bc.Args
-        writeVOptionWith w writeSymbolKey bc.ChosenCtor
-
-    /// A published template: its identity and parameter attributes, its declaration named
-    /// by pool id like any other root.
-    and private writeInlineTemplate (w: BinaryWriter) (v: PooledInlineValue) =
-        writeSymbolKey w v.Key
-        writeDeclPoolId w v.Decl
-        writeArrayWith w writeParamAttrs v.ParamAttrs
-
-    and private writeArgGroup (w: BinaryWriter) (g: ArgGroupG<FrozenType, PatPoolId>) =
-        match g with
-        | ArgGroupG.GUnit ty ->
-            w.Write 0uy
-            writeFrozenType w ty
-        | ArgGroupG.GSimple(slot, ty) ->
-            w.Write 1uy
-            writeNodeKey w slot
-            writeFrozenType w ty
-        | ArgGroupG.GTuple pat ->
-            w.Write 2uy
-            writePatPoolId w pat
-
-    and private writeValRepr (w: BinaryWriter) (v: PooledValRepr) =
-        w.Write v.Typars
-        writeListWith w writeArgGroup v.Groups
-        writeFrozenType w v.ResultTy
-
-    // ── the mirror reader group ─────────────────────────────────────────────
-
-    and private readDisposal (r: BinaryReader) : Disposal =
-        match r.ReadByte() with
-        | 0uy -> Disposal.ViaCapability(readSymbolKey r)
-        | 1uy -> Disposal.ViaOwnMember(readSymbolKey r)
-        | 2uy -> Disposal.Unresolved
-        | b -> failwithf "FrozenCodec: unknown Disposal tag %d" b
-
-    and private readCallVia (r: BinaryReader) : CallVia<FrozenType> =
-        match r.ReadByte() with
-        | 0uy -> CallVia.Self
-        | 1uy -> CallVia.Base
-        | 2uy -> CallVia.Interface(EqArray.ofArray (readArrayWith r readFrozenType))
-        | b -> failwithf "FrozenCodec: unknown CallVia tag %d" b
-
-    and private readStaticOptConstraint (r: BinaryReader) : Frozen.TStaticOptConstraint =
-        match r.ReadByte() with
-        | 0uy ->
-            let typar = readFrozenType r
-            let required = readFrozenType r
-            TStaticOptConstraintG.TyconEquals(typar, required)
-        | 1uy -> TStaticOptConstraintG.IsStruct(readFrozenType r)
-        | b -> failwithf "FrozenCodec: unknown TStaticOptConstraint tag %d" b
-
-    and private readForInEnumerator (r: BinaryReader) : Frozen.ForInEnumerator =
-        match r.ReadByte() with
-        | 0uy -> ForInEnumeratorG.Interface
-        | 1uy ->
-            let enumeratorTy = readFrozenType r
-            let getEnumerator = readForInGetEnum r
-            let members = readForInEnumMembers r
-            let isValueType = r.ReadBoolean()
-            let dispose = r.ReadBoolean()
-            ForInEnumeratorG.Pattern(enumeratorTy, getEnumerator, members, isValueType, dispose)
-        | b -> failwithf "FrozenCodec: unknown ForInEnumerator tag %d" b
-
-    and private readForInGetEnum (r: BinaryReader) : ForInGetEnumG<FrozenType> =
-        match r.ReadByte() with
-        | 0uy -> ForInGetEnumG.External(readSymbolKey r)
-        | 1uy -> ForInGetEnumG.Local
-        | 2uy ->
-            let iface = readTypeKey r
-            let ifaceArgs = EqArray.ofArray (readArrayWith r readFrozenType)
-            ForInGetEnumG.ConstrainedInterface(iface, ifaceArgs)
-        | b -> failwithf "FrozenCodec: unknown ForInGetEnum tag %d" b
-
-    and private readForInEnumMembers (r: BinaryReader) : ForInEnumMembersG<FrozenType> =
-        match r.ReadByte() with
-        | 0uy ->
-            let moveNext = readSymbolKey r
-            let current = readSymbolKey r
-            ForInEnumMembersG.External(moveNext, current)
-        | 1uy -> ForInEnumMembersG.Local
-        | 2uy ->
-            let iface = readTypeKey r
-            let ifaceArgs = EqArray.ofArray (readArrayWith r readFrozenType)
-            ForInEnumMembersG.ConstrainedInterface(iface, ifaceArgs)
-        | b -> failwithf "FrozenCodec: unknown ForInEnumMembers tag %d" b
-
-    and private readTypeDecl (r: BinaryReader) : PooledTypeDecl =
-        let name = r.ReadString()
-        let typeKey = readTypeKey r
-        let ns = readOptionWith r (fun r -> r.ReadString())
-        let typeParams = readStringArray r
-        let isRqa = r.ReadBoolean()
-        let kind = readTypeKind r
-        let equalitySupport = readEqualityVerdict r
-        let comparisonSupport = readComparisonVerdict r
-
-        {
-            Name = name
-            TypeKey = typeKey
-            Namespace = ns
-            TypeParams = typeParams
-            IsRequireQualifiedAccess = isRqa
-            Kind = kind
-            EqualitySupport = equalitySupport
-            ComparisonSupport = comparisonSupport
-        }
-
     and private readTypeKind (r: BinaryReader) : TTypeKindG<FrozenType, SyntaxToken, ExprPoolId> =
         match r.ReadByte() with
         | 0uy -> TTypeKindG.Interface(EqArray.ofArray (readArrayWith r readAbstractMethod))
@@ -1415,6 +1296,20 @@ module FrozenCodec =
         | 4uy -> TTypeKindG.Enum(EqArray.ofArray (readArrayWith r readEnumCase))
         | b -> failwithf "FrozenCodec: unknown TTypeKind tag %d" b
 
+    // Each `interfaces` entry pairs a resolved interface type with its typed member
+    // bodies — shared by the class / union / record arms.
+    and private writeInterfaces
+        (w: BinaryWriter)
+        (interfaces: EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, ExprPoolId>>>)
+        =
+        writeEqArrayWith
+            w
+            (fun w (ty, mems) ->
+                writeFrozenType w ty
+                writeEqArrayWith w writeTypeMember mems
+            )
+            interfaces
+
     and private readInterfaces (r: BinaryReader) : EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, ExprPoolId>>> =
         EqArray.ofArray (
             readArrayWith
@@ -1425,6 +1320,21 @@ module FrozenCodec =
                     ty, mems
                 )
         )
+
+    and private writeClass (w: BinaryWriter) (c: TClassG<FrozenType, ExprPoolId>) =
+        writeEqArrayWith w writeRecordField c.Fields
+        writeEqArrayWith w writeRecordField c.CtorParams
+        writeEqArrayWith w writeTypeMember c.Members
+        writeVOptionWith w writeFrozenType c.BaseType
+        writeInterfaces w c.Interfaces
+        w.Write c.IsSealed
+        writeEqArrayWith w writePreambleEntry c.StaticPreamble
+        writeEqArrayWith w writePreambleEntry c.InstancePreamble
+        writeNodeKey w c.ThisKey
+        writeEqArrayWith w writeSecondaryCtor c.SecondaryCtors
+        writeVOptionWith w writeBaseCtorCall c.BaseCtorCall
+        writeClassValueKind w c.ValueKind
+        w.Write c.HasPrimaryCtor
 
     and private readClass (r: BinaryReader) : TClassG<FrozenType, ExprPoolId> =
         let fields = EqArray.ofArray (readArrayWith r readRecordField)
@@ -1456,6 +1366,28 @@ module FrozenCodec =
             ValueKind = valueKind
             HasPrimaryCtor = hasPrimaryCtor
         }
+
+    and private writeTypeMember (w: BinaryWriter) (m: TTypeMemberG<FrozenType, ExprPoolId>) =
+        w.Write m.Name
+        w.Write m.IsStatic
+        writeAccessibility w m.Accessibility
+        writeTMemberKind w m.Kind
+        w.Write m.IsOverride
+        writeVOptionWith w writeNodeKey m.ThisKey
+        writeVOptionWith w writeNodeKey m.BaseKey
+        writeFrozenType w m.ThisTy
+
+        writeEqArrayWith
+            w
+            (fun w (k, ty) ->
+                writeNodeKey w k
+                writeFrozenType w ty
+            )
+            m.Params
+
+        writeExprPoolId w m.Body
+        writeFrozenType w m.ReturnTy
+        writeMethodTypeParams w m.MethodTypeParams
 
     and private readTypeMember (r: BinaryReader) : TTypeMemberG<FrozenType, ExprPoolId> =
         let name = r.ReadString()
@@ -1497,6 +1429,12 @@ module FrozenCodec =
             MethodTypeParams = methodTypeParams
         }
 
+    and private writeClassLet (w: BinaryWriter) (l: TClassLetG<FrozenType, ExprPoolId>) =
+        w.Write l.Name
+        writeFrozenType w l.Type
+        w.Write l.IsMutable
+        writeExprPoolId w l.Init
+
     and private readClassLet (r: BinaryReader) : TClassLetG<FrozenType, ExprPoolId> =
         let name = r.ReadString()
         let ty = readFrozenType r
@@ -1510,11 +1448,25 @@ module FrozenCodec =
             Init = init
         }
 
+    and private writePreambleEntry (w: BinaryWriter) (p: TPreambleEntryG<FrozenType, ExprPoolId>) =
+        match p with
+        | TPreambleEntryG.Let l ->
+            w.Write 0uy
+            writeClassLet w l
+        | TPreambleEntryG.Do e ->
+            w.Write 1uy
+            writeExprPoolId w e
+
     and private readPreambleEntry (r: BinaryReader) : TPreambleEntryG<FrozenType, ExprPoolId> =
         match r.ReadByte() with
         | 0uy -> TPreambleEntryG.Let(readClassLet r)
         | 1uy -> TPreambleEntryG.Do(readExprPoolId r)
         | b -> failwithf "FrozenCodec: unknown TPreambleEntry tag %d" b
+
+    and private writeCtorLet (w: BinaryWriter) (cl: TCtorLetG<FrozenType, ExprPoolId>) =
+        writeNodeKey w cl.Binder
+        writeFrozenType w cl.Type
+        writeExprPoolId w cl.Init
 
     and private readCtorLet (r: BinaryReader) : TCtorLetG<FrozenType, ExprPoolId> =
         let binder = readNodeKey r
@@ -1527,10 +1479,27 @@ module FrozenCodec =
             Init = init
         }
 
+    and private writeCtorFieldInit (w: BinaryWriter) (fi: TCtorFieldInitG<ExprPoolId>) =
+        w.Write fi.Field
+        writeExprPoolId w fi.Init
+
     and private readCtorFieldInit (r: BinaryReader) : TCtorFieldInitG<ExprPoolId> =
         let field = r.ReadString()
         let init = readExprPoolId r
         { Field = field; Init = init }
+
+    and private writeSecondaryCtor (w: BinaryWriter) (sc: TSecondaryCtorG<FrozenType, ExprPoolId>) =
+        writeEqArrayWith
+            w
+            (fun w (k, ty) ->
+                writeNodeKey w k
+                writeFrozenType w ty
+            )
+            sc.Params
+
+        writeEqArrayWith w writeCtorLet sc.Lets
+        writeEqArrayWith w writeExprPoolId sc.PrimaryArgs
+        writeEqArrayWith w writeCtorFieldInit sc.FieldInits
 
     and private readSecondaryCtor (r: BinaryReader) : TSecondaryCtorG<FrozenType, ExprPoolId> =
         let parameters =
@@ -1555,6 +1524,18 @@ module FrozenCodec =
             FieldInits = fieldInits
         }
 
+    and private writeBaseCtorCall (w: BinaryWriter) (bc: TBaseCtorCallG<FrozenType, ExprPoolId>) =
+        writeEqArrayWith
+            w
+            (fun w (k, ty) ->
+                writeNodeKey w k
+                writeFrozenType w ty
+            )
+            bc.CtorParams
+
+        writeEqArrayWith w writeExprPoolId bc.Args
+        writeVOptionWith w writeSymbolKey bc.ChosenCtor
+
     and private readBaseCtorCall (r: BinaryReader) : TBaseCtorCallG<FrozenType, ExprPoolId> =
         let ctorParams =
             EqArray.ofArray (
@@ -1576,6 +1557,13 @@ module FrozenCodec =
             ChosenCtor = chosenCtor
         }
 
+    /// A published template: its identity and parameter attributes, its declaration named
+    /// by pool id like any other root.
+    and private writeInlineTemplate (w: BinaryWriter) (v: PooledInlineValue) =
+        writeSymbolKey w v.Key
+        writeDeclPoolId w v.Decl
+        writeArrayWith w writeParamAttrs v.ParamAttrs
+
     and private readInlineTemplate (r: BinaryReader) : PooledInlineValue =
         let key = readSymbolKey r
         let decl = readDeclPoolId r
@@ -1587,6 +1575,19 @@ module FrozenCodec =
             ParamAttrs = paramAttrs
         }
 
+    and private writeArgGroup (w: BinaryWriter) (g: ArgGroupG<FrozenType, PatPoolId>) =
+        match g with
+        | ArgGroupG.GUnit ty ->
+            w.Write 0uy
+            writeFrozenType w ty
+        | ArgGroupG.GSimple(slot, ty) ->
+            w.Write 1uy
+            writeNodeKey w slot
+            writeFrozenType w ty
+        | ArgGroupG.GTuple pat ->
+            w.Write 2uy
+            writePatPoolId w pat
+
     and private readArgGroup (r: BinaryReader) : ArgGroupG<FrozenType, PatPoolId> =
         match r.ReadByte() with
         | 0uy -> ArgGroupG.GUnit(readFrozenType r)
@@ -1596,6 +1597,11 @@ module FrozenCodec =
             ArgGroupG.GSimple(slot, ty)
         | 2uy -> ArgGroupG.GTuple(readPatPoolId r)
         | b -> failwithf "FrozenCodec: unknown ArgGroup tag %d" b
+
+    and private writeValRepr (w: BinaryWriter) (v: PooledValRepr) =
+        w.Write v.Typars
+        writeListWith w writeArgGroup v.Groups
+        writeFrozenType w v.ResultTy
 
     and private readValRepr (r: BinaryReader) : PooledValRepr =
         let typars = r.ReadInt32()
