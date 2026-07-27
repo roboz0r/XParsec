@@ -25,12 +25,35 @@ open XParsec.FSharp.Parser
 // carry their own pool. The `failwith` guards are the shape contract: read a payload
 // only after `exprKind`/`patKind`/`declKind` (or through the matching recognizer).
 //
-// EVERY eager view guards on the `*Payload` column, never on the `*Shape` tag — one
+// EVERY view guards on the `*Payload` column, never on the `*Shape` tag — one
 // convention, so a reader never has to check which of the two a given accessor used.
 // Payload rather than shape because the payload is the column the view is projecting
 // FROM in all but a handful of cases, so the guard and the read are one fetch. The
 // shape tag is for a consumer's own TOTAL dispatch (the emit routers), where its
 // closed enum is what keeps the match exhaustive.
+//
+// A view with a RECOGNIZER — the accessor in pattern position — is written ONCE, as
+// the recognizer, and the eager form derives from it:
+//
+//     match e with
+//     | EForTo ft -> ...        // ft : ForToView, bound once
+//     | EVar key  -> ...
+//     | _ -> ...
+//
+// Each is a partial single-case active pattern (`[<return: Struct>]`, so the `voption`
+// is unboxed and the match allocates nothing) that succeeds on its own payload case and
+// declines on every other, so an arm can never fire the wrong projection. Deriving the
+// eager accessor from it keeps one guard and ONE column read per match — a recognizer
+// that re-dispatched on the shape tag and then called an eager view would fetch two
+// columns and match twice, on the per-node path of both backends' emit walks.
+//
+// A recognizer exists for exactly the shapes a consumer matches in a *partial* dispatch
+// (one that ends in a `| _ ->` fall-through). A *total* dispatch over every shape — the
+// emit routers (`EmitExpr.buildExpr`, `EmitPattern`, the `Emit.fs` decl loop) — matches
+// the `exprKind`/`patKind`/`declKind` tag instead, which the closed
+// `ExprShape`/`PatShape`/`DeclShape` enum keeps exhaustive: a new case breaks those
+// matches at compile time. `RequireQualifiedAccess` means they are used qualified
+// (`TastAccessor.EForTo`).
 
 /// The TAST-shaped accessor. `open` is disallowed so `exprTy`/`patTy` don't collide
 /// with the analysis-time `TastWalk` projections of the same name.
@@ -125,13 +148,20 @@ module TastAccessor =
         | ExprPayload.Const value -> value
         | _ -> failwith "TastAccessor.exprConstValue: not a Const node"
 
-    /// The binder a `Var` node references — the `NodeKey` a preceding binder
-    /// introduced. Guard with `exprKind` = `ExprShape.Var` first; `failwith` on any
-    /// other shape.
+    /// A `Var` node → the binder it references, the `NodeKey` a preceding binder
+    /// introduced. Declines on every other shape (only a `Var` fills the reference
+    /// column).
+    [<return: Struct>]
+    let (|EVar|_|) (e: ExprId) : NodeKey voption =
+        TastPoolBuilder.exprVarBinder e.Pool e.Id
+        |> ValueOption.map (TastPoolBuilder.binderKey e.Pool)
+
+    /// The binder a `Var` node references. Guard with `exprKind` = `ExprShape.Var` (or
+    /// match `EVar`) first; `failwith` on any other shape.
     let exprVarBinding (e: ExprId) : NodeKey =
-        match TastPoolBuilder.exprVarBinder e.Pool e.Id with
-        | ValueSome b -> TastPoolBuilder.binderKey e.Pool b
-        | ValueNone -> failwith "TastAccessor.exprVarBinding: not a Var node"
+        match e with
+        | EVar binding -> binding
+        | _ -> failwith "TastAccessor.exprVarBinding: not a Var node"
 
     /// The naming projections of the binder a `Var` node references — what a backend
     /// emits its name from, read off the pool's naming column rather than the key's own
@@ -153,21 +183,29 @@ module TastAccessor =
             Storage: MemberStorage
         }
 
+    /// An `ExternalMember` node → its `ExternalMemberView`.
+    [<return: Struct>]
+    let (|EExternalMember|_|) (e: ExprId) : ExternalMemberView voption =
+        match payload e with
+        | ExprPayload.ExternalMember p ->
+            ValueSome
+                {
+                    Receiver =
+                        (if p.HasReceiver then
+                             ValueSome(exprChild e 0)
+                         else
+                             ValueNone)
+                    Key = p.Key
+                    MemberName = p.MemberName
+                    Storage = p.Storage
+                }
+        | _ -> ValueNone
+
     /// The payload view of an `ExternalMember` node. Guard with `exprKind` =
     /// `ExprShape.ExternalMember` first; `failwith` on any other shape.
     let exprExternalMember (e: ExprId) : ExternalMemberView =
-        match payload e with
-        | ExprPayload.ExternalMember p ->
-            {
-                Receiver =
-                    (if p.HasReceiver then
-                         ValueSome(exprChild e 0)
-                     else
-                         ValueNone)
-                Key = p.Key
-                MemberName = p.MemberName
-                Storage = p.Storage
-            }
+        match e with
+        | EExternalMember v -> v
         | _ -> failwith "TastAccessor.exprExternalMember: not an ExternalMember node"
 
     /// The IL opcode string of an `ILIntrinsic` node — the `$N`-templated instruction.
@@ -196,15 +234,23 @@ module TastAccessor =
     [<Struct>]
     type LambdaView = { Param: PatId; Body: ExprId }
 
+    /// A `Lambda` node → its `LambdaView`.
+    [<return: Struct>]
+    let (|ELambda|_|) (e: ExprId) : LambdaView voption =
+        match payload e with
+        | ExprPayload.Lambda ->
+            ValueSome
+                {
+                    Param = exprPatChild e 0
+                    Body = exprChild e 0
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `Lambda` node. Guard with `exprKind` = `ExprShape.Lambda`
     /// first; `failwith` on any other shape.
     let exprLambda (e: ExprId) : LambdaView =
-        match payload e with
-        | ExprPayload.Lambda ->
-            {
-                Param = exprPatChild e 0
-                Body = exprChild e 0
-            }
+        match e with
+        | ELambda v -> v
         | _ -> failwith "TastAccessor.exprLambda: not a Lambda node"
 
     /// The scalar payload of a `Let` node, minus the `ty`/`tok` that `exprTy`/`exprTok`
@@ -218,16 +264,24 @@ module TastAccessor =
             Body: ExprId
         }
 
+    /// A `Let` node → its `LetView`.
+    [<return: Struct>]
+    let (|ELet|_|) (e: ExprId) : LetView voption =
+        match payload e with
+        | ExprPayload.Let ->
+            ValueSome
+                {
+                    Binding = exprPatChild e 0
+                    Value = exprChild e 0
+                    Body = exprChild e 1
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `Let` node. Guard with `exprKind` = `ExprShape.Let` first;
     /// `failwith` on any other shape.
     let exprLet (e: ExprId) : LetView =
-        match payload e with
-        | ExprPayload.Let ->
-            {
-                Binding = exprPatChild e 0
-                Value = exprChild e 0
-                Body = exprChild e 1
-            }
+        match e with
+        | ELet v -> v
         | _ -> failwith "TastAccessor.exprLet: not a Let node"
 
     /// The scalar payload of an `Assignment` node (`lhs <- rhs`), minus the `ty`/`tok`
@@ -279,15 +333,23 @@ module TastAccessor =
             Key: SymbolKey voption
         }
 
+    /// An `External` node → its `ExternalView`.
+    [<return: Struct>]
+    let (|EExternal|_|) (e: ExprId) : ExternalView voption =
+        match payload e with
+        | ExprPayload.External p ->
+            ValueSome
+                {
+                    CompiledName = p.CompiledName
+                    Key = p.Key
+                }
+        | _ -> ValueNone
+
     /// The payload view of an `External` node. Guard with `exprKind` =
     /// `ExprShape.External` first; `failwith` on any other shape.
     let exprExternal (e: ExprId) : ExternalView =
-        match payload e with
-        | ExprPayload.External p ->
-            {
-                CompiledName = p.CompiledName
-                Key = p.Key
-            }
+        match e with
+        | EExternal v -> v
         | _ -> failwith "TastAccessor.exprExternal: not an External node"
 
     /// The scalar payload of an `App` node (`fn arg`), minus the `ty`/`tok` that
@@ -296,15 +358,23 @@ module TastAccessor =
     [<Struct>]
     type AppView = { Fn: ExprId; Arg: ExprId }
 
+    /// An `App` node → its `AppView`.
+    [<return: Struct>]
+    let (|EApp|_|) (e: ExprId) : AppView voption =
+        match payload e with
+        | ExprPayload.App ->
+            ValueSome
+                {
+                    Fn = exprChild e 0
+                    Arg = exprChild e 1
+                }
+        | _ -> ValueNone
+
     /// The payload view of an `App` node. Guard with `exprKind` = `ExprShape.App` first;
     /// `failwith` on any other shape.
     let exprApp (e: ExprId) : AppView =
-        match payload e with
-        | ExprPayload.App ->
-            {
-                Fn = exprChild e 0
-                Arg = exprChild e 1
-            }
+        match e with
+        | EApp v -> v
         | _ -> failwith "TastAccessor.exprApp: not an App node"
 
     /// The (field-name, value-expression) pairs a `RecordCons` literal assigns, in source
@@ -344,15 +414,23 @@ module TastAccessor =
     [<Struct>]
     type FieldGetView = { Receiver: ExprId; FieldName: string }
 
+    /// A `FieldGet` node → its `FieldGetView`.
+    [<return: Struct>]
+    let (|EFieldGet|_|) (e: ExprId) : FieldGetView voption =
+        match payload e with
+        | ExprPayload.FieldGet fieldName ->
+            ValueSome
+                {
+                    Receiver = exprChild e 0
+                    FieldName = fieldName
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `FieldGet` node. Guard with `exprKind` =
     /// `ExprShape.FieldGet` first; `failwith` on any other shape.
     let exprFieldGet (e: ExprId) : FieldGetView =
-        match payload e with
-        | ExprPayload.FieldGet fieldName ->
-            {
-                Receiver = exprChild e 0
-                FieldName = fieldName
-            }
+        match e with
+        | EFieldGet v -> v
         | _ -> failwith "TastAccessor.exprFieldGet: not a FieldGet node"
 
     /// The scalar payload of a `FieldSet` node (`receiver.FieldName <- value`), minus the
@@ -559,15 +637,23 @@ module TastAccessor =
     [<Struct>]
     type MatchView = { Scrutinee: ExprId; Arms: ArmView[] }
 
+    /// A `Match` node → its `MatchView`.
+    [<return: Struct>]
+    let (|EMatch|_|) (e: ExprId) : MatchView voption =
+        match payload e with
+        | ExprPayload.Match guardPresent ->
+            ValueSome
+                {
+                    Scrutinee = exprChild e 0
+                    Arms = armsOf e guardPresent 1
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `Match` node. Guard with `exprKind` = `ExprShape.Match` first;
     /// `failwith` on any other shape.
     let exprMatch (e: ExprId) : MatchView =
-        match payload e with
-        | ExprPayload.Match guardPresent ->
-            {
-                Scrutinee = exprChild e 0
-                Arms = armsOf e guardPresent 1
-            }
+        match e with
+        | EMatch v -> v
         | _ -> failwith "TastAccessor.exprMatch: not a Match node"
 
     /// The scalar payload of a `TryWith` node — the guarded body and the handler arms,
@@ -576,15 +662,23 @@ module TastAccessor =
     [<Struct>]
     type TryWithView = { Body: ExprId; Arms: ArmView[] }
 
+    /// A `TryWith` node → its `TryWithView`.
+    [<return: Struct>]
+    let (|ETryWith|_|) (e: ExprId) : TryWithView voption =
+        match payload e with
+        | ExprPayload.TryWith guardPresent ->
+            ValueSome
+                {
+                    Body = exprChild e 0
+                    Arms = armsOf e guardPresent 1
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `TryWith` node. Guard with `exprKind` = `ExprShape.TryWith`
     /// first; `failwith` on any other shape.
     let exprTryWith (e: ExprId) : TryWithView =
-        match payload e with
-        | ExprPayload.TryWith guardPresent ->
-            {
-                Body = exprChild e 0
-                Arms = armsOf e guardPresent 1
-            }
+        match e with
+        | ETryWith v -> v
         | _ -> failwith "TastAccessor.exprTryWith: not a TryWith node"
 
     /// The scalar payload of a `TryFinally` node (`try Body finally Cleanup`), minus the
@@ -634,17 +728,25 @@ module TastAccessor =
             Body: ExprId
         }
 
+    /// A `ForTo` node → its `ForToView`.
+    [<return: Struct>]
+    let (|EForTo|_|) (e: ExprId) : ForToView voption =
+        match payload e with
+        | ExprPayload.ForTo p ->
+            ValueSome
+                {
+                    Var = p.Var
+                    StartExpr = exprChild e 0
+                    EndExpr = exprChild e 1
+                    Body = exprChild e 2
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `ForTo` node. Guard with `exprKind` = `ExprShape.ForTo`
     /// first; `failwith` on any other shape.
     let exprForTo (e: ExprId) : ForToView =
-        match payload e with
-        | ExprPayload.ForTo p ->
-            {
-                Var = p.Var
-                StartExpr = exprChild e 0
-                EndExpr = exprChild e 1
-                Body = exprChild e 2
-            }
+        match e with
+        | EForTo v -> v
         | _ -> failwith "TastAccessor.exprForTo: not a ForTo node"
 
     /// The scalar payload of a `ForIn` node (`for Pat in Source do Body`), minus the
@@ -660,17 +762,25 @@ module TastAccessor =
             Enumerator: Frozen.ForInEnumerator
         }
 
+    /// A `ForIn` node → its `ForInView`.
+    [<return: Struct>]
+    let (|EForIn|_|) (e: ExprId) : ForInView voption =
+        match payload e with
+        | ExprPayload.ForIn enumerator ->
+            ValueSome
+                {
+                    Pat = exprPatChild e 0
+                    Source = exprChild e 0
+                    Body = exprChild e 1
+                    Enumerator = enumerator
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `ForIn` node. Guard with `exprKind` = `ExprShape.ForIn`
     /// first; `failwith` on any other shape.
     let exprForIn (e: ExprId) : ForInView =
-        match payload e with
-        | ExprPayload.ForIn enumerator ->
-            {
-                Pat = exprPatChild e 0
-                Source = exprChild e 0
-                Body = exprChild e 1
-                Enumerator = enumerator
-            }
+        match e with
+        | EForIn v -> v
         | _ -> failwith "TastAccessor.exprForIn: not a ForIn node"
 
     /// The scalar payload of a `Use` node (`use Binding = Value in Body`), minus the
@@ -686,17 +796,25 @@ module TastAccessor =
             Dispose: Disposal
         }
 
+    /// A `Use` node → its `UseView`.
+    [<return: Struct>]
+    let (|EUse|_|) (e: ExprId) : UseView voption =
+        match payload e with
+        | ExprPayload.Use dispose ->
+            ValueSome
+                {
+                    Binding = exprPatChild e 0
+                    Value = exprChild e 0
+                    Body = exprChild e 1
+                    Dispose = dispose
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `Use` node. Guard with `exprKind` = `ExprShape.Use` first;
     /// `failwith` on any other shape.
     let exprUse (e: ExprId) : UseView =
-        match payload e with
-        | ExprPayload.Use dispose ->
-            {
-                Binding = exprPatChild e 0
-                Value = exprChild e 0
-                Body = exprChild e 1
-                Dispose = dispose
-            }
+        match e with
+        | EUse v -> v
         | _ -> failwith "TastAccessor.exprUse: not a Use node"
 
     /// The expression-bearing shape of a `Format` node's sink, its sub-expression
@@ -838,6 +956,11 @@ module TastAccessor =
         | PatPayload.NamedSimple binding -> ValueSome binding
         | _ -> ValueNone
 
+    /// A `NamedSimple` pattern → the single binder it introduces (`patBinder`, which is
+    /// `ValueSome` exactly for that shape).
+    [<return: Struct>]
+    let (|PNamed|_|) (p: PatId) : NodeKey voption = patBinder p
+
     /// The POSITIONAL identity of the binder a `NamedSimple` pattern introduces — the id
     /// the pool's `BinderId`-keyed side tables are keyed by, so a consumer holding the
     /// defining node looks its entry up directly instead of round-tripping through the
@@ -848,6 +971,12 @@ module TastAccessor =
         match patPayload p with
         | PatPayload.NamedSimple binding -> TastPoolBuilder.tryBinderId p.Pool binding
         | _ -> ValueNone
+
+    /// A `NamedSimple` pattern → the POSITIONAL id of the binder it introduces
+    /// (`patBinderId`) — the `PNamed` to reach for when the binder is about to be looked
+    /// up in a `BinderId`-keyed side table.
+    [<return: Struct>]
+    let (|PNamedId|_|) (p: PatId) : BinderId voption = patBinderId p
 
     /// The naming projections of the binder a `NamedSimple` pattern introduces.
     ///
@@ -934,20 +1063,28 @@ module TastAccessor =
         | DeclPayload.Type td -> TastConvert.typeDecl id (at d) td
         | _ -> failwith "TastAccessor.declType: not a Type decl"
 
+    /// An `Expression` decl → its body expression and the declared slot type it carries
+    /// alongside (the type a value-producing consumer must preserve when reconstructing
+    /// the decl).
+    [<return: Struct>]
+    let (|DExpression|_|) (d: DeclId) : struct (ExprId * FrozenType) voption =
+        match declPayload d with
+        | DeclPayload.Expression ty -> ValueSome(struct (declExprChild d 0, ty))
+        | _ -> ValueNone
+
     /// The body expression of an `Expression` decl. Guard with `declKind` =
     /// `DeclShape.Expression` first; `failwith` on any other shape.
     let declExpression (d: DeclId) : ExprId =
-        match declPayload d with
-        | DeclPayload.Expression _ -> declExprChild d 0
+        match d with
+        | DExpression(e, _) -> e
         | _ -> failwith "TastAccessor.declExpression: not an Expression decl"
 
     /// The declared type an `Expression` decl carries alongside its `expr`
-    /// (`declExpression`) — the slot type a value-producing consumer must preserve
-    /// when reconstructing the decl. Guard with `declKind` = `DeclShape.Expression`
-    /// first; `failwith` on any other shape.
+    /// (`declExpression`). Guard with `declKind` = `DeclShape.Expression` first;
+    /// `failwith` on any other shape.
     let declExpressionTy (d: DeclId) : FrozenType =
-        match declPayload d with
-        | DeclPayload.Expression ty -> ty
+        match d with
+        | DExpression(_, ty) -> ty
         | _ -> failwith "TastAccessor.declExpressionTy: not an Expression decl"
 
     /// The payload of a `Let` decl. `Binding` is the bound pattern, `Value` its
@@ -963,17 +1100,25 @@ module TastAccessor =
             Ty: FrozenType
         }
 
+    /// A `Let` decl → its `DeclLetView`.
+    [<return: Struct>]
+    let (|DLet|_|) (d: DeclId) : DeclLetView voption =
+        match declPayload d with
+        | DeclPayload.Let p ->
+            ValueSome
+                {
+                    Binding = declPatChild d 0
+                    Value = declExprChild d 0
+                    IsInline = p.IsInline
+                    Ty = p.Ty
+                }
+        | _ -> ValueNone
+
     /// The payload view of a `Let` decl. Guard with `declKind` = `DeclShape.Let` first;
     /// `failwith` on any other shape.
     let declLet (d: DeclId) : DeclLetView =
-        match declPayload d with
-        | DeclPayload.Let p ->
-            {
-                Binding = declPatChild d 0
-                Value = declExprChild d 0
-                IsInline = p.IsInline
-                Ty = p.Ty
-            }
+        match d with
+        | DLet v -> v
         | _ -> failwith "TastAccessor.declLet: not a Let decl"
 
     /// The file's declarations, in source order — the pool roots as handles.
@@ -1201,139 +1346,3 @@ module TastAccessor =
             |> Array.map (fun c -> (f (at d c)).Id)
 
         at d (TastPoolBuilder.copyDeclWith d.Pool d.Id (fun row -> { row with ExprChildren = kids }))
-
-    // ------------------------------------------------------------------------
-    // Recognizers — the accessor in pattern position.
-    //
-    // Each is a partial single-case active pattern (`[<return: Struct>]`, so the
-    // `voption` is unboxed and the match allocates nothing) that projects one
-    // shape's payload view — the pattern-position form of the `expr*`/`pat*`/`decl*`
-    // accessors above. A consumer matches the node directly:
-    //
-    //     match e with
-    //     | EForTo ft -> ...        // ft : ForToView, bound once
-    //     | EVar key  -> ...
-    //     | _ -> ...
-    //
-    // A recognizer succeeds on its own shape and declines (`ValueNone`) on every
-    // other, so an arm can never fire the wrong projection — no tag needs to be
-    // carried alongside to keep it honest. The payload is bound once, in-pattern,
-    // with no re-fetch in a `when` guard and no `match … -> let view = …` prologue.
-    //
-    // A recognizer exists for exactly the shapes a consumer matches in a *partial*
-    // dispatch (one that ends in a `| _ ->` fall-through). A *total* dispatch over
-    // every shape — the emit routers (`EmitExpr.buildExpr`, `EmitPattern`, the
-    // `Emit.fs` decl loop) — matches the `exprKind`/`patKind`/`declKind` tag instead,
-    // which the closed `ExprShape`/`PatShape`/`DeclShape` enum keeps exhaustive: a
-    // new case breaks those matches at compile time. `RequireQualifiedAccess` means
-    // they are used qualified (`TastAccessor.EForTo`).
-
-    /// A `Var` node → the binder it references (`exprVarBinding`).
-    [<return: Struct>]
-    let (|EVar|_|) (e: ExprId) : NodeKey voption =
-        match exprKind e with
-        | ExprShape.Var -> ValueSome(exprVarBinding e)
-        | _ -> ValueNone
-
-    /// A `Lambda` node → its `LambdaView` (`exprLambda`).
-    [<return: Struct>]
-    let (|ELambda|_|) (e: ExprId) : LambdaView voption =
-        match exprKind e with
-        | ExprShape.Lambda -> ValueSome(exprLambda e)
-        | _ -> ValueNone
-
-    /// A `Let` node → its `LetView` (`exprLet`).
-    [<return: Struct>]
-    let (|ELet|_|) (e: ExprId) : LetView voption =
-        match exprKind e with
-        | ExprShape.Let -> ValueSome(exprLet e)
-        | _ -> ValueNone
-
-    /// A `Use` node → its `UseView` (`exprUse`).
-    [<return: Struct>]
-    let (|EUse|_|) (e: ExprId) : UseView voption =
-        match exprKind e with
-        | ExprShape.Use -> ValueSome(exprUse e)
-        | _ -> ValueNone
-
-    /// An `App` node → its `AppView` (`exprApp`).
-    [<return: Struct>]
-    let (|EApp|_|) (e: ExprId) : AppView voption =
-        match exprKind e with
-        | ExprShape.App -> ValueSome(exprApp e)
-        | _ -> ValueNone
-
-    /// A `FieldGet` node → its `FieldGetView` (`exprFieldGet`).
-    [<return: Struct>]
-    let (|EFieldGet|_|) (e: ExprId) : FieldGetView voption =
-        match exprKind e with
-        | ExprShape.FieldGet -> ValueSome(exprFieldGet e)
-        | _ -> ValueNone
-
-    /// A `ForTo` node → its `ForToView` (`exprForTo`).
-    [<return: Struct>]
-    let (|EForTo|_|) (e: ExprId) : ForToView voption =
-        match exprKind e with
-        | ExprShape.ForTo -> ValueSome(exprForTo e)
-        | _ -> ValueNone
-
-    /// A `ForIn` node → its `ForInView` (`exprForIn`).
-    [<return: Struct>]
-    let (|EForIn|_|) (e: ExprId) : ForInView voption =
-        match exprKind e with
-        | ExprShape.ForIn -> ValueSome(exprForIn e)
-        | _ -> ValueNone
-
-    /// A `Match` node → its `MatchView` (`exprMatch`).
-    [<return: Struct>]
-    let (|EMatch|_|) (e: ExprId) : MatchView voption =
-        match exprKind e with
-        | ExprShape.Match -> ValueSome(exprMatch e)
-        | _ -> ValueNone
-
-    /// A `TryWith` node → its `TryWithView` (`exprTryWith`).
-    [<return: Struct>]
-    let (|ETryWith|_|) (e: ExprId) : TryWithView voption =
-        match exprKind e with
-        | ExprShape.TryWith -> ValueSome(exprTryWith e)
-        | _ -> ValueNone
-
-    /// An `External` node → its `ExternalView` (`exprExternal`).
-    [<return: Struct>]
-    let (|EExternal|_|) (e: ExprId) : ExternalView voption =
-        match exprKind e with
-        | ExprShape.External -> ValueSome(exprExternal e)
-        | _ -> ValueNone
-
-    /// An `ExternalMember` node → its `ExternalMemberView` (`exprExternalMember`).
-    [<return: Struct>]
-    let (|EExternalMember|_|) (e: ExprId) : ExternalMemberView voption =
-        match exprKind e with
-        | ExprShape.ExternalMember -> ValueSome(exprExternalMember e)
-        | _ -> ValueNone
-
-    /// A `NamedSimple` pattern → the single binder it introduces (`patBinder`, which
-    /// is `ValueSome` exactly for that shape).
-    [<return: Struct>]
-    let (|PNamed|_|) (p: PatId) : NodeKey voption = patBinder p
-
-    /// A `NamedSimple` pattern → the POSITIONAL id of the binder it introduces
-    /// (`patBinderId`) — the `PNamed` to reach for when the binder is about to be looked
-    /// up in a `BinderId`-keyed side table.
-    [<return: Struct>]
-    let (|PNamedId|_|) (p: PatId) : BinderId voption = patBinderId p
-
-    /// A `Let` decl → its `DeclLetView` (`declLet`).
-    [<return: Struct>]
-    let (|DLet|_|) (d: DeclId) : DeclLetView voption =
-        match declKind d with
-        | DeclShape.Let -> ValueSome(declLet d)
-        | _ -> ValueNone
-
-    /// An `Expression` decl → its body expression and declared slot type
-    /// (`declExpression`/`declExpressionTy`).
-    [<return: Struct>]
-    let (|DExpression|_|) (d: DeclId) : struct (ExprId * FrozenType) voption =
-        match declKind d with
-        | DeclShape.Expression -> ValueSome(struct (declExpression d, declExpressionTy d))
-        | _ -> ValueNone
