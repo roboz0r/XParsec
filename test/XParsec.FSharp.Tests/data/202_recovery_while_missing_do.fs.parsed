@@ -13,8 +13,8 @@ Body:
 DoneToken         <virt>            KWDone              tok=virt  pos=  18
 ---
 Diagnostics:
-  [error] Other(Expected 'do' after while condition) at 18 (Ln 3, Col 1)
-  [error] MissingExpression at 18 (Ln 3, Col 1)
+  Other(Expected 'do' after while condition) at 18 (Ln 3, Col 1)
+  MissingExpression at 18 (Ln 3, Col 1)
     
     ^ At index 18 (Ln 3, Col 1)
     Multiple errors:

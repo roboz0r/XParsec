@@ -822,14 +822,8 @@ module PatternGuard =
                 refExprGuard.Parser
                 |> recoverWith
                     StoppingTokens.afterPattern
-                    DiagnosticSeverity.Error
                     DiagnosticCode.MissingExpression
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Expr.Missing
-                        else
-                            Expr.SkipsTokens(toks)
-                    )
+                    (missingOrSkipped Expr.Missing Expr.SkipsTokens)
 
             return PatternGuard(w, e)
         }
@@ -842,9 +836,8 @@ module Rule =
                 Pat.parse
                 |> recoverWith
                     StoppingTokens.afterPattern
-                    DiagnosticSeverity.Error
                     DiagnosticCode.MissingPattern
-                    (fun toks -> if toks.IsEmpty then Pat.Missing else Pat.SkipsTokens(toks))
+                    (missingOrSkipped Pat.Missing Pat.SkipsTokens)
 
             let! guard = opt PatternGuard.parse
             let! arrow = pArrowRight
@@ -854,14 +847,8 @@ module Rule =
                 refTypedSeqExprBlock.Parser
                 |> recoverWith
                     StoppingTokens.afterRule
-                    DiagnosticSeverity.Error
                     DiagnosticCode.MissingExpression
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Expr.Missing
-                        else
-                            Expr.SkipsTokens(toks)
-                    )
+                    (missingOrSkipped Expr.Missing Expr.SkipsTokens)
 
             return Rule.Rule(pat, guard, arrow, expr)
         }
@@ -871,14 +858,8 @@ module Rules =
     let private pRule =
         recoverWith
             StoppingTokens.afterRule
-            DiagnosticSeverity.Error
             DiagnosticCode.MissingRule
-            (fun toks ->
-                if toks.IsEmpty then
-                    Rule.Missing
-                else
-                    Rule.SkipsTokens(toks)
-            )
+            (missingOrSkipped Rule.Missing Rule.SkipsTokens)
             Rule.parse
 
 

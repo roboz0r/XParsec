@@ -33,6 +33,15 @@ module Site =
         | TokenIndex.Regular i -> Site.At i
         | TokenIndex.Virtual -> Site.Nowhere
 
+    /// The gap immediately BEFORE `tok` — where something MISSING from the token stream
+    /// belonged. The type spells a gap only as `After` its predecessor, and trivia is
+    /// tokenised, so `tok`'s predecessor always exists and its gap always ends where `tok`
+    /// starts. Nothing precedes token 0, so a hole at the very start of the file is `At 0`.
+    let gapBefore (tok: SyntaxToken) : Site =
+        match ofToken tok with
+        | Site.At i when i > 0<token> -> Site.After(i - 1<token>)
+        | placed -> placed
+
     /// The place `tok` names, or `fallback` when it names none — for a caller holding an
     /// ENCLOSING span (the declaration the head sits in) that is still a real place when
     /// the head itself is a recovery insertion.

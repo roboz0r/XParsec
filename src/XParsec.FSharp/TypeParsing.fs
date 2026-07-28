@@ -752,12 +752,8 @@ module ReturnType =
                 Type.parse
                 |> recoverWith
                     StoppingTokens.afterType
-                    DiagnosticSeverity.Error
                     DiagnosticCode.MissingType
-                    (fun toks ->
-                        let m: Type<SyntaxToken> = Type<_>.Missing
-                        if toks.IsEmpty then m else Type<_>.SkipsTokens(toks)
-                    )
+                    (missingOrSkipped Type<SyntaxToken>.Missing Type<SyntaxToken>.SkipsTokens)
 
             return ReturnType(colon, typ)
         }

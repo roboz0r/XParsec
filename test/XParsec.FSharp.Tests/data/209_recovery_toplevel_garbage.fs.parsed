@@ -6,7 +6,7 @@ SkipsTokens:
   (skipped)  'end'             KWEnd               tok=   6  pos=   6
 ---
 Diagnostics:
-  [error] UnexpectedTopLevel at 0 (Ln 1, Col 1)
+  UnexpectedTopLevel at 0 (Ln 1, Col 1)
     ) ] } en
     ^ At index 0 (Ln 1, Col 1)
     Multiple errors:

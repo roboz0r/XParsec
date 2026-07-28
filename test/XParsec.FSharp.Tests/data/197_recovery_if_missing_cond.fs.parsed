@@ -8,7 +8,7 @@ IfThenElse:
     Const    '1'               NumInt32            tok=   4  pos=   8
 ---
 Diagnostics:
-  [error] MissingExpression at 3 (Ln 1, Col 4)
+  MissingExpression at 3 (Ln 1, Col 4)
     if then
        ^ At index 3 (Ln 1, Col 4)
     Multiple errors:

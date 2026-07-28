@@ -62,19 +62,19 @@ FunctionOrValue:
       Const          '6'               NumInt32            tok= 115  pos=1000
 ---
 Diagnostics:
-  [error] MissingType at 344 (Ln 11, Col 11)
+  MissingType at 344 (Ln 11, Col 11)
     let bad1: 999 =
               ^ At index 344 (Ln 11, Col 11)
     Multiple errors:
     ├───Expected at least one item.
     └───Atomic Type
-  [error] MissingType at 830 (Ln 21, Col 11)
+  MissingType at 830 (Ln 21, Col 11)
     let bad2: Vector<int =
               ^ At index 830 (Ln 21, Col 11)
     Multiple errors:
     ├───Expected at least one item.
     └───Atomic Type
-  [error] MissingType at 982 (Ln 27, Col 11)
+  MissingType at 982 (Ln 27, Col 11)
     let bad3: =
               ^ At index 982 (Ln 27, Col 11)
     Multiple errors:

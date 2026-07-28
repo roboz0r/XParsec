@@ -72,8 +72,8 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// inline call off these.
         Decls: EqArray<TDeclG<'ty, 'tok, 'id>>
         /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
-        // Qualified: this file `open`s `XParsec.FSharp.Parser`, which also declares a
-        // `Diagnostic`; the bare name would bind to the parser's, mistyping the field.
+        // Qualified: see `Diagnostic`'s declaration for why the bare name would otherwise
+        // be the parser's, mistyping this field.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         /// This unit's OWN intrinsics: the canon `SymbolKey` of a `type x = (# "..." #)`
         /// abbrev → its target representation string (`Vesper.int` → `"System.Int32"`).

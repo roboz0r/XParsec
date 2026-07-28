@@ -5,7 +5,7 @@ FunctionOrValue:
     Missing
 ---
 Diagnostics:
-  [error] MissingExpression at 19 (Ln 4, Col 1)
+  MissingExpression at 19 (Ln 4, Col 1)
     
     ^ At index 19 (Ln 4, Col 1)
     Multiple errors:

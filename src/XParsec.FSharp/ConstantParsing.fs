@@ -117,11 +117,11 @@ module Constant =
 
                 let tokStart, tokEnd =
                     match t with
-                    | Typar.Anon x -> x.PositionedToken, None
-                    | Typar.Named(x, x1) -> x.PositionedToken, Some x1.PositionedToken
-                    | Typar.Static(x, x1) -> x.PositionedToken, Some x1.PositionedToken
+                    | Typar.Anon x -> x, None
+                    | Typar.Named(x, x1) -> x, Some x1
+                    | Typar.Static(x, x1) -> x, Some x1
 
-                state <- ParseState.addDiagnostic code DiagnosticSeverity.Error tokStart tokEnd None state
+                state <- ParseState.addDiagnostic code tokStart tokEnd None state
 
             reader.State <- state
 

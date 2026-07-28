@@ -109,14 +109,8 @@ module ModuleFunctionOrValueDefn =
                 let! expr =
                     recoverWith
                         StoppingTokens.afterExpr
-                        DiagnosticSeverity.Error
                         DiagnosticCode.MissingExpression
-                        (fun toks ->
-                            if toks.IsEmpty then
-                                Expr.Missing
-                            else
-                                Expr.SkipsTokens(toks)
-                        )
+                        (missingOrSkipped Expr.Missing Expr.SkipsTokens)
                         Expr.pTypedSeqExprBlock
 
                 let! inTok = opt pTrailingIn
@@ -224,9 +218,9 @@ module ModuleElem =
                                 }
 
                             reader.State <-
-                                ParseState.addErrorDiagnosticWithError
+                                ParseState.addDiagnosticWithError
                                     DiagnosticCode.MissingModuleElem
-                                    startTok.PositionedToken
+                                    startTok
                                     parseErr
                                     reader.State
 

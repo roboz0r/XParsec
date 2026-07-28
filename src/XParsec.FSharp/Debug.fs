@@ -309,29 +309,22 @@ let printImplementationFile (ctx: PrintContext) (input: string) (lexed: Lexed) (
 let printFSharpAst (ctx: PrintContext) (input: string) (lexed: Lexed) (ast: FSharpAst<SyntaxToken>) =
     walkFSharpAst (makeDebugVisitor ctx input lexed) ast
 
-/// Formats a DiagnosticCode as a short, stable string suitable for golden-file output.
+/// Formats a DiagnosticCode as a short, stable string suitable for golden-file output: the
+/// code the seam presents to a consumer, plus the payload for the cases a golden wants to
+/// see it on. Four cases carry one; `TyparInConstant`'s is a whole `Typar` subtree,
+/// deliberately dropped rather than spelled here — which is what the `| _ -> name`
+/// catch-all rests on, so a new payload-carrying case must decide before it lands there.
 let sprintDiagnosticCode (code: DiagnosticCode) : string =
+    let struct (name, _) = DiagnosticCode.acrossSeam code
+
     match code with
-    | DiagnosticCode.MissingExpression -> "MissingExpression"
-    | DiagnosticCode.MissingPattern -> "MissingPattern"
-    | DiagnosticCode.MissingType -> "MissingType"
-    | DiagnosticCode.MissingRule -> "MissingRule"
-    | DiagnosticCode.MissingTypeDefn -> "MissingTypeDefn"
-    | DiagnosticCode.MissingModuleElem -> "MissingModuleElem"
-    | DiagnosticCode.UnexpectedTopLevel -> "UnexpectedTopLevel"
-    | DiagnosticCode.Other msg -> $"Other({msg})"
-    | DiagnosticCode.TyparInConstant _ -> "TyparInConstant"
-    | DiagnosticCode.ExpectedEnd -> "ExpectedEnd"
-    | DiagnosticCode.UnclosedDelimiter(opened, expected) ->
+    | DiagnosticCode.Other msg -> $"{name}({msg})"
+    | DiagnosticCode.UnclosedDelimiter(opened, expected)
+    | DiagnosticCode.MismatchedDelimiter(opened, expected) ->
         let openedBase = TokenInfo.withoutFlags opened.Token
         let expectedBase = TokenInfo.withoutFlags expected
-        $"UnclosedDelimiter({openedBase}, {expectedBase})"
-    | DiagnosticCode.ExpectedRParen -> "ExpectedRParen"
-    | DiagnosticCode.ExpectedRBracket -> "ExpectedRBracket"
-    | DiagnosticCode.ExpectedRArrayBracket -> "ExpectedRArrayBracket"
-    | DiagnosticCode.ExpectedRBraceBar -> "ExpectedRBraceBar"
-    | DiagnosticCode.ExpectedQuotationTypedRight -> "ExpectedQuotationTypedRight"
-    | DiagnosticCode.ExpectedQuotationUntypedRight -> "ExpectedQuotationUntypedRight"
+        $"{name}({openedBase}, {expectedBase})"
+    | _ -> name
 
 /// Appends a "---\nDiagnostics:" section to the buffer when there are diagnostics.
 /// Diagnostics are emitted in source order (reversed from the accumulation order).
@@ -347,16 +340,9 @@ let printDiagnostics (ctx: PrintContext) (input: string) (diagnostics: Diagnosti
             ctx
             (fun () ->
                 for diag in List.rev diagnostics do
-                    let severity =
-                        match diag.Severity with
-                        | DiagnosticSeverity.Error -> "error"
-                        | DiagnosticSeverity.Warning -> "warning"
-                        | DiagnosticSeverity.Info -> "info"
-                        | DiagnosticSeverity.Hint -> "hint"
-
                     let pos = diag.Token.StartIndex
                     let struct (ln, col) = lineIndex.GetLineCol(min pos (input.Length))
-                    ctx.WriteLine($"[{severity}] {sprintDiagnosticCode diag.Code} at {pos} (Ln {ln}, Col {col})")
+                    ctx.WriteLine($"{sprintDiagnosticCode diag.Code} at {pos} (Ln {ln}, Col {col})")
 
                     match diag.Error with
                     | Some err ->

@@ -10,4 +10,4 @@ FunctionOrValue:
       Const          '1'               NumInt32            tok=  13  pos=  26
 ---
 Diagnostics:
-  [error] Other(Expected directive identifier after '#') at 18 (Ln 4, Col 1)
+  Other(Expected directive identifier after '#') at 18 (Ln 4, Col 1)

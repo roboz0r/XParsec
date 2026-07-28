@@ -13,7 +13,7 @@ Match:
       Const   '2'               NumInt32            tok=  10  pos=  18
 ---
 Diagnostics:
-  [error] MissingPattern at 15 (Ln 2, Col 3)
+  MissingPattern at 15 (Ln 2, Col 3)
     | ->
       ^ At index 15 (Ln 2, Col 3)
     Multiple errors:

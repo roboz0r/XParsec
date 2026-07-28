@@ -1321,12 +1321,8 @@ module TypeDefn =
                         ]
                     |> recoverWith
                         StoppingTokens.afterTypeDefn
-                        DiagnosticSeverity.Error
                         DiagnosticCode.MissingType
-                        (fun toks ->
-                            let m: Type<SyntaxToken> = Type<_>.Missing
-                            if toks.IsEmpty then m else Type<_>.SkipsTokens(toks)
-                        )
+                        (missingOrSkipped Type<SyntaxToken>.Missing Type<SyntaxToken>.SkipsTokens)
 
                 let! ext =
                     opt (choiceL [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ] "Type Extension")

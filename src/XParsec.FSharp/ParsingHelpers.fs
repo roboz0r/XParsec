@@ -73,7 +73,7 @@ module Parsing =
     /// Must be called with the reader positioned at the #if token (not yet consumed).
     let processIfDirective
         (nextSyntaxToken: Parser<_, _, _, _>)
-        (ifToken: PositionedToken)
+        (ifToken: SyntaxToken)
         (reader: Reader<PositionedToken, ParseState, _>)
         =
         let state = reader.State
@@ -114,7 +114,7 @@ module Parsing =
             // Invalid #if expression: record a diagnostic and treat the whole block as inactive
             let msg = $"Invalid #if expression: {e}"
 
-            reader.State <- addErrorDiagnostic (DiagnosticCode.Other msg) ifToken reader.State
+            reader.State <- addDiagnosticAt (DiagnosticCode.Other msg) ifToken reader.State
 
             skipInactiveBranch reader |> ignore
             nextSyntaxToken reader
@@ -549,8 +549,10 @@ module Parsing =
 
             match token.Token with
             | Token.IfDirective ->
-                // processIfDirective expects the reader to be positioned AT the #if token
-                processIfDirective (nextSyntaxTokenImpl isPeek) token reader
+                // processIfDirective expects the reader to be positioned AT the #if token,
+                // and moves it off the directive line before it can raise a diagnostic — so
+                // the token's index is captured here, while the reader still names it.
+                processIfDirective (nextSyntaxTokenImpl isPeek) (syntaxToken token reader.Index) reader
             | Token.ElseDirective ->
                 // We are in an active then-branch that has reached its #else.
                 // Skip the else-branch contents up to and including the matching #endif.
@@ -740,12 +742,28 @@ module Parsing =
         | Ok _ -> fail (Message $"Expected '{expected1}' or '{expected2}' keyword") reader
         | Error e -> Error e
 
+    /// The token to blame for a refusal at the reader's current position. `peeked` is what
+    /// `peekNextSyntaxToken` returned, passed in rather than re-peeked so the failure is
+    /// not traced twice: on `Ok`, that token; on a failure, the RAW token the reader sits
+    /// on, which still names a real place even though the parser would not accept it
+    /// there; and `nowhere` past the end of input, where there is nothing to blame.
+    let blameToken
+        (peeked: Result<SyntaxToken, ParseError<PositionedToken, ParseState>>)
+        (reader: Reader<PositionedToken, ParseState, _>)
+        : SyntaxToken =
+        match peeked with
+        | Ok tok -> tok
+        | Error _ ->
+            match reader.Peek() with
+            | ValueSome tok -> syntaxToken tok reader.Index
+            | ValueNone -> SyntaxToken.nowhere
+
     /// Core of the "match-token-or-synthesise-virtual" pattern. If the next
     /// non-trivia token matches `t`, consume and return it. Otherwise produce a
     /// virtual token of kind `t` without consuming, optionally emitting an error
     /// diagnostic built by `mkDiag` from the token at the failure site.
     let private nextSyntaxTokenVirtualCore
-        (mkDiag: PositionedToken -> DiagnosticCode voption)
+        (mkDiag: SyntaxToken -> DiagnosticCode voption)
         t
         (reader: Reader<PositionedToken, ParseState, _>)
         =
@@ -756,19 +774,15 @@ module Parsing =
         | result ->
             // Real token doesn't match (Ok with different token) or offside failure (Error):
             // optionally emit a diagnostic and produce a virtual substitute without consuming.
-            let startIndex, diagToken =
-                match result with
-                | Ok token -> token.StartIndex, token.PositionedToken
-                | Error _ ->
-                    match reader.Peek() with
-                    | ValueSome tok -> tok.StartIndex, tok
-                    | ValueNone -> 0, PositionedToken.Create(Token.EOF, 0)
+            let diagToken = blameToken result reader
 
             match mkDiag diagToken with
-            | ValueSome code -> reader.State <- ParseState.addErrorDiagnostic code diagToken reader.State
+            | ValueSome code -> reader.State <- ParseState.addDiagnosticAt code diagToken reader.State
             | ValueNone -> ()
 
-            let pt = mkVirtualPT t startIndex
+            // The substitute stands where the blamed token does; past end of input that is
+            // offset 0, which is what `nowhere` carries.
+            let pt = mkVirtualPT t diagToken.StartIndex
 
             ParseState.ifTrace reader.State (fun tc -> tc.VirtualToken(pt.Token, pt.StartIndex))
 
@@ -929,9 +943,9 @@ module Parsing =
                 | Token.BacktickedIdentifier -> consumePeeked token reader
                 | Token.UnterminatedBacktickedIdentifier ->
                     reader.State <-
-                        ParseState.addErrorDiagnostic
+                        ParseState.addDiagnosticAt
                             (DiagnosticCode.Other "Unterminated backticked identifier")
-                            token.PositionedToken
+                            token
                             reader.State
 
                     consumePeeked token reader
@@ -1006,7 +1020,7 @@ module Parsing =
             let code =
                 match openTok with
                 | ValueSome o -> DiagnosticCode.UnclosedDelimiter(o, t)
-                | ValueNone -> DiagnosticCode.Other $"Expected '{t}'"
+                | ValueNone -> DiagnosticCode.Other(DiagnosticCode.expecting t)
 
             ValueSome code
 
@@ -1027,8 +1041,7 @@ module Parsing =
                 match peekNextSyntaxToken reader with
                 | Error e -> Error e
                 | Ok token ->
-                    reader.State <-
-                        ParseState.addErrorDiagnostic (DiagnosticCode.Other diagMsg) token.PositionedToken reader.State
+                    reader.State <- ParseState.addDiagnosticAt (DiagnosticCode.Other diagMsg) token reader.State
 
                     let pt = mkVirtualPT expectedToken token.StartIndex
 
@@ -1054,8 +1067,7 @@ module Parsing =
                 match peekNextSyntaxToken reader with
                 | Error e -> Error e
                 | Ok token ->
-                    reader.State <-
-                        ParseState.addErrorDiagnostic (DiagnosticCode.Other diagMsg) token.PositionedToken reader.State
+                    reader.State <- ParseState.addDiagnosticAt (DiagnosticCode.Other diagMsg) token reader.State
 
                     let pt = mkVirtualPT Token.Identifier token.StartIndex
 
@@ -1171,12 +1183,19 @@ module Parsing =
             | Token.EOF -> true
             | _ -> false
 
+    /// THE placeholder shape `recoverWith` hands back: the node's own "missing" case when
+    /// the skip swallowed nothing, and its token-carrying case when it swallowed something,
+    /// so the skipped tokens survive into the tree instead of vanishing from it.
+    let missingOrSkipped (missing: 'Parsed) (skipsTokens: ImArr<SyntaxToken> -> 'Parsed) (toks: ImArr<SyntaxToken>) =
+        match toks.Length with
+        | 0 -> missing
+        | _ -> skipsTokens toks
+
     /// On failure: emits a diagnostic with the given code and the underlying ParseError,
     /// skips tokens until `stopping` returns true,
     /// then succeeds with `placeholder skippedTokens`.
     let recoverWith
         (stopping: SyntaxToken -> bool)
-        (severity: DiagnosticSeverity)
         (code: DiagnosticCode)
         (placeholder: ImArr<SyntaxToken> -> 'Parsed)
         (p: Parser<'Parsed, PositionedToken, ParseState, _>)
@@ -1205,8 +1224,7 @@ module Parsing =
                                 | Ok t -> skipped.Add(t)
                                 | Error _ -> keepGoing <- false
 
-                    reader.State <-
-                        ParseState.addDiagnostic code severity startTok.PositionedToken None (Some err) reader.State
+                    reader.State <- ParseState.addDiagnosticWithError code startTok err reader.State
 
                     Ok(placeholder (skipped.ToImmutableArray()))
 
@@ -1512,7 +1530,6 @@ module Parsing =
                     let innerParser =
                         recoverWith
                             StoppingTokens.afterParen
-                            DiagnosticSeverity.Error
                             diagCode
                             (fun toks ->
                                 if toks.IsEmpty then

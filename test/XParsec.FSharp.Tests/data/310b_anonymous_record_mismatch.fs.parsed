@@ -24,5 +24,5 @@ FunctionOrValue:
                      '|}'              KWRBraceBar         tok=  40  pos= 113
 ---
 Diagnostics:
-  [error] UnclosedDelimiter(KWLBraceBar, KWRBraceBar) at 62 (Ln 4, Col 18)
-  [error] UnclosedDelimiter(KWLBrace, KWRBrace) at 113 (Ln 7, Col 17)
+  MismatchedDelimiter(KWLBraceBar, KWRBraceBar) at 62 (Ln 4, Col 18)
+  MismatchedDelimiter(KWLBrace, KWRBrace) at 113 (Ln 7, Col 17)

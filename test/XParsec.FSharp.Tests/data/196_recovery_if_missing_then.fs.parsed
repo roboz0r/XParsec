@@ -12,8 +12,8 @@ IfThenElse:
     Missing
 ---
 Diagnostics:
-  [error] Other(Expected 'then' after condition) at 10 (Ln 2, Col 1)
-  [error] MissingExpression at 10 (Ln 2, Col 1)
+  Other(Expected 'then' after condition) at 10 (Ln 2, Col 1)
+  MissingExpression at 10 (Ln 2, Col 1)
     
     ^ At index 10 (Ln 2, Col 1)
     Offside

@@ -695,14 +695,8 @@ module Expr =
         let recoverExprMissing p =
             recoverWith
                 StoppingTokens.afterExpr
-                DiagnosticSeverity.Error
                 DiagnosticCode.MissingExpression
-                (fun toks ->
-                    if toks.IsEmpty then
-                        Expr.Missing
-                    else
-                        Expr.SkipsTokens(toks)
-                )
+                (missingOrSkipped Expr.Missing Expr.SkipsTokens)
                 p
 
         // Used for for-to and use identifiers (not the dot-access pIdent above)
@@ -752,7 +746,6 @@ module Expr =
             withContext OffsideContext.MatchClauses Rules.parse
             |> recoverWith
                 StoppingTokens.afterRule
-                DiagnosticSeverity.Error
                 DiagnosticCode.MissingRule
                 (fun toks ->
                     let missing =
@@ -878,7 +871,6 @@ module Expr =
                 withContextAt OffsideContext.MatchClauses indent tryTok Rules.parse
                 |> recoverWith
                     StoppingTokens.afterRule
-                    DiagnosticSeverity.Error
                     DiagnosticCode.MissingRule
                     (fun toks ->
                         let missing =
@@ -1206,11 +1198,9 @@ module Expr =
                                 ValueNone
                             | _ ->
                                 reader.State <-
-                                    ParseState.addErrorDiagnosticWithError
+                                    ParseState.addDiagnosticWithError
                                         DiagnosticCode.MissingExpression
-                                        (match peekNextSyntaxToken reader with
-                                         | Ok tok -> tok.PositionedToken
-                                         | Error _ -> PositionedToken.Create(Token.EOF, 0))
+                                        (blameToken (peekNextSyntaxToken reader) reader)
                                         err
                                         reader.State
 
@@ -1224,14 +1214,8 @@ module Expr =
             let pBody =
                 recoverWith
                     StoppingTokens.afterExpr
-                    DiagnosticSeverity.Error
                     DiagnosticCode.MissingExpression
-                    (fun toks ->
-                        if toks.IsEmpty then
-                            Expr.Missing
-                        else
-                            Expr.SkipsTokens(toks)
-                    )
+                    (missingOrSkipped Expr.Missing Expr.SkipsTokens)
                     refTypedSeqExprBlock.Parser
 
             parser {
@@ -2341,10 +2325,12 @@ module Expr =
             match peekNextSyntaxToken reader with
             | Ok tok when tok.Token = expectedClose -> consumePeeked tok reader
             | Ok tok when tok.Token = mismatchedClose ->
+                // The wrong close is CONSUMED as the close, so nothing is inserted and the
+                // diagnostic blames the token itself.
                 reader.State <-
-                    ParseState.addErrorDiagnostic
-                        (DiagnosticCode.UnclosedDelimiter(openTok, expectedClose))
-                        tok.PositionedToken
+                    ParseState.addDiagnosticAt
+                        (DiagnosticCode.MismatchedDelimiter(openTok, expectedClose))
+                        tok
                         reader.State
 
                 consumePeeked tok reader
@@ -2661,14 +2647,8 @@ module Expr =
     let private recoverExpr p =
         recoverWith
             StoppingTokens.afterExpr
-            DiagnosticSeverity.Error
             DiagnosticCode.MissingExpression
-            (fun toks ->
-                if toks.IsEmpty then
-                    Expr.Missing
-                else
-                    Expr.SkipsTokens(toks)
-            )
+            (missingOrSkipped Expr.Missing Expr.SkipsTokens)
             p
 
 
@@ -2725,14 +2705,8 @@ module Expr =
         withContext OffsideContext.SeqBlock parse
         |> recoverWith
             StoppingTokens.afterExpr
-            DiagnosticSeverity.Error
             DiagnosticCode.MissingExpression
-            (fun toks ->
-                if toks.IsEmpty then
-                    Expr.Missing
-                else
-                    Expr.SkipsTokens(toks)
-            )
+            (missingOrSkipped Expr.Missing Expr.SkipsTokens)
 
     do
         refExprAtomic.Set parseAtomic

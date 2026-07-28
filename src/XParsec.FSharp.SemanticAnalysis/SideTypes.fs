@@ -18,6 +18,12 @@ type Severity =
     | Warning
     | Info
 
+/// A SECONDARY place a diagnostic points at, and what it means there. Labelled, because
+/// an unlabelled list of extra positions leaves a consumer guessing from list order what
+/// each one meant. The unclosed-delimiter diagnostic is the shape: primary at the hole
+/// where the delimiter belonged, one label back on the delimiter left open.
+type Label = { Site: Site; Message: string }
+
 /// TODO: sub-severities still pending. `Code` lets the sprint group related
 /// diagnostics (e.g. for tooling); most call sites pass `""` — new ones should mint a
 /// short identifier (e.g. `"V001"`).
@@ -25,6 +31,11 @@ type Severity =
 /// A REFERENCE type: it is allocated only on error paths and copied through
 /// `ResizeArray` / `list` at every seam, so the struct layout bought nothing while
 /// bounding what the record may carry.
+///
+/// NAME COLLISION: `XParsec.FSharp.Parser` declares its own `Diagnostic` (the parser's
+/// recovery record), so in any file that `open`s the parser the bare name binds to THAT
+/// one. Such files alias or fully qualify this type; the alias is what the `type
+/// Diagnostic = …` lines elsewhere in this assembly are for.
 type Diagnostic =
     {
         Code: string
@@ -32,7 +43,25 @@ type Diagnostic =
         Severity: Severity
         /// The primary position — what a one-line renderer points at.
         Site: Site
+        /// Secondary positions, in the order a renderer should show them.
+        Related: Label list
     }
+
+[<RequireQualifiedAccess>]
+module Diagnostic =
+
+    /// An error about a whole unit or package rather than about a place in one: a lex or
+    /// parse failure, a driver refusal, a conformance verdict on a signature. One
+    /// constructor, so "names no place" is spelled `Site.Nowhere` exactly once and a field
+    /// added to the record does not have to be answered at every such site.
+    let nowhere (code: string) (message: string) : Diagnostic =
+        {
+            Code = code
+            Message = message
+            Severity = Severity.Error
+            Site = Site.Nowhere
+            Related = []
+        }
 
 /// Declared accessibility of an EXPORTED entity — a token-free 3-state stored
 /// HONESTLY (never pre-thresholded), so the two export filters read ONE fact: the

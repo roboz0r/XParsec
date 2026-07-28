@@ -360,6 +360,39 @@ let tests =
                         "Site (non-canonical Between)"
             }
 
+            // `Related` is populated only at the PARSE seam, whose diagnostics do not reach
+            // a frozen file's `Diagnostics`, so no corpus program can reach the label leg of
+            // the codec. Without this, a labelled diagnostic would decode to a stripped one
+            // and every test would still pass.
+            test "a diagnostic round-trips, its labels included" {
+                let opener: Label =
+                    {
+                        Site = Site.At 3<token>
+                        Message = "unclosed delimiter"
+                    }
+
+                let placeless: Label =
+                    {
+                        Site = Site.Nowhere
+                        Message = "a label that names no place"
+                    }
+
+                let labelled =
+                    {
+                        Code = "UnclosedDelimiter"
+                        Message = "Unclosed '(': Expected ')'"
+                        Severity = Severity.Error
+                        Site = Site.After 7<token>
+                        Related = [ opener; placeless ]
+                    }
+
+                for d in [ labelled; { labelled with Related = [] } ] do
+                    Expect.equal
+                        (roundTrips FrozenCodecTypes.writeDiagnostic FrozenCodecTypes.readDiagnostic d)
+                        d
+                        "Diagnostic"
+            }
+
             test "an anchor round-trips, its absence included" {
                 for a in h.Anchors do
                     Expect.equal

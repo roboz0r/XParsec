@@ -182,11 +182,7 @@ module FSharpAst =
                             let startTok = skipped.[0]
 
                             reader.State <-
-                                addErrorDiagnosticWithError
-                                    DiagnosticCode.UnexpectedTopLevel
-                                    startTok.PositionedToken
-                                    topErr
-                                    reader.State
+                                addDiagnosticWithError DiagnosticCode.UnexpectedTopLevel startTok topErr reader.State
 
                             appendSkippedToSig skipped sigFile
 
@@ -202,11 +198,7 @@ module FSharpAst =
                             let startTok = skipped.[0]
 
                             reader.State <-
-                                addErrorDiagnosticWithError
-                                    DiagnosticCode.UnexpectedTopLevel
-                                    startTok.PositionedToken
-                                    topErr
-                                    reader.State
+                                addDiagnosticWithError DiagnosticCode.UnexpectedTopLevel startTok topErr reader.State
 
                             ImmutableArray.Create(ModuleSignatureElement.SkipsTokens(skipped))
                         else
@@ -259,11 +251,7 @@ module FSharpAst =
                             let startTok = skipped.[0]
 
                             reader.State <-
-                                addErrorDiagnosticWithError
-                                    DiagnosticCode.UnexpectedTopLevel
-                                    startTok.PositionedToken
-                                    topErr
-                                    reader.State
+                                addDiagnosticWithError DiagnosticCode.UnexpectedTopLevel startTok topErr reader.State
 
                             appendSkippedToImpl skipped implFile
 
@@ -284,11 +272,7 @@ module FSharpAst =
                             let startTok = skipped.[0]
 
                             reader.State <-
-                                addErrorDiagnosticWithError
-                                    DiagnosticCode.UnexpectedTopLevel
-                                    startTok.PositionedToken
-                                    topErr
-                                    reader.State
+                                addDiagnosticWithError DiagnosticCode.UnexpectedTopLevel startTok topErr reader.State
 
                             elems.Add(ModuleElem.SkipsTokens(skipped))
 
@@ -304,9 +288,9 @@ module FSharpAst =
                                 let startTok = skipped.[0]
 
                                 reader.State <-
-                                    addErrorDiagnosticWithError
+                                    addDiagnosticWithError
                                         DiagnosticCode.UnexpectedTopLevel
-                                        startTok.PositionedToken
+                                        startTok
                                         topErr
                                         reader.State
 

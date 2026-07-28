@@ -642,10 +642,8 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// side naming an assembly. `""` for the front-end-only / contract-scrape paths that
     /// never emit; set by `Pipeline.analyse*For`.
     member val AssemblyName = "" with get, set
-    // Fully qualified: this file `open`s `XParsec.FSharp.Parser`, which also
-    // defines a `Diagnostic`; with our `Diagnostic` now declared in `SideTypes.fs`
-    // (ahead of `Tast.fs`) rather than in this file, the bare name would bind to
-    // the parser's. The record literals in `Error`/`Warn` below resolve by field
+    // Fully qualified: see `Diagnostic`'s declaration for why the bare name would
+    // otherwise be the parser's. The one record literal below (`Add`) resolves by field
     // labels, so only this annotation needs the qualifier.
     member val Diagnostics = ResizeArray<XParsec.FSharp.SemanticAnalysis.Diagnostic>() with get
     member val Types = types with get
@@ -1084,28 +1082,29 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// in hand; a producer with no node at all says `Site.Nowhere` through `ErrorAt`.
     member this.Error(tok: SyntaxToken, msg: string) = this.ErrorAt(Site.ofToken tok, msg)
 
-    /// `Error` carrying a stable diagnostic `code` (`"FS0378"`, `"V001"`) — the only thing
-    /// the plain overload does not cover, and the reason an inline `Diagnostic` literal
-    /// used to survive at the handful of sites that mint one.
-    member this.Error(tok: SyntaxToken, code: string, msg: string) =
+    /// THE one `Diagnostic` literal in the pass surface: every reporting member differs
+    /// only in what it fills these four with, so a field added to the record is answered
+    /// here alone. Private, because the choice of severity belongs to the member a producer
+    /// names, never to the producer.
+    member private this.Add(code: string, severity: Severity, site: Site, msg: string) =
         this.Diagnostics.Add
             {
                 Code = code
                 Message = msg
-                Severity = Severity.Error
-                Site = Site.ofToken tok
+                Severity = severity
+                Site = site
+                Related = []
             }
+
+    /// `Error` carrying a stable diagnostic `code` (`"FS0378"`, `"V001"`) — the only thing
+    /// the plain overload does not cover, and the reason an inline `Diagnostic` literal
+    /// used to survive at the handful of sites that mint one.
+    member this.Error(tok: SyntaxToken, code: string, msg: string) =
+        this.Add(code, Severity.Error, Site.ofToken tok, msg)
 
     /// `Error` for a producer that has resolved its own `Site` — one with no node in the
     /// file (`Site.Nowhere`), or a span rather than a single token.
-    member this.ErrorAt(site: Site, msg: string) =
-        this.Diagnostics.Add
-            {
-                Code = ""
-                Message = msg
-                Severity = Severity.Error
-                Site = site
-            }
+    member this.ErrorAt(site: Site, msg: string) = this.Add("", Severity.Error, site, msg)
 
     /// Blame the written type head at `site`: `name` names no type — no scope of this unit
     /// claims it and the target's external universe does not hold it. THE one home for that
@@ -1138,10 +1137,4 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
 
     /// `Warning`-severity analogue of `Error`.
     member this.Warn(tok: SyntaxToken, msg: string) =
-        this.Diagnostics.Add
-            {
-                Code = ""
-                Message = msg
-                Severity = Severity.Warning
-                Site = Site.ofToken tok
-            }
+        this.Add("", Severity.Warning, Site.ofToken tok, msg)

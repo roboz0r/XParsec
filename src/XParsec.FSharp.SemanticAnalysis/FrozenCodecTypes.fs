@@ -399,26 +399,37 @@ module FrozenCodecTypes =
         | 2uy -> Severity.Info
         | b -> failwithf "FrozenCodec: unknown Severity tag %d" b
 
-    // Qualified: this module `open`s `XParsec.FSharp.Parser`, which also declares a
-    // `Diagnostic`; the bare name would bind to the parser's — the same shadowing the
-    // `TastFileG.Diagnostics` field annotation guards against.
+    // `Diagnostic` is qualified below rather than aliased; see the type's declaration for
+    // why the bare name would otherwise be the parser's.
+    let private writeLabel (w: BinaryWriter) (l: Label) =
+        writeSite w l.Site
+        w.Write l.Message
+
+    let private readLabel (r: BinaryReader) : Label =
+        let site = readSite r
+        let message = r.ReadString()
+        { Site = site; Message = message }
+
     let writeDiagnostic (w: BinaryWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =
         writeSite w d.Site
         w.Write d.Code
         w.Write d.Message
         writeSeverity w d.Severity
+        writeListWith w writeLabel d.Related
 
     let readDiagnostic (r: BinaryReader) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
         let site = readSite r
         let code = r.ReadString()
         let message = r.ReadString()
         let severity = readSeverity r
+        let related = readListWith r readLabel
 
         {
             Code = code
             Message = message
             Severity = severity
             Site = site
+            Related = related
         }
 
     let writeAccessibility (w: BinaryWriter) (a: Accessibility) =

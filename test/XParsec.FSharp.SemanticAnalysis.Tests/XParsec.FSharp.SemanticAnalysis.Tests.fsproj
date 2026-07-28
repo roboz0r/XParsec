@@ -73,6 +73,7 @@
     <Compile Include="TypeScopeOrderTests.fs" />
     <Compile Include="FileOrderScopingTests.fs" />
     <Compile Include="ModuleScopingTests.fs" />
+    <Compile Include="ParseDiagnosticsTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

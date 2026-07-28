@@ -283,19 +283,13 @@ module ConformancePass =
     /// are).
     ///
     /// Empty = the package conforms; a non-empty result must fail the build.
-    // `Diagnostic` is qualified throughout: `open XParsec.FSharp.Parser` brings the
-    // PARSER's `Diagnostic` (Token/DiagnosticCode/DiagnosticSeverity) into scope, which
-    // shadows the SemanticAnalysis one this pass emits.
+    // `Diagnostic` is qualified throughout this pass rather than aliased; see the type's
+    // declaration for why the bare name would otherwise be the parser's.
     let enforce (outcome: PackageOutcome) : XParsec.FSharp.SemanticAnalysis.Diagnostic list =
+        // A package-level conformance verdict is about a signature, not a place in any one
+        // file.
         let err (code: string) (message: string) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
-            {
-                Code = code
-                Message = sprintf "%s: %s" outcome.Package message
-                Severity = Severity.Error
-                // A package-level conformance verdict is about a signature, not a place in
-                // any one file.
-                Site = Site.Nowhere
-            }
+            Diagnostic.nowhere code (sprintf "%s: %s" outcome.Package message)
 
         // The contract `.fsi` files actually present, split by pairing verdict — the
         // basis for catching a `sig-only` exemption that names a non-contract or a

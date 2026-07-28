@@ -28,14 +28,15 @@ module ClrDriver =
     // Front-end failures (lex / parse / analysis) are user errors and surface as
     // `Diagnostic`s. Codegen exceptions are NOT caught: a malformed emission is a
     // compiler bug, not a user error, and must fail loudly.
-    let private driverDiagnostic (message: string) : Diagnostic =
-        {
-            Code = "DRV"
-            Message = message
-            Severity = Severity.Error
-            // A whole-file lex/parse/driver failure names no place in the file.
-            Site = Site.Nowhere
-        }
+    let private driverDiagnostic (message: string) : Diagnostic = Diagnostic.nowhere "DRV" message
+
+    /// The diagnostics that BLOCK emission for one source: everything RECOVERY reported
+    /// (a patched tree is not a compilable one, and every parse diagnostic is an error)
+    /// plus the front end's error-severity findings. One definition, because `compile` and
+    /// `compileCached` claim to gate identically and two copies is how that stops being true.
+    let private blockingErrors (parsed: Pipeline.ParsedUnit) (tast: FrozenPools) : Diagnostic list =
+        parsed.Diagnostics
+        @ (tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
 
     /// Compile `source` to an in-memory PE artifact against the compilation's own
     /// reference set. Front end: `Pipeline.analyseFor` — the frozen production
@@ -46,15 +47,15 @@ module ClrDriver =
     /// tests use to also return the pre-freeze `SemType` tree for assertions.
     let compile (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
         match Pipeline.parse "DRV" source with
-        | Error ds -> Error ds
-        | Ok(lexed, file) ->
+        | Error f -> Error f.Diagnostics
+        | Ok parsed ->
             let provider =
                 ClrSymbolProviders.buildContractWithRefs inputs.BclReferences None inputs.Manifests
 
             let tast =
-                Pipeline.analyseFor inputs.Project.AssemblyName provider source lexed file
+                Pipeline.analyseFor inputs.Project.AssemblyName provider source parsed.Lexed parsed.File
 
-            match tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error) with
+            match blockingErrors parsed tast with
             | [] -> Ok(Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project tast)
             | errors -> Error errors
 
@@ -92,12 +93,12 @@ module ClrDriver =
             key
             (fun () ->
                 match Pipeline.parse "DRV" source with
-                | Error ds -> Error ds
-                | Ok(lexed, file) ->
+                | Error f -> Error f.Diagnostics
+                | Ok parsed ->
                     let tast =
-                        Pipeline.analyseFor inputs.Project.AssemblyName provider source lexed file
+                        Pipeline.analyseFor inputs.Project.AssemblyName provider source parsed.Lexed parsed.File
 
-                    match tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error) with
+                    match blockingErrors parsed tast with
                     | [] -> Ok tast
                     | errors -> Error errors
             )
@@ -134,7 +135,7 @@ module ClrDriver =
             results
             |> List.collect (
                 function
-                | Error e -> AssemblyUnits.unpositionedDiagnostics e.Path e.Diagnostics
+                | Error e -> AssemblyUnits.failureDiagnostics e
                 | Ok _ -> []
             )
 

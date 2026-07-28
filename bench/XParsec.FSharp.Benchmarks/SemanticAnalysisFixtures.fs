@@ -141,11 +141,13 @@ let stageErrorCount (results: Result<AssemblyUnits.FrozenUnit, AssemblyUnits.Uni
     |> List.sumBy (
         function
         | Error e ->
-            e.Diagnostics
+            e.Failure.Diagnostics
             |> List.filter (fun d -> d.Severity = Severity.Error)
             |> List.length
+        // A unit that parsed only because RECOVERY patched it is not a green workload
+        // either, so its parse diagnostics count the same as the analysis residue.
         | Ok u ->
-            u.Frozen.Residue.Diagnostics
+            u.ParseDiagnostics @ u.Frozen.Residue.Diagnostics
             |> List.filter (fun d -> d.Severity = Severity.Error)
             |> List.length
     )

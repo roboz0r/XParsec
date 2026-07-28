@@ -113,13 +113,6 @@ module Offside =
         | _ -> false
 
 [<RequireQualifiedAccess>]
-type DiagnosticSeverity =
-    | Error
-    | Warning
-    | Info
-    | Hint
-
-[<RequireQualifiedAccess>]
 type DiagnosticCode =
     // TODO: Use F# error codes
     | Other of string
@@ -139,14 +132,26 @@ type DiagnosticCode =
     | ExpectedRBraceBar
     | ExpectedQuotationTypedRight
     | ExpectedQuotationUntypedRight
+    /// A close delimiter that never appeared: the parser SYNTHESISED a virtual one, so the
+    /// mistake is a hole in the token stream and the token that exposed it is innocent.
     | UnclosedDelimiter of opened: SyntaxToken * expected: Token
+    /// A close delimiter that is PRESENT but wrong (`{| … }`). The parser accepts the token
+    /// as the close rather than inserting anything, so that token IS the mistake and there
+    /// is no hole to name — which is why this is not `UnclosedDelimiter`.
+    | MismatchedDelimiter of opened: SyntaxToken * expected: Token
 
+/// A parse diagnostic. Every one is an error — recovery only ever reports something the
+/// grammar could not accept — so there is no severity to carry.
+///
+/// `Token`/`TokenEnd` are `SyntaxToken`, not `PositionedToken`: a consumer outside the
+/// parser needs the token INDEX to name the place, and a `PositionedToken` carries only a
+/// char offset, which it could only turn back into a token by searching. A diagnostic
+/// raised where the input offers no token to blame carries `SyntaxToken.nowhere`.
 and Diagnostic =
     {
         Code: DiagnosticCode
-        Severity: DiagnosticSeverity
-        Token: PositionedToken
-        TokenEnd: PositionedToken option
+        Token: SyntaxToken
+        TokenEnd: SyntaxToken option
         Error: ParseError<PositionedToken, ParseState> option
     }
 
@@ -189,9 +194,9 @@ and [<AllowNullLiteral>] TraceCallback() =
 
     default _.PermittedUndentation(_, _, _, _) = ()
 
-    abstract DiagnosticEmitted: code: DiagnosticCode * severity: DiagnosticSeverity * token: PositionedToken -> unit
+    abstract DiagnosticEmitted: code: DiagnosticCode * token: SyntaxToken -> unit
 
-    default _.DiagnosticEmitted(_, _, _) = ()
+    default _.DiagnosticEmitted(_, _) = ()
 
     abstract SplitRAttrBracketSet: atStartIndex: int -> unit
     default _.SplitRAttrBracketSet(_) = ()
@@ -269,6 +274,72 @@ type FSParser<'T> = Parser<'T, PositionedToken, ParseState, FSReadable>
 type FSReader = Reader<PositionedToken, ParseState, FSReadable>
 
 
+module DiagnosticCode =
+
+    /// The source spelling of `t` as an error message names it. There is no general
+    /// token→text table, so this covers the delimiters and keywords a diagnostic can
+    /// demand and falls back to the token's own name, which is what the pre-existing
+    /// `Other $"Expected '{t}'"` sites already print.
+    let private spelling (t: Token) =
+        match TokenInfo.withoutFlags t with
+        | Token.KWLParen -> "("
+        | Token.KWRParen -> ")"
+        | Token.KWLBracket -> "["
+        | Token.KWRBracket -> "]"
+        | Token.KWLArrayBracket -> "[|"
+        | Token.KWRArrayBracket -> "|]"
+        | Token.KWLBrace -> "{"
+        | Token.KWRBrace -> "}"
+        | Token.KWLBraceBar -> "{|"
+        | Token.KWRBraceBar -> "|}"
+        | Token.KWLAttrBracket -> "[<"
+        | Token.KWRAttrBracket -> ">]"
+        | Token.OpQuotationTypedLeft -> "<@"
+        | Token.OpQuotationTypedRight -> "@>"
+        | Token.OpQuotationUntypedLeft -> "<@@"
+        | Token.OpQuotationUntypedRight -> "@@>"
+        | Token.KWEnd -> "end"
+        | other -> string other
+
+    /// "Expected 'X'", spelling `t` the way a reader wrote it. THE one phrasing of that
+    /// sentence, so a diagnostic built ad hoc from a token cannot print the enum name
+    /// (`Expected 'KWRParen'`) where the seam prints the glyph.
+    let expecting (t: Token) = $"Expected '{spelling t}'"
+
+    /// How a parse diagnostic presents on the FAR side of the parser boundary: the stable
+    /// code a consumer filters on, and the English it renders. THE SEAM — the parser owns
+    /// its own error vocabulary, and this is the one place that vocabulary is flattened
+    /// into the two strings a consumer still spells a diagnostic with.
+    let acrossSeam (code: DiagnosticCode) : struct (string * string) =
+        match code with
+        | DiagnosticCode.Other msg -> struct ("Other", msg)
+        | DiagnosticCode.TyparInConstant _ ->
+            struct ("TyparInConstant", "A unit-of-measure on a constant cannot mention a type parameter")
+        | DiagnosticCode.MissingExpression -> struct ("MissingExpression", "Expected an expression")
+        | DiagnosticCode.MissingPattern -> struct ("MissingPattern", "Expected a pattern")
+        | DiagnosticCode.MissingType -> struct ("MissingType", "Expected a type")
+        | DiagnosticCode.MissingRule -> struct ("MissingRule", "Expected a match rule")
+        | DiagnosticCode.MissingTypeDefn -> struct ("MissingTypeDefn", "Expected a type definition")
+        | DiagnosticCode.MissingModuleElem -> struct ("MissingModuleElem", "Expected a module declaration")
+        | DiagnosticCode.UnexpectedTopLevel -> struct ("UnexpectedTopLevel", "Unexpected token(s) at the top level")
+        | DiagnosticCode.ExpectedEnd -> struct ("ExpectedEnd", expecting Token.KWEnd)
+        | DiagnosticCode.ExpectedRParen -> struct ("ExpectedRParen", expecting Token.KWRParen)
+        | DiagnosticCode.ExpectedRBracket -> struct ("ExpectedRBracket", expecting Token.KWRBracket)
+        | DiagnosticCode.ExpectedRArrayBracket -> struct ("ExpectedRArrayBracket", expecting Token.KWRArrayBracket)
+        | DiagnosticCode.ExpectedRBraceBar -> struct ("ExpectedRBraceBar", expecting Token.KWRBraceBar)
+        | DiagnosticCode.ExpectedQuotationTypedRight ->
+            struct ("ExpectedQuotationTypedRight", expecting Token.OpQuotationTypedRight)
+        | DiagnosticCode.ExpectedQuotationUntypedRight ->
+            struct ("ExpectedQuotationUntypedRight", expecting Token.OpQuotationUntypedRight)
+        | DiagnosticCode.UnclosedDelimiter(opened, expected) ->
+            struct ("UnclosedDelimiter", $"Unclosed '{spelling opened.Token}': {expecting expected}")
+        | DiagnosticCode.MismatchedDelimiter(opened, expected) ->
+            struct ("MismatchedDelimiter", $"Wrong close for '{spelling opened.Token}': {expecting expected}")
+
+    /// What the secondary label on the OPENING delimiter says. Both delimiter diagnostics
+    /// point back at the same thing, so the wording is decided once rather than per code.
+    let openedHereLabel = "unclosed delimiter"
+
 module SyntaxToken =
 
     let syntaxToken token (index: int) =
@@ -282,6 +353,12 @@ module SyntaxToken =
             PositionedToken = token
             Index = TokenIndex.Virtual
         }
+
+    /// The token a diagnostic blames when the input offers none: the reader is past the
+    /// end, or the next token is offside and so is not part of the construct being
+    /// diagnosed. Virtual, so it carries NO index and names no place — the alternative is
+    /// to invent an offset and point the diagnostic at whatever happens to sit there.
+    let nowhere = virtualToken (PositionedToken.Create(Token.EOF, 0))
 
 module ParseState =
     /// Invokes `action` with the attached trace callback when one is present.
@@ -359,13 +436,12 @@ module ParseState =
             ifTrace state (fun t -> t.ContextPop(head.Context, state.Context.Length))
             { state with Context = tail }
 
-    let addDiagnostic code severity startToken endToken error (state: ParseState) =
-        ifTrace state (fun t -> t.DiagnosticEmitted(code, severity, startToken))
+    let addDiagnostic code startToken endToken error (state: ParseState) =
+        ifTrace state (fun t -> t.DiagnosticEmitted(code, startToken))
 
         let diag =
             {
                 Code = code
-                Severity = severity
                 Token = startToken
                 TokenEnd = endToken
                 Error = error
@@ -375,15 +451,15 @@ module ParseState =
             Diagnostics = diag :: state.Diagnostics
         }
 
-    /// Shortcut for the common case of emitting an Error diagnostic at a single token
-    /// with no end-token range and no underlying parser error.
-    let addErrorDiagnostic code startToken state =
-        addDiagnostic code DiagnosticSeverity.Error startToken None None state
+    /// Shortcut for the common case of a diagnostic at a single token with no end-token
+    /// range and no underlying parser error.
+    let addDiagnosticAt code startToken state =
+        addDiagnostic code startToken None None state
 
-    /// Shortcut for the common case of emitting an Error diagnostic at a single token
-    /// that wraps an underlying parser error.
-    let addErrorDiagnosticWithError code startToken err state =
-        addDiagnostic code DiagnosticSeverity.Error startToken None (Some err) state
+    /// Shortcut for the common case of a diagnostic at a single token that wraps an
+    /// underlying parser error.
+    let addDiagnosticWithError code startToken err state =
+        addDiagnostic code startToken None (Some err) state
 
     let private findLineNumberImpl (lexed: Lexed) (guess: int<line>) (index: int<token>) =
         if index < 0<token> || index >= lexed.Tokens.LengthM then
@@ -546,8 +622,8 @@ type WriterTraceCallback(lexed: Lexed, writer: System.IO.TextWriter) =
     override this.PermittedUndentation(token, tokenCol, contextIndent, rule) =
         this.Write($"UNDENT_OK {token.Token} col={tokenCol} < indent={contextIndent} rule={rule}")
 
-    override this.DiagnosticEmitted(code, severity, token) =
-        this.Write($"DIAGNOSTIC {severity} {code} @{token.StartIndex}")
+    override this.DiagnosticEmitted(code, token) =
+        this.Write($"DIAGNOSTIC {code} @{token.StartIndex}")
 
     override this.SplitRAttrBracketSet(startIndex) =
         this.Write($"SPLIT_RATTR_SET @{startIndex}")

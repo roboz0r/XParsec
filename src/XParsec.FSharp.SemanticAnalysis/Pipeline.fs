@@ -6,37 +6,113 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 module Pipeline =
 
+    // The alias binds `Diagnostic` to the SemanticAnalysis one throughout this module; see
+    // that type's declaration for why the bare name would otherwise be the parser's.
+    type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
+
+    /// A parsed unit: the token stream and tree every pass runs on, and the diagnostics
+    /// RECOVERY raised producing them. A file can parse to a COMPLETE tree and still have
+    /// had every delimiter in it inserted and every missing expression stubbed, so a
+    /// successful parse carries diagnostics as routinely as a failed one.
+    type ParsedUnit =
+        {
+            Lexed: Lexed
+            File: ImplementationFile<SyntaxToken>
+            Diagnostics: Diagnostic list
+        }
+
+    /// A unit no tree came out of. `Lexed` is present whenever LEXING succeeded, so the
+    /// recovery diagnostics raised before the parser gave up still have the token stream
+    /// their positions resolve against; only a lex failure has none.
+    type ParseFailure =
+        {
+            Lexed: Lexed voption
+            Diagnostics: Diagnostic list
+        }
+
+    /// The parser's diagnostics as the semantic layer sees them, in SOURCE order —
+    /// `ParseState.Diagnostics` accumulates reversed. The parser-side `Error`
+    /// (the underlying `ParseError`) does NOT cross: it is parser-internal, and only
+    /// `Debug.printDiagnostics` renders it.
+    let private ofParseDiagnostics (diagnostics: XParsec.FSharp.Parser.Diagnostic list) : Diagnostic list =
+        // Both delimiter diagnostics point back at the delimiter left open; only their
+        // PRIMARY differs, because only one of them describes a hole.
+        let openedHere (opened: SyntaxToken) : Label list =
+            [
+                {
+                    Site = Site.ofToken opened
+                    Message = DiagnosticCode.openedHereLabel
+                }
+            ]
+
+        [
+            for d in List.rev diagnostics do
+                let struct (code, message) = DiagnosticCode.acrossSeam d.Code
+
+                let site, related =
+                    match d.Code with
+                    // The close was never written: the parser SYNTHESISED one, so the
+                    // mistake is the hole it went into, and the token that exposed the
+                    // absence is innocent.
+                    | DiagnosticCode.UnclosedDelimiter(opened, _) -> Site.gapBefore d.Token, openedHere opened
+                    // The close IS written, just the wrong one, and the parser consumed it
+                    // as the close. Nothing was inserted, so that token is the mistake.
+                    | DiagnosticCode.MismatchedDelimiter(opened, _) -> Site.ofToken d.Token, openedHere opened
+                    | _ ->
+                        match d.TokenEnd with
+                        | Some last -> Site.spanning [ d.Token; last ], []
+                        | None -> Site.ofToken d.Token, []
+
+                {
+                    Code = code
+                    Message = message
+                    Severity = Severity.Error
+                    Site = site
+                    Related = related
+                }
+        ]
+
     /// The SHARED front-end parse chain (lex → `Reader.ofLexed` → `FSharpAst.parse`),
     /// the one home for every driver's parse: a bare-expression `ScriptFragment` wraps as
     /// an `AnonymousModule`, and lex/parse failures surface as `Diagnostic`s (never
     /// exceptions) stamped with the caller's `code` — the only delta between drivers
     /// (`"DRV"` for the CLR driver, `"ASM"` for the multi-file assembly pipeline). The
-    /// return type is qualified because `open XParsec.FSharp.Parser` brings the PARSER's
-    /// `Diagnostic` into scope, shadowing the SemanticAnalysis one this produces.
-    let parse
-        (code: string)
-        (source: string)
-        : Result<Lexed * ImplementationFile<SyntaxToken>, XParsec.FSharp.SemanticAnalysis.Diagnostic list> =
-        let fail (message: string) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
-            {
-                Code = code
-                Message = message
-                Severity = Severity.Error
-                // A whole-file lex/parse failure names no place in the file.
-                Site = Site.Nowhere
-            }
+    /// parser's own recovery diagnostics ride out on BOTH arms.
+    let parse (code: string) (source: string) : Result<ParsedUnit, ParseFailure> =
+        // A whole-file lex/parse failure names no place in the file.
+        let fail (message: string) : Diagnostic = Diagnostic.nowhere code message
 
         match Lexing.lexString source with
-        | Result.Error e -> Error [ fail (sprintf "lex error: %A" e) ]
+        | Result.Error e ->
+            Error
+                {
+                    Lexed = ValueNone
+                    Diagnostics = [ fail (sprintf "lex error: %A" e) ]
+                }
         | Result.Ok lexed ->
             let reader = Reader.ofLexed lexed source Set.empty
 
+            let failed (message: string) =
+                Error
+                    {
+                        Lexed = ValueSome lexed
+                        Diagnostics = fail message :: ofParseDiagnostics reader.State.Diagnostics
+                    }
+
+            let parsed (file: ImplementationFile<SyntaxToken>) =
+                Ok
+                    {
+                        Lexed = lexed
+                        File = file
+                        Diagnostics = ofParseDiagnostics reader.State.Diagnostics
+                    }
+
             match FSharpAst.parse reader with
-            | Result.Error e -> Error [ fail (sprintf "parse error: %A" e) ]
-            | Result.Ok(FSharpAst.ImplementationFile f) -> Ok(lexed, f)
+            | Result.Error e -> failed (sprintf "parse error: %A" e)
+            | Result.Ok(FSharpAst.ImplementationFile f) -> parsed f
             | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
-                Ok(lexed, ImplementationFile.AnonymousModule elems)
-            | Result.Ok other -> Error [ fail (sprintf "unexpected AST: %A" other) ]
+                parsed (ImplementationFile.AnonymousModule elems)
+            | Result.Ok other -> failed (sprintf "unexpected AST: %A" other)
 
     /// Runs every pass through the `SemType` domain and returns the populated
     /// `PassContext` plus the **`SemType`** `TastFile` — the pre-freeze tree. This is

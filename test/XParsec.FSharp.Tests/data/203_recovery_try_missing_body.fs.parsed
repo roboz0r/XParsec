@@ -11,7 +11,7 @@ Rule:
     Const         '1'               NumInt32            tok=   8  pos=  14
 ---
 Diagnostics:
-  [error] MissingExpression at 4 (Ln 2, Col 1)
+  MissingExpression at 4 (Ln 2, Col 1)
     with _ ->
     ^ At index 4 (Ln 2, Col 1)
     Multiple errors:

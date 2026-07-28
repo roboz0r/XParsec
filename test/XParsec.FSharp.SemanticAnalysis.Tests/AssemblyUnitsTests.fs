@@ -19,7 +19,7 @@ let private units (results: Result<FrozenUnit, UnitError> list) : FrozenUnit lis
     |> List.map (
         function
         | Ok u -> u
-        | Error e -> failtestf "unit %s failed to parse: %A" e.Path e.Diagnostics
+        | Error e -> failtestf "unit %s failed to parse: %A" e.Path e.Failure.Diagnostics
     )
 
 /// A unit's unresolved-symbol error diagnostics (the front end phrases both the bare and
@@ -900,5 +900,42 @@ module N =
                     (sprintf
                         "a bare prior-unit type in an UNOPENED different namespace must not resolve (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
+            }
+
+            // A unit that analysed only because RECOVERY patched its tree is not silent: its
+            // parse diagnostics ride on the unit and anchor against that unit's own text,
+            // exactly as the analysis residue does.
+            test "a RECOVERED unit's parse diagnostics anchor to its own file" {
+                let clean =
+                    "\
+namespace Test
+
+module A =
+    let a = 1
+"
+
+                let broken =
+                    "\
+namespace Test
+
+module B =
+    let b = (1 + 2
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "clean.fs", clean; "broken.fs", broken ]
+                    |> units
+
+                let anchored = consolidatedDiagnostics all
+
+                match anchored |> List.filter (fun a -> a.Diagnostic.Code = "UnclosedDelimiter") with
+                | [ a ] ->
+                    Expect.equal a.Path "broken.fs" "anchored to the unit that needed recovery"
+                    Expect.isNonEmpty a.Diagnostic.Related "the opening delimiter is labelled"
+                | other -> failtestf "expected one unclosed-delimiter diagnostic, got %A" other
+
+                Expect.isEmpty
+                    (anchored |> List.filter (fun a -> a.Path = "clean.fs"))
+                    "the clean unit contributed none"
             }
         ]
