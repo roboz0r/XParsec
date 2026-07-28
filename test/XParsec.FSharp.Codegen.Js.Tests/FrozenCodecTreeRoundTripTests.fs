@@ -71,14 +71,14 @@ let tests =
                 let f = frozenOfJs "type C() =\n    member this.Id<'T> (x: 'T) : 'T = x\n"
 
                 let methodTypars =
-                    (TastUnpool.nodeKeyedFile f).Decls
+                    (TastUnpool.ofPools f).Decls
                     |> EqArray.toList
                     |> List.tryPick (fun d ->
                         match d with
-                        | Frozen.TDecl.Type td ->
+                        | TDeclG.Type td ->
                             TTypeKindG.members td.Kind
                             |> EqArray.toList
-                            |> List.tryPick (fun (m: Frozen.TTypeMember) ->
+                            |> List.tryPick (fun (m: Pooled.TTypeMember) ->
                                 if m.Name = "Id" then Some m.MethodTypeParams else None
                             )
                         | _ -> None

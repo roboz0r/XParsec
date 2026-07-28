@@ -22,9 +22,6 @@ module EmitLower =
     let matchInstantiation = TastLower.matchInstantiation
     let matchInstantiationPartial = TastLower.matchInstantiationPartial
     let iterChildren = TastAccessor.iterChildren
-    let mintUnitParamKey = TastLower.mintUnitParamKey
-    let mintTupleParamKey = TastLower.mintTupleParamKey
-    let mintUseBinderKey = TastLower.mintUseBinderKey
     let peelLambda = TastLower.peelLambda
 
     /// The CLR backend's `lower`: the shared, platform-neutral `TastLower.lower`.

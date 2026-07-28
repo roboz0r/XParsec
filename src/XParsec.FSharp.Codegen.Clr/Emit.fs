@@ -108,10 +108,10 @@ module Emit =
     let buildClosureInvoke
         (ctx: EmitContext)
         (closure: Closure)
-        (captureFields: Dictionary<NodeKey, EntityHandle>)
+        (captureFields: Dictionary<BinderId, EntityHandle>)
         : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<NodeKey, int>()
+        let args = Dictionary<BinderId, int>()
         args.[closure.ParamKey] <- 1 // `this` is 0; the single applied parameter is 1
 
         // A flat (`Fun`(N+1)`) value-struct closure has EXTRA flat parameters (the
@@ -144,7 +144,7 @@ module Emit =
     /// through `staticMethods` (the `App` arm), so no self-binding is needed.
     let buildStaticMethod (ctx: EmitContext) (fn: StaticFn) : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<NodeKey, int>()
+        let args = Dictionary<BinderId, int>()
         fn.Params |> List.iteri (fun i p -> args.[p.Slot] <- i)
         let env = EmitEnv.ofContext ctx args
 
@@ -187,9 +187,9 @@ module Emit =
     /// closure/ctor map is passed.
     let buildMember
         (ctx: EmitContext)
-        (thisKey: BinderKey voption)
-        (baseKey: BinderKey voption)
-        (prms: EqArray<BinderKey * FrozenType>)
+        (thisKey: BinderKeyG<BinderId> voption)
+        (baseKey: BinderKeyG<BinderId> voption)
+        (prms: EqArray<BinderKeyG<BinderId> * FrozenType>)
         (voidReturn: bool)
         (body: TastAccessor.ExprId)
         : ILBody =
@@ -197,7 +197,7 @@ module Emit =
         // Keyed in the REFERENCE domain: a body loads a parameter through a `TExpr.Var`,
         // which names it by the raw identity, so each definition site widens as it is
         // given its `ldarg` index.
-        let args = Dictionary<NodeKey, int>()
+        let args = Dictionary<BinderId, int>()
 
         let baseIdx =
             match thisKey with
@@ -255,13 +255,13 @@ module Emit =
     /// so an empty closure/ctor map is passed (as `buildMember`).
     let buildSecondaryCtor
         (ctx: EmitContext)
-        (prms: EqArray<BinderKey * FrozenType>)
+        (prms: EqArray<BinderKeyG<BinderId> * FrozenType>)
         (lets: TastAccessor.CtorLet list)
         (primaryCtor: EntityHandle)
         (primaryArgs: TastAccessor.ExprId list)
         : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<NodeKey, int>()
+        let args = Dictionary<BinderId, int>()
         prms |> EqArray.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
         let env = EmitEnv.ofContext ctx args
 
@@ -292,12 +292,12 @@ module Emit =
     /// order.
     let buildSecondaryCtorFieldInit
         (ctx: EmitContext)
-        (prms: EqArray<BinderKey * FrozenType>)
+        (prms: EqArray<BinderKeyG<BinderId> * FrozenType>)
         (lets: TastAccessor.CtorLet list)
         (fieldInits: (EntityHandle * TastAccessor.ExprId) list)
         : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<NodeKey, int>()
+        let args = Dictionary<BinderId, int>()
         prms |> EqArray.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
         let env = EmitEnv.ofContext ctx args
 
@@ -342,13 +342,13 @@ module Emit =
     let buildClassPrimaryCtor
         (ctx: EmitContext)
         (chain: CtorChain)
-        (thisKey: BinderKey)
-        (ctorParams: (BinderKey * FrozenType) list)
+        (thisKey: BinderKeyG<BinderId>)
+        (ctorParams: (BinderKeyG<BinderId> * FrozenType) list)
         (fields: EntityHandle list)
         (preamble: PreambleStep list)
         : ILBody =
         let b = IlBuilder()
-        let args = Dictionary<NodeKey, int>()
+        let args = Dictionary<BinderId, int>()
         args.[BinderKey.identity thisKey] <- 0
         ctorParams |> List.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
         // `this` is the env's `SelfKey` as well as `Args.[thisKey] = 0` (as `buildMember`

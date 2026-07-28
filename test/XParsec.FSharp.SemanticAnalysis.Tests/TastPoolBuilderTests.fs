@@ -14,16 +14,13 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 /// The value expr of the file's first `Let` decl, as a DU node — a real frozen subtree to
 /// hand a mint site, and (with its root's `DeclExprChildren`) its base pool id.
-let private firstLetValue (frozen: Frozen.TastFile) : Frozen.TExpr =
+let private firstLetValue (frozen: Pooled.TastFile) : Pooled.TExpr =
     EqArray.toArray frozen.Decls
     |> Array.pick (fun d ->
         match d with
         | TDeclG.Let(value = value) -> Some value
         | _ -> None
     )
-
-/// A `NodeKey` no frozen tree can have minted — an offset past the end of any test source.
-let private unseenBinderKey = NodeKey.ofSource 9_000_000 NodeKind.PatIdent
 
 /// Every base id, in every domain, resolves through the builder to EXACTLY the column
 /// value the base pool holds. Run against a builder that has already grown an overlay, so
@@ -52,20 +49,22 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
         Expect.equal (TastPoolBuilder.declPatChildren b id) pools.DeclPatChildren.[i] "base decl pat children"
         Expect.equal (TastPoolBuilder.declPayload b id) pools.DeclPayloads.[i] "base decl payload"
 
-    for i in 0 .. pools.BinderKeys.Length - 1 do
+    for i in 0 .. pools.BinderNames.Length - 1 do
         let id = BinderId i
-        Expect.equal (TastPoolBuilder.binderKey b id) pools.BinderKeys.[i] "base binder key"
+        Expect.equal (TastPoolBuilder.binderTok b id) pools.BinderToks.[i] "base binder anchor"
 
-        Expect.equal (TastPoolBuilder.binderNaming b id) (BinderNaming.ofKey pools.BinderKeys.[i]) "base binder naming"
+        Expect.equal
+            (TastPoolBuilder.binderNaming b id)
+            (BinderNaming.ofColumn pools.BinderNames.[i] id)
+            "base binder naming"
 
-/// Every base root drains back to the decl it was pooled from — the end-to-end half of id
-/// preservation, through the ONE way out of a builder that production uses (`declTree`,
-/// the cross-unit inline wire's drain). Run after the overlay has grown, so an id-space
-/// boundary error shows up as a wrong or missing subtree.
-let private checkRootsDrainUnchanged (b: PoolBuilder) (frozen: Frozen.TastFile) =
-    let drained = TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
-
-    Expect.equal drained (EqArray.toArray frozen.Decls) "every base root drains to its original decl"
+/// Every base root drains to the SAME decl before and after the overlay grows — the
+/// end-to-end half of id preservation, through the ONE way out of a builder that production
+/// uses (`declTree`, the cross-unit inline wire's drain). An id-space boundary error shows
+/// up as a wrong or missing subtree; the drain is deterministic within a builder (its
+/// re-minted binder keys are the builder's), so the two drains are directly comparable.
+let private drainRoots (b: PoolBuilder) : Frozen.TDecl[] =
+    TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
 
 // Programs spanning the domains the stack has to keep straight: a binder reference across
 // decls (`Var` into the binder pool), a composite expr with swappable children, a pattern
@@ -87,11 +86,12 @@ let baseIdTests =
                 test name {
                     let pools, frozen = poolsFor src
                     let b = TastPoolBuilder.openOver pools
+                    let before = drainRoots b
 
-                    // Grow the overlay first: a re-pooled real subtree (which also mints
-                    // binder references) and a binder the base never interned.
+                    // Grow the overlay: a re-pooled real subtree (which also names binder
+                    // references) and a binder the base never held.
                     TastPoolBuilder.appendExprTree b (firstLetValue frozen) |> ignore
-                    TastPoolBuilder.internBinder b unseenBinderKey |> ignore
+                    TastPoolBuilder.mintBinder b |> ignore
 
                     Expect.isGreaterThan
                         (TastPoolBuilder.exprCount b)
@@ -99,7 +99,7 @@ let baseIdTests =
                         "the overlay grew past the base"
 
                     checkBaseIdsResolve pools b
-                    checkRootsDrainUnchanged b frozen
+                    Expect.equal (drainRoots b) before "every base root drains to the same decl it did before"
                 }
         ]
 
@@ -118,11 +118,10 @@ let appendTests =
                 let (ExprPoolId i) = id
                 Expect.isGreaterThanOrEqual i baseCount "the appended root is an overlay id"
 
-                // The binder the DU node introduces, resolved through the builder's own
-                // read-only lookup rather than read off the payload being checked.
-                let duBinder =
-                    BinderKey.ofExpr du
-                    |> ValueOption.bind (BinderKey.identity >> TastPoolBuilder.tryBinderId b)
+                // The binder the DU node introduces — already this pool's own id, the tree
+                // being one drained from it, so the payload is checked against the identity
+                // the NODE carries rather than against the payload itself.
+                let duBinder = BinderKey.ofExpr du |> ValueOption.map BinderKey.identity
 
                 Expect.equal (TastPoolBuilder.exprPayload b id) (TastPools.exprPayload duBinder du) "appended payload"
                 Expect.equal (TastPoolBuilder.exprTy b id) (TastWalk.exprTy du) "appended ty"
@@ -163,43 +162,49 @@ let appendTests =
                 match TastPoolBuilder.exprVarBinder b id with
                 | ValueSome binder ->
                     Expect.equal
-                        (TastPoolBuilder.binderKey b binder)
+                        binder
                         (match varDu with
                          | TExprG.Var(binding = b) -> b
                          | _ -> failtest "not a Var")
-                        "the minted Var resolves to its own binder key"
+                        "the minted Var resolves to its own binder"
 
                     let (BinderId j) = binder
-                    Expect.isLessThan j pools.BinderKeys.Length "the binder id is the base pool's, not a fresh one"
+                    Expect.isLessThan j pools.BinderNames.Length "the binder id is the base pool's, not a fresh one"
                 | ValueNone -> failtest "an appended Var carries no resolved binder id"
             }
 
-            test "an unseen binder key extends the pool past the base" {
+            test "a minted binder extends the pool past the base" {
                 let pools, _ = poolsFor "let x = 1\n"
                 let b = TastPoolBuilder.openOver pools
 
-                let id = TastPoolBuilder.internBinder b unseenBinderKey
+                let id = TastPoolBuilder.mintBinder b
                 let (BinderId i) = id
-                Expect.equal i pools.BinderKeys.Length "the minted binder takes the next flat id"
-                Expect.equal (TastPoolBuilder.binderKey b id) unseenBinderKey "minted binder key reads back"
+                Expect.equal i pools.BinderNames.Length "the minted binder takes the next flat id"
 
                 Expect.equal
                     (TastPoolBuilder.binderNaming b id)
-                    (BinderNaming.ofKey unseenBinderKey)
-                    "a minted binder is named from its own key"
+                    (BinderNaming.Minted id)
+                    "a minted binder is named after its own slot"
 
-                // Interning is idempotent in the key: the second call resolves, it does not
-                // mint a second entry.
-                Expect.equal (TastPoolBuilder.internBinder b unseenBinderKey) id "interning is idempotent"
+                Expect.equal (TastPoolBuilder.binderTok b id) ValueNone "a minted binder anchors on nothing"
+
+                // A second mint is a SECOND binder: there is nothing to intern against, so
+                // the id space simply grows.
+                Expect.notEqual (TastPoolBuilder.mintBinder b) id "each mint is its own binder"
 
                 Expect.equal
                     (TastPoolBuilder.binderCount b)
-                    (pools.BinderKeys.Length + 1)
-                    "exactly one binder was appended"
+                    (pools.BinderNames.Length + 2)
+                    "exactly two binders were appended"
 
-                // The base half of the binder space is untouched by the mint.
-                for i in 0 .. pools.BinderKeys.Length - 1 do
-                    Expect.equal (TastPoolBuilder.binderKey b (BinderId i)) pools.BinderKeys.[i] "base binder key"
+                // The base half of the binder space is untouched by the mints.
+                for i in 0 .. pools.BinderNames.Length - 1 do
+                    let baseId = BinderId i
+
+                    Expect.equal
+                        (TastPoolBuilder.binderNaming b baseId)
+                        (BinderNaming.ofColumn pools.BinderNames.[i] baseId)
+                        "base binder naming"
             }
         ]
 
@@ -257,10 +262,13 @@ let rowCopyTests =
                             }
                         )
 
-                // The oracle: the same decl with the tuple's items reversed, built on the
-                // ORIGINAL DU nodes, so tokens and types are the source's exactly.
+                // The oracle: the ORIGINAL root's own drain with the tuple's items reversed.
+                // Taken through `declTree` so both sides speak the identity a drain hands
+                // out — within one builder that is stable, so the comparison is exact.
+                let original = TastPoolBuilder.declTree b root
+
                 let expected =
-                    match (EqArray.toArray frozen.Decls).[0] with
+                    match original with
                     | TDeclG.Let(
                         binding = binding; value = TExprG.Tuple(items, ty, tok); isInline = isInline; ty = declTy) ->
                         let reversed =
@@ -278,10 +286,7 @@ let rowCopyTests =
                     expected
                     "the derived decl is the original with the tuple's items swapped"
 
-                Expect.equal
-                    (TastPoolBuilder.declTree b root)
-                    (EqArray.toArray frozen.Decls).[0]
-                    "the original root is untouched by the copy"
+                Expect.equal (TastPoolBuilder.declTree b root) original "the original root is untouched by the copy"
             }
 
             test "a retype copies the row with a different type" {

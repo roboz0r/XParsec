@@ -26,7 +26,7 @@ module CompiledFns =
     /// group erases to none); `Body` is the residual after the groups are peeled.
     type CompiledFn =
         {
-            Key: NodeKey
+            Key: BinderId
             Groups: TastAccessor.ArgGroup list
             Params: TastLower.StaticParam list
             Body: TastAccessor.ExprId
@@ -99,7 +99,7 @@ module CompiledFns =
                                     ResultTy = resultTy
                                 }
 
-                            let cf = TastLower.compiledOf vr
+                            let cf = TastLower.compiledOf lv.Value.Pool vr
 
                             {
                                 Key = k

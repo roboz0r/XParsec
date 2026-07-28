@@ -25,7 +25,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// type-argument the call site solves (`EmitCall`) — there is no grounded arrow leaf to
 /// patch, and the old collision-prone arrow-equality rewrite is gone.
 ///
-/// Pure `TastAccessor.ExprId` / `FrozenType` / `NodeKey` traffic — the same family
+/// Pure `TastAccessor.ExprId` / `FrozenType` / `BinderId` traffic — the same family
 /// `TastLower` already shares between backends. It depends on NOTHING CLR-specific (no
 /// provider, layout, or `Emit.Closure`): the only backend input is the already-minted
 /// node→nominal map, which any backend that lowers a captureless lambda to a nominal
@@ -47,7 +47,7 @@ module internal ClosureVerdictRewrite =
             RetypeDecl: TastAccessor.DeclId -> TastAccessor.DeclId
             /// The field-slot type for a module value: the rewritten container if it is
             /// a verdict binding, else the declared type unchanged.
-            ModuleValueSlotType: NodeKey -> FrozenType -> FrozenType
+            ModuleValueSlotType: BinderId -> FrozenType -> FrozenType
         }
 
     /// Build the rewrite from the backend-neutral inputs:
@@ -66,7 +66,7 @@ module internal ClosureVerdictRewrite =
         (closureValueTypeByNode: IReadOnlyDictionary<TastAccessor.ExprId, FrozenType>)
         (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)
         (enumeratorOf: FrozenType -> FrozenType voption)
-        (moduleValues: (NodeKey * FrozenType * TastAccessor.ExprId) seq)
+        (moduleValues: (BinderId * FrozenType * TastAccessor.ExprId) seq)
         : Rewrite =
 
         // Per-value-struct-closure VERDICT, keyed by the closure's Lambda node's POOL ID
@@ -107,7 +107,7 @@ module internal ClosureVerdictRewrite =
         // result. Built in DECLARATION order so a chained binding (`let s2 = map g s1`)
         // can read the ALREADY-rewritten type of an earlier source binding (`s1`).
         let verdictBindings =
-            Dictionary<NodeKey, FrozenType * (FrozenType * FrozenType) list>()
+            Dictionary<BinderId, FrozenType * (FrozenType * FrozenType) list>()
 
         let substituteVerdictClosures
             (ty: FrozenType)
@@ -116,7 +116,7 @@ module internal ClosureVerdictRewrite =
             // The verdict lambdas in this initialiser, by result-typar position → its
             // `<closure>$` value-type. Each value-struct lambda node carrying a
             // result-typar verdict is already in `closureNodeVerdict` (keyed by
-            // reference), so consult it directly rather than re-deriving the NodeKey.
+            // reference), so consult it directly rather than re-deriving the binder.
             let slots = Dictionary<int, FrozenType>()
 
             // A chained source binding (`let s2 = map g s1`) references an EARLIER verdict
@@ -326,7 +326,7 @@ module internal ClosureVerdictRewrite =
             else
                 // The verdict binding a (possibly nested-field) receiver bottoms out in,
                 // for mapping a projection's arrow type to its closure.
-                let rec receiverBinding (r: TastAccessor.ExprId) : NodeKey voption =
+                let rec receiverBinding (r: TastAccessor.ExprId) : BinderId voption =
                     match r with
                     | TastAccessor.EVar k ->
                         if verdictBindings.ContainsKey k then

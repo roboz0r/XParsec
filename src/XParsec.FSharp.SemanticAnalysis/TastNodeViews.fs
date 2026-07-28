@@ -34,26 +34,26 @@ module TastNodeViews =
     /// The `type`-declaration cluster with its member/preamble/ctor BODY slots holding
     /// handles — the shape `TTypeDeclG`'s `'body` parameter exists for. Same spine as
     /// `Frozen.TTypeDecl`, ids in the body slots.
-    type TypeDecl = TTypeDeclG<FrozenType, SyntaxToken, NodeKey, ExprId>
-    type TypeKind = TTypeKindG<FrozenType, SyntaxToken, NodeKey, ExprId>
-    type Class = TClassG<FrozenType, NodeKey, ExprId>
-    type TypeMember = TTypeMemberG<FrozenType, NodeKey, ExprId>
+    type TypeDecl = TTypeDeclG<FrozenType, SyntaxToken, BinderId, ExprId>
+    type TypeKind = TTypeKindG<FrozenType, SyntaxToken, BinderId, ExprId>
+    type Class = TClassG<FrozenType, BinderId, ExprId>
+    type TypeMember = TTypeMemberG<FrozenType, BinderId, ExprId>
     type ClassLet = TClassLetG<FrozenType, ExprId>
     type PreambleEntry = TPreambleEntryG<FrozenType, ExprId>
-    type CtorLet = TCtorLetG<FrozenType, NodeKey, ExprId>
+    type CtorLet = TCtorLetG<FrozenType, BinderId, ExprId>
     type CtorFieldInit = TCtorFieldInitG<ExprId>
-    type SecondaryCtor = TSecondaryCtorG<FrozenType, NodeKey, ExprId>
-    type BaseCtorCall = TBaseCtorCallG<FrozenType, NodeKey, ExprId>
+    type SecondaryCtor = TSecondaryCtorG<FrozenType, BinderId, ExprId>
+    type BaseCtorCall = TBaseCtorCallG<FrozenType, BinderId, ExprId>
 
     /// The compiled-form cluster with its tuple-group / destructuring patterns held as
     /// handles — the `'pat` instantiation every consumer reads, whether the pats came
     /// from a file's own pool (`peelValRepr` off the frozen lambda spine) or from the
     /// standalone pool an `.fsi` contract's are minted into.
-    type StaticParam = StaticParamG<FrozenType, PatId>
-    type ArgGroup = ArgGroupG<FrozenType, PatId, NodeKey>
-    type ValRepr = ValReprG<FrozenType, PatId, NodeKey>
+    type StaticParam = StaticParamG<FrozenType, PatId, BinderId>
+    type ArgGroup = ArgGroupG<FrozenType, PatId, BinderId>
+    type ValRepr = ValReprG<FrozenType, PatId, BinderId>
     type CompiledReturn = CompiledReturnG<FrozenType>
-    type CompiledForm = CompiledFormG<FrozenType, PatId>
+    type CompiledForm = CompiledFormG<FrozenType, PatId, BinderId>
 
     /// The scalar payload of an `ExternalMember` node, minus the `ty`/`tok` that
     /// `exprTy`/`exprTok` already carry. `Receiver` is a payload sub-expression named
@@ -250,7 +250,7 @@ module TastNodeViews =
     [<Struct>]
     type ForToView =
         {
-            Var: NodeKey
+            Var: BinderId
             StartExpr: ExprId
             EndExpr: ExprId
             Body: ExprId

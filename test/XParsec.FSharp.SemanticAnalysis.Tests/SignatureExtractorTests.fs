@@ -181,7 +181,7 @@ let tests =
                 // the test pins the single-sourced derivation, not a stored copy.
                 let compiledOf (suffix: string) : TastAccessor.CompiledForm =
                     match (symOf suffix).ValRepr with
-                    | ValueSome vr -> TastLower.compiledOf vr
+                    | ValueSome vr -> TastLower.compiledOf (TastPoolBuilder.openEmpty ()) vr
                     | ValueNone -> failtestf "val '%s' carries no ValRepr" suffix
 
                 // The flat compiled parameter TYPES the member-ref would encode.

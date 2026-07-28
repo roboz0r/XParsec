@@ -166,13 +166,19 @@ let freezeFor (src: string) : FrozenPools =
     Pipeline.analyseFor testAsm realProvider.Value src lexed file
 
 /// The pools under test, with the DU they encode. The freeze yields POOLS; `ofPools`
-/// re-authors the tree they carry, and `toPools` then re-derives every column from THAT
+/// re-authors the tree they carry, and `rePool` then re-derives every column from THAT
 /// tree — so a gate over the returned pair judges a genuine interconversion rather than
 /// the freeze's own pools against themselves, and every pool id is one this rebuild
 /// assigned.
-let poolsFor (src: string) : FrozenPools * Frozen.TastFile =
-    let frozen = TastUnpool.nodeKeyedFile (freezeFor src)
-    TastPools.toPools frozen, frozen
+let poolsFor (src: string) : FrozenPools * Pooled.TastFile =
+    let frozen = freezeFor src
+    let drained = TastUnpool.ofPools frozen
+    TastPools.rePool frozen drained, drained
+
+/// The re-fill `poolsFor` runs, for a test that MODIFIES the drained tree before pooling
+/// it. A `BinderId`-named tree cannot supply its own naming column, so the fill takes it
+/// from the freeze the tree was drained out of — which is what this closes over.
+let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool (freezeFor src)
 
 /// Parse `input` and run the front-end passes up to NameResolution against
 /// `provider` — the shared harness of the stamp suites, which assert on the side

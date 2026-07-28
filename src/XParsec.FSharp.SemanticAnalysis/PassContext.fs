@@ -82,12 +82,6 @@ type PassContextBindings =
         /// Populated by `Elaborate` and snapshotted into `TastFile.ModuleMembers`; the
         /// backend keys off it to name + place a module function (`ListModule::fold`).
         ModuleMembers: Dictionary<BinderKey, ModuleBindingInfo>
-        /// A *top-level* (implicit-"Program"-module, `holder = None`) binding's
-        /// binder → its source name. Top-level bindings record no
-        /// `ModuleBindingInfo`, so this is the only name source for a top-level value
-        /// lowered to a Program-holder static field. Consulted only by the value
-        /// collector, so top-level functions keep their `fn$<off>` holderless path.
-        TopLevelNames: Dictionary<BinderKey, string>
         /// A `let` binding's explicitly-declared `<'b,'a>` typars, in SOURCE order,
         /// each paired with the `TypeVar` inference seeded for it. Captured by
         /// `Infer.inferBinding` while the binding's transient `TyparScope` is live
@@ -118,7 +112,6 @@ module PassContextBindings =
             Escape = SideTable<_>()
             Repr = SideTable<_>()
             ModuleMembers = Dictionary<_, _>()
-            TopLevelNames = Dictionary<_, _>()
             DeclaredTypars = SideTable<_>()
             Accessibility = Dictionary<_, _>()
             BindingTyparArities = Dictionary<_, _>()

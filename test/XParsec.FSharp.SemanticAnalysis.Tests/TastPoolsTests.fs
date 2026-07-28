@@ -14,28 +14,30 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // agreeing is the cross-check, not a tautology; the reconstruction follows the id columns
 // into the dense pool arrays, so a mis-wired child edge shows up as a fan-out mismatch.
 
-/// The dense id the pool interned a DU node's own binder under, found by POSITION in the
-/// binder column. Derived from the node's `BinderKey` rather than read off the payload
-/// under test, so a payload that names its binder is checked against an independent
-/// answer instead of against itself.
-let private internedBinderId (pools: FrozenPools) (b: BinderKey voption) : BinderId voption =
+/// The dense id the pool interned a DU node's own binder under. The drained tree already
+/// names its binders in the pool's own space, so this is the node's `BinderKey` widened —
+/// derived from the node rather than read off the payload under test, so a payload that
+/// names its binder is checked against an independent answer instead of against itself.
+let private internedBinderId (pools: FrozenPools) (b: BinderKeyG<BinderId> voption) : BinderId voption =
     b
     |> ValueOption.map (fun b ->
-        let key = BinderKey.identity b
+        let id = BinderKey.identity b
+        let (BinderId i) = id
 
-        match Array.tryFindIndex ((=) key) pools.BinderKeys with
-        | Some i -> BinderId i
-        | None -> failtestf "the pooled node's binder %O occupies no BinderKeys slot" key
+        if i < 0 || i >= pools.BinderNames.Length then
+            failtestf "the pooled node's binder %O occupies no binder-pool slot" id
+
+        id
     )
 
-let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Frozen.TPat) =
+let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Pooled.TPat) =
     let binder = internedBinderId pools (BinderKey.ofPat du)
     Expect.equal pools.PatPayloads.[i] (TastPools.patPayload binder du) "pat payload"
     let duKids = TastPools.patChildren du
     Expect.equal pools.PatChildren.[i].Length duKids.Length "pat child fan-out"
     Array.iter2 (checkPat pools) pools.PatChildren.[i] duKids
 
-let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Frozen.TExpr) =
+let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr) =
     let binder = internedBinderId pools (BinderKey.ofExpr du)
     Expect.equal pools.ExprPayloads.[i] (TastPools.exprPayload binder du) "expr payload"
     let duExprKids = TastPools.exprChildren du
@@ -64,7 +66,7 @@ let private bodySlots (td: TTypeDeclG<FrozenType, SyntaxToken, 'id, 'body>) : 'b
 
     slots.ToArray()
 
-let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Frozen.TDecl) =
+let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Pooled.TDecl) =
     // The pooled shape is its payload's (`DeclPayload.shape`); each arm asserts the one
     // the DU case it is standing in calls for, so the correspondence is checked without
     // a second DU→shape match to keep in step.
@@ -114,24 +116,22 @@ let private pooledLambdaKey (pools: FrozenPools) (ExprPoolId i) : NodeKey =
 /// side tables must also cover the source maps 1:1 — a dropped or duplicated key would
 /// desync the rebuilt map from the original — whether they keep their key (`DenseTable`) or
 /// have given it up for a position (`BinderColumn`).
-let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
-    let binderKey (BinderId i) = pools.BinderKeys.[i]
-
+let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
     for i in 0 .. pools.ExprPayloads.Length - 1 do
         match ExprPayload.shape pools.ExprPayloads.[i], pools.ExprVarBinder.[i] with
         | ExprShape.Var, ValueSome(BinderId b) ->
-            Expect.isTrue (b >= 0 && b < pools.BinderKeys.Length) "Var binder id is an interned binder"
+            Expect.isTrue (b >= 0 && b < pools.BinderNames.Length) "Var binder id is an interned binder"
         | ExprShape.Var, ValueNone -> failtest "a Var pool entry carries no resolved binder id"
         | _, ValueSome _ -> failtest "a non-Var pool entry carries a binder id"
         | _, ValueNone -> ()
 
     // Each dense side table is the source map re-keyed onto its id space: same cardinality,
-    // and every dense key resolves (through the given resolver) to a NodeKey the source map
+    // and every dense key resolves (through the given resolver) to a key the source map
     // holds. Only the KEYS are compared — a dense value need not be the source value's type
     // — and the values' faithfulness is the round-trip gate's business, not this one's.
     // `BindingValReprs` is absent: it is DERIVED off the columns rather than re-keyed from
     // a source map, and has its own gate (`checkValReprPatsAreSpineNodes`).
-    let checkTable (name: string) (resolve: 'id -> NodeKey) (dense: ('id * 'v)[]) (sourceKeys: Set<NodeKey>) =
+    let checkTable (name: string) (resolve: 'id -> 'k) (dense: ('id * 'v)[]) (sourceKeys: Set<'k>) =
         Expect.equal dense.Length sourceKeys.Count (name + " dense form covers the source map 1:1")
 
         for (id, _) in dense do
@@ -139,15 +139,15 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
 
     // A per-binder COLUMN (`BinderColumn`) holds no key, so what is checked is the FILLED
     // SLOTS: one per source entry, each at the slot of the binder that entry named. The
-    // column is also aligned to `BinderKeys`, which a keyed table has no obligation to be.
-    let checkColumn (name: string) (col: BinderColumn<'v>) (sourceKeys: Set<NodeKey>) =
-        Expect.equal col.Length pools.BinderKeys.Length (name + " column is aligned with the binder pool")
+    // column is also aligned to the binder pool, which a keyed table has no obligation to be.
+    let checkColumn (name: string) (col: BinderColumn<'v>) (sourceKeys: Set<BinderId>) =
+        Expect.equal col.Length pools.BinderNames.Length (name + " column is aligned with the binder pool")
 
         let filled =
             [|
                 for i in 0 .. col.Length - 1 do
                     if col.[i].IsSome then
-                        yield binderKey (BinderId i)
+                        yield BinderId i
             |]
 
         Expect.equal filled.Length sourceKeys.Count (name + " column covers the source map 1:1")
@@ -157,17 +157,15 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Frozen.TastFile) =
 
     // The source keys in the address space the resolvers answer in: a binder-keyed table is
     // widened (`BinderKey.widenMap`), `FunVerdicts` is already lambda-key-shaped.
-    let keysOf (m: Map<NodeKey, 'w>) =
+    let keysOf (m: Map<'k, 'w>) =
         m |> Map.toSeq |> Seq.map fst |> Set.ofSeq
 
-    let binderSource (m: Map<BinderKey, 'w>) = keysOf (BinderKey.widenMap m)
-    let lambdaSource (m: Map<NodeKey, 'w>) = keysOf m
+    let binderSource (m: Map<BinderKeyG<BinderId>, 'w>) = keysOf (BinderKey.widenMap m)
 
-    checkTable "ModuleMembers" binderKey pools.ModuleMembers (binderSource frozen.ModuleMembers)
-    checkTable "ClosureReprs" binderKey pools.ClosureReprs (binderSource frozen.ClosureReprs)
-    checkTable "FunVerdicts" (pooledLambdaKey pools) pools.FunVerdicts (lambdaSource frozen.FunVerdicts)
-    checkTable "GenericFnSchemes" binderKey pools.GenericFnSchemes (binderSource frozen.GenericFnSchemes)
-    checkColumn "TopLevelNames" pools.TopLevelNames (binderSource frozen.TopLevelNames)
+    checkTable "ModuleMembers" id pools.ModuleMembers (binderSource frozen.ModuleMembers)
+    checkTable "ClosureReprs" id pools.ClosureReprs (binderSource frozen.ClosureReprs)
+    checkTable "FunVerdicts" (pooledLambdaKey pools) pools.FunVerdicts (keysOf frozen.FunVerdicts)
+    checkTable "GenericFnSchemes" id pools.GenericFnSchemes (binderSource frozen.GenericFnSchemes)
     checkColumn "BindingTyparArities" pools.BindingTyparArities (binderSource frozen.BindingTyparArities)
 
 /// A binding's recorded arity is READ OFF the pooled spine, so a tuple group's pattern must
@@ -206,33 +204,31 @@ let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
 
     Expect.equal pools.BindingValReprs.Length namedLetRoots.Length "one recorded arity per simple-binder Let root"
 
-// The mint invariant the naming-preserving backing flip rests on: a REAL (non-synthetic)
-// binder's `Offset` IS the binder NODE's own token `StartIndex` (`NamedSimple.tok`, read
-// via `patTok`; `ForTo.identTok`), so a real binder is name-recoverable from its node with
-// no key. Walk the frozen tree via the accessor, correlate each simple binder back to the
-// token that minted it, and assert equality — proving the pool's naming data is
-// node-recoverable. A mismatch would contradict the plan's premise, so it FAILS the test
-// (surfaced, not papered over). Returns the count of real binders checked so a test can
-// assert non-vacuous coverage.
-let private checkMintInvariant (frozen: Frozen.TastFile) : int =
-    let mutable realBinders = 0
+// The binder columns' ANCHOR obligation: a binder a NODE introduces (`NamedSimple`, read
+// via `patTok`; `ForTo.identTok`) has that very token in `BinderToks`, and the name in
+// `BinderNames` is the identifier the source spells there. The columns are what every
+// backend names a binder from, and nothing else in the file ties them back to the tree, so
+// the tie is asserted here. Returns the count of node-introduced binders checked, so a test
+// can assert non-vacuous coverage.
+let private checkBinderAnchors (pools: FrozenPools) (frozen: Pooled.TastFile) : int =
+    let mutable anchored = 0
 
-    let checkReal (k: NodeKey) (tok: SyntaxToken) (what: string) =
-        if not k.IsSynthetic then
-            realBinders <- realBinders + 1
-            Expect.equal k.Offset tok.StartIndex (sprintf "real %s binder offset is its node token StartIndex" what)
+    let checkAnchor (BinderId i) (tok: SyntaxToken) (what: string) =
+        anchored <- anchored + 1
 
-    let rec walkPat (p: Frozen.TPat) =
+        Expect.equal pools.BinderToks.[i] (ValueSome tok) (sprintf "%s binder anchors on its own node token" what)
+
+    let rec walkPat (p: Pooled.TPat) =
         match BinderKey.ofPat p with
-        | ValueSome k -> checkReal (BinderKey.identity k) (TastWalk.patTok p) "NamedSimple"
+        | ValueSome k -> checkAnchor (BinderKey.identity k) (TastWalk.patTok p) "NamedSimple"
         | ValueNone -> ()
 
         for sub in TastPools.patChildren p do
             walkPat sub
 
-    let rec walkExpr (e: Frozen.TExpr) =
+    let rec walkExpr (e: Pooled.TExpr) =
         match e with
-        | TExprG.ForTo(var = var; identTok = identTok) -> checkReal var identTok "ForTo"
+        | TExprG.ForTo(var = var; identTok = identTok) -> checkAnchor var identTok "ForTo"
         | _ -> ()
 
         for pc in TastPools.exprPatChildren e do
@@ -249,7 +245,7 @@ let private checkMintInvariant (frozen: Frozen.TastFile) : int =
         | TDeclG.Expression(expr = expr) -> walkExpr expr
         | TDeclG.Type _ -> ()
 
-    realBinders
+    anchored
 
 let private checkProgram (src: string) =
     let pools, frozen = poolsFor src
@@ -259,10 +255,10 @@ let private checkProgram (src: string) =
     checkIdResolution pools frozen
     checkValReprPatsAreSpineNodes pools
 
-    // The interconversion gate: `ofPools ∘ toPools` reconstructs a structurally-equal
-    // file. The rebuild's own identity space is the pool's dense one, so the comparison
-    // reads it through `nodeKeyedFile` — the tree is the same tree either way, and the
-    // source file to compare against is `NodeKey`-shaped.
+    // The interconversion gate: `ofPools ∘ rePool` reconstructs a structurally-equal file.
+    // Both sides speak the pool's own dense identity, so the comparison needs no widening
+    // at all — and the ids the re-pool assigns must be the ids the tree already bore, since
+    // the walk that assigns them is the walk that drained it.
     //
     // Compared DIRECTLY, DU value against DU value — the serializer is
     // no oracle here, because `FrozenCodec.flatten` itself pools the file, so flattening
@@ -273,8 +269,8 @@ let private checkProgram (src: string) =
     // through the binder pool (not shared from the source), so an inequality is a genuine
     // decl-tree OR key-remap divergence.
     Expect.isTrue
-        (TastFileG.structurallyEqual (TastUnpool.nodeKeyedFile pools) frozen)
-        "ofPools (toPools f) round-trips to a structurally-equal frozen file"
+        (TastFileG.structurallyEqual (TastUnpool.ofPools pools) frozen)
+        "ofPools (rePool f) round-trips to a structurally-equal frozen file"
 
 // Representative programs, spanning binder shapes (lambda / let-in / for), control
 // flow (if / match), and the type + value forms (record decl, record literal, field
@@ -369,25 +365,29 @@ let tests =
         ]
 
 [<Tests>]
-let binderNamingMintInvariantTests =
+let binderAnchorTests =
     testList
-        "TastPools binder naming is node-recoverable (mint invariant)"
+        "TastPools anchors a binder on the node that introduces it"
         [
-            // Each program checks the invariant on its own binders; the aggregate asserts the
-            // set is non-vacuous, so a program mix that surfaced no real binder would fail loud
-            // rather than pass trivially. The `let`/`for`-heavy programs above cover both
-            // `NamedSimple` and `ForTo` real binders.
+            // Each program checks the obligation on its own binders; the aggregate asserts
+            // the set is non-vacuous, so a program mix that surfaced no node-introduced
+            // binder would fail loud rather than pass trivially. The `let`/`for`-heavy
+            // programs above cover both `NamedSimple` and `ForTo`.
             for name, src in programs do
                 test name {
-                    let _, frozen = poolsFor src
-                    checkMintInvariant frozen |> ignore
+                    let pools, frozen = poolsFor src
+                    checkBinderAnchors pools frozen |> ignore
                 }
 
-            test "the program set exercises real binders" {
+            test "the program set exercises node-introduced binders" {
                 let total =
-                    programs |> List.sumBy (fun (_, src) -> checkMintInvariant (snd (poolsFor src)))
+                    programs
+                    |> List.sumBy (fun (_, src) ->
+                        let pools, frozen = poolsFor src
+                        checkBinderAnchors pools frozen
+                    )
 
-                Expect.isGreaterThan total 0 "at least one real binder is correlated to its node token"
+                Expect.isGreaterThan total 0 "at least one binder is correlated to its node token"
             }
         ]
 
@@ -519,8 +519,10 @@ let funVerdictLambdaKeyTests =
         "TastPools re-keys FunVerdicts onto the lambda id space"
         [
             test "a lambda-keyed verdict pools by ExprPoolId and inverts to its NodeKey" {
-                let _, frozen = poolsFor "let f = fun x -> x + 1\n"
-                let lamKey = firstLambdaKey (TastPools.toPools frozen)
+                let src = "let f = fun x -> x + 1\n"
+                let _, frozen = poolsFor src
+                let rePool = rePoolFor src
+                let lamKey = firstLambdaKey (rePool frozen)
 
                 let verdict: FunVerdict =
                     {
@@ -533,7 +535,7 @@ let funVerdictLambdaKeyTests =
                         FunVerdicts = Map.ofList [ lamKey, verdict ]
                     }
 
-                let pools = TastPools.toPools injected
+                let pools = rePool injected
 
                 // (a) the pool-form table is keyed by that lambda's `ExprPoolId`.
                 Expect.equal pools.FunVerdicts.Length 1 "one pooled verdict"
@@ -558,7 +560,9 @@ let funVerdictLambdaKeyTests =
             }
 
             test "a FunVerdicts key naming no pooled lambda faults in toPools" {
-                let _, frozen = poolsFor "let f = fun x -> x + 1\n"
+                let src = "let f = fun x -> x + 1\n"
+                let _, frozen = poolsFor src
+                let rePool = rePoolFor src
 
                 let verdict: FunVerdict =
                     {
@@ -575,7 +579,7 @@ let funVerdictLambdaKeyTests =
                         FunVerdicts = Map.ofList [ bogus, verdict ]
                     }
 
-                Expect.throws (fun () -> TastPools.toPools injected |> ignore) "unresolved lambda-keyed verdict faults"
+                Expect.throws (fun () -> rePool injected |> ignore) "unresolved lambda-keyed verdict faults"
             }
 
             test "a verdict reaches EVERY pooled lambda its key names" {
@@ -583,12 +587,12 @@ let funVerdictLambdaKeyTests =
                 // template `Freeze` publishes and the ordinary function the binding is
                 // emitted as are two trees over the SAME source, so their lambdas anchor on
                 // the same token. An inline SPLICE duplicates a body's lambdas the same way.
-                let _, frozen = poolsFor "module M\n\nmodule N =\n    let inline addOne x = x + 1\n"
+                let src = "module M\n\nmodule N =\n    let inline addOne x = x + 1\n"
+                let _, frozen = poolsFor src
+                let rePool = rePoolFor src
 
                 let shared, bearers =
-                    TastPools.toPools frozen
-                    |> lambdasByKey
-                    |> List.find (fun (_, ids) -> List.length ids > 1)
+                    rePool frozen |> lambdasByKey |> List.find (fun (_, ids) -> List.length ids > 1)
 
                 let verdict: FunVerdict =
                     {
@@ -597,7 +601,7 @@ let funVerdictLambdaKeyTests =
                     }
 
                 let pools =
-                    TastPools.toPools
+                    rePool
                         { frozen with
                             FunVerdicts = Map.ofList [ shared, verdict ]
                         }
@@ -642,6 +646,7 @@ let private staleEntrySrc = "module M\n\nmodule N =\n    let a = 1\n    let b = 
 /// exactly one table is then what makes the reported table name unambiguous.
 let private lastBindingDropped () =
     let _, frozen = poolsFor staleEntrySrc
+    let rePool = rePoolFor staleEntrySrc
     let decls = EqArray.toArray frozen.Decls
 
     let index, binder =
@@ -659,6 +664,9 @@ let private lastBindingDropped () =
 
     {|
         Binder = binder
+        // The fill the injected trees below go through, carrying the naming column of the
+        // freeze they were drained out of.
+        RePool = rePool
         // Kept so the stale entry re-added below is the producer's own value, not a
         // fabricated one — the entry is genuine; only its declaration is gone.
         Member = Map.find binder frozen.ModuleMembers
@@ -666,7 +674,6 @@ let private lastBindingDropped () =
             { frozen with
                 Decls = EqArray.ofArray (Array.removeAt index decls)
                 ModuleMembers = Map.remove binder frozen.ModuleMembers
-                TopLevelNames = Map.remove binder frozen.TopLevelNames
                 ClosureReprs = Map.remove binder frozen.ClosureReprs
                 GenericFnSchemes = Map.remove binder frozen.GenericFnSchemes
                 BindingTyparArities = Map.remove binder frozen.BindingTyparArities
@@ -682,7 +689,7 @@ let staleSideTableEntryTests =
             // being gone. Pruning both is the fix the fault demands, and it pools cleanly.
             test "a declaration pruned together with its entries pools cleanly" {
                 let dropped = lastBindingDropped ()
-                TastPools.toPools dropped.Pruned |> ignore
+                dropped.RePool dropped.Pruned |> ignore
             }
 
             test "a retained ModuleMembers entry faults, naming that table" {
@@ -694,7 +701,7 @@ let staleSideTableEntryTests =
                     }
 
                 Expect.throwsC
-                    (fun () -> TastPools.toPools injected |> ignore)
+                    (fun () -> dropped.RePool injected |> ignore)
                     (fun ex ->
                         Expect.stringContains
                             ex.Message
@@ -719,7 +726,7 @@ let staleSideTableEntryTests =
                     }
 
                 Expect.throwsC
-                    (fun () -> TastPools.toPools injected |> ignore)
+                    (fun () -> dropped.RePool injected |> ignore)
                     (fun ex ->
                         Expect.stringContains
                             ex.Message

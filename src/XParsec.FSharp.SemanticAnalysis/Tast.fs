@@ -95,12 +95,6 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// not the anonymous "Program" holder). Empty for a program with no named
         /// modules — every static method then lands on "Program" as before.
         ModuleMembers: Map<BinderKeyG<'id>, ModuleBindingInfo>
-        /// A *top-level* (implicit-"Program"-module) binding's binder → its
-        /// source name. Top-level bindings (an exe's last file, FS0222) record no
-        /// `ModuleBindingInfo`; this names a top-level value lowered to a
-        /// Program-holder static field. Empty for a library or a file led by a
-        /// `module`/`namespace` declaration.
-        TopLevelNames: Map<BinderKeyG<'id>, string>
         /// A closure binder → its stack-vs-heap verdict
         /// (the `EscapeState.LocalStack ∧ RegionRepr.StackOnlyEligible`
         /// conjunction), snapshotted from `ctx.Bindings.Escape` /
@@ -251,7 +245,6 @@ module TastFileG =
         && a.Diagnostics = b.Diagnostics
         && dictEqual a.IntrinsicReprKeys b.IntrinsicReprKeys
         && a.ModuleMembers = b.ModuleMembers
-        && a.TopLevelNames = b.TopLevelNames
         && a.ClosureReprs = b.ClosureReprs
         && a.FunVerdicts = b.FunVerdicts
         && a.GenericFnSchemes = b.GenericFnSchemes
@@ -297,8 +290,8 @@ module Frozen =
     // whose pats are minted from an `.fsi` contract and belong to no file — see
     // `ArgGroupG`. A file's OWN `ValRepr`s are `PooledValRepr`, derived from its columns
     // and naming their pats by pool id (`FrozenPools.BindingValReprs`).
-    type StaticParam = StaticParamG<FrozenType, TPat>
+    type StaticParam = StaticParamG<FrozenType, TPat, NodeKey>
     type ArgGroup = ArgGroupG<FrozenType, TPat, NodeKey>
     type ValRepr = ValReprG<FrozenType, TPat, NodeKey>
     type CompiledReturn = CompiledReturnG<FrozenType>
-    type CompiledForm = CompiledFormG<FrozenType, TPat>
+    type CompiledForm = CompiledFormG<FrozenType, TPat, NodeKey>

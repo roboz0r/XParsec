@@ -93,13 +93,14 @@ module SymbolProviders =
 
             let declTy = resultTy
             // The `TDecl.Let` binder is unread by `inlineExpand` (it matches
-            // `TDecl.Let(_, value, _, declTy)`); this synthetic key is unread filler
-            // that keeps the node total. `synthLambdaBodyKey` is the sole home of its
-            // construction (shared with the ExprLambda recomputes).
-            let patKey = TastWalk.synthLambdaBodyKey bodyTok
-
+            // `TDecl.Let(_, value, _, declTy)`); this binder is unread filler that keeps
+            // the node total, so it is minted rather than taken from anything.
             let decl =
-                TastAccessor.mintLetDecl (TastAccessor.mintNamedPat pool patKey declTy bodyTok) body true declTy
+                TastAccessor.mintLetDecl
+                    (TastAccessor.mintNamedPat pool (TastPoolBuilder.mintBinder pool) declTy bodyTok)
+                    body
+                    true
+                    declTy
 
             // ParamAttrs aligned to curried position: a leading (default) entry for
             // `this` holds value-param attribute indices at their curried offset. A

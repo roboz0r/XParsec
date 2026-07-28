@@ -13,26 +13,26 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // projection's INPUT) and the provider is asked to answer them.
 
 /// The pooled file as the `Frozen.TastFile` DU. The assertions below read whole decl
-/// trees and the `NodeKey`-keyed side tables, which is what `ofPools` re-authors
+/// trees and the binder-keyed side tables, which is what `ofPools` re-authors
 /// verbatim — the projection's INPUT is the pools, but its shape reads most directly
 /// here.
-let private duOf (frozen: FrozenPools) : Frozen.TastFile = TastUnpool.nodeKeyedFile frozen
+let private duOf (frozen: FrozenPools) : Pooled.TastFile = TastUnpool.ofPools frozen
 
 /// The `TypeKey` of the type declared under `name`, read out of the frozen decls.
 let private typeKeyOf (frozen: FrozenPools) (name: string) : TypeKey =
     EqArray.toList (duOf frozen).Decls
     |> List.pick (
         function
-        | Frozen.TDecl.Type td when td.Name = name -> Some td.TypeKey
+        | TDeclG.Type td when td.Name = name -> Some td.TypeKey
         | _ -> None
     )
 
 /// The augmentation members declared on the type named `name`.
-let private membersOfType (frozen: FrozenPools) (name: string) : Frozen.TTypeMember list =
+let private membersOfType (frozen: FrozenPools) (name: string) : Pooled.TTypeMember list =
     EqArray.toList (duOf frozen).Decls
     |> List.pick (
         function
-        | Frozen.TDecl.Type td when td.Name = name -> Some(EqArray.toList (TTypeKindG.members td.Kind))
+        | TDeclG.Type td when td.Name = name -> Some(EqArray.toList (TTypeKindG.members td.Kind))
         | _ -> None
     )
 
@@ -47,7 +47,7 @@ let private moduleBindings (frozen: FrozenPools) : (string * SymbolKey) list =
         EqArray.toList file.Decls
         |> List.choose (
             function
-            | Frozen.TDecl.Let(head, _, _, _) ->
+            | TDeclG.Let(head, _, _, _) ->
                 match BinderKey.ofPat head with
                 | ValueSome binder ->
                     match Map.tryFind binder file.ModuleMembers with

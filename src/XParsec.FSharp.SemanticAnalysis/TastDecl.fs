@@ -550,14 +550,24 @@ module BinderKey =
         | TPatG.EnumCase _
         | TPatG.Or _ -> ValueNone
 
-    /// The binder an EXPRESSION introduces with no pattern node behind it: a `ForTo` loop
-    /// variable, whose `i` token has no surrounding `Pat` in the CST. Every other binding
-    /// expression (`Lambda`, `Let`, `ForIn`, a match arm) carries a real `TPatG`, so `ofPat`
-    /// answers for it and this stays a single case.
-    let ofExpr (e: TExprG<'ty, 'tok, 'id>) : BinderKeyG<'id> voption =
+    /// The binder an EXPRESSION introduces with no pattern node behind it, TOGETHER with
+    /// the token that spells its name: a `ForTo` loop variable, whose `i` token has no
+    /// surrounding `Pat` in the CST. Every other binding expression (`Lambda`, `Let`,
+    /// `ForIn`, a match arm) carries a real `TPatG`, so `ofPat` answers for it and this
+    /// stays a single case.
+    ///
+    /// The two answers come from ONE match so that "which expression binds" and "where its
+    /// name is written" cannot come apart — a pooling walk needs both, and `ofExpr` is this
+    /// with the token forgotten.
+    let siteOfExpr (e: TExprG<'ty, 'tok, 'id>) : struct (BinderKeyG<'id> * 'tok) voption =
         match e with
-        | TExprG.ForTo(var = var) -> ValueSome(Binder var)
+        | TExprG.ForTo(var = var; identTok = identTok) -> ValueSome(struct (Binder var, identTok))
         | _ -> ValueNone
+
+    /// The binder an EXPRESSION introduces — `siteOfExpr` without the anchor, for a caller
+    /// that only has to know a node binds.
+    let ofExpr (e: TExprG<'ty, 'tok, 'id>) : BinderKeyG<'id> voption =
+        siteOfExpr e |> ValueOption.map (fun (struct (b, _)) -> b)
 
     /// `ofPat` before the tree exists: the binder a CST pattern introduces, for a front-end
     /// producer that must name a definition site while it is still translating towards one
@@ -663,7 +673,7 @@ module BinderKey =
 
     /// Widen to the address space that holds every node of the tree's own identity axis —
     /// for a lookup driven by a REFERENCE (a `TExpr.Var` names its binder by that axis) or
-    /// by a consumer whose own API is node-keyed (`TastUnpool.nodeKeyedSideTables`).
+    /// by a consumer that holds the raw identity and not the binder (`DenseTable.index`).
     /// One-way: nothing re-enters the binder domain through it.
     let identity (Binder k) : 'id = k
 

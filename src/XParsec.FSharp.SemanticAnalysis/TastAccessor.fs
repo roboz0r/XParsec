@@ -194,17 +194,15 @@ module TastAccessor =
     let exprConstValue (e: ExprId) : TConstValue =
         expect "TastAccessor.exprConstValue: not a Const node" (|EConst|_|) e
 
-    /// A `Var` node → the binder it references, the `NodeKey` a preceding binder
-    /// introduced. Declines on every other shape (only a `Var` fills the reference
-    /// column).
+    /// A `Var` node → the binder it references, the dense id of the definition site.
+    /// Declines on every other shape (only a `Var` fills the reference column).
     [<return: Struct>]
-    let (|EVar|_|) (e: ExprId) : NodeKey voption =
+    let (|EVar|_|) (e: ExprId) : BinderId voption =
         TastPoolBuilder.exprVarBinder e.Pool e.Id
-        |> ValueOption.map (TastPoolBuilder.binderKey e.Pool)
 
     /// The binder a `Var` node references. Guard with `exprKind` = `ExprShape.Var` (or
     /// match `EVar`) first; `failwith` on any other shape.
-    let exprVarBinding (e: ExprId) : NodeKey =
+    let exprVarBinding (e: ExprId) : BinderId =
         expect "TastAccessor.exprVarBinding: not a Var node" (|EVar|_|) e
 
     /// A `Var` node → the naming projections of the binder it references. Guards on the
@@ -655,7 +653,7 @@ module TastAccessor =
         | ExprPayload.ForTo p ->
             ValueSome
                 {
-                    Var = TastPoolBuilder.binderKey e.Pool p.Var
+                    Var = p.Var
                     StartExpr = exprChild e 0
                     EndExpr = exprChild e 1
                     Body = exprChild e 2
@@ -781,34 +779,20 @@ module TastAccessor =
     let private patPayload (p: PatId) : PatPayload = TastPoolBuilder.patPayload p.Pool p.Id
 
     /// The single binder a simple (`NamedSimple`) pattern introduces — the identity a
-    /// `Var` references and that naming is computed from. `ValueNone` for a pattern that
-    /// binds nothing (`Wildcard`, `Const`, …) or binds through nested sub-patterns
-    /// (`Tuple`, `Record`, `Union`, `TypeTestAs`, `Or` — walk `patChildren` for those).
-    let patBinder (p: PatId) : NodeKey voption =
+    /// `Var` references, that naming is computed from, and that the pool's side tables are
+    /// keyed by. It IS the payload's own field, so a lookup keyed on this can only ever
+    /// name a binder the pool interned. `ValueNone` for a pattern that binds nothing
+    /// (`Wildcard`, `Const`, …) or binds through nested sub-patterns (`Tuple`, `Record`,
+    /// `Union`, `TypeTestAs`, `Or` — walk `patChildren` for those).
+    let patBinder (p: PatId) : BinderId voption =
         match patPayload p with
-        | PatPayload.NamedSimple binder -> ValueSome(TastPoolBuilder.binderKey p.Pool binder)
+        | PatPayload.NamedSimple binder -> ValueSome binder
         | _ -> ValueNone
 
     /// A `NamedSimple` pattern → the single binder it introduces (`patBinder`, which is
     /// `ValueSome` exactly for that shape).
     [<return: Struct>]
-    let (|PNamed|_|) (p: PatId) : NodeKey voption = patBinder p
-
-    /// The POSITIONAL identity of the binder a `NamedSimple` pattern introduces — the id
-    /// the pool's `BinderId`-keyed side tables are keyed by, so a consumer holding the
-    /// defining node looks its entry up directly. It IS the payload's own field, so a
-    /// lookup keyed on this can only ever name a binder the pool interned; `ValueNone`
-    /// only for a pattern that introduces no binder at all.
-    let patBinderId (p: PatId) : BinderId voption =
-        match patPayload p with
-        | PatPayload.NamedSimple binder -> ValueSome binder
-        | _ -> ValueNone
-
-    /// A `NamedSimple` pattern → the POSITIONAL id of the binder it introduces
-    /// (`patBinderId`) — the `PNamed` to reach for when the binder is about to be looked
-    /// up in a `BinderId`-keyed side table.
-    [<return: Struct>]
-    let (|PNamedId|_|) (p: PatId) : BinderId voption = patBinderId p
+    let (|PNamed|_|) (p: PatId) : BinderId voption = patBinder p
 
     /// The naming projections of the binder a `NamedSimple` pattern introduces —
     /// `exprVarNaming`'s pattern-side twin, off the same id space and so through the same
@@ -913,10 +897,9 @@ module TastAccessor =
         match declPayload d with
         // The seven body slots and the seven key slots are enumerated by `TastConvert` — the
         // same traversal the pool build and drain run — so nothing here re-derives the
-        // declaration shape. The key slots widen back out of the dense space, this view
-        // being read by consumers whose own vocabulary is still `NodeKey`.
-        | DeclPayload.Type td ->
-            ValueSome(TastConvert.typeDecl id (BinderKey.identity >> TastPoolBuilder.binderKey d.Pool) (at d) td)
+        // declaration shape. Only the BODIES move: a key slot already holds the dense id
+        // every other pooled reference speaks, so it rides across unchanged.
+        | DeclPayload.Type td -> ValueSome(TastConvert.typeDecl id BinderKey.identity (at d) td)
         | _ -> ValueNone
 
     /// The `type`-declaration payload of a `Type` decl (its `Kind`, `Key`, `Name`, …),
@@ -1068,11 +1051,9 @@ module TastAccessor =
                     }
         }
 
-    /// A reference to `binding`. Interning is idempotent in the key, so a reference
-    /// minted before its defining pattern exists still lands on that binder's id.
-    let mintVar (pool: PoolBuilder) (binding: NodeKey) (ty: FrozenType) (tok: SyntaxToken) : ExprId =
-        let binder = TastPoolBuilder.internBinder pool binding
-
+    /// A reference to `binding` — the binder's own dense id, so a reference minted before
+    /// (or without) its defining pattern names the same binder either way.
+    let mintVar (pool: PoolBuilder) (binding: BinderId) (ty: FrozenType) (tok: SyntaxToken) : ExprId =
         {
             Pool = pool
             Id =
@@ -1083,7 +1064,7 @@ module TastAccessor =
                         Tok = tok
                         Children = [||]
                         PatChildren = [||]
-                        VarBinder = ValueSome binder
+                        VarBinder = ValueSome binding
                         Payload = ExprPayload.Var
                     }
         }
@@ -1133,8 +1114,8 @@ module TastAccessor =
         }
 
     /// A simple binder pattern, introducing `binding`.
-    let mintNamedPat (pool: PoolBuilder) (binding: NodeKey) (ty: FrozenType) (tok: SyntaxToken) : PatId =
-        mintPat pool ty tok [||] (PatPayload.NamedSimple(TastPoolBuilder.internBinder pool binding))
+    let mintNamedPat (pool: PoolBuilder) (binding: BinderId) (ty: FrozenType) (tok: SyntaxToken) : PatId =
+        mintPat pool ty tok [||] (PatPayload.NamedSimple binding)
 
     /// An anonymous `_` pattern.
     let mintWildcardPat (pool: PoolBuilder) (ty: FrozenType) (tok: SyntaxToken) : PatId =

@@ -31,10 +31,13 @@ module internal Layout =
         let pool = TastPoolBuilder.openOver pools
         let decls = TastAccessor.roots pool |> List.ofArray
 
-        // The binder-keyed side tables the CLR lowering consumes, back in their `NodeKey`
-        // form — the one seam that undoes the pool's dense identity, and the whole reason
-        // it is a single named call (see `TastUnpool.nodeKeyedSideTables`).
-        let sideTables = TastUnpool.nodeKeyedSideTables pools
+        // The binder-keyed side tables this lowering consumes, indexed at the dense id the
+        // columns already address a binder by. Nothing is undone on the way in: a
+        // `HolderPlan` / closure-discovery lookup is keyed by the very id the decl's own
+        // head pattern carries, so it can only ever name a binder this tree bears.
+        let moduleMembers = Map.ofArray pools.ModuleMembers
+        let closureReprs = Map.ofArray pools.ClosureReprs
+        let genericFnSchemes = Map.ofArray pools.GenericFnSchemes
 
         // A source lambda's verdict, on the lambda ID SPACE: a lambda's dense id is its
         // `ExprPoolId`, so a discovered lambda's verdict is a lookup on the node itself
@@ -80,13 +83,7 @@ module internal Layout =
         // closure discovery and `buildMain`, so they see the same nodes the plan was
         // computed from.
         let plan =
-            HolderPlan.create
-                sideTables.ModuleMembers
-                sideTables.GenericFnSchemes
-                programHolder
-                sideTables.TopLevelNames
-                refStructNsNames
-                lowered0
+            HolderPlan.create moduleMembers genericFnSchemes programHolder refStructNsNames lowered0
 
         let lowered = plan.Lowered
 
@@ -152,7 +149,7 @@ module internal Layout =
                 // `discoverClosures` marks a source-lambda argument a value-struct (and
                 // at what flat arity) by node membership — no structural re-derivation.
                 funVerdicts
-                sideTables.ClosureReprs
+                closureReprs
                 lowered
                 memberRoots
 

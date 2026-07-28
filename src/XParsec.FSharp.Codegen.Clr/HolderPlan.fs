@@ -33,7 +33,7 @@ type HolderPlan =
         /// classification rules); every reference is an `ldsfld` — never a
         /// `Main` local or a closure capture.
         ModuleValues: Emit.ModuleValue list
-        ModuleValueKeys: HashSet<NodeKey>
+        ModuleValueKeys: HashSet<BinderId>
         /// Top-level (implicit-"Program"-module) ground values placed in the
         /// Program holder's `.cctor` as `static initonly` fields — the leading
         /// prefix (no top-level `do` before them), in declaration order. Their
@@ -46,10 +46,10 @@ type HolderPlan =
         /// Top-level functions lowered to static methods, in declaration order
         /// (see `collectStaticFns` for the eligibility rules).
         StaticFns: Emit.StaticFn list
-        StaticFnKeys: HashSet<NodeKey>
+        StaticFnKeys: HashSet<BinderId>
         /// Each static fn's method-axis typar count by binding key; a closure
         /// walked from a generic static fn's body inherits this.
-        StaticFnTypars: Dictionary<NodeKey, int>
+        StaticFnTypars: Dictionary<BinderId, int>
         /// Functions on the anonymous "Program" holder: they follow the named
         /// holders' methods (and `Main` follows them), unchanged.
         HolderlessFns: Emit.StaticFn list
@@ -90,14 +90,13 @@ module HolderPlan =
     /// functions, validate the values' initialisers, and fix the holder /
     /// method / field emission orders.
     let create
-        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
+        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
         // Forwarded to `collectStaticFns` to populate
         // `StaticFn.Constraints`, which drives the call-site phantom-typar solve
         // (`EmitCall`). The emitted arity is re-derived independently by the
         // `Emit.staticFnTypars` body sweep.
-        (genericFnSchemes: Map<NodeKey, FrozenConstraint list>)
+        (genericFnSchemes: Map<BinderId, FrozenConstraint list>)
         (programHolder: Emit.HolderKey)
-        (topLevelNames: Map<NodeKey, string>)
         (refStructNsNames: HashSet<string * string>)
         (lowered0: TastAccessor.DeclId list)
         : HolderPlan =
@@ -113,15 +112,15 @@ module HolderPlan =
         // static-fn keys are non-capturing, so the storage set computed pre-bridge is a
         // sound seed.
         let preResolvedTopLevel =
-            let s = HashSet<NodeKey>()
+            let s = HashSet<BinderId>()
 
             for mv in Emit.collectModuleValues moduleMembers lowered0 do
                 s.Add mv.Key |> ignore
 
-            for mv in Emit.collectProgramValues moduleMembers programHolder topLevelNames refStructNsNames lowered0 do
+            for mv in Emit.collectProgramValues moduleMembers programHolder refStructNsNames lowered0 do
                 s.Add mv.Key |> ignore
 
-            for fn in Emit.collectGenericModuleValues moduleMembers programHolder topLevelNames lowered0 do
+            for fn in Emit.collectGenericModuleValues moduleMembers programHolder lowered0 do
                 s.Add fn.Key |> ignore
 
             s
@@ -141,7 +140,7 @@ module HolderPlan =
         let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
 
         let moduleValues = Emit.collectModuleValues moduleMembers lowered
-        let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
+        let moduleValueKeys = HashSet<BinderId>(moduleValues |> List.map (fun mv -> mv.Key))
 
         // Top-level (implicit-"Program"-module) ground values — holderless `let`s in
         // an exe's last file. Collected unclassified
@@ -150,10 +149,10 @@ module HolderPlan =
         // also join `resolvedTopLevel` (the capture/static-fn analysis treats them as
         // bound, never a captured local).
         let programValues =
-            Emit.collectProgramValues moduleMembers programHolder topLevelNames refStructNsNames lowered
+            Emit.collectProgramValues moduleMembers programHolder refStructNsNames lowered
 
         let programValueKeys =
-            HashSet<NodeKey>(programValues |> List.map (fun mv -> mv.Key))
+            HashSet<BinderId>(programValues |> List.map (fun mv -> mv.Key))
 
         // A *generic* module value (`let empty : SetTree<'T> = …`) cannot become a
         // static *field* — a non-generic module holder has no type parameter to
@@ -162,10 +161,10 @@ module HolderPlan =
         // its `MethodSpec`. They join the static-method machinery as 0-param fns
 
         let genericModuleValues =
-            Emit.collectGenericModuleValues moduleMembers programHolder topLevelNames lowered
+            Emit.collectGenericModuleValues moduleMembers programHolder lowered
 
         let genericModuleValueKeys =
-            HashSet<NodeKey>(genericModuleValues |> List.map (fun fn -> fn.Key))
+            HashSet<BinderId>(genericModuleValues |> List.map (fun fn -> fn.Key))
 
         // The static-method functions: the eligible set (computed pre-bridge, reused
         // here) projected onto the bridged decls. A binding bridging newly turned into
@@ -181,7 +180,7 @@ module HolderPlan =
         // its holder's method group after the holder's ordinary functions.
         let staticFns = collectedFns @ genericModuleValues
 
-        let staticFnKeys = HashSet<NodeKey>(eligible)
+        let staticFnKeys = HashSet<BinderId>(eligible)
         staticFnKeys.UnionWith genericModuleValueKeys
 
         // Leading/trailing placement: partition the top-level program values into the leading
@@ -193,7 +192,7 @@ module HolderPlan =
         // fn, nor itself a program value). A named-holder value / static fn runs in a
         // *method* (its holder's cctor / a static method), not in `Main`, so it does
         // not advance the partition.
-        let programByKey = Dictionary<NodeKey, Emit.ModuleValue>()
+        let programByKey = Dictionary<BinderId, Emit.ModuleValue>()
 
         for mv in programValues do
             programByKey.[mv.Key] <- mv
@@ -231,7 +230,7 @@ module HolderPlan =
 
         // A leading program value's `.cctor` init may also reference other
         // field-backed program values (`ldsfld`); validate against the union.
-        let cctorRefKeys = HashSet<NodeKey>(moduleValueKeys)
+        let cctorRefKeys = HashSet<BinderId>(moduleValueKeys)
         cctorRefKeys.UnionWith programValueKeys
         Emit.validateModuleValueInits cctorRefKeys staticFnKeys programCctorValues
 
@@ -243,7 +242,7 @@ module HolderPlan =
         // call site solves `'E` from its bound. It deliberately does NOT use the
         // front-end `scheme.Quantified.Length`, which over-counts a quantified-but-
         // body-erased typar (the `SetTree.compare` regression).
-        let staticFnTypars = Dictionary<NodeKey, int>()
+        let staticFnTypars = Dictionary<BinderId, int>()
 
         for fn in staticFns do
             staticFnTypars.[fn.Key] <- Emit.staticFnTypars fn

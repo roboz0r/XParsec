@@ -51,15 +51,17 @@ type PoolBuilder =
             DeclBase: int
             BinderBase: int
             OvExprs: ResizeArray<ExprRow>
-            OvPats: ResizeArray<PatRow>
             OvDecls: ResizeArray<DeclRow>
-            /// The overlay binder column — `internBinder` is its sole appender.
-            OvBinderKeys: ResizeArray<NodeKey>
-            /// `NodeKey` to `BinderId` over BOTH layers, seeded from the base pool's
-            /// `BinderKeys`. Interning is keyed by the NodeKey, so a minted reference and
-            /// the binder's own defining node land on the same id whichever is walked
-            /// first.
-            BinderIndex: Dictionary<NodeKey, BinderId>
+            OvPats: ResizeArray<PatRow>
+            /// How many binders this overlay has handed out — a COUNT and no column,
+            /// because a minted binder has nothing a column could hold: no source spells
+            /// it, so its naming is its slot (`BinderNaming.Minted`) and its anchor is
+            /// `ValueNone`. `mintBinder` is its sole appender.
+            mutable OvBinderCount: int
+            /// The binder key `declTree` hands a DU-typed consumer for each binder of this
+            /// pool. Per BUILDER, not per drain: two drains of one subtree are two views of
+            /// the same binders, so they must name them alike — see `declTree`.
+            DrainedBinderKeys: Dictionary<BinderId, NodeKey>
         }
 
 /// A node HANDLE: a dense pool id together with the pool that resolves it. One generic
@@ -83,26 +85,21 @@ type Handle<'Id> = { Pool: PoolBuilder; Id: 'Id }
 [<RequireQualifiedAccess>]
 module TastPoolBuilder =
 
-    /// Open an overlay over `pools`. The base is never copied or mutated; the eager work is
-    /// one dictionary over the binder column (a few hundred entries next to tens of
-    /// thousands of tree nodes), which every minted `Var` reference resolves through.
+    /// Open an overlay over `pools`. The base is never copied, mutated, or indexed: an id
+    /// resolves by comparison against the layer boundary, so opening a builder is four
+    /// field reads.
     let openOver (pools: FrozenPools) : PoolBuilder =
-        let index = Dictionary<NodeKey, BinderId>(pools.BinderKeys.Length)
-
-        for i in 0 .. pools.BinderKeys.Length - 1 do
-            index.[pools.BinderKeys.[i]] <- BinderId i
-
         {
             Base = pools
             ExprBase = pools.ExprPayloads.Length
             PatBase = pools.PatPayloads.Length
             DeclBase = pools.DeclPayloads.Length
-            BinderBase = pools.BinderKeys.Length
+            BinderBase = pools.BinderNames.Length
             OvExprs = ResizeArray()
             OvPats = ResizeArray()
             OvDecls = ResizeArray()
-            OvBinderKeys = ResizeArray()
-            BinderIndex = index
+            OvBinderCount = 0
+            DrainedBinderKeys = Dictionary()
         }
 
     /// A builder over no base at all — for nodes that belong to no frozen tree: an
@@ -254,28 +251,28 @@ module TastPoolBuilder =
             )
             (fun r -> r)
 
-    /// The `NodeKey` a binder id names — base or minted.
-    let binderKey (b: PoolBuilder) (BinderId i) : NodeKey =
+    /// How a binder id is SPELLED, across both layers: the base pool's naming column, or
+    /// `Minted` for a binder this overlay handed out — a lowering's own binder is spelled
+    /// by no source, so its slot is all there is to name it by.
+    let binderNaming (b: PoolBuilder) (id: BinderId) : BinderNaming =
+        let (BinderId i) = id
+
         if i < b.BinderBase then
-            b.Base.BinderKeys.[i]
+            FrozenPools.binderNaming b.Base id
         else
-            b.OvBinderKeys.[i - b.BinderBase]
+            BinderNaming.Minted id
 
-    /// The naming triple a binder id names — projected from that binder's key, not read
-    /// from a column of its own. `BinderNaming.ofKey` is a total function of the key, so
-    /// a stored naming column would put the same three bits on the wire twice.
-    let binderNaming (b: PoolBuilder) (id: BinderId) : BinderNaming = BinderNaming.ofKey (binderKey b id)
+    /// The token a binder's name is spelled at, across both layers — the anchor a span or a
+    /// line/column is taken from. `ValueNone` where no node spells the binder: an
+    /// overlay-minted one, and a declaration's pattern-less key slot (see
+    /// `FrozenPools.BinderToks`).
+    let binderTok (b: PoolBuilder) (id: BinderId) : SyntaxToken voption =
+        let (BinderId i) = id
 
-    /// The `BinderId` a `NodeKey` names, or `ValueNone` when no definition site in this
-    /// pool introduced it. The READ-ONLY counterpart of `internBinder`: a lookup answers
-    /// only with a binder the pooled tree actually bears, so a side table consulted
-    /// through it cannot silently name a node that does not exist — which is why a
-    /// consumer resolving a key to an id must come through here and not `internBinder`
-    /// (whose mint-on-miss would manufacture the very identity the check is for).
-    let tryBinderId (b: PoolBuilder) (k: NodeKey) : BinderId voption =
-        match b.BinderIndex.TryGetValue k with
-        | true, id -> ValueSome id
-        | false, _ -> ValueNone
+        if i < b.BinderBase then
+            b.Base.BinderToks.[i]
+        else
+            ValueNone
 
     // The size of the expr and binder id spaces: every id below the count resolves, and
     // the next append takes the count itself. Only these two exist because only these
@@ -284,7 +281,7 @@ module TastPoolBuilder =
     // counts would be surface for symmetry's sake.
 
     let exprCount (b: PoolBuilder) : int = b.ExprBase + b.OvExprs.Count
-    let binderCount (b: PoolBuilder) : int = b.BinderBase + b.OvBinderKeys.Count
+    let binderCount (b: PoolBuilder) : int = b.BinderBase + b.OvBinderCount
 
     /// The file's decl roots, in source order — the base pool's, since nothing derives a
     /// new top-level decl IN PLACE: a whole-decl rewrite (`TastAccessor.mapDeclExpr`,
@@ -312,18 +309,18 @@ module TastPoolBuilder =
         b.OvDecls.Add row
         DeclPoolId id
 
-    /// The `BinderId` a `NodeKey` names, minting one in the overlay if the base pool never
-    /// interned it. Idempotent in the key, which is what lets a minted `Var` reference
-    /// resolve before (or without) its defining pattern being appended: whichever site
-    /// arrives first creates the entry, and the entry is the key either way.
-    let internBinder (b: PoolBuilder) (k: NodeKey) : BinderId =
-        match tryBinderId b k with
-        | ValueSome id -> id
-        | ValueNone ->
-            let id = BinderId(b.BinderBase + b.OvBinderKeys.Count)
-            b.BinderIndex.Add(k, id)
-            b.OvBinderKeys.Add k
-            id
+    /// A binder id belonging to NO node of the base pool — the definition site a lowering
+    /// introduces (a `use`'s dispose temporary, an eta bridge's parameter). Past the layer
+    /// boundary, so it can never collide with a base binder.
+    ///
+    /// It takes no argument, and cannot: a binder's identity IS its slot, so there is
+    /// nothing to intern AGAINST. A mint site that needs its new binder referenced hands
+    /// the returned id to every reference it builds, which is also what makes a reference
+    /// to a base binder unable to accidentally mint one.
+    let mintBinder (b: PoolBuilder) : BinderId =
+        let id = BinderId(b.BinderBase + b.OvBinderCount)
+        b.OvBinderCount <- b.OvBinderCount + 1
+        id
 
     // ── row copies: rewrite without a per-case match ────────────────────────
     //
@@ -372,12 +369,13 @@ module TastPoolBuilder =
         let row = patRow b id
         let kids = row.Children |> Array.map (copyPatTreeInto dest fTy b)
 
-        // A `NamedSimple` copy introduces the SAME binder as its original, so the
-        // destination interns it and the copy names it by DEST's id: a retype changes
-        // types, never identity, and a binder id means nothing in another pool.
+        // The copy is a node of DEST, and a binder id means nothing outside the pool that
+        // issued it — a source binder cannot be lent to another pool, only re-introduced
+        // there. So a `NamedSimple` copy introduces a binder of dest's own, exactly as the
+        // `.fsi` extractor mints one for a contract parameter.
         let payload =
             match PatPayload.mapTys fTy row.Payload with
-            | PatPayload.NamedSimple binder -> PatPayload.NamedSimple(internBinder dest (binderKey b binder))
+            | PatPayload.NamedSimple _ -> PatPayload.NamedSimple(mintBinder dest)
             | p -> p
 
         appendPat
@@ -389,6 +387,11 @@ module TastPoolBuilder =
             }
 
     // ── the DU bridge, both directions ──────────────────────────────────────
+
+    /// Source of the counter-minted binder keys `declTree` re-mints with. Build-wide and
+    /// `Interlocked`, so two drains — of one subtree or of different pools, on any thread —
+    /// never mint the same key.
+    let mutable private drainBinderCounter = 0
 
     /// Fill in the `Var` reference edge of a row the pooling walk just appended. Private,
     /// and sound only there: the row is the overlay's own, freshly added, and the walk
@@ -405,29 +408,29 @@ module TastPoolBuilder =
     /// The overlay's pooling sink. The walk is `TastPools`' — the one that built the base
     /// pool — so the tree shape is known in exactly one place; only the destination and the
     /// binder-id assignment differ.
-    let private sinkOf (b: PoolBuilder) : TastPools.PoolSink =
+    let private sinkOf (b: PoolBuilder) : TastPools.PoolSink<BinderId> =
         {
-            // The overlay's binder index is keyed by `NodeKey` because it must also admit a
-            // REFERENCE (`VarRef` below, a minted binder pattern), which names its binder
-            // that way; the walk's definition sites widen into it.
-            InternBinder = BinderKey.identity >> internBinder b
+            // The tree being poured in is ALREADY in this pool's identity space, so a
+            // definition site IS its id and a reference resolves without a lookup: there
+            // is no second spelling of a binder for the two to disagree about.
+            InternBinder = fun site -> BinderKey.identity site.Binder
             AddExpr = appendExpr b
             AddPat = appendPat b
             AddDecl = appendDecl b
             OnExprPooled =
                 fun ev ->
                     match ev with
-                    | TastPools.PooledEvent.VarRef(binder, id) -> setVarBinder b id (internBinder b binder)
+                    | TastPools.PooledEvent.VarRef(binder, id) -> setVarBinder b id binder
                     // The overlay keeps no lambda id space: `FunVerdicts` is the frozen
                     // file's own table and a minted lambda has no verdict in it.
                     | TastPools.PooledEvent.LambdaPooled _ -> ()
         }
 
     /// Pool a freshly minted DU subtree into the overlay and return its flat id. This is
-    /// the bridge that lets a mint site keep CONSTRUCTING `Frozen.TExpr` values while
+    /// the bridge that lets a mint site keep CONSTRUCTING `Pooled.TExpr` values while
     /// nothing WALKS a DU any more: it hands the node over and gets an id back, so it can
     /// move to native row appends on its own schedule.
-    let appendExprTree (b: PoolBuilder) (e: Frozen.TExpr) : ExprPoolId = TastPools.poolExpr (sinkOf b) e
+    let appendExprTree (b: PoolBuilder) (e: Pooled.TExpr) : ExprPoolId = TastPools.poolExpr (sinkOf b) e
 
     /// The DU subtree a pattern id denotes, resolved across BOTH layers, node-for-node
     /// (`TastUnpool.substitutePat` re-authors each node from its row, exactly as `ofPools`
@@ -439,34 +442,56 @@ module TastPoolBuilder =
     /// file-scoped. Private, and reached through `declTree`: a consumer moving a pattern
     /// between POOLS wants `copyPatTreeInto`, which stays in the columns, and one reading a
     /// node of this file's tree wants the accessor.
-    let rec private patTree (b: PoolBuilder) (id: PatPoolId) : Frozen.TPat =
-        let row = patRow b id
+    ///
+    /// `rename` is the drain's binder freshener — see `declTree`.
+    let rec private patTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: PatPoolId) : Frozen.TPat =
+        let row = patRow b at
 
-        TastUnpool.substitutePat (binderKey b) row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree b))
+        TastUnpool.substitutePat rename row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree rename b))
 
-    /// The DU subtree an expression id denotes — see `patTree`. A `Var`'s binder edge is
-    /// resolved back through the pool's own binder column, so a reference minted in the
-    /// overlay names the same `NodeKey` it would have read. Reached through `declTree`:
+    /// The DU subtree an expression id denotes — see `patTree`. Reached through `declTree`:
     /// the cross-unit wire carries whole declarations, never a bare expression.
-    let rec private exprTree (b: PoolBuilder) (id: ExprPoolId) : Frozen.TExpr =
-        let row = exprRow b id
+    let rec private exprTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: ExprPoolId) : Frozen.TExpr =
+        let row = exprRow b at
 
         TastUnpool.substituteExpr
-            (binderKey b)
+            rename
             row.Ty
             row.Tok
             row.VarBinder
             row.Payload
-            (row.Children |> Array.map (exprTree b))
-            (row.PatChildren |> Array.map (patTree b))
+            (row.Children |> Array.map (exprTree rename b))
+            (row.PatChildren |> Array.map (patTree rename b))
 
     /// The DU subtree a declaration id denotes — see `patTree`.
-    let declTree (b: PoolBuilder) (id: DeclPoolId) : Frozen.TDecl =
-        let row = declRow b id
+    ///
+    /// Its binders are RE-MINTED, not lent. The columns name a binder by its slot, and a
+    /// slot means nothing outside the pool that issued it, so there is no identity here to
+    /// hand a DU-typed consumer; what such a consumer needs of one is distinctness within
+    /// the drained subtree plus equality between a binder and the references to it, and a
+    /// counter-minted key gives both. Naming no position, it also cannot be mistaken for a
+    /// key that resolves against some unit's tree — the same rule the signature seam
+    /// applies to a contract parameter's slot (`TastLower.mintContractParamKey`).
+    ///
+    /// The rename map is the BUILDER's, so two drains that reach one binder name it alike:
+    /// they are two views of the same definition site, and a consumer splicing both must
+    /// see that. Two different builders over one base still disagree, which is also right —
+    /// a drain is a fresh body each time it leaves the pool.
+    let declTree (b: PoolBuilder) (at: DeclPoolId) : Frozen.TDecl =
+        let rename (binder: BinderId) : NodeKey =
+            match b.DrainedBinderKeys.TryGetValue binder with
+            | true, k -> k
+            | false, _ ->
+                let c = System.Threading.Interlocked.Increment(&drainBinderCounter)
+                let k = NodeKey.ofSyntheticCounter c NodeKind.SynthPreFreezeInline
+                b.DrainedBinderKeys.[binder] <- k
+                k
+
+        let row = declRow b at
 
         TastUnpool.substituteDecl
-            (binderKey b)
-            (exprTree b)
+            rename
+            (exprTree rename b)
             row.Payload
-            (row.ExprChildren |> Array.map (exprTree b))
-            (row.PatChildren |> Array.map (patTree b))
+            (row.ExprChildren |> Array.map (exprTree rename b))
+            (row.PatChildren |> Array.map (patTree rename b))

@@ -288,13 +288,15 @@ let tests =
                     |> Array.map (fun (id, v) -> ({ Pool = pool; Id = id }: TastAccessor.ExprId), v)
                     |> DenseTable.index
 
-                // The binder-keyed tables in the node-keyed form the CLR emit's API takes,
-                // through the one seam that undoes the pool remap — as `Layout.buildUnit`
-                // does, so this harness cannot drift from the real path.
-                let sideTables = TastUnpool.nodeKeyedSideTables pools
+                // The binder-keyed tables at the dense id the CLR emit's API takes, indexed
+                // exactly as `Layout.buildUnit` indexes them, so this harness cannot drift
+                // from the real path.
+                let moduleMembers = Map.ofArray pools.ModuleMembers
+                let closureReprs = Map.ofArray pools.ClosureReprs
+                let genericFnSchemes = Map.ofArray pools.GenericFnSchemes
 
-                let moduleValues = Emit.collectModuleValues sideTables.ModuleMembers lowered0
-                let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
+                let moduleValues = Emit.collectModuleValues moduleMembers lowered0
+                let moduleValueKeys = HashSet<BinderId>(moduleValues |> List.map (fun mv -> mv.Key))
 
                 // Mirror `HolderPlan.create`: the capture-only eligible set drives
                 // bridging, then `collectStaticFns` projects it onto the bridged decls.
@@ -310,13 +312,13 @@ let tests =
 
                 let staticFns =
                     Emit.collectStaticFns
-                        sideTables.ModuleMembers
+                        moduleMembers
                         programHolder
-                        sideTables.GenericFnSchemes
+                        genericFnSchemes
                         eligible
                         (CompiledFns.gather lowered)
 
-                let typarsMap = Dictionary<NodeKey, int>()
+                let typarsMap = Dictionary<BinderId, int>()
 
                 for fn in staticFns do
                     typarsMap.[fn.Key] <- Emit.staticFnTypars fn
@@ -328,7 +330,7 @@ let tests =
                         moduleValueKeys
                         typarsMap
                         funVerdicts
-                        sideTables.ClosureReprs
+                        closureReprs
                         lowered
                         []
 

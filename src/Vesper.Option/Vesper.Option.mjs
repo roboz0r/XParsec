@@ -21,17 +21,17 @@ export class Option_Some extends Option {
     this.Value = Value;
   }
 }
-export const Option__get_Value = (_s134) => ((_m220) => {
+export const Option__get_Value = (_s0) => ((_m220) => {
   if ((_m220.tag === 1)) {
     const v = _m220.Value;
     return v;
   }
   if ((_m220.tag === 0)) {
-    return ((_s0) => ((() => { throw (_s0); })()))(new Error("Option.Value: the option value was None"));
+    return ((_s1) => ((() => { throw (_s1); })()))(new Error("Option.Value: the option value was None"));
   }
   throw new Error("The match cases were incomplete");
-})(_s134);
-export const Option__get_IsSome = (_s134) => ((_m391) => {
+})(_s0);
+export const Option__get_IsSome = (_s0) => ((_m391) => {
   if ((_m391.tag === 1)) {
     return true;
   }
@@ -39,8 +39,8 @@ export const Option__get_IsSome = (_s134) => ((_m391) => {
     return false;
   }
   throw new Error("The match cases were incomplete");
-})(_s134);
-export const Option__get_IsNone = (_s134) => ((_m495) => {
+})(_s0);
+export const Option__get_IsNone = (_s0) => ((_m495) => {
   if ((_m495.tag === 0)) {
     return true;
   }
@@ -48,7 +48,7 @@ export const Option__get_IsNone = (_s134) => ((_m495) => {
     return false;
   }
   throw new Error("The match cases were incomplete");
-})(_s134);
+})(_s0);
 export const isSome = (option) => ((_m764) => {
   if ((_m764.tag === 0)) {
     return false;
@@ -107,7 +107,7 @@ export const orElseWith = (ifNoneThunk, option) => ((_m1460) => {
 })(option);
 export const get = (option) => ((_m1586) => {
   if ((_m1586.tag === 0)) {
-    return ((_s1) => ((() => { throw (_s1); })()))(new Error("Option.get: the option value was None"));
+    return ((_s21) => ((() => { throw (_s21); })()))(new Error("Option.get: the option value was None"));
   }
   if ((_m1586.tag === 1)) {
     const v = _m1586.Value;

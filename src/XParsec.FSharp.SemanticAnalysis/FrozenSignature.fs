@@ -52,7 +52,7 @@ module FrozenSignature =
                     Id = TastPoolBuilder.copyPatTreeInto pats ConformanceTypars.toDeclaringAxis source id
                 }
             )
-            (fun _ -> TastLower.mintContractParamKey ())
+            (fun _ -> TastPoolBuilder.mintBinder pats)
             vr
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a
@@ -494,9 +494,7 @@ module FrozenSignature =
 
             for iv in frozen.InlineTemplates do
                 match { Pool = pool; Id = iv.Decl } with
-                | TastAccessor.DLet {
-                                        Binding = TastAccessor.PNamedId binder
-                                    } ->
+                | TastAccessor.DLet { Binding = TastAccessor.PNamed binder } ->
                     d.[binder] <-
                         {
                             Decl = TastPoolBuilder.declTree pool iv.Decl
@@ -520,7 +518,7 @@ module FrozenSignature =
         for decl in TastAccessor.roots pool do
             match decl with
             | TastAccessor.DLet {
-                                    Binding = TastAccessor.PNamedId binder
+                                    Binding = TastAccessor.PNamed binder
                                     Ty = ty
                                 } ->
                 match moduleMembers.TryGetValue binder with

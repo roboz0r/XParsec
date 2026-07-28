@@ -25,7 +25,7 @@ type private UnitPrelude =
     }
 
 /// The per-unit emission state the Bind / Prepare passes consume. `EmitCtx` is a FRESH
-/// `EmitContext` per unit — its NodeKey-keyed tables (`StaticMethods` / `ModuleValues` /
+/// `EmitContext` per unit — its binder-keyed tables (`StaticMethods` / `ModuleValues` /
 /// `MainInitValues`) and reference-keyed closure tables are file-local, so they never
 /// collide across units; its nominal registries, the field-handle map and the ONE combined
 /// row space are the SHARED ones on the `Assembler`. The Bind / Prepare passes reach every
@@ -148,7 +148,7 @@ type internal Assembler
 
     // A module value's verdict-rewritten field-slot type, keyed by its `SymbolKey` — the
     // SAME identity `FieldKey.ModuleValue` carries, so the ONE shared field pass reads it
-    // straight off the field key (a per-file `NodeKey` would collide here across units too).
+    // straight off the field key (a per-file binder id would collide here across units too).
     // Accumulated per unit in `buildPrelude` (each unit's own closure-verdict rewrite) and
     // read by the shared field pass — the single spot where the combined field table needs
     // a per-unit datum, surfaced as a lookup so the pass itself stays a plain walk of
@@ -158,7 +158,7 @@ type internal Assembler
     // Per unit, BEFORE the shared field pass: register this unit's nominals with the
     // provider, mint its value-struct closure types, and build its closure-verdict
     // rewrite — all three feed a field's signature, so they must precede the pass. The
-    // NodeKey / reference-keyed tables and the `EmitContext` are built post-field-pass in
+    // binder / reference-keyed tables and the `EmitContext` are built post-field-pass in
     // `completeUnit`; the provider registries and the field / enum-constant / registry
     // maps this touches are SHARED.
     let buildPrelude (unit: UnitLayout) : UnitPrelude =
@@ -464,7 +464,7 @@ type internal Assembler
 
     // Per unit, AFTER the field pass: the field-derived tables (struct-enum registry,
     // static-method refs, module-value field handles) and this unit's `EmitContext`. A
-    // FRESH EmitContext per unit keeps its NodeKey-keyed tables (`StaticMethods` /
+    // FRESH EmitContext per unit keeps its binder-keyed tables (`StaticMethods` /
     // `ModuleValues` / `MainInitValues`) and reference-keyed closure tables from
     // colliding across files; its nominal registries are the SHARED ones.
     let completeUnit (pre: UnitPrelude) : UnitEmit =
@@ -492,7 +492,7 @@ type internal Assembler
 
         // A static fn's call sites resolve through its layout-derived `MethodDef` handle;
         // recursion and cross-calls need no emission-order discipline.
-        let staticMethods = Dictionary<NodeKey, Emit.StaticMethodRef>()
+        let staticMethods = Dictionary<BinderId, Emit.StaticMethodRef>()
 
         for fn in plan.StaticFns do
             staticMethods.[fn.Key] <-
@@ -519,7 +519,7 @@ type internal Assembler
 
         // Module-value bindings resolve to their already-written field rows — any body
         // encodes the `ldsfld` token straight off the def handle.
-        let moduleValueFields = Dictionary<NodeKey, EntityHandle>()
+        let moduleValueFields = Dictionary<BinderId, EntityHandle>()
 
         for mv in plan.AllModuleValues do
             moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.SymbolKey]
@@ -527,7 +527,7 @@ type internal Assembler
         // The trailing top-level values: their `public static` field is written in `Main`
         // (`buildMain` `stsfld`), not a `.cctor`. Same field handles, a separate map so
         // `buildMain` knows to emit the store (vs the cctor-initialised values it skips).
-        let mainInitValues = Dictionary<NodeKey, EntityHandle>()
+        let mainInitValues = Dictionary<BinderId, EntityHandle>()
 
         for mv in plan.ProgramMainValues do
             mainInitValues.[mv.Key] <- moduleValueFields.[mv.Key]
@@ -685,7 +685,7 @@ type internal Assembler
     member _.Records = records
     member _.Classes = classes
 
-    /// The per-unit emission state: a fresh `EmitContext` plus this unit's NodeKey /
+    /// The per-unit emission state: a fresh `EmitContext` plus this unit's binder /
     /// reference-keyed tables and its closure-verdict rewrite. The Bind / Prepare passes
     /// iterate these; the nominal registries, the field-handle map and the one combined
     /// row space live on the Assembler and are shared across units.
@@ -873,7 +873,7 @@ type internal Assembler
     // re-project onto this closure class's `!i`.
     member this.PrepareClosures(u: UnitEmit) =
         for c in u.Layout.Closures do
-            let captureFields = Dictionary<NodeKey, EntityHandle>()
+            let captureFields = Dictionary<BinderId, EntityHandle>()
             let isGenericClosure = c.Typars > 0
             // This closure's self-instantiation over its *own* typars (`!0 … !{n-1}`),
             // used for the capture-field `MemberRef`s on its self-`TypeSpec`. A

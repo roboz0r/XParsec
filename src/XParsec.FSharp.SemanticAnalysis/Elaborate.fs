@@ -1887,7 +1887,7 @@ module Elaborate =
                     let elided = ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat)
 
                     // The identity this binding contributes to the FROZEN side tables
-                    // (`ModuleMembers`, `TopLevelNames`, `GenericFnSchemes`,
+                    // (`ModuleMembers`, `GenericFnSchemes`,
                     // `BindingTyparArities`): the binder its already-translated head
                     // pattern introduces (`BinderKey.ofPat`, which is also where the
                     // shapes that introduce none are enumerated), or `ValueNone` — in
@@ -1928,14 +1928,10 @@ module Elaborate =
                             ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
                         | _ -> ()
                     // A top-level (implicit-Program-module) binding records no
-                    // `ModuleBindingInfo`; stash its source name so the backend can
-                    // name a top-level value's Program-holder static field. Recorded for every top-level
-                    // binding (function or value); only the value collector reads it,
-                    // so a top-level function's `fn$<off>` path is untouched.
-                    | None ->
-                        match memberNameOfBinding ctx b, binder with
-                        | ValueSome nm, ValueSome bk -> ctx.Bindings.TopLevelNames.[bk] <- nm
-                        | _ -> ()
+                    // `ModuleBindingInfo`, and needs none: it declares no module, so there
+                    // is no holder to place it on, and its NAME is the one the frozen
+                    // binder column already carries.
+                    | None -> ()
 
                     let valT = translateBinding ctx b
                     let declTy = typeOfKey ctx (CstKeys.ofBinding b)
@@ -2138,9 +2134,6 @@ module Elaborate =
             // Snapshot the named-module placements: the backend keys
             // off a binding's identity to emit it on its holder type.
             ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
-            // Snapshot the top-level (implicit-Program-module) binding names so the
-            // backend can name a top-level value's static field.
-            TopLevelNames = ctx.Bindings.TopLevelNames |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
             // The closure stack/heap verdict is filled in by the Pipeline after
             // `Regions.run` — escape analysis hasn't run at elaboration time.
             ClosureReprs = Map.empty

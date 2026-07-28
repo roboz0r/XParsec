@@ -220,8 +220,8 @@ module Freeze =
     ///
     /// The residue this can actually catch, after `rewriteSiblingRefs` has keyed every
     /// module-level sibling, is a reference to a TOP-LEVEL (implicit-`Program`-module)
-    /// binding: `Elaborate` records those in `TopLevelNames` and gives them NO
-    /// `ModuleBindingInfo`, hence no `SymbolKey`, hence nothing to rewrite to.
+    /// binding: those have NO `ModuleBindingInfo`, hence no `SymbolKey`, hence nothing to
+    /// rewrite to.
     let private freeVarsOfBody (d: TDecl) : NodeKey list =
         match d with
         // The decl's own binder is in scope in its body (a template may be recursive), so
@@ -243,21 +243,20 @@ module Freeze =
     /// `ModuleBindingInfo` to key. Giving those an identity (a `Program`-holder
     /// `ModuleKey`) would empty this arm of population, and is the eventual fix. Until
     /// then the boundary refuses what it cannot represent, loudly.
-    let private publishable
-        (ctx: PassContext)
-        (topLevelNames: Map<NodeKey, string>)
-        (binder: BinderKey)
-        (rewritten: TDecl)
-        : bool =
+    let private publishable (ctx: PassContext) (binder: BinderKey) (rewritten: TDecl) : bool =
         match freeVarsOfBody rewritten with
         | [] -> true
         | free ->
-            // The free `Var`s are references, so the name lookup is in the reference
-            // domain too — the caller widens once, as for `rewriteSiblingRefs`.
+            // Named off the source at the definition site, by the same rule the frozen
+            // binder column is filled by — so a diagnostic spells a binding the way the
+            // emitted code does. A site the source spells nothing at falls back to the key,
+            // which at least says where it came from.
             let name (k: NodeKey) =
-                match Map.tryFind k topLevelNames with
-                | Some n -> n
-                | None -> string k
+                let spelled = TastPools.identifierAt ctx.Input k
+
+                match spelled.Length with
+                | 0 -> string k
+                | _ -> spelled
 
             ctx.Error(
                 BinderKey.identity binder,
@@ -288,11 +287,9 @@ module Freeze =
         // an ordinary module function.
         let inlineBodies = ResizeArray<TInlineValue>()
 
-        // The two binder-keyed tables the publish path reads by REFERENCE rather than by
-        // definition site: the sibling rewrite is driven by the `TExpr.Var`s of a body, the
-        // name lookup by its free `Var`s.
+        // The one binder-keyed table the publish path reads by REFERENCE rather than by
+        // definition site: the sibling rewrite is driven by the `TExpr.Var`s of a body.
         let siblingsByRef = BinderKey.widenMap tast.ModuleMembers
-        let topLevelNamesByRef = BinderKey.widenMap tast.TopLevelNames
 
         let publishedInfo (head: TPat) =
             match BinderKey.ofPat head with
@@ -323,7 +320,7 @@ module Freeze =
 
                     let rewritten = rewriteSiblingRefs siblingsByRef template
 
-                    if publishable ctx topLevelNamesByRef binder rewritten then
+                    if publishable ctx binder rewritten then
                         inlineBodies.Add
                             {
                                 // Minted, not recovered. The identity emission mints for the
@@ -365,4 +362,4 @@ module Freeze =
     /// pooled lambda spine, so `TastPools.toPools` derives it off the columns it has just
     /// filled and a tuple group's pattern is the spine node itself.
     let run (ctx: PassContext) (tast: TastFile) : FrozenPools =
-        toFrozenFile ctx tast |> TastPools.toPools
+        toFrozenFile ctx tast |> TastPools.toPools ctx.Input

@@ -42,8 +42,8 @@ open XParsec.FSharp.Parser
 // being derived from that spine rather than carried alongside it).
 //
 // Identity goes positional too: a binder's identity after freeze IS its slot in the file's
-// `BinderKeys` column, addressed by `BinderId`. Every distinct NodeKey a definition site
-// introduces is interned to one — the pattern/loop binders (`BinderKey.ofPat`,
+// binder pool, addressed by `BinderId`. Every distinct definition site the walk reaches
+// is interned to one — the pattern/loop binders (`BinderKey.ofPat`,
 // `BinderKey.ofExpr`) and the bare key slots a type declaration binds with no pattern node
 // behind them (`BinderKey.ofTypeDecl`: a member's `this`/`base` and parameters, a ctor's
 // parameters and locals), which its member BODIES name by `Var` exactly as a function body
@@ -147,6 +147,8 @@ module Pooled =
     type TExpr = TExprG<FrozenType, SyntaxToken, BinderId>
     type TMatchArm = TMatchArmG<TPat, TExpr>
     type TDecl = TDeclG<FrozenType, SyntaxToken, BinderId>
+    type TTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, BinderId, TExpr>
+    type TTypeMember = TTypeMemberG<FrozenType, BinderId, TExpr>
     type TInlineValue = TInlineValueG<FrozenType, SyntaxToken, BinderId>
     type TastFile = TastFileG<FrozenType, SyntaxToken, BinderId>
 
@@ -554,37 +556,34 @@ module PatPayload =
         | PatPayload.Union _
         | PatPayload.EnumCase _ -> p
 
-/// The three naming projections a backend reads off a binder to emit its name WITHOUT
-/// the whole `NodeKey` — exactly the bits `binderName` (`JsEmitHelpers.fs`) unpacks: a
-/// real binder recovers its source name by slicing at `Offset`; a synthetic renders as
-/// `_s<NameIndex>`. It is the naming DATA, separated from the key so a consumer holding
-/// only a `BinderId` can name what it names (`TastAccessor.exprVarNaming`).
+/// How a backend SPELLS a binder — the naming column read at one slot, and the only thing
+/// a backend needs to name what a `BinderId` names (`TastAccessor.exprVarNaming`).
 ///
-/// NOT a stored column. It is a total function of the binder's retained `NodeKey`
-/// (`ofKey`, its sole constructor), so storing it beside `FrozenPools.BinderKeys` would
-/// put the same three bits on the wire twice; `TastPoolBuilder.binderNaming` projects it
-/// on read instead. When the key itself retires this becomes the column that replaces
-/// it — one representation at a time, never both.
+/// Two cases because there are two kinds of definition site, and the difference is not a
+/// fallback: a binder the SOURCE spells carries that identifier verbatim (dialect mangling
+/// — JS reserved words, apostrophes — belongs to the backend that emits it, not here),
+/// while a binder no identifier spells (a class's `this`/`base`, a freshened inline
+/// binder) has nothing to carry and is named after its SLOT, which is unique by
+/// construction because the slot is the identity.
+[<RequireQualifiedAccess>]
 [<Struct>]
 type BinderNaming =
-    {
-        IsSynthetic: bool
-        Offset: int
-        NameIndex: int
-    }
+    /// The identifier the source spells this binder with.
+    | Source of name: string
+    /// No identifier spells this binder; a backend invents one from the slot.
+    | Minted of slot: BinderId
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module BinderNaming =
 
-    /// The naming triple IS the key's own projections — the same three bits `binderName`
-    /// reads — so a pooled binder names identically to its `NodeKey` by construction.
-    /// Sole constructor, so no site can drift from `binderName`.
-    let ofKey (k: NodeKey) : BinderNaming =
-        {
-            IsSynthetic = k.IsSynthetic
-            Offset = k.Offset
-            NameIndex = k.NameIndex
-        }
+    /// The naming column read at `slot`. The EMPTY name is what "no identifier spells this
+    /// binder" is stored as — it is no legal identifier, so the two cases cannot be
+    /// confused — and this is the sole place that convention is decoded, so no consumer
+    /// can invent a second reading of an empty slot.
+    let ofColumn (name: string) (slot: BinderId) : BinderNaming =
+        match name.Length with
+        | 0 -> BinderNaming.Minted slot
+        | _ -> BinderNaming.Source name
 
 /// The residual payload of a frozen declaration node — one case per `DeclShape`. A decl
 /// carries no uniform node-level `ty`/`tok` (there are no `DeclTys`/`DeclToks` columns), so

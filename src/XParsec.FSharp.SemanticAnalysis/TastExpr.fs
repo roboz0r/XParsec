@@ -580,13 +580,11 @@ and TStaticOptClauseG<'ty, 'tok, 'id> =
 /// the body directly; a destructuring leaf carries `Pat = Some …` and a synthetic
 /// `Slot` the backend spills + `bindPattern`s.
 ///
-/// `'pat` abstracts over how the destructuring pattern is carried — see `ArgGroupG`.
-and StaticParamG<'ty, 'pat> =
-    {
-        Slot: NodeKey
-        Ty: 'ty
-        Pat: 'pat option
-    }
+/// `'pat` abstracts over how the destructuring pattern is carried, and `'id` over the
+/// identity the slot is named in — both exactly as `ArgGroupG` does, this being the
+/// flattening of one.
+and StaticParamG<'ty, 'pat, 'id> =
+    { Slot: 'id; Ty: 'ty; Pat: 'pat option }
 
 /// One curried argument group of a function's SOURCE signature — the distinction
 /// the flat compiled signature loses. `GUnit` (`fun () -> …`) erases to zero
@@ -628,8 +626,8 @@ and [<RequireQualifiedAccess>] CompiledReturnG<'ty> =
 
 /// The flat compiled signature derived from a `ValReprG`: tuple-flattened,
 /// lone-unit-erased parameters and the `void`-normalised return.
-and CompiledFormG<'ty, 'pat> =
+and CompiledFormG<'ty, 'pat, 'id> =
     {
-        Params: StaticParamG<'ty, 'pat> list
+        Params: StaticParamG<'ty, 'pat, 'id> list
         Return: CompiledReturnG<'ty>
     }

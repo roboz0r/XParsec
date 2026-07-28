@@ -7,8 +7,8 @@ open EmitTypes
 open EmitLower
 
 module EmitClosures =
-    let private patKeys (p: TastAccessor.PatId) : NodeKey list =
-        let acc = ResizeArray<NodeKey>()
+    let private patKeys (p: TastAccessor.PatId) : BinderId list =
+        let acc = ResizeArray<BinderId>()
 
         let rec go p =
             match TastAccessor.patKind p with
@@ -38,7 +38,7 @@ module EmitClosures =
     [<return: Struct>]
     let private (|LetBoundLambda|_|)
         (e: TastAccessor.ExprId)
-        : struct (NodeKey * TastAccessor.ExprId * TastAccessor.ExprId) voption =
+        : struct (BinderId * TastAccessor.ExprId * TastAccessor.ExprId) voption =
         match e with
         | TastAccessor.ELet letv ->
             match TastAccessor.patBinder letv.Binding, TastAccessor.exprKind letv.Value with
@@ -61,11 +61,11 @@ module EmitClosures =
     /// and an enclosing module function is wrongly dropped from the
     /// static-method-eligible set.
     let private walkFreeRefs
-        (bound: HashSet<NodeKey>)
-        (onFree: NodeKey -> FrozenType -> unit)
+        (bound: HashSet<BinderId>)
+        (onFree: BinderId -> FrozenType -> unit)
         (body: TastAccessor.ExprId)
         : unit =
-        let scoped (keys: NodeKey list) (k: unit -> unit) =
+        let scoped (keys: BinderId list) (k: unit -> unit) =
             let added = keys |> List.filter bound.Add
             k ()
 
@@ -122,12 +122,12 @@ module EmitClosures =
     /// capture field order. `staticFnKeys` are excluded: a reference to a
     /// static-method function is a direct `call`, not a captured value.
     let private freeVars
-        (staticFnKeys: HashSet<NodeKey>)
-        (paramKeys: NodeKey list)
-        (selfKey: NodeKey voption)
+        (staticFnKeys: HashSet<BinderId>)
+        (paramKeys: BinderId list)
+        (selfKey: BinderId voption)
         (body: TastAccessor.ExprId)
-        : (NodeKey * FrozenType) list =
-        let bound = HashSet<NodeKey>()
+        : (BinderId * FrozenType) list =
+        let bound = HashSet<BinderId>()
         // Every leaf the parameter pattern binds is in scope — for a tuple param
         // (`fun (a, b) -> …`) that is each element binding, not the placeholder slot.
         for k in paramKeys do
@@ -139,8 +139,8 @@ module EmitClosures =
         | ValueSome k -> bound.Add k |> ignore // the recursive self isn't captured — it's `this`
         | ValueNone -> ()
 
-        let acc = ResizeArray<NodeKey * FrozenType>()
-        let seen = HashSet<NodeKey>()
+        let acc = ResizeArray<BinderId * FrozenType>()
+        let seen = HashSet<BinderId>()
 
         walkFreeRefs
             bound
@@ -154,9 +154,9 @@ module EmitClosures =
 
     /// Like `freeVars` but keeps only keys (no types, no static-method exclusion):
     /// the capture test in `collectStaticFns` must *see* every referenced binding.
-    let private freeVarKeys (boundKeys: NodeKey seq) (body: TastAccessor.ExprId) : HashSet<NodeKey> =
-        let bound = HashSet<NodeKey>(boundKeys)
-        let acc = HashSet<NodeKey>()
+    let private freeVarKeys (boundKeys: BinderId seq) (body: TastAccessor.ExprId) : HashSet<BinderId> =
+        let bound = HashSet<BinderId>(boundKeys)
+        let acc = HashSet<BinderId>()
         walkFreeRefs bound (fun key _ -> acc.Add key |> ignore) body
         acc
 
@@ -177,9 +177,9 @@ module EmitClosures =
     /// `None` for a *top-level* (implicit-"Program"-module) value. A caller that only
     /// wants named-holder values returns `None` on the holderless case.
     let private classifyModuleValues
-        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
+        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
         (tyOk: FrozenType -> bool)
-        (project: NodeKey -> FrozenType -> TastAccessor.ExprId -> ModuleBindingInfo option -> 'a option)
+        (project: BinderId -> FrozenType -> TastAccessor.ExprId -> ModuleBindingInfo option -> 'a option)
         (decls: TastAccessor.DeclId list)
         : 'a list =
         decls
@@ -209,7 +209,7 @@ module EmitClosures =
     /// top-level ("Program") values are out of scope and keep their current
     /// treatment.
     let collectModuleValues
-        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
+        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
         (decls: TastAccessor.DeclId list)
         : ModuleValue list =
         decls
@@ -250,21 +250,21 @@ module EmitClosures =
         | t -> FrozenType.forallChildren ftNoUnknown t
 
     /// The emitted metadata name of a *top-level* (holderless) binding on the
-    /// Program holder. The source name (recorded by `Elaborate` in `TopLevelNames`
-    /// for a *leading* standalone `ModuleElem.Let`; a value *after* a top-level
-    /// statement folds into the preceding sequential and has none — synthesise
-    /// `value`) is always suffixed with the source offset (`x` → `x$<offset>`).
-    /// A top-level binding is SHADOWABLE (`let x = 1 … let x = 2` is two Program-holder
-    /// rows sharing the source name), so the offset makes each row's field/method name
-    /// unique — and, since its `SymbolKey` handle key is minted from this same name,
-    /// makes that key injective too.
-    let private topLevelName (topLevelNames: Map<NodeKey, string>) (k: NodeKey) : string =
-        let name =
-            match Map.tryFind k topLevelNames with
-            | Some n -> n
-            | None -> "value"
+    /// Program holder: the source name the frozen binder column spells it with (a binder
+    /// no source names — one the freeze minted — takes `value`), suffixed with the
+    /// binder's own SLOT (`x` → `x$<slot>`). A top-level binding is SHADOWABLE
+    /// (`let x = 1 … let x = 2` is two Program-holder rows sharing the source name), so
+    /// the slot makes each row's field/method name unique — and, since its `SymbolKey`
+    /// handle key is minted from this same name, makes that key injective too.
+    let private topLevelName (pool: PoolBuilder) (k: BinderId) : string =
+        let (BinderId slot) = k
 
-        sprintf "%s$%d" name k.Offset
+        let name =
+            match TastPoolBuilder.binderNaming pool k with
+            | BinderNaming.Source n -> n
+            | BinderNaming.Minted _ -> "value"
+
+        sprintf "%s$%d" name slot
 
     /// `(ns, name)` of a `TypeSlotKey` — used to match a value's type against the
     /// ref-struct set, keyed on `(ns, name)` because the use-site `FTClass` key and
@@ -288,17 +288,17 @@ module EmitClosures =
     ///
     /// Both a value on a named holder and a top-level (implicit-"Program"-module)
     /// generic value classify: the latter records no `ModuleBindingInfo`, so it gets
-    /// `Holder = None` (the Program holder) and a name from `TopLevelNames`
-    /// (synthetic `value@<offset>` for a flattened nested trailing value).
+    /// `Holder = None` (the Program holder) and its slot-suffixed source name
+    /// (`topLevelName`).
     /// Position-independent — a method is computed on demand. A non-generalisable
     /// generic value never reaches here: the front end's value restriction
     /// (`InferGeneralize.shouldGeneralise`) keeps an expansive parameterless binding
     /// monomorphic (and `Validation.checkValueRestriction` errors a mutable one), so
     /// its type is either ground or an `FTUnknown` the `tyOk` gate rejects.
     let collectGenericModuleValues
-        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
+        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
         (programHolder: HolderKey)
-        (topLevelNames: Map<NodeKey, string>)
+
         (decls: TastAccessor.DeclId list)
         : StaticFn list =
         // Open (`not ftIsGround`) but encodable (`ftNoUnknown`) and not itself a
@@ -322,7 +322,7 @@ module EmitClosures =
                     match info with
                     | Some info -> info.Name, Some info.Holder
                     // A top-level generic value: `None` holder ⇒ the Program holder.
-                    | None -> topLevelName topLevelNames k, None
+                    | None -> topLevelName value.Pool k, None
 
                 Some
                     {
@@ -348,7 +348,7 @@ module EmitClosures =
 
     /// Classify the *top-level* (implicit-"Program"-module) ground values: a
     /// non-`inline`, non-`Lambda`, non-function `let name = <value>` with no
-    /// enclosing named module (it records a `TopLevelNames` entry but no
+    /// enclosing named module (it records no
     /// `ModuleBindingInfo`) whose type is fully ground. Each becomes a `public
     /// static` field on the anonymous "Program" holder; the leading/trailing
     /// `.cctor`-vs-`Main` placement is decided later in `HolderPlan.create`.
@@ -356,9 +356,9 @@ module EmitClosures =
     /// holderless fallback; function-typed values (a stored closure) are deferred,
     /// as for a named holder.
     let collectProgramValues
-        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
+        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
         (programHolder: HolderKey)
-        (topLevelNames: Map<NodeKey, string>)
+
         // `(ns, name)` of every `[<Struct; IsByRefLike>]` type declared in this
         // assembly. `EmitLower.lower` strips type decls, so the caller computes this
         // from `tast.Decls`.
@@ -397,7 +397,7 @@ module EmitClosures =
                 match info with
                 | Some _ -> None
                 | None ->
-                    let name = topLevelName topLevelNames k
+                    let name = topLevelName value.Pool k
 
                     Some
                         {
@@ -417,8 +417,8 @@ module EmitClosures =
     /// can see. Fail here, with the offending value and reference named, instead
     /// of deep in `buildVarLoad`'s generic "no binding" crash.
     let validateModuleValueInits
-        (moduleValueKeys: HashSet<NodeKey>)
-        (staticFnKeys: HashSet<NodeKey>)
+        (moduleValueKeys: HashSet<BinderId>)
+        (staticFnKeys: HashSet<BinderId>)
         (moduleValues: ModuleValue list)
         : unit =
         for mv in moduleValues do
@@ -457,7 +457,7 @@ module EmitClosures =
     /// would wrap a closure in a closure. The pass is a no-op when no eligible function
     /// has a non-saturated reference (the corpus before any escaper lands).
     let bridgeStaticFnEscapes
-        (eligible: HashSet<NodeKey>)
+        (eligible: HashSet<BinderId>)
         (fns: CompiledFns.CompiledFn list)
         (decls: TastAccessor.DeclId list)
         : TastAccessor.DeclId list =
@@ -465,7 +465,7 @@ module EmitClosures =
         // of arrows the eta-expansion peels, and the spine length at or above which a
         // reference is a saturated direct `call`. `fns` is the SAME pre-bridge
         // `gather` `staticEligible` ran on, threaded in so the two cannot disagree.
-        let arity = Dictionary<NodeKey, int>()
+        let arity = Dictionary<BinderId, int>()
 
         for f in fns do
             if eligible.Contains f.Key then
@@ -490,7 +490,7 @@ module EmitClosures =
                 if List.length levels <> n then
                     failwithf "bridgeStaticFnEscapes: function type has fewer than %d arrows: %A" n (typeOfExpr fVar)
 
-                let keys = levels |> List.map (fun _ -> mintUnitParamKey ())
+                let keys = levels |> List.map (fun _ -> TastPoolBuilder.mintBinder fVar.Pool)
 
                 // The bridge's nodes are DERIVED — they exist in no frozen tree — so they
                 // are appended to the same pool `fVar` lives in, which is what lets the
@@ -560,9 +560,9 @@ module EmitClosures =
     /// through the synthesised lambda (the free-var walk sees through it). So the same
     /// set drives bridging on the un-bridged decls and `collectStaticFns` on the
     /// bridged decls — there is no second derivation that could disagree.
-    let staticEligible (moduleValueKeys: HashSet<NodeKey>) (fns: CompiledFns.CompiledFn list) : HashSet<NodeKey> =
-        let candidates = Dictionary<NodeKey, CompiledFns.CompiledFn>()
-        let order = ResizeArray<NodeKey>()
+    let staticEligible (moduleValueKeys: HashSet<BinderId>) (fns: CompiledFns.CompiledFn list) : HashSet<BinderId> =
+        let candidates = Dictionary<BinderId, CompiledFns.CompiledFn>()
+        let order = ResizeArray<BinderId>()
 
         for f in fns do
             candidates.[f.Key] <- f
@@ -570,7 +570,7 @@ module EmitClosures =
 
         // Each candidate's capture set (free vars minus its own params + module values).
         let bodyFree =
-            Dictionary<NodeKey, HashSet<NodeKey>>(
+            Dictionary<BinderId, HashSet<BinderId>>(
                 seq {
                     for k in order do
                         let c = candidates.[k]
@@ -596,7 +596,7 @@ module EmitClosures =
         // Escape no longer demotes: every gathered function starts eligible; only the
         // capture fixpoint below removes one (its free vars reach outside the eligible
         // set, own self-reference allowed).
-        let eligible = HashSet<NodeKey>(order)
+        let eligible = HashSet<BinderId>(order)
         let mutable changed = true
 
         while changed do
@@ -621,13 +621,13 @@ module EmitClosures =
     /// (capture-demoted, or a binding `bridgeStaticFnEscapes` newly turned into a
     /// lambda whose key was never eligible) is left for closure discovery.
     let collectStaticFns
-        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
+        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
         (programHolder: HolderKey)
         // Per-binding frozen typar bounds from the front-end
         // scheme. Looked up by `c.Key`; absent ⇒ no bounds. Carried onto
         // `StaticFn.Constraints` and read by the call-site phantom-typar solve.
-        (genericFnSchemes: Map<NodeKey, FrozenConstraint list>)
-        (eligible: HashSet<NodeKey>)
+        (genericFnSchemes: Map<BinderId, FrozenConstraint list>)
+        (eligible: HashSet<BinderId>)
         (fns: CompiledFns.CompiledFn list)
         : StaticFn list =
         [
@@ -635,11 +635,13 @@ module EmitClosures =
                 if eligible.Contains c.Key then
                     // A binding inside a named module emits with its source name on its
                     // holder type; a top-level function keeps the anonymous
-                    // `fn$<offset>` name on the "Program" holder (`Holder = None`).
+                    // `fn$<slot>` name on the "Program" holder (`Holder = None`).
                     let name, holder =
                         match Map.tryFind c.Key moduleMembers with
                         | Some info -> info.Name, Some info.Holder
-                        | None -> sprintf "fn$%d" c.Key.Offset, None
+                        | None ->
+                            let (BinderId slot) = c.Key
+                            sprintf "fn$%d" slot, None
 
                     let constraints =
                         match Map.tryFind c.Key genericFnSchemes with
@@ -824,18 +826,18 @@ module EmitClosures =
         /// enclosing `let f = fun…` binder (`ValueNone` for an anonymous lambda).
         /// Both are the context a `<bound-name>@<line>` policy would need; the
         /// counter policy ignores them.
-        member _.NextName(_node: TastAccessor.ExprId, _selfKey: NodeKey voption) : string =
+        member _.NextName(_node: TastAccessor.ExprId, _selfKey: BinderId voption) : string =
             let name = sprintf "<closure>$%d" counter
             counter <- counter + 1
             name
 
     let discoverClosures
         (namer: ClosureNamer)
-        (staticFnKeys: HashSet<NodeKey>)
-        (moduleValueKeys: HashSet<NodeKey>)
-        (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
+        (staticFnKeys: HashSet<BinderId>)
+        (moduleValueKeys: HashSet<BinderId>)
+        (staticFnTypars: IReadOnlyDictionary<BinderId, int>)
         (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)
-        (closureReprs: Map<NodeKey, ClosureRepr>)
+        (closureReprs: Map<BinderId, ClosureRepr>)
         (decls: TastAccessor.DeclId list)
         (memberRoots: MemberClosureRoot list)
         : Closure list * Dictionary<TastAccessor.ExprId, Closure> =
@@ -850,7 +852,7 @@ module EmitClosures =
         // A module-level value is a `public static` field (`ldsfld`), so — like a
         // static-method reference — it is resolved without a capture. Fold both
         // into the non-captured set.
-        let nonCaptured = HashSet<NodeKey>(staticFnKeys)
+        let nonCaptured = HashSet<BinderId>(staticFnKeys)
         nonCaptured.UnionWith moduleValueKeys
 
         // `selfKey` is the binding key when this node is the immediate value of a
@@ -861,7 +863,7 @@ module EmitClosures =
         // class's typars (the leading slots) — `0` for a static-fn closure.
         // The arity of a value-struct lambda node (1 by default; 2 for a
         // flat `Fun`3` slot). Only an anonymous monomorphic lambda the verdict reached.
-        let valueStructArity (currentTypars: int) (selfKey: NodeKey voption) (e: TastAccessor.ExprId) : int =
+        let valueStructArity (currentTypars: int) (selfKey: BinderId voption) (e: TastAccessor.ExprId) : int =
             if currentTypars = 0 && ValueOption.isNone selfKey then
                 match stackLambdaArgs.TryGetValue e with
                 | true, arity -> arity
@@ -869,7 +871,7 @@ module EmitClosures =
             else
                 1
 
-        let rec go (currentTypars: int) (declaringOffset: int) (selfKey: NodeKey voption) (e: TastAccessor.ExprId) =
+        let rec go (currentTypars: int) (declaringOffset: int) (selfKey: BinderId voption) (e: TastAccessor.ExprId) =
             // A FLAT (`Fun`(arity+1)`) value-struct lambda of arity `2..4` peels its
             // `arity - 1` inner `Lambda` levels into the SAME closure's extra
             // parameters (one flat `Invoke(a,b,…)`), so those inner lambdas are NOT
@@ -906,7 +908,7 @@ module EmitClosures =
                  | _ -> iterChildren (go currentTypars declaringOffset ValueNone) e) // children (and inner lambdas) first → leaves-first
 
             let registerClosure
-                (p: NodeKey)
+                (p: BinderId)
                 (pty: FrozenType)
                 (paramPat: TastAccessor.PatId)
                 (body: TastAccessor.ExprId)
@@ -1030,18 +1032,18 @@ module EmitClosures =
                     // closure's `Invoke` still allocates `ldarg.1` for the unit
                     // value the caller pushes; mint a synthetic placeholder so the
                     // `args` map (and `freeVars`'s bound set) still has a key.
-                    registerClosure (mintUnitParamKey ()) (TastAccessor.patTy pat) pat body lamTy
+                    registerClosure (TastPoolBuilder.mintBinder pat.Pool) (TastAccessor.patTy pat) pat body lamTy
                 | PatShape.Tuple ->
                     // A tuple-param lambda (`fun (a, b) -> …`). The single `ldarg.1`
                     // carries the `ValueTuple`n` value; mint a synthetic placeholder
                     // for that slot — `buildClosureInvoke` `bindPattern`s the leaf
                     // element bindings out of it. The param's `FTTuple` (`patTy pat`) is
                     // what the closure's `Invoke` signature encodes.
-                    registerClosure (mintTupleParamKey ()) (TastAccessor.patTy pat) pat body lamTy
+                    registerClosure (TastPoolBuilder.mintBinder pat.Pool) (TastAccessor.patTy pat) pat body lamTy
                 | _ -> failwithf "Emit: closure parameter destructuring is out of scope: %A" pat
             | _ -> ()
 
-        let typarsForStaticFn (k: NodeKey) : int =
+        let typarsForStaticFn (k: BinderId) : int =
             match staticFnTypars.TryGetValue k with
             | true, n -> n
             | false, _ -> 0

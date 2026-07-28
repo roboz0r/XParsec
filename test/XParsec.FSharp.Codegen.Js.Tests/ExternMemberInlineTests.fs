@@ -92,28 +92,27 @@ let private ftWidget: FrozenType =
 /// `member _.Poke (x: 'paramTy) : int = (# template x : int #)`. Frozen because that is
 /// what the harvest reads — a published inline body never carries a live inference cell.
 let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor.TypeMember =
-    let xKey = NodeKey.ofSynthetic 2 NodeKind.SynthLambdaBody
+    // The hand-built body is a node of no file, so it gets a pool of its own — the same
+    // zero-column shape an `.fsi`-minted `ValRepr`'s patterns take. `harvestMemberBody`
+    // mints its wrapping lambdas straight into it, and the member's definition sites are
+    // this pool's own binders.
+    let pool = TastPoolBuilder.openEmpty ()
+    let xId = TastPoolBuilder.mintBinder pool
 
     // The parameter's definition site, taken off the `NamedSimple` pattern a source member
     // would carry — the same projection `Elaborate.memberParams` fills the slot from.
     let xBinder =
-        match BinderKey.ofPat (TPatG.NamedSimple(xKey, paramTy, dummyTok)) with
+        match BinderKey.ofPat (TPatG.NamedSimple(xId, paramTy, dummyTok)) with
         | ValueSome b -> b
         | ValueNone -> failwith "a `NamedSimple` pattern introduces a binder"
 
-    let thisBinder =
-        BinderKey.ofDeclaredThis (NodeKey.ofSynthetic 1 NodeKind.SynthLambdaBody)
-
-    // The hand-built body is a node of no file, so it gets a pool of its own — the same
-    // zero-column shape an `.fsi`-minted `ValRepr`'s patterns take. `harvestMemberBody`
-    // mints its wrapping lambdas straight into it.
-    let pool = TastPoolBuilder.openEmpty ()
+    let thisBinder = BinderKey.ofInterned (TastPoolBuilder.mintBinder pool)
 
     let body =
         TExprG.ILIntrinsic(
             template,
             ValueSome paramTy,
-            EqArray.ofList [ TExprG.Var(xKey, paramTy, dummyTok) ],
+            EqArray.ofList [ TExprG.Var(xId, paramTy, dummyTok) ],
             ftInt,
             dummyTok
         )

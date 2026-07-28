@@ -113,13 +113,6 @@ module TastWalk =
         | TExprG.TraitCall(tok = tok)
         | TExprG.TypeTest(tok = tok) -> tok
 
-    /// Mint the filler `NodeKey` for a synthetic curried lambda-body decl (member
-    /// decurrying). NOT a recompute of an existing node: the decl's binder is unread
-    /// by `inlineExpand`, so this key is never looked up — it only keeps the
-    /// reconstructed inline node total. Extracts the source offset from `bodyTok`.
-    let synthLambdaBodyKey (bodyTok: SyntaxToken) : NodeKey =
-        NodeKey.ofSynthetic bodyTok.StartIndex NodeKind.SynthLambdaBody
-
     let patTy (p: TPatG<'ty, 'tok, 'id>) : 'ty =
         match p with
         | TPatG.NamedSimple(ty = ty)

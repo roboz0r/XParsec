@@ -417,7 +417,6 @@ module TastConvert =
             Diagnostics = tf.Diagnostics
             IntrinsicReprKeys = tf.IntrinsicReprKeys
             ModuleMembers = tf.ModuleMembers
-            TopLevelNames = tf.TopLevelNames
             ClosureReprs = tf.ClosureReprs
             FunVerdicts = tf.FunVerdicts
             GenericFnSchemes = tf.GenericFnSchemes

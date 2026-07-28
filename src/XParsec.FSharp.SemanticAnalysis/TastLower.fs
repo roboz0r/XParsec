@@ -173,40 +173,6 @@ module TastLower =
                                 | ValueNone -> ()
                             | _ -> ()
 
-    /// Source of synthetic `NodeKey`s for placeholder lambda-parameter slots —
-    /// the unit binder (`fun () -> …`) and the tuple binder (`fun (a, b) -> …`).
-    /// The body never references the key (a unit value is dropped; a tuple is
-    /// destructured into its leaf bindings), but a fresh per-call key lets the
-    /// `args.[key]` dict still allocate the slot for the value the
-    /// caller pushes without clashing with other binders. `Interlocked` keeps it
-    /// safe across the parallel test runner.
-    let mutable private paramSynthCounter = 0
-
-    let private mintSyntheticParamKey () : NodeKey =
-        let c = System.Threading.Interlocked.Increment(&paramSynthCounter)
-        // A counter, not a source offset — `ofSyntheticCounter` puts it in the negative
-        // half of the offset slot so the key can never be read back as a position.
-        NodeKey.ofSyntheticCounter c NodeKind.SynthLambdaBody
-
-    let mintUnitParamKey () : NodeKey = mintSyntheticParamKey ()
-
-    /// The placeholder key for a destructuring tuple lambda parameter — its
-    /// tuple value is `bindPattern`ed into the real leaf
-    /// bindings, so the key itself is never referenced.
-    let mintTupleParamKey () : NodeKey = mintSyntheticParamKey ()
-
-    /// The synthetic key for a `use _ = e` binder. The value is still bound to a
-    /// local (it is the resource the `finally` disposes), but `_` gives the body
-    /// no name to reference it, so the slot is keyed off a fresh placeholder.
-    let mintUseBinderKey () : NodeKey = mintSyntheticParamKey ()
-
-    /// The parameter slot of a `ValRepr` belonging to NO file's tree: an `.fsi` contract's
-    /// (`externalValRepr`), or a project-local signature re-axised for the provider view
-    /// (`FrozenSignature`). A consumer holds no body for such a symbol, so nothing can
-    /// resolve the slot — it exists to keep the group total — and the producer's own binder
-    /// identity, which means nothing in the consuming unit, must not stand in for it.
-    let mintContractParamKey () : NodeKey = mintSyntheticParamKey ()
-
     // ----------------------------------------------------------------------
     // Compiled-form representation
     //
@@ -339,7 +305,7 @@ module TastLower =
             | TastAccessor.ELambda lam -> ValueSome(struct (lam.Param, lam.Body))
             | _ -> ValueNone
 
-        let facts (p: TastAccessor.PatId) : ArgGroups.ParamPatFacts<NodeKey> =
+        let facts (p: TastAccessor.PatId) : ArgGroups.ParamPatFacts<BinderId> =
             let shape = TastAccessor.patKind p
 
             {
@@ -355,11 +321,12 @@ module TastLower =
         ArgGroups.peel unLambda facts e
 
     /// `peelValRepr` projected to one flat parameter per SOURCE group — the shape a
-    /// static-method emission binds its arg slots from. A unit group gets a synthetic
-    /// placeholder `NodeKey` (the body never references it) so the emission still
-    /// allocates a slot for the unit value the caller pushes; a tuple group likewise
-    /// gets a synthetic `Slot` and carries its `Pat` so the emission `bindPattern`s the
-    /// leaf bindings out of the value.
+    /// static-method emission binds its arg slots from. A unit group gets a PLACEHOLDER
+    /// binder (`fun () -> …` — the body never references it) so the emission still
+    /// allocates a slot for the unit value the caller pushes; a tuple group likewise gets
+    /// one and carries its `Pat` so the emission `bindPattern`s the leaf bindings out of
+    /// the value. Both are minted into the spine's OWN pool, so every slot a lowering
+    /// hands the emission is addressed in the one id space its `Var`s are.
     let peelLambda (e: TastAccessor.ExprId) : StaticParam list * TastAccessor.ExprId =
         let groups, body = peelValRepr e
 
@@ -368,13 +335,13 @@ module TastLower =
             | ArgGroupG.GSimple(k, ty) -> { Slot = k; Ty = ty; Pat = None }
             | ArgGroupG.GUnit ty ->
                 {
-                    Slot = mintUnitParamKey ()
+                    Slot = TastPoolBuilder.mintBinder e.Pool
                     Ty = ty
                     Pat = None
                 }
             | ArgGroupG.GTuple pat ->
                 {
-                    Slot = mintTupleParamKey ()
+                    Slot = TastPoolBuilder.mintBinder e.Pool
                     Ty = TastAccessor.patTy pat
                     Pat = Some pat
                 }
@@ -405,13 +372,13 @@ module TastLower =
         | PatShape.NamedSimple, ValueSome k -> { Slot = k; Ty = ty; Pat = None }
         | PatShape.Wildcard, _ ->
             {
-                Slot = mintSyntheticParamKey ()
+                Slot = TastPoolBuilder.mintBinder p.Pool
                 Ty = ty
                 Pat = None
             }
         | _ ->
             {
-                Slot = mintSyntheticParamKey ()
+                Slot = TastPoolBuilder.mintBinder p.Pool
                 Ty = ty
                 Pat = Some p
             }
@@ -420,13 +387,17 @@ module TastLower =
     /// `GetValReprTypeInCompiledForm` analogue. Full F# tuple flattening (one
     /// level); a LONE unit group (`[GUnit]`) erases to zero params (a unit group
     /// among others stays a `ValueTuple` param); a unit result becomes `RVoid`.
-    let compiledOf (vr: ValRepr) : CompiledForm =
+    ///
+    /// `pool` is where a placeholder slot is minted — the pool the `ValRepr`'s own nodes
+    /// belong to, so the flattened params are addressed in one id space. A `GUnit` group
+    /// carries no pattern to take it from, which is why it is a parameter.
+    let compiledOf (pool: PoolBuilder) (vr: ValRepr) : CompiledForm =
         let flattenGroup (g: ArgGroup) : StaticParam list =
             match g with
             | ArgGroupG.GUnit ty ->
                 [
                     {
-                        Slot = mintUnitParamKey ()
+                        Slot = TastPoolBuilder.mintBinder pool
                         Ty = ty
                         Pat = None
                     }
@@ -490,11 +461,11 @@ module TastLower =
                 | _ ->
                     // A ≥2-width group is always an `FTTuple` (translateArgsSpec); keep a
                     // single param defensively rather than fabricate one.
-                    ArgGroupG.GSimple(mintContractParamKey (), pty)
+                    ArgGroupG.GSimple(TastPoolBuilder.mintBinder contractPats, pty)
             elif isUnitFrozen pty then
                 ArgGroupG.GUnit pty
             else
-                ArgGroupG.GSimple(mintContractParamKey (), pty)
+                ArgGroupG.GSimple(TastPoolBuilder.mintBinder contractPats, pty)
 
         {
             Typars = typars

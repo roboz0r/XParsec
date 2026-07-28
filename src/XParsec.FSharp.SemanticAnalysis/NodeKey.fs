@@ -124,9 +124,10 @@ type NodeKind =
     /// `base` binder inside a derived class's member bodies. One per class with `inherit Base(...)`,
     /// shared across members; mirrors `SynthThisBinding`.
     | SynthBaseBinding = 1006us
-    /// Freshened binder from the pre-freeze inline-expansion pass (`Inline.freshen`) so independent
-    /// call sites don't alias each other's bound names. Counter-minted (`ofSyntheticCounter`) — it
-    /// names no source position.
+    /// Freshened binder of an inline template: minted wherever the template's binders must stay
+    /// distinct without being resolvable — by `Inline.freshen` so independent call sites don't
+    /// alias each other's bound names, and by the pool drain that puts a template on the
+    /// cross-unit wire. Counter-minted (`ofSyntheticCounter`) — it names no source position.
     | SynthPreFreezeInline = 1007us
 
 [<Struct>]

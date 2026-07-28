@@ -31,10 +31,10 @@ module JsFlatFns =
 
     /// One flat compiled parameter's JS name: a simple binder reads its own slot; a
     /// destructuring leaf (a nested tuple element) renders as a `[a, b]` pattern.
-    let paramNameOf (source: string voption) (p: TastLower.StaticParam) : string =
+    let paramNameOf (pool: PoolBuilder) (p: TastLower.StaticParam) : string =
         match p.Pat with
-        | None -> binderNameOf source p.Slot
-        | Some pat -> lambdaParamName source pat
+        | None -> binderNameOf pool p.Slot
+        | Some pat -> lambdaParamName pat
 
     /// The SOURCE groups of an EXTERNAL module function, read off the provider's
     /// recorded `ValRepr` (the cross-assembly compiled-form contract, Step C). The
@@ -131,10 +131,14 @@ module JsFlatFns =
     /// expects: `(c0) => (c1) => callee(c0, c1)`. A tuple group's single curried
     /// parameter is destructured into the flat call's positional reads; a lone unit
     /// parameter is accepted and dropped. `off` disambiguates the synthetic names.
-    let curryAdapter (callee: JsExpr) (groups: TastAccessor.ArgGroup list) (off: int) (loc: JsLoc voption) : JsExpr =
+    let curryAdapter (callee: JsExpr) (groups: TastAccessor.ArgGroup list) (tag: int) (loc: JsLoc voption) : JsExpr =
         let isLone = TastLower.isLoneUnitGroup groups
 
-        let names = groups |> List.mapi (fun i _ -> "_c" + string off + "_" + string i)
+        // `tag` only has to make the names READABLE — each adapter's parameters are scoped
+        // to its own nested arrows, and its body mentions nothing but them and the callee,
+        // so nothing outside can be shadowed. The caller supplies whatever names the
+        // adapted function: a local one's binder slot, an external one's reference token.
+        let names = groups |> List.mapi (fun i _ -> "_c" + string tag + "_" + string i)
 
         let flatArgs =
             List.zip names groups

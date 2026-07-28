@@ -8,26 +8,19 @@ open XParsec.FSharp.Parser
 // fill so the two directions are separately readable and the compiler's dependency edge
 // says which way the data flows: this file reads `TastPools`, never the reverse.
 //
-// Every rebuild here is parameterised by the identity space it lands in, so the drain is
-// ONE walk with two faces:
-//
-//   * `Pooled.*` — binders named by the `BinderId` the columns address them with. The
-//     drain then consults no retained key at all, and this is what `ofPools` produces.
-//   * `Frozen.*` — binders widened back to `NodeKey`, for a consumer whose own vocabulary
-//     is still the node space (`nodeKeyedFile`, `nodeKeyedSideTables`). Named seams, both
-//     of them, because that is debt to be closed and not a facility.
+// Every rebuild here is parameterised by the identity space it lands in, and the columns
+// hold no identity but the slot — so the space a drain lands in is the CALLER's to supply
+// and the drain itself can only produce `BinderId`s. `Pooled.*` is that space, and
+// `ofPools` is the drain at it.
 //
 // Which exports have production callers, and for narrow reasons:
 //
 //   * `substituteExpr`/`substitutePat`/`substituteDecl` — the NODE-level inverse, driven
 //     by `TastPoolBuilder`'s subtree drain (`declTree`) for the one channel whose far end
 //     is still DU-typed: a package's inline template crosses the wire as a
-//     `Frozen.TDecl`, a pool id being meaningless outside the pool that issued it.
-//   * `nodeKeyedSideTables` — the four per-binder side tables back as the
-//     `Map<NodeKey,_>`s they were re-keyed from (`Layout.buildUnit` feeding the CLR holder
-//     plan / closure discovery).
+//     `Pooled.TDecl`, a pool id being meaningless outside the pool that issued it.
 //
-// The whole-file drains have NONE, and that is the point of them: they are what makes the
+// The whole-file drain has NONE, and that is the point of it: it is what makes the
 // columns' tree-sufficiency CHECKABLE.
 
 [<RequireQualifiedAccess>]
@@ -240,20 +233,9 @@ module TastUnpool =
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
         | DeclPayload.Type td -> TDeclG.Type(TastConvert.typeDecl id (BinderKey.identity >> widenBinder) fromExpr td)
 
-    /// A dense `BinderId` back to the `NodeKey` it was interned from — the raw inverse of
-    /// the `toPools` interning, landing in the space that addresses every node rather than
-    /// in `BinderKey`. ONE home, because widening is the move this file must not make
-    /// casually: each caller is a named seam that owes the node space to a consumer of its
-    /// own (`nodeKeyedFile`, `nodeKeyedSideTables`) — never a way back into the binder
-    /// domain, which only `BinderKey`'s projections grant.
-    let private widenBinderId (pools: FrozenPools) (BinderId i) : NodeKey = pools.BinderKeys.[i]
-
     /// A dense `BinderId`-keyed side table as the keyed `Map` it was re-keyed FROM, each
-    /// id resolved by the caller's own inverse of the interning. PRIVATE, and the resolver
-    /// is the caller's, because the two callers land in different key spaces and only one
-    /// of them may: the file rebuild has a tree, so it can hand back a `BinderKey` it
-    /// PROJECTED from a rebuilt node, while `nodeKeyedSideTables` has none and so can
-    /// only widen to `NodeKey` — which is exactly the debt it is named for.
+    /// id resolved by the rebuild's own inverse of the interning: a `BinderKey` PROJECTED
+    /// from a rebuilt node, so a map key can only name a binder the rebuilt tree bears.
     let private binderKeyedMap (resolve: BinderId -> 'k) (dense: (BinderId * 'v)[]) : Map<'k, 'v> =
         dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
@@ -270,48 +252,19 @@ module TastUnpool =
                     | ValueNone -> ()
             ]
 
-    /// The four per-binder side tables a CLR emit consumes, back in `NodeKey` form.
-    ///
-    /// This is DEBT, deliberately given one name and one home rather than four call
-    /// sites. `HolderPlan.create` and `Emit.discoverClosures` — and everything downstream
-    /// of them (`StaticFn`/`ModuleValue` key sets, the closure capture sets) — identify a
-    /// binding by `NodeKey`, so the pool's dense identity is undone here and re-derived
-    /// nowhere else. Rekeying that chain onto `BinderId` is the whole CLR emit and is a
-    /// separate body of work; until it happens, closing this seam is one edit at one
-    /// place, and no other consumer can widen back to `NodeKey` behind its own guard.
-    ///
-    /// `FunVerdicts` is not here: it is on the lambda id space and its consumer already
-    /// keys on the node.
-    type NodeKeyedSideTables =
-        {
-            ModuleMembers: Map<NodeKey, ModuleBindingInfo>
-            TopLevelNames: Map<NodeKey, string>
-            ClosureReprs: Map<NodeKey, ClosureRepr>
-            GenericFnSchemes: Map<NodeKey, FrozenConstraint list>
-        }
-
-    let nodeKeyedSideTables (pools: FrozenPools) : NodeKeyedSideTables =
-        let widen = widenBinderId pools
-
-        {
-            ModuleMembers = binderKeyedMap widen pools.ModuleMembers
-            TopLevelNames = binderColumnMap widen pools.TopLevelNames
-            ClosureReprs = binderKeyedMap widen pools.ClosureReprs
-            GenericFnSchemes = binderKeyedMap widen pools.GenericFnSchemes
-        }
-
     /// Rebuild the whole-file DU from the pools — the inverse of `toPools`. The `Decls` are
     /// re-authored from the pool roots and the side tables re-keyed back through the
     /// binder/lambda id spaces; only the three `Residue` fields are carried through
     /// verbatim, having no pooled form.
     ///
-    /// `widenBinder` decides which identity space the rebuilt file lands in, and is the
-    /// ONLY thing the two exported drains differ by — see `ofPools` (dense) and
-    /// `nodeKeyedFile` (the node space, for a consumer whose own API is still `NodeKey`).
-    let private rebuildFile
-        (widenBinder: BinderId -> 'id)
-        (pools: FrozenPools)
-        : TastFileG<FrozenType, SyntaxToken, 'id> =
+    /// `widenBinder` decides which identity space the rebuilt file lands in. The columns
+    /// carry no identity but the slot, so the drain can only ever offer a `BinderId`: any
+    /// OTHER space has to be supplied from outside, by a caller that holds the
+    /// correspondence itself. `ofPools` is this at the pool's own space, where the
+    /// correspondence is the identity; the round-trip gate is the only other caller, and
+    /// what it supplies is a correspondence it derives — and proves bijective — by
+    /// correlating the rebuilt tree with the source tree it is being compared to.
+    let rebuildFile (widenBinder: BinderId -> 'id) (pools: FrozenPools) : TastFileG<FrozenType, SyntaxToken, 'id> =
         // The binder column back in the BINDER key space, re-admitted by PROJECTION and
         // never by fiat: as the trees below are rebuilt, each node is asked what it binds
         // with the same `BinderKey` projections `toPools` interned by, and only what they
@@ -407,7 +360,6 @@ module TastUnpool =
             Diagnostics = pools.Residue.Diagnostics
             IntrinsicReprKeys = pools.Residue.IntrinsicReprKeys
             ModuleMembers = binderKeyedMap readmittedBinder pools.ModuleMembers
-            TopLevelNames = binderColumnMap readmittedBinder pools.TopLevelNames
             ClosureReprs = binderKeyedMap readmittedBinder pools.ClosureReprs
             FunVerdicts = pools.FunVerdicts |> Array.map (fun (id, v) -> lambdaKeyOf id, v) |> Map.ofArray
             GenericFnSchemes = binderKeyedMap readmittedBinder pools.GenericFnSchemes
@@ -432,10 +384,3 @@ module TastUnpool =
     /// (Corpus gates: `TastPoolsTests`, `Codegen.Clr.Tests/TestHelpers.fs`'s
     /// `PoolRoundTripped` codegen-invariance.)
     let ofPools (pools: FrozenPools) : Pooled.TastFile = rebuildFile id pools
-
-    /// The same drain, widened back to the space that addresses every node — DEBT, of the
-    /// same kind and lifetime as `nodeKeyedSideTables` and named beside it. A consumer
-    /// whose own vocabulary is `NodeKey` (a `Frozen.TastFile` fed back to `toPools`, an
-    /// assertion written against source-shaped keys) reads the tree through here, and the
-    /// widening happens once at one place rather than at each such caller.
-    let nodeKeyedFile (pools: FrozenPools) : Frozen.TastFile = rebuildFile (widenBinderId pools) pools

@@ -5,17 +5,17 @@ export class ListEnumerator {
     this.started = started;
   }
   MoveNext() {
-    const _s1179 = this;
-    return ((_s1179.started ? ((_m1709) => {
+    const _s1 = this;
+    return ((_s1.started ? ((_m1709) => {
       if ((_m1709.tag === 0)) {
         return undefined;
       }
       if ((_m1709.tag === 1)) {
         const t = _m1709.Tail;
-        return (_s1179.cursor = t);
+        return (_s1.cursor = t);
       }
       throw new Error("The match cases were incomplete");
-    })(_s1179.cursor) : (_s1179.started = true)), ((_m1877) => {
+    })(_s1.cursor) : (_s1.started = true)), ((_m1877) => {
       if ((_m1877.tag === 0)) {
         return false;
       }
@@ -23,10 +23,10 @@ export class ListEnumerator {
         return true;
       }
       throw new Error("The match cases were incomplete");
-    })(_s1179.cursor));
+    })(_s1.cursor));
   }
   Current() {
-    const _s1179 = this;
+    const _s1 = this;
     return ((_m2008) => {
       if ((_m2008.tag === 0)) {
         return ((() => { throw new Error(("The input list was empty.")); })());
@@ -36,7 +36,7 @@ export class ListEnumerator {
         return h;
       }
       throw new Error("The match cases were incomplete");
-    })(_s1179.cursor);
+    })(_s1.cursor);
   }
 }
 export class List {
@@ -50,8 +50,8 @@ export class List {
     return ["Empty", "Cons"];
   }
   *[Symbol.iterator]() {
-    const _s37 = this;
-    const _e732 = new ListEnumerator(_s37);
+    const _s0 = this;
+    const _e732 = new ListEnumerator(_s0);
     while (_e732.MoveNext()) {
       yield _e732.Current();
     }
@@ -95,7 +95,7 @@ export const length = (list) => ((_m2812) => {
   }
   if ((_m2812.tag === 1)) {
     const t = _m2812.Tail;
-    return ((_s2) => (((1) + (_s2)) | 0))(length(t));
+    return ((_s14) => (((1) + (_s14)) | 0))(length(t));
   }
   throw new Error("The match cases were incomplete");
 })(list);

@@ -31,8 +31,8 @@ module TastPools =
     /// children (see `exprPatChildren`); composite carriers with no node identity of
     /// their own (match arms, format segments, static-opt clauses) are descended into
     /// so every reachable sub-expression appears exactly once.
-    let exprChildren (e: Frozen.TExpr) : Frozen.TExpr[] =
-        let acc = ResizeArray<Frozen.TExpr>()
+    let exprChildren (e: TExprG<FrozenType, SyntaxToken, 'id>) : TExprG<FrozenType, SyntaxToken, 'id>[] =
+        let acc = ResizeArray<TExprG<FrozenType, SyntaxToken, 'id>>()
 
         match e with
         | TExprG.Const _
@@ -179,8 +179,8 @@ module TastPools =
     /// `exprChildren` (which yields only sub-expressions). Only the six binder/arm
     /// shapes own patterns. `ForTo`'s loop variable is a bare binder, not a pattern, so
     /// it is not a pat child — it rides the node's own payload.
-    let exprPatChildren (e: Frozen.TExpr) : Frozen.TPat[] =
-        let acc = ResizeArray<Frozen.TPat>()
+    let exprPatChildren (e: TExprG<FrozenType, SyntaxToken, 'id>) : TPatG<FrozenType, SyntaxToken, 'id>[] =
+        let acc = ResizeArray<TPatG<FrozenType, SyntaxToken, 'id>>()
 
         match e with
         | TExprG.Const _
@@ -230,8 +230,8 @@ module TastPools =
         acc.ToArray()
 
     /// The immediate sub-patterns, in source order (patterns own no child expressions).
-    let patChildren (p: Frozen.TPat) : Frozen.TPat[] =
-        let acc = ResizeArray<Frozen.TPat>()
+    let patChildren (p: TPatG<FrozenType, SyntaxToken, 'id>) : TPatG<FrozenType, SyntaxToken, 'id>[] =
+        let acc = ResizeArray<TPatG<FrozenType, SyntaxToken, 'id>>()
 
         match p with
         | TPatG.NamedSimple _
@@ -275,11 +275,11 @@ module TastPools =
     /// Public as the DU-domain counterpart of the `ExprPayloads` column: the pool-build
     /// gate checks a pooled node against the payload the DU node projects to, which is
     /// the whole residual rather than just its tag.
-    let exprPayload (binder: BinderId voption) (e: Frozen.TExpr) : ExprPayload =
+    let exprPayload (binder: BinderId voption) (e: TExprG<FrozenType, SyntaxToken, 'id>) : ExprPayload =
         // Per-arm guard-presence flags — the only residual structure a `Match`/`TryWith`
         // records (the arm pats/guards/bodies themselves ride the child columns); this is
         // what `substituteExpr.buildArms` re-nests them by.
-        let armGuards (arms: EqArray<Frozen.TMatchArm>) =
+        let armGuards (arms: EqArray<TMatchArmG<_, _>>) =
             arms |> EqArray.toArray |> Array.map (fun arm -> arm.Guard.IsSome)
 
         match e with
@@ -388,7 +388,7 @@ module TastPools =
     /// `FrozenCodec.writePatPayload`. Exhaustive with no catch-all, so a new `TPat` case fails to
     /// compile here. `binder` is as `exprPayload`'s — here it is `NamedSimple`'s own binder.
     /// Public for the same reason as `exprPayload`.
-    let patPayload (binder: BinderId voption) (p: Frozen.TPat) : PatPayload =
+    let patPayload (binder: BinderId voption) (p: TPatG<FrozenType, SyntaxToken, 'id>) : PatPayload =
         match p with
         | TPatG.NamedSimple _ -> PatPayload.NamedSimple(introducedBinder "patPayload" binder)
         | TPatG.Wildcard _ -> PatPayload.Wildcard
@@ -412,42 +412,78 @@ module TastPools =
     /// field's value. The DU node is deliberately NOT passed: a sink must be expressible
     /// without one, since the columns are Node-sufficient.
     [<RequireQualifiedAccess>]
-    type PooledEvent =
+    type PooledEvent<'id> =
         /// A `Var`'s reference edge. The walk cannot fill it — binder ids are the sink's
         /// to assign, and a `Var` may name a binder the walk has not reached — so it
-        /// reports the `NodeKey` and the sink resolves it onto `ExprVarBinder`.
-        | VarRef of binder: NodeKey * at: ExprPoolId
+        /// reports the reference as the tree writes it and the sink resolves it onto
+        /// `ExprVarBinder`.
+        | VarRef of binder: 'id * at: ExprPoolId
         /// A source lambda's slot in the lambda id space, with the token
         /// `NodeKey.ofLambdaTok` computes its key from.
         | LambdaPooled of tok: SyntaxToken * at: ExprPoolId
+
+    /// A definition site as a pooling sink sees it: the binder, plus the token that SPELLS
+    /// it. The anchor is `ValueNone` at a declaration's pattern-less key slot — those hold
+    /// a binder key and no token (`TastConvert.typeDecl`'s `fId` is handed nothing else),
+    /// so there is none to offer, and that is the whole of the mint domain the naming
+    /// column cannot anchor.
+    [<Struct>]
+    type BinderSite<'id> =
+        {
+            Binder: BinderKeyG<'id>
+            Anchor: SyntaxToken voption
+        }
 
     /// Where a pooling walk PUTS the rows it produces. The walk itself — which nodes
     /// exist, in what order, and which child edges they carry — is `poolExpr`/`poolPat`/
     /// `poolDecl` below and exists exactly once; a sink decides only where a row lands and
     /// how a binder id is assigned. `toPools` fills a fresh pool with one; an overlay
     /// builder appends to a stacked one with another.
-    type PoolSink =
+    ///
+    /// Generic in the identity the WALKED tree names binders by: a source-shaped file
+    /// names them by `NodeKey` and an already-pooled tree by `BinderId`, and both are
+    /// poured into the same dense columns.
+    type PoolSink<'id> =
         {
             /// Called for every binder a walked node INTRODUCES (a `NamedSimple` pattern's
             /// binding, a `ForTo` loop variable, a declaration shape's pattern-less key
             /// slot), before the node's row is added, and answering with the dense id that
             /// binder took — which is what the node's own payload then names it by.
-            /// Idempotent in the key.
-            InternBinder: BinderKey -> BinderId
+            /// Idempotent in the binder.
+            InternBinder: BinderSite<'id> -> BinderId
             AddExpr: ExprRow -> ExprPoolId
             AddPat: PatRow -> PatPoolId
             AddDecl: DeclRow -> DeclPoolId
             /// Called once per pooled expr node that carries an id-keyed record, after
             /// its row is added. Not called at all for a node that carries none.
-            OnExprPooled: PooledEvent -> unit
+            OnExprPooled: PooledEvent<'id> -> unit
         }
+
+    [<RequireQualifiedAccess>]
+    module PoolSink =
+
+        /// The sink's interning as `TastConvert.typeDecl` wants it: a declaration's key
+        /// slots are the sites NO node spells, so this is the one place an anchorless site
+        /// is built.
+        let internSlot (sink: PoolSink<'id>) (b: BinderKeyG<'id>) : BinderId =
+            sink.InternBinder { Binder = b; Anchor = ValueNone }
 
     /// Pool a pattern subtree post-order: a node's children are pooled before the node
     /// itself, so every child id its row names already resolves.
-    let rec poolPat (sink: PoolSink) (p: Frozen.TPat) : PatPoolId =
+    let rec poolPat (sink: PoolSink<'id>) (p: TPatG<FrozenType, SyntaxToken, 'id>) : PatPoolId =
         // Interned BEFORE the payload is built: the payload names this binder by the id
         // the intern hands back, so there is one identity rather than a key and an id.
-        let binder = BinderKey.ofPat p |> ValueOption.map sink.InternBinder
+        // A pattern SPELLS the binder it introduces, so its own anchor is the name's.
+        let binder =
+            BinderKey.ofPat p
+            |> ValueOption.map (fun b ->
+                sink.InternBinder
+                    {
+                        Binder = b
+                        Anchor = ValueSome(TastWalk.patTok p)
+                    }
+            )
+
         let kids = patChildren p |> Array.map (poolPat sink)
 
         sink.AddPat
@@ -460,10 +496,20 @@ module TastPools =
 
     /// Pool an expression subtree post-order (see `poolPat`), its owned sub-patterns
     /// included.
-    let rec poolExpr (sink: PoolSink) (e: Frozen.TExpr) : ExprPoolId =
+    let rec poolExpr (sink: PoolSink<'id>) (e: TExprG<FrozenType, SyntaxToken, 'id>) : ExprPoolId =
         // A `ForTo` binds its loop variable with no pattern node behind it, so the
-        // intern cannot ride `poolPat`.
-        let binder = BinderKey.ofExpr e |> ValueOption.map sink.InternBinder
+        // intern cannot ride `poolPat` — and the token that spells it is the loop
+        // variable's own, not the node's anchor (which is the `for` keyword).
+        let binder =
+            BinderKey.siteOfExpr e
+            |> ValueOption.map (fun (struct (b, identTok)) ->
+                sink.InternBinder
+                    {
+                        Binder = b
+                        Anchor = ValueSome identTok
+                    }
+            )
+
         let exprKids = exprChildren e |> Array.map (poolExpr sink)
         let patKids = exprPatChildren e |> Array.map (poolPat sink)
 
@@ -500,15 +546,15 @@ module TastPools =
     /// The re-filing IS the interning: a slot is offered to the sink exactly where its id
     /// replaces it, so no slot can be rewritten without having been interned and none can
     /// be interned without being rewritten.
-    let private declPayload (sink: PoolSink) (d: Frozen.TDecl) : DeclPayload =
+    let private declPayload (sink: PoolSink<'id>) (d: TDeclG<FrozenType, SyntaxToken, 'id>) : DeclPayload =
         match d with
         | TDeclG.Let(isInline = isInline; ty = ty) -> DeclPayload.Let {| IsInline = isInline; Ty = ty |}
         | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
-        | TDeclG.Type td -> DeclPayload.Type(TastConvert.typeDecl id sink.InternBinder (poolExpr sink) td)
+        | TDeclG.Type td -> DeclPayload.Type(TastConvert.typeDecl id (PoolSink.internSlot sink) (poolExpr sink) td)
 
     /// Pool a declaration, its expr/pat roots (see `poolPat`) and — for a `Type` decl —
     /// its member bodies, which the payload names by id rather than surfacing as children.
-    let poolDecl (sink: PoolSink) (d: Frozen.TDecl) : DeclPoolId =
+    let poolDecl (sink: PoolSink<'id>) (d: TDeclG<FrozenType, SyntaxToken, 'id>) : DeclPoolId =
         let struct (exprKids, patKids) =
             match d with
             | TDeclG.Let(binding = binding; value = value) ->
@@ -586,9 +632,46 @@ module TastPools =
                 | DeclPayload.Type _ -> ()
         |]
 
-    /// Pool the frozen tree of `file.Decls`, assigning each reachable node a dense id
-    /// and recording its child edges as ids.
-    let toPools (file: Frozen.TastFile) : FrozenPools =
+    /// The identifier `source` spells at a definition site, or the EMPTY string where none
+    /// is spelled there — a binder the freeze MINTED (a class's `this`/`base`, a freshened
+    /// inline binder) has no source name at all, and a counter-minted key names no place in
+    /// the file to look for one.
+    ///
+    /// THE reading of a binder's name, made once, at the freeze, so the text a backend
+    /// emits is a column value and not a re-scan of a source file the backend may no longer
+    /// hold (a unit emitted from its cache blob has none). The text is verbatim: mangling it
+    /// for a target dialect's reserved words or illegal characters belongs to the backend.
+    let identifierAt (source: string) (k: NodeKey) : string =
+        let isStart (c: char) = System.Char.IsLetter c || c = '_'
+
+        let isCont (c: char) =
+            System.Char.IsLetterOrDigit c || c = '_' || c = '\''
+
+        if
+            k.IsSynthetic
+            || k.Offset < 0
+            || k.Offset >= source.Length
+            || not (isStart source.[k.Offset])
+        then
+            ""
+        else
+            let mutable i = k.Offset
+
+            while i < source.Length && isCont source.[i] do
+                i <- i + 1
+
+            source.Substring(k.Offset, i - k.Offset)
+
+    /// Pool a tree, assigning each reachable node a dense id and recording its child edges
+    /// as ids. Generic in the identity the tree names binders by, because the fill runs in
+    /// BOTH directions of the round-trip: a source-shaped file arrives naming them by
+    /// `NodeKey`, a file drained back out of the columns by `BinderId`, and the columns are
+    /// the same columns either way.
+    ///
+    /// `nameOf` is the only thing that differs — how the naming column is filled — because
+    /// it is the one fact the identity does not carry: a `NodeKey` finds it in the source
+    /// text, a `BinderId` in the pool that issued it. See `toPools` and `rePool`.
+    let private fill (nameOf: 'id -> string) (file: TastFileG<FrozenType, SyntaxToken, 'id>) : FrozenPools =
         // The expression pool as parallel column builders (struct-of-arrays); all are
         // appended together per node so they stay index-aligned by `ExprPoolId`.
         let exprTys = ResizeArray<FrozenType>()
@@ -597,10 +680,10 @@ module TastPools =
         let exprPatChildrenCol = ResizeArray<PatPoolId[]>()
         let exprPayloads = ResizeArray<ExprPayload>()
 
-        // Each `Var`'s expr id + its binding NodeKey, captured in pass 1 and resolved to a
-        // `BinderId` in pass 2 — a `Var` may name a binder pooled after it (a forward /
+        // Each `Var`'s expr id + the binder it references, captured in pass 1 and resolved
+        // to a `BinderId` in pass 2 — a `Var` may name a binder pooled after it (a forward /
         // mutually-recursive reference), so the enumeration must complete first.
-        let varBindings = ResizeArray<struct (int * NodeKey)>()
+        let varBindings = ResizeArray<struct (int * 'id)>()
 
         // The pattern pool as parallel column builders (struct-of-arrays), index-aligned by
         // `PatPoolId`.
@@ -614,20 +697,27 @@ module TastPools =
         let declPatChildrenCol = ResizeArray<PatPoolId[]>()
         let declPayloads = ResizeArray<DeclPayload>()
 
-        // The binder pool: each distinct NodeKey a definition site introduces, interned to
-        // a dense `BinderId` on first encounter. The introducing sites are enumerated by
-        // the `BinderKey` projections (`ofPat` / `ofExpr`, plus a declaration shape's key
-        // slots, which are typed by one) as the trees are walked, so nothing re-derives
-        // which nodes bind — and the side tables remapped below were filed through those
-        // same projections.
+        // The binder pool: each distinct definition site the walk reaches takes a dense
+        // `BinderId` on first encounter, and its two columns record what the slot alone
+        // cannot say — how the source spells it, and where. The introducing sites are
+        // enumerated by the `BinderKey` projections (`ofPat` / `siteOfExpr`, plus a
+        // declaration shape's key slots, which are typed by one) as the trees are walked,
+        // so nothing re-derives which nodes bind — and the side tables remapped below were
+        // filed through those same projections.
+        //
+        // The WALKED tree's identity is the interning KEY and stops here: nothing of it
+        // reaches the columns, so a source-shaped file's `NodeKey`s — a grammar-versioned
+        // node kind included — cannot be read back off a frozen file. It is what makes the
+        // intern idempotent while the walk still speaks whatever identity it arrived in.
         //
         // The enumeration spans the whole FILE, because a side table may key on a binder in
         // any of its trees — and every tree the file bears is now pooled, so ONE walk covers
         // them all. Correspondingly a `BinderId` need not have a pooled pattern node behind
         // it (a `this` slot has none anywhere) — the binder space is dense and independent,
         // inverted by position.
-        let binderKeys = ResizeArray<NodeKey>()
-        let binderIds = System.Collections.Generic.Dictionary<NodeKey, BinderId>()
+        let binderNames = ResizeArray<string>()
+        let binderToks = ResizeArray<SyntaxToken voption>()
+        let binderIds = System.Collections.Generic.Dictionary<'id, BinderId>()
 
         // The lambda id space: a source lambda's dense id IS its `ExprPoolId` (positional —
         // every `Lambda` expr is already in the `Expr*` columns), paired with the key its
@@ -643,15 +733,16 @@ module TastPools =
         // pooled last, and left every other copy to emit as an ordinary heap closure.
         let lambdaSlots = ResizeArray<struct (ExprPoolId * NodeKey)>()
 
-        let internBinder (b: BinderKey) : BinderId =
-            let k = BinderKey.identity b
+        let internBinder (site: BinderSite<'id>) : BinderId =
+            let k = BinderKey.identity site.Binder
 
             match binderIds.TryGetValue k with
             | true, id -> id
             | false, _ ->
-                let id = BinderId binderKeys.Count
+                let id = BinderId binderNames.Count
                 binderIds.Add(k, id)
-                binderKeys.Add k
+                binderNames.Add(nameOf k)
+                binderToks.Add site.Anchor
                 id
 
         // THE anchor of a node of THIS FILE — its `ExprToks`/`PatToks` value — as it enters
@@ -683,7 +774,7 @@ module TastPools =
         // count at the moment it is added. `ExprRow.VarBinder` is dropped here — the `Var`
         // reference edge cannot resolve until the binder enumeration is complete, so it is
         // recorded as pending and filled by the second pass below.
-        let sink: PoolSink =
+        let sink: PoolSink<'id> =
             {
                 InternBinder = internBinder
                 AddExpr =
@@ -741,7 +832,7 @@ module TastPools =
         // THE lookup: the dense id the enumeration above interned a key under. Written
         // once because both faults below ARE this lookup missing; what differs is only
         // what a miss means, and that is what each of them says.
-        let internedBinderId (k: NodeKey) : BinderId voption =
+        let internedBinderId (k: 'id) : BinderId voption =
             match binderIds.TryGetValue k with
             | true, id -> ValueSome id
             | false, _ -> ValueNone
@@ -751,7 +842,7 @@ module TastPools =
         // definition site the walk covers: an incomplete binder enumeration, which is
         // exactly the failure the id-resolution gate exists to surface. A reference is
         // written by whoever resolved the name, so it arrives as a bare `NodeKey`.
-        let binderIdOfRef (referent: string) (k: NodeKey) : BinderId =
+        let binderIdOfRef (referent: string) (k: 'id) : BinderId =
             match internedBinderId k with
             | ValueSome id -> id
             | ValueNone ->
@@ -772,7 +863,7 @@ module TastPools =
         // inert — `Regions.closureReprSnapshot` is the one table that does, and it filters
         // in its own body, which is where such an argument has to live to stay checkable
         // against the code it is about.
-        let binderIdOf (referent: string) (b: BinderKey) : BinderId =
+        let binderIdOf (referent: string) (b: BinderKeyG<'id>) : BinderId =
             let k = BinderKey.identity b
 
             match internedBinderId k with
@@ -824,7 +915,7 @@ module TastPools =
         // the resolver to its table's name first). `FunVerdicts` does not come through here:
         // its key space is one-to-many over the ids it maps to, so it is built from the id
         // side above.
-        let remapSideTable (resolve: 'k -> 'id) (m: Map<'k, 'v>) : ('id * 'v)[] =
+        let remapSideTable (resolve: 'k -> 'dense) (m: Map<'k, 'v>) : ('dense * 'v)[] =
             m |> Map.toArray |> Array.map (fun (k, v) -> resolve k, v)
 
         // A per-binder SCALAR goes into a COLUMN instead (`BinderColumn`): the producer's
@@ -832,8 +923,8 @@ module TastPools =
         // above applies to it unchanged — and then DROPPED, the fact landing at the binder's
         // own slot. What that removes is the stored key, and with it the possibility of a
         // stale entry surviving the freeze at all.
-        let binderColumn (referent: string) (m: Map<BinderKey, 'v>) : BinderColumn<'v> =
-            let col = Array.create binderKeys.Count ValueNone
+        let binderColumn (referent: string) (m: Map<BinderKeyG<'id>, 'v>) : BinderColumn<'v> =
+            let col = Array.create binderNames.Count ValueNone
 
             for KeyValue(k, v) in m do
                 let (BinderId i) = binderIdOf referent k
@@ -861,7 +952,8 @@ module TastPools =
                 DeclPayloads = declPayloads.ToArray()
                 Roots = roots
                 InlineTemplates = inlineTemplates
-                BinderKeys = binderKeys.ToArray()
+                BinderNames = binderNames.ToArray()
+                BinderToks = binderToks.ToArray()
                 Residue =
                     {
                         Diagnostics = file.Diagnostics
@@ -874,10 +966,23 @@ module TastPools =
                 GenericFnSchemes = remapSideTable (binderIdOf "GenericFnSchemes") file.GenericFnSchemes
                 // Derived below, off the pools themselves.
                 BindingValReprs = [||]
-                TopLevelNames = binderColumn "TopLevelNames" file.TopLevelNames
                 BindingTyparArities = binderColumn "BindingTyparArities" file.BindingTyparArities
             }
 
         { pools with
             BindingValReprs = bindingValReprs pools
         }
+
+    /// Pool a source-shaped frozen file — the freeze's last step. `source` is the file's
+    /// own text, read only to fill the binder naming column (`identifierAt`).
+    let toPools (source: string) (file: Frozen.TastFile) : FrozenPools = fill (identifierAt source) file
+
+    /// Pool a tree DRAINED from `pools` (`TastUnpool.ofPools`) — the fill direction of the
+    /// round-trip, which is what makes `ofPools` checkable at all: the columns are
+    /// tree-sufficient exactly when re-pooling their own drain reproduces them.
+    ///
+    /// The naming column cannot be re-read from source here, a `BinderId` naming no
+    /// position in a file; it is carried over from the pools the tree came out of, which is
+    /// the one place it was ever read.
+    let rePool (pools: FrozenPools) (file: Pooled.TastFile) : FrozenPools =
+        fill (fun (BinderId i) -> pools.BinderNames.[i]) file

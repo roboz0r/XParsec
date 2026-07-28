@@ -52,15 +52,16 @@ let private declType (tast: TastFile) : SemType =
 let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
-    // The vocabulary is a pool root array; `ofPools` drains it back to the DU form the
-    // cross-unit wire (and `Inline.thawBody`) speaks.
-    let frozen =
-        TastUnpool.nodeKeyedFile (Pipeline.analyse realProvider.Value input lexed file)
+    // The vocabulary is a pool root array; `declTree` drains a template to the DU form the
+    // cross-unit wire (and `Inline.thawBody`) speaks — the very path a provider serves it
+    // through.
+    let pools = Pipeline.analyse realProvider.Value input lexed file
+    let pool = TastPoolBuilder.openOver pools
 
-    match frozen.InlineBodies |> EqArray.toList with
+    match List.ofArray pools.InlineTemplates with
     // Thaw into `ctx0.Store` — the SAME arena `Inline.inlineExpand ctx0` and
     // `Inline.quantifiedTypars` read the thawed roots' dense ids against.
-    | [ v ] -> ctx0.Store, Inline.thawBody ctx0.Store v.Body.Decl
+    | [ v ] -> ctx0.Store, Inline.thawBody ctx0.Store (TastPoolBuilder.declTree pool v.Decl)
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
 [<Tests>]
@@ -361,8 +362,8 @@ let tests =
                 let lexed, file = parseFile input
                 let sem = Pipeline.analyseSem realProvider.Value input lexed file
 
-                let frozen =
-                    TastUnpool.nodeKeyedFile (Pipeline.analyse realProvider.Value input lexed file)
+                let pools = Pipeline.analyse realProvider.Value input lexed file
+                let pool = TastPoolBuilder.openOver pools
 
                 // `k` is the module's first decl; its published identity is the one its
                 // `ModuleBindingInfo` mints — the same one the rewrite must have baked in.
@@ -381,11 +382,11 @@ let tests =
                     | Some info -> info.Key
                     | None -> failtest "`k` has no ModuleBindingInfo"
 
-                Expect.isEmpty frozen.Diagnostics "no diagnostics"
+                Expect.isEmpty pools.Residue.Diagnostics "no diagnostics"
 
                 let body =
-                    match frozen.InlineBodies |> EqArray.toList with
-                    | [ v ] -> Inline.thawBody (TypeStore()) v.Body.Decl
+                    match List.ofArray pools.InlineTemplates with
+                    | [ v ] -> Inline.thawBody (TypeStore()) (TastPoolBuilder.declTree pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 let refs = ResizeArray<string * SymbolKey>()
@@ -415,14 +416,14 @@ let tests =
             }
 
             test "an inline template referencing a TOP-LEVEL binding is diagnosed, not published" {
-                // A top-level (implicit-`Program`-module) binding records a `TopLevelNames`
-                // entry but no `ModuleBindingInfo`, hence no `SymbolKey` — there is nothing
-                // for the sibling rewrite to bake in, so the free `Var` survives. That is
-                // exactly what the publish-time free-`Var` check exists to catch.
+                // A top-level (implicit-`Program`-module) binding records no
+                // `ModuleBindingInfo`, hence no `SymbolKey` — there is nothing for the
+                // sibling rewrite to bake in, so the free `Var` survives. That is exactly
+                // what the publish-time free-`Var` check exists to catch.
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
                 let lexed, file = parseFile input
                 let _, pools = Pipeline.analyseWithContext realProvider.Value input lexed file
-                let frozen = TastUnpool.nodeKeyedFile pools
+                let frozen = TastUnpool.ofPools pools
 
                 Expect.isEmpty (EqArray.toList frozen.InlineBodies) "the un-splice-able template is not published"
 

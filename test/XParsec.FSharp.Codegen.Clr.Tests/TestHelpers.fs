@@ -465,7 +465,7 @@ let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifac
 
 /// The CLR artifacts a frozen-tree round-trip must reconcile against the DIRECT
 /// codegen: the frozen-cache `thaw (flatten frozen)` and the DU round-trip
-/// `TastPools.toPools (TastUnpool.nodeKeyedFile frozen)`. Both are codegen-INVARIANT
+/// `TastPools.rePool frozen (TastUnpool.ofPools frozen)`. Both are codegen-INVARIANT
 /// obligations over the same tree, so they share the whole parse → analyse → freeze
 /// prefix and differ only by the round-trip applied.
 type ConformanceRoundTripArtifacts =
@@ -474,7 +474,7 @@ type ConformanceRoundTripArtifacts =
         Direct: ClrArtifact
         /// Codegen from `thaw (flatten frozen)` (the serialization round-trip).
         ThawRoundTripped: ClrArtifact
-        /// Codegen from `toPools (ofPools frozen)` — the columns drained to the DU and
+        /// Codegen from `rePool (ofPools frozen)` — the columns drained to the DU and
         /// re-derived from it, which is what proves the columns are tree-sufficient now
         /// that the freeze emits them directly.
         PoolRoundTripped: ClrArtifact
@@ -495,7 +495,7 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
 
     let frozen = Freeze.run ctx tast
     let thawRoundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
-    let poolRoundTripped = TastPools.toPools (TastUnpool.nodeKeyedFile frozen)
+    let poolRoundTripped = TastPools.rePool frozen (TastUnpool.ofPools frozen)
     let cored = withCore project
 
     {

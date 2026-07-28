@@ -12,11 +12,6 @@ module JsEmitHelpers =
 
     // ---- Variable names ------------------------------------------------------
 
-    let isIdentStart (c: char) = System.Char.IsLetter c || c = '_'
-
-    let isIdentCont (c: char) =
-        System.Char.IsLetterOrDigit c || c = '_' || c = '\''
-
     /// JS reserved words that are legal F# identifiers. A collision is suffixed with `$`
     /// (illegal in F#, so collision-free); binder and uses both go through `binderName`.
     let jsReserved =
@@ -65,40 +60,24 @@ module JsEmitHelpers =
     let jsSafe (name: string) =
         if Set.contains name jsReserved then name + "$" else name
 
-    /// A binder's NAMING PROJECTIONS → its emitted JS name. Real binders recover the
-    /// source name from `Offset` (apostrophes → `_`). A synthetic binder has no source
-    /// name, so it is NAMED after `NameIndex` — a spawning offset or a mint counter,
-    /// whichever the binder carries — as `_s<n>`, disjoint from `_v<n>`. `NameIndex`, not
-    /// `Offset`: a counter-minted binder's offset is negative, which is not a legal
-    /// identifier tail.
+    /// A binder's NAMING → its emitted JS name. A binder the source spells takes that
+    /// identifier, mangled for the target dialect and nothing more: an apostrophe is not a
+    /// JS identifier character (`x'` → `x_`), and a JS reserved word is suffixed. A binder
+    /// no source spells is NAMED AFTER ITS SLOT (`_s<n>`), which is unique by construction
+    /// because the slot is the identity.
     ///
-    /// Takes a `BinderNaming`, not a `NodeKey`: after freeze a binder's identity is its
-    /// slot, and these three projections are the naming DATA that slot carries, so a
-    /// caller holding only an id (`exprVarNaming`) can name it. A caller holding a key
-    /// projects one with `BinderNaming.ofKey` (`binderNameOf`) — the same three bits, by
-    /// construction, that being the naming column's sole constructor.
-    let binderName (source: string voption) (n: BinderNaming) : string =
-        match source with
-        | ValueSome s when
-            not n.IsSynthetic
-            && n.Offset >= 0
-            && n.Offset < s.Length
-            && isIdentStart s.[n.Offset]
-            ->
-            let mutable i = n.Offset
+    /// The two mangles are the whole of what this adds to the column: the frozen file
+    /// stores the source's own text, because a target dialect's rules are the backend's.
+    let binderName (n: BinderNaming) : string =
+        match n with
+        | BinderNaming.Source name -> jsSafe (name.Replace('\'', '_'))
+        | BinderNaming.Minted(BinderId slot) -> "_s" + string slot
 
-            while i < s.Length && isIdentCont s.[i] do
-                i <- i + 1
-
-            jsSafe ((s.Substring(n.Offset, i - n.Offset)).Replace('\'', '_'))
-        | _ -> (if n.IsSynthetic then "_s" else "_v") + string n.NameIndex
-
-    /// The emitted JS name of a binder still referenced by `NodeKey` — the side tables,
-    /// a `ForTo` loop variable, a flattened parameter's slot. `BinderNaming.ofKey` is
-    /// the sole constructor of the pool's naming column, so projecting the key here
-    /// gives the same three bits that column holds, without a pool to resolve against.
-    let binderNameOf (source: string voption) (k: NodeKey) : string =
-        binderName source (BinderNaming.ofKey k)
+    /// The emitted JS name of a binder named by ID — a `ForTo` loop variable, a flattened
+    /// parameter's slot, a `Var`'s referent. The pool holds the naming, so a caller with
+    /// an id and the node's pool needs nothing else.
+    let binderNameOf (pool: PoolBuilder) (b: BinderId) : string =
+        binderName (TastPoolBuilder.binderNaming pool b)
 
     // ---- Scalar constants ----------------------------------------------------
 
@@ -189,9 +168,9 @@ module JsEmitHelpers =
 
     /// Replace every `Var k` in `e` with `value`. Used only for a pure `value`, so
     /// duplicating it across multiple uses is semantics-preserving.
-    let rec substVar (k: NodeKey) (value: TastAccessor.ExprId) (e: TastAccessor.ExprId) : TastAccessor.ExprId =
+    let rec substVar (k: BinderId) (value: TastAccessor.ExprId) (e: TastAccessor.ExprId) : TastAccessor.ExprId =
         match TastAccessor.exprKind e with
-        | ExprShape.Var when (TastAccessor.exprVarBinding e).Raw = k.Raw -> value
+        | ExprShape.Var when TastAccessor.exprVarBinding e = k -> value
         | _ -> TastAccessor.mapChildren (substVar k value) e
 
     /// Is the binder `k` ever assigned (`k <- …`) within `e`? A `let mutable` whose
@@ -200,14 +179,14 @@ module JsEmitHelpers =
     /// and never reaches here). A mutable binder must NOT be pure-substituted away —
     /// the substitution would replace its reads with the initial value and corrupt the
     /// assignment lhs — and emits as a reassignable `let`, not a `const`.
-    let rec isAssignedIn (k: NodeKey) (e: TastAccessor.ExprId) : bool =
+    let rec isAssignedIn (k: BinderId) (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
         | ExprShape.Assignment ->
             let a = TastAccessor.exprAssignment e
 
             if
                 TastAccessor.exprKind a.Lhs = ExprShape.Var
-                && (TastAccessor.exprVarBinding a.Lhs).Raw = k.Raw
+                && TastAccessor.exprVarBinding a.Lhs = k
             then
                 true
             else
@@ -258,27 +237,27 @@ module JsEmitHelpers =
     /// array holes shift later positions); a tuple becomes `[a, b]` destructuring.
     // TODO: tuple leaves smuggle a destructuring pattern through a `string` (emitted
     // verbatim). `Arrow.parameters` wants a real `JsPattern` for object-destructuring.
-    let rec lambdaParamName (source: string voption) (p: TastAccessor.PatId) : string =
+    let rec lambdaParamName (p: TastAccessor.PatId) : string =
         match p with
-        | TastAccessor.PNamedNaming naming -> binderName source naming
+        | TastAccessor.PNamedNaming naming -> binderName naming
         | _ ->
             match TastAccessor.patKind p with
             | PatShape.Wildcard -> "_w" + string (TastAccessor.patTok p).StartIndex
             | PatShape.Const when TastAccessor.patConstValue p = TConstValue.Unit ->
                 "_u" + string (TastAccessor.patTok p).StartIndex
             | PatShape.Tuple ->
-                let parts = TastAccessor.patChildren p |> Array.map (lambdaParamName source)
+                let parts = TastAccessor.patChildren p |> Array.map lambdaParamName
                 "[" + System.String.Join(", ", parts) + "]"
             | _ -> failwithf "EmitJs: unsupported lambda parameter pattern %A" p
 
     /// Peel a curried `Lambda` chain into its parameter names and the innermost
     /// body. The inverse of the nested-arrow emission.
-    let rec peelArrow (source: string voption) (e: TastAccessor.ExprId) : string list * TastAccessor.ExprId =
+    let rec peelArrow (e: TastAccessor.ExprId) : string list * TastAccessor.ExprId =
         match TastAccessor.exprKind e with
         | ExprShape.Lambda ->
             let l = TastAccessor.exprLambda e
-            let names, inner = peelArrow source l.Body
-            lambdaParamName source l.Param :: names, inner
+            let names, inner = peelArrow l.Body
+            lambdaParamName l.Param :: names, inner
         | _ -> [], e
 
     /// `["a"; "b"]` → `(a) => (b) => <innermost>`. Shared by lambda and member emission.
@@ -290,13 +269,13 @@ module JsEmitHelpers =
 
     /// Active pattern for a fully-saturated tail self-call — shared by the detector
     /// (`hasTailSelfCall`) and rewriter (`buildTailBody`) so they can't drift.
-    let (|TailSelfCall|_|) (selfKey: NodeKey) (arity: int) (e: TastAccessor.ExprId) : TastAccessor.ExprId list option =
+    let (|TailSelfCall|_|) (selfKey: BinderId) (arity: int) (e: TastAccessor.ExprId) : TastAccessor.ExprId list option =
         match TastAccessor.exprKind e with
         | ExprShape.App ->
             match TastAccessor.collectSpine [] e with
             | head, spine when
                 TastAccessor.exprKind head = ExprShape.Var
-                && (TastAccessor.exprVarBinding head).Raw = selfKey.Raw
+                && TastAccessor.exprVarBinding head = selfKey
                 && List.length spine = arity
                 ->
                 Some [ for (a, _, _) in spine -> a ]
@@ -307,7 +286,7 @@ module JsEmitHelpers =
     /// bound to `selfKey` (arity `arity`)? Recurses through the constructs that
     /// preserve tail position (`if`/`let`/`Sequential`-tail); a saturated tail
     /// self-call is what the trampoline rewrites to param mutation + `continue`.
-    let rec hasTailSelfCall (selfKey: NodeKey) (arity: int) (e: TastAccessor.ExprId) : bool =
+    let rec hasTailSelfCall (selfKey: BinderId) (arity: int) (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
         | ExprShape.IfThenElse ->
             let i = TastAccessor.exprIfThenElse e

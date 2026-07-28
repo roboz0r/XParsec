@@ -241,7 +241,7 @@ type TyparAxis =
 [<Struct>]
 type SchemeId = | SchemeId of int
 
-/// A dense pool index into `FrozenPools.BinderKeys` — the positional identity a frozen
+/// A dense pool index into `FrozenPools`' binder columns — the positional identity a frozen
 /// binder takes on once kind dissolves. A binder is a definition site the tree INTRODUCES —
 /// a `NamedSimple` pattern, a `ForTo` loop variable, or one of a type declaration's
 /// pattern-less key slots (the `BinderKey` projections); the cross-references that named it

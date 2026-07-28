@@ -160,14 +160,14 @@ let hasUnionExhaustivenessWarning (ctx: PassContext) =
 // already mapped in `freezeTy`; this is the *end-to-end* assertion through a real annotated
 // binding, run all the way through `Pipeline.analyse` (every pass + the final
 // `SemType → FrozenType` freeze).
-let freezeDecls (input: string) : Frozen.TastFile =
+let freezeDecls (input: string) : Pooled.TastFile =
     let lexed, file = parseFile input
     // The freeze yields pools; these assertions read the decl tree, which `ofPools`
     // re-authors.
-    TastUnpool.nodeKeyedFile (Pipeline.analyse realProvider.Value input lexed file)
+    TastUnpool.ofPools (Pipeline.analyse realProvider.Value input lexed file)
 
 // The frozen type of the (sole) top-level `let f` binding.
-let frozenLetTy (file: Frozen.TastFile) : FrozenType =
+let frozenLetTy (file: Pooled.TastFile) : FrozenType =
     file.Decls
     |> EqArray.toList
     |> List.tryPick (fun d ->

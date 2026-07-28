@@ -99,7 +99,7 @@ module EmitBindings =
             let binding =
                 match TastAccessor.patBinder pat with
                 | ValueSome b -> b
-                | ValueNone -> mintUseBinderKey ()
+                | ValueNone -> TastPoolBuilder.mintBinder pat.Pool
             // `use x = value in body` → `let x = value in try body finally if x <> null
             // then x.Dispose()` (the `try`/`finally` region itself is `buildTryFinallyRegion`).
             // The disposal is guarded by a null check so a null binder is a no-op like F#'s

@@ -18,7 +18,7 @@ module EmitPattern =
     /// Load a variable for the current method: a method parameter (`ldarg.i`),
     /// the recursive self of a closure (`this`, `ldarg.0`), a capture
     /// (`ldarg.0; ldfld`), or a local slot (`ldloc`).
-    let buildVarLoad (env: EmitEnv) (b: IlBuilder) (key: NodeKey) : unit =
+    let buildVarLoad (env: EmitEnv) (b: IlBuilder) (key: BinderId) : unit =
         match env.Args.TryGetValue key with
         | true, i -> b.Add(ILInstr.Ldarg i)
         | false, _ ->

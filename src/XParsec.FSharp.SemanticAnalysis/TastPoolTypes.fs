@@ -31,9 +31,9 @@ open XParsec.FSharp.Parser
 // The cross-references that named a definition by content key during analysis —
 // `Var.binding` and six of the seven side tables — name it by `BinderId` here. (The
 // seventh, `FunVerdicts`, is keyed by a lambda-EXPRESSION key, not a binder, and takes the
-// lambda id space — its dense id is the lambda's `ExprPoolId`.) Two of the six go further
-// and name it by nothing at all: a per-binder SCALAR is a `BinderColumn`, positionally
-// aligned with `BinderKeys`, so there is no stored key left to go stale (see
+// lambda id space — its dense id is the lambda's `ExprPoolId`.) One of the six goes further
+// and names it by nothing at all: a per-binder SCALAR is a `BinderColumn`, positionally
+// aligned with the binder pool, so there is no stored key left to go stale (see
 // `BinderColumn` for when that applies and when it does not). `ofPools` rebuilds the tree
 // AT those ids and re-derives every side-table key by asking the rebuilt nodes what they
 // bind, so the round-trip exercises the remap rather than copying the keys back verbatim: a
@@ -66,8 +66,9 @@ module DenseTable =
 
         d
 
-/// A per-binder SCALAR in its stored form: a COLUMN, one slot per `FrozenPools.BinderKeys`
-/// entry and in that same order, `ValueNone` where the binder carries no such fact.
+/// A per-binder SCALAR in its stored form: a COLUMN, one slot per binder of
+/// `FrozenPools`' binder pool and in that same order, `ValueNone` where the binder carries
+/// no such fact.
 ///
 /// The point is what it does NOT have. A `DenseTable<BinderId, _>` still holds a key, and a
 /// key can name a binder the frozen file does not bear — the stale-entry defect
@@ -85,9 +86,9 @@ module BinderColumn =
     /// absence convention is stated once here rather than at each of them.
     ///
     /// An id PAST the column's end also reads `ValueNone`, and honestly: the binder id
-    /// space is STACKED (`TastPoolBuilder.internBinder` mints ids above the base pool's
-    /// `BinderKeys`, which is what the columns are aligned to), and a binder a lowering
-    /// minted is not a source binding, so it has no such fact by construction.
+    /// space is STACKED (`TastPoolBuilder.mintBinder` hands out ids above the base pool's,
+    /// which is what the columns are aligned to), and a binder a lowering minted is not a
+    /// source binding, so it has no such fact by construction.
     let tryItem (col: BinderColumn<'v>) (BinderId i) : 'v voption =
         if i < col.Length then col.[i] else ValueNone
 
@@ -140,12 +141,12 @@ type FrozenFileResidue =
 /// shared with the `SemType` instantiation, which has no pools.
 ///
 /// The binder pool and the dense side tables give the file's identity keys a positional
-/// home: `BinderKeys` is the distinct binder NodeKeys, indexable by `BinderId`; the source
-/// file's side tables are re-expressed as `BinderId`-keyed (or, for `FunVerdicts`,
-/// `ExprPoolId`-keyed) associations, and the two that are per-binder SCALARS shed the key
-/// entirely for a slot aligned with `BinderKeys` (`BinderColumn`). `ofPools` rebuilds the
-/// maps from these, so the round-trip proves the remap is a faithful bijection over every
-/// referenced binder rather than trivially copying the source maps.
+/// home: a binder IS its slot, indexable by `BinderId`; the source file's side tables are
+/// re-expressed as `BinderId`-keyed (or, for `FunVerdicts`, `ExprPoolId`-keyed)
+/// associations, and the one that is a per-binder SCALAR sheds the key entirely for a slot
+/// aligned with the binder pool (`BinderColumn`). `ofPools` rebuilds the maps from these,
+/// so the round-trip proves the remap is a faithful bijection over every referenced binder
+/// rather than trivially copying the source maps.
 type FrozenPools =
     {
         /// The expression pool as struct-of-arrays: these columns are parallel, each
@@ -189,17 +190,30 @@ type FrozenPools =
         /// emittable decl and must not be walked as one — and it is a genuinely distinct
         /// tree from the emitted function of the same name (see `PooledInlineValue`).
         InlineTemplates: PooledInlineValue[]
-        /// The distinct binder entries as ONE dense column indexed by `BinderId`, its own
-        /// array disjoint from the `Pat*` columns: each binder's whole original `NodeKey`.
-        /// NO tree reads it — a drained tree names its binders by `BinderId` (`Pooled.*`),
-        /// and every pooled reference resolves against the id and not against this. What
-        /// keeps it is the naming a backend emits, which is a projection OF this column
-        /// rather than a second one beside it (`BinderNaming`), and the named `nodeKeyed*`
-        /// seams that owe a `NodeKey` to a consumer whose own vocabulary is still the node
-        /// space. A `NamedSimple` pattern still also appears in the pat columns for the tree
-        /// walk; this is the additional dense column references resolve against, not a
-        /// re-pointing.
-        BinderKeys: NodeKey[]
+        /// The binder pool: two parallel dense columns indexed by `BinderId`, their own
+        /// arrays disjoint from the `Pat*` columns. A binder has NO stored identity beside
+        /// its slot — the slot IS the identity, a drained tree names its binders by
+        /// `BinderId` (`Pooled.*`), and every pooled reference resolves against the id.
+        /// What these two carry is what a slot alone cannot answer: how the source SPELLS
+        /// the binder, and WHERE. A `NamedSimple` pattern still also appears in the pat
+        /// columns for the tree walk; this is the additional dense column references
+        /// resolve against, not a re-pointing.
+        ///
+        /// `BinderNames` is the identifier the source spells the binder with, EMPTY where
+        /// none does — a class's `this`/`base`, a freshened inline binder. Read through
+        /// `BinderNaming.ofColumn`, which is where that convention is decoded. The text is
+        /// the source's, unmangled: a target dialect's reserved-word and punctuation rules
+        /// belong to the backend that emits the name.
+        BinderNames: string[]
+        /// The token the binder's name is spelled at — the anchor a span or a line/column
+        /// is taken from. `ValueNone` for a definition site NO NODE SPELLS: a declaration's
+        /// pattern-less key slots (`TTypeMemberG.ThisKey`/`BaseKey`/`Params`, a secondary
+        /// ctor's params and lets, the base-ctor call's view of the primary params) hold a
+        /// binder key and no token, so there is none to store. Those slots still carry a
+        /// `BinderNames` entry: a member parameter's key is projected from its CST pattern
+        /// and so names a real source position even though the frozen shape keeps no token
+        /// for it.
+        BinderToks: SyntaxToken voption[]
         /// The not-yet-pooled remainder of the source file, carried verbatim.
         Residue: FrozenFileResidue
         /// The source `Map<NodeKey,_>` side tables that keep a KEY, re-keyed by `BinderId`.
@@ -222,14 +236,11 @@ type FrozenPools =
         FunVerdicts: DenseTable<ExprPoolId, FunVerdict>
         GenericFnSchemes: DenseTable<BinderId, FrozenConstraint list>
         BindingValReprs: DenseTable<BinderId, PooledValRepr>
-        /// The two per-binder SCALARS, held as `BinderColumn`s — positionally aligned with
-        /// `BinderKeys`, no key. `TopLevelNames` is a top-level (implicit-`Program`-module)
-        /// binding's source name, which the backend names its Program-holder slot by;
-        /// `BindingTyparArities` is a binding's typar-axis width at the index-minting point
+        /// The one per-binder SCALAR, held as a `BinderColumn` — positionally aligned with
+        /// the binder pool, no key: a binding's typar-axis width at the index-minting point
         /// (`Elaborate`'s `quantEnv`), read for `ExternalSymbol.TyparArity` and for a
-        /// `PooledValRepr`'s `Typars`. Both are sparse over the binder pool — most binders
-        /// are parameters and locals — so most slots are `ValueNone`.
-        TopLevelNames: BinderColumn<string>
+        /// `PooledValRepr`'s `Typars`. Sparse over the binder pool — most binders are
+        /// parameters and locals — so most slots are `ValueNone`.
         BindingTyparArities: BinderColumn<int>
     }
 
@@ -259,7 +270,8 @@ module FrozenPools =
             DeclPayloads = [||]
             Roots = [||]
             InlineTemplates = [||]
-            BinderKeys = [||]
+            BinderNames = [||]
+            BinderToks = [||]
             Residue =
                 {
                     Diagnostics = []
@@ -271,11 +283,18 @@ module FrozenPools =
             FunVerdicts = [||]
             GenericFnSchemes = [||]
             BindingValReprs = [||]
-            // Zero binders, so the columns are zero-length — aligned with `BinderKeys`
-            // exactly as a filled pool's are.
-            TopLevelNames = [||]
+            // Zero binders, so the column is zero-length — aligned with the binder pool
+            // exactly as a filled pool's is.
             BindingTyparArities = [||]
         }
+
+    /// How the file spells the binder at `id`, and nothing more: the naming column read
+    /// through its own decoder, so no consumer has to know that an empty slot means
+    /// "no identifier spells this binder". ONE home, shared by the accessor's stacked
+    /// read (`TastPoolBuilder.binderNaming`) and by any direct reader of the columns.
+    let binderNaming (pools: FrozenPools) (id: BinderId) : BinderNaming =
+        let (BinderId i) = id
+        BinderNaming.ofColumn pools.BinderNames.[i] id
 
     /// The typar-axis width recorded for `binder`, an empty slot reading 0. That is not a
     /// fallback but the ANSWER: `Elaborate` files an arity only for a binding whose head

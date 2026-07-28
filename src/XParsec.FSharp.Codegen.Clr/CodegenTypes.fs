@@ -134,7 +134,7 @@ type internal ClassDecl =
         /// The class-level `this` binder. The instance preamble reads the class's fields
         /// through it (`FieldGet(Var ThisKey, …)`), so the primary `.ctor` maps it to
         /// `ldarg.0`.
-        ThisKey: BinderKey
+        ThisKey: BinderKeyG<BinderId>
         SecondaryCtors: TastAccessor.SecondaryCtor list
         BaseCtorCall: TastAccessor.BaseCtorCall voption
         ValueKind: ClassValueKind

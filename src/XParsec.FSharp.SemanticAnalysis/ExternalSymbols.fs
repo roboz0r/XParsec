@@ -81,6 +81,12 @@ type ImportForm =
 /// A published inline body as the provider serves it: the producing unit's own
 /// `Frozen.TInlineBody`, handed across the boundary VERBATIM.
 ///
+/// Its binder keys are MINTED BY THE DRAIN (`TastPoolBuilder.declTree`), not the producer's
+/// own: a pooled binder is a slot, and a slot means nothing in the consuming unit's pool.
+/// What the wire needs of them is distinctness within this one template plus equality
+/// between a binder and its references, which a counter-minted key gives — and, being
+/// counter-minted, it names no position anything could try to resolve it against.
+///
 /// `FrozenType`, not `SemType` — a `SemType.TyVar` is a mutable `UnionFind` cell, and
 /// an oracle that hands one out lets a consumer's inference reach back and mutate a
 /// producer's. The consumer THAWS the body at the splice (`Inline.thawBody`), minting

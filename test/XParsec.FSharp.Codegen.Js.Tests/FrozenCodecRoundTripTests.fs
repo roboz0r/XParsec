@@ -95,24 +95,16 @@ let private collect () : Harvest =
             | MemberKind.Method
             | MemberKind.Property -> ()
 
-    let harvestFile (file: Frozen.TastFile) =
-        // The harvest is over the NodeKeys a file mentions, so the binder-keyed tables are
-        // widened here (`BinderKey.identity`) — `FunVerdicts`, on the lambda id space,
-        // already speaks it.
-        for KeyValue(k, _) in file.ModuleMembers do
-            nks.Add(BinderKey.identity k) |> ignore
-
-        for KeyValue(k, _) in file.TopLevelNames do
-            nks.Add(BinderKey.identity k) |> ignore
-
-        for KeyValue(k, _) in file.ClosureReprs do
-            nks.Add(BinderKey.identity k) |> ignore
+    let harvestFile (file: Pooled.TastFile) =
+        // The only two `NodeKey`s a frozen file still carries: a diagnostic's anchor (which
+        // can name a node the emittable tree does not contain, so it takes no pool id) and
+        // a `FunVerdicts` key, which is on the lambda-EXPRESSION space rather than the
+        // binder space. Every binder is addressed positionally and contributes none.
+        for d in file.Diagnostics do
+            nks.Add d.Key |> ignore
 
         for KeyValue(k, _) in file.FunVerdicts do
             nks.Add k |> ignore
-
-        for KeyValue(k, _) in file.BindingTyparArities do
-            nks.Add(BinderKey.identity k) |> ignore
 
         for k in file.IntrinsicReprKeys.Keys do
             visitSym k
@@ -120,9 +112,7 @@ let private collect () : Harvest =
         for k in file.Accessibility.Keys do
             visitSym k
 
-        for KeyValue(k, constraints) in file.GenericFnSchemes do
-            nks.Add(BinderKey.identity k) |> ignore
-
+        for KeyValue(_, constraints) in file.GenericFnSchemes do
             for c in constraints do
                 match c with
                 | FrozenConstraint.Coercion(_, target) -> visitFt target
@@ -140,7 +130,7 @@ let private collect () : Harvest =
             | TDeclG.Type _ -> ()
 
     for p in gated do
-        harvestFile (TastUnpool.nodeKeyedFile (frozenOfJs p.Source))
+        harvestFile (TastUnpool.ofPools (frozenOfJs p.Source))
 
     // ── hand-built edge cases: pin every case shape regardless of the corpus ──
     let nsGlobal = NamespaceKey.Global
@@ -378,7 +368,11 @@ let tests =
                 Expect.isGreaterThan (List.length h.FrozenTypes) 20 "FrozenTypes"
                 Expect.isGreaterThan (List.length h.SymbolKeys) 5 "SymbolKeys"
                 Expect.isGreaterThan (List.length h.TypeKeys) 2 "TypeKeys"
-                Expect.isGreaterThan (List.length h.NodeKeys) 5 "NodeKeys"
+                // The corpus contributes NO node key: it compiles clean (so no diagnostic
+                // anchor) and populates no `FunVerdicts`, and those are the only two a
+                // frozen file still carries. The hand-built edge cases below are the whole
+                // of this corpus, and their count is what the bound pins.
+                Expect.isGreaterThan (List.length h.NodeKeys) 1 "NodeKeys"
                 Expect.isGreaterThan (List.length h.Tokens) 4 "Tokens"
             }
         ]

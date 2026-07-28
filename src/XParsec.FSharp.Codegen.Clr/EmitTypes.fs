@@ -15,7 +15,7 @@ module EmitTypes =
         {
             Node: TastAccessor.ExprId
             Name: string
-            ParamKey: NodeKey
+            ParamKey: BinderId
             ParamTy: FrozenType
             /// The closure's parameter pattern. A `NamedSimple` / unit `Const`
             /// binds `ldarg.1` directly through `ParamKey`; a `Tuple` pattern
@@ -25,11 +25,11 @@ module EmitTypes =
             ParamPat: TastAccessor.PatId
             ResultTy: FrozenType
             Body: TastAccessor.ExprId
-            Captures: (NodeKey * FrozenType) list
+            Captures: (BinderId * FrozenType) list
             /// Binding key of the `let [rec] f = <this lambda>` this is the value
             /// of. A recursive self-reference resolves to `this` (`ldarg.0`), so
             /// it is not captured. `ValueNone` for an anonymous lambda.
-            SelfKey: NodeKey voption
+            SelfKey: BinderId voption
             /// `> 0` ⇒ a *generic* closure: the *total* number of typars this
             /// closure's `TypeDefinition` carries (`GenericParam` rows `T0…`). For a
             /// static-fn closure this is the enclosing method's typar count, all
@@ -77,7 +77,7 @@ module EmitTypes =
             /// key, type, pattern — peeled from a successive inner `Lambda`). Empty for
             /// the arity-1 path; length `FunArity - 1` (so `1..3` for flat arity `2..4`).
             /// The closure's `Invoke` binds extra param `i` (0-based) to `ldarg.(2+i)`.
-            ExtraParams: (NodeKey * FrozenType * TastAccessor.PatId) list
+            ExtraParams: (BinderId * FrozenType * TastAccessor.PatId) list
         }
 
     /// A non-capturing (`Captures` empty), monomorphic (`Typars = 0`) closure is
@@ -310,7 +310,7 @@ module EmitTypes =
     /// local (see `collectStaticFns`); a recursive self-call is a direct `call`.
     type StaticFn =
         {
-            Key: NodeKey
+            Key: BinderId
             /// This binding's stable handle key: its `SymbolKey` (declaring holder +
             /// emitted `Name`). The combined `MethodKey.StaticFn` handle map keys on
             /// this rather than the per-file `Key` — a bare `NodeKey` collides across
@@ -360,7 +360,7 @@ module EmitTypes =
     /// initialiser the `.cctor` evaluates and `stsfld`s — taken from the lowered decls.
     type ModuleValue =
         {
-            Key: NodeKey
+            Key: BinderId
             /// This value's stable handle key: its `SymbolKey` (declaring holder +
             /// emitted `Name`). The combined `FieldKey.ModuleValue` handle map keys on
             /// this rather than the per-file `Key` — a bare `NodeKey` collides across
@@ -436,18 +436,18 @@ module EmitTypes =
             /// Numeric enums emitted into this assembly, by nominal `SymbolKey`. A
             /// `StaticFieldGet` / `EnumCase` resolves a case's literal field here.
             Enums: Dictionary<SymbolKey, EmittedEnum>
-            StaticMethods: Dictionary<NodeKey, StaticMethodRef>
+            StaticMethods: Dictionary<BinderId, StaticMethodRef>
             /// Module-level value bindings → their emitted `public static` field
             /// (`ldsfld`). Shared by every body builder so a module value resolves
             /// uniformly in any method/ctor/cctor.
-            ModuleValues: Dictionary<NodeKey, EntityHandle>
+            ModuleValues: Dictionary<BinderId, EntityHandle>
             /// The subset of top-level ("Program") values that are **initialised in
             /// `Main`** via `stsfld` (the trailing values, after a top-level
             /// `do`) → their field handle. `buildMain` emits the store here instead of
             /// allocating a `Main` local; references still read `ldsfld` via
             /// `ModuleValues`. Leading-prefix values are absent (their `.cctor`
             /// initialises them), as are named-holder values.
-            MainInitValues: Dictionary<NodeKey, EntityHandle>
+            MainInitValues: Dictionary<BinderId, EntityHandle>
         }
 
     /// Per-method codegen state, layered on top of the run-wide `EmitContext`.
@@ -460,7 +460,7 @@ module EmitTypes =
         {
             Provider: ICodegenProvider
             Ctx: MetadataContext
-            Slots: Dictionary<NodeKey, int>
+            Slots: Dictionary<BinderId, int>
             ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
             CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             /// Cached non-capturing closure singleton fields;
@@ -470,9 +470,9 @@ module EmitTypes =
             /// `FrozenType` + closure-`TypeDef` handle per `Stack` `Lambda` node.
             ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
             ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            Args: Dictionary<NodeKey, int>
-            SelfKey: NodeKey voption
-            CaptureFields: Dictionary<NodeKey, EntityHandle>
+            Args: Dictionary<BinderId, int>
+            SelfKey: BinderId voption
+            CaptureFields: Dictionary<BinderId, EntityHandle>
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
@@ -480,11 +480,11 @@ module EmitTypes =
             /// Numeric enums emitted into this assembly (`EmitContext.Enums`), so a
             /// `StaticFieldGet` / `EnumCase` in any body resolves a case literal field.
             Enums: Dictionary<SymbolKey, EmittedEnum>
-            StaticMethods: Dictionary<NodeKey, StaticMethodRef>
+            StaticMethods: Dictionary<BinderId, StaticMethodRef>
             /// Module-level values (`let x = e` at module scope), lowered to a
             /// `public static` field on their module holder and resolved here by
-            /// binding `NodeKey` → field handle (`ldsfld`).
-            ModuleValues: Dictionary<NodeKey, EntityHandle>
+            /// binding binder → field handle (`ldsfld`).
+            ModuleValues: Dictionary<BinderId, EntityHandle>
         }
 
     /// A `Var` bound to an addressable local **slot** in `env` → its slot index. The
@@ -510,14 +510,14 @@ module EmitTypes =
         /// closure-`Invoke` extras — every other builder has neither.
         let create
             (ctx: EmitContext)
-            (selfKey: NodeKey voption)
-            (captureFields: Dictionary<NodeKey, EntityHandle>)
-            (args: Dictionary<NodeKey, int>)
+            (selfKey: BinderId voption)
+            (captureFields: Dictionary<BinderId, EntityHandle>)
+            (args: Dictionary<BinderId, int>)
             : EmitEnv =
             {
                 Provider = ctx.Provider
                 Ctx = ctx.Ctx
-                Slots = Dictionary<NodeKey, int>()
+                Slots = Dictionary<BinderId, int>()
                 ClosureByNode = ctx.ClosureByNode
                 CtorHandleByNode = ctx.CtorHandleByNode
                 CachedClosureFieldByNode = ctx.CachedClosureFieldByNode
@@ -537,7 +537,7 @@ module EmitTypes =
 
         /// The common builder shape: parameters only — no recursive self, no
         /// captures.
-        let ofContext (ctx: EmitContext) (args: Dictionary<NodeKey, int>) : EmitEnv =
+        let ofContext (ctx: EmitContext) (args: Dictionary<BinderId, int>) : EmitEnv =
             create ctx ValueNone (Dictionary()) args
 
     /// The `ldc` for an integral constant — the single source of the integral load, so no

@@ -102,7 +102,7 @@ module EmitJsContext =
             /// flat call; a value-use / under-application gets an inline curried adapter.
             /// Empty until `buildProgram`
             /// populates it from the lowered decls.
-            CompiledFns: Dictionary<NodeKey, CompiledFns.CompiledFn>
+            CompiledFns: Dictionary<BinderId, CompiledFns.CompiledFn>
             /// Keys of the file's locally-declared interfaces (`TTypeKindG.Interface`).
             /// A `PropertyGet`/`MethodCall` whose member's declaring type is in this set
             /// dispatches through a LOCAL interface slot (`(r :> IRank).Rank`): the impl is
@@ -300,7 +300,7 @@ module EmitJsContext =
     /// Emit a nested (non-top-level) `let`/`const` for binder `k`: a reassignable `let`
     /// when the body mutates the binder (`k <- …`), else a `const`. The top-level
     /// analogue is `topLevelBinding`.
-    let localBinding (k: NodeKey) (body: TastAccessor.ExprId) (name: string) (init: JsExpr) : JsStatement =
+    let localBinding (k: BinderId) (body: TastAccessor.ExprId) (name: string) (init: JsExpr) : JsStatement =
         if isAssignedIn k body then
             JsStatement.Let(name, init)
         else
@@ -456,7 +456,7 @@ module EmitJsContext =
         | PatShape.Wildcard -> None, []
         | PatShape.NamedSimple ->
             let k = (TastAccessor.patBinder pat).Value
-            None, [ JsStatement.Const(binderNameOf ctx.Source k, access) ]
+            None, [ JsStatement.Const(binderNameOf ctx.Pool k, access) ]
         | PatShape.Const ->
             let value = TastAccessor.patConstValue pat
             Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []

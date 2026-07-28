@@ -60,7 +60,7 @@ module FrozenCodec =
         readArrayWith r (fun r -> readArrayWith r readId)
 
     /// A per-binder column (`BinderColumn`) — one optional value per binder slot, in
-    /// `BinderKeys` order. NO id is written: the slot's position IS the binder, which is
+    /// binder-pool order. NO id is written: the slot's position IS the binder, which is
     /// the whole property of the column form, so the wire carries a presence byte where the
     /// keyed form carried four id bytes plus a value.
     let private writeBinderColumn (w: BinaryWriter) (writeVal: BinaryWriter -> 'v -> unit) (col: BinderColumn<'v>) =
@@ -477,14 +477,14 @@ module FrozenCodec =
         writeArrayWith w writeDeclPayload p.DeclPayloads
         writeArrayWith w writeDeclPoolId p.Roots
         writeArrayWith w writeInlineTemplate p.InlineTemplates
-        writeArrayWith w writeNodeKey p.BinderKeys
+        writeArrayWith w (fun w (s: string) -> w.Write s) p.BinderNames
+        writeArrayWith w (fun w t -> writeVOptionWith w writeSyntaxToken t) p.BinderToks
         writeResidue w p.Residue
         writeDenseTable w writeBinderId writeModuleBindingInfo p.ModuleMembers
         writeDenseTable w writeBinderId writeClosureRepr p.ClosureReprs
         writeDenseTable w writeExprPoolId writeFunVerdict p.FunVerdicts
         writeDenseTable w writeBinderId (fun w cs -> writeListWith w writeFrozenConstraint cs) p.GenericFnSchemes
         writeDenseTable w writeBinderId writeValRepr p.BindingValReprs
-        writeBinderColumn w (fun w (s: string) -> w.Write s) p.TopLevelNames
         writeBinderColumn w (fun w (i: int) -> w.Write i) p.BindingTyparArities
 
     let private readPools (r: BinaryReader) : FrozenPools =
@@ -503,7 +503,8 @@ module FrozenCodec =
         let declPayloads = readArrayWith r readDeclPayload
         let roots = readArrayWith r readDeclPoolId
         let inlineTemplates = readArrayWith r readInlineTemplate
-        let binderKeys = readArrayWith r readNodeKey
+        let binderNames = readArrayWith r (fun r -> r.ReadString())
+        let binderToks = readArrayWith r (fun r -> readVOptionWith r readSyntaxToken)
         let residue = readResidue r
         let moduleMembers = readDenseTable r readBinderId readModuleBindingInfo
         let closureReprs = readDenseTable r readBinderId readClosureRepr
@@ -513,7 +514,6 @@ module FrozenCodec =
             readDenseTable r readBinderId (fun r -> readListWith r readFrozenConstraint)
 
         let bindingValReprs = readDenseTable r readBinderId readValRepr
-        let topLevelNames = readBinderColumn r (fun r -> r.ReadString())
         let bindingTyparArities = readBinderColumn r (fun r -> r.ReadInt32())
 
         {
@@ -532,14 +532,14 @@ module FrozenCodec =
             DeclPayloads = declPayloads
             Roots = roots
             InlineTemplates = inlineTemplates
-            BinderKeys = binderKeys
+            BinderNames = binderNames
+            BinderToks = binderToks
             Residue = residue
             ModuleMembers = moduleMembers
             ClosureReprs = closureReprs
             FunVerdicts = funVerdicts
             GenericFnSchemes = genericFnSchemes
             BindingValReprs = bindingValReprs
-            TopLevelNames = topLevelNames
             BindingTyparArities = bindingTyparArities
         }
 

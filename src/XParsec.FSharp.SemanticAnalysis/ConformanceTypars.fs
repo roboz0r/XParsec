@@ -127,7 +127,7 @@ module ConformanceTypars =
                 // false` is what enforces this pass's scope (see the SCOPE note above),
                 // not a restatement of an upstream partition.
                 | TastAccessor.DLet {
-                                        Binding = TastAccessor.PNamedId binder
+                                        Binding = TastAccessor.PNamed binder
                                         IsInline = false
                                         Ty = ty
                                     } ->
@@ -136,13 +136,17 @@ module ConformanceTypars =
                         | true, mi -> Some mi
                         | _ -> None
 
+                    // A binding inside a named module publishes under its COMPILED name
+                    // (`[<CompiledName>]`), which only the member table knows; a top-level
+                    // one has no module and so publishes nothing, but still has to be
+                    // spelled to be looked up, and the binder column already spells it.
                     let nameOpt =
                         match info with
                         | Some mi -> Some mi.Name
                         | None ->
-                            match BinderColumn.tryItem pools.TopLevelNames binder with
-                            | ValueSome n -> Some n
-                            | ValueNone -> None
+                            match TastPoolBuilder.binderNaming pool binder with
+                            | BinderNaming.Source n -> Some n
+                            | BinderNaming.Minted _ -> None
 
                     match nameOpt with
                     | None -> ()
@@ -195,7 +199,7 @@ module ConformanceTypars =
     /// The `.NET`-tupled `Parameters` form of a frozen member's parameter binders —
     /// the `FrozenType` shape `ExternalSignature.Parameters` carries (0 ⇒ `unit`,
     /// 1 ⇒ itself, N ⇒ a tuple), so the two sides compare directly.
-    let private tupledParams (ps: EqArray<BinderKey * FrozenType>) : FrozenType =
+    let private tupledParams (ps: EqArray<BinderKeyG<'id> * FrozenType>) : FrozenType =
         match ps.Length with
         | 0 -> FTConst(RuntimeNames.unitKey, EqArray.empty)
         | 1 -> snd ps.[0]

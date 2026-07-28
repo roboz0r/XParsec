@@ -30,7 +30,9 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //    the freeze/thaw half and a REAL cross-unit splice are pinned below.
 
 /// Every type mentioned by a frozen clause's constraints, in order.
-let private frozenConstraintTypes (clauses: Frozen.TStaticOptClause list) : FrozenType list =
+let private frozenConstraintTypes
+    (clauses: TStaticOptClauseG<FrozenType, XParsec.FSharp.Parser.SyntaxToken, 'id> list)
+    : FrozenType list =
     [
         for c in clauses do
             for k in EqArray.toList c.Constraints do
@@ -107,30 +109,35 @@ let private distinctCells (tvs: TyVarId list) : TyVarId list =
 /// leaf, shared across every occurrence of that leaf. Deriving the count from the
 /// frozen tree rather than hard-coding it is what keeps the assertion EXACT: a broken
 /// cache mints MORE cells than there are leaves, which a `>=` bound would not catch.
-let private distinctLeafCount (d: Frozen.TDecl) : int =
+let private distinctLeafCount (d: TDeclG<FrozenType, XParsec.FSharp.Parser.SyntaxToken, 'id>) : int =
     collectTys d |> List.collect typarLeavesIn |> List.distinct |> List.length
 
-/// The frozen unit of a source, as the DU. The freeze yields pools; every assertion in
-/// this file reads whole decl trees and the inline vocabulary in the DU form the
-/// cross-unit wire carries, which is what `ofPools` re-authors.
-let private freeze (src: string) : Frozen.TastFile =
+/// The frozen unit of a source — the pools the freeze yields.
+let private freezePools (src: string) : FrozenPools =
     let ctx, tast = analyseWithCtx src
     Expect.isEmpty tast.Diagnostics "no diagnostics"
-    TastUnpool.nodeKeyedFile (Freeze.run ctx tast)
+    Freeze.run ctx tast
 
-/// The frozen `let` decl of a single-binding program.
+/// The same unit as the DU: every assertion in this file reads whole decl trees and the
+/// inline vocabulary, which is what `ofPools` re-authors.
+let private freeze (src: string) : Pooled.TastFile = TastUnpool.ofPools (freezePools src)
+
+/// The frozen `let` decl of a single-binding program, drained the way a provider serves a
+/// body (`declTree`) — the form `Inline.thawBody` takes.
 let private frozenLetDecl (src: string) : Frozen.TDecl =
-    (freeze src).Decls
-    |> EqArray.toList
-    |> List.tryPick (fun d ->
-        match d with
+    let pools = freezePools src
+    let pool = TastPoolBuilder.openOver pools
+
+    pools.Roots
+    |> Array.tryPick (fun r ->
+        match TastPoolBuilder.declTree pool r with
         | TDeclG.Let(TPatG.NamedSimple _, _, _, _) as d -> Some d
         | _ -> None
     )
     |> Option.defaultWith (fun () -> failtestf "no top-level `let` in the frozen tree of:\n%s" src)
 
 /// The unit's sole published inline body.
-let private soleInlineBody (src: string) : Frozen.TInlineValue =
+let private soleInlineBody (src: string) : Pooled.TInlineValue =
     match (freeze src).InlineBodies |> EqArray.toList with
     | [ v ] -> v
     | other -> failtestf "expected exactly one published inline body, got %d, in:\n%s" (List.length other) src
@@ -217,28 +224,40 @@ let rec private typarArity (ft: FrozenType) : int =
 let private publishing (unitASource: string) : IExternalSymbolProvider =
     let ctx, tastA = analyseWithCtx unitASource
     Expect.isEmpty tastA.Diagnostics "unit A has no diagnostics"
-    let unitA = TastUnpool.nodeKeyedFile (Freeze.run ctx tastA)
+    let unitA = Freeze.run ctx tastA
+    let pool = TastPoolBuilder.openOver unitA
 
-    let published = unitA.InlineBodies |> EqArray.toList
+    // Drained the way a provider serves a template — `declTree`, which re-mints the body's
+    // binders into the node space a consuming unit's splice speaks.
+    let published =
+        [
+            for t in unitA.InlineTemplates ->
+                t.Key,
+                ({
+                    Decl = TastPoolBuilder.declTree pool t.Decl
+                    ParamAttrs = t.ParamAttrs
+                }
+                : InlineBody)
+        ]
 
-    let bodies = published |> List.map (fun v -> v.Key, v.Body) |> dict
+    let bodies = dict published
 
     let symbols =
         published
-        |> List.map (fun v ->
+        |> List.map (fun (key, body) ->
             let declTy =
-                match v.Body.Decl with
+                match body.Decl with
                 | TDeclG.Let(_, _, _, ty) -> ty
                 | other -> failtestf "a published body is not a `let`: %A" other
 
             let binding =
-                match v.Key with
+                match key with
                 | SymbolKey.Binding b -> b
                 | other -> failtestf "a published inline value is not a binding key: %A" other
 
             let scheme = asSymbolScheme declTy
 
-            SymbolKeyOps.qualifiedName v.Key,
+            SymbolKeyOps.qualifiedName key,
             ExternalSymbols.scheme binding.Decl binding.Name scheme (typarArity scheme) []
         )
         |> dict
@@ -269,13 +288,13 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 /// leaves an `App` head instead, which reaches no `Const`, so this cannot pass by accident.
 let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
     let lexed, file = parseFile src
-    let tast = TastUnpool.nodeKeyedFile (Pipeline.analyse provider src lexed file)
+    let tast = TastUnpool.ofPools (Pipeline.analyse provider src lexed file)
 
     Expect.isEmpty
         (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
         (sprintf "no errors for:\n%s" src)
 
-    let rec result (e: Frozen.TExpr) : int64 =
+    let rec result (e: Pooled.TExpr) : int64 =
         match e with
         | TExprG.Let(_, _, body, _, _) -> result body
         | TExprG.Const(TConstValue.Integral(_, v), _, _) -> v
@@ -326,7 +345,7 @@ let tests =
             // SRTP member constraint has no IL encoding at all, so it does not.
             test "lowering emits a StaticOptimization inline, and drops an SRTP one" {
                 let lowered (src: string) =
-                    TastLower.lower (pooledDecls (TastPools.toPools (freeze src)))
+                    TastLower.lower (pooledDecls (freezePools src))
                     |> List.filter (fun d ->
                         match d with
                         | TastAccessor.DLet lv -> lv.IsInline
