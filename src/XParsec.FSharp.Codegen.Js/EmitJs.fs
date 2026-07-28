@@ -56,8 +56,7 @@ module EmitJs =
             let ident = JsExpr.Identifier(binderName (TastAccessor.exprVarNaming e), loc)
 
             match ctx.CompiledFns.TryGetValue k with
-            | true, cf when JsFlatFns.needsAdapter cf.Groups ->
-                JsFlatFns.curryAdapter ident cf.Groups (let (BinderId slot) = k in slot) loc
+            | true, cf when JsFlatFns.needsAdapter cf.Groups -> JsFlatFns.curryAdapter ctx.Pool ident cf.Groups loc
             | _ -> ident
 
         // An external module function — imported from its package's JS runtime module.
@@ -73,8 +72,7 @@ module EmitJs =
                 )
 
             match JsFlatFns.externalGroups ctx.Provider ext.Key with
-            | ValueSome groups when JsFlatFns.needsAdapter groups ->
-                JsFlatFns.curryAdapter alias groups (TastAccessor.exprTok e).StartIndex loc
+            | ValueSome groups when JsFlatFns.needsAdapter groups -> JsFlatFns.curryAdapter ctx.Pool alias groups loc
             | _ -> alias
 
         | ExprShape.IfThenElse ->
@@ -177,7 +175,7 @@ module EmitJs =
 
                 match flatHead with
                 | ValueSome(callee, groups) when List.length spine >= List.length groups ->
-                    JsFlatFns.emitFlatCall (buildExpr ctx) callee groups spine loc
+                    JsFlatFns.emitFlatCall ctx.Pool (buildExpr ctx) callee groups spine loc
                 | _ -> JsExpr.Call(buildExpr ctx av.Fn, [ buildExpr ctx av.Arg ], loc)
 
         // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args
@@ -218,7 +216,7 @@ module EmitJs =
             | ExprShape.Var ->
                 JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), argsFrom (buildExpr ctx rc.Source), loc)
             | _ ->
-                let sName = "_rc" + string (TastAccessor.exprTok e).StartIndex
+                let sName = freshTemp ctx.Pool "_rc"
 
                 let newExpr =
                     JsExpr.New(
@@ -437,13 +435,7 @@ module EmitJs =
                                 MemberLowering = MemberLowering.AttachedNative
                             },
                   ValueSome r ->
-                    JsExternalMembers.etaWrapAttachedMethod
-                        (buildExpr ctx)
-                        r
-                        em.Key
-                        em.MemberName
-                        (TastAccessor.exprTok e).StartIndex
-                        loc
+                    JsExternalMembers.etaWrapAttachedMethod (buildExpr ctx) r em.Key em.MemberName ctx.Pool loc
                 | _ ->
                     JsExternalMembers.mangledMemberAccess
                         ctx.Provider
@@ -461,7 +453,7 @@ module EmitJs =
         // guards, constants, nested patterns, and non-union scrutinees uniformly.
         | ExprShape.Match ->
             let m = TastAccessor.exprMatch e
-            let mv = "_m" + string (TastAccessor.exprTok e).StartIndex
+            let mv = freshTemp ctx.Pool "_m"
             let access = JsExpr.Identifier(mv, ValueNone)
 
             let body =
@@ -657,7 +649,7 @@ module EmitJs =
     /// write them back and `continue`.
     and emitFunction (ctx: WalkCtx) (selfKey: BinderId voption) (lam: TastAccessor.ExprId) : JsExpr =
         let loc = locOf ctx (TastAccessor.exprTok lam)
-        let names, body = peelArrow lam
+        let names, body = peelArrow ctx.Pool lam
         nestUnaryArrows loc names (trampolineOrExpr ctx selfKey (List.length names) names body)
 
     /// Build the statements of a self-tail-call trampoline's loop body, walking
@@ -816,7 +808,7 @@ module EmitJs =
             | ExprShape.ForTo ->
                 let ft = TastAccessor.exprForTo e
                 let name = binderNameOf ctx.Pool ft.Var
-                let limit = "_lim" + string (TastAccessor.exprTok e).StartIndex
+                let limit = freshTemp ctx.Pool "_lim"
 
                 [
                     JsStatement.Const(limit, buildExpr ctx ft.EndExpr)
@@ -855,7 +847,7 @@ module EmitJs =
                     // which a `for … in` binder cannot express, so reject it rather than emit
                     // the binds without the guard.
                     | PatShape.Tuple ->
-                        let tmp = "_forin" + string (TastAccessor.patTok fi.Pat).StartIndex
+                        let tmp = freshTemp ctx.Pool "_forin"
 
                         match compileMatchPattern ctx (JsExpr.Identifier(tmp, ValueNone)) fi.Pat with
                         | None, binds ->
@@ -891,15 +883,15 @@ module EmitJs =
 
     /// The JS binder name for a single-binder loop/scope pattern (`use x = …`,
     /// `for x in …`). A wildcard binder has no source name, so it gets a fresh
-    /// `<prefix><tok>` slot — the value is still bound (parked/iterated) even though
-    /// the body can't name it. Only simple/wildcard binders are supported; a
-    /// destructuring binder (e.g. a tuple pattern) is rejected.
+    /// temporary — the value is still bound (parked/iterated) even though the body
+    /// can't name it. Only simple/wildcard binders are supported; a destructuring
+    /// binder (e.g. a tuple pattern) is rejected.
     and private patBinderName (ctx: WalkCtx) (prefix: string) (binding: TastAccessor.PatId) : string =
         match binding with
         | TastAccessor.PNamedNaming naming -> binderName naming
         | _ ->
             match TastAccessor.patKind binding with
-            | PatShape.Wildcard -> prefix + string (TastAccessor.patTok binding).StartIndex
+            | PatShape.Wildcard -> freshTemp ctx.Pool prefix
             | _ -> failwithf "EmitJs: unsupported single binder pattern %A" binding
 
     and private useBinderName (ctx: WalkCtx) (binding: TastAccessor.PatId) : string = patBinderName ctx "_use" binding

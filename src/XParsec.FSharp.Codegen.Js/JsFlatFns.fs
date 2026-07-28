@@ -34,7 +34,7 @@ module JsFlatFns =
     let paramNameOf (pool: PoolBuilder) (p: TastLower.StaticParam) : string =
         match p.Pat with
         | None -> binderNameOf pool p.Slot
-        | Some pat -> lambdaParamName pat
+        | Some pat -> lambdaParamName pool pat
 
     /// The SOURCE groups of an EXTERNAL module function, read off the provider's
     /// recorded `ValRepr` (the cross-assembly compiled-form contract, Step C). The
@@ -64,6 +64,7 @@ module JsFlatFns =
     /// spilled to a temporary (returned in the snd; the caller binds it via `wrapSpills`
     /// so it evaluates exactly once).
     let flattenGroupArgs
+        (pool: PoolBuilder)
         (build: TastAccessor.ExprId -> JsExpr)
         (groups: TastAccessor.ArgGroup list)
         (leadingArgs: TastAccessor.ExprId list)
@@ -86,7 +87,7 @@ module JsFlatFns =
                     for j in 0 .. n - 1 do
                         flat.Add(indexMember je j)
                 else
-                    let tmp = "_tg" + string (TastAccessor.exprTok a).StartIndex
+                    let tmp = freshTemp pool "_tg"
                     spills.Add(tmp, build a)
 
                     for j in 0 .. n - 1 do
@@ -110,6 +111,7 @@ module JsFlatFns =
     /// source group) into a single flat `callee(flatArgs…)`, then fold any residual
     /// over-application on as unary calls.
     let emitFlatCall
+        (pool: PoolBuilder)
         (build: TastAccessor.ExprId -> JsExpr)
         (callee: JsExpr)
         (groups: TastAccessor.ArgGroup list)
@@ -119,7 +121,7 @@ module JsFlatFns =
         let leading, rest = List.splitAt (List.length groups) spine
 
         let flatArgs, spills =
-            flattenGroupArgs build groups (leading |> List.map (fun (a, _, _) -> a))
+            flattenGroupArgs pool build groups (leading |> List.map (fun (a, _, _) -> a))
 
         let flatCall = wrapSpills spills (JsExpr.Call(callee, flatArgs, loc)) loc
 
@@ -130,15 +132,16 @@ module JsFlatFns =
     /// value-use / partial application sees the same currying a curried consumer
     /// expects: `(c0) => (c1) => callee(c0, c1)`. A tuple group's single curried
     /// parameter is destructured into the flat call's positional reads; a lone unit
-    /// parameter is accepted and dropped. `off` disambiguates the synthetic names.
-    let curryAdapter (callee: JsExpr) (groups: TastAccessor.ArgGroup list) (tag: int) (loc: JsLoc voption) : JsExpr =
+    /// parameter is accepted and dropped.
+    let curryAdapter
+        (pool: PoolBuilder)
+        (callee: JsExpr)
+        (groups: TastAccessor.ArgGroup list)
+        (loc: JsLoc voption)
+        : JsExpr =
         let isLone = TastLower.isLoneUnitGroup groups
 
-        // `tag` only has to make the names READABLE — each adapter's parameters are scoped
-        // to its own nested arrows, and its body mentions nothing but them and the callee,
-        // so nothing outside can be shadowed. The caller supplies whatever names the
-        // adapted function: a local one's binder slot, an external one's reference token.
-        let names = groups |> List.mapi (fun i _ -> "_c" + string tag + "_" + string i)
+        let names = groups |> List.map (fun _ -> freshTemp pool "_c")
 
         let flatArgs =
             List.zip names groups

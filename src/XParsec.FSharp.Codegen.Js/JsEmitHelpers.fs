@@ -79,6 +79,22 @@ module JsEmitHelpers =
     let binderNameOf (pool: PoolBuilder) (b: BinderId) : string =
         binderName (TastPoolBuilder.binderNaming pool b)
 
+    /// A name for a binding the emitter INVENTS — a match scrutinee, a hoisted loop limit,
+    /// a wildcard parameter's slot. No source spells it, so it takes the identity every
+    /// unspelled binder takes: a slot minted from this file's pool, which is a fresh number
+    /// per mint and therefore distinct from every other name this function can return.
+    ///
+    /// NOT the introducing node's token. A token is unique only per SOURCE POSITION, and an
+    /// inlined body puts its whole tree on the call site's one token — so two temporaries of
+    /// one spliced body would take the same name, which for two parameters of a single arrow
+    /// or two `const`s of a single block is a JS `SyntaxError`, not a shadow.
+    ///
+    /// `prefix` names WHAT the temporary is, for a reader of the emitted JS; the slot is
+    /// what makes it unique.
+    let freshTemp (pool: PoolBuilder) (prefix: string) : string =
+        let (BinderId slot) = TastPoolBuilder.mintBinder pool
+        prefix + string slot
+
     // ---- Scalar constants ----------------------------------------------------
 
     /// Format a `double` round-trippably for a JS `number` literal. `NaN` /
@@ -233,31 +249,36 @@ module JsEmitHelpers =
 
     // ---- Functions -----------------------------------------------------------
 
-    /// A lambda parameter → its JS binding form. Wildcards get fresh unused names (JS
-    /// array holes shift later positions); a tuple becomes `[a, b]` destructuring.
+    /// A lambda parameter → its JS binding form. A parameter no source spells (`_`, `()`)
+    /// takes a `freshTemp`, never a hole (a JS array hole shifts the later positions); a
+    /// tuple becomes `[a, b]` destructuring. Every binding one parameter vector introduces
+    /// — destructuring leaves included — is therefore distinct, which is what a FLAT arrow
+    /// binding the whole vector at once requires of it.
     // TODO: tuple leaves smuggle a destructuring pattern through a `string` (emitted
     // verbatim). `Arrow.parameters` wants a real `JsPattern` for object-destructuring.
-    let rec lambdaParamName (p: TastAccessor.PatId) : string =
+    let rec lambdaParamName (pool: PoolBuilder) (p: TastAccessor.PatId) : string =
         match p with
         | TastAccessor.PNamedNaming naming -> binderName naming
         | _ ->
             match TastAccessor.patKind p with
-            | PatShape.Wildcard -> "_w" + string (TastAccessor.patTok p).StartIndex
-            | PatShape.Const when TastAccessor.patConstValue p = TConstValue.Unit ->
-                "_u" + string (TastAccessor.patTok p).StartIndex
+            | PatShape.Wildcard -> freshTemp pool "_w"
+            | PatShape.Const when TastAccessor.patConstValue p = TConstValue.Unit -> freshTemp pool "_u"
             | PatShape.Tuple ->
-                let parts = TastAccessor.patChildren p |> Array.map lambdaParamName
+                let parts = TastAccessor.patChildren p |> Array.map (lambdaParamName pool)
                 "[" + System.String.Join(", ", parts) + "]"
             | _ -> failwithf "EmitJs: unsupported lambda parameter pattern %A" p
 
     /// Peel a curried `Lambda` chain into its parameter names and the innermost
     /// body. The inverse of the nested-arrow emission.
-    let rec peelArrow (e: TastAccessor.ExprId) : string list * TastAccessor.ExprId =
+    let rec peelArrow (pool: PoolBuilder) (e: TastAccessor.ExprId) : string list * TastAccessor.ExprId =
         match TastAccessor.exprKind e with
         | ExprShape.Lambda ->
             let l = TastAccessor.exprLambda e
-            let names, inner = peelArrow l.Body
-            lambdaParamName l.Param :: names, inner
+            // Named left to right, so a reader of the emitted arrows sees the temporaries
+            // of one function in ascending order.
+            let name = lambdaParamName pool l.Param
+            let names, inner = peelArrow pool l.Body
+            name :: names, inner
         | _ -> [], e
 
     /// `["a"; "b"]` → `(a) => (b) => <innermost>`. Shared by lambda and member emission.

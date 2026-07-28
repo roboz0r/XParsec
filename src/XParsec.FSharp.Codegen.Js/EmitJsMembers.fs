@@ -78,9 +78,9 @@ module EmitJsMembers =
         (ctx: WalkCtx)
         (m: TastAccessor.TypeMember)
         : JsClassMethod =
-        // A fresh enumerator binder, keyed on the body token so it can't shadow a
-        // source binder the `GetEnumerator` body itself introduces.
-        let eName = "_e" + string (TastAccessor.exprTok m.Body).StartIndex
+        // A fresh enumerator binder, so it can't shadow a source binder the
+        // `GetEnumerator` body itself introduces.
+        let eName = freshTemp ctx.Pool "_e"
         let eIdent = JsExpr.Identifier(eName, ValueNone)
 
         // Direct attached calls on the enumerator object: `e.MoveNext()` / `e.Current()`

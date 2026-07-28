@@ -77,6 +77,37 @@ let tests =
                 Expect.stringContains js "_lim" "the end-expr is hoisted into a limit binding"
             }
 
+            // Two counted loops of ONE inlined body land side by side in the SAME JS
+            // block, and every node of a spliced body carries the call site's one token —
+            // so a limit named after that token would declare the same `const` twice,
+            // which is a `SyntaxError`, not a shadow.
+            test "two hoisted limits from one spliced body are distinct `const`s" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let inline twice (n: int) ="
+                            "    for i = 1 to n do printfn \"%d\" i"
+                            "    for j = 1 to n do printfn \"%d\" j"
+                            "twice 2"
+                        ]
+
+                let limits =
+                    emitJs src
+                    |> fun js -> js.Split '\n'
+                    |> Array.filter (fun l -> l.StartsWith "const _lim")
+                    |> List.ofArray
+
+                Expect.equal limits.Length 2 "one hoisted limit per spliced loop"
+                Expect.equal (List.distinct limits) limits "the two limits are separate bindings"
+
+                match runJs "arrayloop-spliced-limits" src with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "1\n2\n1\n2" "both spliced loops run"
+            }
+
             test "the `for i = 1 to 5` sum executes (1+2+3+4+5 = 15)" {
                 match runJs "arrayloop-forto-sum" forToSrc with
                 | None -> skiptest "node not found on PATH"

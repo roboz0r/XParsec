@@ -3,6 +3,25 @@ module XParsec.FSharp.Codegen.Js.Tests.FunctionEmissionTests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
+/// Every identifier BOUND by the parameter list of the top-level arrow `const <name> =
+/// (…) => …`, destructuring leaves included. A flat module function binds its whole
+/// parameter vector in ONE arrow, so two equal names here are a duplicate parameter —
+/// a `SyntaxError` in module code, not a shadow.
+let private arrowParamBindings (js: string) (name: string) : string list =
+    let opening = "const " + name + " = ("
+
+    match js.IndexOf opening with
+    | -1 -> failtestf "no top-level arrow `%s` in:\n%s" name js
+    | i ->
+        let start = i + opening.Length
+
+        match js.IndexOf(") =>", start) with
+        | -1 -> failtestf "`%s` is not an arrow in:\n%s" name js
+        | stop ->
+            js.Substring(start, stop - start).Split([| ','; '['; ']'; ' ' |])
+            |> Array.filter (fun s -> s <> "")
+            |> List.ofArray
+
 [<Tests>]
 let tests =
     testList
@@ -25,8 +44,45 @@ let tests =
             test "a partial application wraps the flat function in a curried adapter" {
                 Expect.equal
                     (emitJs "let add x y = x + y\nlet add5 = add 5")
-                    "const add = (x, y) => (((x) + (y)) | 0);\nconst add5 = ((_c4_0) => (_c4_1) => add(_c4_0, _c4_1))(5);\n"
+                    "const add = (x, y) => (((x) + (y)) | 0);\nconst add5 = ((_c6) => (_c7) => add(_c6, _c7))(5);\n"
                     "under-applied module function adapts to the source-shaped currying"
+            }
+
+            // A parameter no source spells (`_`, `()`) still needs a JS name, and an
+            // INLINED body carries the call site's one token on every node it owns — so
+            // a token cannot tell two of them apart. Both snippets below reach the flat
+            // path, where the whole parameter vector binds in a SINGLE arrow and two
+            // equal names are a `SyntaxError` (a module is strict code), not a shadow.
+
+            test "two wildcard parameters of one spliced flat arrow are distinct bindings" {
+                let src =
+                    "let inline mk ((a: int, _: int), (b: int, _: int)) = a + b\n"
+                    + "let f = mk\n"
+                    + "printfn \"%d\" (f ((1, 2), (3, 4)))\n"
+
+                let names = arrowParamBindings (emitJs src) "f"
+                Expect.equal names.Length 4 "two destructured pairs, four bindings"
+                Expect.equal (List.distinct names) names "no parameter name is bound twice"
+
+                match runJs "fn-spliced-wildcards" src with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "4" "1 + 3"
+            }
+
+            test "two unit parameters of one spliced flat arrow are distinct bindings" {
+                let src = "let inline mk ((), ()) = 42\nlet g = mk\nprintfn \"%d\" (g ((), ()))\n"
+
+                let names = arrowParamBindings (emitJs src) "g"
+                Expect.equal names.Length 2 "one binding per unit parameter"
+                Expect.equal (List.distinct names) names "no parameter name is bound twice"
+
+                match runJs "fn-spliced-units" src with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "42" "the unit parameters are accepted and dropped"
             }
 
             test "a self-tail-recursive function becomes a `while (true)` trampoline" {

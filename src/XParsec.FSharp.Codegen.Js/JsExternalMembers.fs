@@ -2,6 +2,7 @@ namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open JsEmitHelpers
 
 /// The EXTERNAL-member lowering cluster — everything the walker keys off the
 /// provider's external world: the declaring type's `ExternalClassFlags`, the `exn`
@@ -239,23 +240,22 @@ module JsExternalMembers =
     /// so the at-most-one-binding invariant is in the type. An external method is
     /// tupled, so the escaped value is a single-arrow `arg -> ret`: one wrapper
     /// param, forwarded per the member's `argSig` arity (`attachedForwardArgs`).
-    /// `off` (the member node's token offset) disambiguates the synthetic arg name.
     let etaWrapAttachedMethod
         (build: TastAccessor.ExprId -> JsExpr)
         (recv: TastAccessor.ExprId)
         (key: SymbolKey)
         (memberName: string)
-        (off: int)
+        (pool: PoolBuilder)
         (loc: JsLoc voption)
         : JsExpr =
         let recvJs, spill =
             match TastAccessor.exprKind recv with
             | ExprShape.Var -> build recv, ValueNone
             | _ ->
-                let tmp = "_recv" + string (TastAccessor.exprTok recv).StartIndex
+                let tmp = freshTemp pool "_recv"
                 JsExpr.Identifier(tmp, ValueNone), ValueSome(tmp, build recv)
 
-        let argName = "_a" + string off
+        let argName = freshTemp pool "_a"
         let argVar = JsExpr.Identifier(argName, ValueNone)
 
         let call =
