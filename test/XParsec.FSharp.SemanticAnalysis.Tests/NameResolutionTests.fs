@@ -522,8 +522,8 @@ let tests =
                 let info = expectClass ctx "D"
 
                 // The `base` binder gets a self-entry in the instance scope.
-                match ctx.Bindings.Binding.TryGetValue info.BaseKey with
-                | ValueSome rb -> Expect.equal rb.BindingSite info.BaseKey "base self-entry"
+                match ctx.Bindings.Binding.TryGetValue(BinderKey.identity info.BaseKey) with
+                | ValueSome rb -> Expect.equal rb.BindingSite (BinderKey.identity info.BaseKey) "base self-entry"
                 | ValueNone -> failtest "base not bound in instance scope"
 
                 // Referencing `base.M()` does not produce an unresolved diagnostic.

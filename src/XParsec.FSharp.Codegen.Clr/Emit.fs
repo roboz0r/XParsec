@@ -187,19 +187,22 @@ module Emit =
     /// closure/ctor map is passed.
     let buildMember
         (ctx: EmitContext)
-        (thisKey: NodeKey voption)
-        (baseKey: NodeKey voption)
-        (prms: EqArray<NodeKey * FrozenType>)
+        (thisKey: BinderKey voption)
+        (baseKey: BinderKey voption)
+        (prms: EqArray<BinderKey * FrozenType>)
         (voidReturn: bool)
         (body: TastAccessor.ExprId)
         : ILBody =
         let b = IlBuilder()
+        // Keyed in the REFERENCE domain: a body loads a parameter through a `TExpr.Var`,
+        // which names it by the raw identity, so each definition site widens as it is
+        // given its `ldarg` index.
         let args = Dictionary<NodeKey, int>()
 
         let baseIdx =
             match thisKey with
             | ValueSome k ->
-                args.[k] <- 0 // `this`
+                args.[BinderKey.identity k] <- 0 // `this`
                 1
             | ValueNone -> 0
 
@@ -207,10 +210,11 @@ module Emit =
         // `ldarg.0`. The `CallVia.Base` discriminator on the member access, not
         // the receiver load, is what makes the dispatch non-virtual.
         match baseKey with
-        | ValueSome k -> args.[k] <- 0
+        | ValueSome k -> args.[BinderKey.identity k] <- 0
         | ValueNone -> ()
 
-        prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- baseIdx + i)
+        prms
+        |> EqArray.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- baseIdx + i)
         // Carry `this` as the env's `SelfKey` too (it is already in `args` at 0,
         // so this is inert for ordinary var loads — `buildVarLoad` consults `Args`
         // first). It lets the struct-receiver address path recognise a `this`
@@ -218,7 +222,8 @@ module Emit =
         // pointer (`ldarg.0` is the byref receiver), so it must be loaded directly
         // rather than spilled to a value temp — a spill copies the struct and a
         // mutating self-call would not persist.
-        let env = EmitEnv.create ctx thisKey (Dictionary()) args
+        let env =
+            EmitEnv.create ctx (ValueOption.map BinderKey.identity thisKey) (Dictionary()) args
 
         buildExpr env b body
 
@@ -250,19 +255,19 @@ module Emit =
     /// so an empty closure/ctor map is passed (as `buildMember`).
     let buildSecondaryCtor
         (ctx: EmitContext)
-        (prms: EqArray<NodeKey * FrozenType>)
+        (prms: EqArray<BinderKey * FrozenType>)
         (lets: TastAccessor.CtorLet list)
         (primaryCtor: EntityHandle)
         (primaryArgs: TastAccessor.ExprId list)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
-        prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- 1 + i)
+        prms |> EqArray.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
         let env = EmitEnv.ofContext ctx args
 
         for l in lets do
             let slot = b.Local l.Type
-            env.Slots.[l.Binder] <- slot
+            env.Slots.[BinderKey.identity l.Binder] <- slot
             buildExpr env b l.Init
             b.Add(ILInstr.Stloc slot)
 
@@ -287,18 +292,18 @@ module Emit =
     /// order.
     let buildSecondaryCtorFieldInit
         (ctx: EmitContext)
-        (prms: EqArray<NodeKey * FrozenType>)
+        (prms: EqArray<BinderKey * FrozenType>)
         (lets: TastAccessor.CtorLet list)
         (fieldInits: (EntityHandle * TastAccessor.ExprId) list)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
-        prms |> EqArray.iteri (fun i (k, _) -> args.[k] <- 1 + i)
+        prms |> EqArray.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
         let env = EmitEnv.ofContext ctx args
 
         for l in lets do
             let slot = b.Local l.Type
-            env.Slots.[l.Binder] <- slot
+            env.Slots.[BinderKey.identity l.Binder] <- slot
             buildExpr env b l.Init
             b.Add(ILInstr.Stloc slot)
 
@@ -337,19 +342,20 @@ module Emit =
     let buildClassPrimaryCtor
         (ctx: EmitContext)
         (chain: CtorChain)
-        (thisKey: NodeKey)
-        (ctorParams: (NodeKey * FrozenType) list)
+        (thisKey: BinderKey)
+        (ctorParams: (BinderKey * FrozenType) list)
         (fields: EntityHandle list)
         (preamble: PreambleStep list)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
-        args.[thisKey] <- 0
-        ctorParams |> List.iteri (fun i (k, _) -> args.[k] <- 1 + i)
+        args.[BinderKey.identity thisKey] <- 0
+        ctorParams |> List.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
         // `this` is the env's `SelfKey` as well as `Args.[thisKey] = 0` (as `buildMember`
         // does): on a value type `ldarg.0` is the byref receiver, so a self-call must
         // load it directly rather than spill a copy.
-        let env = EmitEnv.create ctx (ValueSome thisKey) (Dictionary()) args
+        let env =
+            EmitEnv.create ctx (ValueSome(BinderKey.identity thisKey)) (Dictionary()) args
 
         match chain with
         | CtorChain.None -> ()

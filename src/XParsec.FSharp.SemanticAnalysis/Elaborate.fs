@@ -75,19 +75,11 @@ module Elaborate =
                 nthLambdaParam inner (i - 1)
         | _ -> ValueNone
 
-    /// The binder `NodeKey` `translatePat` mints for an argument pattern — the
-    /// innermost `NamedSimple` after peeling the inert wrappers (`[<…>] p`, `(p)`,
-    /// `p : t`, `p as x`). `ValueNone` for a non-simple parameter (a tuple &c.).
-    /// Used only to assert the positional alignment between an inline's
-    /// `argumentPats` and its elaborated curried-lambda nest (`recordInlineParamAttrs`).
-    let rec private argPatBinderKey (p: Pat<SyntaxToken>) : NodeKey voption =
-        match p with
-        | Pat.NamedSimple _ -> ValueSome(CstKeys.ofPat p)
-        | Pat.Attributed(pat = inner)
-        | Pat.EnclosedBlock(pat = inner)
-        | Pat.Typed(pat = inner)
-        | Pat.As(pat = inner) -> argPatBinderKey inner
-        | _ -> ValueNone
+    /// The binder an argument pattern introduces, in the REFERENCE domain the elaborated
+    /// lambda nest names its parameter by. Used only to assert the positional alignment
+    /// between an inline's `argumentPats` and that nest (`recordInlineParamAttrs`).
+    let private argPatBinderKey (p: Pat<SyntaxToken>) : NodeKey voption =
+        BinderKey.ofCstPat p |> ValueOption.map BinderKey.identity
 
     /// The `[<CallAtMostOnce>]` linearity contract: `k` is referenced AT MOST
     /// ONCE in `scope`, and (if once) that use is not under a lambda or loop — so
@@ -668,15 +660,20 @@ module Elaborate =
     /// signature. Curried members (`M a b`) appear as multiple `argumentPats`
     /// entries and compose with the flatten. Non-simple components (wildcards,
     /// nested destructuring) bind nothing and are dropped.
-    let private memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : EqArray<NodeKey * SemType> =
+    let private memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : EqArray<BinderKey * SemType> =
         let rec flatten (tp: TPat) =
             seq {
                 match tp with
-                | TPat.NamedSimple(k, ty, _) -> yield (k, ty)
                 | TPat.Tuple(items, _, _) ->
                     for it in items do
                         yield! flatten it
-                | _ -> ()
+                // A parameter's slot is a definition site, so it is taken with the
+                // projection that answers for a pattern; a component that binds nothing
+                // (a wildcard, a nested destructuring) yields none and is dropped.
+                | _ ->
+                    match BinderKey.ofPat tp with
+                    | ValueSome binder -> yield (binder, TastWalk.patTy tp)
+                    | ValueNone -> ()
             }
 
         EqArray.ofSeq (
@@ -866,7 +863,7 @@ module Elaborate =
     let private instanceFieldRewrite (info: ClassTypeInfo) (classTy: SemType) : FieldRewrite =
         let names =
             (Map.empty, info.CtorParams)
-            ||> Array.fold (fun acc p -> Map.add p.DeclKey p.Name acc)
+            ||> Array.fold (fun acc p -> Map.add (BinderKey.identity p.DeclKey) p.Name acc)
 
         let names =
             (names, ClassPreamble.lets info.InstancePreamble)
@@ -874,10 +871,12 @@ module Elaborate =
 
         {
             Names = names
-            MkGet = fun name ty tok -> TExpr.FieldGet(TExpr.Var(info.ThisKey, classTy, tok), name, ty, tok)
+            MkGet =
+                fun name ty tok ->
+                    TExpr.FieldGet(TExpr.Var(BinderKey.identity info.ThisKey, classTy, tok), name, ty, tok)
             MkSet =
                 ValueSome(fun name rhs ty tok ->
-                    TExpr.FieldSet(TExpr.Var(info.ThisKey, classTy, tok), name, rhs, ty, tok)
+                    TExpr.FieldSet(TExpr.Var(BinderKey.identity info.ThisKey, classTy, tok), name, rhs, ty, tok)
                 )
         }
 
@@ -1047,19 +1046,6 @@ module Elaborate =
         let parms =
             EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclKey, Unification.zonk ctx.Store p.Type) })
 
-        // Binder NodeKey for a `let`-preamble head (simple names only in v1); the
-        // key matches `bindingsOfPat` (the innermost `NamedSimple`'s own key).
-        let binderKeyOf (b: Binding<SyntaxToken>) : NodeKey voption =
-            let rec walk (p: Pat<SyntaxToken>) =
-                match p with
-                | Pat.NamedSimple _ -> ValueSome(CstKeys.ofPat p)
-                | Pat.EnclosedBlock(pat = inner)
-                | Pat.Typed(pat = inner)
-                | Pat.Attributed(pat = inner) -> walk inner
-                | _ -> ValueNone
-
-            walk b.headPat
-
         let chainArgs (e: Expr<SyntaxToken>) : EqArray<TExpr> =
             let raw =
                 match e with
@@ -1089,12 +1075,14 @@ module Elaborate =
         let rec go (ace: AdditionalConstrExpr<SyntaxToken>) =
             match ace with
             | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
-                match binderKeyOf b with
-                | ValueSome k ->
+                // A `let`-preamble head binds a simple name in v1; its key is the one
+                // `translatePat` mints, so a body reference resolves to this local.
+                match BinderKey.ofCstPat b.headPat with
+                | ValueSome binder ->
                     lets.Add
                         {
-                            Binder = k
-                            Type = typeOfKey ctx k
+                            Binder = binder
+                            Type = typeOfKey ctx (BinderKey.identity binder)
                             Init = translateExpr ctx b.expr
                         }
                 | ValueNone -> ()

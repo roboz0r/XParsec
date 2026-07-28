@@ -110,10 +110,17 @@ module FrozenCodecPrimitives =
     let writeNodeKey (w: BinaryWriter) (k: NodeKey) = w.Write k.Raw
     let readNodeKey (r: BinaryReader) : NodeKey = NodeKey(r.ReadUInt64())
 
-    /// A binder's dense pool index — the identity every pooled reference to a definition
-    /// site is written as, whether it rides a payload or a declaration shape's key slot.
+    /// A binder's dense pool index — the identity every pooled REFERENCE to a definition
+    /// site is written as.
     let writeBinderId (w: BinaryWriter) (BinderId i) = w.Write i
     let readBinderId (r: BinaryReader) : BinderId = BinderId(r.ReadInt32())
+
+    /// A declaration shape's key SLOT: the same id on the wire, re-admitted as the binder
+    /// key the slot is typed by (`BinderKey.ofInterned` — the one seam that rebuilds one
+    /// from a bare identity, because a decoded column has no key to project from).
+    let writeBinderSlot (w: BinaryWriter) (k: BinderKeyG<BinderId>) = writeBinderId w (BinderKey.identity k)
+
+    let readBinderSlot (r: BinaryReader) : BinderKeyG<BinderId> = BinderKey.ofInterned (readBinderId r)
 
     /// A `SyntaxToken` is its source offset + `Token` enum + `TokenIndex` case; the
     /// `PositionedToken` is rebuilt from `(Token, StartIndex)` via its factory, and the

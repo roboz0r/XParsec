@@ -134,15 +134,6 @@ type PatPoolId = | PatPoolId of int
 [<Struct>]
 type DeclPoolId = | DeclPoolId of int
 
-/// A dense pool index into `FrozenPools.BinderKeys` — the positional identity a frozen
-/// binder takes on once kind dissolves. A binder is a NodeKey a definition site
-/// INTRODUCES — a `NamedSimple` pattern, a `ForTo` loop variable, or one of a type
-/// declaration's pattern-less key slots (the `BinderKey` projections); the
-/// cross-references that named it by 64-bit content key during analysis (`Var.binding`,
-/// the side-table keys) name it by this id in the pool form.
-[<Struct>]
-type BinderId = | BinderId of int
-
 /// The TAST at the POOLED identity: a tree whose binders are named by the dense
 /// `BinderId` the columns already address them by, rather than by the `NodeKey` a
 /// source-shaped tree names them by. `TastUnpool` rebuilds at these aliases, which is what
@@ -160,7 +151,7 @@ module Pooled =
     type TastFile = TastFileG<FrozenType, SyntaxToken, BinderId>
 
 /// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
-/// by pool id instead of carrying the tree, and whose six pattern-less BINDER slots name
+/// by pool id instead of carrying the tree, and whose seven pattern-less BINDER slots name
 /// their definition site by `BinderId` — the same dense identity every other pooled
 /// reference uses, so a declaration's `this` / parameters / ctor locals are addressed
 /// exactly as a `NamedSimple` pattern's binder is. The declaration SHAPE is unchanged —
@@ -175,7 +166,7 @@ type PooledTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, BinderId, ExprPoolId>
 /// spine, so a group's pattern is the very node the spine bears, not a copy of it).
 /// Distinct from `Frozen.ValRepr`, which stays at the pattern TREE because an EXTERNAL
 /// symbol's pats are minted from an `.fsi` contract and index into no file's pool.
-type PooledValRepr = ValReprG<FrozenType, PatPoolId>
+type PooledValRepr = ValReprG<FrozenType, PatPoolId, BinderId>
 
 /// The SOURCE-arity grouping rule and the curried peel that applies it — written ONCE,
 /// here rather than with the rest of the compiled-form machinery (`TastLower`), because
@@ -194,11 +185,11 @@ module ArgGroups =
     /// (`Const` only). Named rather than a positional tuple because each domain's reader
     /// fills it and none should have to remember an argument order.
     [<Struct>]
-    type ParamPatFacts =
+    type ParamPatFacts<'id> =
         {
             Shape: PatShape
             Ty: FrozenType
-            Binder: NodeKey voption
+            Binder: 'id voption
             ConstValue: TConstValue voption
         }
 
@@ -207,7 +198,7 @@ module ArgGroups =
     /// parameter is a `GTuple` carrying the WHOLE pattern, since flattening is
     /// `TastLower.compiledOf`'s job and the source grouping must survive; anything else is
     /// not a parameter group at all and stops the peel.
-    let ofParam (facts: ParamPatFacts) (pat: 'p) : ArgGroupG<FrozenType, 'p> voption =
+    let ofParam (facts: ParamPatFacts<'id>) (pat: 'p) : ArgGroupG<FrozenType, 'p, 'id> voption =
         match facts.Shape, facts.Binder, facts.ConstValue with
         | PatShape.NamedSimple, ValueSome k, _ -> ValueSome(ArgGroupG.GSimple(k, facts.Ty))
         | PatShape.Const, _, ValueSome TConstValue.Unit -> ValueSome(ArgGroupG.GUnit facts.Ty)
@@ -221,9 +212,9 @@ module ArgGroups =
     /// domain that has a spine.
     let rec peel
         (unLambda: 'e -> struct ('p * 'e) voption)
-        (facts: 'p -> ParamPatFacts)
+        (facts: 'p -> ParamPatFacts<'id>)
         (e: 'e)
-        : ArgGroupG<FrozenType, 'p> list * 'e =
+        : ArgGroupG<FrozenType, 'p, 'id> list * 'e =
         match unLambda e with
         | ValueSome(struct (param, body)) ->
             match ofParam (facts param) param with

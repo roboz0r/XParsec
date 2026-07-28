@@ -937,7 +937,7 @@ let tests =
 
                 match c.Members.[0].Body with
                 | TExpr.FieldGet(TExpr.Var(k, _, _), name, _, _) ->
-                    Expect.equal k c.ThisKey "the member reads the field off `this`"
+                    Expect.equal k (BinderKey.identity c.ThisKey) "the member reads the field off `this`"
                     Expect.equal name "a" "field name"
                 | other -> failtestf "expected a FieldGet body, got %A" other
             }
@@ -965,7 +965,7 @@ let tests =
 
                 match cls.Members.[0].Body with
                 | TExpr.FieldSet(TExpr.Var(k, _, _), name, _, _, _) ->
-                    Expect.equal k cls.ThisKey "the write stores through `this`"
+                    Expect.equal k (BinderKey.identity cls.ThisKey) "the write stores through `this`"
                     Expect.equal name "c" "field name"
                 | other -> failtestf "expected a FieldSet body, got %A" other
             }

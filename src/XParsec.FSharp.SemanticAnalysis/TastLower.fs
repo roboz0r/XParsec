@@ -200,6 +200,13 @@ module TastLower =
     /// no name to reference it, so the slot is keyed off a fresh placeholder.
     let mintUseBinderKey () : NodeKey = mintSyntheticParamKey ()
 
+    /// The parameter slot of a `ValRepr` belonging to NO file's tree: an `.fsi` contract's
+    /// (`externalValRepr`), or a project-local signature re-axised for the provider view
+    /// (`FrozenSignature`). A consumer holds no body for such a symbol, so nothing can
+    /// resolve the slot — it exists to keep the group total — and the producer's own binder
+    /// identity, which means nothing in the consuming unit, must not stand in for it.
+    let mintContractParamKey () : NodeKey = mintSyntheticParamKey ()
+
     // ----------------------------------------------------------------------
     // Compiled-form representation
     //
@@ -221,7 +228,7 @@ module TastLower =
     // ----------------------------------------------------------------------
 
     // The source-arity / compiled-form types live in `Tast.fs` (`ArgGroupG`,
-    // `ValReprG`, `CompiledReturnG`, `CompiledFormG`, generic over `'ty`/`'pat`);
+    // `ValReprG`, `CompiledReturnG`, `CompiledFormG`, generic over `'ty`/`'pat`/`'id`);
     // these are the pooled instantiations the builders below produce.
     type ArgGroup = TastAccessor.ArgGroup
     type ValRepr = TastAccessor.ValRepr
@@ -332,7 +339,7 @@ module TastLower =
             | TastAccessor.ELambda lam -> ValueSome(struct (lam.Param, lam.Body))
             | _ -> ValueNone
 
-        let facts (p: TastAccessor.PatId) : ArgGroups.ParamPatFacts =
+        let facts (p: TastAccessor.PatId) : ArgGroups.ParamPatFacts<NodeKey> =
             let shape = TastAccessor.patKind p
 
             {
@@ -483,11 +490,11 @@ module TastLower =
                 | _ ->
                     // A ≥2-width group is always an `FTTuple` (translateArgsSpec); keep a
                     // single param defensively rather than fabricate one.
-                    ArgGroupG.GSimple(mintSyntheticParamKey (), pty)
+                    ArgGroupG.GSimple(mintContractParamKey (), pty)
             elif isUnitFrozen pty then
                 ArgGroupG.GUnit pty
             else
-                ArgGroupG.GSimple(mintSyntheticParamKey (), pty)
+                ArgGroupG.GSimple(mintContractParamKey (), pty)
 
         {
             Typars = typars

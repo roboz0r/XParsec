@@ -39,7 +39,8 @@ let tests =
                         "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    member this.N () = 2"
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "D" with
-                | ValueSome info -> Expect.equal (typeOf ctx info.BaseKey) (TyClass("B", EqArray.empty)) "base : B"
+                | ValueSome info ->
+                    Expect.equal (typeOf ctx (BinderKey.identity info.BaseKey)) (TyClass("B", EqArray.empty)) "base : B"
                 | ValueNone -> failtest "class type D not registered"
             }
 

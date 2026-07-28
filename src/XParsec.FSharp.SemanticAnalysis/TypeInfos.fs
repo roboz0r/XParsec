@@ -221,7 +221,7 @@ type IInterfaceImplHost =
     /// Source-text name bound to `this` inside member / impl bodies (`"this"` unless
     /// an `as`-binder renamed it). Used by NameResolution to seed the body scope.
     abstract member ThisName: string
-    abstract member ThisKey: NodeKey
+    abstract member ThisKey: BinderKey
     abstract member InterfaceImpls: ClassInterfaceImplInfo[]
     abstract member Members: TypeMemberInfo[]
     abstract member EqualitySupport: EqualityVerdict
@@ -296,9 +296,9 @@ type RecordTypeInfo
     member val Members: TypeMemberInfo[] = [||] with get, set
     /// `this`-binding source name (default `"this"`; honours `as self`).
     member val ThisName = "this" with get, set
-    /// Synthetic NodeKey for the `this` binder shared across every instance
-    /// member body in this record. Set during registration when there are members.
-    member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
+    /// The `this` binder shared across every instance member body in this record. Set during
+    /// registration when there are members.
+    member val ThisKey = Unchecked.defaultof<BinderKey> with get, set
     /// `interface IFace with member …` blocks declared on the record.
     /// Stamped by `NameResolution.registerNominalMember`; each impl's interface type
     /// is resolved + verified, and its member bodies typed, by Unification's
@@ -369,9 +369,9 @@ type UnionTypeInfo
     member val Members: TypeMemberInfo[] = [||] with get, set
     /// `this`-binding source name (default `"this"`; honours `as self`).
     member val ThisName = "this" with get, set
-    /// Synthetic NodeKey for the `this` binder shared across every instance
-    /// member body in this union. Set during registration when there are members.
-    member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
+    /// The `this` binder shared across every instance member body in this union. Set during
+    /// registration when there are members.
+    member val ThisKey = Unchecked.defaultof<BinderKey> with get, set
     /// Equality posture for this union. Filled during
     /// `NameResolution.registerUnionTypeDefn`; defaults to `Structural`.
     /// `Unification.checkConstraint` short-circuits on `NoEquality`; `Elaborate`
@@ -446,9 +446,9 @@ type IntrinsicAbbrevInfo
     member val Members: TypeMemberInfo[] = [||] with get, set
     /// `this`-binding source name (default `"this"`; honours `as self`).
     member val ThisName = "this" with get, set
-    /// Synthetic NodeKey for the `this` binder shared across every instance member
-    /// body. Set during registration when there are members.
-    member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
+    /// The `this` binder shared across every instance member body. Set during registration
+    /// when there are members.
+    member val ThisKey = Unchecked.defaultof<BinderKey> with get, set
     /// `interface … with` blocks are out of scope for the intrinsic host; always empty.
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
 
@@ -563,7 +563,7 @@ type AbbreviationInfo
 /// ANNOTATED parameter's cell is linked to its declared type at registration
 /// (`ctorParamsOfPat`), under the class's typar scope and against the types in scope there.
 [<Sealed>]
-type ClassCtorParamInfo(name: string, ty: SemType, declKey: NodeKey) =
+type ClassCtorParamInfo(name: string, ty: SemType, declKey: BinderKey) =
     member val Name = name
     member val Type = ty
     member val DeclKey = declKey
@@ -645,8 +645,8 @@ type ClassTypeInfo
         members: TypeMemberInfo[],
         declKey: NodeKey,
         thisName: string,
-        thisKey: NodeKey,
-        baseKey: NodeKey,
+        thisKey: BinderKey,
+        baseKey: BinderKey,
         key: TypeKey
     ) =
     member val Name = name
@@ -660,10 +660,9 @@ type ClassTypeInfo
     member val DeclKey = declKey
     /// `this`-binding source name (default `"this"`; honours `as self`).
     member val ThisName = thisName
-    /// Synthetic NodeKey for the `this` binder shared across every
-    /// member body in this class.
+    /// The `this` binder shared across every member body in this class.
     member val ThisKey = thisKey
-    /// Synthetic NodeKey for the `base` binder, mirroring `ThisKey`. Used by
+    /// The `base` binder, minted alongside `ThisKey` (`BinderKey.ofDeclaredBase`). Used by
     /// the inheritance plumbing (`base.M()` non-virtual dispatch +
     /// `inherit Base(args)` ctor lowering); always allocated, only read when
     /// `BaseType` is `ValueSome`.

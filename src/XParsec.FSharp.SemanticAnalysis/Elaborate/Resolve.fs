@@ -544,7 +544,13 @@ module internal ElaborateResolve =
             let mutable isBase = false
 
             for kv in ctx.Types.Class do
-                if not isBase && kv.Value.BaseType.IsSome && kv.Value.BaseKey = bindingSite then
+                // A `Var` names its binder in the reference domain, so the class's `base`
+                // binder is compared there.
+                if
+                    not isBase
+                    && kv.Value.BaseType.IsSome
+                    && BinderKey.identity kv.Value.BaseKey = bindingSite
+                then
                     isBase <- true
 
             if isBase then CallVia.Base else CallVia.Self

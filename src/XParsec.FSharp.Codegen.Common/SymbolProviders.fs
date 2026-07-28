@@ -85,7 +85,9 @@ module SymbolProviders =
             for i = curried.Length - 1 downto 0 do
                 let (pk, pty) = curried.[i]
                 let lamTy = FTFun(pty, resultTy)
-                let param = TastAccessor.mintNamedPat pool pk pty bodyTok
+                // The minted `NamedSimple` IS the parameter's definition site, so it is
+                // built from the identity the declaration's key slot holds.
+                let param = TastAccessor.mintNamedPat pool (BinderKey.identity pk) pty bodyTok
                 body <- TastAccessor.mintLambda param body lamTy bodyTok
                 resultTy <- lamTy
 

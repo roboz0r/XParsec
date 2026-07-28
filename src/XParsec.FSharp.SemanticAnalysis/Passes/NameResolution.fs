@@ -176,13 +176,16 @@ module NameResolution =
         | ValueNone -> ()
 
         for p in w.CtorParams do
-            scopeMap <- Map.add p.Name (p.DeclKey, false) scopeMap
-            declareField p.Name p.DeclKey
+            // A name resolves to the RAW identity a reference carries, so the parameter's
+            // binder is widened once here and scoped under that.
+            let paramKey = BinderKey.identity p.DeclKey
+            scopeMap <- Map.add p.Name (paramKey, false) scopeMap
+            declareField p.Name paramKey
 
             ctx.Bindings.Binding.Set(
-                p.DeclKey,
+                paramKey,
                 {
-                    BindingSite = p.DeclKey
+                    BindingSite = paramKey
                     IsInline = false
                     IsMutable = false
                 }
@@ -274,7 +277,7 @@ module NameResolution =
         // has already rejected any name a ctor param shares with a static binder.
         let ctorParamScope =
             (Map.empty, w.CtorParams)
-            ||> Array.fold (fun acc p -> Map.add p.Name (p.DeclKey, false) acc)
+            ||> Array.fold (fun acc p -> Map.add p.Name (BinderKey.identity p.DeclKey, false) acc)
 
         let instanceOuterScope = [ ctorParamScope; staticLetScope; moduleMemberScope ]
 
@@ -350,12 +353,13 @@ module NameResolution =
             let mutable scScope = staticLetScope
 
             for p in sc.Params do
-                scScope <- Map.add p.Name (p.DeclKey, false) scScope
+                let paramKey = BinderKey.identity p.DeclKey
+                scScope <- Map.add p.Name (paramKey, false) scScope
 
                 ctx.Bindings.Binding.Set(
-                    p.DeclKey,
+                    paramKey,
                     {
-                        BindingSite = p.DeclKey
+                        BindingSite = paramKey
                         IsInline = false
                         IsMutable = false
                     }
@@ -475,10 +479,10 @@ module NameResolution =
                         walker
                         {
                             ThisName = info.ThisName
-                            ThisKey = info.ThisKey
+                            ThisKey = BinderKey.identity info.ThisKey
                             BaseKey =
                                 match info.BaseType with
-                                | ValueSome _ -> ValueSome info.BaseKey
+                                | ValueSome _ -> ValueSome(BinderKey.identity info.BaseKey)
                                 | ValueNone -> ValueNone
                             CtorParams = info.CtorParams
                             InstanceFields = info.InstanceFields
@@ -519,7 +523,7 @@ module NameResolution =
                 walker
                 {
                     ThisName = host.ThisName
-                    ThisKey = host.ThisKey
+                    ThisKey = BinderKey.identity host.ThisKey
                     BaseKey = ValueNone
                     CtorParams = [||]
                     InstanceFields = [||]

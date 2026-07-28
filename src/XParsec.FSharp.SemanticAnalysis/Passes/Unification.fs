@@ -548,7 +548,7 @@ module Unification =
                     // them type through the same cells.
                     for p in sc.Params do
                         match p.Type with
-                        | TyVar tv -> ctx.Bindings.TypeVar.Set(p.DeclKey, tv)
+                        | TyVar tv -> ctx.Bindings.TypeVar.Set(BinderKey.identity p.DeclKey, tv)
                         | _ -> ()
 
                     enterLevel ctx
@@ -637,7 +637,7 @@ module Unification =
             let baseTv = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store baseTv, ctx.CurrentLevel)
             ctx.Store.SetLink(UnionFind.find ctx.Store baseTv, ValueSome parentTy)
-            ctx.Bindings.TypeVar.Set(info.BaseKey, baseTv)
+            ctx.Bindings.TypeVar.Set(BinderKey.identity info.BaseKey, baseTv)
         | ValueNone -> ()
 
     /// Type-check the member bodies of one resolved `interface IFace with member …`
@@ -878,7 +878,7 @@ module Unification =
                 {
                     TypeParams = info.TypeParams
                     Members = impl.Members
-                    ThisKey = info.ThisKey
+                    ThisKey = BinderKey.identity info.ThisKey
                     MkSelfType = info.MkSelfType
                     PrelinkExtras = ignore
                     Elements = impl.Elements
@@ -919,7 +919,7 @@ module Unification =
                             // that same cell.
                             for p in info.CtorParams do
                                 match p.Type with
-                                | TyVar tv -> ctx.Bindings.TypeVar.Set(p.DeclKey, tv)
+                                | TyVar tv -> ctx.Bindings.TypeVar.Set(BinderKey.identity p.DeclKey, tv)
                                 | _ -> ()
 
                             // Inheritance: type the base-ctor call and
@@ -973,7 +973,7 @@ module Unification =
                             {
                                 TypeParams = info.TypeParams
                                 Members = info.Members
-                                ThisKey = info.ThisKey
+                                ThisKey = BinderKey.identity info.ThisKey
                                 MkSelfType = fun args -> TyClass(info.TypeKey, args)
                                 PrelinkExtras = prelinkExtras
                                 Elements = body.elements
@@ -1005,7 +1005,7 @@ module Unification =
                 {
                     TypeParams = host.TypeParams
                     Members = host.Members
-                    ThisKey = host.ThisKey
+                    ThisKey = BinderKey.identity host.ThisKey
                     MkSelfType = host.MkSelfType
                     PrelinkExtras = ignore
                     Elements = elems

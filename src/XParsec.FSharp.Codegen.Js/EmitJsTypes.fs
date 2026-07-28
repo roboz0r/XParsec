@@ -105,7 +105,7 @@ module EmitJsTypes =
     /// / `do g a` / `let b = h()`).
     type ClassPreamble =
         {
-            ThisKey: NodeKey
+            ThisKey: BinderKey
             Entries: TastAccessor.PreambleEntry list
         }
 

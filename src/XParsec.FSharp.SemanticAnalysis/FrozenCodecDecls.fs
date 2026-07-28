@@ -281,7 +281,7 @@ module FrozenCodecDecls =
         w.Write c.IsSealed
         writeEqArrayWith w writePreambleEntry c.StaticPreamble
         writeEqArrayWith w writePreambleEntry c.InstancePreamble
-        writeBinderId w c.ThisKey
+        writeBinderSlot w c.ThisKey
         writeEqArrayWith w writeSecondaryCtor c.SecondaryCtors
         writeVOptionWith w writeBaseCtorCall c.BaseCtorCall
         writeClassValueKind w c.ValueKind
@@ -296,7 +296,7 @@ module FrozenCodecDecls =
         let isSealed = r.ReadBoolean()
         let staticPreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
         let instancePreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
-        let thisKey = readBinderId r
+        let thisKey = readBinderSlot r
         let secondaryCtors = EqArray.ofArray (readArrayWith r readSecondaryCtor)
         let baseCtorCall = readVOptionWith r readBaseCtorCall
         let valueKind = readClassValueKind r
@@ -324,14 +324,14 @@ module FrozenCodecDecls =
         writeAccessibility w m.Accessibility
         writeTMemberKind w m.Kind
         w.Write m.IsOverride
-        writeVOptionWith w writeBinderId m.ThisKey
-        writeVOptionWith w writeBinderId m.BaseKey
+        writeVOptionWith w writeBinderSlot m.ThisKey
+        writeVOptionWith w writeBinderSlot m.BaseKey
         writeFrozenType w m.ThisTy
 
         writeEqArrayWith
             w
             (fun w (k, ty) ->
-                writeBinderId w k
+                writeBinderSlot w k
                 writeFrozenType w ty
             )
             m.Params
@@ -346,8 +346,8 @@ module FrozenCodecDecls =
         let accessibility = readAccessibility r
         let kind = readTMemberKind r
         let isOverride = r.ReadBoolean()
-        let thisKey = readVOptionWith r readBinderId
-        let baseKey = readVOptionWith r readBinderId
+        let thisKey = readVOptionWith r readBinderSlot
+        let baseKey = readVOptionWith r readBinderSlot
         let thisTy = readFrozenType r
 
         let parameters =
@@ -355,7 +355,7 @@ module FrozenCodecDecls =
                 readArrayWith
                     r
                     (fun r ->
-                        let k = readBinderId r
+                        let k = readBinderSlot r
                         let ty = readFrozenType r
                         k, ty
                     )
@@ -415,12 +415,12 @@ module FrozenCodecDecls =
         | b -> failwithf "FrozenCodec: unknown TPreambleEntry tag %d" b
 
     and private writeCtorLet (w: BinaryWriter) (cl: TCtorLetG<FrozenType, BinderId, ExprPoolId>) =
-        writeBinderId w cl.Binder
+        writeBinderSlot w cl.Binder
         writeFrozenType w cl.Type
         writeExprPoolId w cl.Init
 
     and private readCtorLet (r: BinaryReader) : TCtorLetG<FrozenType, BinderId, ExprPoolId> =
-        let binder = readBinderId r
+        let binder = readBinderSlot r
         let ty = readFrozenType r
         let init = readExprPoolId r
 
@@ -443,7 +443,7 @@ module FrozenCodecDecls =
         writeEqArrayWith
             w
             (fun w (k, ty) ->
-                writeBinderId w k
+                writeBinderSlot w k
                 writeFrozenType w ty
             )
             sc.Params
@@ -458,7 +458,7 @@ module FrozenCodecDecls =
                 readArrayWith
                     r
                     (fun r ->
-                        let k = readBinderId r
+                        let k = readBinderSlot r
                         let ty = readFrozenType r
                         k, ty
                     )
@@ -479,7 +479,7 @@ module FrozenCodecDecls =
         writeEqArrayWith
             w
             (fun w (k, ty) ->
-                writeBinderId w k
+                writeBinderSlot w k
                 writeFrozenType w ty
             )
             bc.CtorParams
@@ -493,7 +493,7 @@ module FrozenCodecDecls =
                 readArrayWith
                     r
                     (fun r ->
-                        let k = readBinderId r
+                        let k = readBinderSlot r
                         let ty = readFrozenType r
                         k, ty
                     )
@@ -526,24 +526,24 @@ module FrozenCodecDecls =
             ParamAttrs = paramAttrs
         }
 
-    and private writeArgGroup (w: BinaryWriter) (g: ArgGroupG<FrozenType, PatPoolId>) =
+    and private writeArgGroup (w: BinaryWriter) (g: ArgGroupG<FrozenType, PatPoolId, BinderId>) =
         match g with
         | ArgGroupG.GUnit ty ->
             w.Write 0uy
             writeFrozenType w ty
         | ArgGroupG.GSimple(slot, ty) ->
             w.Write 1uy
-            writeNodeKey w slot
+            writeBinderId w slot
             writeFrozenType w ty
         | ArgGroupG.GTuple pat ->
             w.Write 2uy
             writePatPoolId w pat
 
-    and private readArgGroup (r: BinaryReader) : ArgGroupG<FrozenType, PatPoolId> =
+    and private readArgGroup (r: BinaryReader) : ArgGroupG<FrozenType, PatPoolId, BinderId> =
         match r.ReadByte() with
         | 0uy -> ArgGroupG.GUnit(readFrozenType r)
         | 1uy ->
-            let slot = readNodeKey r
+            let slot = readBinderId r
             let ty = readFrozenType r
             ArgGroupG.GSimple(slot, ty)
         | 2uy -> ArgGroupG.GTuple(readPatPoolId r)

@@ -37,23 +37,27 @@ module NameResolutionMemberRegistration =
     let private ctorParamsOfPat (ctx: PassContext) (declKey: NodeKey) (p: Pat<SyntaxToken>) : ClassCtorParamInfo[] =
         let results = ResizeArray<ClassCtorParamInfo>()
 
-        // Synthetic kind keeps the param's binding-site key distinct from a regular
-        // Pat.NamedSimple at the same offset.
-        let addParam (id: SyntaxToken) (annotation: Type<SyntaxToken> voption) =
-            let tv = ctx.NewTypeVar()
-            ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
+        // The parameter's binding site is the pattern's own — the key a body's reference to
+        // it resolves through — so it is taken with the projection that answers for a
+        // pattern rather than off the identifier token.
+        let addParam (p: Pat<SyntaxToken>) (id: SyntaxToken) (annotation: Type<SyntaxToken> voption) =
+            match BinderKey.ofCstPat p with
+            | ValueNone -> () // unreachable: every arm below hands a (wrapped) `NamedSimple`
+            | ValueSome binder ->
+                let tv = ctx.NewTypeVar()
+                ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
 
-            match annotation with
-            | ValueSome t -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome(translateType ctx t))
-            | ValueNone -> ()
+                match annotation with
+                | ValueSome t -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome(translateType ctx t))
+                | ValueNone -> ()
 
-            results.Add(ClassCtorParamInfo(ctx.NameOf id, TyVar tv, NodeKey.ofToken id NodeKind.PatIdent))
+                results.Add(ClassCtorParamInfo(ctx.NameOf id, TyVar tv, binder))
 
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
             | Pat.EmptyBlock _ -> () // `new()` / `C()` — no parameters
-            | Pat.NamedSimple id -> addParam id ValueNone
-            | Pat.Typed(pat = Pat.NamedSimple id; typ = t) -> addParam id (ValueSome t)
+            | Pat.NamedSimple id -> addParam p id ValueNone
+            | Pat.Typed(pat = Pat.NamedSimple id; typ = t) -> addParam p id (ValueSome t)
             | Pat.EnclosedBlock(pat = inner) -> walk inner
             | Pat.Tuple(patterns = pats) ->
                 for sub in pats do
@@ -584,8 +588,8 @@ module NameResolutionMemberRegistration =
                 | ValueSome(AsDefn(ident = aid)) -> ctx.NameOf aid
                 | ValueNone -> "this"
 
-            let thisKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding
-            let baseKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthBaseBinding
+            let thisKey = BinderKey.ofDeclaredThis declKey
+            let baseKey = BinderKey.ofDeclaredBase declKey
 
             let members = memberInfos.ToArray()
 
@@ -1036,7 +1040,7 @@ module NameResolutionMemberRegistration =
             {|
                 Members = extractMembers ctx declKey typarNames elems
                 InterfaceImpls = extractInterfaceImpls ctx typarNames elems
-                ThisKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding
+                ThisKey = BinderKey.ofDeclaredThis declKey
             |}
 
         match td with

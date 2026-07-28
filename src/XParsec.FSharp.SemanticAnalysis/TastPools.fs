@@ -495,7 +495,7 @@ module TastPools =
     /// held the trees, and its pattern-less binder slots (`this`, member/ctor parameters,
     /// ctor locals) likewise keep the dense id the intern hands back (`PooledTypeDecl`).
     /// `TastConvert.typeDecl` supplies the traversal — the same one the `'ty` freeze runs —
-    /// so the seven body slots and the six key slots are enumerated in one place.
+    /// so the seven body slots and the seven key slots are enumerated in one place.
     ///
     /// The re-filing IS the interning: a slot is offered to the sink exactly where its id
     /// replaces it, so no slot can be rewritten without having been interned and none can
@@ -540,15 +540,13 @@ module TastPools =
             | ExprPayload.Lambda -> ValueSome(struct (pools.ExprPatChildren.[i].[0], pools.ExprChildren.[i].[0]))
             | _ -> ValueNone
 
-        let facts (PatPoolId i) : ArgGroups.ParamPatFacts =
+        let facts (PatPoolId i) : ArgGroups.ParamPatFacts<BinderId> =
             {
                 Shape = PatPayload.shape pools.PatPayloads.[i]
                 Ty = pools.PatTys.[i]
-                // `ArgGroupG.GSimple` still names its slot by key, so the group reader
-                // widens through the column the id addresses.
                 Binder =
                     match pools.PatPayloads.[i] with
-                    | PatPayload.NamedSimple(BinderId b) -> ValueSome pools.BinderKeys.[b]
+                    | PatPayload.NamedSimple binder -> ValueSome binder
                     | _ -> ValueNone
                 ConstValue =
                     match pools.PatPayloads.[i] with
@@ -618,9 +616,10 @@ module TastPools =
 
         // The binder pool: each distinct NodeKey a definition site introduces, interned to
         // a dense `BinderId` on first encounter. The introducing sites are enumerated by
-        // the `BinderKey` projections (`ofPat` / `ofExpr` / `ofDeclSlot`) as the trees are
-        // walked, so nothing re-derives which nodes bind — and the side tables remapped
-        // below were filed through those same projections.
+        // the `BinderKey` projections (`ofPat` / `ofExpr`, plus a declaration shape's key
+        // slots, which are typed by one) as the trees are walked, so nothing re-derives
+        // which nodes bind — and the side tables remapped below were filed through those
+        // same projections.
         //
         // The enumeration spans the whole FILE, because a side table may key on a binder in
         // any of its trees — and every tree the file bears is now pooled, so ONE walk covers

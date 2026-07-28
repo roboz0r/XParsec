@@ -41,7 +41,9 @@ module FrozenSignature =
         // groups' pattern trees, so the grouping cannot drift from the shape it maps.
         // A tuple group's pattern is a node of the SOURCE file's pool, and the re-axised
         // copy is a DERIVED tree belonging to no file, so it is copied column-to-column
-        // into the provider's own pool, exactly where an `.fsi`-minted pattern lands.
+        // into the provider's own pool, exactly where an `.fsi`-minted pattern lands. A
+        // simple group's slot lands there too: it named this file's binder pool, which the
+        // consumer cannot index, so it is re-minted exactly as the extractor mints one.
         TastConvert.valRepr
             ConformanceTypars.toDeclaringAxis
             (fun id ->
@@ -50,6 +52,7 @@ module FrozenSignature =
                     Id = TastPoolBuilder.copyPatTreeInto pats ConformanceTypars.toDeclaringAxis source id
                 }
             )
+            (fun _ -> TastLower.mintContractParamKey ())
             vr
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a

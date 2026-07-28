@@ -12,11 +12,11 @@ namespace XParsec.FSharp.SemanticAnalysis
 // TAST grows a case — the same enumeration guarantee `TastWalk` gives.
 //
 // Two of the clusters take more than `'ty`: the type declaration is generic in
-// `('ty, 'id, 'body)` and the compiled form in `('ty, 'pat)`. The `'ty` freeze is just the
+// `('ty, 'id, 'body)` and the compiled form in `('ty, 'pat, 'id)`. The `'ty` freeze is just the
 // diagonal (`fId = BinderKey.identity`, `fBody = expr f`, `fPat = pat f`), while the frozen
 // POOLS instantiate the other parameters at dense ids and run the very same traversals in
 // both directions. Keeping them here rather than re-walking those shapes in `TastPools` is
-// what stops the declaration spine — the seven body slots and the six key slots especially
+// what stops the declaration spine — the seven body slots and the seven key slots especially
 // — from being enumerated twice.
 //
 // The `'id` axis stops at the DECLARATION cluster: a `Var` reference and a `NamedSimple`
@@ -209,19 +209,19 @@ module TastConvert =
     // independently. The `'ty`-only freeze runs it at `fId = BinderKey.identity` and `fBody = expr fTy`
     // (`decl` below); a body-POOLING pass runs it at `fTy = id`, `fBody = <expr → pool id>`
     // and `fId = <key → binder id>`, and its inverse at the opposite two. So the seven body
-    // slots, the six key slots, and the declaration spine around them are enumerated in ONE
+    // slots, the seven key slots, and the declaration spine around them are enumerated in ONE
     // place, and neither pooling direction is a second hand-written walk of this shape.
     //
-    // `fId` sees a `BinderKeyG`, not a raw slot: a declaration's key slots are definition
-    // sites by construction (`BinderKey.ofDeclSlot`), and passing the projection rather than
-    // the bare identity is what keeps a re-filing pass on the sanctioned interning path.
+    // `fId` maps a whole `BinderKeyG` and the slot keeps that shape (`BinderKey.refile`): a
+    // key slot is a definition site by construction, so a re-axising pass moves one without
+    // being able to invent one, and the mapping is the same one an interning sink exposes.
     let typeMember
         (fTy: 'a -> 'b)
         (fId: BinderKeyG<'ia> -> 'ib)
         (fBody: 'ba -> 'bb)
         (m: TTypeMemberG<'a, 'ia, 'ba>)
         : TTypeMemberG<'b, 'ib, 'bb> =
-        let slot k = fId (BinderKey.ofDeclSlot k)
+        let slot = BinderKey.refile fId
 
         {
             Name = m.Name
@@ -258,7 +258,7 @@ module TastConvert =
         (cl: TCtorLetG<'a, 'ia, 'ba>)
         : TCtorLetG<'b, 'ib, 'bb> =
         {
-            Binder = fId (BinderKey.ofDeclSlot cl.Binder)
+            Binder = BinderKey.refile fId cl.Binder
             Type = fTy cl.Type
             Init = fBody cl.Init
         }
@@ -276,7 +276,7 @@ module TastConvert =
         (sc: TSecondaryCtorG<'a, 'ia, 'ba>)
         : TSecondaryCtorG<'b, 'ib, 'bb> =
         {
-            Params = EqArray.map (fun (k, ty) -> fId (BinderKey.ofDeclSlot k), fTy ty) sc.Params
+            Params = EqArray.map (fun (k, ty) -> BinderKey.refile fId k, fTy ty) sc.Params
             Lets = EqArray.map (ctorLet fTy fId fBody) sc.Lets
             PrimaryArgs = EqArray.map fBody sc.PrimaryArgs
             FieldInits = EqArray.map (ctorFieldInit fBody) sc.FieldInits
@@ -289,7 +289,7 @@ module TastConvert =
         (bc: TBaseCtorCallG<'a, 'ia, 'ba>)
         : TBaseCtorCallG<'b, 'ib, 'bb> =
         {
-            CtorParams = EqArray.map (fun (k, ty) -> fId (BinderKey.ofDeclSlot k), fTy ty) bc.CtorParams
+            CtorParams = EqArray.map (fun (k, ty) -> BinderKey.refile fId k, fTy ty) bc.CtorParams
             Args = EqArray.map fBody bc.Args
             ChosenCtor = bc.ChosenCtor
         }
@@ -336,7 +336,7 @@ module TastConvert =
                     IsSealed = c.IsSealed
                     StaticPreamble = EqArray.map (preambleEntry fTy fBody) c.StaticPreamble
                     InstancePreamble = EqArray.map (preambleEntry fTy fBody) c.InstancePreamble
-                    ThisKey = fId (BinderKey.ofDeclSlot c.ThisKey)
+                    ThisKey = BinderKey.refile fId c.ThisKey
                     SecondaryCtors = EqArray.map (secondaryCtor fTy fId fBody) c.SecondaryCtors
                     BaseCtorCall = ValueOption.map (baseCtorCall fTy fId fBody) c.BaseCtorCall
                     ValueKind = c.ValueKind
@@ -374,19 +374,30 @@ module TastConvert =
             ParamAttrs = ib.ParamAttrs
         }
 
-    // The compiled-form cluster, likewise a bifunctor — in `('ty, 'pat)`. The `'ty`-only
-    // conversion runs it at `fPat = pat fTy`; the file's own `ValRepr`s are POOLED by
-    // running it at `fTy = id` and `fPat = <pat → pool id>`, and rebuilt by its inverse.
-    let argGroup (fTy: 'a -> 'b) (fPat: 'pa -> 'pb) (g: ArgGroupG<'a, 'pa>) : ArgGroupG<'b, 'pb> =
+    // The compiled-form cluster, likewise a trifunctor — in `('ty, 'pat, 'id)`. The `'ty`-only
+    // conversion runs it at `fPat = pat fTy` and `fId = id`; the file's own `ValRepr`s are
+    // POOLED by running it at `fTy = id`, `fPat = <pat → pool id>` and `fId = <key → binder
+    // id>`, and rebuilt by its inverse.
+    let argGroup
+        (fTy: 'a -> 'b)
+        (fPat: 'pa -> 'pb)
+        (fId: 'ia -> 'ib)
+        (g: ArgGroupG<'a, 'pa, 'ia>)
+        : ArgGroupG<'b, 'pb, 'ib> =
         match g with
         | ArgGroupG.GUnit ty -> ArgGroupG.GUnit(fTy ty)
-        | ArgGroupG.GSimple(slot, ty) -> ArgGroupG.GSimple(slot, fTy ty)
+        | ArgGroupG.GSimple(slot, ty) -> ArgGroupG.GSimple(fId slot, fTy ty)
         | ArgGroupG.GTuple p -> ArgGroupG.GTuple(fPat p)
 
-    let valRepr (fTy: 'a -> 'b) (fPat: 'pa -> 'pb) (vr: ValReprG<'a, 'pa>) : ValReprG<'b, 'pb> =
+    let valRepr
+        (fTy: 'a -> 'b)
+        (fPat: 'pa -> 'pb)
+        (fId: 'ia -> 'ib)
+        (vr: ValReprG<'a, 'pa, 'ia>)
+        : ValReprG<'b, 'pb, 'ib> =
         {
             Typars = vr.Typars
-            Groups = vr.Groups |> List.map (argGroup fTy fPat)
+            Groups = vr.Groups |> List.map (argGroup fTy fPat fId)
             ResultTy = fTy vr.ResultTy
         }
 

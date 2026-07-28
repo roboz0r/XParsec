@@ -601,18 +601,23 @@ and StaticParamG<'ty, 'pat> =
 /// alongside the tree it was peeled from, whereas an EXTERNAL symbol's is minted from
 /// an `.fsi` contract (`TastLower.externalValRepr`) and belongs to no file, so it has
 /// no pool to index into and stays at the tree.
-and [<RequireQualifiedAccess>] ArgGroupG<'ty, 'pat> =
+///
+/// `GSimple`'s slot rides the tree's identity axis for the same reason every other
+/// reference does: a file's own arity is DERIVED from its pooled spine, so the parameter
+/// it names is the `BinderId` that spine already addresses, while a contract-minted arity
+/// belongs to no pool and stays in the node space.
+and [<RequireQualifiedAccess>] ArgGroupG<'ty, 'pat, 'id> =
     | GUnit of ty: 'ty
-    | GSimple of slot: NodeKey * ty: 'ty
+    | GSimple of slot: 'id * ty: 'ty
     | GTuple of pat: 'pat
 
 /// The SOURCE signature — the `ValReprInfo` analogue. `Groups.Length` is the
 /// number of applications a saturated call consumes; `ResultTy` is the source
 /// (NOT unit-erased) result type.
-and ValReprG<'ty, 'pat> =
+and ValReprG<'ty, 'pat, 'id> =
     {
         Typars: int
-        Groups: ArgGroupG<'ty, 'pat> list
+        Groups: ArgGroupG<'ty, 'pat, 'id> list
         ResultTy: 'ty
     }
 

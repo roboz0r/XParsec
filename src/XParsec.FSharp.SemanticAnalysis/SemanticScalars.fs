@@ -241,6 +241,22 @@ type TyparAxis =
 [<Struct>]
 type SchemeId = | SchemeId of int
 
+/// A dense pool index into `FrozenPools.BinderKeys` — the positional identity a frozen
+/// binder takes on once kind dissolves. A binder is a definition site the tree INTRODUCES —
+/// a `NamedSimple` pattern, a `ForTo` loop variable, or one of a type declaration's
+/// pattern-less key slots (the `BinderKey` projections); the cross-references that named it
+/// by 64-bit content key during analysis (`Var.binding`, the side-table keys) name it by
+/// this id in the pool form.
+///
+/// Minted by exactly ONE thing — interning a `BinderKey` (`TastPools`' sink) — which is why
+/// this space, unlike the node space a `NodeKey` addresses, holds definition sites and
+/// nothing else. `BinderKey.ofInterned` is what that buys.
+///
+/// Declared with the other dense scalars rather than with the pools it indexes, because the
+/// binder-key projections are typed over it and compile long before them.
+[<Struct>]
+type BinderId = | BinderId of int
+
 /// The constant value a structural LITERAL type carries (`FTLiteral`/`TyLiteral`).
 /// String first (`"GET"`); `Int` falls out for numeric literal unions. No `bool`
 /// (design §"Literal types stay structural … string first; skip bool"). A literal

@@ -93,7 +93,16 @@ let private ftWidget: FrozenType =
 /// what the harvest reads — a published inline body never carries a live inference cell.
 let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor.TypeMember =
     let xKey = NodeKey.ofSynthetic 2 NodeKind.SynthLambdaBody
-    let thisKey = NodeKey.ofSynthetic 1 NodeKind.SynthLambdaBody
+
+    // The parameter's definition site, taken off the `NamedSimple` pattern a source member
+    // would carry — the same projection `Elaborate.memberParams` fills the slot from.
+    let xBinder =
+        match BinderKey.ofPat (TPatG.NamedSimple(xKey, paramTy, dummyTok)) with
+        | ValueSome b -> b
+        | ValueNone -> failwith "a `NamedSimple` pattern introduces a binder"
+
+    let thisBinder =
+        BinderKey.ofDeclaredThis (NodeKey.ofSynthetic 1 NodeKind.SynthLambdaBody)
 
     // The hand-built body is a node of no file, so it gets a pool of its own — the same
     // zero-column shape an `.fsi`-minted `ValRepr`'s patterns take. `harvestMemberBody`
@@ -116,10 +125,10 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor
         Accessibility = Accessibility.Public
         Kind = TMemberKind.Method
         IsOverride = false
-        ThisKey = ValueSome thisKey
+        ThisKey = ValueSome thisBinder
         BaseKey = ValueNone
         ThisTy = ftWidget
-        Params = EqArray.ofList [ (xKey, paramTy) ]
+        Params = EqArray.ofList [ (xBinder, paramTy) ]
         Body = { Pool = pool; Id = body }
         ReturnTy = ftInt
         MethodTypeParams = EqArray.empty

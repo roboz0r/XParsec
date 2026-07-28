@@ -50,8 +50,8 @@ module TastNodeViews =
     /// from a file's own pool (`peelValRepr` off the frozen lambda spine) or from the
     /// standalone pool an `.fsi` contract's are minted into.
     type StaticParam = StaticParamG<FrozenType, PatId>
-    type ArgGroup = ArgGroupG<FrozenType, PatId>
-    type ValRepr = ValReprG<FrozenType, PatId>
+    type ArgGroup = ArgGroupG<FrozenType, PatId, NodeKey>
+    type ValRepr = ValReprG<FrozenType, PatId, NodeKey>
     type CompiledReturn = CompiledReturnG<FrozenType>
     type CompiledForm = CompiledFormG<FrozenType, PatId>
 

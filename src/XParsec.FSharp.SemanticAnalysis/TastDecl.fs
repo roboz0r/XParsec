@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Parser
+
 // The DECLARATION shapes of the TAST: a module-level declaration, and the type declaration
 // under it in each of its five kinds (interface / union / record / class / enum) with the
 // members, preambles and constructors they carry. The term shapes a declaration's bodies
@@ -10,6 +12,37 @@ namespace XParsec.FSharp.SemanticAnalysis
 // The projections over a type kind (`module TTypeKindG`) live with the shapes they project,
 // so a consumer asking "the members of this declaration" has one answer that stays
 // exhaustive as kinds are added.
+//
+// `BinderKeyG` opens the file and `module BinderKey` closes it: a declaration's key slots
+// are TYPED by the binder key, and the projections that produce one are the only code that
+// may see its representation, so the type, the slots it types, and the projections must
+// share a file.
+
+/// An identity that some node of the tree INTRODUCES as a definition site: what a
+/// `TExpr.Var` references, what naming is computed from, and what the frozen binder pool
+/// interns. It rides the tree's own identity axis (`'id`), because "is a binder" is a fact
+/// about a node and not about the space that node is addressed in: pre-freeze and frozen
+/// trees name a binder by `NodeKey`, a tree rebuilt from the pools by `BinderId`, and both
+/// have side tables that may only be keyed by a definition site.
+///
+/// A raw identity addresses ANY node — an expression, a pattern the freeze erases, a
+/// binding's CST head (`CstKeys.ofBinding`) — so it is the over-wide type for such a table,
+/// and for a declaration's pattern-less key slots (`TTypeMemberG.ThisKey`, …), which is why
+/// those slots are typed by this and not by `'id`.
+///
+/// The representation is PRIVATE, which is the whole mechanism: the constructor is
+/// reachable only from this file, where the `BinderKey` module below is the only thing that
+/// uses it. So every binder key in the program is a projection of a node that binds, and a
+/// binder-keyed table cannot be filed under a key naming something else — which is what
+/// `let (x) = 5` did (the paren head is a node `ElaboratePatterns.translatePat` erases, so
+/// the entry was unreachable and the binding's name was silently lost) and what a
+/// module-level tuple destructuring did (a head that binds no single name at all).
+/// Widening is one-way, through `BinderKey.identity`.
+[<Struct>]
+type BinderKeyG<'id> = private | Binder of 'id
+
+/// The binder key of a tree addressed by `NodeKey` — every pre-freeze and frozen domain.
+type BinderKey = BinderKeyG<NodeKey>
 
 /// Whether a class declaration emits as a reference type, a `[<Struct>]` value
 /// type, or a `[<IsByRefLike>]` byref-like value type. Collapses the former
@@ -191,7 +224,7 @@ and TClassG<'ty, 'id, 'body> =
         /// or instance-`let` reference in an initialiser or `do` body is a
         /// `TExpr.FieldGet(TExpr.Var(ThisKey), …)`, so the backend must map this key to
         /// the primary ctor's `this` argument.
-        ThisKey: 'id
+        ThisKey: BinderKeyG<'id>
         SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'id, 'body>>
         BaseCtorCall: TBaseCtorCallG<'ty, 'id, 'body> voption
         ValueKind: ClassValueKind
@@ -296,7 +329,7 @@ and TTypeMemberG<'ty, 'id, 'body> =
         /// like `IStructuralEquatable` — the type fails to satisfy its slots.
         IsOverride: bool
         /// Instance members only; `ValueNone` for a static member.
-        ThisKey: 'id voption
+        ThisKey: BinderKeyG<'id> voption
         /// The synthetic `base` binder of the declaring class, shared across every
         /// member body. A `base.M(...)`
         /// receiver is a `TExpr.Var(BaseKey, parentTy)`; codegen maps it to the
@@ -304,13 +337,13 @@ and TTypeMemberG<'ty, 'id, 'body> =
         /// `CallVia.Base` discriminator (not the receiver) drives non-virtual
         /// dispatch. `ValueNone` for a static member, a union member, or a class
         /// without an `inherit` clause.
-        BaseKey: 'id voption
+        BaseKey: BinderKeyG<'id> voption
         /// The declaring type (a `TyUnion`) — the receiver type for an instance
         /// member's `this`.
         ThisTy: 'ty
         /// Parameter binders in declaration order (each `ldarg` after `this` for
         /// an instance method); empty for a property or a nullary method.
-        Params: EqArray<'id * 'ty>
+        Params: EqArray<BinderKeyG<'id> * 'ty>
         Body: 'body
         ReturnTy: 'ty
         /// The member's *own* generic parameters (`member this.Map<'C> …`) — distinct from the declaring
@@ -365,7 +398,12 @@ and [<RequireQualifiedAccess>] TPreambleEntryG<'ty, 'body> =
 /// identity (codegen allocates a local slot and a body reference to the name
 /// loads it); `Init` is the right-hand side. Only simple (single-name) binders
 /// are modelled in v1.
-and TCtorLetG<'ty, 'id, 'body> = { Binder: 'id; Type: 'ty; Init: 'body }
+and TCtorLetG<'ty, 'id, 'body> =
+    {
+        Binder: BinderKeyG<'id>
+        Type: 'ty
+        Init: 'body
+    }
 
 /// One `field = expr` initialiser of a secondary constructor's explicit
 /// field-init block (`new(s) = { stack = s; started = false }`).
@@ -391,7 +429,7 @@ and TCtorFieldInitG<'body> = { Field: string; Init: 'body }
 ///   allocated (zeroed) instance, so `Init` may reference ctor params and lets.
 and TSecondaryCtorG<'ty, 'id, 'body> =
     {
-        Params: EqArray<'id * 'ty>
+        Params: EqArray<BinderKeyG<'id> * 'ty>
         Lets: EqArray<TCtorLetG<'ty, 'id, 'body>>
         PrimaryArgs: EqArray<'body>
         FieldInits: EqArray<TCtorFieldInitG<'body>>
@@ -406,7 +444,7 @@ and TSecondaryCtorG<'ty, 'id, 'body> =
 /// slot, which also supplies the IL `TypeDefinition.BaseType`.
 and TBaseCtorCallG<'ty, 'id, 'body> =
     {
-        CtorParams: EqArray<'id * 'ty>
+        CtorParams: EqArray<BinderKeyG<'id> * 'ty>
         Args: EqArray<'body>
         /// The chosen base `.ctor`'s identity for an EXTERNAL base (`inherit exn(msg)`),
         /// recorded by `Unification.fillBaseCtorCall` so codegen chains the base ctor by key
@@ -472,3 +510,173 @@ module TTypeKindG =
         | TTypeKindG.Record(_, _, ifaces, _) -> flatten ifaces
         | TTypeKindG.Interface _
         | TTypeKindG.Enum _ -> Seq.empty
+
+/// THE definition of "is a binder" — one projection per way a definition site comes to
+/// exist: a pattern introduces it (`ofPat`, `ofCstPat` before the tree does), an expression
+/// introduces it with no pattern behind it (`ofExpr`), a declaration MINTS it because no
+/// node spells it (`ofDeclaredThis` / `ofDeclaredBase`), or a pool interned it and hands
+/// back its dense id (`ofInterned`). Every `BinderKey` comes from here; see the type's own
+/// doc for why that is enforceable.
+///
+/// A declaration's key slots need no projection of their own: the shape TYPES them, so what
+/// fills one is already a binder key, `refile` moves it between identity spaces, and
+/// `ofTypeDecl` only has to enumerate them.
+module BinderKey =
+
+    /// The single binder a PATTERN introduces. `ValueNone` for a pattern that binds nothing
+    /// (`Wildcard`, `Const`, …) or that binds only through nested sub-patterns (`Tuple`,
+    /// `Record`, `Union`, `TypeTestAs`, `Or` — walk the children for those).
+    ///
+    /// Generic over the domain on purpose: the pre-freeze producers of the binder-keyed side
+    /// tables (`Elaborate`, `Regions`) decide what to key on with the SAME function the
+    /// post-freeze pool enumerates with (`TastPools.toPools`), so the two cannot drift.
+    ///
+    /// Note what is deliberately NOT a binder: a `let` whose head pattern is composite or
+    /// wildcard (`let (a, b) = p`, `let _ = e`) introduces no single binder, so it has no
+    /// side-table identity — and it needs none, every reader of those tables looking up a
+    /// simple binder's key. (A CST `Pat.As` alias — `| 0 as z ->` — is a binder the frozen
+    /// tree does not carry at all: `ElaboratePatterns.translatePat` drops the alias name, so
+    /// there is no `TPatG` node here to answer for it.)
+    let ofPat (p: TPatG<'ty, 'tok, 'id>) : BinderKeyG<'id> voption =
+        match p with
+        | TPatG.NamedSimple(binding = binding) -> ValueSome(Binder binding)
+        | TPatG.Wildcard _
+        | TPatG.Tuple _
+        | TPatG.Const _
+        | TPatG.Record _
+        | TPatG.Union _
+        | TPatG.TypeTestAs _
+        | TPatG.Null _
+        | TPatG.EnumCase _
+        | TPatG.Or _ -> ValueNone
+
+    /// The binder an EXPRESSION introduces with no pattern node behind it: a `ForTo` loop
+    /// variable, whose `i` token has no surrounding `Pat` in the CST. Every other binding
+    /// expression (`Lambda`, `Let`, `ForIn`, a match arm) carries a real `TPatG`, so `ofPat`
+    /// answers for it and this stays a single case.
+    let ofExpr (e: TExprG<'ty, 'tok, 'id>) : BinderKeyG<'id> voption =
+        match e with
+        | TExprG.ForTo(var = var) -> ValueSome(Binder var)
+        | _ -> ValueNone
+
+    /// `ofPat` before the tree exists: the binder a CST pattern introduces, for a front-end
+    /// producer that must name a definition site while it is still translating towards one
+    /// (a class constructor's parameters, a secondary ctor's `let` head). The key is the
+    /// INNERMOST `NamedSimple`'s, after peeling the wrappers `translatePat` erases
+    /// (`[<…>] p`, `(p)`, `p : t`, `p as x`) — so it is the very key the elaborated
+    /// `TPatG.NamedSimple` will carry, and a body's `Var` reference resolves to it.
+    ///
+    /// Peeling is the point: `let (x) = 5`'s head is a `Pat.EnclosedBlock` the tree does not
+    /// keep, so a key taken off it names a node nothing binds.
+    let rec ofCstPat (p: Pat<SyntaxToken>) : BinderKey voption =
+        match p with
+        | Pat.NamedSimple _ -> ValueSome(Binder(CstKeys.ofPat p))
+        | Pat.Attributed(pat = inner)
+        | Pat.EnclosedBlock(pat = inner)
+        | Pat.Typed(pat = inner)
+        | Pat.As(pat = inner) -> ofCstPat inner
+        | _ -> ValueNone
+
+    /// The `this` binder a type declaration introduces, shared by every member body and by
+    /// the instance preamble. No node spells it — `type C() =` writes no `this` token — so
+    /// there is nothing to project from and the key is MINTED from the declaration's own,
+    /// here and nowhere else. Minting IS what makes it a binder: the key does not exist
+    /// until this call, so it cannot already name a node that binds nothing.
+    let ofDeclaredThis (declKey: NodeKey) : BinderKey =
+        Binder(NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding)
+
+    /// The `base` binder of a type declaration, minted from the declaration exactly as
+    /// `ofDeclaredThis` is and distinguished only by kind. Always allocated; only read when
+    /// the class has an `inherit` clause.
+    let ofDeclaredBase (declKey: NodeKey) : BinderKey =
+        Binder(NodeKey.ofSynthetic declKey.Offset NodeKind.SynthBaseBinding)
+
+    /// The binder a pool INTERNED under this dense id. Unlike a `NodeKey`, which addresses
+    /// any node at all, a `BinderId` is minted by one thing only — interning a binder key —
+    /// so its whole space is definition sites and re-admitting one invents nothing.
+    ///
+    /// The seam that needs it is DESERIALIZATION: a decl's key slots are written as the ids
+    /// they hold and read back with no key to project from. Nothing else should reach for
+    /// it; a pass that already holds a key re-files it (`refile`).
+    let ofInterned (id: BinderId) : BinderKeyG<BinderId> = Binder id
+
+    /// Every binder a TYPE DECLARATION introduces with no pattern node to introduce it.
+    ///
+    /// A member body names its receiver and its parameters by `TExpr.Var`, exactly as a
+    /// function body names a `let` or a lambda parameter — but those definition sites are
+    /// key SLOTS on the declaration shape (`ThisKey` / `BaseKey` / `Params`, the class's own
+    /// `ThisKey`, a secondary ctor's `Params` and `Lets[].Binder`, the base-ctor call's view
+    /// of the primary ctor's params), NOT `TPatG.NamedSimple` nodes. So a consumer that
+    /// enumerates definition sites by walking PATTERNS sees none of them, and any attempt to
+    /// resolve such a `Var` to its definition comes up empty. This is that missing half of
+    /// the enumeration, and it is why the two are separate projections rather than one walk:
+    /// they read different slots.
+    ///
+    /// `'body`-blind — it touches no body — so it serves the tree form and any pooled
+    /// (`'body = <id>`) form alike.
+    let ofTypeDecl (td: TTypeDeclG<'ty, 'tok, 'id, 'body>) : BinderKeyG<'id> seq =
+        let ofMember (m: TTypeMemberG<'ty, 'id, 'body>) =
+            seq {
+                match m.ThisKey with
+                | ValueSome k -> yield k
+                | ValueNone -> ()
+
+                match m.BaseKey with
+                | ValueSome k -> yield k
+                | ValueNone -> ()
+
+                for (k, _) in EqArray.toArray m.Params do
+                    yield k
+            }
+
+        seq {
+            for m in EqArray.toArray (TTypeKindG.members td.Kind) do
+                yield! ofMember m
+
+            for m in TTypeKindG.interfaceMembers td.Kind do
+                yield! ofMember m
+
+            match td.Kind with
+            | TTypeKindG.Class c ->
+                // The class-wide `this`: the INSTANCE preamble's expressions read the
+                // class's fields through it, so it is a definition site of preamble
+                // bodies as well as of the members that carry their own copy.
+                yield c.ThisKey
+
+                for sc in EqArray.toArray c.SecondaryCtors do
+                    for (k, _) in EqArray.toArray sc.Params do
+                        yield k
+
+                    for l in EqArray.toArray sc.Lets do
+                        yield l.Binder
+
+                match c.BaseCtorCall with
+                | ValueSome bc ->
+                    for (k, _) in EqArray.toArray bc.CtorParams do
+                        yield k
+                | ValueNone -> ()
+            | TTypeKindG.Interface _
+            | TTypeKindG.Union _
+            | TTypeKindG.Record _
+            | TTypeKindG.Enum _ -> ()
+        }
+
+    /// Widen to the address space that holds every node of the tree's own identity axis —
+    /// for a lookup driven by a REFERENCE (a `TExpr.Var` names its binder by that axis) or
+    /// by a consumer whose own API is node-keyed (`TastUnpool.nodeKeyedSideTables`).
+    /// One-way: nothing re-enters the binder domain through it.
+    let identity (Binder k) : 'id = k
+
+    /// Re-file a binder into ANOTHER identity space: `f` answers with the identity THIS
+    /// binder takes there (interning it into a pool, widening a dense id back to a key).
+    /// The result names a definition site because the argument did — which is why the
+    /// mapping takes the key and not a bare identity, and why a pass that re-axises a tree
+    /// (`TastConvert.typeDecl`) can move every key slot without being able to invent one.
+    let refile (f: BinderKeyG<'a> -> 'b) (k: BinderKeyG<'a>) : BinderKeyG<'b> = Binder(f k)
+
+    /// A whole binder-keyed table read in the REFERENCE domain — the one reason to widen
+    /// more than a single key, and named so the reason is stated once rather than at each
+    /// site: a lookup driven by a `TExpr.Var` has only the raw identity the reference
+    /// carries. One-way, being `identity` per entry.
+    let widenMap (m: Map<BinderKeyG<'id>, 'v>) : Map<'id, 'v> =
+        m |> Map.toSeq |> Seq.map (fun (b, v) -> identity b, v) |> Map.ofSeq

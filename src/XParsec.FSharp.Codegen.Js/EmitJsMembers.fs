@@ -17,8 +17,10 @@ module EmitJsMembers =
     /// instance preamble reads its fields through) to JS `this` via a leading `const`,
     /// leaving the body's `TExpr.Var(thisKey)` references intact. Empty when the binder
     /// already resolves to `this` (avoids a no-op `const this = this;`).
-    let thisAlias (ctx: WalkCtx) (k: NodeKey) : JsStatement list =
-        let recvName = binderNameOf ctx.Source k
+    let thisAlias (ctx: WalkCtx) (k: BinderKey) : JsStatement list =
+        // The body's references name the receiver in the reference domain, so the alias is
+        // spelled off the same widened identity.
+        let recvName = binderNameOf ctx.Source (BinderKey.identity k)
 
         if recvName = "this" then
             []
@@ -46,7 +48,7 @@ module EmitJsMembers =
         : JsClassMethod =
         {
             Key = key
-            Params = [ for (pk, _) in m.Params -> binderNameOf ctx.Source pk ]
+            Params = [ for (pk, _) in m.Params -> binderNameOf ctx.Source (BinderKey.identity pk) ]
             Body = thisBinding ctx m @ [ JsStatement.Return(buildExpr ctx m.Body) ]
             Generator = false
         }
@@ -147,10 +149,12 @@ module EmitJsMembers =
                 []
             else
                 match m.ThisKey with
-                | ValueSome k -> [ binderNameOf ctx.Source k ]
+                | ValueSome k -> [ binderNameOf ctx.Source (BinderKey.identity k) ]
                 | ValueNone -> [ "this$" ]
 
-        let paramNames = [ for (pk, _) in m.Params -> binderNameOf ctx.Source pk ]
+        let paramNames =
+            [ for (pk, _) in m.Params -> binderNameOf ctx.Source (BinderKey.identity pk) ]
+
         let allNames = receiverNames @ paramNames
         let body = buildExpr ctx m.Body
 

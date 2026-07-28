@@ -195,7 +195,7 @@ module ConformanceTypars =
     /// The `.NET`-tupled `Parameters` form of a frozen member's parameter binders —
     /// the `FrozenType` shape `ExternalSignature.Parameters` carries (0 ⇒ `unit`,
     /// 1 ⇒ itself, N ⇒ a tuple), so the two sides compare directly.
-    let private tupledParams (ps: EqArray<NodeKey * FrozenType>) : FrozenType =
+    let private tupledParams (ps: EqArray<BinderKey * FrozenType>) : FrozenType =
         match ps.Length with
         | 0 -> FTConst(RuntimeNames.unitKey, EqArray.empty)
         | 1 -> snd ps.[0]
