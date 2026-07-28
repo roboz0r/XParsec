@@ -247,7 +247,7 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: type '%s' could not be resolved during contract extraction — is a package dependency missing? (reached the backend; the front end should have errored first)"
                 name
-        | FTLocalTypar(binder, i) ->
+        | FTLocalTypar(scheme, i) ->
             // A typar of a body-local `let`'s own generalized scheme
             // (`Freeze.declFreezer`). It is NOT a hard error to REACH the backend — it
             // is phantom wherever a closure over it is `Vesper.Fun`-boxed, and that is
@@ -257,9 +257,9 @@ type internal ClrEncoder(env: ClrEnv) =
             // has no generic-closure class to give it one. The gates that can decline
             // instead of crashing (`EmitClosures.ftNoUnknown`) keep it away from here.
             failwithf
-                "ClrProvider: local typar #%d of the scheme bound at %O reached signature encoding — it names no generic parameter slot, so it has no CLR representation (the emitting site should have declined or boxed it)"
+                "ClrProvider: local typar #%d of body-local %O reached signature encoding — it names no generic parameter slot, so it has no CLR representation (the emitting site should have declined or boxed it)"
                 i
-                binder
+                scheme
         // A frozen open typar: the index is in the node, so
         // encoding is context-free and unconditional — it supersedes the marker
         // `TypeVar`/`TyConst "'A"` mechanism the ambient windows used to resolve.

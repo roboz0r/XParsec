@@ -14,14 +14,30 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // agreeing is the cross-check, not a tautology; the reconstruction follows the id columns
 // into the dense pool arrays, so a mis-wired child edge shows up as a fan-out mismatch.
 
+/// The dense id the pool interned a DU node's own binder under, found by POSITION in the
+/// binder column. Derived from the node's `BinderKey` rather than read off the payload
+/// under test, so a payload that names its binder is checked against an independent
+/// answer instead of against itself.
+let private internedBinderId (pools: FrozenPools) (b: BinderKey voption) : BinderId voption =
+    b
+    |> ValueOption.map (fun b ->
+        let key = BinderKey.toNodeKey b
+
+        match Array.tryFindIndex ((=) key) pools.BinderKeys with
+        | Some i -> BinderId i
+        | None -> failtestf "the pooled node's binder %O occupies no BinderKeys slot" key
+    )
+
 let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Frozen.TPat) =
-    Expect.equal pools.PatPayloads.[i] (TastPools.patPayload du) "pat payload"
+    let binder = internedBinderId pools (BinderKey.ofPat du)
+    Expect.equal pools.PatPayloads.[i] (TastPools.patPayload binder du) "pat payload"
     let duKids = TastPools.patChildren du
     Expect.equal pools.PatChildren.[i].Length duKids.Length "pat child fan-out"
     Array.iter2 (checkPat pools) pools.PatChildren.[i] duKids
 
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Frozen.TExpr) =
-    Expect.equal pools.ExprPayloads.[i] (TastPools.exprPayload du) "expr payload"
+    let binder = internedBinderId pools (BinderKey.ofExpr du)
+    Expect.equal pools.ExprPayloads.[i] (TastPools.exprPayload binder du) "expr payload"
     let duExprKids = TastPools.exprChildren du
     let duPatKids = TastPools.exprPatChildren du
     Expect.equal pools.ExprChildren.[i].Length duExprKids.Length "expr child fan-out"

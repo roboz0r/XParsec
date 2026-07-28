@@ -26,17 +26,22 @@ open XParsec.FSharp.Parser
 [<RequireQualifiedAccess>]
 module TastUnpool =
 
-    /// Re-author one expression node from its columns — `ty`/`tok`, the resolved `Var`
-    /// binder, the `ExprPayload` residual scalars/structure — and its ALREADY-REBUILT
+    /// Re-author one expression node from its columns — `ty`/`tok`, the `Var` reference
+    /// edge, the `ExprPayload` residual scalars/structure — and its ALREADY-REBUILT
     /// child subtrees, with NO template node (the expr pool holds none). The children are
     /// consumed in the exact order `TastPools.exprChildren`/`exprPatChildren` enumerated
     /// them (`nextE`/`nextP` are order cursors) — the one coupling the round-trip gate
     /// proves. The match on `ExprPayload` is exhaustive with no catch-all (the inverse of
     /// `TastPools.exprPayload`), so a new shape fails to compile here.
+    ///
+    /// The rebuilt DU still names binders by `NodeKey`, so both the reference edge and the
+    /// `ForTo` binder go through the caller's ONE `widenBinder` — the pool's own inverse of
+    /// the interning — rather than each site picking its own way back.
     let substituteExpr
+        (widenBinder: BinderId -> NodeKey)
         (ty: FrozenType)
         (tok: SyntaxToken)
-        (varBinding: NodeKey voption)
+        (varBinder: BinderId voption)
         (payload: ExprPayload)
         (es: Frozen.TExpr[])
         (ps: Frozen.TPat[])
@@ -56,8 +61,8 @@ module TastUnpool =
         match payload with
         // `binding` is supplied from the dense id, so the round-trip exercises the remap.
         | ExprPayload.Var ->
-            match varBinding with
-            | ValueSome k -> TExprG.Var(k, ty, tok)
+            match varBinder with
+            | ValueSome id -> TExprG.Var(widenBinder id, ty, tok)
             | ValueNone -> failwith "TastUnpool.ofPools: a Var entry carries no resolved binder id"
         | ExprPayload.Const value -> TExprG.Const(value, ty, tok)
         | ExprPayload.External p -> TExprG.External(p.CompiledName, p.Key, ty, tok)
@@ -97,7 +102,7 @@ module TastUnpool =
             let startExpr = nextE ()
             let endExpr = nextE ()
             let body = nextE ()
-            TExprG.ForTo(p.Var, p.IdentTok, startExpr, endExpr, body, ty, tok)
+            TExprG.ForTo(widenBinder p.Var, p.IdentTok, startExpr, endExpr, body, ty, tok)
         | ExprPayload.ForIn enumerator ->
             let pat = nextP ()
             let source = nextE ()
@@ -181,12 +186,19 @@ module TastUnpool =
         | ExprPayload.TraitCall p -> TExprG.TraitCall(p.Receiver, p.MemberName, EqArray.ofArray es, ty, tok)
 
     /// Re-author one pattern node from its own payload + rebuilt sub-patterns — see
-    /// `substituteExpr`; exhaustive against `TastPools.patPayload` the same way.
-    let substitutePat (ty: FrozenType) (tok: SyntaxToken) (payload: PatPayload) (ps: Frozen.TPat[]) : Frozen.TPat =
+    /// `substituteExpr`, `widenBinder` included; exhaustive against `TastPools.patPayload`
+    /// the same way.
+    let substitutePat
+        (widenBinder: BinderId -> NodeKey)
+        (ty: FrozenType)
+        (tok: SyntaxToken)
+        (payload: PatPayload)
+        (ps: Frozen.TPat[])
+        : Frozen.TPat =
         match payload with
-        // `binding` is supplied from the payload, the pat analogue of `ForTo.var` — it is
-        // interned so `Var` references resolve, yet reconstructed verbatim from here.
-        | PatPayload.NamedSimple binding -> TPatG.NamedSimple(binding, ty, tok)
+        // The binder this pattern introduces, widened back out of the id space — the pat
+        // analogue of `ForTo.var`.
+        | PatPayload.NamedSimple binder -> TPatG.NamedSimple(widenBinder binder, ty, tok)
         | PatPayload.Wildcard -> TPatG.Wildcard(ty, tok)
         | PatPayload.Null -> TPatG.Null(ty, tok)
         | PatPayload.Const value -> TPatG.Const(value, ty, tok)
@@ -220,9 +232,10 @@ module TastUnpool =
     /// A dense `BinderId` back to the `NodeKey` it was interned from — the raw inverse of
     /// the `toPools` interning, landing in the space that addresses every node rather than
     /// in `BinderKey`. ONE home, because widening is the move this file must not make
-    /// casually: each caller is a reference (`ofPools`' `Var` binding edge), the named CLR
-    /// debt seam (`nodeKeyedSideTables`), or the re-admission's own lookup key — never a
-    /// way back into the binder domain, which only `BinderKey`'s projections grant.
+    /// casually: each caller is the DU rebuild's binder slots (`substituteExpr` /
+    /// `substitutePat`), the named CLR debt seam (`nodeKeyedSideTables`), or the
+    /// re-admission's own lookup key — never a way back into the binder domain, which only
+    /// `BinderKey`'s projections grant.
     let private widenBinderId (pools: FrozenPools) (BinderId i) : NodeKey = pools.BinderKeys.[i]
 
     /// A dense `BinderId`-keyed side table as the keyed `Map` it was re-keyed FROM, each
@@ -292,9 +305,9 @@ module TastUnpool =
     /// when asserting on whole decl trees, which the accessor's per-node reads do not
     /// serve.
     let ofPools (pools: FrozenPools) : Frozen.TastFile =
-        // Bound once, for the two things here that speak the reference space: the `Var`
-        // binding edge below, and the re-admission's lookup key. The side tables do NOT
-        // invert through it — they go through `readmittedBinder`.
+        // Bound once, for the two things here that speak the node-key space: the binder
+        // slots the rebuilt DU still carries, and the re-admission's lookup key. The side
+        // tables do NOT invert through it — they go through `readmittedBinder`.
         let widen = widenBinderId pools
 
         // The binder column back in the BINDER key space, re-admitted by PROJECTION and
@@ -323,17 +336,26 @@ module TastUnpool =
 
         let rec fromPat (PatPoolId i) : Frozen.TPat =
             let ps = pools.PatChildren.[i] |> Array.map fromPat
-            let p = substitutePat pools.PatTys.[i] pools.PatToks.[i] pools.PatPayloads.[i] ps
+
+            let p =
+                substitutePat widen pools.PatTys.[i] pools.PatToks.[i] pools.PatPayloads.[i] ps
+
             BinderKey.ofPat p |> ValueOption.iter readmit
             p
 
         let rec fromExpr (ExprPoolId i) : Frozen.TExpr =
             let es = pools.ExprChildren.[i] |> Array.map fromExpr
             let ps = pools.ExprPatChildren.[i] |> Array.map fromPat
-            let varBinding = pools.ExprVarBinder.[i] |> ValueOption.map widen
 
             let e =
-                substituteExpr pools.ExprTys.[i] pools.ExprToks.[i] varBinding pools.ExprPayloads.[i] es ps
+                substituteExpr
+                    widen
+                    pools.ExprTys.[i]
+                    pools.ExprToks.[i]
+                    pools.ExprVarBinder.[i]
+                    pools.ExprPayloads.[i]
+                    es
+                    ps
 
             BinderKey.ofExpr e |> ValueOption.iter readmit
             e

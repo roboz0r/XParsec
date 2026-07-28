@@ -77,9 +77,9 @@ module FrozenCodecTypes =
             w.Write 12uy
             writeTyparAxis w axis
             w.Write index
-        | FTLocalTypar(binder, index) ->
+        | FTLocalTypar(SchemeId scheme, index) ->
             w.Write 13uy
-            writeNodeKey w binder
+            w.Write scheme
             w.Write index
         | FTUnknown name ->
             w.Write 14uy
@@ -137,9 +137,9 @@ module FrozenCodecTypes =
             let index = r.ReadInt32()
             FTTypar(axis, index)
         | 13uy ->
-            let binder = readNodeKey r
+            let scheme = r.ReadInt32()
             let index = r.ReadInt32()
-            FTLocalTypar(binder, index)
+            FTLocalTypar(SchemeId scheme, index)
         | 14uy -> FTUnknown(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown FrozenType tag %d" b
 

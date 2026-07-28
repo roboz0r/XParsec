@@ -45,12 +45,12 @@ module Inline =
     /// A typar leaf of a FROZEN template, across all three axes — the key of the
     /// thaw's freshener cache. One cache, one key type: a `Declaring 0` and a
     /// `Method 0` are different typars and must not collide, and an `FTLocalTypar`
-    /// is identified by the `(binder, index)` PAIR, never the index alone.
+    /// is identified by the `(scheme, index)` PAIR, never the index alone.
     [<RequireQualifiedAccess>]
     type private TyparLeaf =
         | Declaring of declIndex: int
         | Method of methodIndex: int
-        | Local of binder: NodeKey * localIndex: int
+        | Local of scheme: SchemeId * localIndex: int
 
     /// THE immutable→mutable transition: realise a frozen inline body in the CONSUMER's
     /// `SemType` domain, minting one fresh `TyVar` cell per distinct typar leaf.
@@ -67,9 +67,9 @@ module Inline =
     /// (a parameter's type and the use of that parameter) come apart.
     ///
     /// It consults no ambient unit state: a leaf is interpreted against the body carrying
-    /// it and nothing else. That is what makes an `FTLocalTypar`'s body-relative `NodeKey`
-    /// binder safe across units, whose `NodeKey`s collide freely (there is no file id in
-    /// one, by design).
+    /// it and nothing else. That is what makes an `FTLocalTypar`'s body-relative
+    /// `SchemeId` safe across units — it addresses nothing outside the body it arrived
+    /// with, so there is nothing here that could resolve it against this unit.
     let thawBody (store: TypeStore) (decl: Frozen.TDecl) : TDecl =
         let cache = Dictionary<TyparLeaf, SemType>()
 
@@ -85,7 +85,7 @@ module Inline =
             (FrozenTypeBridge.instantiateWith
                 (fun i -> mint (TyparLeaf.Declaring i))
                 (fun j -> mint (TyparLeaf.Method j))
-                (fun binder k -> mint (TyparLeaf.Local(binder, k))))
+                (fun scheme k -> mint (TyparLeaf.Local(scheme, k))))
             decl
 
     /// A module-level `let` value whose body is EXACTLY one intrinsic expression with

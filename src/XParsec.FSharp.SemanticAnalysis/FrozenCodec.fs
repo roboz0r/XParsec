@@ -176,7 +176,7 @@ module FrozenCodec =
         | ExprPayload.While -> w.Write 10uy
         | ExprPayload.ForTo p ->
             w.Write 11uy
-            writeNodeKey w p.Var
+            writeBinderId w p.Var
             writeSyntaxToken w p.IdentTok
         | ExprPayload.ForIn enumerator ->
             w.Write 12uy
@@ -283,7 +283,7 @@ module FrozenCodec =
         | 9uy -> ExprPayload.Sequential
         | 10uy -> ExprPayload.While
         | 11uy ->
-            let var = readNodeKey r
+            let var = readBinderId r
             let identTok = readSyntaxToken r
 
             ExprPayload.ForTo {| Var = var; IdentTok = identTok |}
@@ -377,9 +377,9 @@ module FrozenCodec =
 
     let private writePatPayload (w: BinaryWriter) (p: PatPayload) =
         match p with
-        | PatPayload.NamedSimple binding ->
+        | PatPayload.NamedSimple binder ->
             w.Write 0uy
-            writeNodeKey w binding
+            writeBinderId w binder
         | PatPayload.Wildcard -> w.Write 1uy
         | PatPayload.Null -> w.Write 2uy
         | PatPayload.Tuple -> w.Write 3uy
@@ -403,7 +403,7 @@ module FrozenCodec =
 
     let private readPatPayload (r: BinaryReader) : PatPayload =
         match r.ReadByte() with
-        | 0uy -> PatPayload.NamedSimple(readNodeKey r)
+        | 0uy -> PatPayload.NamedSimple(readBinderId r)
         | 1uy -> PatPayload.Wildcard
         | 2uy -> PatPayload.Null
         | 3uy -> PatPayload.Tuple

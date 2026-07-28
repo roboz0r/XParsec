@@ -177,8 +177,8 @@ module TastPools =
     /// the binders (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
     /// (`Match`/`TryWith`) that are part of THIS node. They are NOT reachable through
     /// `exprChildren` (which yields only sub-expressions). Only the six binder/arm
-    /// shapes own patterns. `ForTo`'s loop variable is a `NodeKey`, not a pattern, so
-    /// it is not a pat child.
+    /// shapes own patterns. `ForTo`'s loop variable is a bare binder, not a pattern, so
+    /// it is not a pat child — it rides the node's own payload.
     let exprPatChildren (e: Frozen.TExpr) : Frozen.TPat[] =
         let acc = ResizeArray<Frozen.TPat>()
 
@@ -253,16 +253,29 @@ module TastPools =
 
         acc.ToArray()
 
+    /// The dense id of the binder the node being pooled INTRODUCES. `BinderKey.ofPat` /
+    /// `BinderKey.ofExpr` answer `ValueSome` for exactly the two payload cases that name
+    /// their own binder (`NamedSimple`, `ForTo`), and `poolPat`/`poolExpr` intern that
+    /// answer before building the payload — so a miss is those two statements of "which
+    /// node binds" having drifted apart, not a defect of the tree.
+    let private introducedBinder (site: string) (binder: BinderId voption) : BinderId =
+        match binder with
+        | ValueSome id -> id
+        | ValueNone -> failwithf "TastPools.%s: the node's payload names a binder the walk interned none for" site
+
     /// The residual payload of a frozen expression node — its fields MINUS `ty`/`tok`, the
     /// child expr ids (`exprChildren`), the owned pat ids (`exprPatChildren`), and the `Var`
     /// binder id. The exact inverse of `substituteExpr`, mirroring `FrozenCodec.writeExprPayload`
     /// for what each case emits beyond those. Exhaustive on the DU with no catch-all, so a
     /// new `TExprG` case fails to compile here.
     ///
+    /// `binder` is the dense id of the binder this node introduces (`introducedBinder`) —
+    /// `ForTo`'s loop variable and nothing else.
+    ///
     /// Public as the DU-domain counterpart of the `ExprPayloads` column: the pool-build
     /// gate checks a pooled node against the payload the DU node projects to, which is
     /// the whole residual rather than just its tag.
-    let exprPayload (e: Frozen.TExpr) : ExprPayload =
+    let exprPayload (binder: BinderId voption) (e: Frozen.TExpr) : ExprPayload =
         // Per-arm guard-presence flags — the only residual structure a `Match`/`TryWith`
         // records (the arm pats/guards/bodies themselves ride the child columns); this is
         // what `substituteExpr.buildArms` re-nests them by.
@@ -286,7 +299,12 @@ module TastPools =
         | TExprG.Tuple _ -> ExprPayload.Tuple
         | TExprG.Sequential _ -> ExprPayload.Sequential
         | TExprG.While _ -> ExprPayload.While
-        | TExprG.ForTo(var = var; identTok = identTok) -> ExprPayload.ForTo {| Var = var; IdentTok = identTok |}
+        | TExprG.ForTo(identTok = identTok) ->
+            ExprPayload.ForTo
+                {|
+                    Var = introducedBinder "exprPayload" binder
+                    IdentTok = identTok
+                |}
         | TExprG.ForIn(enumerator = enumerator) -> ExprPayload.ForIn enumerator
         | TExprG.Match(arms = arms) -> ExprPayload.Match(armGuards arms)
         | TExprG.TryWith(arms = arms) -> ExprPayload.TryWith(armGuards arms)
@@ -368,10 +386,11 @@ module TastPools =
     /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
     /// child sub-pat ids (`patChildren`). The exact inverse of `substitutePat`, mirroring
     /// `FrozenCodec.writePatPayload`. Exhaustive with no catch-all, so a new `TPat` case fails to
-    /// compile here. Public for the same reason as `exprPayload`.
-    let patPayload (p: Frozen.TPat) : PatPayload =
+    /// compile here. `binder` is as `exprPayload`'s — here it is `NamedSimple`'s own binder.
+    /// Public for the same reason as `exprPayload`.
+    let patPayload (binder: BinderId voption) (p: Frozen.TPat) : PatPayload =
         match p with
-        | TPatG.NamedSimple(binding = binding) -> PatPayload.NamedSimple binding
+        | TPatG.NamedSimple _ -> PatPayload.NamedSimple(introducedBinder "patPayload" binder)
         | TPatG.Wildcard _ -> PatPayload.Wildcard
         | TPatG.Null _ -> PatPayload.Null
         | TPatG.Tuple _ -> PatPayload.Tuple
@@ -410,8 +429,10 @@ module TastPools =
     type PoolSink =
         {
             /// Called for every binder a walked node INTRODUCES (a `NamedSimple` pattern's
-            /// binding, a `ForTo` loop variable), before the node's row is added.
-            InternBinder: BinderKey -> unit
+            /// binding, a `ForTo` loop variable), before the node's row is added, and
+            /// answering with the dense id that binder took — which is what the node's own
+            /// payload then names it by. Idempotent in the key.
+            InternBinder: BinderKey -> BinderId
             AddExpr: ExprRow -> ExprPoolId
             AddPat: PatRow -> PatPoolId
             AddDecl: DeclRow -> DeclPoolId
@@ -423,10 +444,9 @@ module TastPools =
     /// Pool a pattern subtree post-order: a node's children are pooled before the node
     /// itself, so every child id its row names already resolves.
     let rec poolPat (sink: PoolSink) (p: Frozen.TPat) : PatPoolId =
-        match BinderKey.ofPat p with
-        | ValueSome k -> sink.InternBinder k
-        | ValueNone -> ()
-
+        // Interned BEFORE the payload is built: the payload names this binder by the id
+        // the intern hands back, so there is one identity rather than a key and an id.
+        let binder = BinderKey.ofPat p |> ValueOption.map sink.InternBinder
         let kids = patChildren p |> Array.map (poolPat sink)
 
         sink.AddPat
@@ -434,7 +454,7 @@ module TastPools =
                 Ty = TastWalk.patTy p
                 Tok = TastWalk.patTok p
                 Children = kids
-                Payload = patPayload p
+                Payload = patPayload binder p
             }
 
     /// Pool an expression subtree post-order (see `poolPat`), its owned sub-patterns
@@ -442,10 +462,7 @@ module TastPools =
     let rec poolExpr (sink: PoolSink) (e: Frozen.TExpr) : ExprPoolId =
         // A `ForTo` binds its loop variable with no pattern node behind it, so the
         // intern cannot ride `poolPat`.
-        match BinderKey.ofExpr e with
-        | ValueSome k -> sink.InternBinder k
-        | ValueNone -> ()
-
+        let binder = BinderKey.ofExpr e |> ValueOption.map sink.InternBinder
         let exprKids = exprChildren e |> Array.map (poolExpr sink)
         let patKids = exprPatChildren e |> Array.map (poolPat sink)
 
@@ -456,7 +473,7 @@ module TastPools =
                 Children = exprKids
                 PatChildren = patKids
                 VarBinder = ValueNone
-                Payload = exprPayload e
+                Payload = exprPayload binder e
             }
 
         let id = sink.AddExpr row
@@ -485,7 +502,7 @@ module TastPools =
         | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
         | TDeclG.Type td ->
             for k in BinderKey.ofTypeDecl td do
-                sink.InternBinder k
+                sink.InternBinder k |> ignore
 
             DeclPayload.Type(TastConvert.typeDecl id (poolExpr sink) td)
 
@@ -514,17 +531,10 @@ module TastPools =
     ///
     /// `ArgGroups.peel` is the walk; the readers below are the only column-domain part.
     ///
-    /// `internedBinderId` is the RAW lookup, not one of the two faulting resolvers: the key this
-    /// reads is a `PatPayload.NamedSimple` of the pool's own head pattern, which `poolPat`
-    /// interned as it appended that very node. So a miss here is not a producer filing a
-    /// surplus entry (`binderIdOf`) nor a reference to an unwalked definition site
-    /// (`binderIdOfRef`) — both of those are about keys that arrived from OUTSIDE the walk.
-    /// It can only be the interning failing to cover a node the walk itself pooled, and it
-    /// says so.
-    let private bindingValReprs
-        (pools: FrozenPools)
-        (internedBinderId: NodeKey -> BinderId voption)
-        : DenseTable<BinderId, PooledValRepr> =
+    /// Nothing here resolves a key: the binder a head pattern introduces is already the
+    /// dense id its payload carries, so the table is keyed by the very id the pooled node
+    /// bears rather than by a lookup that could miss.
+    let private bindingValReprs (pools: FrozenPools) : DenseTable<BinderId, PooledValRepr> =
         let unLambda (ExprPoolId i) =
             match pools.ExprPayloads.[i] with
             | ExprPayload.Lambda -> ValueSome(struct (pools.ExprPatChildren.[i].[0], pools.ExprChildren.[i].[0]))
@@ -534,9 +544,11 @@ module TastPools =
             {
                 Shape = PatPayload.shape pools.PatPayloads.[i]
                 Ty = pools.PatTys.[i]
+                // `ArgGroupG.GSimple` still names its slot by key, so the group reader
+                // widens through the column the id addresses.
                 Binder =
                     match pools.PatPayloads.[i] with
-                    | PatPayload.NamedSimple binding -> ValueSome binding
+                    | PatPayload.NamedSimple(BinderId b) -> ValueSome pools.BinderKeys.[b]
                     | _ -> ValueNone
                 ConstValue =
                     match pools.PatPayloads.[i] with
@@ -553,20 +565,12 @@ module TastPools =
                     match pools.PatPayloads.[head] with
                     // Only a simple binder has a side-table identity; a destructuring or
                     // wildcard head introduces none and needs none (see `BinderKey.ofPat`).
-                    | PatPayload.NamedSimple binding ->
+                    | PatPayload.NamedSimple binder ->
                         let groups, body = ArgGroups.peel unLambda facts pools.DeclExprChildren.[d].[0]
                         let (ExprPoolId b) = body
 
-                        let id =
-                            match internedBinderId binding with
-                            | ValueSome id -> id
-                            | ValueNone ->
-                                failwithf
-                                    "TastPools.toPools: the pooled head pattern binding %O was never interned — the binder enumeration does not cover a node the walk itself pooled"
-                                    binding
-
                         yield
-                            id,
+                            binder,
                             {
                                 // A plain value has no lambda groups and records an
                                 // empty-`Groups` entry, which the file→file signature
@@ -575,7 +579,7 @@ module TastPools =
                                 // `pools` already carries the filled column, so the width
                                 // comes from the very one it ships with rather than from a
                                 // second NodeKey-keyed copy of it.
-                                Typars = FrozenPools.typarArity pools id
+                                Typars = FrozenPools.typarArity pools binder
                                 Groups = groups
                                 ResultTy = pools.ExprTys.[b]
                             }
@@ -640,14 +644,41 @@ module TastPools =
         // pooled last, and left every other copy to emit as an ordinary heap closure.
         let lambdaSlots = ResizeArray<struct (ExprPoolId * NodeKey)>()
 
-        let internBinder (b: BinderKey) : unit =
+        let internBinder (b: BinderKey) : BinderId =
             let k = BinderKey.toNodeKey b
 
             match binderIds.TryGetValue k with
-            | true, _ -> ()
+            | true, id -> id
             | false, _ ->
-                binderIds.Add(k, BinderId binderKeys.Count)
+                let id = BinderId binderKeys.Count
+                binderIds.Add(k, id)
                 binderKeys.Add k
+                id
+
+        // THE anchor of a node of THIS FILE — its `ExprToks`/`PatToks` value — as it enters
+        // the column, checked to be a real lexed token.
+        //
+        // No node of a frozen file can anchor on a VIRTUAL token, so the anchor columns
+        // need no sentinel. Every anchor rule (`CstKeys.firstTokenOfExpr`/`firstTokenOfPat`)
+        // takes a keyword, a real operator, a real opening delimiter, or recurses; recovery
+        // synthesises only CLOSING delimiters (`ParsingHelpers.pEnclosed` passes the real
+        // `l` through), and the only virtual-IDENTIFIER producer (`recoverLongIdent`) serves
+        // `open`/`namespace`/`module` headers, for which there is no frozen decl at all.
+        // That is N individually-correct choices; this is the one place they are all
+        // answerable, so an arm that comes to pick a virtual token is caught here rather
+        // than by whichever consumer first asks the anchor for text or a position.
+        //
+        // It is a property of a node OF A FILE, which is why it lives on this sink and not
+        // in the pooling walk: an overlay sink (`TastPoolBuilder`) pools nodes that belong
+        // to no file at all — an `.fsi` contract's harvested member body has no source to
+        // anchor in — and those are not frozen nodes.
+        let anchor (tok: SyntaxToken) : SyntaxToken =
+            match tok.Index with
+            | TokenIndex.Regular _ -> tok
+            | TokenIndex.Virtual ->
+                failwithf
+                    "TastPools.toPools: a frozen node anchors on the VIRTUAL token %A, which names no place in the source"
+                    tok
 
         // The sink: rows land at the end of the column builders, so a node's id is the
         // count at the moment it is added. `ExprRow.VarBinder` is dropped here — the `Var`
@@ -660,7 +691,7 @@ module TastPools =
                     fun row ->
                         let id = exprPayloads.Count
                         exprTys.Add row.Ty
-                        exprToks.Add row.Tok
+                        exprToks.Add(anchor row.Tok)
                         exprChildrenCol.Add row.Children
                         exprPatChildrenCol.Add row.PatChildren
                         exprPayloads.Add row.Payload
@@ -669,7 +700,7 @@ module TastPools =
                     fun row ->
                         let id = patPayloads.Count
                         patTys.Add row.Ty
-                        patToks.Add row.Tok
+                        patToks.Add(anchor row.Tok)
                         patChildrenCol.Add row.Children
                         patPayloads.Add row.Payload
                         PatPoolId id
@@ -849,5 +880,5 @@ module TastPools =
             }
 
         { pools with
-            BindingValReprs = bindingValReprs pools internedBinderId
+            BindingValReprs = bindingValReprs pools
         }

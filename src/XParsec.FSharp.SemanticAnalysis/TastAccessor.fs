@@ -655,7 +655,7 @@ module TastAccessor =
         | ExprPayload.ForTo p ->
             ValueSome
                 {
-                    Var = p.Var
+                    Var = TastPoolBuilder.binderKey e.Pool p.Var
                     StartExpr = exprChild e 0
                     EndExpr = exprChild e 1
                     Body = exprChild e 2
@@ -786,7 +786,7 @@ module TastAccessor =
     /// (`Tuple`, `Record`, `Union`, `TypeTestAs`, `Or` — walk `patChildren` for those).
     let patBinder (p: PatId) : NodeKey voption =
         match patPayload p with
-        | PatPayload.NamedSimple binding -> ValueSome binding
+        | PatPayload.NamedSimple binder -> ValueSome(TastPoolBuilder.binderKey p.Pool binder)
         | _ -> ValueNone
 
     /// A `NamedSimple` pattern → the single binder it introduces (`patBinder`, which is
@@ -796,13 +796,12 @@ module TastAccessor =
 
     /// The POSITIONAL identity of the binder a `NamedSimple` pattern introduces — the id
     /// the pool's `BinderId`-keyed side tables are keyed by, so a consumer holding the
-    /// defining node looks its entry up directly instead of round-tripping through the
-    /// binder's `NodeKey`. `ValueNone` for a pattern that introduces no binder; also
-    /// `ValueNone` — never a minted id — if the pool never interned the key, so a lookup
-    /// keyed on this can only ever name a binder the tree bears.
+    /// defining node looks its entry up directly. It IS the payload's own field, so a
+    /// lookup keyed on this can only ever name a binder the pool interned; `ValueNone`
+    /// only for a pattern that introduces no binder at all.
     let patBinderId (p: PatId) : BinderId voption =
         match patPayload p with
-        | PatPayload.NamedSimple binding -> TastPoolBuilder.tryBinderId p.Pool binding
+        | PatPayload.NamedSimple binder -> ValueSome binder
         | _ -> ValueNone
 
     /// A `NamedSimple` pattern → the POSITIONAL id of the binder it introduces
@@ -811,17 +810,12 @@ module TastAccessor =
     [<return: Struct>]
     let (|PNamedId|_|) (p: PatId) : BinderId voption = patBinderId p
 
-    /// The naming projections of the binder a `NamedSimple` pattern introduces.
-    ///
-    /// Straight off the key, NOT through the pool's naming column: `BinderNaming.ofKey`
-    /// is that column's sole constructor, so the two agree by construction and the
-    /// detour would only be a chance to MINT (`internBinder`) a binder from a read —
-    /// which is exactly what `patBinderId` next door refuses to do. `exprVarNaming` is
-    /// the case that genuinely needs the column: a `Var` names its binder by id and has
-    /// no key to project from.
+    /// The naming projections of the binder a `NamedSimple` pattern introduces —
+    /// `exprVarNaming`'s pattern-side twin, off the same id space and so through the same
+    /// projection.
     let patBinderNaming (p: PatId) : BinderNaming voption =
         match patPayload p with
-        | PatPayload.NamedSimple binding -> ValueSome(BinderNaming.ofKey binding)
+        | PatPayload.NamedSimple binder -> ValueSome(TastPoolBuilder.binderNaming p.Pool binder)
         | _ -> ValueNone
 
     /// A `NamedSimple` pattern → the naming projections of the binder it introduces
@@ -1137,8 +1131,7 @@ module TastAccessor =
 
     /// A simple binder pattern, introducing `binding`.
     let mintNamedPat (pool: PoolBuilder) (binding: NodeKey) (ty: FrozenType) (tok: SyntaxToken) : PatId =
-        TastPoolBuilder.internBinder pool binding |> ignore
-        mintPat pool ty tok [||] (PatPayload.NamedSimple binding)
+        mintPat pool ty tok [||] (PatPayload.NamedSimple(TastPoolBuilder.internBinder pool binding))
 
     /// An anonymous `_` pattern.
     let mintWildcardPat (pool: PoolBuilder) (ty: FrozenType) (tok: SyntaxToken) : PatId =

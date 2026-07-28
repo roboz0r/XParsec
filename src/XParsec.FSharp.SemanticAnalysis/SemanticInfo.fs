@@ -138,28 +138,28 @@ and FrozenType =
     /// that axis's typar list — the order `freeze` quantifies in, which is the
     /// single index-minting point.
     | FTTypar of axis: TyparAxis * index: int
-    /// Typar #`index` of the generalized scheme bound at `binder` — a body-local
-    /// `let`'s OWN scheme. The root is NOT free: it is BOUND, just by a binder that
-    /// is not the enclosing method. `let g = fun x -> x` inside a decl is its own
-    /// declaration with its own generalized scheme; `Elaborate.mkMethodQuantEnv`
-    /// fails to map `g`'s root not because the root is unbound but because it is
-    /// looking at the WRONG binder's axis (it derives its remap by walking the
-    /// ENCLOSING decl's type, in which `g`'s own root does not occur — every use of
-    /// `g` instantiates away from it). So the leaf names the scheme that binds it.
-    /// `index` is scoped to `binder` (position within that local scheme, minted by
-    /// `freeze` in first-occurrence pre-order — the same single-minting-point
-    /// discipline `FTTypar` indices follow), so two distinct local schemes cannot
-    /// collide even before their binders are compared. NEVER equate two local
-    /// typars by anything other than the `(binder, index)` PAIR.
+    /// Typar #`index` of the generalized scheme `scheme` — a body-local `let`'s OWN
+    /// scheme. The root is NOT free: it is BOUND, just by a binder that is not the
+    /// enclosing method. `let g = fun x -> x` inside a decl is its own declaration
+    /// with its own generalized scheme; `Elaborate.mkMethodQuantEnv` fails to map
+    /// `g`'s root not because the root is unbound but because it is looking at the
+    /// WRONG binder's axis (it derives its remap by walking the ENCLOSING decl's
+    /// type, in which `g`'s own root does not occur — every use of `g` instantiates
+    /// away from it). So the leaf names the scheme that binds it. `index` is scoped
+    /// to `scheme` (position within that local scheme, minted by `freeze` in
+    /// first-occurrence pre-order — the same single-minting-point discipline
+    /// `FTTypar` indices follow), so two distinct local schemes cannot collide even
+    /// before their schemes are compared. NEVER equate two local typars by anything
+    /// other than the `(scheme, index)` PAIR.
     ///
-    /// Carrying `binder` preserves an association a future GENERIC-CLOSURE lowering
-    /// needs, rather than erasing it and forcing it to be reconstructed. Real F#
-    /// compiles `let f () = let g = fun x -> x in (g, g)` to `f<'a,'b>` (its two
-    /// USE-SITE instantiations, implicitly generalized onto `f`'s own method typar
-    /// list) plus a separate GENERIC closure class `g@2T<'c>` for `g`'s own root —
-    /// it does NOT append `'c` to `f`'s typars, which would change `f`'s ABI and
-    /// force callers to pass a third type argument. `binder` is the handle on that
-    /// separate home.
+    /// Naming the scheme at all preserves an association a future GENERIC-CLOSURE
+    /// lowering needs, rather than erasing it and forcing it to be reconstructed.
+    /// Real F# compiles `let f () = let g = fun x -> x in (g, g)` to `f<'a,'b>` (its
+    /// two USE-SITE instantiations, implicitly generalized onto `f`'s own method
+    /// typar list) plus a separate GENERIC closure class `g@2T<'c>` for `g`'s own
+    /// root — it does NOT append `'c` to `f`'s typars, which would change `f`'s ABI
+    /// and force callers to pass a third type argument. `scheme` is the handle on
+    /// that separate home.
     ///
     /// It is a DISTINCT case rather than a third `TyparAxis` because
     /// `Declaring`/`Method` indices are positions in a *declared* typar list on the
@@ -171,26 +171,24 @@ and FrozenType =
     /// `FTUnknown "?free-typar"` hack conflated every local typar into one
     /// name-equal leaf.
     ///
-    /// **`binder` is BODY-RELATIVE and must never be resolved against anything.**
-    /// A `NodeKey` is `(offset, kind)` with NO file id (`NodeKey.fs`), so keys from
-    /// different files collide freely — deliberately: cross-file references resolve
-    /// by NAME against prior views, never by `NodeKey`. This leaf is safe under that
-    /// rule, and stays safe only if the following hold:
+    /// **`scheme` is BODY-RELATIVE and must never be resolved against anything.**
+    /// A `SchemeId` is a bare ordinal minted per frozen body, so there is nothing in
+    /// the program it addresses: no node, no pool slot, no side-table key. That is
+    /// what the type buys — the leaf cannot be resolved even by accident, whereas a
+    /// `NodeKey` here was always one lookup away from being resolved against the
+    /// consuming unit's own tree (keys from different files collide freely, by
+    /// design: cross-file references resolve by NAME against prior views). What is
+    /// left to uphold:
     ///
-    /// - It is the SAME CLASS of key a frozen body already carries: every
-    ///   `TPatG.NamedSimple(k, …)` inside an inline body is a file-local `NodeKey`
-    ///   that already crosses the package boundary, and `Inline.freshen` rewrites
-    ///   them at the splice (what the `SynthPreFreezeInline` kind exists for).
     /// - It is interpreted only against the TEMPLATE that carries it, exactly as
     ///   `FTTypar`'s index is. Two leaves from different units comparing structurally
     ///   equal is no more a bug than `FTTypar(Declaring, 0)` from two units doing so.
     /// - It is CONSUMED AT THAW: the leaf becomes a fresh consumer-owned `TyVar` and
-    ///   the key does not survive into the spliced tree.
+    ///   the id does not survive into the spliced tree.
     ///
-    /// Therefore: NEVER use `binder` for cross-file (or any) resolution, and NEVER
-    /// merge it into a `NodeKey`-keyed side table. It identifies a scheme WITHIN one
-    /// frozen body and nothing else.
-    | FTLocalTypar of binder: NodeKey * index: int
+    /// Therefore: NEVER use `scheme` for cross-file (or any) resolution. It
+    /// identifies a scheme WITHIN one frozen body and nothing else.
+    | FTLocalTypar of scheme: SchemeId * index: int
     /// Mirror of `SemType.TyUnknown`: a nominal head that resolved to no type
     /// shape. Carried so `freeze` is total; whether it may legitimately reach
     /// the backend is an open question (likely a hard error).

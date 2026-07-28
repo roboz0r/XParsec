@@ -55,11 +55,11 @@ module FrozenTypeBridge =
 
     /// Realise a `FrozenType` template, resolving its open typars via the three
     /// supplied callbacks: `declaring i` yields the declaring type's i-th arg;
-    /// `methodVar j` yields the method axis's j-th instantiation; `localTypar binder
-    /// k` yields the realisation of typar #`k` of the local scheme bound at `binder`
+    /// `methodVar j` yields the method axis's j-th instantiation; `localTypar scheme
+    /// k` yields the realisation of typar #`k` of the body-local `scheme`
     /// (`FTLocalTypar`, which — unlike the two declared axes — is NOT a position in
     /// any argument vector, so its policy can only MINT, never index; and which must
-    /// be keyed on the `(binder, index)` PAIR, never the index alone). Every other
+    /// be keyed on the `(scheme, index)` PAIR, never the index alone). Every other
     /// case maps structurally. Callers that span more than one template of the *same*
     /// signature (a split parameter/return `ExternalSignature`) must share one
     /// `methodVar` memo so a repeated method index resolves to the same var across
@@ -69,7 +69,7 @@ module FrozenTypeBridge =
     let rec instantiateWith
         (declaring: int -> SemType)
         (methodVar: int -> SemType)
-        (localTypar: NodeKey -> int -> SemType)
+        (localTypar: SchemeId -> int -> SemType)
         (template: FrozenType)
         : SemType =
         let go = instantiateWith declaring methodVar localTypar
@@ -103,7 +103,7 @@ module FrozenTypeBridge =
                 }
         | FTTypar(TyparAxis.Declaring, i) -> declaring i
         | FTTypar(TyparAxis.Method, j) -> methodVar j
-        | FTLocalTypar(binder, k) -> localTypar binder k
+        | FTLocalTypar(scheme, k) -> localTypar scheme k
         | FTUnknown name -> TyUnknown name
 
     /// `FrozenType -> SemType`. Total — every `FrozenType` case has a `SemType`
@@ -113,20 +113,20 @@ module FrozenTypeBridge =
     ///
     /// `FTLocalTypar` is the one arm with no marker to map to — `SemType` has no
     /// local-typar case — so it MINTS a fresh unlinked `TyVar`, memoised per
-    /// `(binder, index)` PAIR so repeated occurrences of one local typar share a
+    /// `(scheme, index)` PAIR so repeated occurrences of one local typar share a
     /// cell across the realised template. So `ofFrozen` is not cell-free in that
     /// arm; the contract it actually owes is intact, because the cells it mints are
     /// the CALLER's, never a producer's (nothing on the other side of a frozen
     /// boundary can hold a reference to one).
     let ofFrozen (store: TypeStore) (ft: FrozenType) : SemType =
         let localCache =
-            System.Collections.Generic.Dictionary<struct (NodeKey * int), SemType>()
+            System.Collections.Generic.Dictionary<struct (SchemeId * int), SemType>()
 
         instantiateWith
             (fun i -> TyTypar(TyparAxis.Declaring, i))
             (fun j -> TyTypar(TyparAxis.Method, j))
-            (fun binder k ->
-                let key = struct (binder, k)
+            (fun scheme k ->
+                let key = struct (scheme, k)
 
                 match localCache.TryGetValue key with
                 | true, v -> v
@@ -181,8 +181,8 @@ module FrozenTypeBridge =
     /// than fabricate a var, mirroring the method-axis arm of `instantiateDeclaring`.
     /// Only a realiser of a whole frozen BODY (the inline-splice thaw) supplies a
     /// minting policy.
-    let localTyparInTemplate (site: string) (binder: NodeKey) (k: int) : SemType =
-        failwithf "%s: unexpected body-local typar %d of scheme %O in a signature template" site k binder
+    let localTyparInTemplate (site: string) (scheme: SchemeId) (k: int) : SemType =
+        failwithf "%s: unexpected body-local typar %d of scheme %O in a signature template" site k scheme
 
     /// Realise a *declaring-only* template (a type-shape descriptor — a record
     /// field, union-case field, interface arg, base type, or abbreviation body):

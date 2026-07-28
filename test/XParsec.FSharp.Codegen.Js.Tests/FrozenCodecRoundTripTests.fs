@@ -44,8 +44,8 @@ let private collect () : Harvest =
     let nks = HashSet<NodeKey>(HashIdentity.Structural)
     let toks = HashSet<SyntaxToken>(HashIdentity.Structural)
 
-    // FrozenType child-walk: collect the node and every key / nested type / local-typar
-    // binder it reaches, so the recursive codec is exercised over whole subtrees.
+    // FrozenType child-walk: collect the node and every key / nested type it reaches, so
+    // the recursive codec is exercised over whole subtrees.
     let rec visitFt (ft: FrozenType) =
         if fts.Add ft then
             match ft with
@@ -74,7 +74,9 @@ let private collect () : Harvest =
                 visitFt p.WhenTrue
                 visitFt p.WhenFalse
             | FTTypar _ -> ()
-            | FTLocalTypar(binder, _) -> nks.Add binder |> ignore
+            // Its scheme id addresses nothing outside the body that carried it, so there is
+            // no leaf here to harvest into any of the key corpora.
+            | FTLocalTypar _ -> ()
             | FTUnknown _ -> ()
 
     and visitSym (sk: SymbolKey) =
@@ -278,7 +280,7 @@ let private collect () : Harvest =
             ftCond
             FTTypar(TyparAxis.Declaring, 0)
             FTTypar(TyparAxis.Method, 3)
-            FTLocalTypar(NodeKey.ofSyntheticCounter 7 NodeKind.SynthPreFreezeInline, 2)
+            FTLocalTypar(SchemeId 7, 2)
             FTUnknown "?free-typar"
             // Deeply nested: functions, tuples, sets and computations composed together.
             FTFun(FTTuple(EqArray.ofList [ ftCond; ftArray ]), FTOr(EqSet.ofSeq [ FTKeyOf ftRecord; ftCond; ftInt ]))

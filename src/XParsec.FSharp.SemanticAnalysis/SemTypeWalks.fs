@@ -174,9 +174,9 @@ module FrozenType =
         | FTUnknown n1, FTUnknown n2 -> n1 = n2
         // NOT a wildcard (unlike `FTTypar`): a local typar is an identity-bearing
         // leaf that no argument vector instantiates, so it only heads-matches the
-        // same `(binder, index)` PAIR — the leaf-identity rule `FTUnknown`/`FTLiteral`
+        // same `(scheme, index)` PAIR — the leaf-identity rule `FTUnknown`/`FTLiteral`
         // follow. Never equate two local typars by index alone.
-        | FTLocalTypar(b1, i1), FTLocalTypar(b2, i2) -> b1 = b2 && i1 = i2
+        | FTLocalTypar(s1, i1), FTLocalTypar(s2, i2) -> s1 = s2 && i1 = i2
         | _ -> false
 
     /// PAIRWISE descent: when `a` and `b` share the same head (same case, same

@@ -262,11 +262,12 @@ type ExprPayload =
     | Tuple
     | Sequential
     | While
-    /// The loop binder + its `identTok` (neither the node's `tok` nor a `Var`-column
-    /// binder — the `var` names its own binder, which is interned so references resolve).
+    /// The loop binder + its `identTok`. `Var` is the binder this node INTRODUCES (not a
+    /// reference, so it is not on the `ExprVarBinder` column), named by the same dense id
+    /// the loop body's `Var` references resolve to — one identity, interned once.
     | ForTo of
         {|
-            Var: NodeKey
+            Var: BinderId
             IdentTok: SyntaxToken
         |}
     | ForIn of Frozen.ForInEnumerator
@@ -485,11 +486,10 @@ module ExprPayload =
 /// `patPayload`/`substitutePat`.
 [<RequireQualifiedAccess>]
 type PatPayload =
-    /// The single binder this simple name pattern INTRODUCES — a `NodeKey` kept verbatim,
-    /// the pat analogue of `ExprPayload.ForTo`'s `Var`: it is interned to a `BinderId` (so
-    /// `Var` references resolve) yet reconstructed from here, and it names no sub-pattern so
-    /// it is not a child.
-    | NamedSimple of binding: NodeKey
+    /// The single binder this simple name pattern INTRODUCES, named by the dense id its
+    /// `Var` references resolve to — the pat analogue of `ExprPayload.ForTo`'s `Var`. It
+    /// names no sub-pattern, so it is not a child.
+    | NamedSimple of binding: BinderId
     | Wildcard
     | Null
     | Tuple

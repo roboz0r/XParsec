@@ -22,12 +22,12 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // 3. The body-local typar residue keeps its IDENTITY across freeze: each un-quantified
 //    root is attributed to the local scheme that BINDS it and freezes to
-//    `FTLocalTypar(binder, index)`; `Inline.thawBody` mints one fresh cell per
-//    `(binder, index)` pair.
+//    `FTLocalTypar(scheme, index)`; `Inline.thawBody` mints one fresh cell per
+//    `(scheme, index)` pair.
 //
-// 4. That identity is BODY-RELATIVE and survives `NodeKey` collision across units — the
-//    multi-file case, where a `NodeKey` has no file id and keys from two units collide
-//    freely. Both the freeze/thaw half and a REAL cross-unit splice are pinned below.
+// 4. That identity is BODY-RELATIVE and survives two units minting the same `SchemeId` —
+//    the multi-file case, an id being an ordinal within one body and nothing more. Both
+//    the freeze/thaw half and a REAL cross-unit splice are pinned below.
 
 /// Every type mentioned by a frozen clause's constraints, in order.
 let private frozenConstraintTypes (clauses: Frozen.TStaticOptClause list) : FrozenType list =
@@ -42,11 +42,11 @@ let private frozenConstraintTypes (clauses: Frozen.TStaticOptClause list) : Froz
     ]
 
 /// Every `FTLocalTypar` leaf in a frozen type, in first-occurrence pre-order.
-let rec private localLeavesIn (t: FrozenType) : (NodeKey * int) list =
+let rec private localLeavesIn (t: FrozenType) : (SchemeId * int) list =
     match t with
-    | FTLocalTypar(binder, i) -> [ binder, i ]
+    | FTLocalTypar(scheme, i) -> [ scheme, i ]
     | t ->
-        let acc = ResizeArray<NodeKey * int>()
+        let acc = ResizeArray<SchemeId * int>()
         FrozenType.iterChildren (fun c -> acc.AddRange(localLeavesIn c)) t
         List.ofSeq acc
 
@@ -383,7 +383,8 @@ let tests =
                     "the binding's own typar is QUANTIFIED (FTTypar), never mistaken for a body-local residue"
             }
 
-            test "freeze: two body-local schemes freeze to leaves with DISTINCT binders, and thaw to two distinct cells" {
+            test
+                "freeze: two body-local schemes freeze to leaves with DISTINCT scheme ids, and thaw to two distinct cells" {
                 let fDecl = frozenLetDecl twoLocalSchemes
 
                 let declTy =
@@ -393,23 +394,23 @@ let tests =
 
                 // `g`'s `'x` and `h`'s `'y` are each bound by their OWN local scheme, so
                 // neither occurs in `f`'s type. They are two typars, and — the point of
-                // carrying `binder` — they are distinguished by their BINDER, not merely by
-                // an index that happens to differ.
+                // naming the scheme at all — they are distinguished by their SCHEME, not
+                // merely by an index that happens to differ.
                 let leaves = collectTys fDecl |> List.collect localLeavesIn
 
                 Expect.isNonEmpty leaves "the body-local schemes' own roots reach freeze as FTLocalTypar"
 
-                let binders = leaves |> List.map fst |> List.distinct
+                let schemes = leaves |> List.map fst |> List.distinct
 
                 Expect.equal
-                    binders.Length
+                    schemes.Length
                     2
-                    "two locally-generalized lets ⇒ leaves with two DISTINCT binder NodeKeys (the old FTUnknown name conflated them)"
+                    "two locally-generalized lets ⇒ leaves with two DISTINCT scheme ids (the old FTUnknown name conflated them)"
 
                 Expect.equal
                     (leaves |> List.distinct |> List.length)
                     2
-                    "…and two distinct (binder, index) pairs — each local scheme quantifies exactly one typar here"
+                    "…and two distinct (scheme, index) pairs — each local scheme quantifies exactly one typar here"
 
                 // The USE-SITE instantiations — the four occurrences in `(g, g, h, h)` — ARE
                 // in `f`'s type, so `mkMethodQuantEnv` maps them and they ride the ordinary
@@ -437,7 +438,7 @@ let tests =
                     "a decl-scoped thaw mints EXACTLY one fresh cell per distinct leaf — sharing it across every occurrence"
             }
 
-            test "freeze: local-typar leaves are DETERMINISTIC — the same source freezes to the same (binder, index)s" {
+            test "freeze: local-typar leaves are DETERMINISTIC — the same source freezes to the same (scheme, index)s" {
                 // The sidecar/publishing path (docs/publishing-format-plan.md) may serialize a
                 // frozen body and re-read it, so index stability rests on the freeze walk
                 // order being deterministic. It is today; nothing but this test enforces it.
@@ -451,15 +452,14 @@ let tests =
                 Expect.equal
                     twice
                     once
-                    "two freezes of the same source yield identical (binder, index) leaves, in the same order"
+                    "two freezes of the same source yield identical (scheme, index) leaves, in the same order"
             }
 
-            test "freeze/thaw: colliding binder NodeKeys across two units do not conflate — the leaf is BODY-relative" {
-                // The multi-file hazard, made concrete. A `NodeKey` is (offset, kind) with NO
-                // file id, so two units' keys collide freely — deliberately (cross-file
-                // references resolve by NAME / by KEY, never by NodeKey). These two units are
-                // DIFFERENT programs whose text is length-aligned character for character, so
-                // their local-`let` binders land on the SAME NodeKey.
+            test "freeze/thaw: colliding scheme ids across two units do not conflate — the leaf is BODY-relative" {
+                // The multi-file hazard, made concrete. A `SchemeId` is an ordinal minted per
+                // frozen body, so two units' ids collide freely — a leaf is only ever
+                // interpreted against the body carrying it. These two units are DIFFERENT
+                // programs, each with one local scheme, so both land on the SAME `SchemeId`.
                 let producer =
                     String.concat "\n" [ "let a () ="; "    let p = fun x -> x"; "    (p, p)" ]
 
@@ -479,7 +479,7 @@ let tests =
                 Expect.equal
                     (fst pLeaves.Head)
                     (fst cLeaves.Head)
-                    "the two units' local binders collide on the same NodeKey (no file id in a NodeKey — by design)"
+                    "the two units' local schemes collide on the same SchemeId (an id is body-relative — by design)"
 
                 Expect.equal
                     pLeaves.Head
@@ -489,7 +489,7 @@ let tests =
                 // A `TyVarId` indexes ONE store, so cross-store id comparison is meaningless
                 // after the handle collapse — two units' cells are distinguishable only within a
                 // single id space. So route the consumer's own inference AND both thaws through
-                // ONE store: a NodeKey-keyed conflation would then surface as a REUSED (colliding)
+                // ONE store: a leaf-keyed conflation would then surface as a REUSED (colliding)
                 // id rather than hide behind separate object identities. Each `thawBody` still
                 // builds its OWN decl-scoped cache (design constraint: one cache per thawed decl),
                 // so the two same-keyed thaws must still mint independent cells in that one store.
@@ -531,11 +531,11 @@ let tests =
 
                 Expect.isEmpty
                     (disjointFrom pCells cCells)
-                    "the colliding binder key does NOT conflate the two units' local typars — each thaw mints its own cells"
+                    "the colliding scheme id does NOT conflate the two units' local typars — each thaw mints its own cells"
 
                 Expect.isEmpty
                     (disjointFrom consumerOwnCells pCells)
-                    "the producer's thawed cells are fresh — none is a cell of the consumer's own inference state, colliding key notwithstanding"
+                    "the producer's thawed cells are fresh — none is a cell of the consumer's own inference state, colliding id notwithstanding"
             }
 
             // ─── Cross-unit SPLICE: freeze in A, splice in B ────────────────────────────

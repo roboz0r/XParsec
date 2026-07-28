@@ -228,6 +228,19 @@ type TyparAxis =
     | Declaring
     | Method
 
+/// A generalized scheme bound INSIDE one frozen body, numbered densely within that body —
+/// the identity `FrozenType.FTLocalTypar` names, and the reason it needs no key. It is
+/// OPAQUE and BODY-RELATIVE: nothing may resolve it against a file, a pool, or a side
+/// table; the only operations it supports are the two `FTLocalTypar` needs, distinctness
+/// and equality, and both are interpreted only against the body carrying the leaf.
+///
+/// Being file-scoped is the point. A `NodeKey` addresses a node of SOME file with no file
+/// id in it, so two units' local schemes collide silently and a reader is always one
+/// careless lookup away from resolving one; a dense per-body int cannot be mistaken for
+/// anything resolvable, because it names nothing outside the body it came with.
+[<Struct>]
+type SchemeId = | SchemeId of int
+
 /// The constant value a structural LITERAL type carries (`FTLiteral`/`TyLiteral`).
 /// String first (`"GET"`); `Int` falls out for numeric literal unions. No `bool`
 /// (design §"Literal types stay structural … string first; skip bool"). A literal

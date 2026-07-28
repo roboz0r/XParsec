@@ -20,8 +20,8 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 [<RequireQualifiedAccess>]
 module Freeze =
 
-    /// Attribute each typar root to the BINDER whose generalized scheme quantified
-    /// it, and to its index within that scheme.
+    /// Attribute each typar root to the body-local SCHEME that quantified it, and to
+    /// its index within that scheme.
     ///
     /// The residue reaching freeze is not *free* — it is BOUND, by a binder that is
     /// not the enclosing method (see `FrozenType.FTLocalTypar`). A body-local
@@ -45,12 +45,24 @@ module Freeze =
     /// One root belongs to at most one scheme (an inner binding cannot quantify a
     /// root that is free in its environment), so the map needs no precedence rule and
     /// does not depend on enumeration order.
-    let private schemeBinders (ctx: PassContext) : Dictionary<TyVarId, struct (NodeKey * int)> =
-        let map = Dictionary<TyVarId, struct (NodeKey * int)>()
+    ///
+    /// The `SchemeId` the leaf carries is minted HERE and nowhere else — a dense
+    /// ordinal over the file's schemes, ordered by their binder's `NodeKey` so the id
+    /// a given source file yields is the same on every run (the table is a
+    /// `Dictionary` that entries are also REMOVED from, so its enumeration order is
+    /// not a property of the source). The binder key itself stops here: a local
+    /// scheme's identity is needed only to keep two of them apart within one body,
+    /// and an ordinal that names nothing outside that body cannot be resolved against
+    /// a consuming unit's tree the way a `NodeKey` could.
+    let private schemeBinders (ctx: PassContext) : Dictionary<TyVarId, struct (SchemeId * int)> =
+        let map = Dictionary<TyVarId, struct (SchemeId * int)>()
 
-        for KeyValue(binder, scheme) in ctx.Bindings.Scheme.AsDictionary() do
+        ctx.Bindings.Scheme.AsDictionary()
+        |> Seq.sortBy (fun (KeyValue(binder, _)) -> binder.Raw)
+        |> Seq.iteri (fun schemeIndex (KeyValue(_, scheme)) ->
             scheme.Quantified
-            |> Seq.iteri (fun i tv -> map.[(UnionFind.find ctx.Store tv).Id] <- struct (binder, i))
+            |> Seq.iteri (fun i tv -> map.[(UnionFind.find ctx.Store tv).Id] <- struct (SchemeId schemeIndex, i))
+        )
 
         map
 
@@ -86,8 +98,8 @@ module Freeze =
     /// type, and it maps.)
     ///
     /// The residue is IDENTITY-PRESERVING, not a phantom collapsed to a name: each
-    /// root is attributed to the local scheme that BINDS it (`localBinders`), so it
-    /// freezes to `FTLocalTypar(binder, index)`. Structural equality is by that pair,
+    /// root is attributed to the local scheme that BINDS it (`schemeBinders`), so it
+    /// freezes to `FTLocalTypar(scheme, index)`. Structural equality is by that pair,
     /// so two body-local typars stay two typars across the round-trip — the
     /// predecessor `FTUnknown "?free-typar"` gave every root the SAME name and
     /// `FTUnknown` equality is by name, so they conflated into one leaf. That was
@@ -100,7 +112,7 @@ module Freeze =
     /// backward-flow hole. `toFrozen` itself stays strict (its `TyVar` hard-error is
     /// unchanged), and a genuine unresolved-metavar inference bug — a root NO local
     /// scheme binds — is caught upstream by `ResolvedTypes` (a graceful per-decl
-    /// diagnostic) and degrades HERE to `FTUnknown` rather than fabricating a binder:
+    /// diagnostic) and degrades HERE to `FTUnknown` rather than fabricating a scheme:
     /// `FTLocalTypar` is for a typar a local scheme legitimately quantified, never a
     /// catch-all for "a `TyVar` I couldn't explain".
     ///
@@ -114,12 +126,12 @@ module Freeze =
     /// lift a locally-generalized binding to its own typar axis. Not needed for the
     /// identity fix above.
     ///
-    /// The binder attribution is a property of the SCHEME TABLE, not of tree
+    /// The scheme attribution is a property of the SCHEME TABLE, not of tree
     /// position, so it is built once per file and the freeze stays the pure per-type
     /// map it has always been.
     let private freezeTy
         (store: TypeStore)
-        (binders: Dictionary<TyVarId, struct (NodeKey * int)>)
+        (schemes: Dictionary<TyVarId, struct (SchemeId * int)>)
         (t: SemType)
         : FrozenType =
         let onVar (v: SemType) : FrozenType =
@@ -127,12 +139,12 @@ module Freeze =
             | TyVar tv ->
                 // Key on the union-find ROOT: two `TyVar` nodes in the same class are
                 // the same typar and must land on the same leaf.
-                match binders.TryGetValue((UnionFind.find store tv).Id) with
-                | true, struct (binder, index) -> FTLocalTypar(binder, index)
+                match schemes.TryGetValue((UnionFind.find store tv).Id) with
+                | true, struct (scheme, index) -> FTLocalTypar(scheme, index)
                 // No scheme quantified it ⇒ a genuine metavar leak, already an
                 // error-severity `ResolvedTypes` diagnostic on this decl. Degrade
                 // rather than crash (the decl is not going to be emitted) — and do
-                // NOT invent a binder for it.
+                // NOT invent a scheme for it.
                 | _ -> FTUnknown "?unresolved-typar"
             | _ -> failwithf "Freeze.freezeTy: `toFrozenWith` invoked the TyVar policy on a non-TyVar: %A" v
 

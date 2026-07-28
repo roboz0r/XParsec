@@ -373,18 +373,19 @@ module TastPoolBuilder =
         let kids = row.Children |> Array.map (copyPatTreeInto dest fTy b)
 
         // A `NamedSimple` copy introduces the SAME binder as its original, so the
-        // destination interns it: a reference minted against `dest` must resolve, and a
-        // retype changes types, never identity.
-        match row.Payload with
-        | PatPayload.NamedSimple binding -> internBinder dest binding |> ignore
-        | _ -> ()
+        // destination interns it and the copy names it by DEST's id: a retype changes
+        // types, never identity, and a binder id means nothing in another pool.
+        let payload =
+            match PatPayload.mapTys fTy row.Payload with
+            | PatPayload.NamedSimple binder -> PatPayload.NamedSimple(internBinder dest (binderKey b binder))
+            | p -> p
 
         appendPat
             dest
             { row with
                 Ty = fTy row.Ty
                 Children = kids
-                Payload = PatPayload.mapTys fTy row.Payload
+                Payload = payload
             }
 
     // ── the DU bridge, both directions ──────────────────────────────────────
@@ -407,10 +408,9 @@ module TastPoolBuilder =
     let private sinkOf (b: PoolBuilder) : TastPools.PoolSink =
         {
             // The overlay's binder index is keyed by `NodeKey` because it must also admit a
-            // REFERENCE (`VarRef` below, a payload's `NamedSimple` slot in
-            // `copyPatTreeInto`), which names its binder that way; the walk's definition
-            // sites widen into it.
-            InternBinder = BinderKey.toNodeKey >> internBinder b >> ignore
+            // REFERENCE (`VarRef` below, a minted binder pattern), which names its binder
+            // that way; the walk's definition sites widen into it.
+            InternBinder = BinderKey.toNodeKey >> internBinder b
             AddExpr = appendExpr b
             AddPat = appendPat b
             AddDecl = appendDecl b
@@ -441,7 +441,8 @@ module TastPoolBuilder =
     /// node of this file's tree wants the accessor.
     let rec private patTree (b: PoolBuilder) (id: PatPoolId) : Frozen.TPat =
         let row = patRow b id
-        TastUnpool.substitutePat row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree b))
+
+        TastUnpool.substitutePat (binderKey b) row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree b))
 
     /// The DU subtree an expression id denotes — see `patTree`. A `Var`'s binder edge is
     /// resolved back through the pool's own binder column, so a reference minted in the
@@ -451,9 +452,10 @@ module TastPoolBuilder =
         let row = exprRow b id
 
         TastUnpool.substituteExpr
+            (binderKey b)
             row.Ty
             row.Tok
-            (row.VarBinder |> ValueOption.map (binderKey b))
+            row.VarBinder
             row.Payload
             (row.Children |> Array.map (exprTree b))
             (row.PatChildren |> Array.map (patTree b))

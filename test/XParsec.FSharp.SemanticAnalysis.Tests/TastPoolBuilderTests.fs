@@ -118,7 +118,13 @@ let appendTests =
                 let (ExprPoolId i) = id
                 Expect.isGreaterThanOrEqual i baseCount "the appended root is an overlay id"
 
-                Expect.equal (TastPoolBuilder.exprPayload b id) (TastPools.exprPayload du) "appended payload"
+                // The binder the DU node introduces, resolved through the builder's own
+                // read-only lookup rather than read off the payload being checked.
+                let duBinder =
+                    BinderKey.ofExpr du
+                    |> ValueOption.bind (BinderKey.toNodeKey >> TastPoolBuilder.tryBinderId b)
+
+                Expect.equal (TastPoolBuilder.exprPayload b id) (TastPools.exprPayload duBinder du) "appended payload"
                 Expect.equal (TastPoolBuilder.exprTy b id) (TastWalk.exprTy du) "appended ty"
                 Expect.equal (TastPoolBuilder.exprTok b id) (TastWalk.exprTok du) "appended tok"
 
