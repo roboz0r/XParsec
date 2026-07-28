@@ -495,9 +495,22 @@ module PassContextResolution =
 /// `dynamic` to a concrete type through context (`d?foo + 1` pins it to `int`).
 /// Recorded by `inferDynamicLookup`; swept post-settle by `DynamicEscape.run`,
 /// which warns when `Root` zonks to a non-`dynamic` shape (the `default : dynamic`
-/// did NOT fire — an unchecked assertion). `Key` is the `?` node's key, used both
-/// to attribute the warning and to match a suppressing `(d?foo : T)` ascription.
-type DynamicEscapeSite = { Root: TyVarId; Key: NodeKey }
+/// did NOT fire — an unchecked assertion). `Node` is the `?` expression: its key matches a
+/// suppressing `(d?foo : T)` ascription, its token is where the warning points.
+type DynamicEscapeSite = { Root: TyVarId; Node: NodeSite }
+
+/// A bare-program list literal left FLEXIBLE by `listLiteralTy` / `consListTy`: the
+/// container `TypeVar` a consumer may drive, its element type, and the literal's own token.
+///
+/// The token is carried because the drain (`Unification.resolveListLiterals`) runs after
+/// the whole file is walked — it holds no node of its own, so without this a reconciliation
+/// failure would have nowhere to point.
+type ListLiteral =
+    {
+        Var: TyVarId
+        Elem: SemType
+        Tok: SyntaxToken
+    }
 
 /// The fixed set of Vesper.Core inline *access* intrinsics — the array/string/index
 /// read+write lowering (`arr.[i]`, `arr.[i] <- v`, `arr.Length`, `s.[i]`, an
@@ -872,6 +885,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// RHSes, pop after typing them; generalisation uses the pre-push value as
     /// the threshold for "which TyVars do I quantify?".
     member val CurrentLevel = 0 with get, set
+
     /// Bare-program list literals: each `[…]` whose container type was left
     /// *flexible* (a fresh `TypeVar`, paired with its element type) so a consumer
     /// can drive it — `List.fold`'s `Vesper.Collections.List` parameter flips it to
@@ -879,7 +893,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `Unification.resolveListLiterals` after the walk: a still-free literal links
     /// to the default list, a flipped one has its element reconciled. Programs that
     /// declare their own `list` abbrev never register here (they resolve eagerly).
-    member val ListLiterals = ResizeArray<TyVarId * SemType>() with get
+    member val ListLiterals = ResizeArray<ListLiteral>() with get
 
     /// `recv?name` dynamic-access sites, enqueued by `inferDynamicLookup` and swept
     /// post-settle by `DynamicEscape.run`. A site whose `Root` zonks to a concrete
@@ -901,7 +915,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
 
     /// Written type heads already blamed as undefined, so a head two passes both reach is
     /// blamed once (`UndefinedType`).
-    member val private undefinedTypeSites = HashSet<NodeKey>() with get
+    member val private undefinedTypeSites = HashSet<Site>() with get
 
     /// Which cons-list a *bare-program* list literal/pattern (one no consumer
     /// pinned) defaults to when drained by `Unification.resolveListLiterals`.
@@ -1060,37 +1074,74 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         | TokenIndex.Regular iT -> this.Lexed.GetTokenReadable(iT, this.Input)
         | TokenIndex.Virtual -> ReadableString.Empty
 
-    /// Record an `Error`-severity diagnostic at `key`. The canonical way to
+    /// Record an `Error`-severity diagnostic at `tok`. The canonical way to
     /// report — collapses the otherwise-ubiquitous inline `Diagnostic` literal
     /// (every call passed `Code = ""` / `Severity = Severity.Error`).
-    member this.Error(key: NodeKey, msg: string) =
+    ///
+    /// A TOKEN and not a `NodeKey`: a diagnostic wants a position and nothing else, where
+    /// a key is an analysis identity carrying a grammar-versioned node kind. Every
+    /// producer walks a tree whose nodes are token-parameterised, so the token is already
+    /// in hand; a producer with no node at all says `Site.Nowhere` through `ErrorAt`.
+    member this.Error(tok: SyntaxToken, msg: string) = this.ErrorAt(Site.ofToken tok, msg)
+
+    /// `Error` carrying a stable diagnostic `code` (`"FS0378"`, `"V001"`) — the only thing
+    /// the plain overload does not cover, and the reason an inline `Diagnostic` literal
+    /// used to survive at the handful of sites that mint one.
+    member this.Error(tok: SyntaxToken, code: string, msg: string) =
         this.Diagnostics.Add
             {
-                Key = key
+                Code = code
+                Message = msg
+                Severity = Severity.Error
+                Site = Site.ofToken tok
+            }
+
+    /// `Error` for a producer that has resolved its own `Site` — one with no node in the
+    /// file (`Site.Nowhere`), or a span rather than a single token.
+    member this.ErrorAt(site: Site, msg: string) =
+        this.Diagnostics.Add
+            {
                 Code = ""
                 Message = msg
                 Severity = Severity.Error
+                Site = site
             }
 
-    /// Blame the written type head at `key`: `name` names no type — no scope of this unit
+    /// Blame the written type head at `site`: `name` names no type — no scope of this unit
     /// claims it and the target's external universe does not hold it. THE one home for that
     /// verdict, so the passes that reach a head — the head classifier, which knows a bare name
     /// nothing answers for, and type translation, which is where every written head is finally
     /// resolved — say it identically and, reaching the same head, say it ONCE. The name is
     /// recorded (`UndefinedTypeNames`) so the `TyUnknown` the head recovers with cannot be
     /// blamed a second time downstream: one mistake, one diagnostic, at its cause.
-    member this.UndefinedType(key: NodeKey, name: string) =
+    ///
+    /// `site` is what the ONCE is counted over, which is why the caller supplies it rather
+    /// than a bare token: a head the parser inserted spells no place of its own, and a
+    /// caller that can reach the enclosing declaration widens to ITS span instead of
+    /// dropping the verdict (`Site.ofTokenOr`).
+    member this.UndefinedType(site: Site, name: string) =
         this.UndefinedTypeNames.Add name |> ignore
 
-        if this.undefinedTypeSites.Add key then
-            this.Error(key, sprintf "The type '%s' is not defined" name)
+        if this.undefinedTypeSites.Add site then
+            this.ErrorAt(site, sprintf "The type '%s' is not defined" name)
+
+    /// Register a flexible list literal for `resolveListLiterals` to settle. THE one
+    /// spelling of the entry, so the two producers (`listLiteralTy` for a `[…]` expression,
+    /// `consListTy` for a `h :: t` pattern) cannot record different shapes.
+    member this.RegisterListLiteral(container: TyVarId, elem: SemType, tok: SyntaxToken) =
+        this.ListLiterals.Add
+            {
+                Var = container
+                Elem = elem
+                Tok = tok
+            }
 
     /// `Warning`-severity analogue of `Error`.
-    member this.Warn(key: NodeKey, msg: string) =
+    member this.Warn(tok: SyntaxToken, msg: string) =
         this.Diagnostics.Add
             {
-                Key = key
                 Code = ""
                 Message = msg
                 Severity = Severity.Warning
+                Site = Site.ofToken tok
             }

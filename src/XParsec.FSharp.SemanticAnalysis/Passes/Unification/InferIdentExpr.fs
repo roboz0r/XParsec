@@ -19,7 +19,7 @@ open UnificationInferRecordAccess
 
 module internal UnificationInferIdentExpr =
 
-    let rec inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) : SemType =
+    let rec inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
         // A multi-segment LongIdent whose head is a local binding is a
         // record-field access chain (`r.X.Y`), not a qualified name — the
         // parser rides these inside a single `Expr.LongIdentOrOp` rather
@@ -41,15 +41,16 @@ module internal UnificationInferIdentExpr =
                 // NameResolution resolved the operator's compiled name (opens-aware,
                 // ambient-prelude leg included) and stamped its `ExternalSymbol` here;
                 // instantiate the scheme by key rather than re-resolving.
-                match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
+                match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
                 | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
-                | ValueNone -> errorTy ctx key (sprintf "Operator '%s' is not available from the symbol provider" name)
+                | ValueNone ->
+                    errorTy ctx node.Tok (sprintf "Operator '%s' is not available from the symbol provider" name)
             | ValueNone -> TyVar(freshTyVar ctx)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
-            inferLongIdentFieldChain ctx key li
+            inferLongIdentFieldChain ctx node li
         // An EXTERNAL enum-case access `E.C1` — the head names a TS-manifest
         // (provider) enum, not a project-local one (which the next arm's
         // `ctx.Types.Enum` lookup handles). Types as the nominal `TyEnum key`, the
@@ -57,8 +58,8 @@ module internal UnificationInferIdentExpr =
         // `(x: E)` annotation (`Translate.tryResolveExternalType`), so the two unify.
         // Guarded ahead of the general two-segment cascade so an external enum head
         // never falls through to the class/union static path.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) & Stamped ctx.Resolution.ExternalEnumCaseStamp key enumKey when
-            not (ctx.Bindings.Binding.ContainsKey key)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) & Stamped ctx.Resolution.ExternalEnumCaseStamp node.Key enumKey when
+            not (ctx.Bindings.Binding.ContainsKey node.Key)
             ->
             TyEnum enumKey
         // A project-local enum-case access `E.C1`: the head names a project-local
@@ -69,22 +70,22 @@ module internal UnificationInferIdentExpr =
         // ahead of the general cascade so an enum head never falls into it.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
-            && not (ctx.Bindings.Binding.ContainsKey key)
-            && (TypeRegistry.tryEnum ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])).IsSome
+            && not (ctx.Bindings.Binding.ContainsKey node.Key)
+            && (TypeRegistry.tryEnum ctx.Types (ctx.UseSiteAt node.Key) (ctx.NameOf li.Idents.[0])).IsSome
             ->
             let einfo =
-                (TypeRegistry.tryEnum ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])).Value
+                (TypeRegistry.tryEnum ctx.Types (ctx.UseSiteAt node.Key) (ctx.NameOf li.Idents.[0])).Value
 
             let caseName = ctx.NameOf li.Idents.[1]
 
             if einfo.HasCase caseName then
                 TyEnum einfo.TypeKey
             else
-                errorTy ctx key (sprintf "Enum '%s' has no case '%s'" einfo.Name caseName)
+                errorTy ctx node.Tok (sprintf "Enum '%s' has no case '%s'" einfo.Name caseName)
         // Two-segment qualified reference whose head is *not* a local binding:
         // `Math.Pi` / `Lst.Empty` / `Result2.Ok`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-            li.Idents.Length = 2 && not (ctx.Bindings.Binding.ContainsKey key)
+            li.Idents.Length = 2 && not (ctx.Bindings.Binding.ContainsKey node.Key)
             ->
             let headName = ctx.NameOf li.Idents.[0]
             let tailName = ctx.NameOf li.Idents.[1]
@@ -104,36 +105,37 @@ module internal UnificationInferIdentExpr =
             // to the external cascade and lands unresolved — the same miss NameResolution
             // already diagnosed on the qualifier.
             let classHit =
-                match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt key) headName with
+                match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt node.Key) headName with
                 | ValueSome info -> tryStaticMember info.TypeParams info.Members
                 | ValueNone -> ValueNone
 
             match classHit with
             | ValueSome ty -> ty
             | ValueNone ->
-                match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt key) headName with
+                match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt node.Key) headName with
                 | ValueSome info ->
                     match tryStaticMember info.TypeParams info.Members with
                     | ValueSome ty -> ty
                     | ValueNone ->
                         // Qualified ctor reference `Result2.Ok` — via the union
                         // registry, bypassing the CtorIndex ambiguity check.
-                        match resolveQualifiedCtor ctx (ctx.UseSiteAt key) headName tailName with
+                        match resolveQualifiedCtor ctx (ctx.UseSiteAt node.Key) headName tailName with
                         | ValueSome info -> ctorType ctx info
-                        | ValueNone -> errorTy ctx key (sprintf "Union '%s' has no case '%s'" headName tailName)
+                        | ValueNone -> errorTy ctx node.Tok (sprintf "Union '%s' has no case '%s'" headName tailName)
                 | ValueNone ->
                     // Qualified external union case (`Option.Some`) — the head is
                     // an external union, not a local one. NameResolution stamped
                     // the resolved case at this node's key.
-                    match tryExternalCtorType ctx key with
+                    match tryExternalCtorType ctx node.Key with
                     | ValueSome t -> t
-                    | ValueNone -> inferIdentDefault ctx e key
-        | _ -> inferIdentDefault ctx e key
+                    | ValueNone -> inferIdentDefault ctx e node
+        | _ -> inferIdentDefault ctx e node
 
     /// Resolution order: local binding map, then provider, then `Class`-name
     /// and `Union`-case registries (the latter two only for single-segment names).
-    and inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (key: NodeKey) : SemType =
-        match ctx.Bindings.Binding.TryGetValue key with
+    and inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
+
+        match ctx.Bindings.Binding.TryGetValue node.Key with
         | ValueSome rb -> instantiateBinding ctx rb
         | ValueNone ->
             // Provider first — provider hits beat ctor-name resolution
@@ -142,11 +144,11 @@ module internal UnificationInferIdentExpr =
             // from the provider fall to the ctor registry. NameResolution
             // resolved this spelling (opens-aware) and stamped its
             // `ExternalSymbol`; instantiate the scheme by key.
-            match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
+            match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
             | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
             | ValueNone ->
 
-                match tryExternalStaticLongIdent ctx key e with
+                match tryExternalStaticLongIdent ctx node.Key e with
                 | ValueSome ty -> ty
                 | ValueNone ->
                     let singleSegName =
@@ -158,14 +160,14 @@ module internal UnificationInferIdentExpr =
 
                     match singleSegName with
                     | ValueSome n ->
-                        let info, count = resolveCtorName ctx (ctx.UseSiteAt key) n
+                        let info, count = resolveCtorName ctx (ctx.UseSiteAt node.Key) n
 
                         match info with
                         | ValueSome i -> ctorType ctx i
                         | ValueNone when count >= 2 ->
                             errorTy
                                 ctx
-                                key
+                                node.Tok
                                 (sprintf
                                     "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
                                     n
@@ -176,14 +178,14 @@ module internal UnificationInferIdentExpr =
                             // `field… → TyUnion(union, …)` so `inferApp` flows the
                             // application through the normal function arm and the
                             // bare nullary form (`None`) lands as the union value.
-                            match tryExternalCtorType ctx key with
+                            match tryExternalCtorType ctx node.Key with
                             | ValueSome t -> t
                             | ValueNone ->
                                 // Class-name-as-function: `Point(3, 4)` parses as
                                 // `Expr.App (Expr.Ident "Point", ...)`. Return the
                                 // ctor as a function value so `inferApp` types the
                                 // call through the normal function arm.
-                                classCtorAsFunction ctx (ctx.UseSiteAt key) n
+                                classCtorAsFunction ctx (ctx.UseSiteAt node.Key) n
                     | ValueNone ->
                         // A qualified name. `A.Point(3, 4)` — a class named through the module
                         // holding it — is a ctor reference exactly as the bare `Point(3, 4)`
@@ -192,7 +194,7 @@ module internal UnificationInferIdentExpr =
                         let localCtor =
                             match e with
                             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
-                                tryWrittenClassCtorAsFunction ctx (ctx.UseSiteAt key) (ctx.WrittenTypeNameOf li)
+                                tryWrittenClassCtorAsFunction ctx (ctx.UseSiteAt node.Key) (ctx.WrittenTypeNameOf li)
                             | _ -> ValueNone
 
                         match localCtor with
@@ -207,7 +209,7 @@ module internal UnificationInferIdentExpr =
                             // member arm.
                             match tryQualifiedExternalMemberMiss ctx e with
                             | ValueSome(qual, memberName) ->
-                                errorTy ctx key (sprintf "Type '%s' has no value or member '%s'" qual memberName)
+                                errorTy ctx node.Tok (sprintf "Type '%s' has no value or member '%s'" qual memberName)
                             | ValueNone -> TyVar(freshTyVar ctx)
 
     and qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =

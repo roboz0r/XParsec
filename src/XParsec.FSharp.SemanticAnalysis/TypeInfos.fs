@@ -84,7 +84,7 @@ type TypeMemberInfo
         kind: ClassMemberKind,
         isStatic: bool,
         ty: SemType,
-        declKey: NodeKey,
+        declSite: NodeSite,
         seedTypars: EqArray<string * TyVarId>,
         declaredTyparCount: int
     ) =
@@ -95,7 +95,7 @@ type TypeMemberInfo
     /// name + member name (no `this` binding inside the body).
     member val IsStatic = isStatic
     member val Type = ty
-    member val DeclKey = declKey
+    member val DeclSite = declSite
 
     /// The pre-inference registration seed prototypes (e.g. `member Map<'C> : …`), by
     /// source name — order-IRRELEVANT (lookups are by name / union-find root). Read by
@@ -181,20 +181,20 @@ type UnionCaseInfo
 /// placeholders (same shape as a class augmentation member, types linked by
 /// `fillTypeMembers`); their bodies live in `Elements` — each interface
 /// `MemberDefn` re-wrapped as a `TypeDefnElement.Member` so the NameResolution /
-/// Unification member walks consume them unchanged. `DeclKey` anchors a
-/// "not an interface" diagnostic at the interface type's name token.
+/// Unification member walks consume them unchanged. `DeclSite` is the `interface` keyword,
+/// where a "not an interface" diagnostic points.
 [<Sealed>]
 type ClassInterfaceImplInfo
     (
         interfaceCst: Type<SyntaxToken>,
         members: TypeMemberInfo[],
         elements: TypeDefnElements<SyntaxToken>,
-        declKey: NodeKey
+        declSite: NodeSite
     ) =
     member val InterfaceCst = interfaceCst
     member val Members = members
     member val Elements = elements
-    member val DeclKey = declKey
+    member val DeclSite = declSite
     /// Resolved interface type, filled by Unification's `fillClassMembers` once
     /// the external provider can map `InterfaceCst`. `ValueNone` until then, and
     /// left `ValueNone` if resolution fails (the diagnostic already fired).
@@ -216,7 +216,9 @@ type IInterfaceImplHost =
     /// carry, and what the declaring slot of a `MemberKey` / a `TypeHolder` demands. A
     /// nominal type's key can only ever be a type key, so no consumer narrows.
     abstract member TypeKey: TypeKey
-    abstract member DeclKey: NodeKey
+    /// The declaration site: the key it is registered under and the name token that
+    /// spells it, so a diagnostic about the type and a table keyed on it agree.
+    abstract member DeclSite: NodeSite
     abstract member TypeParams: EqArray<string * TyVarId>
     /// Source-text name bound to `this` inside member / impl bodies (`"this"` unless
     /// an `as`-binder renamed it). Used by NameResolution to seed the body scope.
@@ -241,16 +243,16 @@ type RecordTypeInfo
         name: string,
         typeParams: EqArray<string * TyVarId>,
         fields: RecordFieldInfo[],
-        declKey: NodeKey,
+        declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
         key: TypeKey
     ) =
-    new(name, typeParams, fields, declKey) =
+    new(name, typeParams, fields, declSite) =
         RecordTypeInfo(
             name,
             typeParams,
             fields,
-            declKey,
+            declSite,
             ValueNone,
             LocalSymbolKey.ofType (TypeHolder.InNamespace NamespaceKey.Global) name typeParams.Length
         )
@@ -265,7 +267,7 @@ type RecordTypeInfo
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val Fields = fields
-    member val DeclKey = declKey
+    member val DeclSite = declSite
     /// `when 'a : ...` clause attached to the type's typar list, if any.
     /// `NameResolution.registerRecordTypeDefn` walks this and attaches each
     /// constraint to the matching prototype TyVar in `TypeParams`.
@@ -317,7 +319,7 @@ type RecordTypeInfo
     interface IInterfaceImplHost with
         member this.Key = this.Key
         member this.TypeKey = this.TypeKey
-        member this.DeclKey = this.DeclKey
+        member this.DeclSite = this.DeclSite
         member this.TypeParams = this.TypeParams
         member this.ThisName = this.ThisName
         member this.ThisKey = this.ThisKey
@@ -335,16 +337,16 @@ type UnionTypeInfo
         name: string,
         typeParams: EqArray<string * TyVarId>,
         cases: UnionCaseInfo[],
-        declKey: NodeKey,
+        declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
         key: TypeKey
     ) =
-    new(name, typeParams, cases, declKey) =
+    new(name, typeParams, cases, declSite) =
         UnionTypeInfo(
             name,
             typeParams,
             cases,
-            declKey,
+            declSite,
             ValueNone,
             LocalSymbolKey.ofType (TypeHolder.InNamespace NamespaceKey.Global) name typeParams.Length
         )
@@ -358,7 +360,7 @@ type UnionTypeInfo
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val Cases = cases
-    member val DeclKey = declKey
+    member val DeclSite = declSite
     /// `when 'a : ...` clause attached to the type's typar list, if any.
     /// `NameResolution.registerUnionTypeDefn` walks this and attaches each
     /// constraint to the matching prototype TyVar in `TypeParams`.
@@ -400,7 +402,7 @@ type UnionTypeInfo
     interface IInterfaceImplHost with
         member this.Key = this.Key
         member this.TypeKey = this.TypeKey
-        member this.DeclKey = this.DeclKey
+        member this.DeclSite = this.DeclSite
         member this.TypeParams = this.TypeParams
         member this.ThisName = this.ThisName
         member this.ThisKey = this.ThisKey
@@ -423,7 +425,7 @@ type UnionTypeInfo
 /// member-inline harvest; it is never emitted.
 [<Sealed>]
 type IntrinsicAbbrevInfo
-    (name: string, typeParams: EqArray<string * TyVarId>, declKey: NodeKey, key: TypeKey, selfKey: SymbolKey) =
+    (name: string, typeParams: EqArray<string * TyVarId>, declSite: NodeSite, key: TypeKey, selfKey: SymbolKey) =
     member val Name = name
     /// Stable project-local nominal identity, minted by `stampLocalTypeKey` at
     /// registration to match a use-site key. Never emitted (the abbrev is intrinsic).
@@ -439,7 +441,7 @@ type IntrinsicAbbrevInfo
     /// use-site identity (`primitiveKey name` hardcoded `Vesper`, the latent split-brain).
     member val SelfKey: SymbolKey = selfKey
     member val TypeParams = typeParams
-    member val DeclKey = declKey
+    member val DeclSite = declSite
     /// Augmentation members (`with member …`). Stamped by
     /// `NameResolution.registerNominalMember`; types linked by Unification's
     /// `fillHostMembers`. Empty until then.
@@ -455,7 +457,7 @@ type IntrinsicAbbrevInfo
     interface IInterfaceImplHost with
         member this.Key = this.Key
         member this.TypeKey = this.TypeKey
-        member this.DeclKey = this.DeclKey
+        member this.DeclSite = this.DeclSite
         member this.TypeParams = this.TypeParams
         member this.ThisName = this.ThisName
         member this.ThisKey = this.ThisKey
@@ -524,16 +526,16 @@ type AbbreviationInfo
         name: string,
         typeParams: EqArray<string * TyVarId>,
         rhsCst: Type<SyntaxToken>,
-        declKey: NodeKey,
+        declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
         key: TypeKey
     ) =
-    new(name, typeParams, rhsCst, declKey) =
+    new(name, typeParams, rhsCst, declSite) =
         AbbreviationInfo(
             name,
             typeParams,
             rhsCst,
-            declKey,
+            declSite,
             ValueNone,
             LocalSymbolKey.ofType (TypeHolder.InNamespace NamespaceKey.Global) name typeParams.Length
         )
@@ -548,7 +550,7 @@ type AbbreviationInfo
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val RhsCst = rhsCst
-    member val DeclKey = declKey
+    member val DeclSite = declSite
     /// `when 'a : ...` clause attached to the type's typar list, if any.
     /// `Unification.forceFill` walks this and attaches each constraint
     /// to the matching prototype TyVar in `TypeParams` before translating
@@ -563,24 +565,24 @@ type AbbreviationInfo
 /// ANNOTATED parameter's cell is linked to its declared type at registration
 /// (`ctorParamsOfPat`), under the class's typar scope and against the types in scope there.
 [<Sealed>]
-type ClassCtorParamInfo(name: string, ty: SemType, declKey: BinderKey) =
+type ClassCtorParamInfo(name: string, ty: SemType, declSite: BinderSite) =
     member val Name = name
     member val Type = ty
-    member val DeclKey = declKey
+    member val DeclSite = declSite
 
 /// An explicit instance field declared with `val [mutable] x: T`. A `val` field is always
 /// annotated, so `Type` is the RESOLVED declared type, translated at registration under the
 /// class's typar scope. `IsMutable` reflects the `mutable` keyword — `Elaborate` projects it
 /// onto `TTypeKind.Class.fields` so a `this.x <- …` mutation in a member body type-checks
-/// and codegen emits a writable `FieldDefinition`. `DeclKey` anchors the field's identity
+/// and codegen emits a writable `FieldDefinition`. `DeclSite` anchors the field's identity
 /// (and a `this.x` `FieldGet`/`FieldSet` resolves against the class member walk, not a
-/// binder, so it is currently informational).
+/// binder, so it is currently informational) and is where a diagnostic about it points.
 [<Sealed>]
-type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKey) =
+type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, declSite: NodeSite) =
     member val Name = name
     member val Type = ty
     member val IsMutable = isMutable
-    member val DeclKey = declKey
+    member val DeclSite = declSite
 
 /// One `[static] let [mutable] [rec] x = <init>` of a class preamble.
 /// `Type` starts as a placeholder TyVar stamped by `NameResolution` and is linked
@@ -643,7 +645,7 @@ type ClassTypeInfo
         typeParams: EqArray<string * TyVarId>,
         ctorParams: ClassCtorParamInfo[],
         members: TypeMemberInfo[],
-        declKey: NodeKey,
+        declSite: NodeSite,
         thisName: string,
         thisKey: BinderKey,
         baseKey: BinderKey,
@@ -657,7 +659,7 @@ type ClassTypeInfo
     member val TypeParams = typeParams
     member val CtorParams = ctorParams
     member val Members = members
-    member val DeclKey = declKey
+    member val DeclSite = declSite
     /// `this`-binding source name (default `"this"`; honours `as self`).
     member val ThisName = thisName
     /// The `this` binder shared across every member body in this class.
@@ -767,7 +769,7 @@ type ClassTypeInfo
     interface IInterfaceImplHost with
         member this.Key = this.Key
         member this.TypeKey = this.TypeKey
-        member this.DeclKey = this.DeclKey
+        member this.DeclSite = this.DeclSite
         member this.TypeParams = this.TypeParams
         member this.ThisName = this.ThisName
         member this.ThisKey = this.ThisKey

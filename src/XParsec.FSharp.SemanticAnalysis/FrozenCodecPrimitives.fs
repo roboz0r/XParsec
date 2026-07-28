@@ -105,10 +105,33 @@ module FrozenCodecPrimitives =
 
     // ── value structs (leaves that carry no children) ──────────────────────
 
-    /// `NodeKey.Raw` verbatim — the frozen-form dense-id change is a later phase; here
-    /// the 64-bit content key is stored as-is, so the key round-trips bit-for-bit.
-    let writeNodeKey (w: BinaryWriter) (k: NodeKey) = w.Write k.Raw
-    let readNodeKey (r: BinaryReader) : NodeKey = NodeKey(r.ReadUInt64())
+    /// A diagnostic's position: a case tag plus that case's token indices. Like an
+    /// anchor, this resolves against the SAME `Lexed` the writer indexed, because the
+    /// blob is keyed by the source hash.
+    let writeSite (w: BinaryWriter) (s: Site) =
+        match Site.normalise s with
+        | Site.Nowhere -> w.Write 0uy
+        | Site.At t ->
+            w.Write 1uy
+            w.Write(int t)
+        | Site.Between(first, last) ->
+            w.Write 2uy
+            w.Write(int first)
+            w.Write(int last)
+        | Site.After t ->
+            w.Write 3uy
+            w.Write(int t)
+
+    let readSite (r: BinaryReader) : Site =
+        match r.ReadByte() with
+        | 0uy -> Site.Nowhere
+        | 1uy -> Site.At(r.ReadInt32() * 1<token>)
+        | 2uy ->
+            let first = r.ReadInt32() * 1<token>
+            let last = r.ReadInt32() * 1<token>
+            Site.between first last
+        | 3uy -> Site.After(r.ReadInt32() * 1<token>)
+        | b -> failwithf "FrozenCodec: unknown Site tag %d" b
 
     /// A binder's dense pool index — the identity every pooled REFERENCE to a definition
     /// site is written as.

@@ -30,11 +30,11 @@ module ClrDriver =
     // compiler bug, not a user error, and must fail loudly.
     let private driverDiagnostic (message: string) : Diagnostic =
         {
-            // No source anchor exists for a whole-file lex/parse/driver failure.
-            Key = NodeKey.ofSynthetic 0 NodeKind.SynthUnsupportedDecl
             Code = "DRV"
             Message = message
             Severity = Severity.Error
+            // A whole-file lex/parse/driver failure names no place in the file.
+            Site = Site.Nowhere
         }
 
     /// Compile `source` to an in-memory PE artifact against the compilation's own
@@ -134,13 +134,7 @@ module ClrDriver =
             results
             |> List.collect (
                 function
-                | Error e ->
-                    let source =
-                        files
-                        |> List.tryPick (fun (p, s) -> if p = e.Path then Some s else None)
-                        |> Option.defaultValue ""
-
-                    AssemblyUnits.anchorDiagnostics e.Path source e.Diagnostics
+                | Error e -> AssemblyUnits.unpositionedDiagnostics e.Path e.Diagnostics
                 | Ok _ -> []
             )
 

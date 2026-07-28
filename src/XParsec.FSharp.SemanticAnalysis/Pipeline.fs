@@ -17,13 +17,13 @@ module Pipeline =
         (code: string)
         (source: string)
         : Result<Lexed * ImplementationFile<SyntaxToken>, XParsec.FSharp.SemanticAnalysis.Diagnostic list> =
-        // No source anchor exists for a whole-file lex/parse failure.
         let fail (message: string) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
             {
-                Key = NodeKey.ofSynthetic 0 NodeKind.SynthUnsupportedDecl
                 Code = code
                 Message = message
                 Severity = Severity.Error
+                // A whole-file lex/parse failure names no place in the file.
+                Site = Site.Nowhere
             }
 
         match Lexing.lexString source with

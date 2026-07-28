@@ -115,8 +115,9 @@ type PooledInlineValue =
 /// pattern in the file is in the columns, so the residue can never drag a subtree along.
 /// Exactly these three fields, each for its own reason:
 ///
-///   * `Diagnostics` — a flat list keyed by `NodeKey`, in no pooled domain (a diagnostic can
-///     name a node the emittable tree does not contain, so it cannot take a pool id).
+///   * `Diagnostics` — a flat list positioned in the file's own token space, in no pooled
+///     domain (a diagnostic can name a node the emittable tree does not contain, so it
+///     cannot take a pool id).
 ///   * `IntrinsicReprKeys` / `Accessibility` — the two `SymbolKey`-keyed dictionaries. Their
 ///     key space is the SYMBOL identity, not the positional node identity the pools give, so
 ///     they are untouched by the dense-id remap.

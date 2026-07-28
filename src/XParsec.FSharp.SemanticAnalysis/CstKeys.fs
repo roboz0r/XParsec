@@ -178,76 +178,79 @@ module CstKeys =
             else
                 ValueNone
 
-    let ofExpr (e: Expr<SyntaxToken>) : NodeKey =
+    /// The token a node's key is PROJECTED FROM — which is therefore where a diagnostic
+    /// about the node points. NOT `firstTokenOfExpr`, and the difference is load-bearing:
+    ///
+    /// A dotted member access keys off its *member-name* token, not the receiver's first
+    /// token. Chained accesses on a complex receiver (`T<x>.A.B`) are nested `DotLookup`s
+    /// that all share the receiver's first token, so keying off `firstTokenOfExpr` would
+    /// collide them onto one `NodeKey`. (A simple-head chain `r.A.B` is a single
+    /// multi-segment LongIdent, not nested DotLookups, so it never reaches here.)
+    ///
+    /// A method-call application `recv.M(args)` whose head is a `DotLookup` keys off the
+    /// same member token, for the same reason: a chained receiver `f.Invoke(a).Invoke(b)`
+    /// (a call on the result of a call) would otherwise collide — the outer `App` and the
+    /// inner `App` both keying off the leftmost `f`, so one application's inferred result
+    /// overwrites the other's on one shared key. The member token is unique per call level.
+    /// The `DotLookup` head itself stays distinct from the application by KIND.
+    let diagTokenOfExpr (e: Expr<SyntaxToken>) : SyntaxToken =
         match e with
-        // Key a dotted member access by its *member-name* token, not the receiver's
-        // first token. Chained accesses on a complex receiver (`T<x>.A.B`) are
-        // nested `DotLookup`s that all share the receiver's first token, so keying
-        // off `firstTokenOfExpr` would collide them onto one NodeKey. (A simple-head
-        // chain `r.A.B` is a single multi-segment LongIdent, not nested DotLookups,
-        // so it never reached here.)
-        | Expr.DotLookup(longIdentOrOp = lio) -> NodeKey.ofToken (firstTokenOfLongIdentOrOp lio) NodeKind.ExprDotLookup
-        // A method-call application `recv.M(args)` whose head is a `DotLookup` keys
-        // off the *member-name* token — not the receiver's leftmost token. Without
-        // this, a chained method-call receiver `f.Invoke(a).Invoke(b)` (a call on the
-        // result of a call) collides: the outer `App` and the inner `App` both key off
-        // the same leftmost `f`, so the outer application's inferred result overwrites
-        // (or is overwritten by) the inner's on one shared `NodeKey`. The member token
-        // is unique per call level (the two `Invoke`s are distinct tokens), so the two
-        // applications get distinct keys — the same per-level disambiguation the
-        // nested-`DotLookup` and nested-`InfixApp` keys already apply. Distinguished
-        // from the `DotLookup` head itself by the `App` / `HighPrecApp` kind.
-        | Expr.App(funcExpr = Expr.DotLookup(longIdentOrOp = lio)) ->
-            NodeKey.ofToken (firstTokenOfLongIdentOrOp lio) NodeKind.ExprApp
-        | Expr.HighPrecedenceApp(funcExpr = Expr.DotLookup(longIdentOrOp = lio)) ->
-            NodeKey.ofToken (firstTokenOfLongIdentOrOp lio) NodeKind.ExprHighPrecApp
-        | _ ->
+        | Expr.DotLookup(longIdentOrOp = lio)
+        | Expr.App(funcExpr = Expr.DotLookup(longIdentOrOp = lio))
+        | Expr.HighPrecedenceApp(funcExpr = Expr.DotLookup(longIdentOrOp = lio)) -> firstTokenOfLongIdentOrOp lio
+        | _ -> firstTokenOfExpr e
 
-            let kind =
-                match e with
-                | Expr.Const _ -> NodeKind.ExprConst
-                | Expr.Ident _ -> NodeKind.ExprIdent
-                | Expr.LongIdentOrOp _ -> NodeKind.ExprLongIdent
-                | Expr.App _ -> NodeKind.ExprApp
-                | Expr.InfixApp _ -> NodeKind.ExprInfixApp
-                | Expr.PrefixApp _ -> NodeKind.ExprPrefixApp
-                | Expr.Fun _ -> NodeKind.ExprLambda
-                | Expr.LetOrUse _ -> NodeKind.ExprLet
-                | Expr.EnclosedBlock _ -> NodeKind.ExprEnclosedBlock
-                | Expr.IfThenElse _ -> NodeKind.ExprIfThenElse
-                | Expr.Tuple _ -> NodeKind.ExprTuple
-                | Expr.Sequential _ -> NodeKind.ExprSequential
-                | Expr.TypeAnnotation _ -> NodeKind.ExprTypeAnnotation
-                | Expr.StaticUpcast _ -> NodeKind.ExprStaticUpcast
-                | Expr.DynamicTypeTest _ -> NodeKind.ExprDynamicTypeTest
-                | Expr.DynamicDowncast _ -> NodeKind.ExprDynamicDowncast
-                | Expr.EmptyBlock _ -> NodeKind.ExprEmptyBlock
-                | Expr.While _ -> NodeKind.ExprWhile
-                | Expr.ForTo _ -> NodeKind.ExprForTo
-                | Expr.ForIn _ -> NodeKind.ExprForIn
-                | Expr.String _ -> NodeKind.ExprString
-                | Expr.Match _ -> NodeKind.ExprMatch
-                | Expr.Function _ -> NodeKind.ExprFunction
-                | Expr.TryWith _ -> NodeKind.ExprTryWith
-                | Expr.TryFinally _ -> NodeKind.ExprTryFinally
-                | Expr.Assignment _ -> NodeKind.ExprAssignment
-                | Expr.HighPrecedenceApp _ -> NodeKind.ExprHighPrecApp
-                | Expr.Range _ -> NodeKind.ExprRange
-                | Expr.SteppedRange _ -> NodeKind.ExprSteppedRange
-                | Expr.Null _ -> NodeKind.ExprNull
-                | Expr.DotLookup _ -> NodeKind.ExprDotLookup
-                | Expr.Record _ -> NodeKind.ExprRecord
-                | Expr.RecordClone _ -> NodeKind.ExprRecordClone
-                | Expr.New _ -> NodeKind.ExprNew
-                | Expr.ILIntrinsic _ -> NodeKind.ExprILIntrinsic
-                | Expr.LibraryOnlyStaticOptimization _ -> NodeKind.ExprStaticOptimization
-                | Expr.IndexedLookup _ -> NodeKind.ExprIndexedLookup
-                | Expr.StaticMemberInvocation _ -> NodeKind.ExprStaticMemberInvocation
-                | _ -> NodeKind.Unknown
+    let private kindOfExpr (e: Expr<SyntaxToken>) : NodeKind =
+        match e with
+        | Expr.Const _ -> NodeKind.ExprConst
+        | Expr.Ident _ -> NodeKind.ExprIdent
+        | Expr.LongIdentOrOp _ -> NodeKind.ExprLongIdent
+        | Expr.App _ -> NodeKind.ExprApp
+        | Expr.InfixApp _ -> NodeKind.ExprInfixApp
+        | Expr.PrefixApp _ -> NodeKind.ExprPrefixApp
+        | Expr.Fun _ -> NodeKind.ExprLambda
+        | Expr.LetOrUse _ -> NodeKind.ExprLet
+        | Expr.EnclosedBlock _ -> NodeKind.ExprEnclosedBlock
+        | Expr.IfThenElse _ -> NodeKind.ExprIfThenElse
+        | Expr.Tuple _ -> NodeKind.ExprTuple
+        | Expr.Sequential _ -> NodeKind.ExprSequential
+        | Expr.TypeAnnotation _ -> NodeKind.ExprTypeAnnotation
+        | Expr.StaticUpcast _ -> NodeKind.ExprStaticUpcast
+        | Expr.DynamicTypeTest _ -> NodeKind.ExprDynamicTypeTest
+        | Expr.DynamicDowncast _ -> NodeKind.ExprDynamicDowncast
+        | Expr.EmptyBlock _ -> NodeKind.ExprEmptyBlock
+        | Expr.While _ -> NodeKind.ExprWhile
+        | Expr.ForTo _ -> NodeKind.ExprForTo
+        | Expr.ForIn _ -> NodeKind.ExprForIn
+        | Expr.String _ -> NodeKind.ExprString
+        | Expr.Match _ -> NodeKind.ExprMatch
+        | Expr.Function _ -> NodeKind.ExprFunction
+        | Expr.TryWith _ -> NodeKind.ExprTryWith
+        | Expr.TryFinally _ -> NodeKind.ExprTryFinally
+        | Expr.Assignment _ -> NodeKind.ExprAssignment
+        | Expr.HighPrecedenceApp _ -> NodeKind.ExprHighPrecApp
+        | Expr.Range _ -> NodeKind.ExprRange
+        | Expr.SteppedRange _ -> NodeKind.ExprSteppedRange
+        | Expr.Null _ -> NodeKind.ExprNull
+        | Expr.DotLookup _ -> NodeKind.ExprDotLookup
+        | Expr.Record _ -> NodeKind.ExprRecord
+        | Expr.RecordClone _ -> NodeKind.ExprRecordClone
+        | Expr.New _ -> NodeKind.ExprNew
+        | Expr.ILIntrinsic _ -> NodeKind.ExprILIntrinsic
+        | Expr.LibraryOnlyStaticOptimization _ -> NodeKind.ExprStaticOptimization
+        | Expr.IndexedLookup _ -> NodeKind.ExprIndexedLookup
+        | Expr.StaticMemberInvocation _ -> NodeKind.ExprStaticMemberInvocation
+        | _ -> NodeKind.Unknown
 
-            NodeKey.ofToken (firstTokenOfExpr e) kind
+    /// A node's identity paired with the token it is projected from. THE way a pass names
+    /// "this expression" once: `Key` files a side table, `Tok` places a diagnostic, and the
+    /// two are one construction so they cannot come apart.
+    let siteOfExpr (e: Expr<SyntaxToken>) : NodeSite =
+        NodeSite.ofToken (kindOfExpr e) (diagTokenOfExpr e)
 
-    let ofPat (p: Pat<SyntaxToken>) : NodeKey =
+    let ofExpr (e: Expr<SyntaxToken>) : NodeKey = (siteOfExpr e).Key
+
+    let siteOfPat (p: Pat<SyntaxToken>) : NodeSite =
         let kind =
             match p with
             | Pat.Const _ -> NodeKind.PatConst
@@ -269,20 +272,22 @@ module CstKeys =
             | Pat.Null _ -> NodeKind.PatNull
             | _ -> NodeKind.Unknown
 
-        NodeKey.ofToken (firstTokenOfPat p) kind
+        NodeSite.ofToken kind (firstTokenOfPat p)
 
-    /// A written external *type head* decomposed ONCE: its anchor `NodeKey`, the head
-    /// long-ident, and its syntactic type-arg arity. Both faces of the resolve-once
-    /// boundary go through `ofTypeHead` — NameResolution stamps `ResolvedTypeHead` on
-    /// `Key`, `Translate` reads that same `Key` — so the write and read keys agree by
-    /// construction rather than by two hand-spelled `NodeKey.ofToken … TypeNamed`
-    /// derivations kept in sync by comment.
+    let ofPat (p: Pat<SyntaxToken>) : NodeKey = (siteOfPat p).Key
+
+    /// A written external *type head* decomposed ONCE: its site (anchor key + the head
+    /// token that spells it), the head long-ident, and its syntactic type-arg arity. Both
+    /// faces of the resolve-once boundary go through `ofTypeHead` — NameResolution stamps
+    /// `ResolvedTypeHead` on `Site.Key`, `Translate` reads that same key — so the write and
+    /// read keys agree by construction rather than by two hand-spelled
+    /// `NodeKey.ofToken … TypeNamed` derivations kept in sync by comment.
     [<NoEquality; NoComparison>]
     type TypeHead =
         {
-            /// Anchors on the head's first ident token (`li.Idents.[0]`), kinded
+            /// Anchored on the head's first ident token (`li.Idents.[0]`), kinded
             /// `TypeNamed` for a bare/dotted name or `TypeGeneric` for an applied one.
-            Key: NodeKey
+            Site: NodeSite
             /// The head's long-ident — its segments name the type, its first token is
             /// the anchor.
             LongIdent: LongIdent<SyntaxToken>
@@ -302,39 +307,41 @@ module CstKeys =
         | Type.NamedType li ->
             ValueSome
                 {
-                    Key = NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed
+                    Site = NodeSite.ofToken NodeKind.TypeNamed li.Idents.[0]
                     LongIdent = li
                     TyparArity = 0
                 }
         | Type.GenericType(longIdent = li; typeArgs = args) ->
             ValueSome
                 {
-                    Key = NodeKey.ofToken li.Idents.[0] NodeKind.TypeGeneric
+                    Site = NodeSite.ofToken NodeKind.TypeGeneric li.Idents.[0]
                     LongIdent = li
                     TyparArity = args.Length
                 }
         | Type.SuffixedType(longIdent = li) ->
             ValueSome
                 {
-                    Key = NodeKey.ofToken li.Idents.[0] NodeKind.TypeGeneric
+                    Site = NodeSite.ofToken NodeKind.TypeGeneric li.Idents.[0]
                     LongIdent = li
                     TyparArity = 1
                 }
         | _ -> ValueNone
 
-    /// The head `NodeKey` of a type that syntactically HAS a head — the total
+    /// The head SITE of a type that syntactically HAS a head — the total
     /// projection of `ofTypeHead` for a call site already inside a
     /// `NamedType`/`GenericType`/`SuffixedType` match arm, so the guarantee is
     /// local to the arm rather than a bare `.Value` whose crash would point
     /// nowhere. A headless shape here is an invariant break: fail with the shape.
-    let typeHeadKey (ty: Type<SyntaxToken>) : NodeKey =
+    let typeHeadSite (ty: Type<SyntaxToken>) : NodeSite =
         match ofTypeHead ty with
-        | ValueSome head -> head.Key
-        | ValueNone -> failwithf "CstKeys.typeHeadKey: type node carries no resolvable head: %A" ty
+        | ValueSome head -> head.Site
+        | ValueNone -> failwithf "CstKeys.typeHeadSite: type node carries no resolvable head: %A" ty
 
-    /// A binding's identity is its headPat's NodeKey — that's the pattern
-    /// that introduced the name(s) being bound.
-    let ofBinding (b: Binding<SyntaxToken>) : NodeKey = ofPat b.headPat
+    /// A binding's site is its headPat's — that's the pattern that introduced the
+    /// name(s) being bound.
+    let siteOfBinding (b: Binding<SyntaxToken>) : NodeSite = siteOfPat b.headPat
+
+    let ofBinding (b: Binding<SyntaxToken>) : NodeKey = (siteOfBinding b).Key
 
     /// The loop variable of a `for i = …` introduces a binding whose site has
     /// no Pat wrapper in the CST — key on the ident token directly.

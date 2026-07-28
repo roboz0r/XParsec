@@ -24,18 +24,18 @@ module internal UnificationInferLiteralExpr =
     /// literal types successfully and Elaborate emits a well-shaped TAST.
     let rec checkLiteralClose
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (rTok: SyntaxToken)
         (expected: Token)
         (display: string)
         : unit =
         match rTok.Index with
-        | TokenIndex.Virtual -> ctx.Error(key, sprintf "Mismatched or missing closing delimiter: expected '%s'" display)
+        | TokenIndex.Virtual -> ctx.Error(tok, sprintf "Mismatched or missing closing delimiter: expected '%s'" display)
         | TokenIndex.Regular _ when rTok.Token <> expected ->
             // Defensive: pEnclosed only emits a real rParen when the peeked
             // token matched, so this can't trigger today — guards against a
             // future parser change letting a mismatched close-token through.
-            ctx.Error(key, sprintf "Mismatched closing delimiter: expected '%s'" display)
+            ctx.Error(tok, sprintf "Mismatched closing delimiter: expected '%s'" display)
         | TokenIndex.Regular _ -> ()
 
     /// The list type a `[…]` literal carries. Two cases:
@@ -48,20 +48,21 @@ module internal UnificationInferLiteralExpr =
     ///      parameter flips it to the Vesper list (so the literal emits BCL-only),
     ///      while a literal nothing else pins (`printfn "%A" [1;2;3]`) defaults
     ///      back to FSharp.Core's `list` in `resolveListLiterals`.
-    and listLiteralTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
+    and listLiteralTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
         match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "list" 1 with
         | ValueSome info ->
             forceFill ctx info
-            expandAbbreviation ctx key info (EqArray.singleton elemTy)
+            expandAbbreviation ctx tok info (EqArray.singleton elemTy)
         | ValueNone ->
             let tv = freshTyVar ctx
-            ctx.ListLiterals.Add((UnionFind.find ctx.Store tv).Id, elemTy)
+
+            ctx.RegisterListLiteral((UnionFind.find ctx.Store tv).Id, elemTy, tok)
             TyVar tv
 
     and inferListLikeLiteral
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (body: Expr<SyntaxToken>)
         (isArray: bool)
         : SemType =
@@ -74,28 +75,23 @@ module internal UnificationInferLiteralExpr =
 
         for i = 0 to items.Length - 1 do
             let itemTy = infer ctx items.[i]
-            unify ctx key itemTy elemTy
+            unify ctx tok itemTy elemTy
 
         if isArray then
             TyConst(RuntimeNames.arrayKey 1, EqArray.singleton elemTy)
         else
-            listLiteralTy ctx key elemTy
+            listLiteralTy ctx tok elemTy
 
     /// Element type stays free so context can pin it (`let xs : int list = []`).
-    and emptyListLikeLiteral (ctx: PassContext) (key: NodeKey) (isArray: bool) : SemType =
+    and emptyListLikeLiteral (ctx: PassContext) (tok: SyntaxToken) (isArray: bool) : SemType =
         let elemTy = TyVar(freshTyVar ctx)
 
         if isArray then
             TyConst(RuntimeNames.arrayKey 1, EqArray.singleton elemTy)
         else
-            listLiteralTy ctx key elemTy
+            listLiteralTy ctx tok elemTy
 
-    and inferString
-        (infer: Infer)
-        (ctx: PassContext)
-        (_key: NodeKey)
-        (parts: ImmutableArray<StringPart<SyntaxToken>>)
-        : SemType =
+    and inferString (infer: Infer) (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : SemType =
         // Elaborate lowers interpolated strings to a `TExpr.Format` (D9) and reads
         // each hole's computed type back to emit `AppendFormatted<T>`; a `%d{x}`
         // specifier additionally constrains the hole.
@@ -113,14 +109,10 @@ module internal UnificationInferLiteralExpr =
                         // misleading FS3371 — ours is accurate. Still unify the value
                         // type (the last of `argTypes`) as best-effort recovery.
                         if p.Width = FormatDim.Star || p.Precision = FormatDim.Star then
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = CstKeys.ofExpr e
-                                    Message =
-                                        "star width/precision takes its value from a printf argument; interpolated strings have none"
-                                    Code = ""
-                                    Severity = Severity.Error
-                                }
+                            ctx.Error(
+                                (CstKeys.firstTokenOfExpr e),
+                                "star width/precision takes its value from a printf argument; interpolated strings have none"
+                            )
 
                         // `%a`/`%t` consume a printf callback curried from the
                         // format, not a plain value — an interpolation hole has
@@ -138,7 +130,7 @@ module internal UnificationInferLiteralExpr =
                                     ctx.Intrinsics.Unit
                                     p
                             with
-                            | ValueSome ts -> unify ctx (CstKeys.ofExpr e) holeTy (List.last ts)
+                            | ValueSome ts -> unify ctx (CstKeys.firstTokenOfExpr e) holeTy (List.last ts)
                             | ValueNone -> ()
                     | ValueNone -> ()
                 | ValueNone -> ()

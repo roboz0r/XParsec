@@ -239,7 +239,7 @@ module Unification =
                         // The member's body-inference key — `CstKeys.ofPat` of the
                         // *leaf* head pattern, the exact key `inferBinding` links the
                         // inferred signature under, and the key registration stamped
-                        // as `mInfo.DeclKey`. A `Pat.Op` head keys on `(lParen, PatOp)`
+                        // as `mInfo.DeclSite.Key`. A `Pat.Op` head keys on `(lParen, PatOp)`
                         // (not `(opToken, PatIdent)`), so the operator member's
                         // `mInfo.Type` placeholder actually receives the body type.
                         let mKeyOpt =
@@ -256,7 +256,7 @@ module Unification =
 
                         match mKeyOpt with
                         | ValueSome mKey ->
-                            let mInfoOpt = fc.Members |> Array.tryFind (fun m -> m.DeclKey = mKey)
+                            let mInfoOpt = fc.Members |> Array.tryFind (fun m -> m.DeclSite.Key = mKey)
 
                             match mInfoOpt with
                             | Some mInfo ->
@@ -340,13 +340,13 @@ module Unification =
                                 match rt with
                                 | ValueSome(ReturnType(typ = t)) ->
                                     let t' = translateType ctx t
-                                    unify ctx (CstKeys.ofExpr e) bodyTy t'
+                                    unify ctx (CstKeys.firstTokenOfExpr e) bodyTy t'
                                     t'
                                 | ValueNone -> bodyTy
 
                             let mKey = NodeKey.ofToken id NodeKind.PatIdent
 
-                            match fc.Members |> Array.tryFind (fun m -> m.DeclKey = mKey) with
+                            match fc.Members |> Array.tryFind (fun m -> m.DeclSite.Key = mKey) with
                             | Some mInfo ->
                                 match mInfo.Type with
                                 | TyVar tv -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome resultTy)
@@ -369,7 +369,7 @@ module Unification =
                         | ValueSome mTok ->
                             let mKey = NodeKey.ofToken mTok NodeKind.PatIdent
 
-                            match fc.Members |> Array.tryFind (fun mm -> mm.DeclKey = mKey) with
+                            match fc.Members |> Array.tryFind (fun mm -> mm.DeclSite.Key = mKey) with
                             | Some mInfo ->
                                 match mInfo.Type with
                                 | TyVar tv ->
@@ -487,10 +487,10 @@ module Unification =
                     // class→interface upcast on the args, e.g.
                     // `new() = Set(Comparer<'T>.Default, …)` into an `IComparer<'T>`
                     // primary-ctor param.
-                    unifyArg ctx (CstKeys.ofExpr argExpr) argTy expected
+                    unifyArg ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
                 | Expr.App(argExprs = argExprs) ->
                     let argTys = [ for a in argExprs -> infer ctx a ]
-                    unifyArg ctx (CstKeys.ofExpr e) (tupleOrSingle ctx argTys) expected
+                    unifyArg ctx (CstKeys.firstTokenOfExpr e) (tupleOrSingle ctx argTys) expected
                 | _ -> infer ctx e |> ignore
             | AdditionalConstrInitExpr.Delegated(expr = e) -> infer ctx e |> ignore
             // Explicit field-init `{ f = e; … }`: infer each
@@ -506,7 +506,7 @@ module Unification =
                         let fieldName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
                         match Map.tryFind fieldName fieldTypes with
-                        | Some fieldTy -> unify ctx (CstKeys.ofExpr e) initTy fieldTy
+                        | Some fieldTy -> unify ctx (CstKeys.firstTokenOfExpr e) initTy fieldTy
                         | None -> ()
 
     /// Type every secondary ctor of a class under its typar scope: seed the param
@@ -548,7 +548,7 @@ module Unification =
                     // them type through the same cells.
                     for p in sc.Params do
                         match p.Type with
-                        | TyVar tv -> ctx.Bindings.TypeVar.Set(BinderKey.identity p.DeclKey, tv)
+                        | TyVar tv -> ctx.Bindings.TypeVar.Set(BinderKey.identity p.DeclSite.Binder, tv)
                         | _ -> ()
 
                     enterLevel ctx
@@ -587,7 +587,7 @@ module Unification =
 
                 try
                     let argTy = infer ctx argExpr
-                    unify ctx (CstKeys.ofExpr argExpr) argTy expected
+                    unify ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
                 finally
                     exitLevel ctx
             | ValueNone -> ()
@@ -679,19 +679,19 @@ module Unification =
                         // unify (the interface slot may itself be nullable-annotated).
                         unify
                             ctx
-                            mInfo.DeclKey
+                            mInfo.DeclSite.Tok
                             (stripReferenceNull ctx.Store mInfo.Type)
                             (stripReferenceNull ctx.Store expected)
                     | None ->
                         ctx.Error(
-                            mInfo.DeclKey,
+                            mInfo.DeclSite.Tok,
                             sprintf "Interface '%s' does not define a member '%s'" ifaceName mInfo.Name
                         )
 
                 for em in required do
                     if not (impl.Members |> Array.exists (fun m -> m.Name = em.Name)) then
                         ctx.Error(
-                            impl.DeclKey,
+                            impl.DeclSite.Tok,
                             sprintf "No implementation given for '%s' required by interface '%s'" em.Name ifaceName
                         )
             | _ -> ()
@@ -732,7 +732,8 @@ module Unification =
                 // Erase reference-nullability so an `override Equals(that: objnull)`
                 // conforms to the `Equals(obj)` Object slot (ABI-level match, as in
                 // `checkInterfaceConformance`).
-                | ValueSome expectedTy -> unify ctx mInfo.DeclKey (stripReferenceNull ctx.Store mInfo.Type) expectedTy
+                | ValueSome expectedTy ->
+                    unify ctx mInfo.DeclSite.Tok (stripReferenceNull ctx.Store mInfo.Type) expectedTy
                 | ValueNone -> ()
 
     /// A CAPABILITY (`seq<'T>`, `enumerator<'T>`, `disposable`) is not implemented
@@ -805,7 +806,7 @@ module Unification =
                     for (capability, faces) in capabilityFaces do
                         if Set.contains bare faces then
                             ctx.Error(
-                                impl.DeclKey,
+                                impl.DeclSite.Tok,
                                 sprintf
                                     "'%s' is part of the platform face of capability '%s', which this type already implements — the backend publishes that face, and everything it inherits, for the capability. Remove this interface implementation."
                                     qual
@@ -859,7 +860,7 @@ module Unification =
                     | TyClass(n, _) -> SymbolKeyOps.typeMetaName n
                     | other -> sprintf "%A" other
 
-                ctx.Error(impl.DeclKey, sprintf "Type '%s' is not an interface" shown)
+                ctx.Error(impl.DeclSite.Tok, sprintf "Type '%s' is not an interface" shown)
 
         checkCapabilityFaceCollisions ctx info
 
@@ -919,7 +920,7 @@ module Unification =
                             // that same cell.
                             for p in info.CtorParams do
                                 match p.Type with
-                                | TyVar tv -> ctx.Bindings.TypeVar.Set(BinderKey.identity p.DeclKey, tv)
+                                | TyVar tv -> ctx.Bindings.TypeVar.Set(BinderKey.identity p.DeclSite.Binder, tv)
                                 | _ -> ()
 
                             // Inheritance: type the base-ctor call and
@@ -1133,8 +1134,6 @@ module Unification =
     ///   - flipped to a list-like type (`List.fold`'s `Vesper.Collections.List`
     ///     parameter) → reconcile the literal's element with the driven one.
     let private resolveListLiterals (ctx: PassContext) : unit =
-        let key = NodeKey.ofSource 0 NodeKind.Unknown
-
         // A still-free literal defaults to FSharp.Core's `list`, except a
         // self-host package build (no FSharp.Core) defaults it to the Vesper
         // cons-list union so the emission stays BCL-only.
@@ -1144,15 +1143,15 @@ module Unification =
             else
                 TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy)
 
-        for (lv, elemTy) in ctx.ListLiterals do
-            let root = UnionFind.find ctx.Store lv
+        for lit in ctx.ListLiterals do
+            let root = UnionFind.find ctx.Store lit.Var
 
             match ctx.Store.Link root with
-            | ValueNone -> unify ctx key (TyVar root.Id) (defaultListTy elemTy)
+            | ValueNone -> unify ctx lit.Tok (TyVar root.Id) (defaultListTy lit.Elem)
             | ValueSome target ->
                 match zonk ctx.Store target with
-                | TyRecord(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy
-                | TyUnion(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy
+                | TyRecord(_, args) when args.Length = 1 -> unify ctx lit.Tok args.[0] lit.Elem
+                | TyUnion(_, args) when args.Length = 1 -> unify ctx lit.Tok args.[0] lit.Elem
                 | _ -> ()
 
     /// Enforce the semantic contract of a `Custom` equality / comparison posture
@@ -1171,14 +1170,7 @@ module Unification =
     /// (it compares the resolved arg's nominal key to `info.Key`, tolerating the
     /// generic typar instantiation of the class's own type params).
     let private validateCustomEqCompImpls (ctx: PassContext) : unit =
-        let addDiag (key: NodeKey) (code: string) (msg: string) =
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = msg
-                    Code = code
-                    Severity = Severity.Error
-                }
+        let addDiag (tok: SyntaxToken) (code: string) (msg: string) = ctx.Error(tok, code, msg)
 
         // The declaring type's own nominal key — Self is `TyClass`/`TyUnion(info.Key, _)`.
         let argIsSelf (info: IInterfaceImplHost) (arg: SemType) : bool =
@@ -1207,7 +1199,7 @@ module Unification =
         // message names the resolved interface (`qualifiedName cap.Key`), not a
         // hardcoded BCL name, so a JS compilation reports the JS capability, not `System.*`.
         let checkHost (info: IInterfaceImplHost) =
-            let nameKey = info.DeclKey
+            let nameTok = info.DeclSite.Tok
 
             let needsEq = info.EqualitySupport = EqualityVerdict.Custom
             let needsCmp = info.ComparisonSupport = ComparisonVerdict.Custom
@@ -1219,13 +1211,13 @@ module Unification =
                 match cap with
                 | ValueSome c when not (implementsSelf info c) ->
                     addDiag
-                        nameKey
+                        nameTok
                         "FS0378"
                         (sprintf "A type with %s must implement '%s'." attr (SymbolKeyOps.qualifiedName c.SymKey))
                 | ValueSome _ -> ()
                 | ValueNone ->
                     addDiag
-                        nameKey
+                        nameTok
                         "FS0378"
                         (sprintf
                             "A type with %s requires the '%s' capability, which this compilation's provider does not name."
@@ -1243,14 +1235,14 @@ module Unification =
                 needsEq
                 && not (info.Members |> Array.exists (fun m -> m.Name = "GetHashCode" && m.IsOverride))
             then
-                addDiag nameKey "FS0344" "A type with [<CustomEquality>] must override 'Object.GetHashCode()'."
+                addDiag nameTok "FS0344" "A type with [<CustomEquality>] must override 'Object.GetHashCode()'."
 
             if needsCmp then
                 requireCapability ctx.CapabilityIds.Comparable "[<CustomComparison>]" "comparable"
 
                 // Coherence: custom comparison demands custom equality.
                 if not needsEq then
-                    addDiag nameKey "FS0379" "A type with [<CustomComparison>] must also have [<CustomEquality>]."
+                    addDiag nameTok "FS0379" "A type with [<CustomComparison>] must also have [<CustomEquality>]."
 
         for kv in ctx.Types.Class do
             checkHost (kv.Value :> IInterfaceImplHost)
@@ -1275,16 +1267,13 @@ module Unification =
 
             for m in members do
                 if not (seen.Add(UnificationInferOverload.memberSignatureKey ctx.Store typeParams m)) then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = m.DeclKey
-                            Message =
-                                sprintf
-                                    "Duplicate definition of member '%s' — same name and signature as an earlier member"
-                                    m.Name
-                            Code = "FS0438"
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(
+                        m.DeclSite.Tok,
+                        "FS0438",
+                        sprintf
+                            "Duplicate definition of member '%s' — same name and signature as an earlier member"
+                            m.Name
+                    )
 
         for kv in ctx.Types.Class do
             checkHost kv.Value.TypeParams kv.Value.Members

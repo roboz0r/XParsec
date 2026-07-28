@@ -403,22 +403,22 @@ module FrozenCodecTypes =
     // `Diagnostic`; the bare name would bind to the parser's — the same shadowing the
     // `TastFileG.Diagnostics` field annotation guards against.
     let writeDiagnostic (w: BinaryWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =
-        writeNodeKey w d.Key
+        writeSite w d.Site
         w.Write d.Code
         w.Write d.Message
         writeSeverity w d.Severity
 
     let readDiagnostic (r: BinaryReader) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
-        let key = readNodeKey r
+        let site = readSite r
         let code = r.ReadString()
         let message = r.ReadString()
         let severity = readSeverity r
 
         {
-            Key = key
             Code = code
             Message = message
             Severity = severity
+            Site = site
         }
 
     let writeAccessibility (w: BinaryWriter) (a: Accessibility) =

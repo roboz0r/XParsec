@@ -139,7 +139,7 @@ module UnificationEngineCore =
     /// survivor so further unifications against it stay coherent.
     let mergeUnits
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (newRoot: Rep)
         (unitsA: MeasureTerm voption)
         (unitsB: MeasureTerm voption)
@@ -152,7 +152,7 @@ module UnificationEngineCore =
         | ValueSome m1, ValueSome m2 ->
             ctx.Store.SetUnits(newRoot, ValueSome m1)
 
-            ctx.Error(key, sprintf "Measure mismatch: <%O> vs <%O>" m1 m2)
+            ctx.Error(tok, sprintf "Measure mismatch: <%O> vs <%O>" m1 m2)
 
     /// Substitute TyVar roots that appear as keys in `subst` with their
     /// target `SemType`, recursing into compound shapes. Other TyVars are

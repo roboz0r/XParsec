@@ -356,10 +356,10 @@ module internal ElaborateExpr =
         // tell a for-in source from a value). `range-operators-plan.md` tracks making
         // `(..)` a real seq operator, which would delete these arms.
         | Expr.Range(fromExpr = a; toExpr = b) ->
-            ctx.Error(key, rangeNotFirstClassValue)
+            ctx.Error(tok, rangeNotFirstClassValue)
             TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty, tok)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
-            ctx.Error(key, rangeNotFirstClassValue)
+            ctx.Error(tok, rangeNotFirstClassValue)
             TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty, tok)
         | Expr.IndexedLookup(expr = r; indexExpr = idx) ->
             ElaborateAccess.translateIndexedLookup translateExpr ctx key r idx ty tok

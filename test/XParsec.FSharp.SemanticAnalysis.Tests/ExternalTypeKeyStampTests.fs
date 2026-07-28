@@ -100,7 +100,7 @@ let tests =
 
                 let headKey =
                     match firstBindingExpr file with
-                    | Expr.New(typ = t) -> (CstKeys.ofTypeHead t).Value.Key
+                    | Expr.New(typ = t) -> (CstKeys.ofTypeHead t).Value.Site.Key
                     | other -> failwithf "expected Expr.New, got %A" other
 
                 Expect.isTrue
@@ -116,7 +116,7 @@ let tests =
 
                 let headKey =
                     match firstBindingExpr file with
-                    | Expr.New(typ = t) -> (CstKeys.ofTypeHead t).Value.Key
+                    | Expr.New(typ = t) -> (CstKeys.ofTypeHead t).Value.Site.Key
                     | other -> failwithf "expected Expr.New, got %A" other
 
                 Expect.isFalse (ctx.Resolution.ResolvedTypeHead.ContainsKey headKey) "unknown new head is not stamped"

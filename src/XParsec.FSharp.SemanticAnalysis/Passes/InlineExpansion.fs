@@ -523,7 +523,7 @@ module InlineExpansion =
                         Inline.inlineExpand ctx decl (deriveInlineTypeArgs ctx.Store declTy spineArgs)
 
                     for u in unresolved do
-                        ctx.Error(NodeKey.ofToken siteTok NodeKind.ExprApp, unsupportedTraitMessage ctx.Store u)
+                        ctx.Error(siteTok, unsupportedTraitMessage ctx.Store u)
 
                     Inline.spliceAt mint siteTok expanded
                 | _ -> failwith "InlineExpansion: an inline body must be a TDecl.Let"

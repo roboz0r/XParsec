@@ -265,7 +265,7 @@ module Freeze =
     /// `ModuleBindingInfo` to key. Giving those an identity (a `Program`-holder
     /// `ModuleKey`) would empty this arm of population, and is the eventual fix. Until
     /// then the boundary refuses what it cannot represent, loudly.
-    let private publishable (ctx: PassContext) (binder: BinderKey) (rewritten: TDecl) : bool =
+    let private publishable (ctx: PassContext) (declTok: SyntaxToken) (rewritten: TDecl) : bool =
         match freeVarsOfBody rewritten with
         | [] -> true
         | free ->
@@ -278,7 +278,7 @@ module Freeze =
                 | spelled -> spelled
 
             ctx.Error(
-                BinderKey.identity binder,
+                declTok,
                 sprintf
                     "This inline binding cannot be published: its body references %s, which has no exportable identity (a top-level binding declares no module, so it has no symbol key a consumer could resolve). Move it into a module."
                     (free |> List.map (fun site -> sprintf "'%s'" (name site)) |> String.concat ", ")
@@ -339,7 +339,7 @@ module Freeze =
 
                     let rewritten = rewriteSiblingRefs siblingsByRef template
 
-                    if publishable ctx binder rewritten then
+                    if publishable ctx (TastWalk.patTok head) rewritten then
                         inlineBodies.Add
                             {
                                 // Minted, not recovered. The identity emission mints for the

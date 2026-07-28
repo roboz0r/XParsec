@@ -33,7 +33,7 @@ module DynamicEscape =
 
     let run (ctx: PassContext) : unit =
         for site in ctx.DynamicEscapes do
-            if not (ctx.DynamicEscapeSuppressed.Contains site.Key) then
+            if not (ctx.DynamicEscapeSuppressed.Contains site.Node.Key) then
                 match Unification.zonk ctx.Store (TyVar site.Root) with
                 // Default fired (stayed `dynamic`) or still open (a genuine leak is
                 // ResolvedTypes' concern) — no unchecked escape.
@@ -43,7 +43,7 @@ module DynamicEscape =
                     let name = shown escaped
 
                     ctx.Warn(
-                        site.Key,
+                        site.Node.Tok,
                         sprintf
                             "implicit escape from 'dynamic' to '%s': the compiler cannot verify this member access. Annotate the '?' expression — '(expr : %s)' — to assert the type explicitly."
                             name

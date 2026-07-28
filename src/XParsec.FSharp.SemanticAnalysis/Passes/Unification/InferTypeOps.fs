@@ -36,7 +36,7 @@ module internal UnificationInferTypeOps =
     let rec inferTypeApp
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (inner: Expr<SyntaxToken>)
         (typeArgs: ImmutableArray<Type<SyntaxToken>>)
         : SemType =
@@ -52,7 +52,7 @@ module internal UnificationInferTypeOps =
         | TyClass(_, freshArgs)
         | TyUnion(_, freshArgs)
         | TyRecord(_, freshArgs) when freshArgs.Length = List.length explicit ->
-            List.iter2 (fun fresh ex -> unify ctx key fresh ex) (EqArray.toList freshArgs) explicit
+            List.iter2 (fun fresh ex -> unify ctx tok fresh ex) (EqArray.toList freshArgs) explicit
         | _ -> ()
 
         innerTy
@@ -87,7 +87,7 @@ module internal UnificationInferTypeOps =
         | Some anchor ->
             for i in 0 .. args.Length - 1 do
                 if isNullOperand args.[i] then
-                    unify ctx (CstKeys.ofExpr args.[i]) argTys.[i] argTys.[anchor]
+                    unify ctx (CstKeys.firstTokenOfExpr args.[i]) argTys.[i] argTys.[anchor]
         | None -> ()
 
         match returnType with
@@ -171,14 +171,14 @@ module internal UnificationInferTypeOps =
     and inferTypeAnnotation
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (inner: Expr<SyntaxToken>)
         (t: Type<SyntaxToken>)
         : SemType =
         let annTy = translateType ctx t
 
         // Type provenance: `(e : T)` writes the node's type explicitly.
-        ctx.MarkTypeDeclared(key, annTy)
+        ctx.MarkTypeDeclared(node.Key, annTy)
 
         // E1(a): a format-string literal ascribed to a `PrintfFormat` family
         // (`("%d" : Printf.StringFormat<_>)`, and the `let fmt = (… : Fmt)` form that
@@ -187,13 +187,13 @@ module internal UnificationInferTypeOps =
         // unifies the specifiers' printer into the annotation (pinning a `<_>` wildcard
         // printer), and we stamp the annotation's format type onto the literal node.
         // Otherwise the ordinary annotation reconciliation.
-        match tryTypeFormatLiteral ctx key inner annTy with
+        match tryTypeFormatLiteral ctx node.Tok inner annTy with
         | ValueSome fmt ->
             ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr inner)), ValueSome fmt)
             annTy
         | ValueNone ->
             let innerTy = infer ctx inner
-            unify ctx key innerTy annTy
+            unify ctx node.Tok innerTy annTy
 
             // "Name the type at the escape point": an ascription DIRECTLY on a `?` expression
             // (`(d?foo : int)`) is an explicit assertion, so it suppresses the implicit-escape
@@ -223,16 +223,16 @@ module internal UnificationInferTypeOps =
     and inferStaticUpcast
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (inner: Expr<SyntaxToken>)
         (t: Type<SyntaxToken>)
         : SemType =
         let srcTy = infer ctx inner
         let tgtTy = translateType ctx t
 
-        if not (tryCoerceUpcast ctx key srcTy tgtTy) then
+        if not (tryCoerceUpcast ctx node.Tok srcTy tgtTy) then
             ctx.Error(
-                key,
+                node.Tok,
                 sprintf
                     "Cannot upcast type '%A' to '%A' — no inheritance relationship"
                     (zonk ctx.Store srcTy)
@@ -240,7 +240,7 @@ module internal UnificationInferTypeOps =
             )
 
         // Type provenance: `e :> T` writes the node's (target) type explicitly.
-        ctx.MarkTypeDeclared(key, tgtTy)
+        ctx.MarkTypeDeclared(node.Key, tgtTy)
         tgtTy
 
     /// `e :? T` — type test. v1 requires the static types to be related in
@@ -249,7 +249,7 @@ module internal UnificationInferTypeOps =
     and inferDynamicTypeTest
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (inner: Expr<SyntaxToken>)
         (t: Type<SyntaxToken>)
         : SemType =
@@ -257,7 +257,7 @@ module internal UnificationInferTypeOps =
         let tgtTy = translateType ctx t
         // The node's own type is `bool`; stash the tested-against type so Elaborate
         // can carry it into `TExpr.TypeTest.testTy` for the `isinst` operand.
-        ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
+        ctx.Resolution.TypeTestTargets.Set(node.Key, tgtTy)
 
         let related =
             isObjTy ctx.Store srcTy
@@ -266,7 +266,7 @@ module internal UnificationInferTypeOps =
 
         if not related then
             ctx.Warn(
-                key,
+                node.Tok,
                 sprintf
                     "Type test of '%A' against unrelated type '%A' is always false"
                     (zonk ctx.Store srcTy)
@@ -282,7 +282,7 @@ module internal UnificationInferTypeOps =
     and inferDynamicDowncast
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (inner: Expr<SyntaxToken>)
         (t: Type<SyntaxToken>)
         : SemType =
@@ -312,12 +312,12 @@ module internal UnificationInferTypeOps =
             | SubsumeOutcome.Subtype -> ()
             | SubsumeOutcome.Equal ->
                 ctx.Warn(
-                    key,
+                    node.Tok,
                     sprintf "Downcast is redundant — the static type '%A' already matches" (zonk ctx.Store srcTy)
                 )
             | SubsumeOutcome.Unrelated ->
                 ctx.Error(
-                    key,
+                    node.Tok,
                     sprintf
                         "Cannot downcast type '%A' to unrelated type '%A'"
                         (zonk ctx.Store srcTy)
@@ -325,5 +325,5 @@ module internal UnificationInferTypeOps =
                 )
 
         // Type provenance: `e :?> T` writes the node's (target) type explicitly.
-        ctx.MarkTypeDeclared(key, tgtTy)
+        ctx.MarkTypeDeclared(node.Key, tgtTy)
         tgtTy

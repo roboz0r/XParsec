@@ -35,7 +35,7 @@ module internal UnificationInferApp =
     /// knows the operator exists — the only way to name `Vesper.Comparison` here
     /// would be a hardcoded operator→package table, i.e. exactly the by-name coupling
     /// that recognising operators by name string cost us everywhere else.
-    let private unresolvedOperator (ctx: PassContext) (key: NodeKey) (name: string) : SemType =
+    let private unresolvedOperator (ctx: PassContext) (tok: SyntaxToken) (name: string) : SemType =
         let spelling =
             match OperatorNames.sourceSymbol name with
             | ValueSome symbol -> symbol
@@ -43,7 +43,7 @@ module internal UnificationInferApp =
 
         errorTy
             ctx
-            key
+            tok
             (sprintf "No definition for '%s' found — is the package that defines it referenced and opened?" spelling)
 
     /// Record the lambda-keyed `Fun`-arity verdict (and its
@@ -165,7 +165,7 @@ module internal UnificationInferApp =
     /// the printf-format precedent for call-site constant propagation.
     let private tryAdmitLiteralConstArg
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (argExpr: Expr<SyntaxToken>)
         (dom: SemType)
         : bool =
@@ -191,14 +191,14 @@ module internal UnificationInferApp =
                 else
                     let allowed = members |> List.map (fun v -> v.Render) |> String.concat " | "
 
-                    ctx.Error(key, sprintf "%s is not one of the allowed literal values: %s" lit.Render allowed)
+                    ctx.Error(tok, sprintf "%s is not one of the allowed literal values: %s" lit.Render allowed)
 
                     true
 
     let rec inferApp
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (fn: Expr<SyntaxToken>)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         : SemType =
@@ -206,10 +206,7 @@ module internal UnificationInferApp =
         // instance method) only apply to a single tupled argument; `single` runs
         // one of them iff there is exactly one arg, declining otherwise.
         let single probe =
-            if args.Length = 1 then
-                probe ctx key fn args.[0]
-            else
-                ValueNone
+            if args.Length = 1 then probe args.[0] else ValueNone
 
         // The generic curried-application fallback: the head is a function, each
         // arg unifies against the next domain. Reached only when no specialised
@@ -233,13 +230,13 @@ module internal UnificationInferApp =
                     // parameter. `unifyArg` accepts a ground subtype and otherwise falls
                     // back to plain unification (which links vars and reports a genuine
                     // mismatch — including a plain `string` into a literal union).
-                    if not (tryAdmitLiteralConstArg ctx key args.[i] dom) then
-                        unifyArg ctx key argTy dom
+                    if not (tryAdmitLiteralConstArg ctx node.Tok args.[i] dom) then
+                        unifyArg ctx node.Tok argTy dom
 
                     currTy <- cod
                 | _ ->
                     let resultTy = TyVar(freshTyVar ctx)
-                    unify ctx key currTy (TyFun(argTy, resultTy))
+                    unify ctx node.Tok currTy (TyFun(argTy, resultTy))
                     currTy <- resultTy
 
             currTy
@@ -252,13 +249,13 @@ module internal UnificationInferApp =
         // dangles, and `ResolvedTypes` flags it). A .NET static method is tupled
         // (`String.Concat ("a", "b")` is one tuple arg), resolved by its arg types
         // at the call site before the curried path.
-        tryInferPrintfApp infer ctx key fn args
-        |> ValueOption.orElseWith (fun () -> single (tryInferExternalStaticMethodCall infer))
-        |> ValueOption.orElseWith (fun () -> tryInferExternalCtorApp infer ctx key fn args)
-        |> ValueOption.orElseWith (fun () -> single (tryInferExternalGenericCtorApp infer))
-        |> ValueOption.orElseWith (fun () -> single (tryInferLocalCtorApp infer))
-        |> ValueOption.orElseWith (fun () -> single (tryInferExternalInstanceMethodCall infer))
-        |> ValueOption.orElseWith (fun () -> single (tryInferLocalInstanceMethodCall infer))
+        tryInferPrintfApp infer ctx node fn args
+        |> ValueOption.orElseWith (fun () -> single (tryInferExternalStaticMethodCall infer ctx node.Tok fn))
+        |> ValueOption.orElseWith (fun () -> tryInferExternalCtorApp infer ctx node fn args)
+        |> ValueOption.orElseWith (fun () -> single (tryInferExternalGenericCtorApp infer ctx node fn))
+        |> ValueOption.orElseWith (fun () -> single (tryInferLocalCtorApp infer ctx node fn))
+        |> ValueOption.orElseWith (fun () -> single (tryInferExternalInstanceMethodCall infer ctx node.Tok fn))
+        |> ValueOption.orElseWith (fun () -> single (tryInferLocalInstanceMethodCall infer ctx node fn))
         |> ValueOption.defaultWith (fun () ->
             // Infer the head and each argument once, then either fill omitted trailing
             // optional arguments (an external method call short of its full arity) or
@@ -274,7 +271,7 @@ module internal UnificationInferApp =
             // bound the verdict reads).
             recordFunArityVerdicts ctx args fnTy
 
-            tryFillOptionalCall ctx key fn args argTys
+            tryFillOptionalCall ctx node.Tok fn args argTys
             |> ValueOption.defaultWith (fun () -> inferGenericAppFrom fnTy argTys)
         )
 
@@ -285,7 +282,7 @@ module internal UnificationInferApp =
     and tryInferPrintfApp
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (fn: Expr<SyntaxToken>)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         : SemType voption =
@@ -383,11 +380,11 @@ module internal UnificationInferApp =
                                         // writer slot is now the provider-resolved
                                         // `TyClass(TextWriter)`, so a real writer arg unifies with
                                         // it directly.
-                                        unify ctx key argTy dom
+                                        unify ctx node.Tok argTy dom
                                         currTy <- cod
                                     | _ ->
                                         let resultTy = TyVar(freshTyVar ctx)
-                                        unify ctx key currTy (TyFun(argTy, resultTy))
+                                        unify ctx node.Tok currTy (TyFun(argTy, resultTy))
                                         currTy <- resultTy
 
                                 // P1 happy-path lowering marker: fully-applied literal call, a
@@ -415,14 +412,10 @@ module internal UnificationInferApp =
                                 let rejectCallback = hasCallbackHole && not (PrintfSpec.callbackSinkAvailable fam)
 
                                 if rejectCallback then
-                                    ctx.Diagnostics.Add
-                                        {
-                                            Key = key
-                                            Message =
-                                                "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
-                                            Code = ""
-                                            Severity = Severity.Error
-                                        }
+                                    ctx.Error(
+                                        node.Tok,
+                                        "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
+                                    )
 
                                 // Cold residuals — a specifier no backend renders faithfully
                                 // (`%0*d`, `%0*.Nf`, `%0*A` — runtime-width zero-pad forms with no
@@ -438,16 +431,12 @@ module internal UnificationInferApp =
                                 // `lowerablePlaceholders`, so a residual sets no marker regardless.
                                 match specs |> List.tryFind (fun p -> (PrintfHoleForm.tryClassify p).IsNone) with
                                 | Some p ->
-                                    ctx.Diagnostics.Add
-                                        {
-                                            Key = key
-                                            Message =
-                                                sprintf
-                                                    "printf format specifier %s cannot be lowered on this target"
-                                                    (PrintfHoleForm.renderPlaceholder p)
-                                            Code = ""
-                                            Severity = Severity.Error
-                                        }
+                                    ctx.Error(
+                                        node.Tok,
+                                        sprintf
+                                            "printf format specifier %s cannot be lowered on this target"
+                                            (PrintfHoleForm.renderPlaceholder p)
+                                    )
                                 | None -> ()
 
                                 match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
@@ -464,7 +453,7 @@ module internal UnificationInferApp =
                                                 | _ -> false
                                             )))
                                     ->
-                                    ctx.PrintfApp.Set(key, sink)
+                                    ctx.PrintfApp.Set(node.Key, sink)
 
                                     // Capture-first `%a`/`%t` on a *writer/builder family* lowers to
                                     // a residue block `{ let s = new Scratch() in cb s [v];
@@ -502,7 +491,7 @@ module internal UnificationInferApp =
                                             match toString with
                                             | Some m ->
                                                 ctx.PrintfCallbackScratch.Set(
-                                                    key,
+                                                    node.Key,
                                                     {
                                                         ScratchClassName = scratchName
                                                         ScratchTy = scratchTy
@@ -533,7 +522,7 @@ module internal UnificationInferApp =
                                     && lowerablePlaceholders specs
                                     && specs |> List.forall PrintfSpec.isUnaryConcreteHole
                                     ->
-                                    ctx.PrintfPartial.Set(key, sink)
+                                    ctx.PrintfPartial.Set(node.Key, sink)
                                 | _ -> ()
 
                                 ValueSome currTy
@@ -542,7 +531,7 @@ module internal UnificationInferApp =
     and inferHighPrecApp
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (fn: Expr<SyntaxToken>)
         (arg: Expr<SyntaxToken>)
         : SemType =
@@ -555,12 +544,12 @@ module internal UnificationInferApp =
         // the generic-application fallback (which typed an external ctor head as a
         // function and leaked a fresh, unpinned result TyVar under a non-pinning sink
         // like `raise`).
-        inferApp infer ctx key fn (ImmutableArray.Create arg)
+        inferApp infer ctx node fn (ImmutableArray.Create arg)
 
     and inferRange
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (fromE: Expr<SyntaxToken>)
         (stepE: Expr<SyntaxToken> voption)
         (toE: Expr<SyntaxToken>)
@@ -575,34 +564,34 @@ module internal UnificationInferApp =
         // (`ElaborateExpr.translateExpr`'s `Range` arms). `range-operators-plan.md`
         // tracks making `(..)` a real seq operator so a range becomes a first-class value.
         let fromTy = infer ctx fromE
-        unify ctx key fromTy ctx.Intrinsics.Int
+        unify ctx tok fromTy ctx.Intrinsics.Int
 
         match stepE with
         | ValueSome s ->
             let stepTy = infer ctx s
-            unify ctx key stepTy ctx.Intrinsics.Int
+            unify ctx tok stepTy ctx.Intrinsics.Int
         | ValueNone -> ()
 
         let toTy = infer ctx toE
-        unify ctx key toTy ctx.Intrinsics.Int
+        unify ctx tok toTy ctx.Intrinsics.Int
         TyUnknown "range"
 
     and inferInfix
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (left: Expr<SyntaxToken>)
         (right: Expr<SyntaxToken>)
         : SemType =
         let leftTy = infer ctx left
         let rightTy = infer ctx right
 
-        match ctx.Desugared.TryGetValue key with
+        match ctx.Desugared.TryGetValue node.Key with
         | ValueSome(DesugaredForm.OpName name) ->
-            match tryMeasuredArith ctx key name leftTy rightTy with
+            match tryMeasuredArith ctx node.Tok name leftTy rightTy with
             | Some resultTy -> resultTy
             | None ->
-                match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
+                match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
                 | ValueSome sym ->
                     // Record the resolved identity so Elaborate stamps it onto the
                     // `TExpr.External(name, …)` it mints for this operator and
@@ -611,24 +600,24 @@ module internal UnificationInferApp =
                     // exclusion. A primitive `1 + 2` splices `ops-platform.fs`'s `(+)`
                     // exactly like a referenced package's operator does; the static-opt
                     // clause selection at splice time is what turns it into `add`.
-                    ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
+                    ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
 
                     unify
                         ctx
-                        key
+                        node.Tok
                         (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                         (TyFun(leftTy, TyFun(rightTy, resultTy)))
 
                     resultTy
-                | ValueNone -> unresolvedOperator ctx key name
+                | ValueNone -> unresolvedOperator ctx node.Tok name
         | ValueSome DesugaredForm.ConsExpr ->
             // `h :: t` builds the list union directly (not a provider operator):
             // `h`'s type is the element, `t` is unified to the same list type,
             // and the result is that list type — exactly a one-cell `[h]` literal
             // consed onto `t`.
-            let listTy = listLiteralTy ctx key leftTy
-            unify ctx key rightTy listTy
+            let listTy = listLiteralTy ctx node.Tok leftTy
+            unify ctx node.Tok rightTy listTy
             listTy
         | ValueSome _
         | ValueNone ->
@@ -644,30 +633,32 @@ module internal UnificationInferApp =
     /// dynamic` rides on the instantiated result var — so an unconstrained context keeps
     /// the result `dynamic` (chains stay dynamic) while a pinned context unifies it
     /// first and the default never fires (the principled escape back to static).
-    and inferDynamicLookup (infer: Infer) (ctx: PassContext) (key: NodeKey) (recv: Expr<SyntaxToken>) : SemType =
+    and inferDynamicLookup (infer: Infer) (ctx: PassContext) (node: NodeSite) (recv: Expr<SyntaxToken>) : SemType =
         let recvTy = infer ctx recv
 
-        match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
+        match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
         | ValueSome sym ->
             // Thread the resolved `op_Dynamic` identity to Elaborate's `External` mint
             // (`translateDynamicLookup`, same `DynamicLookup` key) so the `$0[$1]`
             // body splices by KEY.
-            ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
+            ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
             let resultVar = freshTyVar ctx
             let resultTy = TyVar resultVar
 
             unify
                 ctx
-                key
+                node.Tok
                 (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                 (TyFun(recvTy, TyFun(ctx.Intrinsics.String, resultTy)))
 
             // Record for the post-settle escape sweep: if context pins `resultVar` to a
             // concrete non-`dynamic` type the `default : dynamic` never fires — an
             // unchecked assertion `DynamicEscape.run` warns on (unless ascribed here).
-            ctx.DynamicEscapes.Add { Root = resultVar; Key = key }
+            ctx.DynamicEscapes.Add { Root = resultVar; Node = node }
+
             resultTy
-        | ValueNone -> errorTy ctx key "dynamic-access operator '?' (op_Dynamic) is not in scope (Vesper.Core missing?)"
+        | ValueNone ->
+            errorTy ctx node.Tok "dynamic-access operator '?' (op_Dynamic) is not in scope (Vesper.Core missing?)"
 
     /// `recv?name <- value` — the dynamic-set operator (`(?<-) recv "name" value`).
     /// Resolve `op_DynamicAssignment` and unify against `recv -> string -> value ->
@@ -675,34 +666,37 @@ module internal UnificationInferApp =
     and inferDynamicSet
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (recv: Expr<SyntaxToken>)
         (value: Expr<SyntaxToken>)
         : SemType =
         let recvTy = infer ctx recv
         let valueTy = infer ctx value
 
-        match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
+        match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
         | ValueSome sym ->
             // Thread the resolved `op_DynamicAssignment` identity to Elaborate's
             // `External` mint (`translateAssignment`'s `DynamicLookup` arm, keyed by
             // the enclosing `Assignment` node) so the `$0[$1] = $2` body splices by KEY.
-            ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
+            ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
 
             unify
                 ctx
-                key
+                node.Tok
                 (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                 (TyFun(recvTy, TyFun(ctx.Intrinsics.String, TyFun(valueTy, ctx.Intrinsics.Unit))))
 
             ctx.Intrinsics.Unit
         | ValueNone ->
-            errorTy ctx key "dynamic-set operator '?<-' (op_DynamicAssignment) is not in scope (Vesper.Core missing?)"
+            errorTy
+                ctx
+                node.Tok
+                "dynamic-set operator '?<-' (op_DynamicAssignment) is not in scope (Vesper.Core missing?)"
 
-    and inferPrefix (infer: Infer) (ctx: PassContext) (key: NodeKey) (operand: Expr<SyntaxToken>) : SemType =
+    and inferPrefix (infer: Infer) (ctx: PassContext) (node: NodeSite) (operand: Expr<SyntaxToken>) : SemType =
         let operandTy = infer ctx operand
 
-        match ctx.Desugared.TryGetValue key with
+        match ctx.Desugared.TryGetValue node.Key with
         | ValueSome(DesugaredForm.OpName "op_AddressOf") ->
             // `&local` (managed address-of) is the byref intrinsic, not a
             // provider operator — `op_AddressOf` has no Vesper.Core / BCL symbol.
@@ -724,20 +718,20 @@ module internal UnificationInferApp =
             // from BCL `Span.get_Item`).
             TyConst(RuntimeNames.byrefKey, EqArray.singleton operandTy)
         | ValueSome(DesugaredForm.OpName name) ->
-            match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
+            match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
             | ValueSome sym ->
                 // Thread the resolved identity to Elaborate's `TExpr.External` mint (see
                 // the infix twin above) so the prefix operator splices by KEY.
-                ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
+                ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
                 unify
                     ctx
-                    key
+                    node.Tok
                     (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                     (TyFun(operandTy, resultTy))
 
                 resultTy
-            | ValueNone -> unresolvedOperator ctx key name
+            | ValueNone -> unresolvedOperator ctx node.Tok name
         | ValueSome _
         | ValueNone -> TyVar(freshTyVar ctx)

@@ -118,13 +118,14 @@ module ResolvedTypes =
                     true
         }
 
-    /// Best-effort attribution NodeKey for a decl-level diagnostic. The TAST
-    /// doesn't preserve a per-node NodeKey, so we use the binding's site if
-    /// the head pattern is a NamedSimple, otherwise a synthetic-at-0 key.
-    let private declKey (d: TDecl) : NodeKey =
+    /// Best-effort attribution for a decl-level diagnostic: the binding's own token where
+    /// the head pattern is a `NamedSimple`, and no place in the file otherwise. Public
+    /// because `PlatformTypes` makes the same decl-level verdict and must place it
+    /// identically.
+    let declSite (d: TDecl) : Site =
         match d with
-        | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> k
-        | _ -> NodeKey(0UL)
+        | TDecl.Let(TPat.NamedSimple(tok = tok), _, _, _) -> Site.ofToken tok
+        | _ -> Site.Nowhere
 
     let private walkDecl (ctx: PassContext) (allowed: HashSet<TyVarId>) (d: TDecl) : unit =
         let acc = HashSet<TyVarId>()
@@ -146,13 +147,10 @@ module ResolvedTypes =
             ()
 
         if acc.Count > 0 then
-            ctx.Diagnostics.Add
-                {
-                    Key = declKey d
-                    Message = sprintf "ResolvedTypes: TAST contains %d unresolved TyVar(s) — inference bug" acc.Count
-                    Code = ""
-                    Severity = Severity.Error
-                }
+            ctx.ErrorAt(
+                declSite d,
+                sprintf "ResolvedTypes: TAST contains %d unresolved TyVar(s) — inference bug" acc.Count
+            )
 
     let run (ctx: PassContext) (tast: TastFile) : unit =
         let allowed = HashSet<TyVarId>()

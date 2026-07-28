@@ -39,11 +39,11 @@ module internal UnificationTranslate =
         | ValueSome tv -> tv
         | ValueNone -> freshTv ctx key
 
-    /// Report an error at `key` and recover with a fresh TyVar — the pervasive
+    /// Report an error at `tok` and recover with a fresh TyVar — the pervasive
     /// "diagnose and keep going" shape, so a broken subtree still yields a type
     /// rather than aborting the walk.
-    let errorTy (ctx: PassContext) (key: NodeKey) (msg: string) : SemType =
-        ctx.Error(key, msg)
+    let errorTy (ctx: PassContext) (tok: SyntaxToken) (msg: string) : SemType =
+        ctx.Error(tok, msg)
         TyVar(freshTyVar ctx)
 
     /// The shared tail of every WRITTEN type head no claim of this unit holds and no
@@ -65,17 +65,21 @@ module internal UnificationTranslate =
     /// unresolved name means. `ctx.UndefinedType` is the shared home of the verdict — the head
     /// classifier reaches a bare head first and says the same thing, and a head both reach is
     /// blamed once.
-    let private unresolvedHeadTy (ctx: PassContext) (diagKey: NodeKey) (name: string) (residue: SemType) : SemType =
-        if ctx.Resolution.ResolvedTypeHead.ContainsKey diagKey then
+    let private unresolvedHeadTy (ctx: PassContext) (head: NodeSite) (name: string) (residue: SemType) : SemType =
+        if ctx.Resolution.ResolvedTypeHead.ContainsKey head.Key then
             residue
         else
-            ctx.UndefinedType(diagKey, name)
+            // A head the parser inserted spells no place, and `translateType` reaches one
+            // with no enclosing declaration in hand — so the verdict is still SAID, at no
+            // place, rather than dropped. (`TypeRegistration`'s classifier does hold the
+            // written long-ident and widens to its span instead.)
+            ctx.UndefinedType(Site.ofToken head.Tok, name)
             TyUnknown name
 
     /// Multi-segment qualified unit names (`Microsoft.FSharp.SI.kg`) and
     /// measure typars (`'u`) are v2 — they produce an empty term plus a
     /// diagnostic so the rest of inference continues without measure noise.
-    let rec translateMeasure (ctx: PassContext) (diagKey: NodeKey) (m: Measure<SyntaxToken>) : MeasureTerm =
+    let rec translateMeasure (ctx: PassContext) (measureTok: SyntaxToken) (m: Measure<SyntaxToken>) : MeasureTerm =
         match m with
         | Measure.One _ -> MeasureTerm.empty
         | Measure.Named li when li.Idents.Length = 1 -> MeasureTerm.ofList [ ctx.NameOf li.Idents.[0], Rational.One ]
@@ -84,25 +88,21 @@ module internal UnificationTranslate =
             let signed = if neg.IsSome then -n else n
 
             MeasureTerm.pow
-                (translateMeasure ctx diagKey inner)
+                (translateMeasure ctx measureTok inner)
                 (Rational.create (signed, System.Numerics.BigInteger.One))
-        | Measure.Product(l, _, r) -> MeasureTerm.mul (translateMeasure ctx diagKey l) (translateMeasure ctx diagKey r)
-        | Measure.Quotient(l, _, r) -> MeasureTerm.div (translateMeasure ctx diagKey l) (translateMeasure ctx diagKey r)
-        | Measure.Reciprocal(_, inner) -> MeasureTerm.inv (translateMeasure ctx diagKey inner)
-        | Measure.Paren(_, inner, _) -> translateMeasure ctx diagKey inner
+        | Measure.Product(l, _, r) ->
+            MeasureTerm.mul (translateMeasure ctx measureTok l) (translateMeasure ctx measureTok r)
+        | Measure.Quotient(l, _, r) ->
+            MeasureTerm.div (translateMeasure ctx measureTok l) (translateMeasure ctx measureTok r)
+        | Measure.Reciprocal(_, inner) -> MeasureTerm.inv (translateMeasure ctx measureTok inner)
+        | Measure.Paren(_, inner, _) -> translateMeasure ctx measureTok inner
         | Measure.Juxtaposition(elems, _) ->
             (MeasureTerm.empty, elems)
-            ||> Seq.fold (fun acc m -> MeasureTerm.mul acc (translateMeasure ctx diagKey m))
+            ||> Seq.fold (fun acc m -> MeasureTerm.mul acc (translateMeasure ctx measureTok m))
         | Measure.Anonymous _
         | Measure.Typar _
         | Measure.Named _ ->
-            ctx.Diagnostics.Add
-                {
-                    Key = diagKey
-                    Message = "Measure typars / wildcards / qualified unit names not yet supported"
-                    Code = ""
-                    Severity = Severity.Error
-                }
+            ctx.Error(measureTok, "Measure typars / wildcards / qualified unit names not yet supported")
 
             MeasureTerm.empty
 
@@ -228,16 +228,12 @@ module internal UnificationTranslate =
                     // Strict (type-defn fill-in): implicit free typars aren't
                     // legal F#. Diagnose, but still mint and memoise so later
                     // occurrences share the TyVar and don't cascade.
-                    ctx.Diagnostics.Add
-                        {
-                            Key = NodeKey.ofToken id NodeKind.TypeVarRef
-                            Message =
-                                sprintf
-                                    "Free type parameter %s is not declared in the enclosing type's type-parameter list"
-                                    name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(
+                        id,
+                        sprintf
+                            "Free type parameter %s is not declared in the enclosing type's type-parameter list"
+                            name
+                    )
 
                     let tv = ctx.NewTypeVar()
                     ctx.Store.SetLevel(UnionFind.find ctx.Store tv, ctx.CurrentLevel)
@@ -271,9 +267,9 @@ module internal UnificationTranslate =
             // same cascade the measure carrier below shares through `resolveBareTypeName`.
             // The head key comes from `CstKeys.ofTypeHead`, the SAME derivation
             // NameResolution stamped with, so the two faces agree by construction.
-            let headKey = CstKeys.typeHeadKey t
+            let head = CstKeys.typeHeadSite t
 
-            match tryResolveExternalTypeStamped ctx headKey EqArray.empty with
+            match tryResolveExternalTypeStamped ctx head.Key EqArray.empty with
             | ValueSome ty -> ty
             | ValueNone -> resolveBareTypeName ctx li.Idents.[0] (fun _name -> ValueNone)
         | Type.NamedType li ->
@@ -282,11 +278,11 @@ module internal UnificationTranslate =
             // no local claim held where it was written — so it outranks the registry here
             // exactly as it does for a bare head. Unstamped ⇒ the qualifier names a scope of
             // THIS unit, or the head names nothing.
-            let headKey = CstKeys.typeHeadKey t
+            let head = CstKeys.typeHeadSite t
 
-            match tryResolveExternalTypeStamped ctx headKey EqArray.empty with
+            match tryResolveExternalTypeStamped ctx head.Key EqArray.empty with
             | ValueSome ty -> ty
-            | ValueNone -> resolveQualifiedTypeName ctx headKey li EqArray.empty
+            | ValueNone -> resolveQualifiedTypeName ctx head li EqArray.empty
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -301,7 +297,6 @@ module internal UnificationTranslate =
             // grammar can't tell unit names apart from type-arg type names.
             // Both shapes resolve here.
             let carrierTok = li.Idents.[0]
-            let diagKey = NodeKey.ofToken carrierTok NodeKind.TypeGeneric
 
             let measureFromTypeArg =
                 match args.[0] with
@@ -317,7 +312,7 @@ module internal UnificationTranslate =
 
             match measureFromTypeArg with
             | ValueSome m ->
-                let mt = translateMeasure ctx diagKey m
+                let mt = translateMeasure ctx carrierTok m
                 let tv = freshTyVar ctx
                 // Resolve the carrier (`float`) BY NAME rather than fabricating a
                 // `Type.NamedType li` node and re-entering `translateType`: the carrier
@@ -338,9 +333,8 @@ module internal UnificationTranslate =
                 TyVar tv
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
-            let nameTok = li.Idents.[0]
-            let name = ctx.NameOf nameTok
-            let diagKey = CstKeys.typeHeadKey t
+            let head = CstKeys.typeHeadSite t
+            let name = ctx.NameOf head.Tok
 
             let translatedArgs =
                 EqArray.ofSeq (
@@ -355,7 +349,7 @@ module internal UnificationTranslate =
                     }
                 )
 
-            resolveNamedGeneric ctx diagKey name translatedArgs
+            resolveNamedGeneric ctx head name translatedArgs
         | Type.GenericType(longIdent = li; typeArgs = args) ->
             // Qualified generic type (`A.T<int>`,
             // `System.Collections.Generic.EqualityComparer<int>`); the single-segment forms
@@ -372,19 +366,18 @@ module internal UnificationTranslate =
                     }
                 )
 
-            let headKey = CstKeys.typeHeadKey t
+            let head = CstKeys.typeHeadSite t
 
-            match tryResolveExternalTypeStamped ctx headKey translatedArgs with
+            match tryResolveExternalTypeStamped ctx head.Key translatedArgs with
             | ValueSome ty -> ty
-            | ValueNone -> resolveQualifiedTypeName ctx headKey li translatedArgs
+            | ValueNone -> resolveQualifiedTypeName ctx head li translatedArgs
         | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
             // Postfix generic syntax: `'T list` ≡ `list<'T>`. Multi-arg
             // postfix forms (`(int, string) Map`) parse the base as a tuple
             // and fall to the single-arg arity diagnostic — out of scope for v1.
-            let nameTok = li.Idents.[0]
-            let name = ctx.NameOf nameTok
-            let diagKey = CstKeys.typeHeadKey t
-            resolveNamedGeneric ctx diagKey name (EqArray.singleton (translateType ctx baseTy))
+            let head = CstKeys.typeHeadSite t
+            let name = ctx.NameOf head.Tok
+            resolveNamedGeneric ctx head name (EqArray.singleton (translateType ctx baseTy))
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple(EqArray.ofSeq (seq { for t in types -> translateType ctx t }))
         | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
@@ -443,7 +436,7 @@ module internal UnificationTranslate =
     /// expands a body), which is exactly why an alias RHS is deferred to group close.
     and private resolveClaimedType
         (ctx: PassContext)
-        (diagKey: NodeKey)
+        (head: NodeSite)
         (claim: TypeIdentity)
         (args: EqArray<SemType>)
         : SemType voption =
@@ -462,17 +455,17 @@ module internal UnificationTranslate =
             | ValueSome info ->
                 // Eager expansion: force the body, then substitute the use-site args.
                 forceFill ctx info
-                ValueSome(expandAbbreviation ctx diagKey info args)
+                ValueSome(expandAbbreviation ctx head.Tok info args)
             | ValueNone -> ValueNone
         | TypeDeclKind.Record -> ValueSome(TyRecord(key, args))
         | TypeDeclKind.Union ->
             // Record the resolved union identity at this use site.
-            ctx.Resolution.ResolvedType.Set(diagKey, key)
+            ctx.Resolution.ResolvedType.Set(head.Key, key)
             ValueSome(TyUnion(key, args))
         | TypeDeclKind.Enum ->
             // An enum is niladic (no type args), so the reference is just `TyEnum Key`;
             // stamp the use site like the union arm.
-            ctx.Resolution.ResolvedType.Set(diagKey, key)
+            ctx.Resolution.ResolvedType.Set(head.Key, key)
             ValueSome(TyEnum key)
         | TypeDeclKind.Class -> ValueSome(TyClass(key, args))
 
@@ -495,11 +488,11 @@ module internal UnificationTranslate =
         (resolveExternal: string -> SemType voption)
         : SemType =
         let name = ctx.NameOf nameTok
-        let diagKey = NodeKey.ofToken nameTok NodeKind.TypeNamed
+        let head = NodeSite.ofToken NodeKind.TypeNamed nameTok
 
         let claimed =
-            match TypeRegistry.tryTypeClaim ctx.Types (ctx.UseSiteAt diagKey) name 0 with
-            | ValueSome claim -> resolveClaimedType ctx diagKey claim EqArray.empty
+            match TypeRegistry.tryTypeClaim ctx.Types (ctx.UseSiteAt head.Key) name 0 with
+            | ValueSome claim -> resolveClaimedType ctx head claim EqArray.empty
             | ValueNone -> ValueNone
 
         match claimed with
@@ -513,10 +506,10 @@ module internal UnificationTranslate =
         // claimant of its name.
         | ValueNone ->
             let fromLocal =
-                match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt diagKey) name with
+                match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt head.Key) name with
                 | ValueSome claim ->
                     let args = EqArray.init claim.TyparArity (fun _ -> TyVar(freshTyVar ctx))
-                    resolveClaimedType ctx diagKey claim args
+                    resolveClaimedType ctx head claim args
                 | ValueNone -> ValueNone
 
             match fromLocal with
@@ -534,7 +527,7 @@ module internal UnificationTranslate =
                 // genuinely origin-less.
                 | ValueNone when name = RuntimeNames.undefinedTypeName ->
                     TyConst(RuntimeNames.undefinedKey, EqArray.empty)
-                | ValueNone -> unresolvedHeadTy ctx diagKey name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
+                | ValueNone -> unresolvedHeadTy ctx head name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
 
     /// Resolve a type head written QUALIFIED (`A.T`, `N.A.T<int>`) whose stamped external
     /// read already missed: so it names a project-local type THROUGH the scope holding it, or
@@ -551,16 +544,16 @@ module internal UnificationTranslate =
     /// it as unencodable IL / wrong JS far away.
     and private resolveQualifiedTypeName
         (ctx: PassContext)
-        (diagKey: NodeKey)
+        (head: NodeSite)
         (li: LongIdent<SyntaxToken>)
         (args: EqArray<SemType>)
         : SemType =
         let written = ctx.WrittenTypeNameOf li
-        let useSite = ctx.UseSiteAt diagKey
+        let useSite = ctx.UseSiteAt head.Key
 
         let claimed =
             match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written args.Length with
-            | ValueSome claim -> resolveClaimedType ctx diagKey claim args
+            | ValueSome claim -> resolveClaimedType ctx head claim args
             | ValueNone -> ValueNone
 
         match claimed with
@@ -573,15 +566,15 @@ module internal UnificationTranslate =
             | ValueSome other ->
                 errorTy
                     ctx
-                    diagKey
+                    head.Tok
                     (sprintf
                         "Type '%s' expects %d type argument(s) but got %d"
                         written.Written
                         other.TyparArity
                         args.Length)
             | ValueNone ->
-                assertNoDottedStampGap ctx diagKey li args.Length
-                unresolvedHeadTy ctx diagKey written.Written (TyVar(freshTyVar ctx))
+                assertNoDottedStampGap ctx head.Key li args.Length
+                unresolvedHeadTy ctx head written.Written (TyVar(freshTyVar ctx))
 
     /// Resolve a single-segment generic type reference. A STAMP on the head outranks the
     /// registry (see the `Type.NamedType` arm: a stamp is NameResolution's committed
@@ -592,25 +585,25 @@ module internal UnificationTranslate =
     /// shape.
     and private resolveNamedGeneric
         (ctx: PassContext)
-        (diagKey: NodeKey)
+        (head: NodeSite)
         (name: string)
         (translatedArgs: EqArray<SemType>)
         : SemType =
-        match tryResolveExternalTypeStamped ctx diagKey translatedArgs with
+        match tryResolveExternalTypeStamped ctx head.Key translatedArgs with
         | ValueSome ty -> ty
-        | ValueNone -> resolveLocalNamedGeneric ctx diagKey name translatedArgs
+        | ValueNone -> resolveLocalNamedGeneric ctx head name translatedArgs
 
     and private resolveLocalNamedGeneric
         (ctx: PassContext)
-        (diagKey: NodeKey)
+        (head: NodeSite)
         (name: string)
         (translatedArgs: EqArray<SemType>)
         : SemType =
         let argCount = translatedArgs.Length
 
         let claimed =
-            match TypeRegistry.tryTypeClaim ctx.Types (ctx.UseSiteAt diagKey) name argCount with
-            | ValueSome claim -> resolveClaimedType ctx diagKey claim translatedArgs
+            match TypeRegistry.tryTypeClaim ctx.Types (ctx.UseSiteAt head.Key) name argCount with
+            | ValueSome claim -> resolveClaimedType ctx head claim translatedArgs
             | ValueNone -> ValueNone
 
         match claimed with
@@ -624,23 +617,15 @@ module internal UnificationTranslate =
             // them to keep its element type structural, both landing in the same `TyConst` an
             // in-arity reference would.
             let fromLocal =
-                match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt diagKey) name with
+                match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt head.Key) name with
                 | ValueSome claim ->
                     if claim.Kind <> TypeDeclKind.IntrinsicRepr then
-                        ctx.Diagnostics.Add
-                            {
-                                Key = diagKey
-                                Message =
-                                    sprintf
-                                        "Type '%s' expects %d type argument(s) but got %d"
-                                        name
-                                        claim.TyparArity
-                                        argCount
-                                Code = ""
-                                Severity = Severity.Error
-                            }
+                        ctx.Error(
+                            head.Tok,
+                            sprintf "Type '%s' expects %d type argument(s) but got %d" name claim.TyparArity argCount
+                        )
 
-                    resolveClaimedType ctx diagKey claim translatedArgs
+                    resolveClaimedType ctx head claim translatedArgs
                 | ValueNone -> ValueNone
 
             match fromLocal with
@@ -649,7 +634,7 @@ module internal UnificationTranslate =
             // built this head — the shared undefined-head verdict decides, exactly as for the
             // bare-name arm. Its residue drops the type args: a shape-less head has no
             // parameters to apply them to.
-            | ValueNone -> unresolvedHeadTy ctx diagKey name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
+            | ValueNone -> unresolvedHeadTy ctx head name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
 
     /// Build the annotation `SemType` from a resolved external shape addressed by the
     /// RESOLVED identity key `symKey`. Shared by both resolution faces (the stamped
@@ -808,16 +793,10 @@ module internal UnificationTranslate =
                     if not (ctx.Store.Constraints.Items root |> List.exists (fun e -> e.Kind = sc.Kind)) then
                         ctx.Store.Constraints.Prepend(root, sc)
                 | false, _ ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = NodeKey.ofToken id NodeKind.TypeVarRef
-                            Message =
-                                sprintf
-                                    "Type parameter '%s' in constraint clause is not declared in the enclosing scope"
-                                    name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(
+                        id,
+                        sprintf "Type parameter '%s' in constraint clause is not declared in the enclosing scope" name
+                    )
 
         match c with
         | Constraint.Equality(typar = tp; equalityToken = tok) -> attach tp SemanticConstraintKind.Equality tok
@@ -860,13 +839,7 @@ module internal UnificationTranslate =
         match info.Status with
         | AbbreviationStatus.Filled -> ()
         | AbbreviationStatus.InProgress ->
-            ctx.Diagnostics.Add
-                {
-                    Key = info.DeclKey
-                    Message = sprintf "Type abbreviation '%s' is cyclic" info.Name
-                    Code = ""
-                    Severity = Severity.Error
-                }
+            ctx.Error(info.DeclSite.Tok, sprintf "Type abbreviation '%s' is cyclic" info.Name)
 
             info.Status <- AbbreviationStatus.Filled
         | AbbreviationStatus.NotFilled ->
@@ -906,7 +879,7 @@ module internal UnificationTranslate =
     /// supplied arg so a later unification re-fires the check.
     and expandAbbreviation
         (ctx: PassContext)
-        (diagKey: NodeKey)
+        (blameTok: SyntaxToken)
         (info: AbbreviationInfo)
         (args: EqArray<SemType>)
         : SemType =
@@ -921,17 +894,13 @@ module internal UnificationTranslate =
                 match checkConstraint ctx c arg with
                 | Satisfied -> ()
                 | Violated ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = diagKey
-                            Message =
-                                sprintf
-                                    "The type '%A' does not support the '%s' constraint"
-                                    (zonk ctx.Store arg)
-                                    (constraintKindName c.Kind)
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(
+                        blameTok,
+                        sprintf
+                            "The type '%A' does not support the '%s' constraint"
+                            (zonk ctx.Store arg)
+                            (constraintKindName c.Kind)
+                    )
                 | Defer -> propagateToFreeArgs ctx c arg
 
         match info.Body with

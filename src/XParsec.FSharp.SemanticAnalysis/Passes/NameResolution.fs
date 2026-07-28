@@ -125,18 +125,14 @@ module NameResolution =
         // a hard SyntaxError), so it is built once, upstream, rather than per backend. Until then
         // rejecting is the only alternative to minting two fields of one name and silently
         // miscompiling whichever one a backend picked. A LIMITATION, not invalid F#.
-        let declareField (name: string) (declKey: NodeKey) =
+        let declareField (name: string) (declTok: SyntaxToken) =
             if fieldNames.Contains name then
-                ctx.Diagnostics.Add
-                    {
-                        Key = declKey
-                        Message =
-                            sprintf
-                                "Duplicate field name `%s`: a constructor parameter, a `val` field and a class `let` binding each mint a field carrying its source name, and no two fields of one type may share a name (on the CLR a field's static-ness is not part of its identity). F# permits this by uniquifying the backing-field names; that pass is not implemented yet, so rename one of them."
-                                name
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(
+                    declTok,
+                    sprintf
+                        "Duplicate field name `%s`: a constructor parameter, a `val` field and a class `let` binding each mint a field carrying its source name, and no two fields of one type may share a name (on the CLR a field's static-ness is not part of its identity). F# permits this by uniquifying the backing-field names; that pass is not implemented yet, so rename one of them."
+                        name
+                )
             else
                 fieldNames <- Set.add name fieldNames
 
@@ -178,9 +174,9 @@ module NameResolution =
         for p in w.CtorParams do
             // A name resolves to the RAW identity a reference carries, so the parameter's
             // binder is widened once here and scoped under that.
-            let paramKey = BinderKey.identity p.DeclKey
+            let paramKey = BinderKey.identity p.DeclSite.Binder
             scopeMap <- Map.add p.Name (paramKey, false) scopeMap
-            declareField p.Name paramKey
+            declareField p.Name p.DeclSite.Tok
 
             ctx.Bindings.Binding.Set(
                 paramKey,
@@ -194,7 +190,7 @@ module NameResolution =
         // `val` fields bind no name lexically, so they take part in nothing here but the
         // duplicate-field rule — which is exactly why the rule cannot live in the preamble scopes.
         for f in w.InstanceFields do
-            declareField f.Name f.DeclKey
+            declareField f.Name f.DeclSite.Tok
 
         // The enclosing module's value bindings are visible — unqualified — to
         // every member body of a type nested in that module (F# spec §8.7). They
@@ -219,16 +215,15 @@ module NameResolution =
                 }
             )
 
-            declareField l.Name l.DeclKey
+            let bindTok = (CstKeys.siteOfBinding l.Binding).Tok
+            declareField l.Name bindTok
 
             if memberNames.Contains l.Name then
-                ctx.Diagnostics.Add
-                    {
-                        Key = l.DeclKey
-                        Message = sprintf "A member and a local class binding both have the name '%s'" l.Name
-                        Code = "FS0905"
-                        Severity = Severity.Error
-                    }
+                ctx.Error(
+                    bindTok,
+                    "FS0905",
+                    sprintf "A member and a local class binding both have the name '%s'" l.Name
+                )
 
         // A preamble binding is an ordinary `let`: `let f x = …` binds a FUNCTION, so its
         // `argumentPats` scope over the initialiser exactly as a member's do. Only `let rec` puts
@@ -277,7 +272,7 @@ module NameResolution =
         // has already rejected any name a ctor param shares with a static binder.
         let ctorParamScope =
             (Map.empty, w.CtorParams)
-            ||> Array.fold (fun acc p -> Map.add p.Name (BinderKey.identity p.DeclKey, false) acc)
+            ||> Array.fold (fun acc p -> Map.add p.Name (BinderKey.identity p.DeclSite.Binder, false) acc)
 
         let instanceOuterScope = [ ctorParamScope; staticLetScope; moduleMemberScope ]
 
@@ -353,7 +348,7 @@ module NameResolution =
             let mutable scScope = staticLetScope
 
             for p in sc.Params do
-                let paramKey = BinderKey.identity p.DeclKey
+                let paramKey = BinderKey.identity p.DeclSite.Binder
                 scScope <- Map.add p.Name (paramKey, false) scScope
 
                 ctx.Bindings.Binding.Set(
@@ -497,7 +492,7 @@ module NameResolution =
                                 match info.BaseType, body.inherits with
                                 | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
                                 | _ -> ValueNone
-                            EnclosingModuleScope = enclosingModuleScope ctx info.Name info.DeclKey
+                            EnclosingModuleScope = enclosingModuleScope ctx info.Name info.DeclSite.Key
                             Elements = body.elements
                         }
                 | ValueNone -> ()
@@ -532,7 +527,7 @@ module NameResolution =
                     InstancePreamble = [||]
                     SecondaryCtors = [||]
                     InheritsExpr = ValueNone
-                    EnclosingModuleScope = enclosingModuleScope ctx name host.DeclKey
+                    EnclosingModuleScope = enclosingModuleScope ctx name host.DeclSite.Key
                     Elements = elems
                 }
 

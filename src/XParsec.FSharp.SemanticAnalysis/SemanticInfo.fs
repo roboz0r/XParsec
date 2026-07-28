@@ -527,14 +527,15 @@ and [<Struct>] SemanticConstraint =
     }
 
 /// One element of a TyVar's `PendingDotAccess` list. `MemberName` is the
-/// field-or-member name in `receiver.X`; `UseKey` is the access expression's
-/// NodeKey (used for diagnostics); `ResultTv` is the access expression's own
-/// TyVar id — unified with the field/member's declared type when the receiver
-/// resolves.
+/// field-or-member name in `receiver.X`; `Use` is the access expression's site — its key
+/// records the resolved access for Elaborate, its token places the diagnostic, and one
+/// projection answers both so they cannot name different use sites. `ResultTv` is the
+/// access expression's own TyVar id — unified with the field/member's declared type when
+/// the receiver resolves.
 and [<NoEquality; NoComparison>] DeferredMemberAccess =
     {
         MemberName: string
-        UseKey: NodeKey
+        Use: NodeSite
         ResultTv: TyVarId
     }
 

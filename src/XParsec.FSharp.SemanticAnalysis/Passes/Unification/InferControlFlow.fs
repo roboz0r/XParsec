@@ -102,11 +102,11 @@ module internal UnificationInferControlFlow =
     /// triggers; the union arm of `tryForInEnumerator` then admits it. (`1 :: 2 :: 3 ::
     /// []` already types as the Vesper union, so it bypasses this and is admitted
     /// directly.) A non-literal source is left untouched.
-    let private pinListLiteralToVesper (ctx: PassContext) (key: NodeKey) (srcTy: SemType) : unit =
+    let private pinListLiteralToVesper (ctx: PassContext) (tok: SyntaxToken) (srcTy: SemType) : unit =
         match zonk ctx.Store srcTy with
         | TyVar tv ->
             match tryListLiteralElem ctx (UnionFind.find ctx.Store tv).Id with
-            | ValueSome elemTy -> unify ctx key srcTy (TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy))
+            | ValueSome elemTy -> unify ctx tok srcTy (TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy))
             | ValueNone -> ()
         | _ -> ()
 
@@ -264,14 +264,14 @@ module internal UnificationInferControlFlow =
     let rec inferIfThenElse
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (cond: Expr<SyntaxToken>)
         (thenE: Expr<SyntaxToken>)
         (elifs: ImmutableArray<ElifBranch<SyntaxToken>>)
         (elseB: ElseBranch<SyntaxToken> voption)
         : SemType =
         let condTy = infer ctx cond
-        unify ctx key condTy ctx.Intrinsics.Bool
+        unify ctx tok condTy ctx.Intrinsics.Bool
 
         let thenTy = infer ctx thenE
 
@@ -282,21 +282,21 @@ module internal UnificationInferControlFlow =
                 | ElifBranch.ElseIf(condition = c; expr = e) -> c, e
 
             let elifCondTy = infer ctx elifCond
-            unify ctx key elifCondTy ctx.Intrinsics.Bool
+            unify ctx tok elifCondTy ctx.Intrinsics.Bool
             let elifTy = infer ctx elifExpr
-            unify ctx key thenTy elifTy
+            unify ctx tok thenTy elifTy
 
         match elseB with
         | ValueSome(ElseBranch(expr = elseExpr)) ->
             let elseTy = infer ctx elseExpr
-            unify ctx key thenTy elseTy
+            unify ctx tok thenTy elseTy
             thenTy
         | ValueNone ->
             // `if c then e` (no else): the then-branch must be `unit` and the whole
             // expression is `unit` (F# spec — a missing else is `else ()`). The elif
             // branches above were already unified with `thenTy`, so this one `unify`
             // forces all branches to `unit`.
-            unify ctx key thenTy ctx.Intrinsics.Unit
+            unify ctx tok thenTy ctx.Intrinsics.Unit
             ctx.Intrinsics.Unit
 
     and inferFun
@@ -315,7 +315,7 @@ module internal UnificationInferControlFlow =
     and inferSequential
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (items: ImmutableArray<Expr<SyntaxToken>>)
         : SemType =
         if items.Length = 0 then
@@ -323,41 +323,41 @@ module internal UnificationInferControlFlow =
         else
             for i = 0 to items.Length - 2 do
                 let ty = infer ctx items.[i]
-                unify ctx key ty ctx.Intrinsics.Unit
+                unify ctx tok ty ctx.Intrinsics.Unit
 
             infer ctx items.[items.Length - 1]
 
     and inferWhile
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (cond: Expr<SyntaxToken>)
         (body: Expr<SyntaxToken>)
         : SemType =
         let condTy = infer ctx cond
-        unify ctx key condTy ctx.Intrinsics.Bool
+        unify ctx tok condTy ctx.Intrinsics.Bool
         let bodyTy = infer ctx body
-        unify ctx key bodyTy ctx.Intrinsics.Unit
+        unify ctx tok bodyTy ctx.Intrinsics.Unit
         ctx.Intrinsics.Unit
 
     and inferForTo
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (ident: SyntaxToken)
         (startE: Expr<SyntaxToken>)
         (endE: Expr<SyntaxToken>)
         (body: Expr<SyntaxToken>)
         : SemType =
         let startTy = infer ctx startE
-        unify ctx key startTy ctx.Intrinsics.Int
+        unify ctx tok startTy ctx.Intrinsics.Int
         let endTy = infer ctx endE
-        unify ctx key endTy ctx.Intrinsics.Int
+        unify ctx tok endTy ctx.Intrinsics.Int
         let varKey = CstKeys.ofForToVar ident
         let varTv = freshTv ctx varKey
         ctx.Store.SetLink(UnionFind.find ctx.Store varTv, ValueSome ctx.Intrinsics.Int)
         let bodyTy = infer ctx body
-        unify ctx key bodyTy ctx.Intrinsics.Unit
+        unify ctx tok bodyTy ctx.Intrinsics.Unit
         ctx.Intrinsics.Unit
 
     /// The §4.4 duck-typed enumerator probe: C#'s pattern-based `foreach` accepts
@@ -698,7 +698,7 @@ module internal UnificationInferControlFlow =
     and inferForIn
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (pat: Pat<SyntaxToken>)
         (src: Expr<SyntaxToken>)
         (body: Expr<SyntaxToken>)
@@ -711,7 +711,7 @@ module internal UnificationInferControlFlow =
         let srcTy = infer ctx src
         let patTy = inferPat ctx pat
 
-        pinListLiteralToVesper ctx key srcTy
+        pinListLiteralToVesper ctx node.Tok srcTy
 
         let isRangeSource =
             match src with
@@ -722,26 +722,26 @@ module internal UnificationInferControlFlow =
             | _ -> false
 
         if isRangeSource then
-            unify ctx key patTy ctx.Intrinsics.Int
+            unify ctx node.Tok patTy ctx.Intrinsics.Int
         else
             match tryForInEnumerator ctx srcTy with
             | ValueSome(elemTy, shape) ->
-                unify ctx key patTy elemTy
-                ctx.Resolution.ForInShape.Set(key, shape)
+                unify ctx node.Tok patTy elemTy
+                ctx.Resolution.ForInShape.Set(node.Key, shape)
             | ValueNone ->
                 ctx.Error(
-                    key,
+                    node.Tok,
                     "for-in: source is not a supported enumerable (expected IEnumerable<'T> or a pattern-based GetEnumerator())"
                 )
 
         let bodyTy = infer ctx body
-        unify ctx key bodyTy ctx.Intrinsics.Unit
+        unify ctx node.Tok bodyTy ctx.Intrinsics.Unit
         ctx.Intrinsics.Unit
 
     and inferRules
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (scrutineeTy: SemType)
         (resultTy: SemType)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
@@ -758,16 +758,16 @@ module internal UnificationInferControlFlow =
             match r with
             | Rule.Rule(pat = pat; guard = guard; expr = body) ->
                 let patTy = inferPat ctx pat
-                unify ctx key patTy armScrut
+                unify ctx tok patTy armScrut
 
                 match guard with
                 | ValueSome(PatternGuard(expr = g)) ->
                     let gTy = infer ctx g
-                    unify ctx key gTy ctx.Intrinsics.Bool
+                    unify ctx tok gTy ctx.Intrinsics.Bool
                 | ValueNone -> ()
 
                 let bodyTy = infer ctx body
-                unify ctx key bodyTy resultTy
+                unify ctx tok bodyTy resultTy
             | _ -> ()
 
         match residual with
@@ -775,25 +775,25 @@ module internal UnificationInferControlFlow =
             let names =
                 residual |> List.map (describeUnionMember ctx.Store) |> String.concat " | "
 
-            ctx.Warn(key, sprintf "Incomplete pattern match on anonymous union: member(s) '%s' not handled" names)
+            ctx.Warn(tok, sprintf "Incomplete pattern match on anonymous union: member(s) '%s' not handled" names)
         | [] -> ()
 
     and inferMatch
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (scrutinee: Expr<SyntaxToken>)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType =
         let scrutineeTy = infer ctx scrutinee
         let resultTy = TyVar(freshTyVar ctx)
-        inferRules infer ctx key scrutineeTy resultTy rules
+        inferRules infer ctx tok scrutineeTy resultTy rules
         resultTy
 
     and inferFunction
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType =
         // `function … ` ~ `fun x -> match x with …`. The synthesised
@@ -801,13 +801,13 @@ module internal UnificationInferControlFlow =
         // unifies with it.
         let paramTy = TyVar(freshTyVar ctx)
         let resultTy = TyVar(freshTyVar ctx)
-        inferRules infer ctx key paramTy resultTy rules
+        inferRules infer ctx tok paramTy resultTy rules
         TyFun(paramTy, resultTy)
 
     and inferTryWith
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (body: Expr<SyntaxToken>)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType =
@@ -817,32 +817,32 @@ module internal UnificationInferControlFlow =
         // `ResolvedTypes` correctly flags.
         let resultTy = infer ctx body
         let exnTy = TyConst(RuntimeNames.exnKey, EqArray.empty)
-        inferRules infer ctx key exnTy resultTy rules
+        inferRules infer ctx tok exnTy resultTy rules
         resultTy
 
     and inferTryFinally
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (body: Expr<SyntaxToken>)
         (finallyE: Expr<SyntaxToken>)
         : SemType =
         let resultTy = infer ctx body
         let finallyTy = infer ctx finallyE
-        unify ctx key finallyTy ctx.Intrinsics.Unit
+        unify ctx tok finallyTy ctx.Intrinsics.Unit
         resultTy
 
     and inferAssignment
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (left: Expr<SyntaxToken>)
         (right: Expr<SyntaxToken>)
         : SemType =
         // Mutability of the LHS is a Validation concern; here we only typecheck.
         let leftTy = infer ctx left
         let rightTy = infer ctx right
-        unify ctx key leftTy rightTy
+        unify ctx node.Tok leftTy rightTy
 
         // `arr.[i] <- v` mints a `SetArray`/`SetIndex` `External` head in Elaborate's
         // `translateAssignment` (the write mirror of the `GetArray`/`GetIndex` read
@@ -872,7 +872,7 @@ module internal UnificationInferControlFlow =
                 | _ -> ctx.CoreAccess.Value.SetArray
 
             match setSym with
-            | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
+            | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
             | ValueNone -> ()
         | _ -> ()
 

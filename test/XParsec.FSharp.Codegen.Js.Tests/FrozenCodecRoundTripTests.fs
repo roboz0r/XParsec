@@ -34,7 +34,7 @@ type private Harvest =
         FrozenTypes: FrozenType list
         SymbolKeys: SymbolKey list
         TypeKeys: TypeKey list
-        NodeKeys: NodeKey list
+        Sites: Site list
         Anchors: Anchor list
     }
 
@@ -42,7 +42,7 @@ let private collect () : Harvest =
     let fts = HashSet<FrozenType>(HashIdentity.Structural)
     let sks = HashSet<SymbolKey>(HashIdentity.Structural)
     let tks = HashSet<TypeKey>(HashIdentity.Structural)
-    let nks = HashSet<NodeKey>(HashIdentity.Structural)
+    let sites = HashSet<Site>(HashIdentity.Structural)
     let toks = HashSet<Anchor>(HashIdentity.Structural)
 
     // FrozenType child-walk: collect the node and every key / nested type it reaches, so
@@ -97,12 +97,10 @@ let private collect () : Harvest =
             | MemberKind.Property -> ()
 
     let harvestFile (file: Pooled.TastFile) =
-        // The ONE `NodeKey` a frozen file still carries: a diagnostic's anchor, which can
-        // name a node the emittable tree does not contain and so takes no pool id. Every
-        // binder is addressed positionally and every lambda by its own key space, so
-        // neither contributes one.
+        // A diagnostic's position, which can name a node the emittable tree does not
+        // contain and so takes no pool id.
         for d in file.Diagnostics do
-            nks.Add d.Key |> ignore
+            sites.Add d.Site |> ignore
 
         for k in file.IntrinsicReprKeys.Keys do
             visitSym k
@@ -293,12 +291,16 @@ let private collect () : Harvest =
     for tk in edgeTypes do
         tks.Add tk |> ignore
 
-    for nk in
+    // Every case of the position DU, plus both ends of a token index's range.
+    for s in
         [
-            NodeKey.ofSource 42 NodeKind.ExprLambda
-            NodeKey.ofSynthetic 10 NodeKind.SynthLambdaBody
+            Site.Nowhere
+            Site.At 0<token>
+            Site.At 1_000_000<token>
+            Site.between 3<token> 9<token>
+            Site.After 7<token>
         ] do
-        nks.Add nk |> ignore
+        sites.Add s |> ignore
 
     for a in edgeAnchors do
         toks.Add a |> ignore
@@ -307,7 +309,7 @@ let private collect () : Harvest =
         FrozenTypes = List.ofSeq fts
         SymbolKeys = List.ofSeq sks
         TypeKeys = List.ofSeq tks
-        NodeKeys = List.ofSeq nks
+        Sites = List.ofSeq sites
         Anchors = List.ofSeq toks
     }
 
@@ -342,12 +344,20 @@ let tests =
                     Expect.equal (roundTrips FrozenCodecTypes.writeTypeKey FrozenCodecTypes.readTypeKey tk) tk "TypeKey"
             }
 
-            test "NodeKey round-trips (Raw verbatim)" {
-                for nk in h.NodeKeys do
+            test "a diagnostic's Site round-trips, every case" {
+                for s in h.Sites do
+                    Expect.equal (roundTrips FrozenCodecPrimitives.writeSite FrozenCodecPrimitives.readSite s) s "Site"
+            }
+
+            // The bare `Between` constructor can spell a run the type says does not exist —
+            // one token wide, or ends reversed. Writer and reader must agree on which form
+            // those take, or a blob would decode to a value that never went in.
+            test "a Between the smart constructor would not build canonicalises the same way on both sides" {
+                for raw in [ Site.Between(5<token>, 5<token>); Site.Between(9<token>, 3<token>) ] do
                     Expect.equal
-                        (roundTrips FrozenCodecPrimitives.writeNodeKey FrozenCodecPrimitives.readNodeKey nk)
-                        nk
-                        "NodeKey"
+                        (roundTrips FrozenCodecPrimitives.writeSite FrozenCodecPrimitives.readSite raw)
+                        (Site.normalise raw)
+                        "Site (non-canonical Between)"
             }
 
             test "an anchor round-trips, its absence included" {
@@ -365,11 +375,11 @@ let tests =
                 Expect.isGreaterThan (List.length h.FrozenTypes) 20 "FrozenTypes"
                 Expect.isGreaterThan (List.length h.SymbolKeys) 5 "SymbolKeys"
                 Expect.isGreaterThan (List.length h.TypeKeys) 2 "TypeKeys"
-                // The corpus contributes NO node key: it compiles clean, so it bears no
-                // diagnostic, and a diagnostic's anchor is the only one a frozen file still
-                // carries. The hand-built edge cases below are the whole of this corpus,
-                // and their count is what the bound pins.
-                Expect.isGreaterThan (List.length h.NodeKeys) 1 "NodeKeys"
+                // The corpus contributes NO site: it compiles clean, so it bears no
+                // diagnostic, and a diagnostic's position is the only one a frozen file
+                // carries. The hand-built edge cases are the whole of this corpus, and
+                // their count is what the bound pins.
+                Expect.isGreaterThan (List.length h.Sites) 4 "Sites"
                 Expect.isGreaterThan (List.length h.Anchors) 4 "Anchors"
             }
         ]

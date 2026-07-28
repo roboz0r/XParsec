@@ -639,7 +639,7 @@ module internal ElaborateResolve =
         | ValueNone ->
             // Post-inference the resolved member is committed, so a miss is an internal
             // invariant break, not mis-typed source — degrade to a diagnostic, never a crash.
-            ctx.Error(callKey, memberNotResolvable "mkMethodCall" declKey memberName)
+            ctx.Error(tok, memberNotResolvable "mkMethodCall" declKey memberName)
             TExpr.Null(ty, tok)
 
     /// Wall B (rung 3): instance `MethodCall` dispatched through an *interface* the
@@ -673,10 +673,7 @@ module internal ElaborateResolve =
             let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx ifaceKey memberName) args
             TExpr.MethodCall(receiver, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
         | ValueNone ->
-            ctx.Error(
-                NodeKey.ofToken tok NodeKind.ExprApp,
-                memberNotResolvable "mkInterfaceMethodCall" ifaceKey memberName
-            )
+            ctx.Error(tok, memberNotResolvable "mkInterfaceMethodCall" ifaceKey memberName)
 
             TExpr.Null(ty, tok)
 
@@ -699,7 +696,7 @@ module internal ElaborateResolve =
         | ValueSome key ->
             TExpr.StaticMethodCall(key, wrapObjArgsEq ctx.Store (memberParamTys ctx declKey memberName) args, ty, tok)
         | ValueNone ->
-            ctx.Error(NodeKey.ofToken tok NodeKind.ExprApp, memberNotResolvable "mkStaticMethodCall" declKey memberName)
+            ctx.Error(tok, memberNotResolvable "mkStaticMethodCall" declKey memberName)
             TExpr.Null(ty, tok)
 
     /// `UnionCons` for case `caseName` of union `ty`.

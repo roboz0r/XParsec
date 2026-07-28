@@ -26,19 +26,16 @@ module NameResolutionTypeRegistration =
     /// directing the user to a class. Shared by the record and union arms.
     let private rejectCustomOnDataType
         (ctx: PassContext)
-        (declKey: NodeKey)
+        (declTok: SyntaxToken)
         (eq: EqualityVerdict)
         (cmp: ComparisonVerdict)
         : unit =
         if eq = EqualityVerdict.Custom || cmp = ComparisonVerdict.Custom then
-            ctx.Diagnostics.Add
-                {
-                    Key = declKey
-                    Message =
-                        "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler — wrap the type in a class that implements IEquatable<_>/IComparable<_>."
-                    Code = "FS0378"
-                    Severity = Severity.Error
-                }
+            ctx.Error(
+                declTok,
+                "FS0378",
+                "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler — wrap the type in a class that implements IEquatable<_>/IComparable<_>."
+            )
 
     /// A `Typar`'s source-text name; the leading `'`/`^` lives on a separate
     /// token. Anon (`_`) typars don't participate in scope — ValueNone.
@@ -170,26 +167,22 @@ module NameResolutionTypeRegistration =
     /// stamp. `SymbolKeyOrigins` exists to witness it.
     let private stampLocalTypeKey
         (ctx: PassContext)
-        (declKey: NodeKey)
+        (declSite: NodeSite)
         (holder: ModuleHolder)
         (name: string)
         (arity: int)
         : TypeKey =
         let key = LocalSymbolKey.ofType (ModuleRules.typeHolderOf holder) name arity
 
-        match TypeRegistry.recordKeyOrigin ctx.Types declKey (SymbolKey.Type key) with
+        match TypeRegistry.recordKeyOrigin ctx.Types declSite.Key (SymbolKey.Type key) with
         | ValueSome _ ->
-            ctx.Diagnostics.Add
-                {
-                    Key = declKey
-                    Message =
-                        sprintf
-                            "Internal error: project-local SymbolKey collision for '%s' (arity %d)"
-                            (SymbolKeyOps.typeMetaName key)
-                            arity
-                    Code = ""
-                    Severity = Severity.Error
-                }
+            ctx.Error(
+                declSite.Tok,
+                sprintf
+                    "Internal error: project-local SymbolKey collision for '%s' (arity %d)"
+                    (SymbolKeyOps.typeMetaName key)
+                    arity
+            )
         | ValueNone -> ()
 
         key
@@ -249,14 +242,14 @@ module NameResolutionTypeRegistration =
     /// (This is the one front-end reader of `AssemblyName` that survives the assembly's
     /// removal from `SymbolKey` — it does not identify a *type*, it identifies the *unit*,
     /// which is what "own contract" is a statement about.)
-    let private diagnoseExternalClaim (ctx: PassContext) (declKey: NodeKey) (key: TypeKey) : unit =
+    let private diagnoseExternalClaim (ctx: PassContext) (declTok: SyntaxToken) (key: TypeKey) : unit =
         match ctx.Provider.TryLookupType(SymbolKey.Type key) with
         | ValueNone -> ()
         | ValueSome shape ->
             match externalClaimant shape with
             | Some asm when asm <> ctx.AssemblyName ->
                 ctx.Error(
-                    declKey,
+                    declTok,
                     sprintf
                         "The type '%s' is declared by this project and already exists in the referenced assembly '%s'. A fully-qualified name names at most one type in a compilation — rename the type, or drop the reference to '%s'."
                         (SymbolKeyOps.typeMetaName key)
@@ -409,9 +402,8 @@ module NameResolutionTypeRegistration =
                 ValueNone
             else
 
-                let nameTok = nameLi.Idents.[0]
-                let name = ctx.NameOf nameTok
-                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+                let declSite = NodeSite.ofToken NodeKind.DeclType nameLi.Idents.[0]
+                let name = ctx.NameOf declSite.Tok
 
                 // An enum is non-generic: it claims its name at arity 0 whatever typars were
                 // (illegally) written on it. THE one statement of the rule — the enum registrar
@@ -427,13 +419,7 @@ module NameResolutionTypeRegistration =
                 let holder = localHolderChain ctx c
 
                 if TypeRegistry.isTypeClaimed ctx.Types holder name arity then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = declKey
-                            Message = sprintf "Duplicate type definition: %s" name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(declSite.Tok, sprintf "Duplicate type definition: %s" name)
 
                     // The first claimant keeps the name and this declaration registers nothing —
                     // it is absent from the group's working set, so no registrar can reach it and
@@ -444,7 +430,7 @@ module NameResolutionTypeRegistration =
                             Name = name
                             TyparArity = arity
                             Kind = kind
-                            DeclKey = declKey
+                            DeclKey = declSite.Key
                             Defn = td
                         }
 
@@ -463,9 +449,9 @@ module NameResolutionTypeRegistration =
                     // one the source declared instead of cascading into either an "undefined
                     // type" storm or — worse — a silent bind to the external namesake this
                     // diagnostic exists to separate it from.
-                    let key = stampLocalTypeKey ctx declKey holder name arity
+                    let key = stampLocalTypeKey ctx declSite holder name arity
 
-                    diagnoseExternalClaim ctx declKey key
+                    diagnoseExternalClaim ctx declSite.Tok key
 
                     let claimed =
                         {
@@ -475,7 +461,7 @@ module NameResolutionTypeRegistration =
                                     TyparArity = arity
                                     Holder = holder
                                     Kind = kind
-                                    DeclKey = declKey
+                                    DeclSite = declSite
                                     Key = key
                                     VisibleFrom = visibleFrom
                                 }
@@ -547,7 +533,10 @@ module NameResolutionTypeRegistration =
                         | ValueSome head ->
                             match classifyTypeHead ctx head with
                             | UnknownType when head.LongIdent.Idents.Length = 1 ->
-                                ctx.UndefinedType(head.Key, ctx.NameOf head.LongIdent.Idents.[0])
+                                ctx.UndefinedType(
+                                    Site.ofTokenOr (Site.ofLongIdent head.LongIdent) head.Site.Tok,
+                                    ctx.NameOf head.Site.Tok
+                                )
                             | UnknownType
                             | LocalType
                             | ExternalType -> ()
@@ -673,7 +662,7 @@ module NameResolutionTypeRegistration =
         match td with
         | TypeDefn.Record(typeName = tn; fields = fields) ->
             let name = id.Name
-            let declKey = id.DeclKey
+            let declSite = id.DeclSite
             let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
             let typarConstraints = typarConstraintsOfTypeName tn
 
@@ -703,7 +692,7 @@ module NameResolutionTypeRegistration =
             let fieldInfos = fieldInfos.ToArray()
 
             let info =
-                RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraints, id.Key)
+                RecordTypeInfo(name, typeParams, fieldInfos, id.DeclSite, typarConstraints, id.Key)
 
             // `[<Struct>]` record ⇒ value type. The same struct predicate the
             // group struct-field cycle check reads, so registry and cycle check
@@ -716,7 +705,7 @@ module NameResolutionTypeRegistration =
                 Attributes.validateEqCompAttributes
                     ctx
                     Attributes.EqCompTargetKind.Record
-                    declKey
+                    declSite.Tok
                     (Attributes.attributesOfTypeName tn)
 
             // Explicit equality attribute wins; absent, the default
@@ -744,7 +733,7 @@ module NameResolutionTypeRegistration =
             info.IsRequireQualifiedAccess <-
                 AttributeDecode.decodeRequireQualifiedAccess ctx.NameOf (Attributes.attributesOfTypeName tn)
 
-            rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
+            rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
 
             TypeRegistry.registerRecord ctx.Types info
 
@@ -752,7 +741,7 @@ module NameResolutionTypeRegistration =
             // record by its arity-qualified `SymbolKey` (via `tryRecordByKey`),
             // not the bare name — an arity-overloaded record (`Point`2`/`Point`3`)
             // does not resolve by bare name. Mirrors the union/enum decl-site stamp.
-            ctx.Resolution.ResolvedType.Set(declKey, info.TypeKey)
+            ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
 
             for fi in fieldInfos do
                 match ctx.Types.FieldIndex.TryGetValue fi.Name with
@@ -838,7 +827,7 @@ module NameResolutionTypeRegistration =
         match td with
         | TypeDefn.Union(typeName = tn; cases = cases) ->
             let name = id.Name
-            let declKey = id.DeclKey
+            let declSite = id.DeclSite
             let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
             let typarConstraints = typarConstraintsOfTypeName tn
             let caseInfos = ResizeArray<UnionCaseInfo>(cases.Length)
@@ -860,14 +849,16 @@ module NameResolutionTypeRegistration =
                             // "which union declares this case" never re-resolves a name
                             // (the arity-overloaded `Choice\`2`…`Choice\`7` are distinct
                             // keys, and the key says which).
-                            caseInfos.Add(UnionCaseInfo(shape.Name, name, id.Key, fieldTys, shape.FieldNames, declKey))
+                            caseInfos.Add(
+                                UnionCaseInfo(shape.Name, name, id.Key, fieldTys, shape.FieldNames, declSite.Key)
+                            )
                         | ValueNone -> ()
                 )
 
             let caseInfos = caseInfos.ToArray()
 
             let info =
-                UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraints, id.Key)
+                UnionTypeInfo(name, typeParams, caseInfos, id.DeclSite, typarConstraints, id.Key)
 
             // Validate the equality / comparison attributes against the
             // union kind (FS0382 / FS0377) and read the resolved verdicts.
@@ -875,7 +866,7 @@ module NameResolutionTypeRegistration =
                 Attributes.validateEqCompAttributes
                     ctx
                     Attributes.EqCompTargetKind.Union
-                    declKey
+                    declSite.Tok
                     (Attributes.attributesOfTypeName tn)
 
             // Union equality defaults to Structural, explicit attribute overrides.
@@ -896,7 +887,7 @@ module NameResolutionTypeRegistration =
             info.IsRequireQualifiedAccess <-
                 AttributeDecode.decodeRequireQualifiedAccess ctx.NameOf (Attributes.attributesOfTypeName tn)
 
-            rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
+            rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
 
             TypeRegistry.registerUnion ctx.Types info
 
@@ -906,7 +897,7 @@ module NameResolutionTypeRegistration =
             // is the arity-qualified `TypeKey(None, declNs, name\`arity)`; this
             // stamp is co-populated with `ctx.Types.Union`, so the emitter's key
             // lookup is exactly as total as a `(name, arity)` one.
-            ctx.Resolution.ResolvedType.Set(declKey, info.TypeKey)
+            ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
 
             for c in caseInfos do
                 match ctx.Types.CtorIndex.TryGetValue c.Name with
@@ -932,7 +923,7 @@ module NameResolutionTypeRegistration =
         match td with
         | TypeDefn.Enum(cases = cases) ->
             let name = id.Name
-            let declKey = id.DeclKey
+            let declSite = id.DeclSite
             let caseNames = [| for EnumTypeCase(ident = cid) in cases -> ctx.NameOf cid |]
 
             // The case VALUES, but ONLY when EVERY case is a string literal —
@@ -958,12 +949,12 @@ module NameResolutionTypeRegistration =
                 else
                     ValueNone
 
-            let info = EnumTypeInfo(name, caseNames, caseStringValues, declKey, id.Key)
+            let info = EnumTypeInfo(name, caseNames, caseStringValues, declSite.Key, id.Key)
             TypeRegistry.registerEnum ctx.Types info
 
             // Record the decl-site identity so `Elaborate.tryEnumType`
             // recovers the SAME key the annotation path resolves to.
-            ctx.Resolution.ResolvedType.Set(declKey, info.TypeKey)
+            ctx.Resolution.ResolvedType.Set(declSite.Key, info.TypeKey)
         | _ -> ()
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
@@ -1007,7 +998,7 @@ module NameResolutionTypeRegistration =
         match td with
         | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
             let name = id.Name
-            let declKey = id.DeclKey
+            let declSite = id.DeclSite
             let key = id.Key
             let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
 
@@ -1031,7 +1022,8 @@ module NameResolutionTypeRegistration =
                     // namespace.
                     let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
 
-                    ctx.Types.IntrinsicAbbrevHost.[name] <- IntrinsicAbbrevInfo(name, typeParams, declKey, key, selfKey)
+                    ctx.Types.IntrinsicAbbrevHost.[name] <-
+                        IntrinsicAbbrevInfo(name, typeParams, id.DeclSite, key, selfKey)
 
             match rhs with
             | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
@@ -1071,37 +1063,29 @@ module NameResolutionTypeRegistration =
                 // `IntrinsicReprInfo.Heritable` is `false`, so it can never reach
                 // codegen's base path.
                 | ValueSome(ExternKind.Interface _) ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = declKey
-                            Message =
-                                sprintf
-                                    "Heritable external interface base ('(# interface \"…\" #)') is not yet supported (type '%s'); only '(# class \"…\" #)' may be inherited"
-                                    name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(
+                        id.DeclSite.Tok,
+                        sprintf
+                            "Heritable external interface base ('(# interface \"…\" #)') is not yet supported (type '%s'); only '(# class \"…\" #)' may be inherited"
+                            name
+                    )
             | _ ->
                 // Guardrail: a transparent-alias abbrev cannot carry members.
                 // Reject with a diagnostic and drop the augmentation; the alias
                 // itself still registers so ordinary references keep resolving.
                 match ext with
                 | ValueSome _ ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = declKey
-                            Message =
-                                sprintf
-                                    "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
-                                    name
-                                    name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(
+                        id.DeclSite.Tok,
+                        sprintf
+                            "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
+                            name
+                            name
+                    )
                 | ValueNone -> ()
 
                 let info =
-                    AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn, key)
+                    AbbreviationInfo(name, typeParams, rhs, id.DeclSite, typarConstraintsOfTypeName tn, key)
 
                 TypeRegistry.registerAbbrev ctx.Types info
         | _ -> ()

@@ -51,10 +51,10 @@ type TypeIdentity =
         /// disagree about where the type was declared.
         Holder: ModuleHolder
         Kind: TypeDeclKind
-        /// The declaration site — the diagnostic key and the `DeclKey` stamped onto the
-        /// kind-specific `*TypeInfo`. Derived once, from the name token the claim was
-        /// read off, and handed to the per-kind registrar with the rest of the identity.
-        DeclKey: NodeKey
+        /// The declaration site — the key stamped onto the kind-specific `*TypeInfo` and
+        /// the name token that spells it, projected once from that one token and handed to
+        /// the per-kind registrar with the rest of the identity.
+        DeclSite: NodeSite
         /// The project-local `SymbolKey`, minted once by `stampLocalTypeKey`.
         Key: TypeKey
         /// The source offset from which this claim is VISIBLE: a use at offset `u` can see

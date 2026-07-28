@@ -250,9 +250,9 @@ module internal UnificationInferGeneralize =
     let tryListLiteralElem (ctx: PassContext) (root: TyVarId) : SemType voption =
         let mutable result = ValueNone
 
-        for (lv, elem) in ctx.ListLiterals do
-            if result.IsNone && (UnionFind.find ctx.Store lv).Id = root then
-                result <- ValueSome elem
+        for lit in ctx.ListLiterals do
+            if result.IsNone && (UnionFind.find ctx.Store lit.Var).Id = root then
+                result <- ValueSome lit.Elem
 
         result
 

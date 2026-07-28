@@ -34,18 +34,19 @@ module NameResolutionMemberRegistration =
     /// scope, against the types claimed at this point — so the annotation resolves in the
     /// declaration's own scope; an unannotated one stays free for the use site to pin.
     /// Called under `underClassTyparScope`.
-    let private ctorParamsOfPat (ctx: PassContext) (declKey: NodeKey) (p: Pat<SyntaxToken>) : ClassCtorParamInfo[] =
+    let private ctorParamsOfPat (ctx: PassContext) (declTok: SyntaxToken) (p: Pat<SyntaxToken>) : ClassCtorParamInfo[] =
         let results = ResizeArray<ClassCtorParamInfo>()
 
         // The parameter's binding site is the pattern's own — the key a body's reference to
         // it resolves through — so it is taken with the projection that answers for a
-        // pattern rather than off the identifier token. That projection also hands back the
-        // token, which the ctor-param slot keeps none of: it is recorded here, at the mint.
-        let addParam (p: Pat<SyntaxToken>) (id: SyntaxToken) (annotation: Type<SyntaxToken> voption) =
+        // pattern rather than off the identifier token. That projection hands back the token
+        // TOO, and it is the one recorded: the two come from ONE match, so the slot's key
+        // and its name cannot describe different patterns.
+        let addParam (p: Pat<SyntaxToken>) (annotation: Type<SyntaxToken> voption) =
             match BinderKey.siteOfCstPat p with
             | ValueNone -> () // unreachable: every arm below hands a (wrapped) `NamedSimple`
-            | ValueSome(struct (binder, at)) ->
-                ctx.SpellBinder(binder, at)
+            | ValueSome site ->
+                ctx.SpellBinder(site.Binder, site.Tok)
                 let tv = ctx.NewTypeVar()
                 ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
 
@@ -53,53 +54,49 @@ module NameResolutionMemberRegistration =
                 | ValueSome t -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome(translateType ctx t))
                 | ValueNone -> ()
 
-                results.Add(ClassCtorParamInfo(ctx.NameOf id, TyVar tv, binder))
+                results.Add(ClassCtorParamInfo(ctx.NameOf site.Tok, TyVar tv, site))
 
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
             | Pat.EmptyBlock _ -> () // `new()` / `C()` — no parameters
-            | Pat.NamedSimple id -> addParam p id ValueNone
-            | Pat.Typed(pat = Pat.NamedSimple id; typ = t) -> addParam p id (ValueSome t)
+            | Pat.NamedSimple _ -> addParam p ValueNone
+            | Pat.Typed(pat = Pat.NamedSimple _; typ = t) -> addParam p (ValueSome t)
             | Pat.EnclosedBlock(pat = inner) -> walk inner
             | Pat.Tuple(patterns = pats) ->
                 for sub in pats do
                     walk sub
             | _ ->
-                // Point at the offending sub-pattern when keyable; else declKey.
-                let patKey =
+                // Point at the offending sub-pattern when it has a token; else the
+                // declaration's own.
+                let patTok =
                     try
-                        CstKeys.ofPat p
+                        CstKeys.firstTokenOfPat p
                     with _ ->
-                        declKey
+                        declTok
 
-                ctx.Diagnostics.Add
-                    {
-                        Key = patKey
-                        Message =
-                            "Constructor argument patterns must be simple identifiers (with optional type annotation) in v1"
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(
+                    patTok,
+                    "Constructor argument patterns must be simple identifiers (with optional type annotation) in v1"
+                )
 
         walk p
         results.ToArray()
 
     let private extractCtorParams
         (ctx: PassContext)
-        (declKey: NodeKey)
+        (declTok: SyntaxToken)
         (pcOpt: PrimaryConstrArgs<SyntaxToken> voption)
         : ClassCtorParamInfo[] =
         match pcOpt with
         | ValueNone -> [||]
         | ValueSome(PrimaryConstrArgs(pat = ValueNone)) -> [||]
-        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> ctorParamsOfPat ctx declKey p
+        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> ctorParamsOfPat ctx declTok p
 
     /// `ClassSecondaryCtorInfo` for a class body's `new(...)` overloads. Each overload's
     /// params resolve exactly like the primary ctor's (`ctorParamsOfPat`); the synthetic
     /// `DeclKey` keys it from the `new` token so distinct overloads don't collide.
     let private extractSecondaryCtors
         (ctx: PassContext)
-        (declKey: NodeKey)
         (elements: TypeDefnElement<SyntaxToken> seq)
         : ClassSecondaryCtorInfo[] =
         let acc = ResizeArray<ClassSecondaryCtorInfo>()
@@ -108,7 +105,7 @@ module NameResolutionMemberRegistration =
             match el with
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = nt; pat = pat; body = body)) ->
                 let ctorKey = NodeKey.ofToken nt NodeKind.PatIdent
-                let parms = ctorParamsOfPat ctx ctorKey pat
+                let parms = ctorParamsOfPat ctx nt pat
                 acc.Add(ClassSecondaryCtorInfo(ctorKey, parms, body))
             | _ -> ()
 
@@ -124,15 +121,24 @@ module NameResolutionMemberRegistration =
     /// `TypeMemberInfo.Type` placeholder never receives the body type (and SRTP /
     /// member dispatch read it back as a free TyVar). For `Pat.NamedSimple` this
     /// equals the old `(id, PatIdent)` key, so named members are unaffected.
-    let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : (string * NodeKey) voption =
+    let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : {| Name: string; Site: NodeSite |} voption =
+        // The name differs per head shape; the SITE is the leaf pattern's either way, so it
+        // is projected once here rather than spelled in each arm.
+        let named (p: Pat<SyntaxToken>) (name: string) =
+            ValueSome
+                {|
+                    Name = name
+                    Site = CstKeys.siteOfPat p
+                |}
+
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
-            | Pat.NamedSimple id -> ValueSome(ctx.NameOf id, CstKeys.ofPat p)
+            | Pat.NamedSimple id -> named p (ctx.NameOf id)
             // Operator-named member head: register under the operator's compiled
             // name (`op_Addition`) so a use site's desugared `op_*` head finds it.
             | Pat.Op io ->
                 match Desugar.opPatCompiledName ctx.NameOf io with
-                | ValueSome n -> ValueSome(n, CstKeys.ofPat p)
+                | ValueSome n -> named p n
                 | ValueNone -> ValueNone
             | Pat.EnclosedBlock(pat = inner) -> walk inner
             | Pat.Typed(pat = inner) -> walk inner
@@ -252,24 +258,17 @@ module NameResolutionMemberRegistration =
     /// `TypeMemberInfo` placeholders for a type body's / augmentation's member
     /// elements. Shared by class registration (`body.elements`) and union
     /// augmentation (`extensions.elements`). Unsupported element kinds emit a
-    /// diagnostic at `declKey` — each arm is named so individual diagnostics can
+    /// diagnostic at `declTok` — each arm is named so individual diagnostics can
     /// be lifted in isolation as features land.
     let extractMembers
         (ctx: PassContext)
-        (declKey: NodeKey)
+        (declTok: SyntaxToken)
         (classTypars: string list)
         (elements: TypeDefnElement<SyntaxToken> seq)
         : TypeMemberInfo[] =
         let memberInfos = ResizeArray<TypeMemberInfo>()
 
-        let diagnose msg =
-            ctx.Diagnostics.Add
-                {
-                    Key = declKey
-                    Message = msg
-                    Code = ""
-                    Severity = Severity.Error
-                }
+        let diagnose msg = ctx.Error(declTok, msg)
 
         // The seed typars + declared prefix are fixed here, at construction, and never
         // change (immutable on `TypeMemberInfo`); only generalisation later mutates a
@@ -279,20 +278,23 @@ module NameResolutionMemberRegistration =
             kind
             isStatic
             isOverride
-            (mKey: NodeKey)
+            (mSite: NodeSite)
             (seed: EqArray<string * TyVarId>)
             declaredCount
             : TypeMemberInfo =
             let tv = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
-            let cmi = TypeMemberInfo(mName, kind, isStatic, TyVar tv, mKey, seed, declaredCount)
+
+            let cmi =
+                TypeMemberInfo(mName, kind, isStatic, TyVar tv, mSite, seed, declaredCount)
+
             cmi.IsOverride <- isOverride
             memberInfos.Add cmi
             cmi
 
         let registerNamed (b: Binding<SyntaxToken>) kind isStatic isOverride =
             match memberNameOf ctx b with
-            | ValueSome(mName, mKey) ->
+            | ValueSome m ->
                 // A concrete generic method (`member this.Map<'C> …`) carries
                 // its own typars on the binding's `typarDefns`. Stamp prototype
                 // TyVars so Unification scopes the signature against them and Elaborate
@@ -318,7 +320,7 @@ module NameResolutionMemberRegistration =
                 // appearance per the F# rule, not treated as declared).
                 let seed = mkTypeParams ctx.Store (explicit @ implicit)
 
-                addMember mName kind isStatic isOverride mKey seed (List.length explicit)
+                addMember m.Name kind isStatic isOverride m.Site seed (List.length explicit)
                 |> ignore
             | ValueNone -> ()
 
@@ -328,7 +330,7 @@ module NameResolutionMemberRegistration =
                 ClassMemberKind.Property
                 isStatic
                 isOverride
-                (NodeKey.ofToken id NodeKind.PatIdent)
+                (NodeSite.ofToken NodeKind.PatIdent id)
                 EqArray.empty
                 0
             |> ignore
@@ -342,7 +344,14 @@ module NameResolutionMemberRegistration =
                 let explicit = memberTyparNames ctx tds
                 let seed = mkTypeParams ctx.Store explicit
                 // An `abstract` signature is a slot declaration, never an override.
-                addMember mName kind isStatic false (NodeKey.ofToken mTok NodeKind.PatIdent) seed (List.length explicit)
+                addMember
+                    mName
+                    kind
+                    isStatic
+                    false
+                    (NodeSite.ofToken NodeKind.PatIdent mTok)
+                    seed
+                    (List.length explicit)
                 |> ignore
             | ValueNone -> ()
 
@@ -422,7 +431,7 @@ module NameResolutionMemberRegistration =
             match el with
             | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(
                 interfaceToken = ifaceTok; typ = ifaceTyp; objectMembers = objMembersOpt)) ->
-                let declKey = NodeKey.ofToken ifaceTok NodeKind.TypeNamed
+                let ifaceSite = NodeSite.ofToken NodeKind.TypeNamed ifaceTok
 
                 let memberEls: TypeDefnElements<SyntaxToken> =
                     match objMembersOpt with
@@ -430,8 +439,8 @@ module NameResolutionMemberRegistration =
                         ImmutableArray.CreateRange(seq { for md in mds -> TypeDefnElement.Member md })
                     | ValueNone -> ImmutableArray.Empty
 
-                let members = extractMembers ctx declKey classTypars memberEls
-                acc.Add(ClassInterfaceImplInfo(ifaceTyp, members, memberEls, declKey))
+                let members = extractMembers ctx ifaceTok classTypars memberEls
+                acc.Add(ClassInterfaceImplInfo(ifaceTyp, members, memberEls, ifaceSite))
             | _ -> ()
 
         acc.ToArray()
@@ -455,7 +464,7 @@ module NameResolutionMemberRegistration =
                         ctx.NameOf id,
                         translateType ctx t,
                         mut.IsSome,
-                        NodeKey.ofToken id NodeKind.DeclLetBinding
+                        NodeSite.ofToken NodeKind.DeclLetBinding id
                     )
                 )
             | _ -> ()
@@ -476,7 +485,7 @@ module NameResolutionMemberRegistration =
     /// Only a simple binder head (`let x = …`, `let f x = …`) is supported.
     let private extractPreamble
         (ctx: PassContext)
-        (declKey: NodeKey)
+        (declTok: SyntaxToken)
         (hasPrimaryCtor: bool)
         (isValueType: bool)
         (preamble: ImmutableArray<ClassFunctionOrValueDefn<SyntaxToken>>)
@@ -485,20 +494,14 @@ module NameResolutionMemberRegistration =
         let instances = ResizeArray<ClassPreambleEntry>()
 
         // Every rejection here is a property of the CLASS, not of the offending entry, and so
-        // is anchored at `declKey`: a class with three instance entries and no primary ctor
+        // is anchored at `declTok`: a class with three instance entries and no primary ctor
         // would otherwise report one identical error per entry at a single site. One message,
         // once.
         let reported = HashSet<string>()
 
         let diagnose msg =
             if reported.Add msg then
-                ctx.Diagnostics.Add
-                    {
-                        Key = declKey
-                        Message = msg
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(declTok, msg)
 
         // An instance `let`/`do` runs in the PRIMARY ctor. Two shapes have no ctor that can run
         // it, and F# rejects both:
@@ -563,7 +566,7 @@ module NameResolutionMemberRegistration =
         | ValueSome d ->
             let tn, pc, asD, body = d.TypeName, d.PrimaryConstr, d.AsDefn, d.Body
             let name = id.Name
-            let declKey = id.DeclKey
+            let declKey = id.DeclSite.Key
             let classTyparNames = typarNamesOfTypeName ctx tn
             let typeParams = mkTypeParams ctx.Store classTyparNames
 
@@ -576,14 +579,14 @@ module NameResolutionMemberRegistration =
                     typeParams
                     (fun () ->
                         {|
-                            CtorParams = extractCtorParams ctx declKey pc
-                            SecondaryCtors = extractSecondaryCtors ctx declKey body.elements
+                            CtorParams = extractCtorParams ctx id.DeclSite.Tok pc
+                            SecondaryCtors = extractSecondaryCtors ctx body.elements
                             InstanceFields = extractInstanceFields ctx body.elements
                         |}
                     )
 
             let memberInfos =
-                ResizeArray<TypeMemberInfo>(extractMembers ctx declKey classTyparNames body.elements)
+                ResizeArray<TypeMemberInfo>(extractMembers ctx id.DeclSite.Tok classTyparNames body.elements)
 
             let thisName =
                 match asD with
@@ -615,7 +618,7 @@ module NameResolutionMemberRegistration =
             let isValueType = classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
 
             let struct (staticPreamble, instancePreamble) =
-                extractPreamble ctx declKey hasPrimaryCtor isValueType body.classPreamble
+                extractPreamble ctx id.DeclSite.Tok hasPrimaryCtor isValueType body.classPreamble
 
             let info =
                 ClassTypeInfo(
@@ -623,7 +626,7 @@ module NameResolutionMemberRegistration =
                     typeParams,
                     structure.CtorParams,
                     members,
-                    declKey,
+                    id.DeclSite,
                     thisName,
                     thisKey,
                     baseKey,
@@ -664,7 +667,7 @@ module NameResolutionMemberRegistration =
                     Attributes.EqCompTargetKind.RefClass
 
             let eqV, cmpV =
-                Attributes.validateEqCompAttributes ctx classKind declKey (Attributes.attributesOfTypeName tn)
+                Attributes.validateEqCompAttributes ctx classKind id.DeclSite.Tok (Attributes.attributesOfTypeName tn)
 
             info.EqualitySupport <-
                 match eqV with
@@ -710,12 +713,10 @@ module NameResolutionMemberRegistration =
             let (TypeName(ident = nameLi)) = tn
 
             if nameLi.Idents.Length = 1 then
-                let declKey = NodeKey.ofToken nameLi.Idents.[0] NodeKind.DeclType
-
                 Attributes.validateEqCompAttributes
                     ctx
                     Attributes.EqCompTargetKind.Interface
-                    declKey
+                    nameLi.Idents.[0]
                     (Attributes.attributesOfTypeName tn)
                 |> ignore
         | _ -> ()
@@ -830,14 +831,7 @@ module NameResolutionMemberRegistration =
                 ValueSome(li, [ translateInheritArg ctx typarScope bt ])
             | _ -> ValueNone
 
-        let diagnose (key: NodeKey) (msg: string) =
-            ctx.Diagnostics.Add
-                {
-                    Key = key
-                    Message = msg
-                    Code = ""
-                    Severity = Severity.Error
-                }
+        let diagnose (tok: SyntaxToken) (msg: string) = ctx.Error(tok, msg)
 
         match head t with
         | ValueNone -> ValueNone
@@ -848,7 +842,7 @@ module NameResolutionMemberRegistration =
             if li.Idents.Length <> 1 then
                 let qual = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-                diagnose diagKey (sprintf "Inheriting from a qualified base type '%s' is not yet supported" qual)
+                diagnose nameTok (sprintf "Inheriting from a qualified base type '%s' is not yet supported" qual)
                 ValueNone
             else
                 let name = ctx.NameOf nameTok
@@ -862,7 +856,7 @@ module NameResolutionMemberRegistration =
                     | ValueSome extKey -> ValueSome(TyClass(extKey, EqArray.ofList targs))
                     | ValueNone ->
                         diagnose
-                            diagKey
+                            nameTok
                             (sprintf
                                 "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
                                 name
@@ -914,7 +908,7 @@ module NameResolutionMemberRegistration =
                         | Some repr -> reprToExternalBase repr
                         | None ->
                             diagnose
-                                diagKey
+                                nameTok
                                 (sprintf
                                     "Cannot inherit from '%s': it has no runtime representation on the compiling target"
                                     name)
@@ -928,10 +922,10 @@ module NameResolutionMemberRegistration =
                         // declared below this group — nothing later can fill the slot.
                         if TypeRegistry.isTypeNameInScope ctx.Types (ctx.UseSiteAt diagKey) name then
                             diagnose
-                                diagKey
+                                nameTok
                                 (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)
                         else
-                            diagnose diagKey (sprintf "Cannot inherit from unknown type '%s'" name)
+                            diagnose nameTok (sprintf "Cannot inherit from unknown type '%s'" name)
 
                         ValueNone
 
@@ -1004,13 +998,7 @@ module NameResolutionMemberRegistration =
                 match info.BaseType with
                 | ValueSome(TyClass(parentKey, _)) ->
                     if parentKey = start.TypeKey then
-                        ctx.Diagnostics.Add
-                            {
-                                Key = start.DeclKey
-                                Message = sprintf "Type '%s' has a cyclic inheritance hierarchy" start.Name
-                                Code = ""
-                                Severity = Severity.Error
-                            }
+                        ctx.Error(start.DeclSite.Tok, sprintf "Type '%s' has a cyclic inheritance hierarchy" start.Name)
 
                         start.BaseType <- ValueNone
                     elif not (visited.Add parentKey) then
@@ -1040,7 +1028,7 @@ module NameResolutionMemberRegistration =
             let typarNames = [ for (n, _) in typeParams -> n ]
 
             {|
-                Members = extractMembers ctx declKey typarNames elems
+                Members = extractMembers ctx id.DeclSite.Tok typarNames elems
                 InterfaceImpls = extractInterfaceImpls ctx typarNames elems
                 ThisKey = BinderKey.ofDeclaredThis declKey
             |}
@@ -1049,7 +1037,7 @@ module NameResolutionMemberRegistration =
         | TypeDefn.Union(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
             match TypeRegistry.tryUnionByKey ctx.Types id.Key with
             | ValueSome info ->
-                let x = extract info.DeclKey info.TypeParams elems
+                let x = extract info.DeclSite.Key info.TypeParams elems
                 info.Members <- x.Members
                 info.InterfaceImpls <- x.InterfaceImpls
                 info.ThisKey <- x.ThisKey
@@ -1057,7 +1045,7 @@ module NameResolutionMemberRegistration =
         | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
             match TypeRegistry.tryRecordByKey ctx.Types id.Key with
             | ValueSome info ->
-                let x = extract info.DeclKey info.TypeParams elems
+                let x = extract info.DeclSite.Key info.TypeParams elems
                 info.Members <- x.Members
                 info.InterfaceImpls <- x.InterfaceImpls
                 info.ThisKey <- x.ThisKey
@@ -1073,7 +1061,7 @@ module NameResolutionMemberRegistration =
         | TypeDefn.Abbrev(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
             match ctx.Types.IntrinsicAbbrevHost.TryGetValue id.Name with
             | true, info ->
-                let x = extract info.DeclKey info.TypeParams elems
+                let x = extract info.DeclSite.Key info.TypeParams elems
                 info.Members <- x.Members
                 info.InterfaceImpls <- x.InterfaceImpls
                 info.ThisKey <- x.ThisKey
@@ -1163,16 +1151,13 @@ module NameResolutionMemberRegistration =
             walk startId
 
             if cyclic then
-                ctx.Diagnostics.Add
-                    {
-                        Key = startId.DeclKey
-                        Message =
-                            sprintf
-                                "Type '%s' involves an immediate cyclic reference through a struct field or inheritance relation"
-                                startId.Name
-                        Code = "FS0954"
-                        Severity = Severity.Error
-                    }
+                ctx.Error(
+                    startId.DeclSite.Tok,
+                    "FS0954",
+                    sprintf
+                        "Type '%s' involves an immediate cyclic reference through a struct field or inheritance relation"
+                        startId.Name
+                )
 
     /// Register one accepted declaration's kind-specific DETAIL — fields, cases, enum case
     /// names, class members / ctor params, abbreviation RHS — plus any `with member …`

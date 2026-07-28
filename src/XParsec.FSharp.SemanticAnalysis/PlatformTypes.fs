@@ -110,13 +110,6 @@ module PlatformTypes =
                     true
         }
 
-    /// Best-effort attribution NodeKey, mirroring `ResolvedTypes.declKey`: the binding
-    /// site for a `NamedSimple` let, else a synthetic-at-0 key.
-    let private declKey (d: TDecl) : NodeKey =
-        match d with
-        | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> k
-        | _ -> NodeKey(0UL)
-
     let private walkDecl (ctx: PassContext) (d: TDecl) : unit =
         let acc = HashSet<string>()
         let iter = buildIter ctx acc
@@ -153,16 +146,12 @@ module PlatformTypes =
         if acc.Count > 0 then
             let names = acc |> Seq.sort |> String.concat ", "
 
-            ctx.Diagnostics.Add
-                {
-                    Key = declKey d
-                    Message =
-                        sprintf
-                            "PlatformTypes: type(s) with no representation on the target platform: %s — they exist only as a .NET/BCL runtime type"
-                            names
-                    Code = ""
-                    Severity = Severity.Error
-                }
+            ctx.ErrorAt(
+                ResolvedTypes.declSite d,
+                sprintf
+                    "PlatformTypes: type(s) with no representation on the target platform: %s — they exist only as a .NET/BCL runtime type"
+                    names
+            )
 
     let run (ctx: PassContext) (tast: TastFile) : unit =
         for d in tast.Decls do

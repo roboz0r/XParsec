@@ -289,10 +289,12 @@ module ConformancePass =
     let enforce (outcome: PackageOutcome) : XParsec.FSharp.SemanticAnalysis.Diagnostic list =
         let err (code: string) (message: string) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
             {
-                Key = NodeKey(0UL)
                 Code = code
                 Message = sprintf "%s: %s" outcome.Package message
                 Severity = Severity.Error
+                // A package-level conformance verdict is about a signature, not a place in
+                // any one file.
+                Site = Site.Nowhere
             }
 
         // The contract `.fsi` files actually present, split by pairing verdict — the

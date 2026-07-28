@@ -113,7 +113,7 @@ module Elaborate =
             if attrs |> Array.exists (fun a -> not a.IsDefault) then
                 if not b.inlineToken.IsSome then
                     ctx.Error(
-                        CstKeys.ofBinding b,
+                        (CstKeys.siteOfBinding b).Tok,
                         "A parameter attribute such as [<CallAtMostOnce>] is only valid on a parameter of an 'inline' function"
                     )
                 else
@@ -136,12 +136,12 @@ module Elaborate =
                             | ValueSome(pk, scope) when paramUsedAtMostOnce pk scope -> ()
                             | ValueSome _ ->
                                 ctx.Error(
-                                    CstKeys.ofPat b.argumentPats.[i],
+                                    CstKeys.firstTokenOfPat b.argumentPats.[i],
                                     "A [<CallAtMostOnce>] parameter must be used at most once in the body, and not under a lambda or loop"
                                 )
                             | ValueNone ->
                                 ctx.Error(
-                                    CstKeys.ofPat b.argumentPats.[i],
+                                    CstKeys.firstTokenOfPat b.argumentPats.[i],
                                     "[<CallAtMostOnce>] is not supported on this parameter shape (it must be a single named parameter)"
                                 )
                     )
@@ -629,7 +629,7 @@ module Elaborate =
         walk b.headPat
 
     /// The member's declaration `NodeKey` — `CstKeys.ofPat` of the same name-head
-    /// pattern `MemberRegistration.memberNameOf` keys the `TypeMemberInfo.DeclKey`
+    /// pattern `MemberRegistration.memberNameOf` keys the `TypeMemberInfo.DeclSite`
     /// from. Unique per declared member (it carries the member's source offset), so
     /// it disambiguates *same-name overloads* that share a name + kind + static-ness
     /// — which a name-only `Array.tryFind` cannot. Used to recover the *right*
@@ -864,7 +864,7 @@ module Elaborate =
     let private instanceFieldRewrite (info: ClassTypeInfo) (classTy: SemType) : FieldRewrite =
         let names =
             (Map.empty, info.CtorParams)
-            ||> Array.fold (fun acc p -> Map.add (BinderKey.identity p.DeclKey) p.Name acc)
+            ||> Array.fold (fun acc p -> Map.add (BinderKey.identity p.DeclSite.Binder) p.Name acc)
 
         let names =
             (names, ClassPreamble.lets info.InstancePreamble)
@@ -965,7 +965,7 @@ module Elaborate =
                 // auto-properties — none of which overload generically).
                 let byKey =
                     match declKey with
-                    | ValueSome k -> info.Members |> Array.tryFind (fun mi -> mi.DeclKey = k)
+                    | ValueSome k -> info.Members |> Array.tryFind (fun mi -> mi.DeclSite.Key = k)
                     | ValueNone -> None
 
                 match
@@ -1045,7 +1045,7 @@ module Elaborate =
     /// conditional preambles recurse to the chain and drop intervening statements.
     let private translateSecondaryCtor (ctx: PassContext) (sc: ClassSecondaryCtorInfo) : TSecondaryCtor =
         let parms =
-            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclKey, Unification.zonk ctx.Store p.Type) })
+            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclSite.Binder, Unification.zonk ctx.Store p.Type) })
 
         let chainArgs (e: Expr<SyntaxToken>) : EqArray<TExpr> =
             let raw =
@@ -1080,8 +1080,9 @@ module Elaborate =
                 // `translatePat` mints, so a body reference resolves to this local. The
                 // slot keeps only the key, so the head's token is recorded here.
                 match BinderKey.siteOfCstPat b.headPat with
-                | ValueSome(struct (binder, at)) ->
-                    ctx.SpellBinder(binder, at)
+                | ValueSome site ->
+                    let binder = site.Binder
+                    ctx.SpellBinder(binder, site.Tok)
 
                     lets.Add
                         {
@@ -1255,21 +1256,21 @@ module Elaborate =
             // different things to tell the user — `52I` is not an out-of-range magnitude.
             | Error ConstRejection.OutOfRange ->
                 ctx.Error(
-                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    idTok,
                     "An enum case value is not representable at its authored width (a negative value has no unsigned representation)"
                 )
 
                 ValueNone
             | Error ConstRejection.CustomLiteral ->
                 ctx.Error(
-                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    idTok,
                     "An enum case value must be a primitive integer literal; a custom numeric literal ('52I') is a call to a NumericLiteral module, not a constant"
                 )
 
                 ValueNone
             | Ok other ->
                 ctx.Error(
-                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    idTok,
                     sprintf
                         "An enum case value must be an integer or string literal; '%A' is not a valid enum constant"
                         other
@@ -1284,7 +1285,7 @@ module Elaborate =
             | ValueSome s -> ValueSome(TEnumLiteral.String s)
             | ValueNone ->
                 ctx.Error(
-                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    idTok,
                     "An enum case value must be a literal string; an interpolated string is not a constant"
                 )
 
@@ -1306,7 +1307,7 @@ module Elaborate =
                 ValueSome(TEnumLiteral.Int(TConstValue.Integral(w, IntWidth.negate w bits)))
             | ValueSome(TEnumLiteral.Int(TConstValue.Integral _)) ->
                 ctx.Error(
-                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    idTok,
                     "A negative enum case value has no unsigned representation; use a signed integer width"
                 )
 
@@ -1316,18 +1317,12 @@ module Elaborate =
             // but kept for exhaustiveness). Reject.
             | ValueSome(TEnumLiteral.String _)
             | ValueSome(TEnumLiteral.Int _) ->
-                ctx.Error(
-                    NodeKey.ofToken idTok NodeKind.DeclType,
-                    "An enum case value must be a literal integer or string constant, not an expression"
-                )
+                ctx.Error(idTok, "An enum case value must be a literal integer or string constant, not an expression")
 
                 ValueNone
             | ValueNone -> ValueNone
         | _ ->
-            ctx.Error(
-                NodeKey.ofToken idTok NodeKind.DeclType,
-                "An enum case value must be a literal integer or string constant, not an expression"
-            )
+            ctx.Error(idTok, "An enum case value must be a literal integer or string constant, not an expression")
 
             ValueNone
 
@@ -1374,7 +1369,7 @@ module Elaborate =
             let (EnumTypeCase(ident = firstId)) = cases.[0]
 
             ctx.Warn(
-                NodeKey.ofToken firstId NodeKind.DeclType,
+                firstId,
                 sprintf
                     "Enum '%s' mixes integer and string case values; heterogeneous enums are legal but discouraged"
                     name
@@ -1390,7 +1385,7 @@ module Elaborate =
         match TEnumCases.firstWidthConflict tcases with
         | ValueSome(tok, w0, w1) ->
             ctx.Error(
-                NodeKey.ofToken tok NodeKind.DeclType,
+                tok,
                 sprintf
                     "Enum '%s' mixes integral widths '%s' and '%s'; a CLR enum has a single underlying type"
                     name
@@ -1670,7 +1665,7 @@ module Elaborate =
                 | ValueSome _, ValueSome argExpr ->
                     let ctorParamKeys =
                         EqArray.ofSeq (
-                            seq { for p in info.CtorParams -> (p.DeclKey, Unification.zonk ctx.Store p.Type) }
+                            seq { for p in info.CtorParams -> (p.DeclSite.Binder, Unification.zonk ctx.Store p.Type) }
                         )
 
                     // The base-ctor args run before `this` exists (they are `ldarg`-only), so the

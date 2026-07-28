@@ -176,8 +176,7 @@ let tests =
                 let tv = ctx.Store.NewTypeVar()
                 let actual = TyVar tv
                 let target = mkUnion [ TyVar tv; intTy ]
-                let key = NodeKey.ofSource 0 NodeKind.PatIdent
-                let accepted = UnificationEngine.tryCoerceUpcast ctx key actual target
+                let accepted = UnificationEngine.tryCoerceUpcast ctx dummyTok actual target
                 Expect.isTrue accepted "the union slot accepts the value"
 
                 Expect.equal

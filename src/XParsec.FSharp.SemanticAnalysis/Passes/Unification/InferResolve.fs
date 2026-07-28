@@ -329,7 +329,7 @@ module internal UnificationInferResolve =
     /// other, future reader) and `ExactCount` splits the no-match vs ambiguous diagnostic.
     let resolveRecordFor
         (ctx: PassContext)
-        (diagKey: NodeKey)
+        (diagTok: SyntaxToken)
         (useSite: UseSite)
         (qualifier: string option)
         (names: string list)
@@ -349,7 +349,7 @@ module internal UnificationInferResolve =
                 with
                 | [ only ] -> ValueSome only
                 | _ ->
-                    ctx.Error(diagKey, sprintf "Unknown record type qualifier: %s" typeName)
+                    ctx.Error(diagTok, sprintf "Unknown record type qualifier: %s" typeName)
                     ValueNone
         | None ->
             let verdict = recordFieldSetVerdict ctx useSite true names
@@ -362,10 +362,10 @@ module internal UnificationInferResolve =
                 // (0) from "ambiguous" (>1) — NOT `PartialMatches.Length`, which also holds
                 // supersets.
                 if verdict.ExactCount = 0 then
-                    ctx.Error(diagKey, sprintf "No record type matches the field set: %s" (String.concat ", " names))
+                    ctx.Error(diagTok, sprintf "No record type matches the field set: %s" (String.concat ", " names))
                 else
                     ctx.Error(
-                        diagKey,
+                        diagTok,
                         sprintf
                             "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
                             verdict.ExactCount
@@ -516,7 +516,7 @@ module internal UnificationInferResolve =
         | ValueNone ->
             errorTy
                 ctx
-                key
+                memberTok
                 (sprintf "Type '%s' has no accessible member '%s'" (SymbolKeyOps.qualifiedName declTypeKey) memberName)
 
     /// If `recv` is an *external generic type name* used as a static-access

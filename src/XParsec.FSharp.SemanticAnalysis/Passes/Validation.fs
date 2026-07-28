@@ -58,6 +58,9 @@ module Validation =
             | _ -> e
 
         let core = unwrap l
+        // The assignment TARGET as a whole — where the "not mutable" arms below point,
+        // except the dotted arm, which blames the FIELD segment it is talking about.
+        let coreTok = CstKeys.diagTokenOfExpr core
 
         let isMultiSegLocalChain =
             match core with
@@ -96,13 +99,7 @@ module Validation =
                             | ValueSome info ->
                                 match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                                 | Some field when not field.IsMutable ->
-                                    ctx.Diagnostics.Add
-                                        {
-                                            Key = CstKeys.ofExpr core
-                                            Message = sprintf "Cannot assign to immutable field '%s'" fieldName
-                                            Code = ""
-                                            Severity = Severity.Error
-                                        }
+                                    ctx.Error(li.Idents.[1], sprintf "Cannot assign to immutable field '%s'" fieldName)
                                 | _ -> ()
                             | ValueNone -> ()
                         | _ -> ()
@@ -113,14 +110,7 @@ module Validation =
             let lhsKey = CstKeys.ofExpr core
 
             match ctx.Bindings.Binding.TryGetValue lhsKey with
-            | ValueSome rb when not rb.IsMutable ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = lhsKey
-                        Message = "assignment to immutable binding"
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+            | ValueSome rb when not rb.IsMutable -> ctx.Error(coreTok, "assignment to immutable binding")
             | _ -> ()
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             // Free TyVar receivers (unresolved record) skip silently; the
@@ -137,13 +127,7 @@ module Validation =
                     | ValueSome info ->
                         match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                         | Some field when not field.IsMutable ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = CstKeys.ofExpr core
-                                    Message = sprintf "Cannot assign to immutable field '%s'" fieldName
-                                    Code = ""
-                                    Severity = Severity.Error
-                                }
+                            ctx.Error(li.Idents.[0], sprintf "Cannot assign to immutable field '%s'" fieldName)
                         | _ -> ()
                     | ValueNone -> ()
                 | _ -> ()
@@ -163,16 +147,12 @@ module Validation =
 
             if seenRoots.Add(root.Id) && not (List.isEmpty pending) then
                 for d in pending do
-                    ctx.Diagnostics.Add
-                        {
-                            Key = d.UseKey
-                            Message =
-                                sprintf
-                                    "Cannot resolve member '%s': receiver type was never constrained to a record or class type"
-                                    d.MemberName
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(
+                        d.Use.Tok,
+                        sprintf
+                            "Cannot resolve member '%s': receiver type was never constrained to a record or class type"
+                            d.MemberName
+                    )
 
     // A scheme-level "Constraint not resolved" tail check is reserved
     // for a future revision: with v1's drainConstraints firing at every
@@ -204,15 +184,16 @@ module Validation =
             if rb.IsMutable && kv.Key = rb.BindingSite then
                 match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                 | ValueSome tv when hasFreeTyVar ctx.Store quantified (TyVar tv) ->
-                    ctx.Diagnostics.Add
-                        {
-                            Key = rb.BindingSite
-                            Message =
-                                "value restriction: mutable binding has unresolved type variable(s); \
-                                 add a type annotation or constrain via a use site"
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    // This pass walks the binding TABLE, not the tree, so the only record of
+                    // where a binder was written is `BinderSpellings` — and an ordinary
+                    // `let mutable` is not spelled there until `Elaborate`, which
+                    // `Pipeline` runs AFTER this pass. So there is nothing here to point
+                    // at, and naming no place beats manufacturing one from the key offset.
+                    ctx.ErrorAt(
+                        Site.Nowhere,
+                        "value restriction: mutable binding has unresolved type variable(s); \
+                         add a type annotation or constrain via a use site"
+                    )
                 | _ -> ()
 
     /// FS3200: in a recursive declaration group, `open` declarations must come
@@ -240,14 +221,10 @@ module Validation =
                 | ModuleElem.Import(ImportDecl.ImportDecl(openToken = openTok))
                 | ModuleElem.Import(ImportDecl.ImportDeclType(openToken = openTok)) ->
                     if seenNonImport then
-                        ctx.Diagnostics.Add
-                            {
-                                Key = NodeKey.ofToken openTok NodeKind.DeclOpen
-                                Message =
-                                    "In a recursive declaration group, 'open' declarations must come first in each module."
-                                Code = ""
-                                Severity = Severity.Error
-                            }
+                        ctx.Error(
+                            openTok,
+                            "In a recursive declaration group, 'open' declarations must come first in each module."
+                        )
                 | _ -> seenNonImport <- true
 
         let onScope (elems: ModuleElems<SyntaxToken>) (isRec: bool) : unit =
@@ -274,13 +251,10 @@ module Validation =
     let private checkUseBindings (ctx: PassContext) (bindings: XParsec.FSharp.ImArr<Binding<SyntaxToken>>) : unit =
         for b in bindings do
             if not (isSimpleUsePat b.headPat) then
-                ctx.Diagnostics.Add
-                    {
-                        Key = CstKeys.ofPat b.headPat
-                        Message = "Only simple variable patterns can be bound in 'use' expressions"
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(
+                    CstKeys.firstTokenOfPat b.headPat,
+                    "Only simple variable patterns can be bound in 'use' expressions"
+                )
 
     let private mkWalker (ctx: PassContext) : CstWalk.ExprWalker<unit> =
         {
@@ -304,14 +278,6 @@ module Validation =
         (walker: CstWalk.ExprWalker<unit>)
         (m: ModuleElem<SyntaxToken>)
         : unit =
-        let notYetSupported (spawningOffset: int) (msg: string) =
-            ctx.Diagnostics.Add
-                {
-                    Key = NodeKey.ofSynthetic spawningOffset NodeKind.SynthUnsupportedDecl
-                    Message = msg
-                    Code = ""
-                    Severity = Severity.Error
-                }
 
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
@@ -345,7 +311,7 @@ module Validation =
                 | ExceptionDefn.Full(exceptionToken = t)
                 | ExceptionDefn.Abbreviation(exceptionToken = t) -> t
 
-            notYetSupported tok.StartIndex "`exception` declarations are not yet validated"
+            ctx.ErrorAt(Site.ofToken tok, "`exception` declarations are not yet validated")
         // `CstWalk.implFileElems` flattens a nested module's body into the
         // element list before `walkElems` runs, so a `ModuleElem.Module` should
         // never reach here. If one does, the flattening invariant has drifted
@@ -353,21 +319,22 @@ module Validation =
         // a diagnostic so the regression surfaces instead of vanishing into a
         // silent skip.
         | ModuleElem.Module(ModuleDefn.ModuleDefn(moduleToken = tok)) ->
-            notYetSupported
-                tok.StartIndex
+            ctx.ErrorAt(
+                Site.ofToken tok,
                 "Nested `module` reached Validation; `implFileElems` flattening invariant drifted"
+            )
         // `open` / `module R = …` are declaration-level nodes consumed by
         // open-resolution (NameResolution/Unification build the `OpenScope` from
         // them); they carry no expression to validate.
         | ModuleElem.ModuleAbbrev _ -> ()
         | ModuleElem.Import _ -> ()
         | ModuleElem.CompilerDirective(CompilerDirectiveDecl(hash = tok)) ->
-            notYetSupported tok.StartIndex "Compiler directives are not yet validated"
-        | ModuleElem.Missing -> notYetSupported 0 "Missing module element (parse recovery)"
+            ctx.ErrorAt(Site.ofToken tok, "Compiler directives are not yet validated")
+        | ModuleElem.Missing -> ctx.ErrorAt(Site.Nowhere, "Missing module element (parse recovery)")
         | ModuleElem.SkipsTokens skipped ->
-            let off = if skipped.Length > 0 then skipped.[0].StartIndex else 0
-
-            notYetSupported off "Skipped tokens at module level (parse recovery)"
+            // The whole run, not just its head: a span of tokens belonging to no node is
+            // exactly what `Between` is for.
+            ctx.ErrorAt(Site.spanning skipped, "Skipped tokens at module level (parse recovery)")
 
     let private walkElems
         (ctx: PassContext)

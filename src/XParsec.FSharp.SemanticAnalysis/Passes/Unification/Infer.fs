@@ -45,65 +45,69 @@ module UnificationInfer =
         | _ -> ValueNone
 
     let rec infer (ctx: PassContext) (e: Expr<SyntaxToken>) : SemType =
-        let key = CstKeys.ofExpr e
-        let nodeTv = freshTv ctx key
+        // ONE projection, so the key a side table is filed under and the token a diagnostic
+        // is placed at cannot name different nodes.
+        let node = CstKeys.siteOfExpr e
+        let nodeTv = freshTv ctx node.Key
 
         let inferredTy =
             match e with
             | Expr.Const c -> inferConst ctx c
-            | Expr.Ident _ -> inferIdent ctx e key
-            | Expr.LongIdentOrOp _ -> inferIdent ctx e key
-            | Expr.App(fn, args) -> inferApp infer ctx key fn args
-            | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) -> inferHighPrecApp infer ctx key fn arg
-            | Expr.InfixApp(left, _, right) -> inferInfix infer ctx key left right
-            | Expr.PrefixApp(_, operand) -> inferPrefix infer ctx key operand
+            | Expr.Ident _ -> inferIdent ctx e node
+            | Expr.LongIdentOrOp _ -> inferIdent ctx e node
+            | Expr.App(fn, args) -> inferApp infer ctx node fn args
+            | Expr.HighPrecedenceApp(funcExpr = fn; argExpr = arg) -> inferHighPrecApp infer ctx node fn arg
+            | Expr.InfixApp(left, _, right) -> inferInfix infer ctx node left right
+            | Expr.PrefixApp(_, operand) -> inferPrefix infer ctx node operand
             | Expr.Fun(argumentPats = argPats; expr = body) -> inferFun infer ctx argPats body
-            | Expr.LetOrUse(keyword = kw; bindings = bindings; body = body) -> inferLet ctx key kw bindings body
+            | Expr.LetOrUse(keyword = kw; bindings = bindings; body = body) -> inferLet ctx kw bindings body
             | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner; rParen = rTok) ->
-                checkLiteralClose ctx key rTok Token.KWRBracket "]"
-                inferListLikeLiteral infer ctx key inner false
+                checkLiteralClose ctx node.Tok rTok Token.KWRBracket "]"
+                inferListLikeLiteral infer ctx node.Tok inner false
             | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner; rParen = rTok) ->
-                checkLiteralClose ctx key rTok Token.KWRArrayBracket "|]"
-                inferListLikeLiteral infer ctx key inner true
+                checkLiteralClose ctx node.Tok rTok Token.KWRArrayBracket "|]"
+                inferListLikeLiteral infer ctx node.Tok inner true
             | Expr.EnclosedBlock(expr = inner) -> infer ctx inner
             | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
-                inferIfThenElse infer ctx key cond thenE elifs elseB
+                inferIfThenElse infer ctx node.Tok cond thenE elifs elseB
             | Expr.Tuple(exprs = items) -> inferTuple infer ctx items
-            | Expr.Sequential(exprs = items) -> inferSequential infer ctx key items
-            | Expr.TypeAnnotation(expr = inner; typ = t) -> inferTypeAnnotation infer ctx key inner t
-            | Expr.StaticUpcast(expr = inner; typ = t) -> inferStaticUpcast infer ctx key inner t
-            | Expr.DynamicTypeTest(expr = inner; typ = t) -> inferDynamicTypeTest infer ctx key inner t
-            | Expr.DynamicDowncast(expr = inner; typ = t) -> inferDynamicDowncast infer ctx key inner t
+            | Expr.Sequential(exprs = items) -> inferSequential infer ctx node.Tok items
+            | Expr.TypeAnnotation(expr = inner; typ = t) -> inferTypeAnnotation infer ctx node inner t
+            | Expr.StaticUpcast(expr = inner; typ = t) -> inferStaticUpcast infer ctx node inner t
+            | Expr.DynamicTypeTest(expr = inner; typ = t) -> inferDynamicTypeTest infer ctx node inner t
+            | Expr.DynamicDowncast(expr = inner; typ = t) -> inferDynamicDowncast infer ctx node inner t
             | Expr.EmptyBlock(lParen = ParenKind.List _; rParen = rTok) ->
-                checkLiteralClose ctx key rTok Token.KWRBracket "]"
-                emptyListLikeLiteral ctx key false
+                checkLiteralClose ctx node.Tok rTok Token.KWRBracket "]"
+                emptyListLikeLiteral ctx node.Tok false
             | Expr.EmptyBlock(lParen = ParenKind.Array _; rParen = rTok) ->
-                checkLiteralClose ctx key rTok Token.KWRArrayBracket "|]"
-                emptyListLikeLiteral ctx key true
+                checkLiteralClose ctx node.Tok rTok Token.KWRArrayBracket "|]"
+                emptyListLikeLiteral ctx node.Tok true
             | Expr.EmptyBlock _ -> ctx.Intrinsics.Unit
-            | Expr.While(condition = cond; body = body) -> inferWhile infer ctx key cond body
+            | Expr.While(condition = cond; body = body) -> inferWhile infer ctx node.Tok cond body
             | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
-                inferForTo infer ctx key ident startE endE body
-            | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) -> inferForIn infer ctx key pat src body
-            | Expr.String(parts = parts) -> inferString infer ctx key parts
+                inferForTo infer ctx node.Tok ident startE endE body
+            | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) -> inferForIn infer ctx node pat src body
+            | Expr.String(parts = parts) -> inferString infer ctx parts
             | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->
-                inferMatch infer ctx key scrutinee rules
-            | Expr.Function(rules = Rules(rules = rules)) -> inferFunction infer ctx key rules
-            | Expr.TryWith(expr = body; rules = Rules(rules = rules)) -> inferTryWith infer ctx key body rules
-            | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) -> inferTryFinally infer ctx key body finallyE
+                inferMatch infer ctx node.Tok scrutinee rules
+            | Expr.Function(rules = Rules(rules = rules)) -> inferFunction infer ctx node.Tok rules
+            | Expr.TryWith(expr = body; rules = Rules(rules = rules)) -> inferTryWith infer ctx node.Tok body rules
+            | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) ->
+                inferTryFinally infer ctx node.Tok body finallyE
             // `recv?name <- value` — the dynamic setter, routed through
             // `op_DynamicAssignment` (parses as `Assignment(DynamicLookup(...), v)`).
             | Expr.Assignment(leftExpr = Expr.DynamicLookup(expr = recv); rightExpr = right) ->
-                inferDynamicSet infer ctx key recv right
-            | Expr.Assignment(leftExpr = left; rightExpr = right) -> inferAssignment infer ctx key left right
-            | Expr.Range(fromExpr = a; toExpr = b) -> inferRange infer ctx key a ValueNone b
-            | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) -> inferRange infer ctx key a (ValueSome s) b
+                inferDynamicSet infer ctx node recv right
+            | Expr.Assignment(leftExpr = left; rightExpr = right) -> inferAssignment infer ctx node left right
+            | Expr.Range(fromExpr = a; toExpr = b) -> inferRange infer ctx node.Tok a ValueNone b
+            | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
+                inferRange infer ctx node.Tok a (ValueSome s) b
             | Expr.Null _ ->
                 // No reference-type bound yet — free TypeVar so surrounding
                 // context can pin it.
                 TyVar(freshTyVar ctx)
-            | Expr.Record(fieldInitializers = inits) -> inferRecord infer ctx key inits
-            | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone infer ctx key src inits
+            | Expr.Record(fieldInitializers = inits) -> inferRecord infer ctx node inits
+            | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone infer ctx node src inits
             | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 // A type-name receiver (`EqualityComparer<int>.Default`) resolves
                 // its static member through the provider — probed once here, ahead
@@ -112,24 +116,24 @@ module UnificationInfer =
                 match tryExternalTypeReceiver ctx recv with
                 | ValueSome(declTypeKey, typeArgsCst) ->
                     let args = [ for t in typeArgsCst -> translateType ctx t ]
-                    inferExternalStaticMember ctx key declTypeKey args li.Idents.[0]
+                    inferExternalStaticMember ctx node.Key declTypeKey args li.Idents.[0]
                 | ValueNone ->
                     // `ClassName<'args>.Member` on a *local* class/union — resolve its
                     // static member before falling to value-receiver field access.
                     match tryLocalTypeAppStaticMember ctx recv li.Idents.[0] with
                     | ValueSome ty -> ty
-                    | ValueNone -> inferFieldAccess infer ctx key recv li.Idents.[0]
-            | Expr.IndexedLookup(expr = recv; indexExpr = idx) -> inferIndexedLookup infer ctx key recv idx
-            | Expr.New(typ = t; expr = argExpr) -> inferNew infer ctx key t argExpr
+                    | ValueNone -> inferFieldAccess infer ctx node recv li.Idents.[0]
+            | Expr.IndexedLookup(expr = recv; indexExpr = idx) -> inferIndexedLookup infer ctx node recv idx
+            | Expr.New(typ = t; expr = argExpr) -> inferNew infer ctx node t argExpr
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic infer ctx args rt
             | Expr.LibraryOnlyStaticOptimization(expr = baseE; constraints = cs; optimizedExpr = optE) ->
-                inferLibraryOnlyStaticOptimization infer ctx key baseE cs optE
+                inferLibraryOnlyStaticOptimization infer ctx node.Key baseE cs optE
             | Expr.StaticMemberInvocation(membersign = msig; expr = argExpr) ->
                 inferStaticMemberInvocation infer ctx msig argExpr
-            | Expr.TypeApp(expr = inner; types = typeArgs) -> inferTypeApp infer ctx key inner typeArgs
+            | Expr.TypeApp(expr = inner; types = typeArgs) -> inferTypeApp infer ctx node.Tok inner typeArgs
             // `recv?name` — dynamic member access, routed through the `op_Dynamic`
             // operator so its `default ^TResult : dynamic` drives target typing.
-            | Expr.DynamicLookup(expr = recv) -> inferDynamicLookup infer ctx key recv
+            | Expr.DynamicLookup(expr = recv) -> inferDynamicLookup infer ctx node recv
             | _ ->
                 // Surface the unhandled case loudly rather than fabricating a
                 // free TyVar and silently producing a broken type for every
@@ -261,7 +265,7 @@ module UnificationInfer =
 
             let notDisposable (display: string) =
                 ctx.Error(
-                    patKey,
+                    CstKeys.firstTokenOfPat b.headPat,
                     sprintf
                         "The type '%s' cannot be used with 'use': a 'use' binding requires its type to implement 'disposable' ('System.IDisposable')"
                         display
@@ -307,7 +311,6 @@ module UnificationInfer =
 
     and private inferLet
         (ctx: PassContext)
-        (key: NodeKey)
         (keyword: LetOrUseKeyword<SyntaxToken>)
         (bindings: ImmutableArray<Binding<SyntaxToken>>)
         (body: Expr<SyntaxToken> voption)
@@ -400,6 +403,9 @@ module UnificationInfer =
         ctx.Resolution.BindingTyparSeed <- ValueNone
 
         try
+            // The binding names itself once — every annotation reconciliation below and the
+            // head unify at the end blame the same place.
+            let bindTok = (CstKeys.siteOfBinding b).Tok
             let patTy = inferPat ctx b.headPat
 
             // Typar order is explicit `<'T>` → args → return → body, all sharing
@@ -423,7 +429,7 @@ module UnificationInfer =
                         // it `string`); the helper unifies the specifiers' printer into the
                         // annotation (pinning a `<_>` wildcard printer), and we stamp the
                         // annotation's format type onto the literal node.
-                        match tryTypeFormatLiteral ctx (CstKeys.ofBinding b) b.expr annTy with
+                        match tryTypeFormatLiteral ctx bindTok b.expr annTy with
                         | ValueSome fmt ->
                             ctx.Store.SetLink(
                                 UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr b.expr)),
@@ -437,7 +443,7 @@ module UnificationInfer =
                             // value→union assignability (`let x: int | string = 1`) and the
                             // concrete-subtype→supertype upcast (`: exn = e`) while staying
                             // symmetric `unify` for every other nominal annotation.
-                            unifyAnnotation ctx (CstKeys.ofBinding b) bodyTy annTy
+                            unifyAnnotation ctx bindTok bodyTy annTy
                             annTy
                     | ValueNone -> infer ctx b.expr
                 else
@@ -457,13 +463,13 @@ module UnificationInfer =
 
                             // Annotation reconciliation against the written return type
                             // — see the no-arg twin above.
-                            unifyAnnotation ctx (CstKeys.ofBinding b) bodyTy annTy
+                            unifyAnnotation ctx bindTok bodyTy annTy
                             annTy
                         | ValueNone -> infer ctx b.expr
 
                     List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
 
-            unify ctx (CstKeys.ofBinding b) patTy rhsTy
+            unify ctx bindTok patTy rhsTy
 
             // E1(b) const-prop registration: a binding whose value is a format-string
             // literal (possibly paren/ascription-wrapped) AND whose type resolved to a

@@ -178,7 +178,7 @@ module internal UnificationInferExternalCall =
             li.Idents.Length >= 2
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
-            let recvTy = inferLongIdentReceiverPrefix ctx (CstKeys.ofExpr fn) li
+            let recvTy = inferLongIdentReceiverPrefix ctx (CstKeys.siteOfExpr fn) li
             ValueSome(struct (recvTy, ctx.NameOf li.Idents.[li.Idents.Length - 1]))
         | _ -> ValueNone
 
@@ -188,12 +188,17 @@ module internal UnificationInferExternalCall =
     /// absorption, so the commit accepts exactly what filtering did, base/interface arguments
     /// included) — and unify the residual result exactly. The one overload-commit spine walk,
     /// shared by the external and project-local overload paths so they cannot drift.
-    let rec private commitAppliedCoerce (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+    let rec private commitAppliedCoerce
+        (ctx: PassContext)
+        (tok: SyntaxToken)
+        (actual: SemType)
+        (expected: SemType)
+        : unit =
         match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyFun(ad, ar), TyFun(ed, er) ->
-            unifyArg ctx key ad ed
-            commitAppliedCoerce ctx key ar er
-        | a, b -> unify ctx key a b
+            unifyArg ctx tok ad ed
+            commitAppliedCoerce ctx tok ar er
+        | a, b -> unify ctx tok a b
 
     /// Commit a call-site-resolved external overload (static or instance): record
     /// the chosen `SymbolKey` to `ExternalAccess` keyed on the member node where
@@ -207,7 +212,7 @@ module internal UnificationInferExternalCall =
     /// method typar (`methodTyparConstantSeed`).
     let rec commitExternalOverload
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (fn: Expr<SyntaxToken>)
         (chosen: ExternalMember)
         (declArgs: SemType[])
@@ -243,7 +248,7 @@ module internal UnificationInferExternalCall =
         // grounding the typar, and a base / interface parameter accepts the concrete subtype
         // argument the subsumption tier admitted (`CultureInfo` into an `IFormatProvider`
         // slot), its witnessed type args unified.
-        commitAppliedCoerce ctx key (TyFun(argTy, resultTy)) memberSig
+        commitAppliedCoerce ctx tok (TyFun(argTy, resultTy)) memberSig
         resultTy
 
     /// Application-site overload resolution for a static external method call
@@ -255,7 +260,7 @@ module internal UnificationInferExternalCall =
     and tryInferExternalStaticMethodCall
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
@@ -285,12 +290,12 @@ module internal UnificationInferExternalCall =
                 let facts = constArgFacts ctx argExpr
 
                 match pickBestOverload ctx typeArgs candidates (argElemsOf ctx.Store argTy) with
-                | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen typeArgs facts argTy)
+                | ValueSome chosen -> ValueSome(commitExternalOverload ctx tok fn chosen typeArgs facts argTy)
                 | ValueNone ->
                     ValueSome(
                         errorTy
                             ctx
-                            key
+                            tok
                             (sprintf
                                 "No applicable (or no unique best) overload of '%s' on type '%s' for the given arguments"
                                 memberName
@@ -317,7 +322,7 @@ module internal UnificationInferExternalCall =
     and tryInferExternalInstanceMethodCall
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
@@ -359,7 +364,7 @@ module internal UnificationInferExternalCall =
                         admitLiteralMethodTypars ctx candidates declArgs facts (infer ctx argExpr)
 
                     match pickBestOverload ctx declArgs candidates (argElemsOf ctx.Store argTy) with
-                    | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs facts argTy)
+                    | ValueSome chosen -> ValueSome(commitExternalOverload ctx tok fn chosen declArgs facts argTy)
                     // No unique best on the argument types: decline rather than
                     // error, so the existing single-pick path keeps the prior
                     // behaviour (this probe only ever *improves* a confident pick).
@@ -387,7 +392,7 @@ module internal UnificationInferExternalCall =
     and tryInferLocalInstanceMethodCall
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
@@ -398,16 +403,16 @@ module internal UnificationInferExternalCall =
             (recvTy: SemType)
             : struct (TypeKey * EqArray<string * TyVarId> * EqArray<SemType> * TypeMemberInfo[]) voption =
             match resolveStep ctx.Store recvTy with
-            | TyClass(key, args) ->
-                match TypeRegistry.tryClassByKey ctx.Types key with
+            | TyClass(hostKey, args) ->
+                match TypeRegistry.tryClassByKey ctx.Types hostKey with
                 | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
                 | ValueNone -> ValueNone
-            | TyUnion(key, args) ->
-                match TypeRegistry.tryUnionByKey ctx.Types key with
+            | TyUnion(hostKey, args) ->
+                match TypeRegistry.tryUnionByKey ctx.Types hostKey with
                 | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
                 | ValueNone -> ValueNone
-            | TyRecord(key, args) ->
-                match TypeRegistry.tryRecordByKey ctx.Types key with
+            | TyRecord(hostKey, args) ->
+                match TypeRegistry.tryRecordByKey ctx.Types hostKey with
                 | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
                 | ValueNone -> ValueNone
             | _ -> ValueNone
@@ -445,7 +450,7 @@ module internal UnificationInferExternalCall =
                     ValueSome(
                         errorTy
                             ctx
-                            key
+                            node.Tok
                             (sprintf
                                 "No overload for method '%s' takes the given arguments (%s)"
                                 memberName
@@ -462,7 +467,7 @@ module internal UnificationInferExternalCall =
                     ValueSome(
                         errorTy
                             ctx
-                            key
+                            node.Tok
                             (sprintf "Ambiguous call to overloaded method '%s'; candidates: %s" memberName shown)
                     )
                 | MemberPick.Resolved chosen ->
@@ -473,12 +478,15 @@ module internal UnificationInferExternalCall =
                         instantiateMemberCall ctx (typeParams, args) chosen.EffectiveMethodTypars chosen.Type
 
                     let resultTy = TyVar(freshTyVar ctx)
-                    commitAppliedCoerce ctx key (TyFun(argTy, resultTy)) memberArrow
+                    commitAppliedCoerce ctx node.Tok (TyFun(argTy, resultTy)) memberArrow
 
                     // The inference→Freeze handshake: record the chosen overload's TOTAL
                     // frozen `MemberKey` so Elaborate stamps the identical identity with no
                     // second pick.
-                    ctx.Resolution.LocalMemberCall.Set(key, frozenUserMemberKey ctx.Store declKey typeParams chosen)
+                    ctx.Resolution.LocalMemberCall.Set(
+                        node.Key,
+                        frozenUserMemberKey ctx.Store declKey typeParams chosen
+                    )
 
                     ValueSome resultTy
 
@@ -501,7 +509,7 @@ module internal UnificationInferExternalCall =
     /// *admit* a call the old path rejected.
     and tryFillOptionalCall
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (fn: Expr<SyntaxToken>)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         (argTys: SemType[])
@@ -540,7 +548,7 @@ module internal UnificationInferExternalCall =
                                 | single -> [ single ]
 
                             let resultTy = TyVar(freshTyVar ctx)
-                            unifyAppliedSig ctx key (TyFun(argTy, resultTy)) (TyFun(tupleOrSingle ctx leading, ret))
+                            unifyAppliedSig ctx tok (TyFun(argTy, resultTy)) (TyFun(tupleOrSingle ctx leading, ret))
                             // The omitted defaults are the last `fullCount - suppliedCount`
                             // of the optional suffix; Elaborate appends them.
                             let omitted = optDefaults |> List.skip (suppliedCount - requiredCount)

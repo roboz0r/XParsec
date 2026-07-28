@@ -43,10 +43,10 @@ module internal UnificationInferCtor =
         | ValueSome chosen ->
             let ctorSig = ExternalSymbols.openSignature chosen typeArgs
             let resultTy = TyVar(freshTyVar ctx)
-            unify ctx (CstKeys.ofExpr argExpr) ctorSig (TyFun(argTy, resultTy))
+            unify ctx (CstKeys.firstTokenOfExpr argExpr) ctorSig (TyFun(argTy, resultTy))
             ValueSome chosen
         | ValueNone ->
-            ctx.Error(CstKeys.ofExpr argExpr, noOverloadMsg)
+            ctx.Error(CstKeys.firstTokenOfExpr argExpr, noOverloadMsg)
             ValueNone
 
     /// `new T(args)`. Mirrors a single application against the ctor, kept inline
@@ -54,14 +54,14 @@ module internal UnificationInferCtor =
     let rec inferNew
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (t: Type<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType =
         let receiverTy = translateType ctx t
 
         // Type provenance: `new T(…)` writes the constructed node's type explicitly.
-        ctx.MarkTypeDeclared(key, receiverTy)
+        ctx.MarkTypeDeclared(node.Key, receiverTy)
 
         match resolveStep ctx.Store receiverTy with
         | TyClass(clsKey, args) ->
@@ -96,7 +96,7 @@ module internal UnificationInferCtor =
                         |> Array.toList
                     |> tupleOrSingle ctx
 
-                unifyArg ctx (CstKeys.ofExpr argExpr) argTy expected
+                unifyArg ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
                 receiverTy
             | ValueNone ->
                 // Fall through to the external-class path: `new System.Exception(msg)`
@@ -108,9 +108,9 @@ module internal UnificationInferCtor =
                 // already-resolved receiver `TyClass`, so construct by key directly.
                 match ctx.Provider.TryLookupType(SymbolKey.Type clsKey) with
                 | ValueSome(ExternalTypeShape.Class _) ->
-                    inferExternalCtorOn infer ctx key (SymbolKey.Type clsKey) args receiverTy argExpr
+                    inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args receiverTy argExpr
                 | _ ->
-                    ctx.Error(key, sprintf "Unknown class type '%s'" (SymbolKeyOps.typeMetaName clsKey))
+                    ctx.Error(node.Tok, sprintf "Unknown class type '%s'" (SymbolKeyOps.typeMetaName clsKey))
                     infer ctx argExpr |> ignore
                     TyVar(freshTyVar ctx)
         // A heritable primitive typed by its canon (`new exn "boom"`). The
@@ -139,7 +139,7 @@ module internal UnificationInferCtor =
             let stampedClassKey =
                 match CstKeys.ofTypeHead t with
                 | ValueSome head ->
-                    match ctx.Resolution.ResolvedTypeHead.TryGetValue head.Key with
+                    match ctx.Resolution.ResolvedTypeHead.TryGetValue head.Site.Key with
                     | ValueSome symKey ->
                         match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
                         | ValueSome(ExternalTypeShape.Class _) -> ValueSome symKey
@@ -149,7 +149,7 @@ module internal UnificationInferCtor =
 
             match stampedClassKey with
             | ValueSome declTypeKey ->
-                inferExternalCtorOn infer ctx key (SymbolKey.Type declTypeKey) tyArgs receiverTy argExpr
+                inferExternalCtorOn infer ctx node (SymbolKey.Type declTypeKey) tyArgs receiverTy argExpr
             | ValueNone ->
                 match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
                 | ValueSome(struct (_, surface)) ->
@@ -164,16 +164,16 @@ module internal UnificationInferCtor =
                             (sprintf "No applicable constructor on '%s' for the given arguments" shown)
                             argExpr
                     with
-                    | ValueSome chosen -> ctx.Resolution.ExternalCtor.Set(key, SymbolKey.Member chosen.Key)
+                    | ValueSome chosen -> ctx.Resolution.ExternalCtor.Set(node.Key, SymbolKey.Member chosen.Key)
                     | ValueNone -> ()
 
                     receiverTy
                 | ValueNone ->
-                    ctx.Error(key, "'new' requires a class type")
+                    ctx.Error(node.Tok, "'new' requires a class type")
                     infer ctx argExpr |> ignore
                     TyVar(freshTyVar ctx)
         | _ ->
-            ctx.Error(key, "'new' requires a class type")
+            ctx.Error(node.Tok, "'new' requires a class type")
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
 
@@ -189,7 +189,7 @@ module internal UnificationInferCtor =
     and inferExternalCtorOn
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (declTypeKey: SymbolKey)
         (args: EqArray<SemType>)
         (receiverTy: SemType)
@@ -221,14 +221,14 @@ module internal UnificationInferCtor =
         if List.isEmpty argElems && isExternalValueType () then
             receiverTy
         elif ctors.Length = 0 then
-            ctx.Error(key, sprintf "External type '%s' has no accessible constructor" name)
+            ctx.Error(node.Tok, sprintf "External type '%s' has no accessible constructor" name)
             receiverTy
         else
             match pickBestOverload ctx typeArgs ctors argElems with
             | ValueSome chosen ->
                 // Record the chosen ctor's identity so codegen's `TExpr.New` emission
                 // selects this exact same-arity overload by key rather than re-picking.
-                ctx.Resolution.ExternalCtor.Set(key, SymbolKey.Member chosen.Key)
+                ctx.Resolution.ExternalCtor.Set(node.Key, SymbolKey.Member chosen.Key)
                 let ctorSig = ExternalSymbols.openSignature chosen typeArgs
                 let resultTy = TyVar(freshTyVar ctx)
                 // Unify the ctor SIGNATURE (grounding each parameter against the call's
@@ -243,10 +243,10 @@ module internal UnificationInferCtor =
                 // grounds cleanly. (Ctor return args are the SAME declaring typars,
                 // substituted by the SAME `typeArgs` that built the receiver, so nothing
                 // the receiver leaves open could have been solved only by the return.)
-                unify ctx key ctorSig (TyFun(argTy, resultTy))
+                unify ctx node.Tok ctorSig (TyFun(argTy, resultTy))
                 receiverTy
             | ValueNone ->
-                ctx.Error(key, sprintf "No applicable constructor on '%s' for the given arguments" name)
+                ctx.Error(node.Tok, sprintf "No applicable constructor on '%s' for the given arguments" name)
                 receiverTy
 
     /// The `new`-less constructor-as-function sugar: `InvalidOperationException "x"`,
@@ -260,7 +260,7 @@ module internal UnificationInferCtor =
     and tryInferExternalCtorApp
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (fn: Expr<SyntaxToken>)
         (args: ImmutableArray<Expr<SyntaxToken>>)
         : SemType voption =
@@ -285,7 +285,14 @@ module internal UnificationInferCtor =
                     let receiverTy = externalClassTy ctx declTypeKey EqArray.empty
 
                     ValueSome(
-                        inferExternalCtorOn infer ctx key (SymbolKey.Type declTypeKey) EqArray.empty receiverTy args.[0]
+                        inferExternalCtorOn
+                            infer
+                            ctx
+                            node
+                            (SymbolKey.Type declTypeKey)
+                            EqArray.empty
+                            receiverTy
+                            args.[0]
                     )
                 | _ -> ValueNone
             | ValueNone -> ValueNone
@@ -307,7 +314,7 @@ module internal UnificationInferCtor =
     and tryInferExternalGenericCtorApp
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
@@ -318,7 +325,8 @@ module internal UnificationInferCtor =
             // local-binder guard must stay on the read side.
             let headUnbound =
                 match headExpr with
-                | Expr.Ident tok -> not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken tok NodeKind.ExprIdent))
+                | Expr.Ident headTok ->
+                    not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken headTok NodeKind.ExprIdent))
                 | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
                     li.Idents.Length >= 1
                     && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
@@ -339,7 +347,7 @@ module internal UnificationInferCtor =
 
                     match tryExternalTypeOfKey ctx symKey explicit with
                     | ValueSome(TyClass(clsKey, args) as receiverTy) ->
-                        ValueSome(inferExternalCtorOn infer ctx key (SymbolKey.Type clsKey) args receiverTy argExpr)
+                        ValueSome(inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args receiverTy argExpr)
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
         | _ -> ValueNone
@@ -359,7 +367,7 @@ module internal UnificationInferCtor =
     and tryInferLocalCtorApp
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
@@ -372,8 +380,8 @@ module internal UnificationInferCtor =
         // (`A.OnceEnum(x)`) — one written name either way.
         let headName =
             match headExpr with
-            | Expr.Ident tok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken tok NodeKind.ExprIdent)) ->
-                ValueSome(WrittenTypeName.bare (ctx.NameOf tok))
+            | Expr.Ident headTok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken headTok NodeKind.ExprIdent)) ->
+                ValueSome(WrittenTypeName.bare (ctx.NameOf headTok))
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
                 not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
                 ->
@@ -385,7 +393,7 @@ module internal UnificationInferCtor =
         | ValueSome written ->
             // The head names a class only if one is in scope AT THE CALL: a class declared
             // below it is not constructible there.
-            match TypeRegistry.tryWrittenClass ctx.Types (ctx.UseSiteAt key) written with
+            match TypeRegistry.tryWrittenClass ctx.Types (ctx.UseSiteAt node.Key) written with
             | ValueNone -> ValueNone
             | ValueSome info ->
                 let argTy = infer ctx argExpr
@@ -404,7 +412,7 @@ module internal UnificationInferCtor =
                         // instantiation up front, mirroring `inferTypeApp`.
                         match explicitTyArgs with
                         | ValueSome ex when ex.Length = args.Length ->
-                            List.iter2 (fun a e -> unify ctx key a e) (EqArray.toList args) ex
+                            List.iter2 (fun a e -> unify ctx node.Tok a e) (EqArray.toList args) ex
                         | _ -> ()
 
                         let paramTys =
@@ -412,5 +420,5 @@ module internal UnificationInferCtor =
                             |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
                             |> Array.toList
 
-                        unify ctx key (tupleOrSingle ctx paramTys) argTy
+                        unify ctx node.Tok (tupleOrSingle ctx paramTys) argTy
                         ValueSome receiverTy

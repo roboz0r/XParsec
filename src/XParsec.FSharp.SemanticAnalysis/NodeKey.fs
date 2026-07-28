@@ -239,6 +239,27 @@ module NodeKey =
 
     let ofToken (firstToken: SyntaxToken) (kind: NodeKind) : NodeKey = ofSource firstToken.StartIndex kind
 
+/// WHERE a node is, said both ways at once: the `NodeKey` analysis addresses it by, and the
+/// token that spells it. A key's number is that token's character offset, so the two are one
+/// fact — but a `NodeKey` cannot be inverted (its offset is a character index, not a token
+/// index), which is why the token must travel beside it rather than be recovered later.
+///
+/// Held together so no construction path can make them disagree: `ofToken` is the only way
+/// in, and it projects both from ONE token. A side table keyed on `Key` and a diagnostic
+/// placed at `Tok` therefore always name the same node.
+[<Struct>]
+type NodeSite = { Key: NodeKey; Tok: SyntaxToken }
+
+[<RequireQualifiedAccess>]
+module NodeSite =
+
+    /// The site a token names, at `kind`. THE only constructor: both halves come from `tok`.
+    let ofToken (kind: NodeKind) (tok: SyntaxToken) : NodeSite =
+        {
+            Key = NodeKey.ofToken tok kind
+            Tok = tok
+        }
+
 /// Identity of a source LAMBDA expression: the INDEX of its anchor token.
 ///
 /// A token index and not the character offset a `NodeKey` carries, which is why this is its

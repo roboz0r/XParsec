@@ -44,6 +44,13 @@ type BinderKeyG<'id> = private | Binder of 'id
 /// The binder key of a tree addressed by `NodeKey` — every pre-freeze and frozen domain.
 type BinderKey = BinderKeyG<NodeKey>
 
+/// A binder's definition site said both ways at once: the key a reference resolves through,
+/// and the token that spells its name. `BinderKey.siteOfCstPat` is the only producer and
+/// answers both from ONE match, so a slot filled from it cannot record a key for one pattern
+/// and a name for another.
+[<Struct>]
+type BinderSite = { Binder: BinderKey; Tok: SyntaxToken }
+
 /// How the SOURCE writes a binder: the identifier, and where it is written.
 ///
 /// RECORDED where the binder's key is minted from a token
@@ -602,9 +609,14 @@ module BinderKey =
     /// The two answers come from ONE match so that "which CST pattern binds" and "where its
     /// name is written" cannot come apart — a producer filling a declaration's key slot
     /// needs both, the slot keeping no token of its own (`PassContext.SpellBinder`).
-    let rec siteOfCstPat (p: Pat<SyntaxToken>) : struct (BinderKey * SyntaxToken) voption =
+    let rec siteOfCstPat (p: Pat<SyntaxToken>) : BinderSite voption =
         match p with
-        | Pat.NamedSimple t -> ValueSome(struct (Binder(CstKeys.ofPat p), t))
+        | Pat.NamedSimple t ->
+            ValueSome
+                {
+                    Binder = Binder(CstKeys.ofPat p)
+                    Tok = t
+                }
         | Pat.Attributed(pat = inner)
         | Pat.EnclosedBlock(pat = inner)
         | Pat.Typed(pat = inner)
@@ -614,7 +626,7 @@ module BinderKey =
     /// The binder a CST pattern introduces — `siteOfCstPat` without the token, for a caller
     /// that only has to know a pattern binds.
     let ofCstPat (p: Pat<SyntaxToken>) : BinderKey voption =
-        siteOfCstPat p |> ValueOption.map (fun (struct (b, _)) -> b)
+        siteOfCstPat p |> ValueOption.map (fun s -> s.Binder)
 
     /// The `this` binder a type declaration introduces, shared by every member body and by
     /// the instance preamble. No node spells it — `type C() =` writes no `this` token — so

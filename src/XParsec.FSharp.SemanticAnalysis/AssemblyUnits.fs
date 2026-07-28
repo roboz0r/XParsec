@@ -123,22 +123,66 @@ module AssemblyUnits =
         : Result<FrozenUnit, UnitError> list =
         analyseAssemblyWith Pipeline.analyseFor assemblyName external files
 
-    /// Anchor a unit's bare diagnostics to a `path` + its own `source`: each diagnostic's
-    /// (line, col) is resolved against THAT text via `XParsec`'s canonical `LineIndex`
-    /// (the same resolver `Debug.fs` uses), built ONCE. A counter-minted `NodeKey` (no
-    /// source position) anchors at the file head `(1, 1)`. Offsets are per-unit, so this
-    /// is only ever called with a diagnostic and the source it was produced against —
-    /// bare diagnostics are never flattened across units and resolved later.
-    let anchorDiagnostics (path: string) (source: string) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+    /// Diagnostics from a unit that never reached analysis: it has no `Lexed`, so no token
+    /// index could be resolved against it — and a whole-file lex/parse failure names no
+    /// place in the file anyway. They render at the file head.
+    ///
+    /// A POSITIONED diagnostic here is a contradiction, not a case to render at (1, 1):
+    /// something resolved a token of a unit whose token stream this function cannot see, so
+    /// the position it carries is unverifiable. Fault rather than print a plausible line.
+    let unpositionedDiagnostics (path: string) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+        [
+            for d in diagnostics do
+                match d.Site with
+                | Site.Nowhere ->
+                    {
+                        Path = path
+                        Diagnostic = d
+                        Line = 1
+                        Col = 1
+                    }
+                | positioned ->
+                    failwithf
+                        "AssemblyUnits.unpositionedDiagnostics: %s produced no `Lexed`, so a diagnostic cannot carry a position — got %A (%s)"
+                        path
+                        positioned
+                        d.Message
+        ]
+
+    /// Anchor a unit's bare diagnostics to a `path` + its own `source`: a `Site` names
+    /// tokens of THIS unit's `Lexed`, whose `StartIndex` is the char offset resolved
+    /// against THAT text via `XParsec`'s canonical `LineIndex` (the same resolver
+    /// `Debug.fs` uses), built ONCE. `Lexed.GetLineForToken` alone will not do — it yields
+    /// a line, and a column still needs the offset. `Site.Nowhere` renders at the file
+    /// head. Token indices are per-unit, so this is only ever called with a diagnostic and
+    /// the unit it was produced in — bare diagnostics are never flattened across units and
+    /// resolved later.
+    let anchorDiagnostics
+        (path: string)
+        (lexed: Lexed)
+        (source: string)
+        (diagnostics: Diagnostic list)
+        : AnchoredDiagnostic list =
         let lineIndex = XParsec.LineIndex.OfString source
+
+        // The gap after the LAST token is the end of the file; every other token's gap is
+        // where the next one starts.
+        let gapAfter (t: int<token>) =
+            let next = t + 1<token>
+
+            if int next < lexed.Tokens.Length then
+                lexed.Tokens[next].StartIndex
+            else
+                source.Length
 
         [
             for d in diagnostics do
                 let struct (line, col) =
-                    if not d.Key.IsSourcePosition then
-                        struct (1, 1)
-                    else
-                        lineIndex.GetLineCol(min d.Key.Offset source.Length)
+                    match d.Site with
+                    | Site.Nowhere -> struct (1, 1)
+                    | Site.At t
+                    | Site.Between(first = t) -> lineIndex.GetLineCol lexed.Tokens[t].StartIndex
+                    | Site.After t -> lineIndex.GetLineCol(gapAfter t)
 
                 {
                     Path = path
@@ -152,5 +196,5 @@ module AssemblyUnits =
     let consolidatedDiagnostics (units: FrozenUnit list) : AnchoredDiagnostic list =
         [
             for u in units do
-                yield! anchorDiagnostics u.Path u.Input u.Frozen.Residue.Diagnostics
+                yield! anchorDiagnostics u.Path u.Lexed u.Input u.Frozen.Residue.Diagnostics
         ]

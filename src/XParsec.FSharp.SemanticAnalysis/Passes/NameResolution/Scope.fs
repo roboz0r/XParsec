@@ -208,7 +208,7 @@ module NameResolutionScope =
                 then
                     ()
                 else
-                    ctx.Error(useKey, sprintf "Unresolved identifier: %s" name)
+                    ctx.Error(tok, sprintf "Unresolved identifier: %s" name)
 
     /// True if `name` is a ctor reference in pattern position. F# spec treats
     /// uppercase-leading pattern idents as ctor references; we additionally
@@ -732,7 +732,7 @@ module NameResolutionScope =
                         then
                             ()
                         else
-                            ctx.Error(CstKeys.ofExpr e, sprintf "Unresolved qualified name: %s" qualName)
+                            ctx.Error(CstKeys.firstTokenOfExpr e, sprintf "Unresolved qualified name: %s" qualName)
 
                 if not (tryLocalModuleMember ()) then
                     resolveQualifiedExternal ()
@@ -757,12 +757,12 @@ module NameResolutionScope =
             match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
             | ValueSome qualName ->
                 if not (tryStampExternalValue ctx (CstKeys.ofExpr e) qualName) then
-                    ctx.Error(CstKeys.ofExpr e, sprintf "Unresolved qualified name: %s" qualName)
+                    ctx.Error(CstKeys.firstTokenOfExpr e, sprintf "Unresolved qualified name: %s" qualName)
             | ValueNone ->
                 // A non-symbolic op segment (active-pattern / nil / range) has no
                 // `op_` member to qualify — keep surfacing the gap.
                 ctx.Error(
-                    CstKeys.ofExpr e,
+                    CstKeys.firstTokenOfExpr e,
                     sprintf
                         "Operator-form qualified names not yet resolved (starting at '%s')"
                         (ctx.NameOf li.Idents.[0])
@@ -776,7 +776,7 @@ module NameResolutionScope =
             let displayName = ctx.NameOf firstTok
 
             ctx.Error(
-                CstKeys.ofExpr e,
+                CstKeys.firstTokenOfExpr e,
                 sprintf "Operator-form qualified names not yet resolved (starting at '%s')" displayName
             )
         | Expr.TypeApp(expr = receiver; types = types) ->

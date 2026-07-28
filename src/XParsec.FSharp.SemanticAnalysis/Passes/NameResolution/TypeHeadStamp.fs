@@ -205,7 +205,7 @@ module NameResolutionTypeHeadStamp =
     /// independent probes: a local claim WINS, so a head whose name is claimed is never
     /// stamped, and a head that IS stamped is therefore external for good — the read side
     /// prefers the stamp over the registry. The claims consulted are those VISIBLE AT THE
-    /// HEAD — `head.Key` is where it is written — so a head written ABOVE a same-named local
+    /// HEAD — `head.Site.Key` is where it is written — so a head written ABOVE a same-named local
     /// declaration sees no claim, stamps external, and keeps resolving to the external type
     /// even once the local one is registered. That is F#'s file-order shadowing rule
     /// (`open System` + a `type Uri` declared below a use of `Uri` binds `System.Uri`), and
@@ -218,12 +218,12 @@ module NameResolutionTypeHeadStamp =
     let classifyTypeHead (ctx: PassContext) (head: CstKeys.TypeHead) : TypeHeadVerdict =
         let written = ctx.WrittenTypeNameOf head.LongIdent
 
-        if TypeRegistry.isWrittenTypeNameInScope ctx.Types (ctx.UseSiteAt head.Key) written then
+        if TypeRegistry.isWrittenTypeNameInScope ctx.Types (ctx.UseSiteAt head.Site.Key) written then
             LocalType
         else
             match tryResolveExternalTypeKey ctx written.Written head.TyparArity with
             | ValueSome sym ->
-                ctx.Resolution.ResolvedTypeHead.Set(head.Key, sym)
+                ctx.Resolution.ResolvedTypeHead.Set(head.Site.Key, sym)
                 ExternalType
             | ValueNone -> UnknownType
 

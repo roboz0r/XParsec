@@ -61,7 +61,7 @@ let rec private typedAnnotationOf (p: Pat<SyntaxToken>) : Type<SyntaxToken> opti
 
 let private isHeadStamped (ctx: PassContext) (ty: Type<SyntaxToken>) : bool =
     match CstKeys.ofTypeHead ty with
-    | ValueSome head -> ctx.Resolution.ResolvedTypeHead.ContainsKey head.Key
+    | ValueSome head -> ctx.Resolution.ResolvedTypeHead.ContainsKey head.Site.Key
     | ValueNone -> false
 
 /// A head nothing resolves is blamed by NAME, exactly ONCE: the annotation is the cause,

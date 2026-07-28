@@ -41,7 +41,7 @@ module internal UnificationInferRecordAccess =
     let rec inferRecord
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
         : SemType =
         let pairs =
@@ -65,7 +65,7 @@ module internal UnificationInferRecordAccess =
         // so the local|external and qualified|bare branching lives in one place. Construction
         // resolves ONLY on an exact field-set match (`resolveRecordFor`); a superset-only /
         // ambiguous set is a diagnosed miss, byte-identical to the old exact-set-equality.
-        match resolveRecordFor ctx key (ctx.UseSiteAt key) qualifier names with
+        match resolveRecordFor ctx node.Tok (ctx.UseSiteAt node.Key) qualifier names with
         | ValueNone ->
             for _, _, e in pairs do
                 infer ctx e |> ignore
@@ -85,10 +85,10 @@ module internal UnificationInferRecordAccess =
                 let eTy = infer ctx e
 
                 match fieldTypeOf fieldName with
-                | ValueSome fieldTy -> unifyArg ctx (CstKeys.ofExpr e) eTy fieldTy
+                | ValueSome fieldTy -> unifyArg ctx (CstKeys.firstTokenOfExpr e) eTy fieldTy
                 | ValueNone ->
                     ctx.Error(
-                        CstKeys.ofExpr e,
+                        CstKeys.firstTokenOfExpr e,
                         sprintf "Type '%s' has no field '%s'" (resolvedRecordDisplayName r) fieldName
                     )
 
@@ -97,7 +97,7 @@ module internal UnificationInferRecordAccess =
     and inferRecordClone
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (src: Expr<SyntaxToken>)
         (inits: ImmutableArray<FieldInitializer<SyntaxToken>>)
         : SemType =
@@ -116,20 +116,22 @@ module internal UnificationInferRecordAccess =
                     let eTy = infer ctx e
 
                     match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                    | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith ctx.Store subst field.Type)
-                    | None -> ctx.Error(CstKeys.ofExpr e, sprintf "Type '%s' has no field '%s'" info.Name fieldName)
+                    | Some field ->
+                        unify ctx (CstKeys.firstTokenOfExpr e) eTy (substituteWith ctx.Store subst field.Type)
+                    | None ->
+                        ctx.Error(CstKeys.firstTokenOfExpr e, sprintf "Type '%s' has no field '%s'" info.Name fieldName)
 
                 TyRecord(recKey, srcArgs)
             | ValueNone ->
                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
-                ctx.Error(key, sprintf "Unknown record type '%s'" shown)
+                ctx.Error(node.Tok, sprintf "Unknown record type '%s'" shown)
 
                 for FieldInitializer(expr = e) in inits do
                     infer ctx e |> ignore
 
                 TyRecord(recKey, srcArgs)
         | _ ->
-            ctx.Error(key, "Record clone requires the source expression to be a record")
+            ctx.Error(node.Tok, "Record clone requires the source expression to be a record")
 
             for FieldInitializer(expr = e) in inits do
                 infer ctx e |> ignore
@@ -148,7 +150,7 @@ module internal UnificationInferRecordAccess =
     /// resolved on the same path as a class's or union's, not a parallel arm.
     and resolveLocalInstanceMember
         (ctx: PassContext)
-        (diagKey: NodeKey)
+        (diagTok: SyntaxToken)
         (typeName: string)
         (typeParams: EqArray<string * TyVarId>)
         (args: EqArray<SemType>)
@@ -161,7 +163,7 @@ module internal UnificationInferRecordAccess =
             if members |> Array.exists (fun m -> m.Name = memberName && m.IsStatic) then
                 errorTy
                     ctx
-                    diagKey
+                    diagTok
                     (sprintf
                         "Member '%s' on type '%s' is static; access it via '%s.%s'"
                         memberName
@@ -169,7 +171,7 @@ module internal UnificationInferRecordAccess =
                         typeName
                         memberName)
             else
-                errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" typeName memberName)
+                errorTy ctx diagTok (sprintf "Type '%s' has no instance member '%s'" typeName memberName)
 
     /// Resolve `memberName` on a typar receiver through an
     /// interface the typar is coerced to (`'T :> IFace`). Scans the root's
@@ -223,7 +225,12 @@ module internal UnificationInferRecordAccess =
 
         scan (ctx.Store.Constraints.Items root)
 
-    and resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
+    /// `access` is the whole access EXPRESSION — its key files the resolved member for
+    /// Elaborate. `memberTok` is the SEGMENT being resolved, which is not the same place: a
+    /// folded chain `r.X.Y` is one expression with one key whose intermediate segments have
+    /// no node of their own, so a diagnostic points inside the node rather than at it.
+    and resolveFieldStep (ctx: PassContext) (access: NodeSite) (memberTok: SyntaxToken) (rTy: SemType) : SemType =
+        let memberName = ctx.NameOf memberTok
         // Commit a resolved external instance member `m` whose signature is written
         // over ITS declaring type's typars, instantiated with `memberArgs`: the
         // receiver's own args for an own member; the supertype's args-as-reached for
@@ -242,7 +249,7 @@ module internal UnificationInferRecordAccess =
                 ExternalSymbols.instantiateSignature ctx.Store m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
 
             ctx.Resolution.ExternalAccess.Set(
-                diagKey,
+                access.Key,
                 {
                     Key = SymbolKey.Member m.Key
                     IsStatic = false
@@ -263,7 +270,8 @@ module internal UnificationInferRecordAccess =
                 // Not a field — a record also carries instance members. Resolve it on
                 // the same shared path a class/union takes, so `r.Bar` reaches the
                 // record's augmentation member rather than falling to a field-miss.
-                | None -> resolveLocalInstanceMember ctx diagKey info.Name info.TypeParams args info.Members memberName
+                | None ->
+                    resolveLocalInstanceMember ctx memberTok info.Name info.TypeParams args info.Members memberName
             | ValueNone ->
                 // Not a project-local record — an *external* one (a record declared in a
                 // prior unit / referenced package). Records are the last nominal kind to
@@ -292,10 +300,11 @@ module internal UnificationInferRecordAccess =
                         // external `TyUnion` arm does.
                         match ctx.Provider.TryLookupMember(SymbolKey.Type recKey, memberName) with
                         | ValueSome m when not m.IsStatic -> commitExternalMember m args
-                        | _ -> errorTy ctx diagKey (sprintf "Type '%s' has no field or member '%s'" recQual memberName)
+                        | _ ->
+                            errorTy ctx memberTok (sprintf "Type '%s' has no field or member '%s'" recQual memberName)
                 | _ ->
                     let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
-                    errorTy ctx diagKey (sprintf "Unknown record type '%s'" shown)
+                    errorTy ctx memberTok (sprintf "Unknown record type '%s'" shown)
         | TyClass(clsKey, args) ->
             // Resolve by the (arity-qualified) key, not the bare name: an
             // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a
@@ -317,7 +326,7 @@ module internal UnificationInferRecordAccess =
                     match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
                     | Some fld -> instantiateMember ctx.Store (info.TypeParams, args) fld.Type
                     | None ->
-                        resolveLocalInstanceMember ctx diagKey clsSimple info.TypeParams args info.Members memberName
+                        resolveLocalInstanceMember ctx memberTok clsSimple info.TypeParams args info.Members memberName
             | ValueNone ->
                 // Not a project-local class — an *external* type (e.g. a BCL
                 // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
@@ -354,12 +363,12 @@ module internal UnificationInferRecordAccess =
                         | ValueNone, ns when ns <> "" ->
                             errorTy
                                 ctx
-                                diagKey
+                                memberTok
                                 (sprintf
                                     "type '%s' is referenced from namespace '%s' but no package in the compilation declares it"
                                     clsSimple
                                     ns)
-                        | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
+                        | _ -> errorTy ctx memberTok (sprintf "Unknown class type '%s'" clsQual)
         | TyUnion(unionKey, args) ->
             // Union instance member access — mirrors the `TyClass` arm
             // against the union's augmentation members.
@@ -367,7 +376,7 @@ module internal UnificationInferRecordAccess =
             | ValueSome info ->
                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName unionKey
 
-                resolveLocalInstanceMember ctx diagKey shown info.TypeParams args info.Members memberName
+                resolveLocalInstanceMember ctx memberTok shown info.TypeParams args info.Members memberName
             | ValueNone ->
                 // Not a project-local union — an *external* one (e.g. a referenced
                 // `Vesper.Option` whose `IsSome`/`Value`/`IsNone` augmentation
@@ -386,8 +395,8 @@ module internal UnificationInferRecordAccess =
                     // member miss; otherwise the type itself is unknown.
                     match ctx.Provider.TryLookupType(SymbolKey.Type unionKey) with
                     | ValueSome(ExternalTypeShape.Union _) ->
-                        errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" unionQual memberName)
-                    | _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionQual)
+                        errorTy ctx memberTok (sprintf "Type '%s' has no instance member '%s'" unionQual memberName)
+                    | _ -> errorTy ctx memberTok (sprintf "Unknown union type '%s'" unionQual)
         | TyVar tv ->
             let root = UnionFind.find ctx.Store tv
 
@@ -399,7 +408,7 @@ module internal UnificationInferRecordAccess =
             // `TyClass` (a project-local interface is registered in `Types.Class`
             // with `IsInterface` set). Record the interface key so Elaborate mints a
             // `CallVia.Interface` dispatch (codegen → `constrained. callvirt`).
-            match tryTyparInterfaceMember ctx diagKey root memberName with
+            match tryTyparInterfaceMember ctx access.Key root memberName with
             | ValueSome ty -> ty
             | ValueNone ->
                 let resultTv = freshTyVar ctx
@@ -407,7 +416,7 @@ module internal UnificationInferRecordAccess =
                 let access =
                     {
                         MemberName = memberName
-                        UseKey = diagKey
+                        Use = access
                         ResultTv = resultTv
                     }
 
@@ -431,7 +440,7 @@ module internal UnificationInferRecordAccess =
                 let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
 
                 ctx.Resolution.ExternalAccess.Set(
-                    diagKey,
+                    access.Key,
                     {
                         Key = SymbolKey.Member m.Key
                         IsStatic = false
@@ -445,7 +454,7 @@ module internal UnificationInferRecordAccess =
             else
                 errorTy
                     ctx
-                    diagKey
+                    memberTok
                     (sprintf "Type '%s' has no instance member '%s'" (SymbolKeyOps.qualifiedName declKey) memberName)
         | TyArray _ when memberName = "Length" ->
             match ctx.CoreAccess.Value.GetArrayLength with
@@ -453,30 +462,29 @@ module internal UnificationInferRecordAccess =
                 // Thread the resolved `GetArrayLength` identity to Elaborate's
                 // `External` mint (the `.Length` `DotLookup` / `LongIdent`-chain
                 // forms) so `InlineExpansion` splices the `ldlen` body by KEY.
-                ctx.Resolution.IntrinsicKey.Set(diagKey, SymbolKey.Binding sym.Key)
+                ctx.Resolution.IntrinsicKey.Set(access.Key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
                 unify
                     ctx
-                    diagKey
+                    memberTok
                     (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                     (TyFun(rTy, resultTy))
 
                 resultTy
             | ValueNone ->
-                errorTy ctx diagKey "Array 'Length' intrinsic 'GetArrayLength' is not in scope (Vesper.Core missing?)"
-        | _ -> errorTy ctx diagKey (sprintf "Cannot read member '%s' from non-record non-class type" memberName)
+                errorTy ctx memberTok "Array 'Length' intrinsic 'GetArrayLength' is not in scope (Vesper.Core missing?)"
+        | _ -> errorTy ctx memberTok (sprintf "Cannot read member '%s' from non-record non-class type" memberName)
 
     and inferFieldAccess
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (receiver: Expr<SyntaxToken>)
         (fieldTok: SyntaxToken)
         : SemType =
-        let fieldName = ctx.NameOf fieldTok
         let rTy = infer ctx receiver
-        resolveFieldStep ctx key rTy fieldName
+        resolveFieldStep ctx node fieldTok rTy
 
     /// `arr.[i]` — the receiver is a rank-1 array `'T[]` and the index an `int`;
     /// the result is the element type. The element stays a fresh var unified
@@ -485,7 +493,7 @@ module internal UnificationInferRecordAccess =
     and inferIndexedLookup
         (infer: Infer)
         (ctx: PassContext)
-        (key: NodeKey)
+        (node: NodeSite)
         (receiver: Expr<SyntaxToken>)
         (index: Expr<SyntaxToken>)
         : SemType =
@@ -504,17 +512,18 @@ module internal UnificationInferRecordAccess =
                 // Thread the resolved `GetArray` identity to Elaborate's `External` mint
                 // (`translateIndexedLookup`, same `IndexedLookup` key) so the `ldelem`
                 // body splices by KEY.
-                ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
+                ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
                 unify
                     ctx
-                    key
+                    node.Tok
                     (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                     (TyFun(recvTy, TyFun(idxTy, resultTy)))
 
                 resultTy
-            | ValueNone -> errorTy ctx key "Array indexing intrinsic 'GetArray' is not in scope (Vesper.Core missing?)"
+            | ValueNone ->
+                errorTy ctx node.Tok "Array indexing intrinsic 'GetArray' is not in scope (Vesper.Core missing?)"
 
         // String indexing (`s.[i]`) on a target with no BCL `string` metadata (JS):
         // `get_Chars` does not resolve, so route to the `GetString` inline intrinsic —
@@ -526,12 +535,12 @@ module internal UnificationInferRecordAccess =
             match ctx.CoreAccess.Value.GetString with
             | ValueSome sym ->
                 // Thread the resolved `GetString` identity (see `getArrayIndex`).
-                ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
+                ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
                 unify
                     ctx
-                    key
+                    node.Tok
                     (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                     (TyFun(recvTy, TyFun(idxTy, resultTy)))
 
@@ -560,7 +569,7 @@ module internal UnificationInferRecordAccess =
                 let memberSig = ExternalSymbols.openSignature m clsArgs
 
                 ctx.Resolution.ExternalAccess.Set(
-                    key,
+                    node.Key,
                     {
                         Key = SymbolKey.Member m.Key
                         IsStatic = false
@@ -585,7 +594,7 @@ module internal UnificationInferRecordAccess =
                     else
                         resultTy
 
-                unify ctx key memberSig (TyFun(idxTy, rhsRet))
+                unify ctx node.Tok memberSig (TyFun(idxTy, rhsRet))
                 ValueSome resultTy
             | _ -> ValueNone
 
@@ -636,24 +645,27 @@ module internal UnificationInferRecordAccess =
                 | ValueSome sym ->
                     // Thread the resolved `GetIndex` identity to Elaborate's `External`
                     // mint (same `IndexedLookup` key) so the `$0[$1]` body splices by KEY.
-                    ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
+                    ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
 
                     unify
                         ctx
-                        key
+                        node.Tok
                         (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                         (TyFun(recvTy, TyFun(idxTy, resultTy)))
 
                     // Pin `'K`/`'V` (which the generic scheme leaves free) to the declared
                     // key/value, so `x.[k]` reads the declared element type (`string |
                     // undefined`), not a fresh var.
-                    unify ctx key idxTy keyTy
-                    unify ctx key resultTy valTy
+                    unify ctx node.Tok idxTy keyTy
+                    unify ctx node.Tok resultTy valTy
                     ValueSome resultTy
                 | ValueNone ->
                     ValueSome(
-                        errorTy ctx key "Index-signature intrinsic 'GetIndex' is not in scope (Vesper.Core missing?)"
+                        errorTy
+                            ctx
+                            node.Tok
+                            "Index-signature intrinsic 'GetIndex' is not in scope (Vesper.Core missing?)"
                     )
 
         match resolveStep ctx.Store recvTy with
@@ -702,7 +714,7 @@ module internal UnificationInferRecordAccess =
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
     /// head segment NameResolution resolved as a local binding; the remaining
     /// segments are a field-access chain.
-    and inferLongIdentFieldChain (ctx: PassContext) (key: NodeKey) (li: LongIdent<SyntaxToken>) : SemType =
+    and inferLongIdentFieldChain (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
         let head = li.Idents.[0]
         let headKey = NodeKey.ofToken head NodeKind.ExprIdent
 
@@ -714,11 +726,7 @@ module internal UnificationInferRecordAccess =
         let mutable currTy = headTy
 
         for i = 1 to li.Idents.Length - 1 do
-            let seg = li.Idents.[i]
-            let segName = ctx.NameOf seg
-            // Diagnose against the LongIdent's overall key — there's no
-            // separate sub-expression NodeKey for an intermediate segment.
-            currTy <- resolveFieldStep ctx key currTy segName
+            currTy <- resolveFieldStep ctx node li.Idents.[i] currTy
 
         currTy
 
@@ -729,7 +737,7 @@ module internal UnificationInferRecordAccess =
     /// resolved arg-aware as an overloaded instance method instead of falling to
     /// the single-pick field step. The head is assumed a local binding (the
     /// caller guards on it).
-    and inferLongIdentReceiverPrefix (ctx: PassContext) (key: NodeKey) (li: LongIdent<SyntaxToken>) : SemType =
+    and inferLongIdentReceiverPrefix (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
         let head = li.Idents.[0]
         let headKey = NodeKey.ofToken head NodeKind.ExprIdent
 
@@ -741,6 +749,6 @@ module internal UnificationInferRecordAccess =
         let mutable currTy = headTy
 
         for i = 1 to li.Idents.Length - 2 do
-            currTy <- resolveFieldStep ctx key currTy (ctx.NameOf li.Idents.[i])
+            currTy <- resolveFieldStep ctx node li.Idents.[i] currTy
 
         currTy

@@ -76,8 +76,7 @@ module internal UnificationInferLiterals =
         | Constant.Literal t -> literalCarrier ctx t
         | Constant.MeasuredLiteral(value = t; measure = m) ->
             let carrier = literalCarrier ctx t
-            let diagKey = NodeKey.ofToken t NodeKind.ExprConst
-            let mt = translateMeasure ctx diagKey m
+            let mt = translateMeasure ctx t m
             let tv = freshTyVar ctx
             let root = UnionFind.find ctx.Store tv
             ctx.Store.SetLink(root, ValueSome carrier)
@@ -129,7 +128,7 @@ module internal UnificationInferLiterals =
     /// provider path.
     let tryMeasuredArith
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (name: string)
         (leftTy: SemType)
         (rightTy: SemType)
@@ -143,30 +142,18 @@ module internal UnificationInferLiterals =
             let carrier = carrierOf ctx.Store leftTy
             // Carriers must agree even between measured operands (no
             // `float<m> + int<m>`). Surface that as a normal type mismatch.
-            unify ctx key carrier (carrierOf ctx.Store rightTy)
+            unify ctx tok carrier (carrierOf ctx.Store rightTy)
 
             match name, leftUnits, rightUnits with
             | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 when m1.Equals m2 ->
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
             | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(tok, sprintf "Measure mismatch: <%O> vs <%O>" m1 m2)
 
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
             | ("op_Addition" | "op_Subtraction"), ValueSome m, ValueNone
             | ("op_Addition" | "op_Subtraction"), ValueNone, ValueSome m ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(tok, sprintf "Measure mismatch: dimensionless vs <%O>" m)
 
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
             | "op_Multiply", ValueSome m1, ValueSome m2 ->
@@ -180,24 +167,12 @@ module internal UnificationInferLiterals =
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.inv m))))
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some ctx.Intrinsics.Bool
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Measure mismatch: <%O> vs <%O>" m1 m2
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(tok, sprintf "Measure mismatch: <%O> vs <%O>" m1 m2)
 
                 Some ctx.Intrinsics.Bool
             | name, ValueSome m, ValueNone
             | name, ValueNone, ValueSome m when isComparisonOp name ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Measure mismatch: dimensionless vs <%O>" m
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(tok, sprintf "Measure mismatch: dimensionless vs <%O>" m)
 
                 Some ctx.Intrinsics.Bool
             | _ -> None
@@ -263,7 +238,7 @@ module internal UnificationInferLiterals =
     /// `unify`, so this is strictly additive.
     let tryTypeFormatLiteral
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (litExpr: Expr<SyntaxToken>)
         (expected: SemType)
         : SemType voption =
@@ -275,7 +250,7 @@ module internal UnificationInferLiterals =
 
                 match PrintfSpec.printerFromSlots fresh specs args.[1] args.[2] args.[3] with
                 | ValueSome printer ->
-                    unify ctx key printer args.[0]
+                    unify ctx tok printer args.[0]
                     ValueSome expected
                 | ValueNone -> ValueNone
             | ValueNone -> ValueNone

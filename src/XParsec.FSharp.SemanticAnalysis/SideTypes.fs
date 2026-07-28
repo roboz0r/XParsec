@@ -18,16 +18,20 @@ type Severity =
     | Warning
     | Info
 
-/// TODO: range + sub-severities still pending. `Code` lets the sprint group
-/// related diagnostics (e.g. for tooling); existing call sites pass `""` —
-/// new ones should mint a short identifier (e.g. `"V001"`).
-[<Struct>]
+/// TODO: sub-severities still pending. `Code` lets the sprint group related
+/// diagnostics (e.g. for tooling); most call sites pass `""` — new ones should mint a
+/// short identifier (e.g. `"V001"`).
+///
+/// A REFERENCE type: it is allocated only on error paths and copied through
+/// `ResizeArray` / `list` at every seam, so the struct layout bought nothing while
+/// bounding what the record may carry.
 type Diagnostic =
     {
-        Key: NodeKey
         Code: string
         Message: string
         Severity: Severity
+        /// The primary position — what a one-line renderer points at.
+        Site: Site
     }
 
 /// Declared accessibility of an EXPORTED entity — a token-free 3-state stored

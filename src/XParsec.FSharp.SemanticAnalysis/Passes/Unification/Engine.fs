@@ -286,7 +286,7 @@ module UnificationEngine =
             | _ -> false
         | _ -> false
 
-    let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
+    let rec unify (ctx: PassContext) (tok: SyntaxToken) (a: SemType) (b: SemType) =
         let a = resolveStep ctx.Store a
         let b = resolveStep ctx.Store b
 
@@ -297,8 +297,8 @@ module UnificationEngine =
         // type instead of linking a var to an inert carrier. `FoldedCarrier` matches only
         // when the node reaches a non-carrier type, so a STILL-deferred node falls through
         // to the structural carried-vs-carried arms below and cannot loop.
-        | FoldedCarrier ctx folded, _ -> unify ctx key folded b
-        | _, FoldedCarrier ctx folded -> unify ctx key a folded
+        | FoldedCarrier ctx folded, _ -> unify ctx tok folded b
+        | _, FoldedCarrier ctx folded -> unify ctx tok a folded
         // An unresolved head unifies with nothing. Stop — the other side is left untouched
         // (no Link), so one broken head can't cascade into a wrong inference elsewhere.
         //
@@ -313,14 +313,14 @@ module UnificationEngine =
         | _, TyUnknown name ->
             if not (ctx.UndefinedTypeNames.Contains name) then
                 ctx.Error(
-                    key,
+                    tok,
                     sprintf
                         "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
                         name
                 )
-        | TyConst(k1, a1), TyConst(k2, a2) when k1 = k2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
-        | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
-        | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
+        | TyConst(k1, a1), TyConst(k2, a2) when k1 = k2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
+        | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
+        | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
         // A capability interface reaches `unify` as EITHER of its two faces (e.g. a BCL
         // `Enumerable.Take` returns `IEnumerable\`1`, reconciled against a declared `seq`
         // return): the platform-face key and the canonical-face key differ, so `n1 = n2`
@@ -332,7 +332,7 @@ module UnificationEngine =
             sameNominalKey ctx (SymbolKey.Type n1) (SymbolKey.Type n2)
             && a1.Length = a2.Length
             ->
-            unifyArgs ctx key a1 a2
+            unifyArgs ctx tok a1 a2
         // Two enums unify iff their nominal keys match (enums are niladic — no
         // args to recurse). A `TyEnum` against any other head (e.g. its underlying
         // `int`) falls to the catch-all mismatch below: an enum is a DISTINCT
@@ -347,9 +347,9 @@ module UnificationEngine =
         // falls through to the catch-all below (a genuine wrong-key error).
         | TyLiteral v1, TyLiteral v2 when v1 = v2 -> ()
         | TyFun(a1, r1), TyFun(a2, r2) ->
-            unify ctx key a1 a2
-            unify ctx key r1 r2
-        | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> unifyArgs ctx key xs ys
+            unify ctx tok a1 a2
+            unify ctx tok r1 r2
+        | TyTuple xs, TyTuple ys when xs.Length = ys.Length -> unifyArgs ctx tok xs ys
         // Anonymous unions unify by *set equality only* — `EqSet` makes
         // `string | int` and `int | string` the SAME value, so equal unions need no
         // member work (v1 union members are ground — the principality rule — so there
@@ -363,15 +363,15 @@ module UnificationEngine =
         // This is NOT evaluation (no `keyof` expansion); it just lets two occurrences
         // of the same carried node (e.g. the same member signature reused) agree.
         // Mismatched heads fall through to the catch-all mismatch below.
-        | TyKeyOf t1, TyKeyOf t2 -> unify ctx key t1 t2
+        | TyKeyOf t1, TyKeyOf t2 -> unify ctx tok t1 t2
         | TyIndexedAccess(o1, i1), TyIndexedAccess(o2, i2) ->
-            unify ctx key o1 o2
-            unify ctx key i1 i2
+            unify ctx tok o1 o2
+            unify ctx tok i1 i2
         | TyConditional c1, TyConditional c2 ->
-            unify ctx key c1.Check c2.Check
-            unify ctx key c1.Extends c2.Extends
-            unify ctx key c1.WhenTrue c2.WhenTrue
-            unify ctx key c1.WhenFalse c2.WhenFalse
+            unify ctx tok c1.Check c2.Check
+            unify ctx tok c1.Extends c2.Extends
+            unify ctx tok c1.WhenTrue c2.WhenTrue
+            unify ctx tok c1.WhenFalse c2.WhenFalse
         | TyVar tv1, TyVar tv2 when tv1 = tv2 -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find ctx.Store tv1
@@ -391,25 +391,25 @@ module UnificationEngine =
             // merge order is baked into its store table), replacing the former bespoke
             // `migrateBounds`. Payload lives only under the rep id.
             ctx.Store.MergePayloads(newRoot, merged)
-            mergeUnits ctx key newRoot unitsA unitsB
+            mergeUnits ctx tok newRoot unitsA unitsB
             // If both sides carried links, unify them so the carriers agree.
             match linkA, linkB with
             | ValueNone, ValueNone -> ()
             | ValueSome t, ValueNone
             | ValueNone, ValueSome t ->
                 ctx.Store.SetLink(newRoot, ValueSome t)
-                drainAll ctx key newRoot t
+                drainAll ctx tok newRoot t
             | ValueSome a, ValueSome b ->
                 ctx.Store.SetLink(newRoot, linkA)
-                unify ctx key a b
-                drainAll ctx key newRoot a
+                unify ctx tok a b
+                drainAll ctx tok newRoot a
         | TyVar tv, other
         | other, TyVar tv ->
             let root = UnionFind.find ctx.Store tv
 
             if occursAndAdjust ctx.Store root.Id other then
                 ctx.Error(
-                    key,
+                    tok,
                     sprintf
                         "Occurs check: cannot construct infinite type %A = %A"
                         (zonk ctx.Store (TyVar root.Id))
@@ -421,20 +421,20 @@ module UnificationEngine =
                 // dimensionless-vs-measured mismatch.
                 match ctx.Store.Units root, other with
                 | ValueSome m, TyConst _ when not m.IsDimensionless ->
-                    ctx.Error(key, sprintf "Dimensionless %A used where <%O> expected" other m)
+                    ctx.Error(tok, sprintf "Dimensionless %A used where <%O> expected" other m)
                 | _ -> ()
 
                 ctx.Store.SetLink(root, ValueSome other)
-                drainAll ctx key root other
-        | _ -> ctx.Error(key, sprintf "Type mismatch: %A vs %A" (zonk ctx.Store a) (zonk ctx.Store b))
+                drainAll ctx tok root other
+        | _ -> ctx.Error(tok, sprintf "Type mismatch: %A vs %A" (zonk ctx.Store a) (zonk ctx.Store b))
 
     /// Unify two same-length type-argument vectors positionally — the shared body
     /// of the `TyConst` / `TyRecord` / `TyUnion` / `TyClass` / `TyTuple` arms (each
     /// already guards `length` equality). In the `unify` rec group so it stays a
     /// direct call with no per-`unify` closure allocation on the hot path.
-    and private unifyArgs (ctx: PassContext) (key: NodeKey) (xs: EqArray<SemType>) (ys: EqArray<SemType>) : unit =
+    and private unifyArgs (ctx: PassContext) (tok: SyntaxToken) (xs: EqArray<SemType>) (ys: EqArray<SemType>) : unit =
         for i in 0 .. xs.Length - 1 do
-            unify ctx key xs.[i] ys.[i]
+            unify ctx tok xs.[i] ys.[i]
 
     /// Coerce a single argument position against its expected parameter type: an
     /// `obj` parameter absorbs *any* argument (the implicit upcast / box F# inserts
@@ -445,11 +445,11 @@ module UnificationEngine =
     /// itself is defined after this group). `obj` and union-typed parameters are the
     /// two no-pin absorptions here; richer class→interface witness coercion stays in
     /// `unifyArg`/`tryCoerceUpcast` for the eager application path.
-    and private unifyArgCoerce (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+    and private unifyArgCoerce (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
         match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyTuple aa, TyTuple bb when aa.Length = bb.Length ->
             for i in 0 .. aa.Length - 1 do
-                unifyArgCoerce ctx key aa.[i] bb.[i]
+                unifyArgCoerce ctx tok aa.[i] bb.[i]
         | a, b ->
             // `b` is already `resolveStep`-ed by the match; `absorbsAsObj` (the one
             // obj-policy home) re-steps idempotently.
@@ -469,7 +469,7 @@ module UnificationEngine =
                 | _ ->
                     match numericFamilyOr ctx b with
                     | ValueSome fam when subsumes ctx a fam <> SubsumeOutcome.Unrelated -> ()
-                    | _ -> if tryStructuralWiden ctx a b then () else unify ctx key a b
+                    | _ -> if tryStructuralWiden ctx a b then () else unify ctx tok a b
 
     /// Unify an *applied callable* shape against a resolved member signature,
     /// coercing each argument position rather than unifying it. `actual` is the
@@ -481,12 +481,12 @@ module UnificationEngine =
     /// positions unify exactly. Used where a *whole* signature is unified against a
     /// pre-built `TyFun` (the deferred dot-access drain, the overload-commit), unlike
     /// `inferApp`'s spine walk which already coerces each argument as it applies it.
-    and unifyAppliedSig (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+    and unifyAppliedSig (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
         match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyFun(ad, ar), TyFun(ed, er) ->
-            unifyArgCoerce ctx key ad ed
-            unifyAppliedSig ctx key ar er
-        | a, b -> unify ctx key a b
+            unifyArgCoerce ctx tok ad ed
+            unifyAppliedSig ctx tok ar er
+        | a, b -> unify ctx tok a b
 
     /// When a TyVar's Link resolves to a `TyRecord`/`TyClass`/`TyUnion`,
     /// resolve any dot-access constraints parked on it. When `T` is generic,
@@ -495,10 +495,10 @@ module UnificationEngine =
     /// Fire all three on-link callbacks for a root whose `Link` just resolved
     /// to `t`: deferred dot-accesses, type-parameter constraints, and SRTP
     /// member-trait bounds.
-    and private drainAll (ctx: PassContext) (key: NodeKey) (root: Rep) (t: SemType) : unit =
+    and private drainAll (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (t: SemType) : unit =
         drainPendingDotAccess ctx root t
-        drainConstraints ctx key root t
-        drainSrtpBounds ctx key root t
+        drainConstraints ctx tok root t
+        drainSrtpBounds ctx tok root t
 
     and private drainPendingDotAccess (ctx: PassContext) (root: Rep) (linkTarget: SemType) : unit =
         let pending = ctx.Store.Pda.Live root
@@ -518,14 +518,14 @@ module UnificationEngine =
                 solveAll ()
 
                 for d in pending do
-                    ctx.Error(d.UseKey, sprintf "Unknown %s type '%s'" kind name)
+                    ctx.Error(d.Use.Tok, sprintf "Unknown %s type '%s'" kind name)
             | DotSource.Resolved(name, memberNoun, subst, lookup) ->
                 solveAll ()
 
                 for d in pending do
                     match lookup d.MemberName with
-                    | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith ctx.Store subst ty)
-                    | ValueNone -> ctx.Error(d.UseKey, sprintf "Type '%s' has no %s '%s'" name memberNoun d.MemberName)
+                    | ValueSome ty -> unify ctx d.Use.Tok (TyVar d.ResultTv) (substituteWith ctx.Store subst ty)
+                    | ValueNone -> ctx.Error(d.Use.Tok, sprintf "Type '%s' has no %s '%s'" name memberNoun d.MemberName)
             | DotSource.ClassChain(key, args) ->
                 // `tryClassChainMember` already returns the type instantiated
                 // against `args` (and any parent typar substitution), so no
@@ -536,9 +536,9 @@ module UnificationEngine =
 
                 for d in pending do
                     match tryClassChainMember ctx key args d.MemberName with
-                    | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) ty
+                    | ValueSome ty -> unify ctx d.Use.Tok (TyVar d.ResultTv) ty
                     | ValueNone ->
-                        ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" shown d.MemberName)
+                        ctx.Error(d.Use.Tok, sprintf "Type '%s' has no instance member '%s'" shown d.MemberName)
             | DotSource.ExternalClass(key, args) ->
                 // Deferred mirror of `resolveFieldStep`'s external arm: the receiver
                 // TyVar resolved to a BCL/contract class or interface (e.g. the
@@ -556,7 +556,7 @@ module UnificationEngine =
                         let memberSig = ExternalSymbols.openSignature m argArr
 
                         ctx.Resolution.ExternalAccess.Set(
-                            d.UseKey,
+                            d.Use.Key,
                             {
                                 Key = SymbolKey.Member m.Key
                                 IsStatic = false
@@ -576,10 +576,10 @@ module UnificationEngine =
                         // `Signature` (the declared `obj`-bearing shape) is what
                         // Elaborate reads for the box, since this unify deliberately
                         // leaves the node typed with the un-grounded arg typar.
-                        unifyAppliedSig ctx d.UseKey (TyVar d.ResultTv) memberSig
+                        unifyAppliedSig ctx d.Use.Tok (TyVar d.ResultTv) memberSig
                     | _ ->
                         ctx.Error(
-                            d.UseKey,
+                            d.Use.Tok,
                             sprintf
                                 "Type '%s' has no instance member '%s'"
                                 (SymbolKeyOps.qualifiedName key)
@@ -804,7 +804,7 @@ module UnificationEngine =
     /// during union-find collapse). For compound `Defer` outcomes, copy the
     /// constraint onto each still-free arg so the next Link on any of them
     /// re-evaluates the rule compositionally.
-    and private drainConstraints (ctx: PassContext) (key: NodeKey) (root: Rep) (linkTarget: SemType) : unit =
+    and private drainConstraints (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
         if ctx.Store.Constraints.IsEmpty root then
             ()
         else
@@ -837,7 +837,7 @@ module UnificationEngine =
                         match tryUpcastWitness ctx linkTarget tname with
                         | ValueSome wargs when wargs.Length = targs.Length ->
                             for i in 0 .. targs.Length - 1 do
-                                unify ctx key wargs.[i] targs.[i]
+                                unify ctx tok wargs.[i] targs.[i]
                         | _ -> ()
                     | _ -> ()
                 | _ -> ()
@@ -867,7 +867,7 @@ module UnificationEngine =
                         // check-side and this grounding side peel identically by
                         // construction.
                         match peelFunSpine ctx.Store (targs.Length - 1) a b with
-                        | Some tys -> tys |> List.iteri (fun i s -> unify ctx key s targs.[i])
+                        | Some tys -> tys |> List.iteri (fun i s -> unify ctx tok s targs.[i])
                         | None -> ()
                     | _ -> ()
                 | _ -> ()
@@ -876,7 +876,7 @@ module UnificationEngine =
                 | Satisfied -> ()
                 | Violated ->
                     ctx.Error(
-                        key,
+                        tok,
                         sprintf
                             "The type '%A' does not support the '%s' constraint"
                             (zonk ctx.Store linkTarget)
@@ -986,7 +986,7 @@ module UnificationEngine =
     /// (curried) as satisfying a trait declared `^T * ^T -> ^T`.
     and private unifySrtpAgainst
         (ctx: PassContext)
-        (key: NodeKey)
+        (tok: SyntaxToken)
         (candidate: SemType)
         (bound: MemberSignature)
         : unit =
@@ -999,12 +999,12 @@ module UnificationEngine =
             | _ -> TyFun(TyTuple argTys, bound.ReturnType)
 
         match resolveStep ctx.Store candidate with
-        | TyFun(TyTuple _, _) -> unify ctx key candidate tupled
+        | TyFun(TyTuple _, _) -> unify ctx tok candidate tupled
         | _ when argTys.Length >= 2 ->
             let curried = EqArray.foldBack (fun a r -> TyFun(a, r)) argTys bound.ReturnType
 
-            unify ctx key candidate curried
-        | _ -> unify ctx key candidate tupled
+            unify ctx tok candidate curried
+        | _ -> unify ctx tok candidate tupled
 
     /// On-unified callback for SRTP member-trait bounds. Bounds live in the store's
     /// `Srtp` table under the representative id; a dispatched bound is recorded in the
@@ -1014,10 +1014,10 @@ module UnificationEngine =
     /// (target still a free TyVar, or an unknown class) is left UNSOLVED and grows in
     /// place, so the next `Link` change re-attempts it — no remainder is written back.
     ///
-    /// Diagnostics use `key` — the user's call site, threaded through from
+    /// Diagnostics use `tok` — the user's call site, threaded through from
     /// the caller — so "Type X has no static member Y" points there rather
     /// than at the prelude's `(+)` declaration.
-    and private drainSrtpBounds (ctx: PassContext) (key: NodeKey) (root: Rep) (linkTarget: SemType) : unit =
+    and private drainSrtpBounds (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
         let bounds = ctx.Store.Srtp.Live root
 
         if List.isEmpty bounds then
@@ -1035,9 +1035,9 @@ module UnificationEngine =
                         match tryPrimitiveTraitCandidate b.MemberName primName b.ArgTypes.Length with
                         | ValueSome candTy ->
                             ctx.Store.Srtp.Solve b
-                            unifySrtpAgainst ctx key candTy b
+                            unifySrtpAgainst ctx tok candTy b
                         | ValueNone ->
-                            ctx.Error(key, sprintf "Type '%s' has no built-in static member '%s'" primName b.MemberName)
+                            ctx.Error(tok, sprintf "Type '%s' has no built-in static member '%s'" primName b.MemberName)
                             ctx.Store.Srtp.Solve b
                     | TyClass(classKey, classArgs) ->
                         match TypeRegistry.tryClassByKey ctx.Types classKey with
@@ -1046,11 +1046,11 @@ module UnificationEngine =
                             | Some m ->
                                 let candTy = instantiateMember ctx.Store (info.TypeParams, classArgs) m.Type
                                 ctx.Store.Srtp.Solve b
-                                unifySrtpAgainst ctx key candTy b
+                                unifySrtpAgainst ctx tok candTy b
                             | None ->
                                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName classKey
 
-                                ctx.Error(key, sprintf "Type '%s' has no static member '%s'" shown b.MemberName)
+                                ctx.Error(tok, sprintf "Type '%s' has no static member '%s'" shown b.MemberName)
 
                                 ctx.Store.Srtp.Solve b
                         | ValueNone ->
@@ -1070,7 +1070,7 @@ module UnificationEngine =
                                 let candTy = ExternalSymbols.openSignature m (EqArray.toArray classArgs)
 
                                 ctx.Store.Srtp.Solve b
-                                unifySrtpAgainst ctx key candTy b
+                                unifySrtpAgainst ctx tok candTy b
                             | _ ->
                                 // Unknown class — leave unsolved so a later pass may
                                 // dispatch.
@@ -1089,7 +1089,7 @@ module UnificationEngine =
     /// `subsumes` this *mutates* (it links type args), so it belongs only at the
     /// coercion sites — argument / ctor unification and `:>` — never the
     /// read-only constraint checker.
-    let tryCoerceUpcast (ctx: PassContext) (key: NodeKey) (src: SemType) (tgt: SemType) : bool =
+    let tryCoerceUpcast (ctx: PassContext) (tok: SyntaxToken) (src: SemType) (tgt: SemType) : bool =
         // `obj` is the universal supertype: F# implicitly upcasts (boxing a value
         // type / a generic typar) any value into an `obj` slot, so accept *any*
         // `src` without unifying. Crucially this must NOT pin `src` — a generic
@@ -1130,7 +1130,7 @@ module UnificationEngine =
                             match tryUpcastWitness ctx src tname with
                             | ValueSome sargs when sargs.Length = targs.Length ->
                                 for i in 0 .. targs.Length - 1 do
-                                    unify ctx key sargs.[i] targs.[i]
+                                    unify ctx tok sargs.[i] targs.[i]
 
                                 true
                             | _ -> false
@@ -1144,14 +1144,14 @@ module UnificationEngine =
     /// Tuples are walked element-wise so a tupled ctor argument
     /// (`Set(comparer, tree)`) coerces each component independently. Used at every
     /// argument / chain-call coercion site (application, primary/secondary ctors).
-    let rec unifyArg (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+    let rec unifyArg (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
         match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyTuple aa, TyTuple bb when aa.Length = bb.Length ->
             for i in 0 .. aa.Length - 1 do
-                unifyArg ctx key aa.[i] bb.[i]
+                unifyArg ctx tok aa.[i] bb.[i]
         | a, b ->
-            if not (tryCoerceUpcast ctx key a b) then
-                unify ctx key a b
+            if not (tryCoerceUpcast ctx tok a b) then
+                unify ctx tok a b
 
     /// Reconcile an inferred type against a *written annotation* (a `let` return
     /// type, a parameter `Pat.Typed`). Checking-mode, but narrower than `unifyArg`:
@@ -1168,7 +1168,7 @@ module UnificationEngine =
     /// the actual is concrete enough to subsume — so nothing is left ungrounded. The
     /// principality rule holds: a union enters only by an annotation, and `unify`
     /// never synthesises one.
-    let unifyAnnotation (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+    let unifyAnnotation (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
         // A literal / pure-literal-union actual — the only actual admitted to the
         // outward-widening arm below (keeps that arm strictly additive: a non-literal
         // union still grounds via symmetric `unify`, unchanged).
@@ -1203,4 +1203,4 @@ module UnificationEngine =
         // seam; and a `TyVar` actual has no nominal identity (`subtypeNominalOf` misses),
         // so an unresolved binder still GROUNDS via `unify` below.
         | _ when subsumes ctx actual expected = SubsumeOutcome.Subtype -> ()
-        | _ -> unify ctx key actual expected
+        | _ -> unify ctx tok actual expected

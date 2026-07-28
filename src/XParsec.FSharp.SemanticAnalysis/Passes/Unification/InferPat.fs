@@ -18,14 +18,15 @@ module internal UnificationInferPat =
     /// `'T list` abbreviation (the self-host `list.fs`) expands eagerly to the
     /// union RHS; a bare program leaves the container flexible (a fresh TyVar
     /// registered in `ctx.ListLiterals`) for consumer-driven resolution.
-    let private consListTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
+    let private consListTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
         match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "list" 1 with
         | ValueSome info ->
             forceFill ctx info
-            expandAbbreviation ctx key info (EqArray.singleton elemTy)
+            expandAbbreviation ctx tok info (EqArray.singleton elemTy)
         | ValueNone ->
             let tv = freshTyVar ctx
-            ctx.ListLiterals.Add((UnionFind.find ctx.Store tv).Id, elemTy)
+
+            ctx.RegisterListLiteral((UnionFind.find ctx.Store tv).Id, elemTy, tok)
             TyVar tv
 
     let rec inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
@@ -33,6 +34,9 @@ module internal UnificationInferPat =
         // compound patterns the outer TypeVar is linked to the underlying
         // shape so a lookup against any pattern node returns the right type.
         let key = CstKeys.ofPat p
+        // `key` is projected from this token, so the side-table entry and a diagnostic
+        // about the same node cannot name different places.
+        let tok = CstKeys.firstTokenOfPat p
 
         match p with
         | Pat.NamedSimple t when
@@ -60,17 +64,13 @@ module internal UnificationInferPat =
                 ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
                 ty
             | ValueSome i ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message =
-                            sprintf
-                                "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
-                                n
-                                i.Fields.Length
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(
+                    tok,
+                    sprintf
+                        "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
+                        n
+                        i.Fields.Length
+                )
 
                 let unionInfo = TypeRegistry.unionOfCase ctx.Types i
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
@@ -79,14 +79,10 @@ module internal UnificationInferPat =
                 ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
                 ty
             | ValueNone when count >= 2 ->
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message =
-                            sprintf "Ambiguous constructor '%s'; declared in %d union types — add a qualifier" n count
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(
+                    tok,
+                    sprintf "Ambiguous constructor '%s'; declared in %d union types — add a qualifier" n count
+                )
 
                 TyVar(freshTv ctx key)
             | ValueNone -> TyVar(freshTv ctx key)
@@ -101,17 +97,13 @@ module internal UnificationInferPat =
             let unionTy, fields = externalCasePattern ctx uc
 
             if fields.Length <> 0 then
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message =
-                            sprintf
-                                "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
-                                (ctx.NameOf t)
-                                fields.Length
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(
+                    tok,
+                    sprintf
+                        "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
+                        (ctx.NameOf t)
+                        fields.Length
+                )
 
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome unionTy)
@@ -161,13 +153,7 @@ module internal UnificationInferPat =
             let caseName = ctx.NameOf li.Idents.[1]
 
             if not (einfo.HasCase caseName) then
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message = sprintf "Enum '%s' has no case '%s'" einfo.Name caseName
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(tok, sprintf "Enum '%s' has no case '%s'" einfo.Name caseName)
 
             for sub in args do
                 inferPat ctx sub |> ignore
@@ -198,17 +184,13 @@ module internal UnificationInferPat =
                     match resolveCtorName ctx (ctx.UseSiteAt key) name with
                     | ValueSome i, _ -> ValueSome i
                     | ValueNone, count when count >= 2 ->
-                        ctx.Diagnostics.Add
-                            {
-                                Key = key
-                                Message =
-                                    sprintf
-                                        "Ambiguous constructor '%s'; declared in %d union types — add a qualifier"
-                                        name
-                                        count
-                                Code = ""
-                                Severity = Severity.Error
-                            }
+                        ctx.Error(
+                            tok,
+                            sprintf
+                                "Ambiguous constructor '%s'; declared in %d union types — add a qualifier"
+                                name
+                                count
+                        )
 
                         ValueNone
                     | _ -> ValueNone
@@ -233,18 +215,14 @@ module internal UnificationInferPat =
                         List.ofSeq args
 
                 if subPats.Length <> i.Fields.Length then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message =
-                                sprintf
-                                    "Constructor '%s' expects %d argument(s) but got %d"
-                                    i.Name
-                                    i.Fields.Length
-                                    subPats.Length
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+                    ctx.Error(
+                        tok,
+                        sprintf
+                            "Constructor '%s' expects %d argument(s) but got %d"
+                            i.Name
+                            i.Fields.Length
+                            subPats.Length
+                    )
 
                 let unionInfo = TypeRegistry.unionOfCase ctx.Types i
                 let args, subst = freshNamedInstance ctx unionInfo.TypeParams
@@ -253,7 +231,7 @@ module internal UnificationInferPat =
                 for j = 0 to m - 1 do
                     let sub = subPats.[j]
                     let subTy = inferPat ctx sub
-                    unify ctx (CstKeys.ofPat sub) subTy (substituteWith ctx.Store subst i.Fields.[j])
+                    unify ctx (CstKeys.firstTokenOfPat sub) subTy (substituteWith ctx.Store subst i.Fields.[j])
 
                 // Walk any extra sub-patterns so binders still register.
                 for j = m to subPats.Length - 1 do
@@ -282,25 +260,17 @@ module internal UnificationInferPat =
                     List.ofSeq args
 
             if subPats.Length <> fields.Length then
-                ctx.Diagnostics.Add
-                    {
-                        Key = key
-                        Message =
-                            sprintf
-                                "Constructor '%s' expects %d argument(s) but got %d"
-                                caseName
-                                fields.Length
-                                subPats.Length
-                        Code = ""
-                        Severity = Severity.Error
-                    }
+                ctx.Error(
+                    tok,
+                    sprintf "Constructor '%s' expects %d argument(s) but got %d" caseName fields.Length subPats.Length
+                )
 
             let m = min subPats.Length fields.Length
 
             for j = 0 to m - 1 do
                 let sub = subPats.[j]
                 let subTy = inferPat ctx sub
-                unify ctx (CstKeys.ofPat sub) subTy fields.[j]
+                unify ctx (CstKeys.firstTokenOfPat sub) subTy fields.[j]
 
             // Walk any extra sub-patterns so binders still register.
             for j = m to subPats.Length - 1 do
@@ -330,9 +300,9 @@ module internal UnificationInferPat =
 
             for e in elems do
                 let eTy = inferPat ctx e
-                unify ctx (CstKeys.ofPat e) eTy elemTy
+                unify ctx (CstKeys.firstTokenOfPat e) eTy elemTy
 
-            let listTy = consListTy ctx key elemTy
+            let listTy = consListTy ctx tok elemTy
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome listTy)
             listTy
@@ -364,7 +334,7 @@ module internal UnificationInferPat =
             // Annotation reconciliation (`x: int | string`): admits value→union but
             // stays symmetric `unify` for a nominal/`obj` annotation, so the binder
             // still grounds to its written type.
-            unifyAnnotation ctx key innerTy annTy
+            unifyAnnotation ctx tok innerTy annTy
             // Type provenance: a typed pattern `(x : T)` — parameter, `let`-binder, or
             // nested destructure — writes the binder's type explicitly. Attribute it to
             // the INNER binder's key (the `Pat.Typed` wrapper is erased in the TAST; a
@@ -384,7 +354,7 @@ module internal UnificationInferPat =
             let tgtTy = translateType ctx t
             ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
             let innerTy = inferPat ctx inner
-            unify ctx (CstKeys.ofPat inner) innerTy tgtTy
+            unify ctx (CstKeys.firstTokenOfPat inner) innerTy tgtTy
             // Type provenance: `:? T as x` writes the BINDER `x`'s type (the tested
             // `T`), not this pattern node's (which stays the scrutinee's free type).
             ctx.MarkTypeDeclared(CstKeys.ofPat inner, tgtTy)
@@ -400,16 +370,16 @@ module internal UnificationInferPat =
             // `[]` pattern: a list whose element type is left free for the
             // scrutinee to pin (`match xs with [] -> …`).
             let elemTy = TyVar(freshTyVar ctx)
-            let listTy = consListTy ctx key elemTy
+            let listTy = consListTy ctx tok elemTy
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome listTy)
             listTy
         | Pat.Cons(head = headPat; tail = tailPat) ->
             // `h :: t`: `h` is an element, `t` the same list type.
             let headTy = inferPat ctx headPat
-            let listTy = consListTy ctx key headTy
+            let listTy = consListTy ctx tok headTy
             let tailTy = inferPat ctx tailPat
-            unify ctx (CstKeys.ofPat tailPat) tailTy listTy
+            unify ctx (CstKeys.firstTokenOfPat tailPat) tailTy listTy
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome listTy)
             listTy
@@ -424,7 +394,7 @@ module internal UnificationInferPat =
             // is needed.
             let leftTy = inferPat ctx leftPat
             let rightTy = inferPat ctx rightPat
-            unify ctx key leftTy rightTy
+            unify ctx tok leftTy rightTy
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome leftTy)
             leftTy
@@ -446,7 +416,7 @@ module internal UnificationInferPat =
 
             let names = pairs |> List.map (fun (_, n, _) -> n)
 
-            match resolveRecordFor ctx key (ctx.UseSiteAt key) qualifier names with
+            match resolveRecordFor ctx tok (ctx.UseSiteAt key) qualifier names with
             | ValueNone ->
                 // Walk sub-patterns so binders register as free TyVars.
                 for _, _, sub in pairs do
@@ -461,10 +431,10 @@ module internal UnificationInferPat =
                     let subTy = inferPat ctx sub
 
                     match fieldTypeOf fieldName with
-                    | ValueSome fieldTy -> unify ctx (CstKeys.ofPat sub) subTy fieldTy
+                    | ValueSome fieldTy -> unify ctx (CstKeys.firstTokenOfPat sub) subTy fieldTy
                     | ValueNone ->
                         ctx.Error(
-                            CstKeys.ofPat sub,
+                            CstKeys.firstTokenOfPat sub,
                             sprintf "Type '%s' has no field '%s'" (resolvedRecordDisplayName r) fieldName
                         )
 
