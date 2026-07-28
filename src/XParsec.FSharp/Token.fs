@@ -681,8 +681,9 @@ module TokenRepresentation =
         [<Literal>]
         let QMarkQMark = 165us // ??
 
-        [<Literal>]
-        let OpDeclareMultiply = 166us // (*)
+        // Lexer splits to 3 tokens
+        // [<Literal>]
+        // let OpDeclareMultiply = 166us // (*)
 
         [<Literal>]
         let LQuoteTyped = 167us // <@
@@ -1602,7 +1603,8 @@ type Token =
     | OpEquality = (KindKeyword ||| KW.Equals) // =
     | OpDynamic = (KindKeyword ||| KW.QMark) // ?
     | OpQMarkQMark = (KindKeyword ||| KW.QMarkQMark) // ??
-    | KWOpDeclareMultiply = (KindKeyword ||| KW.OpDeclareMultiply) // (*)
+    // Lexer splits to 3 tokens
+    // | KWOpDeclareMultiply = (KindKeyword ||| KW.OpDeclareMultiply) // (*)
     | OpQuotationTypedLeft = (KindKeyword ||| KW.LQuoteTyped) // <@
     | OpQuotationTypedRight = (KindKeyword ||| KW.RQuoteTyped) // @>
     | OpQuotationUntypedLeft = (KindKeyword ||| KW.LQuoteUntyped) // <@@

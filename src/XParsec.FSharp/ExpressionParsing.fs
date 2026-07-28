@@ -297,8 +297,7 @@ module Binding =
             // Named function definitions require at least one argument.
             let! argumentPats =
                 match identOrOp with
-                | IdentOrOp.ParenOp _
-                | IdentOrOp.StarOp _ -> many Pat.parseAtomicBindingArg
+                | IdentOrOp.ParenOp _ -> many Pat.parseAtomicBindingArg
                 | IdentOrOp.Ident _ when typarDefns.IsSome -> many Pat.parseAtomicBindingArg
                 | IdentOrOp.Ident _ -> Pat.parseAtomicBindingArgMany1
 

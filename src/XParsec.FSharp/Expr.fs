@@ -35,7 +35,6 @@ and Attributes<'T> = ImArr<AttributeSet<'T>>
 type IdentOrOp<'T> =
     | Ident of ident: 'T
     | ParenOp of lParen: 'T * opName: OpName<'T> * rParen: 'T
-    | StarOp of lParen: 'T * star: 'T * rParen: 'T
 
 // Represents: op-name and its variations
 and [<RequireQualifiedAccess>] OpName<'T> =

@@ -187,55 +187,19 @@ module OpName =
 module IdentOrOp =
     let private pIdentOrOpIdent = nextSyntaxIdentifierLMsg "Expected Identifier"
 
-    let private pStarOpDecl =
-        nextSyntaxTokenSatisfiesLMsg (fun t -> t.Token = Token.KWOpDeclareMultiply) "Expected '(*)'"
-
     let parse: FSParser<IdentOrOp<SyntaxToken>> =
         choiceL
             [
-                // Case 1: Simple Identifier (including backticked)
+                // Simple Identifier (including backticked)
                 pIdentOrOpIdent |>> IdentOrOp.Ident
 
-                // Case 2: Star Operator (*)
-                // Subcase 2a: Parsed as a single token KWOpDeclareMultiply `(*)`
-                (parser {
-                    let! token = pStarOpDecl
-                    // Synthesize virtual tokens to match the AST requirement of ( * )
-                    let lParen =
-                        { token with
-                            Index = TokenIndex.Virtual
-                            PositionedToken = PositionedToken.Create(Token.KWLParen, token.StartIndex)
-                        }
-
-                    let star =
-                        { token with
-                            Index = TokenIndex.Virtual
-                            PositionedToken = PositionedToken.Create(Token.OpMultiply, token.StartIndex + 1)
-                        }
-
-                    let rParen =
-                        { token with
-                            Index = TokenIndex.Virtual
-                            PositionedToken = PositionedToken.Create(Token.KWRParen, token.StartIndex + 2)
-                        }
-
-                    return IdentOrOp.StarOp(lParen, star, rParen)
-                })
-                // Subcase 2b: Parsed as separate tokens ( * )
-                <|> (parser {
-                    let! l = pLParen
-                    let! s = pOpMultiply
-                    let! r = pRParen
-                    return IdentOrOp.StarOp(l, s, r)
-                })
-
-                // Case 3: Parenthesized Operator (op) or Active Pattern (| ... |)
-                <|> (parser {
+                // Parenthesized Operator (op) or Active Pattern (| ... |)
+                parser {
                     let! l = pLParen
                     let! op = OpName.parse
                     let! r = pRParen
                     return IdentOrOp.ParenOp(l, op, r)
-                })
+                }
             ]
             "IdentOrOp"
 

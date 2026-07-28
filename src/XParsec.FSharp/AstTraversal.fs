@@ -187,12 +187,6 @@ and walkIdentOrOp (visitor: AstVisitor<'T>) (identOrOp: IdentOrOp<'T>) : unit =
         walkOpName visitor opName
         visitor.VisitToken "" rParen
         visitor.ExitSection "ParenOp"
-    | IdentOrOp.StarOp(lParen, star, rParen) ->
-        visitor.EnterSection "StarOp"
-        visitor.VisitToken "" lParen
-        visitor.VisitToken "" star
-        visitor.VisitToken "" rParen
-        visitor.ExitSection "StarOp"
 
 and walkOpName (visitor: AstVisitor<'T>) (opName: OpName<'T>) : unit =
     match opName with
