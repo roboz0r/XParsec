@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.TastPoolsTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -101,12 +102,11 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Pooled.TDecl) =
             Array.iter2 (checkExpr pools) ids bodies
         | p -> failtestf "a Type decl's pool payload is %A, not DeclPayload.Type" p
 
-/// A pooled lambda's `NodeKey`. `FunVerdicts` is keyed by the lambda id space, not the
+/// A pooled lambda's `LambdaKey`. `FunVerdicts` is keyed by the lambda id space, not the
 /// binder pool, and the Node that carried the key is gone — so the key is recomputed from
 /// the `ExprToks` column exactly as `ofPools` does. One home for that recompute, so a test
 /// cannot key a verdict differently from the code under test.
-let private pooledLambdaKey (pools: FrozenPools) (ExprPoolId i) : NodeKey =
-    NodeKey.ofToken pools.ExprToks.[i] NodeKind.ExprLambda
+let private pooledLambdaKey (pools: FrozenPools) (ExprPoolId i) : LambdaKey = LambdaKey.ofAnchor pools.ExprToks.[i]
 
 /// The id-resolution gate: the `ExprVarBinder` column is populated EXACTLY at the `Var`
 /// slots (each to an in-range `BinderId`), and each side table's source keys land on a
@@ -485,9 +485,9 @@ let pooledCarrierCoverageTests =
 // The corpus never populates `FunVerdicts` (the value-struct / stack-closure emit path
 // is not yet reachable), so the round-trip gate above never exercises the lambda id
 // space. These inject a synthetic verdict keyed by a real frozen lambda's
-// `NodeKey.ofLambdaTok` and drive the path directly: `FunVerdicts` is re-keyed onto the
+// `LambdaKey.ofAnchor` and drive the path directly: `FunVerdicts` is re-keyed onto the
 // lambda's `ExprPoolId` (off the binder pool), `ofPools` inverts back to the original
-// lambda `NodeKey`, and a key naming no pooled lambda faults.
+// `LambdaKey`, and a key naming no pooled lambda faults.
 //
 // The ARITY of that re-key is the thing to hold: the key is one-to-many over the id space,
 // so a verdict must reach every lambda its key names. The round trip cannot see a lost
@@ -495,7 +495,7 @@ let pooledCarrierCoverageTests =
 // bearer set is asserted directly.
 
 /// Every pooled `Lambda` id, grouped by the key its verdict resolves through.
-let private lambdasByKey (pools: FrozenPools) : (NodeKey * ExprPoolId list) list =
+let private lambdasByKey (pools: FrozenPools) : (LambdaKey * ExprPoolId list) list =
     [
         for i in 0 .. pools.ExprPayloads.Length - 1 do
             if ExprPayload.shape pools.ExprPayloads.[i] = ExprShape.Lambda then
@@ -505,7 +505,7 @@ let private lambdasByKey (pools: FrozenPools) : (NodeKey * ExprPoolId list) list
     |> List.map (fun (k, xs) -> k, List.map snd xs)
 
 /// The first `Lambda` expr pool entry's key — the frozen lambda to key the verdict on.
-let private firstLambdaKey (pools: FrozenPools) : NodeKey =
+let private firstLambdaKey (pools: FrozenPools) : LambdaKey =
     seq { 0 .. pools.ExprPayloads.Length - 1 }
     |> Seq.pick (fun i ->
         match ExprPayload.shape pools.ExprPayloads.[i] with
@@ -570,9 +570,9 @@ let funVerdictLambdaKeyTests =
                         ResultTyparPos = ValueNone
                     }
 
-                // An `ExprLambda` key at an offset no lambda token carries — a lambda-keyed
+                // A key on a token index past the end of any lexed file — a lambda-keyed
                 // entry naming no pooled lambda, the honest failure the resolver surfaces.
-                let bogus = NodeKey.ofSource 1_000_000 NodeKind.ExprLambda
+                let bogus = LambdaKey 1_000_000<token>
 
                 let injected =
                     { frozen with

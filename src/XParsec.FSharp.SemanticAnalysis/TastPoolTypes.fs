@@ -223,7 +223,7 @@ type FrozenPools =
         /// its own producer already filters against the tree.
         ModuleMembers: DenseTable<BinderId, ModuleBindingInfo>
         ClosureReprs: DenseTable<BinderId, ClosureRepr>
-        /// The one side table keyed by a lambda-EXPRESSION `NodeKey` (`NodeKey.ofLambdaTok`)
+        /// The one side table keyed by a lambda EXPRESSION (`LambdaKey`)
         /// rather than a binder, so it is re-keyed onto the lambda id space — a lambda's
         /// dense id IS its `ExprPoolId` (positional: every `Lambda` expr is already pooled),
         /// off the binder pool. `ofPools` inverts by recomputing that key from the lambda's

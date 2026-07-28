@@ -282,11 +282,11 @@ module TastUnpool =
             | true, b -> b
             | false, _ -> failwithf "TastUnpool: binder %O (%O) is interned but no rebuilt node introduces it" id k
 
-        // The inverse of the lambda id space: a lambda's `ExprPoolId` back to the `NodeKey`
-        // codegen looks its verdict up under. With the Node gone, recompute that key from
-        // the lambda's `ExprToks` column — `NodeKey.ofLambdaTok`, the construction `toPools`
+        // The inverse of the lambda id space: a lambda's `ExprPoolId` back to the `LambdaKey`
+        // its verdict is filed under. With the Node gone, recompute that key from the
+        // lambda's `ExprToks` column — `LambdaKey.ofAnchor`, the construction `toPools`
         // stamped the id space with.
-        let lambdaKeyOf (ExprPoolId i) : NodeKey = NodeKey.ofLambdaTok pools.ExprToks.[i]
+        let lambdaKeyOf (ExprPoolId i) : LambdaKey = LambdaKey.ofAnchor pools.ExprToks.[i]
 
         let rec fromPat (PatPoolId i) : TPatG<FrozenType, SyntaxToken, 'id> =
             let ps = pools.PatChildren.[i] |> Array.map fromPat

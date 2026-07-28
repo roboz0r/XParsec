@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // Wire format:
@@ -232,13 +233,40 @@ module NodeKey =
 
     let ofToken (firstToken: SyntaxToken) (kind: NodeKind) : NodeKey = ofSource firstToken.StartIndex kind
 
-    /// THE key a source lambda's `FunVerdicts` entry is filed and looked up under, recomputed
-    /// from the lambda's own anchor token.
+/// Identity of a source LAMBDA expression: the INDEX of its anchor token.
+///
+/// A token index and not the character offset a `NodeKey` carries, which is why this is its
+/// own type rather than a `NodeKey` of some lambda kind. The two spaces number differently,
+/// so one integer names a different node in each, and only the type keeps a key of one from
+/// being read as a key of the other. What that buys is two facts held by construction: a
+/// lambda's identity can never anchor a diagnostic or a span (both take a `NodeKey`, whose
+/// number IS a place in the source), and it can never be confused with a definition site
+/// (a lambda expression binds nothing, so it has no `BinderId` either). Distinctness and
+/// equality are the whole of what it supports.
+///
+/// One home for the mint because the producer and the two consumers are in three different
+/// domains and none of them holds the others' representation: `InferApp` files the verdict
+/// off a CST pattern token, `TastPools.toPools` stamps the pooled lambda's id space off the
+/// frozen row's token, and `TastUnpool.rebuildFile` inverts that id back off the `ExprToks`
+/// column. A verdict filed under one spelling and sought under another does not fault — it
+/// silently resolves to no lambda, and the closure it was about is emitted as if no verdict
+/// existed.
+[<Struct>]
+type LambdaKey = | LambdaKey of anchor: int<token>
+
+module LambdaKey =
+
+    /// The key of the lambda anchored on `anchor`.
     ///
-    /// One home because the producer and the two consumers are in three different domains and
-    /// none of them holds the others' representation: `InferApp` files the verdict off a CST
-    /// pattern token, `TastPools.toPools` stamps the pooled lambda's id space off the frozen
-    /// row's token, and `TastUnpool.ofPools` inverts that id back off the `ExprToks` column. A
-    /// verdict filed under one spelling and sought under another does not fault — it silently
-    /// resolves to no lambda, and the closure it was about is emitted as if no verdict existed.
-    let ofLambdaTok (anchor: SyntaxToken) : NodeKey = ofToken anchor NodeKind.ExprLambda
+    /// A VIRTUAL anchor faults rather than keying: it carries no lexed index, so there is no
+    /// identity to file under. No anchor rule can yield one — every `CstKeys.firstTokenOfPat`
+    /// arm takes a real name, a real operator or a real opening delimiter, and recovery
+    /// synthesises only CLOSING delimiters — and the same lambda's frozen row is refused by
+    /// `TastPools.toPools`' anchor check for the same reason, so this faults where that would.
+    let ofAnchor (anchor: SyntaxToken) : LambdaKey =
+        match anchor.Index with
+        | TokenIndex.Regular i -> LambdaKey i
+        | TokenIndex.Virtual ->
+            failwithf
+                "LambdaKey.ofAnchor: a lambda anchors on the VIRTUAL token %A, which the lexer never produced"
+                anchor

@@ -96,15 +96,12 @@ let private collect () : Harvest =
             | MemberKind.Property -> ()
 
     let harvestFile (file: Pooled.TastFile) =
-        // The only two `NodeKey`s a frozen file still carries: a diagnostic's anchor (which
-        // can name a node the emittable tree does not contain, so it takes no pool id) and
-        // a `FunVerdicts` key, which is on the lambda-EXPRESSION space rather than the
-        // binder space. Every binder is addressed positionally and contributes none.
+        // The ONE `NodeKey` a frozen file still carries: a diagnostic's anchor, which can
+        // name a node the emittable tree does not contain and so takes no pool id. Every
+        // binder is addressed positionally and every lambda by its own key space, so
+        // neither contributes one.
         for d in file.Diagnostics do
             nks.Add d.Key |> ignore
-
-        for KeyValue(k, _) in file.FunVerdicts do
-            nks.Add k |> ignore
 
         for k in file.IntrinsicReprKeys.Keys do
             visitSym k
@@ -368,10 +365,10 @@ let tests =
                 Expect.isGreaterThan (List.length h.FrozenTypes) 20 "FrozenTypes"
                 Expect.isGreaterThan (List.length h.SymbolKeys) 5 "SymbolKeys"
                 Expect.isGreaterThan (List.length h.TypeKeys) 2 "TypeKeys"
-                // The corpus contributes NO node key: it compiles clean (so no diagnostic
-                // anchor) and populates no `FunVerdicts`, and those are the only two a
-                // frozen file still carries. The hand-built edge cases below are the whole
-                // of this corpus, and their count is what the bound pins.
+                // The corpus contributes NO node key: it compiles clean, so it bears no
+                // diagnostic, and a diagnostic's anchor is the only one a frozen file still
+                // carries. The hand-built edge cases below are the whole of this corpus,
+                // and their count is what the bound pins.
                 Expect.isGreaterThan (List.length h.NodeKeys) 1 "NodeKeys"
                 Expect.isGreaterThan (List.length h.Tokens) 4 "Tokens"
             }

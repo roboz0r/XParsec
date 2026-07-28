@@ -46,7 +46,7 @@ module internal UnificationInferApp =
             key
             (sprintf "No definition for '%s' found — is the package that defines it referenced and opened?" spelling)
 
-    /// Record the node-keyed `Fun`-arity verdict (and its
+    /// Record the lambda-keyed `Fun`-arity verdict (and its
     /// result-typar position) for each source-lambda argument of an application.
     /// Walk the head's curried domains in lockstep with the source arguments; when a
     /// SOURCE lambda lands on a parameter whose typar bound is `:> Fun<a,b>`/`:> Fun<a,b,c>`
@@ -62,7 +62,7 @@ module internal UnificationInferApp =
         // RESULT can record `lambda → result-typar position` once `currTy`
         // reaches the tail. Recording the position in the loop is premature: `currTy`
         // is still the residual arrow, not the result nominal.
-        let lambdaSlots = ResizeArray<NodeKey * SemType>()
+        let lambdaSlots = ResizeArray<LambdaKey * SemType>()
 
         for i in 0 .. args.Length - 1 do
             match resolveStep ctx.Store currTy with
@@ -71,7 +71,7 @@ module internal UnificationInferApp =
                 // peel `EnclosedBlock` / `TypeAnnotation` wrappers — `Elaborate` strips
                 // them transparently, anchoring the frozen `Lambda` on the inner
                 // `Expr.Fun`'s FIRST parameter pattern's token (NOT the `fun` keyword).
-                // Key the verdict through `NodeKey.ofLambdaTok`, off the token the frozen
+                // Key the verdict through `LambdaKey.ofAnchor`, off the token the frozen
                 // node carries, so the pool's lambda id space stamps the same key.
                 let rec peelLambda e =
                     match e with
@@ -84,7 +84,7 @@ module internal UnificationInferApp =
                 | ValueSome arg0Pat ->
                     match funSlotArityOf ctx.Store dom with
                     | ValueSome arity ->
-                        let lamKey = NodeKey.ofLambdaTok (CstKeys.firstTokenOfPat arg0Pat)
+                        let lamKey = LambdaKey.ofAnchor (CstKeys.firstTokenOfPat arg0Pat)
                         // Arity now; the result-typar position (if any) is filled in by
                         // the second pass below, once `currTy` reaches the result nominal.
                         ctx.FunVerdicts.Set(

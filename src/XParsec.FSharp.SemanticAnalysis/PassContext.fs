@@ -9,7 +9,7 @@ open XParsec.FSharp.Parser
 // never mutated) and the PassContext that carries them through the passes.
 
 /// The one side-table container, parameterized by the KEY SPACE its entries are addressed
-/// in. Two spaces exist and they are not interchangeable — see the abbreviations below.
+/// in. Three spaces exist and they are not interchangeable — see the abbreviations below.
 [<Sealed>]
 type KeyedTable<'K, 'V when 'K: equality>() =
     let dict = Dictionary<'K, 'V>(HashIdentity.Structural)
@@ -39,6 +39,13 @@ type SideTable<'V> = KeyedTable<NodeKey, 'V>
 /// the pool's remap (`TastPools.toPools`) faults on a key naming no interned binder, and
 /// `BinderKey` is what makes such a key unwritable in the first place.
 type BinderTable<'V> = KeyedTable<BinderKey, 'V>
+
+/// A fact about a source LAMBDA EXPRESSION, addressed by its anchor token (`LambdaKey`).
+/// Neither of the other two spaces can state it: a lambda is not a definition site, so it
+/// has no `BinderKey`, and its identity is a token index rather than the source offset a
+/// `NodeKey` is. Re-keyed at the freeze onto the lambda's own dense space
+/// (`DenseTable<ExprPoolId, _>`), which is a fourth space again.
+type LambdaTable<'V> = KeyedTable<LambdaKey, 'V>
 
 [<AutoOpen>]
 module SideTablePatterns =
@@ -814,8 +821,8 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
 
         walk ty
 
-    /// The node-keyed value-struct closure verdict. Keyed by a
-    /// SOURCE-lambda argument's NodeKey; the `FunVerdict` carries the flat `FunN`
+    /// The value-struct closure verdict of a SOURCE-lambda argument, keyed by the
+    /// lambda's anchor token; the `FunVerdict` carries the flat `FunN`
     /// arity (always) and, for a transformer combinator, the result-typar position.
     /// Recorded in `inferApp` when an argument lambda lands on a typar parameter
     /// whose `:> Fun<a,b>`/`:> Fun<a,b,c>` coercion bound fires (the `subsumes` arm). The
@@ -824,7 +831,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `Arity` to size the value-struct closure's flat `Invoke`, and
     /// `ClosureVerdictRewrite` reads `ResultTyparPos` for the slot/result rewrite. A
     /// lambda with no entry is the ordinary curried closure.
-    member val FunVerdicts = SideTable<FunVerdict>() with get
+    member val FunVerdicts = LambdaTable<FunVerdict>() with get
     /// A project-local generalised binding's
     /// binder → its frozen typar bounds (`FrozenConstraint` list). Written by
     /// `Elaborate.translateModuleElem` at the single index-minting point (so the

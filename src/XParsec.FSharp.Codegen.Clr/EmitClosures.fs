@@ -763,13 +763,12 @@ module EmitClosures =
     /// The source-lambda argument nodes that lower onto a zero-alloc
     /// value-struct, each mapped to the FLAT `FunN` arity its constrained slot
     /// demands (`1` for `Fun<_,_>`, `2` for `Fun<_,_,_>`). The decision is the
-    /// node-keyed verdict `inferApp` recorded when the
+    /// verdict `inferApp` recorded when the
     /// `subsumes(TyFun, Fun`2`/`Fun`3`)` arm fired — codegen no longer
     /// re-derives it structurally (the prior all-`GSimple` + bare-method-typar walk
     /// was a fragile reconstruction of what `subsumes` already knew, and could not
-    /// see an external combinator head). A lambda's frozen node carries the same
-    /// `fun`-keyword token its CST node keyed off, so its `NodeKey` (recomputed
-    /// `ofToken … ExprLambda`) indexes the verdict map. Walking every lambda and
+    /// see an external combinator head). The freeze re-keyed it onto the lambda's own
+    /// `ExprId`, so there is nothing here to recompute. Walking every lambda and
     /// testing membership covers project-local and external heads in one path.
     let private collectStackLambdaArgs
         (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)

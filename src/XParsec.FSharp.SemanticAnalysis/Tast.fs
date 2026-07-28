@@ -103,7 +103,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// (or any anonymous lambda) defaults to `Heap`. Inert today — emission
         /// still forces heap.
         ClosureReprs: Map<BinderKeyG<'id>, ClosureRepr>
-        /// A SOURCE-lambda argument's `NodeKey` → its
+        /// A SOURCE-lambda argument's `LambdaKey` → its
         /// value-struct closure verdict (`FunVerdict`: the flat `FunN` arity, plus
         /// the result-typar position for a transformer combinator). Snapshotted from
         /// `ctx.FunVerdicts`; `discoverClosures` reads `Arity` to size the closure's
@@ -113,10 +113,10 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// curried closure.
         ///
         /// The one table that does NOT ride `'id`: a lambda EXPRESSION is not a
-        /// definition site, so its key lives in the node space and not in the binder
+        /// definition site, so its key lives in the lambda space and not in the binder
         /// space the axis names. The pooled form re-keys it onto the lambda's own dense
         /// space (`DenseTable<ExprPoolId, _>`), which is a third space again.
-        FunVerdicts: Map<NodeKey, FunVerdict>
+        FunVerdicts: Map<LambdaKey, FunVerdict>
         /// A project-local generalised binding's
         /// binder → its frozen typar bounds (method-axis-indexed
         /// `FrozenConstraint` templates). Snapshotted at `Elaborate.run` (where the

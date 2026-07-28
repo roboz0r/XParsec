@@ -419,7 +419,9 @@ module TastPools =
         /// `ExprVarBinder`.
         | VarRef of binder: 'id * at: ExprPoolId
         /// A source lambda's slot in the lambda id space, with the token
-        /// `NodeKey.ofLambdaTok` computes its key from.
+        /// `LambdaKey.ofAnchor` computes its key from. The TOKEN and not the key: this walk
+        /// is shared with the overlay sink, which mints nodes anchored on no lexed token —
+        /// and drops the event unread, so the mint must not happen before the sink asks.
         | LambdaPooled of tok: SyntaxToken * at: ExprPoolId
 
     /// A definition site as a pooling sink sees it: the binder, plus the token that SPELLS
@@ -721,7 +723,7 @@ module TastPools =
 
         // The lambda id space: a source lambda's dense id IS its `ExprPoolId` (positional —
         // every `Lambda` expr is already in the `Expr*` columns), paired with the key its
-        // `FunVerdicts` entry is filed under (`NodeKey.ofLambdaTok`).
+        // `FunVerdicts` entry is filed under (`LambdaKey.ofAnchor`).
         //
         // A LIST, not a key→id map, because the key is one-to-MANY over this space and a map
         // could only keep one of the nodes. Two lambdas share a key whenever they share a
@@ -731,7 +733,7 @@ module TastPools =
         // second tree over the same source as the emitted function it was stashed from. The
         // verdict belongs to ALL of them; a map would have silently given it to whichever was
         // pooled last, and left every other copy to emit as an ordinary heap closure.
-        let lambdaSlots = ResizeArray<struct (ExprPoolId * NodeKey)>()
+        let lambdaSlots = ResizeArray<struct (ExprPoolId * LambdaKey)>()
 
         let internBinder (site: BinderSite<'id>) : BinderId =
             let k = BinderKey.identity site.Binder
@@ -811,7 +813,7 @@ module TastPools =
                     fun ev ->
                         match ev with
                         | PooledEvent.VarRef(binder, ExprPoolId id) -> varBindings.Add(struct (id, binder))
-                        | PooledEvent.LambdaPooled(tok, id) -> lambdaSlots.Add(struct (id, NodeKey.ofLambdaTok tok))
+                        | PooledEvent.LambdaPooled(tok, id) -> lambdaSlots.Add(struct (id, LambdaKey.ofAnchor tok))
             }
 
         let roots = file.Decls |> EqArray.toArray |> Array.map (poolDecl sink)
@@ -887,7 +889,7 @@ module TastPools =
         // a verdict key that stamped no pooled lambda is a table entry addressing nothing,
         // the same defect `binderIdOf` faults on for the binder-keyed tables.
         let funVerdicts =
-            let matched = System.Collections.Generic.HashSet<NodeKey>()
+            let matched = System.Collections.Generic.HashSet<LambdaKey>()
 
             let rows =
                 [|
