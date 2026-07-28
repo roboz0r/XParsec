@@ -55,7 +55,7 @@ let private rejectsResidual (fragment: string) (src: string) =
 
     Expect.isTrue
         (tast.Diagnostics
-         |> List.exists (fun d -> d.Severity = Severity.Error && d.Message.Contains fragment))
+         |> List.exists (fun d -> Diagnostic.isError d && d.Message.Contains fragment))
         (sprintf
             "expected a residual diagnostic naming %s, got: %A"
             fragment
@@ -379,10 +379,7 @@ let tests =
                 // in the backend. One diagnostic, at the annotation, naming what was written.
                 let tast = analyse "let go (w: Foo.Bar.Baz) = fprintf w \"%d\" 42"
 
-                let errors =
-                    tast.Diagnostics
-                    |> List.filter (fun d -> d.Severity = Severity.Error)
-                    |> List.map (fun d -> d.Message)
+                let errors = tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message)
 
                 Expect.equal errors [ "The type 'Foo.Bar.Baz' is not defined" ] "one diagnostic, naming the type"
             }
@@ -612,7 +609,7 @@ let tests =
                         "open Vesper\nlet fmt : Format<int -> string, unit, string, string> = \"%d %s\"\nlet s = sprintf fmt 1 \"a\""
 
                 Expect.isTrue
-                    (tast.Diagnostics |> List.exists (fun d -> d.Severity = Severity.Error))
+                    (tast.Diagnostics |> List.exists Diagnostic.isError)
                     "arity-mismatched format annotation → an error diagnostic (not a throw)"
             }
 

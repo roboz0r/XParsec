@@ -117,10 +117,7 @@ let forInTests =
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseSem provider src lexed file
 
-                let errors =
-                    tast.Diagnostics
-                    |> Seq.filter (fun d -> d.Severity = Severity.Error)
-                    |> Seq.toList
+                let errors = tast.Diagnostics |> Diagnostic.errors |> Seq.toList
 
                 Expect.isEmpty errors (sprintf "duck-typed for-in should type-check; got %A" errors)
             }
@@ -241,10 +238,7 @@ let forInTests =
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseSem provider src lexed file
 
-                let errors =
-                    tast.Diagnostics
-                    |> Seq.filter (fun d -> d.Severity = Severity.Error)
-                    |> Seq.toList
+                let errors = tast.Diagnostics |> Diagnostic.errors |> Seq.toList
 
                 Expect.isEmpty errors (sprintf "user duck-typed for-in should type-check; got %A" errors)
             }
@@ -485,10 +479,7 @@ let forInTests =
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseSem provider src lexed file
 
-                let errors =
-                    tast.Diagnostics
-                    |> Seq.filter (fun d -> d.Severity = Severity.Error)
-                    |> Seq.toList
+                let errors = tast.Diagnostics |> Diagnostic.errors |> Seq.toList
 
                 Expect.isEmpty errors (sprintf "user-interface for-in should type-check; got %A" errors)
             }

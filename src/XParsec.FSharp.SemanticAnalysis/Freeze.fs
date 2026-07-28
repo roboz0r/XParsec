@@ -277,11 +277,13 @@ module Freeze =
                 | "" -> string k
                 | spelled -> spelled
 
-            ctx.Error(
+            ctx.Report(
                 declTok,
-                sprintf
-                    "This inline binding cannot be published: its body references %s, which has no exportable identity (a top-level binding declares no module, so it has no symbol key a consumer could resolve). Move it into a module."
-                    (free |> List.map (fun site -> sprintf "'%s'" (name site)) |> String.concat ", ")
+                Kind.Message(
+                    sprintf
+                        "This inline binding cannot be published: its body references %s, which has no exportable identity (a top-level binding declares no module, so it has no symbol key a consumer could resolve). Move it into a module."
+                        (free |> List.map (fun site -> sprintf "'%s'" (name site)) |> String.concat ", ")
+                )
             )
 
             false

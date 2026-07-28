@@ -178,6 +178,12 @@ module FrozenCodecPrimitives =
         | 1uy -> TyparAxis.Method
         | b -> failwithf "FrozenCodec: unknown TyparAxis tag %d" b
 
+    let writeStringList (w: BinaryWriter) (xs: string list) =
+        writeListWith w (fun w (s: string) -> w.Write s) xs
+
+    let readStringList (r: BinaryReader) : string list =
+        readListWith r (fun r -> r.ReadString())
+
     let writeStringArray (w: BinaryWriter) (xs: EqArray<string>) =
         writeEqArrayWith w (fun w (s: string) -> w.Write s) xs
 

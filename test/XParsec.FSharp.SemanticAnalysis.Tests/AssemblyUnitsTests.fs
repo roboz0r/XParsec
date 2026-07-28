@@ -26,7 +26,7 @@ let private units (results: Result<FrozenUnit, UnitError> list) : FrozenUnit lis
 /// the qualified miss with an "Unresolved" message).
 let private unresolvedErrors (u: FrozenUnit) : Diagnostic list =
     u.Frozen.Residue.Diagnostics
-    |> List.filter (fun d -> d.Severity = Severity.Error && d.Message.Contains "Unresolved")
+    |> List.filter (fun d -> Diagnostic.isError d && d.Message.Contains "Unresolved")
 
 /// A unit's TYPE-RESOLUTION-miss errors, both message families. An unresolved VALUE name
 /// is phrased "Unresolved …"; a TYPE name that fails to resolve in annotation / signature
@@ -36,7 +36,7 @@ let private unresolvedErrors (u: FrozenUnit) : Diagnostic list =
 let private definitionErrors (u: FrozenUnit) : Diagnostic list =
     u.Frozen.Residue.Diagnostics
     |> List.filter (fun d ->
-        d.Severity = Severity.Error
+        Diagnostic.isError d
         && (d.Message.Contains "Unresolved" || d.Message.Contains "is not defined")
     )
 
@@ -282,7 +282,7 @@ module N =
                 // No provider-miss field-read error leaked (the pre-R3 failure mode).
                 let unknownRecord =
                     f2.Frozen.Residue.Diagnostics
-                    |> List.filter (fun d -> d.Severity = Severity.Error && d.Message.Contains "Unknown record")
+                    |> List.filter (fun d -> Diagnostic.isError d && d.Message.Contains "Unknown record")
 
                 Expect.isEmpty
                     unknownRecord
@@ -337,7 +337,7 @@ module N =
                 let recordErrors =
                     f2.Frozen.Residue.Diagnostics
                     |> List.filter (fun d ->
-                        d.Severity = Severity.Error
+                        Diagnostic.isError d
                         && (d.Message.Contains "Unknown record"
                             || d.Message.Contains "No record type matches"
                             || d.Message.Contains "Field set is ambiguous")
@@ -406,7 +406,7 @@ module N =
                 let patternErrors =
                     f2.Frozen.Residue.Diagnostics
                     |> List.filter (fun d ->
-                        d.Severity = Severity.Error
+                        Diagnostic.isError d
                         && (d.Message.Contains "Unknown record"
                             || d.Message.Contains "No record type matches"
                             || d.Message.Contains "has no field")
@@ -474,8 +474,7 @@ module N =
                 // unification mismatch would slip past `definitionErrors`, which filters only
                 // the not-defined / unresolved families).
                 Expect.isEmpty
-                    (f2.Frozen.Residue.Diagnostics
-                     |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
                         "pure cross-unit annotation raises no error (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
@@ -521,8 +520,7 @@ module N =
                 // Ctor param + member return both annotate the SAME prior-unit type, so their
                 // one (flattened) identity is used consistently — no error at all.
                 Expect.isEmpty
-                    (f2.Frozen.Residue.Diagnostics
-                     |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
                         "member-signature annotation raises no error (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
@@ -584,8 +582,7 @@ module N =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (f2.Frozen.Residue.Diagnostics
-                     |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
                         "annotation + construction of a cross-unit module-held record agree on identity (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
@@ -629,9 +626,7 @@ module N =
 
                 let f2 = all.[1]
 
-                let errs =
-                    f2.Frozen.Residue.Diagnostics
-                    |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errs = f2.Frozen.Residue.Diagnostics |> Diagnostic.errors
 
                 Expect.isNonEmpty
                     errs
@@ -670,9 +665,7 @@ module N =
 
                 let f2 = all.[1]
 
-                let errs =
-                    f2.Frozen.Residue.Diagnostics
-                    |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errs = f2.Frozen.Residue.Diagnostics |> Diagnostic.errors
 
                 Expect.isNonEmpty
                     errs
@@ -726,7 +719,7 @@ module N =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", caller ]
                     |> units
                     |> fun all -> all.[1].Frozen.Residue.Diagnostics
-                    |> List.filter (fun d -> d.Severity = Severity.Error)
+                    |> Diagnostic.errors
 
                 let pubErrs = errorsOf publicCaller
                 let privErrs = errorsOf privateCaller
@@ -771,8 +764,7 @@ module N =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (f2.Frozen.Residue.Diagnostics
-                     |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
                         "a prior unit's primitive resolves in a later unit's annotation (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
@@ -813,8 +805,7 @@ type IdInt() =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (f2.Frozen.Residue.Diagnostics
-                     |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
                         "cross-unit interface dispatch + conformance resolve the abstract method (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
@@ -861,8 +852,7 @@ module N =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (f2.Frozen.Residue.Diagnostics
-                     |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
                         "a same-namespace later file resolves a prior unit's type bare (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)

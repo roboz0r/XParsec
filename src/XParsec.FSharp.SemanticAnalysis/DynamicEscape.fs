@@ -20,17 +20,6 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 module DynamicEscape =
 
-    /// A short display name for the escaped type in the warning message. Scalars
-    /// (`int`, `string`) are the overwhelming case; a nominal or anything else
-    /// falls back to the structural render.
-    let private shown (t: SemType) : string =
-        match t with
-        | TyConst(key, _) ->
-            let (DisplayName name) = SymbolKeyOps.simpleName key
-            name
-        | TyClass(n, _) -> SymbolKeyOps.typeMetaName n
-        | other -> sprintf "%A" other
-
     let run (ctx: PassContext) : unit =
         for site in ctx.DynamicEscapes do
             if not (ctx.DynamicEscapeSuppressed.Contains site.Node.Key) then
@@ -40,12 +29,4 @@ module DynamicEscape =
                 | TyDynamic -> ()
                 | TyVar _ -> ()
                 | escaped ->
-                    let name = shown escaped
-
-                    ctx.Warn(
-                        site.Node.Tok,
-                        sprintf
-                            "implicit escape from 'dynamic' to '%s': the compiler cannot verify this member access. Annotate the '?' expression — '(expr : %s)' — to assert the type explicitly."
-                            name
-                            name
-                    )
+                    ctx.Report(site.Node.Tok, Kind.DynamicEscape(UnificationEngineCore.shown ctx.Store escaped))

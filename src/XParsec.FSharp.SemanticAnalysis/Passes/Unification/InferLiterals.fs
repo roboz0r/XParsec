@@ -148,12 +148,12 @@ module internal UnificationInferLiterals =
             | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 when m1.Equals m2 ->
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
             | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 ->
-                ctx.Error(tok, sprintf "Measure mismatch: <%O> vs <%O>" m1 m2)
+                ctx.Report(tok, Kind.MeasureMismatch(string m1, string m2))
 
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
             | ("op_Addition" | "op_Subtraction"), ValueSome m, ValueNone
             | ("op_Addition" | "op_Subtraction"), ValueNone, ValueSome m ->
-                ctx.Error(tok, sprintf "Measure mismatch: dimensionless vs <%O>" m)
+                ctx.Report(tok, Kind.DimensionlessMeasureMismatch(string m))
 
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
             | "op_Multiply", ValueSome m1, ValueSome m2 ->
@@ -167,12 +167,12 @@ module internal UnificationInferLiterals =
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.inv m))))
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some ctx.Intrinsics.Bool
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name ->
-                ctx.Error(tok, sprintf "Measure mismatch: <%O> vs <%O>" m1 m2)
+                ctx.Report(tok, Kind.MeasureMismatch(string m1, string m2))
 
                 Some ctx.Intrinsics.Bool
             | name, ValueSome m, ValueNone
             | name, ValueNone, ValueSome m when isComparisonOp name ->
-                ctx.Error(tok, sprintf "Measure mismatch: dimensionless vs <%O>" m)
+                ctx.Report(tok, Kind.DimensionlessMeasureMismatch(string m))
 
                 Some ctx.Intrinsics.Bool
             | _ -> None

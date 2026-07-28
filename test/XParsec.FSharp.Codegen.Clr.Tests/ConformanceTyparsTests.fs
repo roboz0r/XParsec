@@ -75,8 +75,7 @@ let tests =
                 let tast =
                     Pipeline.analyseForSelfHost "Vesper.Printf" analysisProvider src lexed file
 
-                let analysisErrors =
-                    tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors
 
                 Expect.isEmpty analysisErrors (sprintf "Vesper.Printf impl analyses cleanly; got %A" analysisErrors)
 

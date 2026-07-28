@@ -44,7 +44,10 @@ module internal UnificationInferIdentExpr =
                 match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
                 | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
                 | ValueNone ->
-                    errorTy ctx node.Tok (sprintf "Operator '%s' is not available from the symbol provider" name)
+                    errorTy
+                        ctx
+                        node.Tok
+                        (Kind.Message(sprintf "Operator '%s' is not available from the symbol provider" name))
             | ValueNone -> TyVar(freshTyVar ctx)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
@@ -81,7 +84,7 @@ module internal UnificationInferIdentExpr =
             if einfo.HasCase caseName then
                 TyEnum einfo.TypeKey
             else
-                errorTy ctx node.Tok (sprintf "Enum '%s' has no case '%s'" einfo.Name caseName)
+                errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Enum, einfo.Name, caseName))
         // Two-segment qualified reference whose head is *not* a local binding:
         // `Math.Pi` / `Lst.Empty` / `Result2.Ok`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
@@ -121,7 +124,7 @@ module internal UnificationInferIdentExpr =
                         // registry, bypassing the CtorIndex ambiguity check.
                         match resolveQualifiedCtor ctx (ctx.UseSiteAt node.Key) headName tailName with
                         | ValueSome info -> ctorType ctx info
-                        | ValueNone -> errorTy ctx node.Tok (sprintf "Union '%s' has no case '%s'" headName tailName)
+                        | ValueNone -> errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Union, headName, tailName))
                 | ValueNone ->
                     // Qualified external union case (`Option.Some`) — the head is
                     // an external union, not a local one. NameResolution stamped
@@ -164,14 +167,7 @@ module internal UnificationInferIdentExpr =
 
                         match info with
                         | ValueSome i -> ctorType ctx i
-                        | ValueNone when count >= 2 ->
-                            errorTy
-                                ctx
-                                node.Tok
-                                (sprintf
-                                    "Ambiguous constructor '%s'; declared in %d union types — add a qualifier or annotation"
-                                    n
-                                    count)
+                        | ValueNone when count >= 2 -> errorTy ctx node.Tok (Kind.AmbiguousConstructor(n, count))
                         | ValueNone ->
                             // External union case ctor (`Some` / `None` from a
                             // referenced package, in scope via `open`): typed as
@@ -209,7 +205,7 @@ module internal UnificationInferIdentExpr =
                             // member arm.
                             match tryQualifiedExternalMemberMiss ctx e with
                             | ValueSome(qual, memberName) ->
-                                errorTy ctx node.Tok (sprintf "Type '%s' has no value or member '%s'" qual memberName)
+                                errorTy ctx node.Tok (Kind.NoMember(qual, MemberNoun.ValueOrMember, memberName))
                             | ValueNone -> TyVar(freshTyVar ctx)
 
     and qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =

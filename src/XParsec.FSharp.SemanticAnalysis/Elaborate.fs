@@ -112,9 +112,10 @@ module Elaborate =
 
             if attrs |> Array.exists (fun a -> not a.IsDefault) then
                 if not b.inlineToken.IsSome then
-                    ctx.Error(
+                    ctx.Report(
                         (CstKeys.siteOfBinding b).Tok,
-                        "A parameter attribute such as [<CallAtMostOnce>] is only valid on a parameter of an 'inline' function"
+                        Kind.Message
+                            "A parameter attribute such as [<CallAtMostOnce>] is only valid on a parameter of an 'inline' function"
                     )
                 else
                     attrs
@@ -135,14 +136,16 @@ module Elaborate =
                                     pk
                             | ValueSome(pk, scope) when paramUsedAtMostOnce pk scope -> ()
                             | ValueSome _ ->
-                                ctx.Error(
+                                ctx.Report(
                                     CstKeys.firstTokenOfPat b.argumentPats.[i],
-                                    "A [<CallAtMostOnce>] parameter must be used at most once in the body, and not under a lambda or loop"
+                                    Kind.Message
+                                        "A [<CallAtMostOnce>] parameter must be used at most once in the body, and not under a lambda or loop"
                                 )
                             | ValueNone ->
-                                ctx.Error(
+                                ctx.Report(
                                     CstKeys.firstTokenOfPat b.argumentPats.[i],
-                                    "[<CallAtMostOnce>] is not supported on this parameter shape (it must be a single named parameter)"
+                                    Kind.NotYetSupported
+                                        "[<CallAtMostOnce>] on this parameter shape (it must be a single named parameter)"
                                 )
                     )
 
@@ -1255,25 +1258,29 @@ module Elaborate =
             // The literal is no primitive constant at all, and the two reasons are
             // different things to tell the user — `52I` is not an out-of-range magnitude.
             | Error ConstRejection.OutOfRange ->
-                ctx.Error(
+                ctx.Report(
                     idTok,
-                    "An enum case value is not representable at its authored width (a negative value has no unsigned representation)"
+                    Kind.Message
+                        "An enum case value is not representable at its authored width (a negative value has no unsigned representation)"
                 )
 
                 ValueNone
             | Error ConstRejection.CustomLiteral ->
-                ctx.Error(
+                ctx.Report(
                     idTok,
-                    "An enum case value must be a primitive integer literal; a custom numeric literal ('52I') is a call to a NumericLiteral module, not a constant"
+                    Kind.Message
+                        "An enum case value must be a primitive integer literal; a custom numeric literal ('52I') is a call to a NumericLiteral module, not a constant"
                 )
 
                 ValueNone
             | Ok other ->
-                ctx.Error(
+                ctx.Report(
                     idTok,
-                    sprintf
-                        "An enum case value must be an integer or string literal; '%A' is not a valid enum constant"
-                        other
+                    Kind.Message(
+                        sprintf
+                            "An enum case value must be an integer or string literal; '%A' is not a valid enum constant"
+                            other
+                    )
                 )
 
                 ValueNone
@@ -1284,9 +1291,9 @@ module Elaborate =
             match StringLiterals.tryEnumCaseStringLiteral ctx v with
             | ValueSome s -> ValueSome(TEnumLiteral.String s)
             | ValueNone ->
-                ctx.Error(
+                ctx.Report(
                     idTok,
-                    "An enum case value must be a literal string; an interpolated string is not a constant"
+                    Kind.Message "An enum case value must be a literal string; an interpolated string is not a constant"
                 )
 
                 ValueNone
@@ -1306,9 +1313,9 @@ module Elaborate =
             | ValueSome(TEnumLiteral.Int(TConstValue.Integral(w, bits))) when IntWidth.isSigned w ->
                 ValueSome(TEnumLiteral.Int(TConstValue.Integral(w, IntWidth.negate w bits)))
             | ValueSome(TEnumLiteral.Int(TConstValue.Integral _)) ->
-                ctx.Error(
+                ctx.Report(
                     idTok,
-                    "A negative enum case value has no unsigned representation; use a signed integer width"
+                    Kind.Message "A negative enum case value has no unsigned representation; use a signed integer width"
                 )
 
                 ValueNone
@@ -1317,12 +1324,12 @@ module Elaborate =
             // but kept for exhaustiveness). Reject.
             | ValueSome(TEnumLiteral.String _)
             | ValueSome(TEnumLiteral.Int _) ->
-                ctx.Error(idTok, "An enum case value must be a literal integer or string constant, not an expression")
+                ctx.Report(idTok, Kind.EnumCaseNotConstant)
 
                 ValueNone
             | ValueNone -> ValueNone
         | _ ->
-            ctx.Error(idTok, "An enum case value must be a literal integer or string constant, not an expression")
+            ctx.Report(idTok, Kind.EnumCaseNotConstant)
 
             ValueNone
 
@@ -1368,12 +1375,7 @@ module Elaborate =
         | ValueSome TEnumVariant.Mixed ->
             let (EnumTypeCase(ident = firstId)) = cases.[0]
 
-            ctx.Warn(
-                firstId,
-                sprintf
-                    "Enum '%s' mixes integer and string case values; heterogeneous enums are legal but discouraged"
-                    name
-            )
+            ctx.Report(firstId, Kind.HeterogeneousEnum name)
         | _ -> ()
 
         // CLR uniform-width invariant: a `System.Enum` has exactly one underlying
@@ -1381,16 +1383,18 @@ module Elaborate =
         // (`| A = 1uy | B = 2L`) are a hard error. Unsuffixed `Int` cases are
         // width-flexible (they adopt the single explicit width present) and never
         // conflict; string / mixed enums carry no integral width. Reported at the
-        // offending case's token, via the same `ctx.Error` channel.
+        // offending case's token, via the same diagnostic channel.
         match TEnumCases.firstWidthConflict tcases with
         | ValueSome(tok, w0, w1) ->
-            ctx.Error(
+            ctx.Report(
                 tok,
-                sprintf
-                    "Enum '%s' mixes integral widths '%s' and '%s'; a CLR enum has a single underlying type"
-                    name
-                    w0
-                    w1
+                Kind.Message(
+                    sprintf
+                        "Enum '%s' mixes integral widths '%s' and '%s'; a CLR enum has a single underlying type"
+                        name
+                        w0
+                        w1
+                )
             )
         | ValueNone -> ()
 
@@ -2105,7 +2109,7 @@ module Elaborate =
         // so degrade elaboration to diagnostics-only (drop the decls, keep the errors)
         // rather than crash. With NO prior error, elaboration runs unguarded, so a
         // `failwith` on well-formed input still surfaces loudly as the compiler bug it is.
-        let hasErrors = ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error)
+        let hasErrors = ctx.Diagnostics |> Seq.exists Diagnostic.isError
 
         let decls =
             if hasErrors then

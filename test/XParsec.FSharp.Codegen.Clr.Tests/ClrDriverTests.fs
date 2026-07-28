@@ -98,6 +98,6 @@ let tests =
                 | Ok _ -> failtest "expected the type error to be returned as diagnostics"
                 | Error ds ->
                     Expect.isNonEmpty ds "at least one diagnostic"
-                    Expect.all ds (fun d -> d.Severity = Severity.Error) "all returned diagnostics are errors"
+                    Expect.all ds Diagnostic.isError "all returned diagnostics are errors"
             }
         ]

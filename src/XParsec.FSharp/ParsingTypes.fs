@@ -306,35 +306,57 @@ module DiagnosticCode =
     /// (`Expected 'KWRParen'`) where the seam prints the glyph.
     let expecting (t: Token) = $"Expected '{spelling t}'"
 
-    /// How a parse diagnostic presents on the FAR side of the parser boundary: the stable
-    /// code a consumer filters on, and the English it renders. THE SEAM — the parser owns
-    /// its own error vocabulary, and this is the one place that vocabulary is flattened
-    /// into the two strings a consumer still spells a diagnostic with.
-    let acrossSeam (code: DiagnosticCode) : struct (string * string) =
-        match code with
-        | DiagnosticCode.Other msg -> struct ("Other", msg)
-        | DiagnosticCode.TyparInConstant _ ->
-            struct ("TyparInConstant", "A unit-of-measure on a constant cannot mention a type parameter")
-        | DiagnosticCode.MissingExpression -> struct ("MissingExpression", "Expected an expression")
-        | DiagnosticCode.MissingPattern -> struct ("MissingPattern", "Expected a pattern")
-        | DiagnosticCode.MissingType -> struct ("MissingType", "Expected a type")
-        | DiagnosticCode.MissingRule -> struct ("MissingRule", "Expected a match rule")
-        | DiagnosticCode.MissingTypeDefn -> struct ("MissingTypeDefn", "Expected a type definition")
-        | DiagnosticCode.MissingModuleElem -> struct ("MissingModuleElem", "Expected a module declaration")
-        | DiagnosticCode.UnexpectedTopLevel -> struct ("UnexpectedTopLevel", "Unexpected token(s) at the top level")
-        | DiagnosticCode.ExpectedEnd -> struct ("ExpectedEnd", expecting Token.KWEnd)
-        | DiagnosticCode.ExpectedRParen -> struct ("ExpectedRParen", expecting Token.KWRParen)
-        | DiagnosticCode.ExpectedRBracket -> struct ("ExpectedRBracket", expecting Token.KWRBracket)
-        | DiagnosticCode.ExpectedRArrayBracket -> struct ("ExpectedRArrayBracket", expecting Token.KWRArrayBracket)
-        | DiagnosticCode.ExpectedRBraceBar -> struct ("ExpectedRBraceBar", expecting Token.KWRBraceBar)
-        | DiagnosticCode.ExpectedQuotationTypedRight ->
-            struct ("ExpectedQuotationTypedRight", expecting Token.OpQuotationTypedRight)
-        | DiagnosticCode.ExpectedQuotationUntypedRight ->
-            struct ("ExpectedQuotationUntypedRight", expecting Token.OpQuotationUntypedRight)
+    // How a parse diagnostic presents on the FAR side of the parser boundary. THE SEAM —
+    // the parser owns its own error vocabulary, and these are the one place that vocabulary
+    // becomes the two things a consumer still spells a diagnostic with. TWO functions and
+    // not one pair-returning function: every caller wants one half, and for the delimiter
+    // cases the discarded half is an interpolated string that would be built anyway.
+
+    /// The stable code a consumer filters on.
+    let code (c: DiagnosticCode) : string =
+        match c with
+        | DiagnosticCode.Other _ -> "Other"
+        | DiagnosticCode.TyparInConstant _ -> "TyparInConstant"
+        | DiagnosticCode.MissingExpression -> "MissingExpression"
+        | DiagnosticCode.MissingPattern -> "MissingPattern"
+        | DiagnosticCode.MissingType -> "MissingType"
+        | DiagnosticCode.MissingRule -> "MissingRule"
+        | DiagnosticCode.MissingTypeDefn -> "MissingTypeDefn"
+        | DiagnosticCode.MissingModuleElem -> "MissingModuleElem"
+        | DiagnosticCode.UnexpectedTopLevel -> "UnexpectedTopLevel"
+        | DiagnosticCode.ExpectedEnd -> "ExpectedEnd"
+        | DiagnosticCode.ExpectedRParen -> "ExpectedRParen"
+        | DiagnosticCode.ExpectedRBracket -> "ExpectedRBracket"
+        | DiagnosticCode.ExpectedRArrayBracket -> "ExpectedRArrayBracket"
+        | DiagnosticCode.ExpectedRBraceBar -> "ExpectedRBraceBar"
+        | DiagnosticCode.ExpectedQuotationTypedRight -> "ExpectedQuotationTypedRight"
+        | DiagnosticCode.ExpectedQuotationUntypedRight -> "ExpectedQuotationUntypedRight"
+        | DiagnosticCode.UnclosedDelimiter _ -> "UnclosedDelimiter"
+        | DiagnosticCode.MismatchedDelimiter _ -> "MismatchedDelimiter"
+
+    /// The English it renders.
+    let message (c: DiagnosticCode) : string =
+        match c with
+        | DiagnosticCode.Other msg -> msg
+        | DiagnosticCode.TyparInConstant _ -> "A unit-of-measure on a constant cannot mention a type parameter"
+        | DiagnosticCode.MissingExpression -> "Expected an expression"
+        | DiagnosticCode.MissingPattern -> "Expected a pattern"
+        | DiagnosticCode.MissingType -> "Expected a type"
+        | DiagnosticCode.MissingRule -> "Expected a match rule"
+        | DiagnosticCode.MissingTypeDefn -> "Expected a type definition"
+        | DiagnosticCode.MissingModuleElem -> "Expected a module declaration"
+        | DiagnosticCode.UnexpectedTopLevel -> "Unexpected token(s) at the top level"
+        | DiagnosticCode.ExpectedEnd -> expecting Token.KWEnd
+        | DiagnosticCode.ExpectedRParen -> expecting Token.KWRParen
+        | DiagnosticCode.ExpectedRBracket -> expecting Token.KWRBracket
+        | DiagnosticCode.ExpectedRArrayBracket -> expecting Token.KWRArrayBracket
+        | DiagnosticCode.ExpectedRBraceBar -> expecting Token.KWRBraceBar
+        | DiagnosticCode.ExpectedQuotationTypedRight -> expecting Token.OpQuotationTypedRight
+        | DiagnosticCode.ExpectedQuotationUntypedRight -> expecting Token.OpQuotationUntypedRight
         | DiagnosticCode.UnclosedDelimiter(opened, expected) ->
-            struct ("UnclosedDelimiter", $"Unclosed '{spelling opened.Token}': {expecting expected}")
+            $"Unclosed '{spelling opened.Token}': {expecting expected}"
         | DiagnosticCode.MismatchedDelimiter(opened, expected) ->
-            struct ("MismatchedDelimiter", $"Wrong close for '{spelling opened.Token}': {expecting expected}")
+            $"Wrong close for '{spelling opened.Token}': {expecting expected}"
 
     /// What the secondary label on the OPENING delimiter says. Both delimiter diagnostics
     /// point back at the same thing, so the wording is decided once rather than per code.

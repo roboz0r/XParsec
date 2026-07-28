@@ -18,7 +18,7 @@ let private analyseAs (assemblyName: string) (input: string) =
 let private errors (tast: TastFile) =
     [
         for d in tast.Diagnostics do
-            if d.Severity = Severity.Error then
+            if Diagnostic.isError d then
                 yield d.Message
     ]
 
@@ -118,7 +118,7 @@ let tests =
                     let errors =
                         [
                             for d in tast.Diagnostics do
-                                if d.Severity = Severity.Error then
+                                if Diagnostic.isError d then
                                     yield d.Message
                         ]
 
@@ -145,9 +145,7 @@ let tests =
                     let tast =
                         analyse "type Foo = { X: int }\ntype Foo<'a> = 'a -> 'a\nlet f (v: Foo) = v.X"
 
-                    Expect.isEmpty
-                        (tast.Diagnostics |> Seq.filter (fun d -> d.Severity = Severity.Error))
-                        "bare `Foo` is the record, so `v.X` types"
+                    Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "bare `Foo` is the record, so `v.X` types"
                 }
 
             // THE PREMISE, ENFORCED — the CS0433 analogue. A `SymbolKey` carries no home

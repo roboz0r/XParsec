@@ -607,7 +607,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
                 let _, tast = Pipeline.analyseSemWithContext provider src lexed file
 
-                tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                tast.Diagnostics |> Diagnostic.errors
 
             test "implementing the seq capability and its generic BCL face is a diagnostic" {
                 let errors =

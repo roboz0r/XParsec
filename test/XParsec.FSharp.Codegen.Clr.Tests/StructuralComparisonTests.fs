@@ -31,8 +31,7 @@ let tests =
         let generic = typedefof<IComparable<_>>.MakeGenericType ty
         generic.IsAssignableFrom ty && typeof<IComparable>.IsAssignableFrom ty
 
-    let errors (tast: TastFile) =
-        tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
     /// Invoke the typed `CompareTo(Self)` (not the boxed `IComparable`
     /// override) so the test sees the raw `int` the body returns. Both

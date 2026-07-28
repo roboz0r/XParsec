@@ -765,7 +765,7 @@ let staticTests =
                 let lexed, file = parseFile src
                 let _, tast = Pipeline.analyseSemWithContext provider src lexed file
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Diagnostics |> Diagnostic.errors
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
                 let mutable staticCalls = 0
@@ -1740,7 +1740,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
                 let ctx, tast = Pipeline.analyseSemWithContext provider src lexed file
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Diagnostics |> Diagnostic.errors
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "C" with
@@ -1774,7 +1774,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
                 let _, tast = Pipeline.analyseSemWithContext provider src lexed file
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Diagnostics |> Diagnostic.errors
 
                 Expect.isNonEmpty errors "implementing a concrete class as an interface diagnoses"
 
@@ -1808,7 +1808,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
                 let ctx, tast = Pipeline.analyseSemWithContext provider src lexed file
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Diagnostics |> Diagnostic.errors
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
                 match TypeRegistry.tryClass ctx.Types UseSite.unbounded "C" with
@@ -1850,7 +1850,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
                 let ctx, tast = Pipeline.analyseSemWithContext provider src lexed file
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Diagnostics |> Diagnostic.errors
 
                 // The impl member's free `'T` is the enclosing struct's type
                 // parameter, threaded into the impl scope — NOT a genuinely-free
@@ -1889,7 +1889,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
                 let _, tast = Pipeline.analyseSemWithContext provider src lexed file
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Diagnostics |> Diagnostic.errors
 
                 Expect.isNonEmpty errors "a return-type mismatch against the interface diagnoses"
 
@@ -1915,10 +1915,17 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
                 let _, tast = Pipeline.analyseSemWithContext provider src lexed file
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = Diagnostic.errors tast.Diagnostics
 
+                // The interface not declaring `Nope` IS "that type has no member of that
+                // name"; asked of the verdict, so the two readings cannot drift apart.
                 Expect.isTrue
-                    (errors |> List.exists (fun d -> d.Message.Contains "does not define a member"))
+                    (errors
+                     |> List.exists (fun d ->
+                         match d.Kind with
+                         | Kind.NoMember(_, MemberNoun.Member, "Nope") -> true
+                         | _ -> false
+                     ))
                     "the unknown member 'Nope' is rejected"
 
                 Expect.isTrue
@@ -2246,7 +2253,7 @@ let coercionTests =
         let provider = ClrSymbolProviders.buildContract defaultManifests
         let lexed, file = parseFile src
         let _, tast = Pipeline.analyseSemWithContext provider src lexed file
-        tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+        tast.Diagnostics |> Diagnostic.errors
 
     testList
         "ClassCoercion"

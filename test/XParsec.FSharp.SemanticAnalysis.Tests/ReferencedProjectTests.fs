@@ -399,7 +399,7 @@ let tests =
                 // found a home in the contract's auto-opened operator modules.
                 let failures =
                     ctx.Diagnostics
-                    |> Seq.filter (fun d -> d.Severity = Severity.Error)
+                    |> Diagnostic.errors
                     |> Seq.map (fun d -> d.Message)
                     |> List.ofSeq
 
@@ -432,7 +432,7 @@ let tests =
                 Unification.run ctx file
 
                 ctx.Diagnostics
-                |> Seq.filter (fun d -> d.Severity = Severity.Error)
+                |> Diagnostic.errors
                 |> Seq.map (fun d -> d.Message)
                 |> List.ofSeq
 

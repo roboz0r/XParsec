@@ -897,7 +897,7 @@ let unionInterfaceImplTests =
             test "a union implementing a local interface surfaces the impl on TTypeKind.Union.interfaces" {
                 let tast = analyse src
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Diagnostics |> Diagnostic.errors
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
                 // Pre-slice this froze as `Union(cases, members)` with the impl gone;
@@ -958,7 +958,7 @@ let unionInterfaceImplTests =
 
                 let tast = analyse src
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Diagnostics |> Diagnostic.errors
 
                 Expect.isEmpty
                     errors
@@ -1011,7 +1011,7 @@ let recordInterfaceImplTests =
             test "a record implementing a local interface surfaces the impl on TTypeKind.Record.interfaces" {
                 let tast = analyse src
 
-                let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Diagnostics |> Diagnostic.errors
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
                 let interfaces =

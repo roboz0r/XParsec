@@ -41,11 +41,7 @@ let private clrBackend: Backend =
                     Some(RunOutcome.Completed(runEntryPoint bytes))
                 with ex ->
                     Some(RunOutcome.Faulted ex.Message)
-        Diagnostics =
-            fun src ->
-                (analyse src).Diagnostics
-                |> List.filter (fun d -> d.Severity = Severity.Error)
-                |> List.map (fun d -> d.Message)
+        Diagnostics = fun src -> (analyse src).Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message)
     }
 
 [<Tests>]

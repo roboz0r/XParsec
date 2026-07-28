@@ -47,8 +47,6 @@ module Pipeline =
 
         [
             for d in List.rev diagnostics do
-                let struct (code, message) = DiagnosticCode.acrossSeam d.Code
-
                 let site, related =
                     match d.Code with
                     // The close was never written: the parser SYNTHESISED one, so the
@@ -63,40 +61,32 @@ module Pipeline =
                         | Some last -> Site.spanning [ d.Token; last ], []
                         | None -> Site.ofToken d.Token, []
 
-                {
-                    Code = code
-                    Message = message
-                    Severity = Severity.Error
-                    Site = site
-                    Related = related
-                }
+                Diagnostic.create (Kind.Parse d.Code) site related
         ]
 
     /// The SHARED front-end parse chain (lex → `Reader.ofLexed` → `FSharpAst.parse`),
     /// the one home for every driver's parse: a bare-expression `ScriptFragment` wraps as
     /// an `AnonymousModule`, and lex/parse failures surface as `Diagnostic`s (never
-    /// exceptions) stamped with the caller's `code` — the only delta between drivers
-    /// (`"DRV"` for the CLR driver, `"ASM"` for the multi-file assembly pipeline). The
-    /// parser's own recovery diagnostics ride out on BOTH arms.
-    let parse (code: string) (source: string) : Result<ParsedUnit, ParseFailure> =
-        // A whole-file lex/parse failure names no place in the file.
-        let fail (message: string) : Diagnostic = Diagnostic.nowhere code message
-
+    /// exceptions). WHICH driver ran is not a property of the failure, so nothing here is
+    /// stamped with a caller-supplied code: the kind says what went wrong. The parser's own
+    /// recovery diagnostics ride out on BOTH arms.
+    let parse (source: string) : Result<ParsedUnit, ParseFailure> =
         match Lexing.lexString source with
         | Result.Error e ->
             Error
                 {
                     Lexed = ValueNone
-                    Diagnostics = [ fail (sprintf "lex error: %A" e) ]
+                    // A whole-file lex failure names no place in the file.
+                    Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure(sprintf "%A" e)) ]
                 }
         | Result.Ok lexed ->
             let reader = Reader.ofLexed lexed source Set.empty
 
-            let failed (message: string) =
+            let failed (kind: Kind) =
                 Error
                     {
                         Lexed = ValueSome lexed
-                        Diagnostics = fail message :: ofParseDiagnostics reader.State.Diagnostics
+                        Diagnostics = Diagnostic.nowhere kind :: ofParseDiagnostics reader.State.Diagnostics
                     }
 
             let parsed (file: ImplementationFile<SyntaxToken>) =
@@ -108,11 +98,23 @@ module Pipeline =
                     }
 
             match FSharpAst.parse reader with
-            | Result.Error e -> failed (sprintf "parse error: %A" e)
+            | Result.Error e -> failed (Kind.ParseFailure(sprintf "%A" e))
             | Result.Ok(FSharpAst.ImplementationFile f) -> parsed f
             | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
                 parsed (ImplementationFile.AnonymousModule elems)
-            | Result.Ok other -> failed (sprintf "unexpected AST: %A" other)
+            | Result.Ok other -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" other))
+
+    /// `parse`, refusing a tree the parser had to PATCH. A recovered parse is not a
+    /// compilable one — every inserted delimiter and every `Expr.Missing` is a hole the
+    /// source did not fill — so the rule is a property of the product, stated once here
+    /// rather than re-derived by each driver and each test harness.
+    let parseUnrecovered (source: string) : Result<ParsedUnit, Diagnostic list> =
+        match parse source with
+        | Error f -> Error f.Diagnostics
+        | Ok parsed ->
+            match parsed.Diagnostics with
+            | [] -> Ok parsed
+            | recovered -> Error recovered
 
     /// Runs every pass through the `SemType` domain and returns the populated
     /// `PassContext` plus the **`SemType`** `TastFile` — the pre-freeze tree. This is

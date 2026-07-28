@@ -30,12 +30,13 @@ module internal UnificationInferLiteralExpr =
         (display: string)
         : unit =
         match rTok.Index with
-        | TokenIndex.Virtual -> ctx.Error(tok, sprintf "Mismatched or missing closing delimiter: expected '%s'" display)
+        | TokenIndex.Virtual ->
+            ctx.Report(tok, Kind.Message(sprintf "Mismatched or missing closing delimiter: expected '%s'" display))
         | TokenIndex.Regular _ when rTok.Token <> expected ->
             // Defensive: pEnclosed only emits a real rParen when the peeked
             // token matched, so this can't trigger today — guards against a
             // future parser change letting a mismatched close-token through.
-            ctx.Error(tok, sprintf "Mismatched closing delimiter: expected '%s'" display)
+            ctx.Report(tok, Kind.Message(sprintf "Mismatched closing delimiter: expected '%s'" display))
         | TokenIndex.Regular _ -> ()
 
     /// The list type a `[…]` literal carries. Two cases:
@@ -109,9 +110,10 @@ module internal UnificationInferLiteralExpr =
                         // misleading FS3371 — ours is accurate. Still unify the value
                         // type (the last of `argTypes`) as best-effort recovery.
                         if p.Width = FormatDim.Star || p.Precision = FormatDim.Star then
-                            ctx.Error(
+                            ctx.Report(
                                 (CstKeys.firstTokenOfExpr e),
-                                "star width/precision takes its value from a printf argument; interpolated strings have none"
+                                Kind.Message
+                                    "star width/precision takes its value from a printf argument; interpolated strings have none"
                             )
 
                         // `%a`/`%t` consume a printf callback curried from the

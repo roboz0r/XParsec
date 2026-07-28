@@ -64,13 +64,7 @@ module internal UnificationInferPat =
                 ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
                 ty
             | ValueSome i ->
-                ctx.Error(
-                    tok,
-                    sprintf
-                        "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
-                        n
-                        i.Fields.Length
-                )
+                ctx.Report(tok, Kind.NullaryConstructorPattern(n, i.Fields.Length))
 
                 let unionInfo = TypeRegistry.unionOfCase ctx.Types i
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
@@ -79,10 +73,7 @@ module internal UnificationInferPat =
                 ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
                 ty
             | ValueNone when count >= 2 ->
-                ctx.Error(
-                    tok,
-                    sprintf "Ambiguous constructor '%s'; declared in %d union types — add a qualifier" n count
-                )
+                ctx.Report(tok, Kind.AmbiguousConstructor(n, count))
 
                 TyVar(freshTv ctx key)
             | ValueNone -> TyVar(freshTv ctx key)
@@ -97,13 +88,7 @@ module internal UnificationInferPat =
             let unionTy, fields = externalCasePattern ctx uc
 
             if fields.Length <> 0 then
-                ctx.Error(
-                    tok,
-                    sprintf
-                        "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
-                        (ctx.NameOf t)
-                        fields.Length
-                )
+                ctx.Report(tok, Kind.NullaryConstructorPattern(ctx.NameOf t, fields.Length))
 
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome unionTy)
@@ -153,7 +138,7 @@ module internal UnificationInferPat =
             let caseName = ctx.NameOf li.Idents.[1]
 
             if not (einfo.HasCase caseName) then
-                ctx.Error(tok, sprintf "Enum '%s' has no case '%s'" einfo.Name caseName)
+                ctx.Report(tok, Kind.NoCase(CaseOwner.Enum, einfo.Name, caseName))
 
             for sub in args do
                 inferPat ctx sub |> ignore
@@ -184,13 +169,7 @@ module internal UnificationInferPat =
                     match resolveCtorName ctx (ctx.UseSiteAt key) name with
                     | ValueSome i, _ -> ValueSome i
                     | ValueNone, count when count >= 2 ->
-                        ctx.Error(
-                            tok,
-                            sprintf
-                                "Ambiguous constructor '%s'; declared in %d union types — add a qualifier"
-                                name
-                                count
-                        )
+                        ctx.Report(tok, Kind.AmbiguousConstructor(name, count))
 
                         ValueNone
                     | _ -> ValueNone
@@ -215,14 +194,7 @@ module internal UnificationInferPat =
                         List.ofSeq args
 
                 if subPats.Length <> i.Fields.Length then
-                    ctx.Error(
-                        tok,
-                        sprintf
-                            "Constructor '%s' expects %d argument(s) but got %d"
-                            i.Name
-                            i.Fields.Length
-                            subPats.Length
-                    )
+                    ctx.Report(tok, Kind.ConstructorArity(i.Name, i.Fields.Length, subPats.Length))
 
                 let unionInfo = TypeRegistry.unionOfCase ctx.Types i
                 let args, subst = freshNamedInstance ctx unionInfo.TypeParams
@@ -260,10 +232,7 @@ module internal UnificationInferPat =
                     List.ofSeq args
 
             if subPats.Length <> fields.Length then
-                ctx.Error(
-                    tok,
-                    sprintf "Constructor '%s' expects %d argument(s) but got %d" caseName fields.Length subPats.Length
-                )
+                ctx.Report(tok, Kind.ConstructorArity(caseName, fields.Length, subPats.Length))
 
             let m = min subPats.Length fields.Length
 
@@ -433,9 +402,9 @@ module internal UnificationInferPat =
                     match fieldTypeOf fieldName with
                     | ValueSome fieldTy -> unify ctx (CstKeys.firstTokenOfPat sub) subTy fieldTy
                     | ValueNone ->
-                        ctx.Error(
+                        ctx.Report(
                             CstKeys.firstTokenOfPat sub,
-                            sprintf "Type '%s' has no field '%s'" (resolvedRecordDisplayName r) fieldName
+                            Kind.NoMember(resolvedRecordDisplayName r, MemberNoun.Field, fieldName)
                         )
 
                 let recTy = TyRecord(recKey, args)

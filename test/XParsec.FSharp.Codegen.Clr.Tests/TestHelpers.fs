@@ -51,21 +51,16 @@ let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 let pooledDecls (frozen: FrozenPools) : TastAccessor.DeclId list =
     TastAccessor.roots (TastPoolBuilder.openOver frozen) |> List.ofArray
 
-/// Lex + parse a source string; script fragments wrap as `AnonymousModule`.
+/// Lex + parse a source string; script fragments wrap as `AnonymousModule`. Through
+/// `Pipeline.parseUnrecovered`, the same gate the driver compiles behind, so a source that
+/// parses only because RECOVERY patched it raises here rather than being analysed as though
+/// it had been written that way.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
     // `Result.Ok`/`Result.Error` are qualified because `open ...SemanticAnalysis`
     // brings `Severity.Error` into scope, which would otherwise shadow them.
-    match Lexing.lexString input with
-    | Result.Error e -> failwithf "lex failed: %A" e
-    | Result.Ok lexed ->
-        let reader = Reader.ofLexed lexed input Set.empty
-
-        match FSharpAst.parse reader with
-        | Result.Error e -> failwithf "parse failed: %A" e
-        | Result.Ok(FSharpAst.ImplementationFile f) -> lexed, f
-        | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
-            lexed, ImplementationFile.AnonymousModule elems
-        | Result.Ok ast -> failwithf "unexpected AST: %A" ast
+    match Pipeline.parseUnrecovered input with
+    | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
+    | Result.Ok parsed -> parsed.Lexed, parsed.File
 
 /// `<repo-root>/tmp/<name>`, created. Walks up to the repo root (holding
 /// `claude_tools.cmd`) so artifacts land somewhere stable and inspectable
@@ -818,8 +813,7 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let tast =
         Pipeline.analyseForSelfHost project.AssemblyName provider source lexed file
 
-    let errs =
-        tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
     if not (List.isEmpty errs) then
         failwithf
@@ -886,8 +880,7 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     let tast =
         Pipeline.analyseForSelfHost project.AssemblyName provider source lexed file
 
-    let errs =
-        tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
     if not (List.isEmpty errs) then
         failwithf
@@ -1099,8 +1092,7 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let lexed, file = parseFile src
     let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
 
-    let analysisErrors =
-        tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors
 
     if not (List.isEmpty analysisErrors) then
         failwithf
@@ -1177,7 +1169,7 @@ let private analysePackagesErrors (packages: string list) (src: string) : Diagno
 
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider src lexed file
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    tast.Diagnostics |> Diagnostic.errors
 
 /// Analyse `src` against `packages`; assert NO error diagnostics, without running
 /// it — the front-end-only probe.
@@ -1220,7 +1212,7 @@ let private analyseErrors (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider src lexed file
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    tast.Diagnostics |> Diagnostic.errors
 
 /// Analyse `src`; assert it produced an error diagnostic whose message contains
 /// `fragment`. The negative direction the suite was missing — pins that bad

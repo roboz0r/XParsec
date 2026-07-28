@@ -429,7 +429,7 @@ let tests =
 
                 let errors =
                     frozen.Diagnostics
-                    |> List.filter (fun d -> d.Severity = Severity.Error && d.Message.Contains "cannot be published")
+                    |> List.filter (fun d -> Diagnostic.isError d && d.Message.Contains "cannot be published")
 
                 Expect.isNonEmpty errors "the free `Var` is reported"
             }

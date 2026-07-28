@@ -184,7 +184,7 @@ let tests =
                 let ctx =
                     analyse "type C() =\n    static member Plus (x: int) = x + 1\nlet r = C.Plus(2)"
 
-                let hasErr = ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error)
+                let hasErr = ctx.Diagnostics |> Seq.exists Diagnostic.isError
                 Expect.isFalse hasErr "no error diagnostics"
             }
 
@@ -253,7 +253,7 @@ let tests =
                 // backstop must surface the breakage on `ctx.Diagnostics` so
                 // downstream consumers that don't read the parser stream
                 // (Elaborate, codegen) still see a problem.
-                let ctx = analyse "let xs = [| 1; 2 ]"
+                let ctx = analyseRecovered "let xs = [| 1; 2 ]"
 
                 let hasCloseDiag =
                     ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "closing delimiter")

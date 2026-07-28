@@ -109,7 +109,7 @@ let private analyse (body: string) : Diagnostic list =
     let input = prelude + "\n" + body + "\n"
     let lexed, file = parseFile input
     let tast = Pipeline.analyseSemForSelfHost idProvider input lexed file
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    tast.Diagnostics |> Diagnostic.errors
 
 [<Tests>]
 let tests =

@@ -26,8 +26,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 [<Tests>]
 let tests =
-    let errors (tast: TastFile) =
-        tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
     let declaredInstance =
         BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly

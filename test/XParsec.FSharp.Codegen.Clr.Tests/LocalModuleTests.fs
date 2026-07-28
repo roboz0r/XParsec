@@ -12,7 +12,7 @@ let private compiles (src: string) : unit =
     let errs =
         [
             for d in (analyse src).Diagnostics do
-                if d.Severity = Severity.Error then
+                if Diagnostic.isError d then
                     yield d.Message
         ]
 

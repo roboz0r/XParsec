@@ -74,9 +74,10 @@ module NameResolutionMemberRegistration =
                     with _ ->
                         declTok
 
-                ctx.Error(
+                ctx.Report(
                     patTok,
-                    "Constructor argument patterns must be simple identifiers (with optional type annotation) in v1"
+                    Kind.NotYetSupported
+                        "a constructor argument pattern other than a simple identifier (with optional type annotation)"
                 )
 
         walk p
@@ -268,7 +269,7 @@ module NameResolutionMemberRegistration =
         : TypeMemberInfo[] =
         let memberInfos = ResizeArray<TypeMemberInfo>()
 
-        let diagnose msg = ctx.Error(declTok, msg)
+        let diagnose (kind: Kind) = ctx.Report(declTok, kind)
 
         // The seed typars + declared prefix are fixed here, at construction, and never
         // change (immutable on `TypeMemberInfo`); only generalisation later mutates a
@@ -384,11 +385,11 @@ module NameResolutionMemberRegistration =
 
                     registerAbstractMethod idOrOp tds isStatic kind
                 | MethodOrPropDefn.PropertyWithGetSet _ ->
-                    diagnose "Properties with explicit `get`/`set` blocks are not yet supported"
+                    diagnose (Kind.NotYetSupported "properties with explicit `get`/`set` blocks")
                 | MethodOrPropDefn.AbstractSignature _ ->
                     // The non-MethodOrPropSig form is the property-signature form
                     // (`abstract Item : int with get`).
-                    diagnose "Abstract property signatures are not yet supported"
+                    diagnose (Kind.NotYetSupported "abstract property signatures")
             | TypeDefnElement.Member(MemberDefn.Value _) ->
                 // `val [mutable] x: T` explicit instance fields are
                 // *not* `TypeMemberInfo`s — class registration extracts them
@@ -410,7 +411,7 @@ module NameResolutionMemberRegistration =
                 // A bare `interface IFace` spec (no inline members) carries no
                 // bodies to register. Spec-only conformance is deferred.
                 ()
-            | TypeDefnElement.Inherit _ -> diagnose "Inheritance is not yet supported"
+            | TypeDefnElement.Inherit _ -> diagnose (Kind.NotYetSupported "inheritance")
 
         memberInfos.ToArray()
 
@@ -495,13 +496,14 @@ module NameResolutionMemberRegistration =
 
         // Every rejection here is a property of the CLASS, not of the offending entry, and so
         // is anchored at `declTok`: a class with three instance entries and no primary ctor
-        // would otherwise report one identical error per entry at a single site. One message,
-        // once.
-        let reported = HashSet<string>()
+        // would otherwise report one identical error per entry at a single site. One verdict,
+        // once — counted over the VERDICT, so two entries failing the same way are one report
+        // whatever the sentence happens to say.
+        let reported = HashSet<Kind>()
 
-        let diagnose msg =
-            if reported.Add msg then
-                ctx.Error(declTok, msg)
+        let diagnose (kind: Kind) =
+            if reported.Add kind then
+                ctx.Report(declTok, kind)
 
         // An instance `let`/`do` runs in the PRIMARY ctor. Two shapes have no ctor that can run
         // it, and F# rejects both:
@@ -512,15 +514,23 @@ module NameResolutionMemberRegistration =
         // Diagnose and drop: an accepted entry would mint a field no ctor ever initialises.
         let instanceAllowed (isDo: bool) =
             if not hasPrimaryCtor then
-                diagnose "An instance `let` or `do` binding may only be used in a type with a primary constructor"
+                diagnose (
+                    Kind.Message
+                        "An instance `let` or `do` binding may only be used in a type with a primary constructor"
+                )
+
                 false
             elif isValueType then
                 if isDo then
-                    diagnose
-                        "Structs cannot contain `do` bindings because the default constructor for structs would not execute these bindings"
+                    diagnose (
+                        Kind.Message
+                            "Structs cannot contain `do` bindings because the default constructor for structs would not execute these bindings"
+                    )
                 else
-                    diagnose
-                        "Structs cannot contain value definitions because the default constructor for structs will not execute these bindings"
+                    diagnose (
+                        Kind.Message
+                            "Structs cannot contain value definitions because the default constructor for structs will not execute these bindings"
+                    )
 
                 false
             else
@@ -544,7 +554,8 @@ module NameResolutionMemberRegistration =
                             let tv = ctx.NewTypeVar()
                             ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
                             acc.Add(ClassPreambleEntry.Let(ClassLetInfo(name, TyVar tv, key, b, isRec.IsSome)))
-                        | _ -> diagnose "Only simple `let x = …` bindings are supported in a class preamble"
+                        | _ ->
+                            diagnose (Kind.NotYetSupported "a class-preamble binding other than a simple `let x = …`")
                 | ValueNone -> ()
             | ClassFunctionOrValueDefn.Do(staticToken = st; expr = e) ->
                 if st.IsSome then
@@ -831,7 +842,7 @@ module NameResolutionMemberRegistration =
                 ValueSome(li, [ translateInheritArg ctx typarScope bt ])
             | _ -> ValueNone
 
-        let diagnose (tok: SyntaxToken) (msg: string) = ctx.Error(tok, msg)
+        let diagnose (tok: SyntaxToken) (kind: Kind) = ctx.Report(tok, kind)
 
         match head t with
         | ValueNone -> ValueNone
@@ -842,7 +853,7 @@ module NameResolutionMemberRegistration =
             if li.Idents.Length <> 1 then
                 let qual = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-                diagnose nameTok (sprintf "Inheriting from a qualified base type '%s' is not yet supported" qual)
+                diagnose nameTok (Kind.NotYetSupported(sprintf "inheriting from a qualified base type '%s'" qual))
                 ValueNone
             else
                 let name = ctx.NameOf nameTok
@@ -857,10 +868,12 @@ module NameResolutionMemberRegistration =
                     | ValueNone ->
                         diagnose
                             nameTok
-                            (sprintf
-                                "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
-                                name
-                                repr)
+                            (Kind.Message(
+                                sprintf
+                                    "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
+                                    name
+                                    repr
+                            ))
 
                         ValueNone
 
@@ -909,9 +922,11 @@ module NameResolutionMemberRegistration =
                         | None ->
                             diagnose
                                 nameTok
-                                (sprintf
-                                    "Cannot inherit from '%s': it has no runtime representation on the compiling target"
-                                    name)
+                                (Kind.Message(
+                                    sprintf
+                                        "Cannot inherit from '%s': it has no runtime representation on the compiling target"
+                                        name
+                                ))
 
                             ValueNone
                     | ValueNone ->
@@ -923,9 +938,11 @@ module NameResolutionMemberRegistration =
                         if TypeRegistry.isTypeNameInScope ctx.Types (ctx.UseSiteAt diagKey) name then
                             diagnose
                                 nameTok
-                                (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)
+                                (Kind.Message(
+                                    sprintf "Cannot inherit from type '%s' — only classes are inheritable" name
+                                ))
                         else
-                            diagnose nameTok (sprintf "Cannot inherit from unknown type '%s'" name)
+                            diagnose nameTok (Kind.Message(sprintf "Cannot inherit from unknown type '%s'" name))
 
                         ValueNone
 
@@ -998,7 +1015,7 @@ module NameResolutionMemberRegistration =
                 match info.BaseType with
                 | ValueSome(TyClass(parentKey, _)) ->
                     if parentKey = start.TypeKey then
-                        ctx.Error(start.DeclSite.Tok, sprintf "Type '%s' has a cyclic inheritance hierarchy" start.Name)
+                        ctx.Report(start.DeclSite.Tok, Kind.CyclicType(start.Name, TypeCycle.Inheritance))
 
                         start.BaseType <- ValueNone
                     elif not (visited.Add parentKey) then
@@ -1151,13 +1168,7 @@ module NameResolutionMemberRegistration =
             walk startId
 
             if cyclic then
-                ctx.Error(
-                    startId.DeclSite.Tok,
-                    "FS0954",
-                    sprintf
-                        "Type '%s' involves an immediate cyclic reference through a struct field or inheritance relation"
-                        startId.Name
-                )
+                ctx.Report(startId.DeclSite.Tok, Kind.CyclicType(startId.Name, TypeCycle.Immediate))
 
     /// Register one accepted declaration's kind-specific DETAIL — fields, cases, enum case
     /// names, class members / ctor params, abbreviation RHS — plus any `with member …`

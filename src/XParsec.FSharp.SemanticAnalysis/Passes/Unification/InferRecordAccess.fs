@@ -87,9 +87,9 @@ module internal UnificationInferRecordAccess =
                 match fieldTypeOf fieldName with
                 | ValueSome fieldTy -> unifyArg ctx (CstKeys.firstTokenOfExpr e) eTy fieldTy
                 | ValueNone ->
-                    ctx.Error(
+                    ctx.Report(
                         CstKeys.firstTokenOfExpr e,
-                        sprintf "Type '%s' has no field '%s'" (resolvedRecordDisplayName r) fieldName
+                        Kind.NoMember(resolvedRecordDisplayName r, MemberNoun.Field, fieldName)
                     )
 
             TyRecord(recKey, args)
@@ -119,19 +119,19 @@ module internal UnificationInferRecordAccess =
                     | Some field ->
                         unify ctx (CstKeys.firstTokenOfExpr e) eTy (substituteWith ctx.Store subst field.Type)
                     | None ->
-                        ctx.Error(CstKeys.firstTokenOfExpr e, sprintf "Type '%s' has no field '%s'" info.Name fieldName)
+                        ctx.Report(CstKeys.firstTokenOfExpr e, Kind.NoMember(info.Name, MemberNoun.Field, fieldName))
 
                 TyRecord(recKey, srcArgs)
             | ValueNone ->
                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
-                ctx.Error(node.Tok, sprintf "Unknown record type '%s'" shown)
+                ctx.Report(node.Tok, Kind.UnknownNominalType(NominalKind.Record, shown))
 
                 for FieldInitializer(expr = e) in inits do
                     infer ctx e |> ignore
 
                 TyRecord(recKey, srcArgs)
         | _ ->
-            ctx.Error(node.Tok, "Record clone requires the source expression to be a record")
+            ctx.Report(node.Tok, Kind.Message "Record clone requires the source expression to be a record")
 
             for FieldInitializer(expr = e) in inits do
                 infer ctx e |> ignore
@@ -164,14 +164,16 @@ module internal UnificationInferRecordAccess =
                 errorTy
                     ctx
                     diagTok
-                    (sprintf
-                        "Member '%s' on type '%s' is static; access it via '%s.%s'"
-                        memberName
-                        typeName
-                        typeName
-                        memberName)
+                    (Kind.Message(
+                        sprintf
+                            "Member '%s' on type '%s' is static; access it via '%s.%s'"
+                            memberName
+                            typeName
+                            typeName
+                            memberName
+                    ))
             else
-                errorTy ctx diagTok (sprintf "Type '%s' has no instance member '%s'" typeName memberName)
+                errorTy ctx diagTok (Kind.NoMember(typeName, MemberNoun.InstanceMember, memberName))
 
     /// Resolve `memberName` on a typar receiver through an
     /// interface the typar is coerced to (`'T :> IFace`). Scans the root's
@@ -300,11 +302,10 @@ module internal UnificationInferRecordAccess =
                         // external `TyUnion` arm does.
                         match ctx.Provider.TryLookupMember(SymbolKey.Type recKey, memberName) with
                         | ValueSome m when not m.IsStatic -> commitExternalMember m args
-                        | _ ->
-                            errorTy ctx memberTok (sprintf "Type '%s' has no field or member '%s'" recQual memberName)
+                        | _ -> errorTy ctx memberTok (Kind.NoMember(recQual, MemberNoun.FieldOrMember, memberName))
                 | _ ->
-                    let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
-                    errorTy ctx memberTok (sprintf "Unknown record type '%s'" shown)
+                    let (DisplayName name) = SymbolKeyOps.typeSimpleName recKey
+                    errorTy ctx memberTok (Kind.UnknownNominalType(NominalKind.Record, name))
         | TyClass(clsKey, args) ->
             // Resolve by the (arity-qualified) key, not the bare name: an
             // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a
@@ -364,11 +365,13 @@ module internal UnificationInferRecordAccess =
                             errorTy
                                 ctx
                                 memberTok
-                                (sprintf
-                                    "type '%s' is referenced from namespace '%s' but no package in the compilation declares it"
-                                    clsSimple
-                                    ns)
-                        | _ -> errorTy ctx memberTok (sprintf "Unknown class type '%s'" clsQual)
+                                (Kind.Message(
+                                    sprintf
+                                        "type '%s' is referenced from namespace '%s' but no package in the compilation declares it"
+                                        clsSimple
+                                        ns
+                                ))
+                        | _ -> errorTy ctx memberTok (Kind.UnknownNominalType(NominalKind.Class, clsQual))
         | TyUnion(unionKey, args) ->
             // Union instance member access — mirrors the `TyClass` arm
             // against the union's augmentation members.
@@ -395,8 +398,8 @@ module internal UnificationInferRecordAccess =
                     // member miss; otherwise the type itself is unknown.
                     match ctx.Provider.TryLookupType(SymbolKey.Type unionKey) with
                     | ValueSome(ExternalTypeShape.Union _) ->
-                        errorTy ctx memberTok (sprintf "Type '%s' has no instance member '%s'" unionQual memberName)
-                    | _ -> errorTy ctx memberTok (sprintf "Unknown union type '%s'" unionQual)
+                        errorTy ctx memberTok (Kind.NoMember(unionQual, MemberNoun.InstanceMember, memberName))
+                    | _ -> errorTy ctx memberTok (Kind.UnknownNominalType(NominalKind.Union, unionQual))
         | TyVar tv ->
             let root = UnionFind.find ctx.Store tv
 
@@ -455,7 +458,7 @@ module internal UnificationInferRecordAccess =
                 errorTy
                     ctx
                     memberTok
-                    (sprintf "Type '%s' has no instance member '%s'" (SymbolKeyOps.qualifiedName declKey) memberName)
+                    (Kind.NoMember(SymbolKeyOps.qualifiedName declKey, MemberNoun.InstanceMember, memberName))
         | TyArray _ when memberName = "Length" ->
             match ctx.CoreAccess.Value.GetArrayLength with
             | ValueSome sym ->
@@ -472,9 +475,12 @@ module internal UnificationInferRecordAccess =
                     (TyFun(rTy, resultTy))
 
                 resultTy
-            | ValueNone ->
-                errorTy ctx memberTok "Array 'Length' intrinsic 'GetArrayLength' is not in scope (Vesper.Core missing?)"
-        | _ -> errorTy ctx memberTok (sprintf "Cannot read member '%s' from non-record non-class type" memberName)
+            | ValueNone -> errorTy ctx memberTok (Kind.IntrinsicNotInScope "Array 'Length' intrinsic 'GetArrayLength'")
+        | _ ->
+            errorTy
+                ctx
+                memberTok
+                (Kind.Message(sprintf "Cannot read member '%s' from non-record non-class type" memberName))
 
     and inferFieldAccess
         (infer: Infer)
@@ -522,8 +528,7 @@ module internal UnificationInferRecordAccess =
                     (TyFun(recvTy, TyFun(idxTy, resultTy)))
 
                 resultTy
-            | ValueNone ->
-                errorTy ctx node.Tok "Array indexing intrinsic 'GetArray' is not in scope (Vesper.Core missing?)"
+            | ValueNone -> errorTy ctx node.Tok (Kind.IntrinsicNotInScope "Array indexing intrinsic 'GetArray'")
 
         // String indexing (`s.[i]`) on a target with no BCL `string` metadata (JS):
         // `get_Chars` does not resolve, so route to the `GetString` inline intrinsic —
@@ -661,12 +666,7 @@ module internal UnificationInferRecordAccess =
                     unify ctx node.Tok resultTy valTy
                     ValueSome resultTy
                 | ValueNone ->
-                    ValueSome(
-                        errorTy
-                            ctx
-                            node.Tok
-                            "Index-signature intrinsic 'GetIndex' is not in scope (Vesper.Core missing?)"
-                    )
+                    ValueSome(errorTy ctx node.Tok (Kind.IntrinsicNotInScope "Index-signature intrinsic 'GetIndex'"))
 
         match resolveStep ctx.Store recvTy with
         | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->

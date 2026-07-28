@@ -311,11 +311,12 @@ let printFSharpAst (ctx: PrintContext) (input: string) (lexed: Lexed) (ast: FSha
 
 /// Formats a DiagnosticCode as a short, stable string suitable for golden-file output: the
 /// code the seam presents to a consumer, plus the payload for the cases a golden wants to
-/// see it on. Four cases carry one; `TyparInConstant`'s is a whole `Typar` subtree,
-/// deliberately dropped rather than spelled here — which is what the `| _ -> name`
-/// catch-all rests on, so a new payload-carrying case must decide before it lands there.
+/// see it on. EXHAUSTIVE, and deliberately so: under a catch-all, a new payload-carrying
+/// case would print a bare name into a golden — passing, while silently showing nothing of
+/// what it carries. `TyparInConstant`'s payload is a whole `Typar` subtree and is dropped,
+/// but that is now a decision this match states rather than one it falls into.
 let sprintDiagnosticCode (code: DiagnosticCode) : string =
-    let struct (name, _) = DiagnosticCode.acrossSeam code
+    let name = DiagnosticCode.code code
 
     match code with
     | DiagnosticCode.Other msg -> $"{name}({msg})"
@@ -324,7 +325,21 @@ let sprintDiagnosticCode (code: DiagnosticCode) : string =
         let openedBase = TokenInfo.withoutFlags opened.Token
         let expectedBase = TokenInfo.withoutFlags expected
         $"{name}({openedBase}, {expectedBase})"
-    | _ -> name
+    | DiagnosticCode.TyparInConstant _
+    | DiagnosticCode.MissingExpression
+    | DiagnosticCode.MissingPattern
+    | DiagnosticCode.MissingType
+    | DiagnosticCode.MissingRule
+    | DiagnosticCode.MissingTypeDefn
+    | DiagnosticCode.MissingModuleElem
+    | DiagnosticCode.UnexpectedTopLevel
+    | DiagnosticCode.ExpectedEnd
+    | DiagnosticCode.ExpectedRParen
+    | DiagnosticCode.ExpectedRBracket
+    | DiagnosticCode.ExpectedRArrayBracket
+    | DiagnosticCode.ExpectedRBraceBar
+    | DiagnosticCode.ExpectedQuotationTypedRight
+    | DiagnosticCode.ExpectedQuotationUntypedRight -> name
 
 /// Appends a "---\nDiagnostics:" section to the buffer when there are diagnostics.
 /// Diagnostics are emitted in source order (reversed from the accumulation order).

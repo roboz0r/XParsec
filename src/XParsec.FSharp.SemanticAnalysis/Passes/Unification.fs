@@ -615,7 +615,9 @@ module Unification =
                             ctx
                             (canonArgs.AsSpan().ToArray())
                             surface
-                            (sprintf "No applicable constructor on base '%s' for the given 'inherit' arguments" shown)
+                            (Kind.Message(
+                                sprintf "No applicable constructor on base '%s' for the given 'inherit' arguments" shown
+                            ))
                             argExpr
                     with
                     | ValueSome chosen ->
@@ -682,17 +684,15 @@ module Unification =
                             mInfo.DeclSite.Tok
                             (stripReferenceNull ctx.Store mInfo.Type)
                             (stripReferenceNull ctx.Store expected)
-                    | None ->
-                        ctx.Error(
-                            mInfo.DeclSite.Tok,
-                            sprintf "Interface '%s' does not define a member '%s'" ifaceName mInfo.Name
-                        )
+                    | None -> ctx.Report(mInfo.DeclSite.Tok, Kind.NoMember(ifaceName, MemberNoun.Member, mInfo.Name))
 
                 for em in required do
                     if not (impl.Members |> Array.exists (fun m -> m.Name = em.Name)) then
-                        ctx.Error(
+                        ctx.Report(
                             impl.DeclSite.Tok,
-                            sprintf "No implementation given for '%s' required by interface '%s'" em.Name ifaceName
+                            Kind.Message(
+                                sprintf "No implementation given for '%s' required by interface '%s'" em.Name ifaceName
+                            )
                         )
             | _ -> ()
         | _ -> ()
@@ -805,12 +805,14 @@ module Unification =
 
                     for (capability, faces) in capabilityFaces do
                         if Set.contains bare faces then
-                            ctx.Error(
+                            ctx.Report(
                                 impl.DeclSite.Tok,
-                                sprintf
-                                    "'%s' is part of the platform face of capability '%s', which this type already implements — the backend publishes that face, and everything it inherits, for the capability. Remove this interface implementation."
-                                    qual
-                                    capability
+                                Kind.Message(
+                                    sprintf
+                                        "'%s' is part of the platform face of capability '%s', which this type already implements — the backend publishes that face, and everything it inherits, for the capability. Remove this interface implementation."
+                                        qual
+                                        capability
+                                )
                             )
 
     /// Interface-impl resolution pre-pass: resolve
@@ -855,12 +857,10 @@ module Unification =
             if isInterface then
                 impl.Resolved <- ValueSome resolved
             else
-                let shown =
-                    match zonk ctx.Store resolved with
-                    | TyClass(n, _) -> SymbolKeyOps.typeMetaName n
-                    | other -> sprintf "%A" other
-
-                ctx.Error(impl.DeclSite.Tok, sprintf "Type '%s' is not an interface" shown)
+                ctx.Report(
+                    impl.DeclSite.Tok,
+                    Kind.Message(sprintf "Type '%s' is not an interface" (shown ctx.Store resolved))
+                )
 
         checkCapabilityFaceCollisions ctx info
 
@@ -1170,8 +1170,6 @@ module Unification =
     /// (it compares the resolved arg's nominal key to `info.Key`, tolerating the
     /// generic typar instantiation of the class's own type params).
     let private validateCustomEqCompImpls (ctx: PassContext) : unit =
-        let addDiag (tok: SyntaxToken) (code: string) (msg: string) = ctx.Error(tok, code, msg)
-
         // The declaring type's own nominal key — Self is `TyClass`/`TyUnion(info.Key, _)`.
         let argIsSelf (info: IInterfaceImplHost) (arg: SemType) : bool =
             match zonk ctx.Store arg with
@@ -1210,19 +1208,9 @@ module Unification =
             let requireCapability (cap: RuntimeNames.CapabilityIdentity voption) (attr: string) (capWord: string) =
                 match cap with
                 | ValueSome c when not (implementsSelf info c) ->
-                    addDiag
-                        nameTok
-                        "FS0378"
-                        (sprintf "A type with %s must implement '%s'." attr (SymbolKeyOps.qualifiedName c.SymKey))
+                    ctx.Report(nameTok, Kind.CapabilityNotImplemented(attr, SymbolKeyOps.qualifiedName c.SymKey))
                 | ValueSome _ -> ()
-                | ValueNone ->
-                    addDiag
-                        nameTok
-                        "FS0378"
-                        (sprintf
-                            "A type with %s requires the '%s' capability, which this compilation's provider does not name."
-                            attr
-                            capWord)
+                | ValueNone -> ctx.Report(nameTok, Kind.CapabilityNotNamed(attr, capWord))
 
             if needsEq then
                 requireCapability ctx.CapabilityIds.Equatable "[<CustomEquality>]" "equatable"
@@ -1235,14 +1223,14 @@ module Unification =
                 needsEq
                 && not (info.Members |> Array.exists (fun m -> m.Name = "GetHashCode" && m.IsOverride))
             then
-                addDiag nameTok "FS0344" "A type with [<CustomEquality>] must override 'Object.GetHashCode()'."
+                ctx.Report(nameTok, Kind.MissingGetHashCodeOverride)
 
             if needsCmp then
                 requireCapability ctx.CapabilityIds.Comparable "[<CustomComparison>]" "comparable"
 
                 // Coherence: custom comparison demands custom equality.
                 if not needsEq then
-                    addDiag nameTok "FS0379" "A type with [<CustomComparison>] must also have [<CustomEquality>]."
+                    ctx.Report(nameTok, Kind.CustomComparisonNeedsEquality)
 
         for kv in ctx.Types.Class do
             checkHost (kv.Value :> IInterfaceImplHost)
@@ -1267,13 +1255,7 @@ module Unification =
 
             for m in members do
                 if not (seen.Add(UnificationInferOverload.memberSignatureKey ctx.Store typeParams m)) then
-                    ctx.Error(
-                        m.DeclSite.Tok,
-                        "FS0438",
-                        sprintf
-                            "Duplicate definition of member '%s' — same name and signature as an earlier member"
-                            m.Name
-                    )
+                    ctx.Report(m.DeclSite.Tok, Kind.DuplicateMember m.Name)
 
         for kv in ctx.Types.Class do
             checkHost kv.Value.TypeParams kv.Value.Members

@@ -53,7 +53,7 @@ module AssemblyUnits =
             View: IExternalSymbolProvider
         }
 
-    /// A unit that never reached analysis: a lex/parse failure (`Pipeline.parse "ASM"`),
+    /// A unit that never reached analysis: a lex/parse failure (`Pipeline.parse`),
     /// surfaced as a unit-level error rather than thrown. Such a unit contributes NO view,
     /// so later files simply compose over the units that did parse. The failure is carried
     /// as the parser seam produced it, so the "`Lexed` present iff lexing succeeded"
@@ -102,7 +102,7 @@ module AssemblyUnits =
         let results = ResizeArray<Result<FrozenUnit, UnitError>>()
 
         for (path, source) in files do
-            match Pipeline.parse "ASM" source with
+            match Pipeline.parse source with
             | Error f ->
                 results.Add(
                     Error

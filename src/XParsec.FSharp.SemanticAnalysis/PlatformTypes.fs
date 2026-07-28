@@ -144,14 +144,7 @@ module PlatformTypes =
             | _ -> ()
 
         if acc.Count > 0 then
-            let names = acc |> Seq.sort |> String.concat ", "
-
-            ctx.ErrorAt(
-                ResolvedTypes.declSite d,
-                sprintf
-                    "PlatformTypes: type(s) with no representation on the target platform: %s — they exist only as a .NET/BCL runtime type"
-                    names
-            )
+            ctx.Report(ResolvedTypes.declSite d, Kind.UnrepresentableTypes(acc |> Seq.sort |> List.ofSeq))
 
     let run (ctx: PassContext) (tast: TastFile) : unit =
         for d in tast.Decls do

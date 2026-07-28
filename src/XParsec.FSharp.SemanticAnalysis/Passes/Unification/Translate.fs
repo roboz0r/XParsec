@@ -39,11 +39,13 @@ module internal UnificationTranslate =
         | ValueSome tv -> tv
         | ValueNone -> freshTv ctx key
 
-    /// Report an error at `tok` and recover with a fresh TyVar — the pervasive
+    /// Report `kind` at `tok` and recover with a fresh TyVar — the pervasive
     /// "diagnose and keep going" shape, so a broken subtree still yields a type
-    /// rather than aborting the walk.
-    let errorTy (ctx: PassContext) (tok: SyntaxToken) (msg: string) : SemType =
-        ctx.Error(tok, msg)
+    /// rather than aborting the walk. It takes the KIND, not a rendered message: a
+    /// producer reaching recovery through here is as much a producer as one calling
+    /// `ctx.Report` directly, and hiding it behind a `string` would hide it from the count.
+    let errorTy (ctx: PassContext) (tok: SyntaxToken) (kind: Kind) : SemType =
+        ctx.Report(tok, kind)
         TyVar(freshTyVar ctx)
 
     /// The shared tail of every WRITTEN type head no claim of this unit holds and no
@@ -102,7 +104,7 @@ module internal UnificationTranslate =
         | Measure.Anonymous _
         | Measure.Typar _
         | Measure.Named _ ->
-            ctx.Error(measureTok, "Measure typars / wildcards / qualified unit names not yet supported")
+            ctx.Report(measureTok, Kind.NotYetSupported "measure typars / wildcards / qualified unit names")
 
             MeasureTerm.empty
 
@@ -228,11 +230,13 @@ module internal UnificationTranslate =
                     // Strict (type-defn fill-in): implicit free typars aren't
                     // legal F#. Diagnose, but still mint and memoise so later
                     // occurrences share the TyVar and don't cascade.
-                    ctx.Error(
+                    ctx.Report(
                         id,
-                        sprintf
-                            "Free type parameter %s is not declared in the enclosing type's type-parameter list"
-                            name
+                        Kind.Message(
+                            sprintf
+                                "Free type parameter %s is not declared in the enclosing type's type-parameter list"
+                                name
+                        )
                     )
 
                     let tv = ctx.NewTypeVar()
@@ -564,14 +568,7 @@ module internal UnificationTranslate =
             // fall-through to an external type of the same spelling.
             match TypeRegistry.tryWrittenTypeClaimAnyArity ctx.Types useSite written with
             | ValueSome other ->
-                errorTy
-                    ctx
-                    head.Tok
-                    (sprintf
-                        "Type '%s' expects %d type argument(s) but got %d"
-                        written.Written
-                        other.TyparArity
-                        args.Length)
+                errorTy ctx head.Tok (Kind.TypeArgArity(written.Written, other.TyparArity, args.Length))
             | ValueNone ->
                 assertNoDottedStampGap ctx head.Key li args.Length
                 unresolvedHeadTy ctx head written.Written (TyVar(freshTyVar ctx))
@@ -620,10 +617,7 @@ module internal UnificationTranslate =
                 match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt head.Key) name with
                 | ValueSome claim ->
                     if claim.Kind <> TypeDeclKind.IntrinsicRepr then
-                        ctx.Error(
-                            head.Tok,
-                            sprintf "Type '%s' expects %d type argument(s) but got %d" name claim.TyparArity argCount
-                        )
+                        ctx.Report(head.Tok, Kind.TypeArgArity(name, claim.TyparArity, argCount))
 
                     resolveClaimedType ctx head claim translatedArgs
                 | ValueNone -> ValueNone
@@ -793,9 +787,13 @@ module internal UnificationTranslate =
                     if not (ctx.Store.Constraints.Items root |> List.exists (fun e -> e.Kind = sc.Kind)) then
                         ctx.Store.Constraints.Prepend(root, sc)
                 | false, _ ->
-                    ctx.Error(
+                    ctx.Report(
                         id,
-                        sprintf "Type parameter '%s' in constraint clause is not declared in the enclosing scope" name
+                        Kind.Message(
+                            sprintf
+                                "Type parameter '%s' in constraint clause is not declared in the enclosing scope"
+                                name
+                        )
                     )
 
         match c with
@@ -839,7 +837,7 @@ module internal UnificationTranslate =
         match info.Status with
         | AbbreviationStatus.Filled -> ()
         | AbbreviationStatus.InProgress ->
-            ctx.Error(info.DeclSite.Tok, sprintf "Type abbreviation '%s' is cyclic" info.Name)
+            ctx.Report(info.DeclSite.Tok, Kind.Message(sprintf "Type abbreviation '%s' is cyclic" info.Name))
 
             info.Status <- AbbreviationStatus.Filled
         | AbbreviationStatus.NotFilled ->
@@ -893,14 +891,7 @@ module internal UnificationTranslate =
             for c in ctx.Store.Constraints.Items protoRoot do
                 match checkConstraint ctx c arg with
                 | Satisfied -> ()
-                | Violated ->
-                    ctx.Error(
-                        blameTok,
-                        sprintf
-                            "The type '%A' does not support the '%s' constraint"
-                            (zonk ctx.Store arg)
-                            (constraintKindName c.Kind)
-                    )
+                | Violated -> reportConstraintViolation ctx blameTok c arg
                 | Defer -> propagateToFreeArgs ctx c arg
 
         match info.Body with

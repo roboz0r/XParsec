@@ -34,9 +34,15 @@ let private secondaryCtorParamTypes (tast: TastFile) : SemType list =
         | other -> failwithf "expected exactly one secondary ctor, got %d" other.Length
     | other -> failtestf "expected TTypeKind.Class, got %A" other
 
+/// Asked of the VERDICT, not of a message substring: the walker's restriction is that the
+/// shape is not implemented, and that is what the diagnostic classifies itself as.
 let private isCtorArgShapeError (tast: TastFile) =
-    diagnostics tast
-    |> List.exists (fun m -> m.Contains "Constructor argument patterns must be simple identifiers")
+    tast.Diagnostics
+    |> Seq.exists (fun d ->
+        match d.Kind with
+        | Kind.NotYetSupported feature -> feature.Contains "constructor argument pattern"
+        | _ -> false
+    )
 
 // Primary and secondary ctors share ONE parameter walker
 // (`MemberRegistration.ctorParamsOfPat`), which collects and resolves each parameter in

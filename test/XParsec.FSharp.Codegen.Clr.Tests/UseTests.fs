@@ -6,8 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-let private errors (tast: TastFile) =
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
 // B-5 backend tests. `use x = e in body` lowers to `let x = e in try body
 // finally if x <> null then x.Dispose()`: the IL-IR exception region (H5) wraps

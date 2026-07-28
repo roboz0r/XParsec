@@ -147,10 +147,7 @@ module ResolvedTypes =
             ()
 
         if acc.Count > 0 then
-            ctx.ErrorAt(
-                declSite d,
-                sprintf "ResolvedTypes: TAST contains %d unresolved TyVar(s) — inference bug" acc.Count
-            )
+            ctx.Report(declSite d, Kind.UnresolvedTyVars acc.Count)
 
     let run (ctx: PassContext) (tast: TastFile) : unit =
         let allowed = HashSet<TyVarId>()

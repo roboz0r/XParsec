@@ -32,8 +32,7 @@ let tests =
         let iface = typedefof<IEquatable<_>>.MakeGenericType ty
         iface.IsAssignableFrom ty
 
-    let errors (tast: TastFile) =
-        tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
     testList
         "Equality verdicts"

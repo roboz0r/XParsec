@@ -273,23 +273,18 @@ module ConformancePass =
     // `.fs` was deleted (and which is not declared impl-free) is an FS0240 hard error
     // by construction.
 
-    /// `V240` — the FS0240 family: a sig binding with no impl (`MissingInImpl` /
-    /// `ValueMissingInImpl`), an extern/intrinsic drift, or an un-exempted `SigOnly`
-    /// contract. `V241` — a leading-module/namespace pairing disagreement. `V242` — a
-    /// compiled `.fs` with no `.fsi` contract. `V243` — a stale/unknown `sig-only`
-    /// exemption (declared impl-free but a companion `.fs` exists, or the named `.fsi`
-    /// is not a contract at all). `V244` — a contract `.fsi` or its companion `.fs`
-    /// failed to parse, so that pair could not be conformed (the other contracts still
-    /// are).
+    /// One `ConformanceVerdict` per finding; which `V24x` code each carries is
+    /// `ConformanceVerdict.code`'s answer, not prose here.
     ///
     /// Empty = the package conforms; a non-empty result must fail the build.
     // `Diagnostic` is qualified throughout this pass rather than aliased; see the type's
     // declaration for why the bare name would otherwise be the parser's.
     let enforce (outcome: PackageOutcome) : XParsec.FSharp.SemanticAnalysis.Diagnostic list =
         // A package-level conformance verdict is about a signature, not a place in any one
-        // file.
-        let err (code: string) (message: string) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
-            Diagnostic.nowhere code (sprintf "%s: %s" outcome.Package message)
+        // file. The package rides on every one of them, so it is named here rather than at
+        // the seven sites below.
+        let err (verdict: ConformanceVerdict) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
+            Diagnostic.nowhere (Kind.Conformance(outcome.Package, verdict))
 
         // The contract `.fsi` files actually present, split by pairing verdict — the
         // basis for catching a `sig-only` exemption that names a non-contract or a
@@ -319,49 +314,30 @@ module ConformancePass =
                 match p with
                 | PairOutcome.Paired r ->
                     for e in r.Errors do
-                        yield err "V240" (sprintf "%s: %s" r.SigFile (Conformance.describe e))
+                        yield err (ConformanceVerdict.Unimplemented(r.SigFile, Conformance.describe e))
 
                     match r.ModuleMismatch with
                     | Some mm ->
                         yield
-                            err
-                                "V241"
-                                (sprintf
-                                    "%s ↔ %s: the paired files' leading module/namespace declarations disagree ('%s' vs '%s')"
-                                    r.SigFile
-                                    r.ImplFile
-                                    mm.SigDecl
-                                    mm.ImplDecl)
+                            err (
+                                ConformanceVerdict.ModulePairingMismatch(r.SigFile, r.ImplFile, mm.SigDecl, mm.ImplDecl)
+                            )
                     | None -> ()
                 | PairOutcome.SigOnly s ->
                     if not (outcome.SigOnlyExemptions.Contains s) then
-                        yield
-                            err
-                                "V240"
-                                (sprintf
-                                    "the signature file '%s' has no corresponding implementation file and is not declared `sig-only` in the manifest"
-                                    s)
+                        yield err (ConformanceVerdict.SigWithoutImpl s)
                 | PairOutcome.ParseFailed(sigFile, detail) ->
-                    yield
-                        err
-                            "V244"
-                            (sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail)
+                    yield err (ConformanceVerdict.PairParseFailure(sigFile, detail))
 
             for f in outcome.ImplOnly do
-                yield err "V242" (sprintf "the implementation file '%s' has no '.fsi' contract" f)
+                yield err (ConformanceVerdict.ImplWithoutContract f)
 
             // A declared exemption is stale if its `.fsi` actually pairs with a `.fs`,
             // and unknown if it names no contract in the package at all — both keep the
             // single exemption source honest.
             for ex in outcome.SigOnlyExemptions do
                 if pairedSigs.Contains ex then
-                    yield
-                        err
-                            "V243"
-                            (sprintf
-                                "'%s' is declared `sig-only` but a companion implementation exists — remove the stale exemption"
-                                ex)
+                    yield err (ConformanceVerdict.StaleSigOnly ex)
                 elif not (sigOnlySigs.Contains ex) then
-                    yield
-                        err "V243" (sprintf "`sig-only` names '%s', which is not a contract `.fsi` in this package" ex)
+                    yield err (ConformanceVerdict.UnknownSigOnly ex)
         ]

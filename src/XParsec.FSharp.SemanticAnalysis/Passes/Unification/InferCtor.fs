@@ -24,8 +24,9 @@ module internal UnificationInferCtor =
     /// `inherit exn(…)` (`Unification.fillBaseCtorCall`) both check, target-agnostic
     /// by construction. The chosen signature grounds the call's arguments while the
     /// result side stays a free var (`inferExternalCtorOn`'s authority rule: the
-    /// receiver/declared parent already IS the constructed type). `noOverloadMsg`
-    /// keeps the two syntaxes' diagnostics distinct.
+    /// receiver/declared parent already IS the constructed type). `noOverload` keeps the
+    /// two syntaxes' diagnostics distinct, and is the VERDICT rather than a rendered
+    /// sentence so a caller reaching this reporter counts as the producer it is.
     /// Returns the chosen `.ctor` so a `new exn "…"` caller can record its identity for
     /// codegen; the `inherit exn(…)` caller (no `TExpr.New` node) ignores it.
     let inferIntrinsicClassCtorCall
@@ -33,7 +34,7 @@ module internal UnificationInferCtor =
         (ctx: PassContext)
         (typeArgs: SemType[])
         (surface: IntrinsicClassSurface)
-        (noOverloadMsg: string)
+        (noOverload: Kind)
         (argExpr: Expr<SyntaxToken>)
         : ExternalMember voption =
         let ctors = surface.Members |> Array.filter (fun m -> m.Name = ".ctor")
@@ -46,7 +47,7 @@ module internal UnificationInferCtor =
             unify ctx (CstKeys.firstTokenOfExpr argExpr) ctorSig (TyFun(argTy, resultTy))
             ValueSome chosen
         | ValueNone ->
-            ctx.Error(CstKeys.firstTokenOfExpr argExpr, noOverloadMsg)
+            ctx.Report(CstKeys.firstTokenOfExpr argExpr, noOverload)
             ValueNone
 
     /// `new T(args)`. Mirrors a single application against the ctor, kept inline
@@ -110,7 +111,8 @@ module internal UnificationInferCtor =
                 | ValueSome(ExternalTypeShape.Class _) ->
                     inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args receiverTy argExpr
                 | _ ->
-                    ctx.Error(node.Tok, sprintf "Unknown class type '%s'" (SymbolKeyOps.typeMetaName clsKey))
+                    ctx.Report(node.Tok, Kind.UnknownNominalType(NominalKind.Class, SymbolKeyOps.typeMetaName clsKey))
+
                     infer ctx argExpr |> ignore
                     TyVar(freshTyVar ctx)
         // A heritable primitive typed by its canon (`new exn "boom"`). The
@@ -161,7 +163,7 @@ module internal UnificationInferCtor =
                             ctx
                             (tyArgs.AsSpan().ToArray())
                             surface
-                            (sprintf "No applicable constructor on '%s' for the given arguments" shown)
+                            (Kind.Message(sprintf "No applicable constructor on '%s' for the given arguments" shown))
                             argExpr
                     with
                     | ValueSome chosen -> ctx.Resolution.ExternalCtor.Set(node.Key, SymbolKey.Member chosen.Key)
@@ -169,11 +171,11 @@ module internal UnificationInferCtor =
 
                     receiverTy
                 | ValueNone ->
-                    ctx.Error(node.Tok, "'new' requires a class type")
+                    ctx.Report(node.Tok, Kind.NewRequiresClassType)
                     infer ctx argExpr |> ignore
                     TyVar(freshTyVar ctx)
         | _ ->
-            ctx.Error(node.Tok, "'new' requires a class type")
+            ctx.Report(node.Tok, Kind.NewRequiresClassType)
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
 
@@ -221,7 +223,7 @@ module internal UnificationInferCtor =
         if List.isEmpty argElems && isExternalValueType () then
             receiverTy
         elif ctors.Length = 0 then
-            ctx.Error(node.Tok, sprintf "External type '%s' has no accessible constructor" name)
+            ctx.Report(node.Tok, Kind.Message(sprintf "External type '%s' has no accessible constructor" name))
             receiverTy
         else
             match pickBestOverload ctx typeArgs ctors argElems with
@@ -246,7 +248,11 @@ module internal UnificationInferCtor =
                 unify ctx node.Tok ctorSig (TyFun(argTy, resultTy))
                 receiverTy
             | ValueNone ->
-                ctx.Error(node.Tok, sprintf "No applicable constructor on '%s' for the given arguments" name)
+                ctx.Report(
+                    node.Tok,
+                    Kind.Message(sprintf "No applicable constructor on '%s' for the given arguments" name)
+                )
+
                 receiverTy
 
     /// The `new`-less constructor-as-function sugar: `InvalidOperationException "x"`,

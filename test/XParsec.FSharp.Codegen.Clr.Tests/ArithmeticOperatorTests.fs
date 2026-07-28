@@ -47,9 +47,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 let private opcodesOf (src: string) : string list =
     let tast = analyse src
 
-    Expect.isEmpty
-        (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
-        (sprintf "no errors for: %s" src)
+    Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) (sprintf "no errors for: %s" src)
 
     let acc = ResizeArray<string>()
 

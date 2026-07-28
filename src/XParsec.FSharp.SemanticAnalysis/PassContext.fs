@@ -1072,39 +1072,21 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         | TokenIndex.Regular iT -> this.Lexed.GetTokenReadable(iT, this.Input)
         | TokenIndex.Virtual -> ReadableString.Empty
 
-    /// Record an `Error`-severity diagnostic at `tok`. The canonical way to
-    /// report — collapses the otherwise-ubiquitous inline `Diagnostic` literal
-    /// (every call passed `Code = ""` / `Severity = Severity.Error`).
+    /// Report `kind` at `tok`. THE reporting member: one, not one per severity, because
+    /// the kind decides the severity — so a producer names what it found and cannot also
+    /// choose how loudly it is said.
     ///
     /// A TOKEN and not a `NodeKey`: a diagnostic wants a position and nothing else, where
     /// a key is an analysis identity carrying a grammar-versioned node kind. Every
     /// producer walks a tree whose nodes are token-parameterised, so the token is already
-    /// in hand; a producer with no node at all says `Site.Nowhere` through `ErrorAt`.
-    member this.Error(tok: SyntaxToken, msg: string) = this.ErrorAt(Site.ofToken tok, msg)
+    /// in hand; a producer with no node at all says `Site.Nowhere` through the `Site`
+    /// overload.
+    member this.Report(tok: SyntaxToken, kind: Kind) = this.Report(Site.ofToken tok, kind)
 
-    /// THE one `Diagnostic` literal in the pass surface: every reporting member differs
-    /// only in what it fills these four with, so a field added to the record is answered
-    /// here alone. Private, because the choice of severity belongs to the member a producer
-    /// names, never to the producer.
-    member private this.Add(code: string, severity: Severity, site: Site, msg: string) =
-        this.Diagnostics.Add
-            {
-                Code = code
-                Message = msg
-                Severity = severity
-                Site = site
-                Related = []
-            }
-
-    /// `Error` carrying a stable diagnostic `code` (`"FS0378"`, `"V001"`) — the only thing
-    /// the plain overload does not cover, and the reason an inline `Diagnostic` literal
-    /// used to survive at the handful of sites that mint one.
-    member this.Error(tok: SyntaxToken, code: string, msg: string) =
-        this.Add(code, Severity.Error, Site.ofToken tok, msg)
-
-    /// `Error` for a producer that has resolved its own `Site` — one with no node in the
+    /// Report `kind` at a `Site` the producer resolved itself — one with no node in the
     /// file (`Site.Nowhere`), or a span rather than a single token.
-    member this.ErrorAt(site: Site, msg: string) = this.Add("", Severity.Error, site, msg)
+    member this.Report(site: Site, kind: Kind) =
+        this.Diagnostics.Add(Diagnostic.create kind site [])
 
     /// Blame the written type head at `site`: `name` names no type — no scope of this unit
     /// claims it and the target's external universe does not hold it. THE one home for that
@@ -1122,7 +1104,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         this.UndefinedTypeNames.Add name |> ignore
 
         if this.undefinedTypeSites.Add site then
-            this.ErrorAt(site, sprintf "The type '%s' is not defined" name)
+            this.Report(site, Kind.UndefinedType name)
 
     /// Register a flexible list literal for `resolveListLiterals` to settle. THE one
     /// spelling of the entry, so the two producers (`listLiteralTy` for a `[…]` expression,
@@ -1134,7 +1116,3 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
                 Elem = elem
                 Tok = tok
             }
-
-    /// `Warning`-severity analogue of `Error`.
-    member this.Warn(tok: SyntaxToken, msg: string) =
-        this.Add("", Severity.Warning, Site.ofToken tok, msg)

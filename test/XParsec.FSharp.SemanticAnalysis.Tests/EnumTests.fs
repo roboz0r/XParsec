@@ -32,8 +32,7 @@ let private enumCases (tast: TastFile) =
 let private underlying (input: string) : string voption =
     analyse input |> enumCases |> TEnumCases.underlyingTypeName
 
-let private errors (tast: TastFile) =
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
 /// The body expression + declared type of the single `let` decl in `tast` (the
 /// enum `TDecl.Type` is skipped). Used by the step-3 member-access tests.

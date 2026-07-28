@@ -124,7 +124,7 @@ let private returnOf (name: string) : FrozenType =
 let private analyse (input: string) : Diagnostic list =
     let lexed, file = parseFile input
     let tast = Pipeline.analyseSemForSelfHost boxProvider input lexed file
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    tast.Diagnostics |> Diagnostic.errors
 
 [<Tests>]
 let tests =

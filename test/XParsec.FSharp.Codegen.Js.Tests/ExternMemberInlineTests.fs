@@ -415,8 +415,7 @@ let tests =
                 let lexed, file = TestHelpers.parseFile input
                 let tast = Pipeline.analyse TestHelpers.jsProvider.Value input lexed file
 
-                let errors =
-                    tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 
                 Expect.isEmpty errors (sprintf "no analysis errors: %A" (errors |> List.map (fun d -> d.Message)))
 

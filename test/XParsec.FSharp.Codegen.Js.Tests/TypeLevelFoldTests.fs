@@ -188,7 +188,7 @@ let private analyse (body: string) : Diagnostic list =
     let input = prelude + "\n" + body + "\n"
     let lexed, file = parseFile input
     let tast = Pipeline.analyseSemForSelfHost busProvider input lexed file
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    tast.Diagnostics |> Diagnostic.errors
 
 let private errorText (ds: Diagnostic list) : string =
     ds |> List.map (fun d -> d.Message) |> String.concat "\n"

@@ -15,13 +15,6 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 /// opens this one for the entry points it projects from.
 module internal ElaborateExpr =
 
-    /// Diagnostic shared by both `Range` lowering arms below — a range that reached
-    /// elaboration was NOT consumed by the counted-`ForTo` lowering, so it is an
-    /// unsupported first-class use.
-    [<Literal>]
-    let private rangeNotFirstClassValue =
-        "a range expression is only supported as the source of a 'for i in a..b do' counted loop; it has no first-class value"
-
     let rec translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         let ty = typeOfKey ctx key
@@ -356,10 +349,10 @@ module internal ElaborateExpr =
         // tell a for-in source from a value). `range-operators-plan.md` tracks making
         // `(..)` a real seq operator, which would delete these arms.
         | Expr.Range(fromExpr = a; toExpr = b) ->
-            ctx.Error(tok, rangeNotFirstClassValue)
+            ctx.Report(tok, Kind.RangeNotFirstClassValue)
             TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty, tok)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
-            ctx.Error(tok, rangeNotFirstClassValue)
+            ctx.Report(tok, Kind.RangeNotFirstClassValue)
             TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty, tok)
         | Expr.IndexedLookup(expr = r; indexExpr = idx) ->
             ElaborateAccess.translateIndexedLookup translateExpr ctx key r idx ty tok

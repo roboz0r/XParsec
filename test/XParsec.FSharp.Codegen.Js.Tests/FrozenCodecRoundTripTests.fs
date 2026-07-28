@@ -368,7 +368,7 @@ let tests =
                 let opener: Label =
                     {
                         Site = Site.At 3<token>
-                        Message = "unclosed delimiter"
+                        Message = DiagnosticCode.openedHereLabel
                     }
 
                 let placeless: Label =
@@ -378,19 +378,123 @@ let tests =
                     }
 
                 let labelled =
-                    {
-                        Code = "UnclosedDelimiter"
-                        Message = "Unclosed '(': Expected ')'"
-                        Severity = Severity.Error
-                        Site = Site.After 7<token>
-                        Related = [ opener; placeless ]
-                    }
+                    Diagnostic.create
+                        (Kind.NoMember("Widget", MemberNoun.Field, "nope"))
+                        (Site.After 7<token>)
+                        [ opener; placeless ]
 
                 for d in [ labelled; { labelled with Related = [] } ] do
                     Expect.equal
                         (roundTrips FrozenCodecTypes.writeDiagnostic FrozenCodecTypes.readDiagnostic d)
                         d
                         "Diagnostic"
+            }
+
+            // ONE value per `Kind` case. The WRITER is exhaustive — the compiler refuses a
+            // case with no tag — but the reader is a byte match, so only a value that makes
+            // the whole round trip proves the two agree. The list payloads are where a
+            // writer/reader pair most easily disagrees on framing, and severity and code ride
+            // the kind, so a value that decoded to the wrong case would also report at the
+            // wrong severity; hence the whole value is compared, not just the tag.
+            test "every Kind case round-trips" {
+                let verdicts =
+                    [
+                        ConformanceVerdict.Unimplemented("a.fsi", "M is missing")
+                        ConformanceVerdict.SigWithoutImpl "a.fsi"
+                        ConformanceVerdict.ModulePairingMismatch("a.fsi", "a.fs", "M", "N")
+                        ConformanceVerdict.ImplWithoutContract "a.fs"
+                        ConformanceVerdict.StaleSigOnly "list.fsi"
+                        ConformanceVerdict.UnknownSigOnly "gone.fsi"
+                        ConformanceVerdict.PairParseFailure("a.fsi", "unexpected token")
+                    ]
+
+                let kinds =
+                    [
+                        Kind.UndefinedType "Nope"
+                        Kind.UnresolvedTyVars 3
+                        Kind.UnrepresentableTypes [ "System.Guid"; "System.DateTime" ]
+                        Kind.UnrepresentableTypes []
+                        Kind.NoMember("Widget", MemberNoun.Field, "nope")
+                        Kind.NoMember("Widget", MemberNoun.InstanceMember, "nope")
+                        Kind.NoMember("Widget", MemberNoun.StaticMember, "nope")
+                        Kind.NoMember("Widget", MemberNoun.BuiltInStaticMember, "nope")
+                        Kind.NoMember("Widget", MemberNoun.AccessibleMember, "nope")
+                        Kind.NoMember("Widget", MemberNoun.ValueOrMember, "nope")
+                        Kind.NoMember("Widget", MemberNoun.FieldOrMember, "nope")
+                        Kind.NoMember("Widget", MemberNoun.Member, "nope")
+                        Kind.NoCase(CaseOwner.Enum, "Colour", "Mauve")
+                        Kind.NoCase(CaseOwner.Union, "Shape", "Blob")
+                        Kind.UnknownNominalType(NominalKind.Record, "R")
+                        Kind.UnknownNominalType(NominalKind.Class, "C")
+                        Kind.UnknownNominalType(NominalKind.Union, "U")
+                        Kind.TypeArgArity("Map", 2, 1)
+                        Kind.UnresolvedQualifiedName "A.B.c"
+                        Kind.OperatorFormQualifiedName "A"
+                        Kind.MemberNotResolvable("mkMethodCall", "Widget", "M")
+                        Kind.ConstraintNotSupported("int", "Equality")
+                        Kind.TraitNotSupported("Widget", MemberNoun.Operator, "+")
+                        Kind.UpcastUnrelated("int", "string")
+                        Kind.DowncastUnrelated("int", "string")
+                        Kind.MeasureMismatch("m", "s")
+                        Kind.DimensionlessMeasureMismatch "kg"
+                        Kind.NullaryConstructorPattern("Some", 1)
+                        Kind.AmbiguousConstructor("Ok", 2)
+                        Kind.ConstructorArity("Some", 1, 2)
+                        Kind.NewRequiresClassType
+                        Kind.ImmutableFieldAssignment "X"
+                        Kind.EnumCaseNotConstant
+                        Kind.RangeNotFirstClassValue
+                        Kind.CustomEqualityOnRecordOrUnion
+                        Kind.StructuralEqualityAttributeOnWrongKind
+                        Kind.CustomEqualityAttributeOnInterface
+                        Kind.InvalidEqualityAttributeMix
+                        Kind.CapabilityNotImplemented("[<CustomEquality>]", "System.IEquatable`1")
+                        Kind.CapabilityNotNamed("[<CustomEquality>]", "equatable")
+                        Kind.MissingGetHashCodeOverride
+                        Kind.CustomComparisonNeedsEquality
+                        Kind.MemberAndLocalBindingClash "x"
+                        Kind.DuplicateMember "M"
+                        Kind.CyclicType("A", TypeCycle.Inheritance)
+                        Kind.CyclicType("A", TypeCycle.Immediate)
+                        Kind.NotYetSupported "inheritance"
+                        Kind.IntrinsicNotInScope "Array indexing intrinsic 'GetArray'"
+                        Kind.DynamicEscape "int"
+                        Kind.HeterogeneousEnum "E"
+                        Kind.IncompleteAnonUnionMatch [ "a"; "b"; "c" ]
+                        Kind.IncompleteAnonUnionMatch []
+                        Kind.UnrelatedTypeTest("int", "string")
+                        Kind.RedundantDowncast "int"
+                        Kind.LexFailure "unexpected character"
+                        Kind.ParseFailure "unexpected token"
+                        Kind.Driver "no target framework"
+                        Kind.Message "an un-migrated sentence"
+                    ]
+                    @ (verdicts |> List.map (fun v -> Kind.Conformance("Vesper.Core", v)))
+
+                for k in kinds do
+                    let d = Diagnostic.create k Site.Nowhere []
+
+                    Expect.equal
+                        (roundTrips FrozenCodecTypes.writeDiagnostic FrozenCodecTypes.readDiagnostic d)
+                        d
+                        "Diagnostic (Kind)"
+            }
+
+            // The one case with no tag. A parse diagnostic belongs to the unit rather than to
+            // the analysis and never reaches a frozen file, and its payload is a parser CST
+            // subtree of raw offsets and virtual tokens — the two things this format keeps
+            // out. Faulting is the contract; encoding it lossily would let a blob decode to a
+            // verdict nobody wrote.
+            test "a parse diagnostic cannot be frozen" {
+                let d =
+                    Diagnostic.create (Kind.Parse DiagnosticCode.MissingExpression) Site.Nowhere []
+
+                Expect.throws
+                    (fun () ->
+                        roundTrips FrozenCodecTypes.writeDiagnostic FrozenCodecTypes.readDiagnostic d
+                        |> ignore
+                    )
+                    "writing a parse diagnostic faults"
             }
 
             test "an anchor round-trips, its absence included" {

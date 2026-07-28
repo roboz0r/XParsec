@@ -127,9 +127,6 @@ module Attributes =
         | RefClass
         | Interface
 
-    let private addDiag (ctx: PassContext) (declTok: SyntaxToken) (code: string) (message: string) : unit =
-        ctx.Error(declTok, code, message)
-
     /// Validate the equality / comparison attributes against the type kind
     /// (FS0382 kind-legality + FS0377 invalid-mix), emitting diagnostics at the
     /// type's declaration site, and return the resolved `(EqualityVerdict voption,
@@ -177,21 +174,14 @@ module Attributes =
             | EqCompTargetKind.Interface -> false
             | _ -> true
 
-        let structMsg =
-            "Only record, union, exception and struct types may be augmented with the 'ReferenceEquality', 'StructuralEquality' and 'StructuralComparison' attributes."
-
         if (s.StructuralEq || s.StructuralCmp) && not structuralLegal then
-            addDiag ctx declTok "FS0382" structMsg
+            ctx.Report(declTok, Kind.StructuralEqualityAttributeOnWrongKind)
 
         if s.ReferenceEq && not referenceLegal then
-            addDiag ctx declTok "FS0382" structMsg
+            ctx.Report(declTok, Kind.StructuralEqualityAttributeOnWrongKind)
 
         if (s.CustomEq || s.CustomCmp) && not customLegal then
-            addDiag
-                ctx
-                declTok
-                "FS0382"
-                "The 'CustomEquality' and 'CustomComparison' attributes are not valid on an interface type."
+            ctx.Report(declTok, Kind.CustomEqualityAttributeOnInterface)
 
         // FS0377 — invalid mix. Count attributes per axis; more than one is a
         // mix. The cross-axis rules forbid structural comparison without
@@ -222,11 +212,7 @@ module Attributes =
             || (s.StructuralCmp && (s.ReferenceEq || s.NoEq || s.CustomEq))
 
         if invalidMix then
-            addDiag
-                ctx
-                declTok
-                "FS0377"
-                "This type uses an invalid mix of the attributes 'NoEquality', 'ReferenceEquality', 'StructuralEquality', 'NoComparison' and 'StructuralComparison'."
+            ctx.Report(declTok, Kind.InvalidEqualityAttributeMix)
 
         // Resolved verdicts use a fixed within-axis priority (Structural > Reference >
         // No > Custom). For any non-contradictory attribute set this is exactly the

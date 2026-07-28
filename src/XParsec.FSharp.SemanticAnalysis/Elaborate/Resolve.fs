@@ -587,17 +587,6 @@ module internal ElaborateResolve =
             tok
         )
 
-    /// Internal-error message for a method mint site whose resolved member is absent from
-    /// both the local registry and the provider. Inference commits the call before
-    /// Elaborate runs, so this cannot happen on well-formed input; it degrades to a
-    /// diagnostic (never a crash) rather than assert with `failwith` at these sites.
-    let private memberNotResolvable (site: string) (declKey: TypeKey) (memberName: string) : string =
-        sprintf
-            "Elaborate.%s: member '%s' on %O was committed by inference but resolves in neither the local registry nor the provider (invariant broken)"
-            site
-            memberName
-            declKey
-
     /// Instance `MethodCall` resolved to `declKey.memberName`, with the `CallVia`
     /// derived from the receiver. `callKey` is the call node's `NodeKey`: for an OVERLOADED
     /// name, Unification recorded the chosen overload's TOTAL frozen `MemberKey` there
@@ -639,7 +628,7 @@ module internal ElaborateResolve =
         | ValueNone ->
             // Post-inference the resolved member is committed, so a miss is an internal
             // invariant break, not mis-typed source — degrade to a diagnostic, never a crash.
-            ctx.Error(tok, memberNotResolvable "mkMethodCall" declKey memberName)
+            ctx.Report(tok, Kind.MemberNotResolvable("mkMethodCall", string declKey, memberName))
             TExpr.Null(ty, tok)
 
     /// Wall B (rung 3): instance `MethodCall` dispatched through an *interface* the
@@ -673,7 +662,7 @@ module internal ElaborateResolve =
             let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx ifaceKey memberName) args
             TExpr.MethodCall(receiver, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
         | ValueNone ->
-            ctx.Error(tok, memberNotResolvable "mkInterfaceMethodCall" ifaceKey memberName)
+            ctx.Report(tok, Kind.MemberNotResolvable("mkInterfaceMethodCall", string ifaceKey, memberName))
 
             TExpr.Null(ty, tok)
 
@@ -696,7 +685,7 @@ module internal ElaborateResolve =
         | ValueSome key ->
             TExpr.StaticMethodCall(key, wrapObjArgsEq ctx.Store (memberParamTys ctx declKey memberName) args, ty, tok)
         | ValueNone ->
-            ctx.Error(tok, memberNotResolvable "mkStaticMethodCall" declKey memberName)
+            ctx.Report(tok, Kind.MemberNotResolvable("mkStaticMethodCall", string declKey, memberName))
             TExpr.Null(ty, tok)
 
     /// `UnionCons` for case `caseName` of union `ty`.

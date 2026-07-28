@@ -152,7 +152,7 @@ module UnificationEngineCore =
         | ValueSome m1, ValueSome m2 ->
             ctx.Store.SetUnits(newRoot, ValueSome m1)
 
-            ctx.Error(tok, sprintf "Measure mismatch: <%O> vs <%O>" m1 m2)
+            ctx.Report(tok, Kind.MeasureMismatch(string m1, string m2))
 
     /// Substitute TyVar roots that appear as keys in `subst` with their
     /// target `SemType`, recursing into compound shapes. Other TyVars are
@@ -787,11 +787,31 @@ module UnificationEngineCore =
 
         walk (supertypesOf receiver)
 
-    [<RequireQualifiedAccess>]
-    type NominalKind =
-        | Record
-        | Class
-        | Union
+    /// How a `SemType` is NAMED to a user. THE renderer: `Kind`'s type-named fields are
+    /// strings, so without one home every producer picks its own and one type appears three
+    /// ways across three messages. TOTAL by construction — this text reaches the user, so
+    /// no case may fall through to a `%A` dump of the internal DU — and an unpinned typar
+    /// prints as F#'s anonymous `'a`, the honest rendering of "a type parameter nothing
+    /// pinned". Zonks first, so no caller has to remember to.
+    let rec shown (store: TypeStore) (t: SemType) : string =
+        match UnionFind.headZonk store t with
+        | TyConst(key, _) ->
+            let (DisplayName name) = SymbolKeyOps.simpleName key
+            name
+        | TyEnum key -> SymbolKeyOps.typeMetaName key
+        | TyClass(k, _)
+        | TyUnion(k, _)
+        | TyRecord(k, _) -> SymbolKeyOps.typeMetaName k
+        | TyVar _
+        | TyTypar _ -> "'a"
+        | TyFun _ -> "function"
+        | TyTuple _ -> "tuple"
+        | TyOr ms -> ms.Members |> EqSet.toList |> List.map (shown store) |> String.concat " | "
+        | TyLiteral v -> sprintf "%A" v
+        | TyUnknown name -> name
+        | TyKeyOf _
+        | TyIndexedAccess _
+        | TyConditional _ -> "type expression"
 
     /// Walk a `SemType` through TyVar Links to surface a nominal shape
     /// (`TyRecord` / `TyClass` / `TyUnion`) and report which kind it is. The

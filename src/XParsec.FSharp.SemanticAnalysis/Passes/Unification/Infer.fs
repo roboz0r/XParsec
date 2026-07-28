@@ -264,11 +264,13 @@ module UnificationInfer =
             let binderTy = zonk ctx.Store (TyVar(tvOf ctx patKey))
 
             let notDisposable (display: string) =
-                ctx.Error(
+                ctx.Report(
                     CstKeys.firstTokenOfPat b.headPat,
-                    sprintf
-                        "The type '%s' cannot be used with 'use': a 'use' binding requires its type to implement 'disposable' ('System.IDisposable')"
-                        display
+                    Kind.Message(
+                        sprintf
+                            "The type '%s' cannot be used with 'use': a 'use' binding requires its type to implement 'disposable' ('System.IDisposable')"
+                            display
+                    )
                 )
 
             // A project-local nominal binder (class / union / record). It qualifies for

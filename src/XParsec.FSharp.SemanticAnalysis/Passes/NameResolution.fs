@@ -127,11 +127,13 @@ module NameResolution =
         // miscompiling whichever one a backend picked. A LIMITATION, not invalid F#.
         let declareField (name: string) (declTok: SyntaxToken) =
             if fieldNames.Contains name then
-                ctx.Error(
+                ctx.Report(
                     declTok,
-                    sprintf
-                        "Duplicate field name `%s`: a constructor parameter, a `val` field and a class `let` binding each mint a field carrying its source name, and no two fields of one type may share a name (on the CLR a field's static-ness is not part of its identity). F# permits this by uniquifying the backing-field names; that pass is not implemented yet, so rename one of them."
-                        name
+                    Kind.Message(
+                        sprintf
+                            "Duplicate field name `%s`: a constructor parameter, a `val` field and a class `let` binding each mint a field carrying its source name, and no two fields of one type may share a name (on the CLR a field's static-ness is not part of its identity). F# permits this by uniquifying the backing-field names; that pass is not implemented yet, so rename one of them."
+                            name
+                    )
                 )
             else
                 fieldNames <- Set.add name fieldNames
@@ -219,11 +221,7 @@ module NameResolution =
             declareField l.Name bindTok
 
             if memberNames.Contains l.Name then
-                ctx.Error(
-                    bindTok,
-                    "FS0905",
-                    sprintf "A member and a local class binding both have the name '%s'" l.Name
-                )
+                ctx.Report(bindTok, Kind.MemberAndLocalBindingClash l.Name)
 
         // A preamble binding is an ordinary `let`: `let f x = …` binds a FUNCTION, so its
         // `argumentPats` scope over the initialiser exactly as a member's do. Only `let rec` puts

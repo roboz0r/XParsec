@@ -193,7 +193,7 @@ let tests =
                 // assignable, so `unifyArg` falls through to `unify` and diagnoses.
                 let ctx = analyse "type R = { X: int }\nlet r = { X = \"s\" }"
 
-                let hasError = ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error)
+                let hasError = ctx.Diagnostics |> Seq.exists Diagnostic.isError
 
                 Expect.isTrue hasError "a string into an int field is still a type error"
             }

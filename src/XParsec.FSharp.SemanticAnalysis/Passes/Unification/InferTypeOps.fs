@@ -231,13 +231,7 @@ module internal UnificationInferTypeOps =
         let tgtTy = translateType ctx t
 
         if not (tryCoerceUpcast ctx node.Tok srcTy tgtTy) then
-            ctx.Error(
-                node.Tok,
-                sprintf
-                    "Cannot upcast type '%A' to '%A' — no inheritance relationship"
-                    (zonk ctx.Store srcTy)
-                    (zonk ctx.Store tgtTy)
-            )
+            ctx.Report(node.Tok, Kind.UpcastUnrelated(shown ctx.Store srcTy, shown ctx.Store tgtTy))
 
         // Type provenance: `e :> T` writes the node's (target) type explicitly.
         ctx.MarkTypeDeclared(node.Key, tgtTy)
@@ -265,13 +259,7 @@ module internal UnificationInferTypeOps =
             || subsumes ctx tgtTy srcTy <> SubsumeOutcome.Unrelated
 
         if not related then
-            ctx.Warn(
-                node.Tok,
-                sprintf
-                    "Type test of '%A' against unrelated type '%A' is always false"
-                    (zonk ctx.Store srcTy)
-                    (zonk ctx.Store tgtTy)
-            )
+            ctx.Report(node.Tok, Kind.UnrelatedTypeTest(shown ctx.Store srcTy, shown ctx.Store tgtTy))
 
         ctx.Intrinsics.Bool
 
@@ -310,19 +298,9 @@ module internal UnificationInferTypeOps =
         if not (isObjTy ctx.Store checkSrc) && not isUnresolvedVar then
             match subsumes ctx tgtTy checkSrc with
             | SubsumeOutcome.Subtype -> ()
-            | SubsumeOutcome.Equal ->
-                ctx.Warn(
-                    node.Tok,
-                    sprintf "Downcast is redundant — the static type '%A' already matches" (zonk ctx.Store srcTy)
-                )
+            | SubsumeOutcome.Equal -> ctx.Report(node.Tok, Kind.RedundantDowncast(shown ctx.Store srcTy))
             | SubsumeOutcome.Unrelated ->
-                ctx.Error(
-                    node.Tok,
-                    sprintf
-                        "Cannot downcast type '%A' to unrelated type '%A'"
-                        (zonk ctx.Store srcTy)
-                        (zonk ctx.Store tgtTy)
-                )
+                ctx.Report(node.Tok, Kind.DowncastUnrelated(shown ctx.Store srcTy, shown ctx.Store tgtTy))
 
         // Type provenance: `e :?> T` writes the node's (target) type explicitly.
         ctx.MarkTypeDeclared(node.Key, tgtTy)

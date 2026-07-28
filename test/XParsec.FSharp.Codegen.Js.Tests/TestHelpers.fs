@@ -11,21 +11,16 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js
 
-/// Lex + parse a source string; a script fragment wraps as `AnonymousModule`.
+/// Lex + parse a source string; a script fragment wraps as `AnonymousModule`. Through
+/// `Pipeline.parseUnrecovered`, the same gate the driver compiles behind, so a source that
+/// parses only because RECOVERY patched it raises here rather than being analysed as though
+/// it had been written that way.
 /// `Result.Ok`/`Result.Error` are qualified because `open …SemanticAnalysis` brings
 /// `Severity.Error` into scope, which would otherwise shadow them.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match Lexing.lexString input with
-    | Result.Error e -> failwithf "lex failed: %A" e
-    | Result.Ok lexed ->
-        let reader = Reader.ofLexed lexed input Set.empty
-
-        match FSharpAst.parse reader with
-        | Result.Error e -> failwithf "parse failed: %A" e
-        | Result.Ok(FSharpAst.ImplementationFile f) -> lexed, f
-        | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
-            lexed, ImplementationFile.AnonymousModule elems
-        | Result.Ok ast -> failwithf "unexpected AST: %A" ast
+    match Pipeline.parseUnrecovered input with
+    | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
+    | Result.Ok parsed -> parsed.Lexed, parsed.File
 
 /// `src/<pkg>/manifest.toml`.
 let srcManifest (pkg: string) : string =
@@ -95,7 +90,7 @@ let frozenOf (input: string) : FrozenPools =
     let lexed, file = parseFile input
     let ctx, tast = Pipeline.analyseSemWithContext jsProvider.Value input lexed file
 
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errors = tast.Diagnostics |> Diagnostic.errors
 
     if not (List.isEmpty errors) then
         failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
@@ -114,7 +109,7 @@ let frozenOfJs (input: string) : FrozenPools =
     let ctx, tast =
         Pipeline.analyseSemForSelfHostWithContext jsProvider.Value input lexed file
 
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errors = tast.Diagnostics |> Diagnostic.errors
 
     if not (List.isEmpty errors) then
         failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
@@ -193,7 +188,7 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPoo
     let lexed, file = parseFile input
     let ctx, tast = Pipeline.analyseSemForSelfHostWithContext provider input lexed file
 
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    let errors = tast.Diagnostics |> Diagnostic.errors
 
     if not (List.isEmpty errors) then
         failwithf "impl analysis errors: %A" (errors |> List.map (fun d -> d.Message))
@@ -302,7 +297,7 @@ let stackTsMany (manifests: Schema.PackageManifest list) : IExternalSymbolProvid
 let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic list =
     let lexed, file = parseFile input
     let tast = Pipeline.analyseSemForSelfHost provider input lexed file
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    tast.Diagnostics |> Diagnostic.errors
 
 /// The newline-joined messages of `ds` (for `stringContains` assertions on the set of
 /// allowed values a directional-admission error names).

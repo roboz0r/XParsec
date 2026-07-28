@@ -149,8 +149,7 @@ let tests =
             test "a non-member value is still rejected against a union annotation" {
                 let ctx = analyse "let x: int | string = true"
 
-                let hasMismatch =
-                    ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error)
+                let hasMismatch = ctx.Diagnostics |> Seq.exists Diagnostic.isError
 
                 Expect.isTrue hasMismatch "bool ⋠ (int | string) — annotation rejects it"
             }

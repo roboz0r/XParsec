@@ -136,9 +136,9 @@ module internal ElaboratePatterns =
                 match NameResolutionScope.bindingsOfPat ctx leaf with
                 | [] -> ()
                 | _ ->
-                    ctx.Error(
+                    ctx.Report(
                         (CstKeys.firstTokenOfPat leaf),
-                        "Or-patterns that bind names (e.g. `(1, x) | (2, x)`) are not supported"
+                        Kind.NotYetSupported "or-patterns that bind names (e.g. `(1, x) | (2, x)`)"
                     )
 
             let alts = leaves |> List.map (translatePat ctx)

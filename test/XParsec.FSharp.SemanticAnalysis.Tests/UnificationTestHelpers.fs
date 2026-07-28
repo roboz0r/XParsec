@@ -5,13 +5,19 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-let analyse (input: string) =
-    let lexed, file = parseFile input
+let private analyseParsed (input: string) (lexed, file) =
     let ctx = PassContext(realProvider.Value, input, lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
     ctx
+
+let analyse (input: string) = analyseParsed input (parseFile input)
+
+/// `analyse` for a source the parser can only complete by PATCHING it: what the passes
+/// then say about the patched tree is the assertion.
+let analyseRecovered (input: string) =
+    analyseParsed input (parseRecoveredFile input)
 
 // The bindings-accumulating trial matcher (`matchTypes`) behind
 // `pickBestOverload`. These call the picker DIRECTLY on hand-built
@@ -106,9 +112,7 @@ let keyOfLet (input: string) (name: string) =
     NodeKey.ofSource (input.IndexOf("let " + name + " ") + 4) NodeKind.PatIdent
 
 let errors (ctx: PassContext) =
-    ctx.Diagnostics
-    |> Seq.filter (fun d -> d.Severity = Severity.Error)
-    |> Seq.toList
+    ctx.Diagnostics |> Diagnostic.errors |> Seq.toList
 
 // The union front door: `translateType` maps the CST `Type.UnionType` / `Type.Null`
 // surface to a canonical `TyOr` via `mkUnion`. With no assignability yet, a union only

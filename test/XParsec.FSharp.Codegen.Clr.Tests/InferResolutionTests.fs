@@ -25,7 +25,7 @@ let private errorsOf (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
     let tast = Pipeline.analyseSem provider src lexed file
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+    tast.Diagnostics |> Diagnostic.errors
 
 /// Assert a synthetic program produces no error-severity diagnostics.
 let private clean (label: string) (src: string) : unit =

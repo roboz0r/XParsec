@@ -42,7 +42,7 @@ let tests =
 
                 let lexed, file = parseFile "let v = hash 5"
                 let tast = Pipeline.analyseSem provider "let v = hash 5" lexed file
-                Expect.isEmpty (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)) "no errors"
+                Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "no errors"
 
                 match EqArray.toList tast.Decls with
                 | [ TDecl.Let(TPat.NamedSimple _,

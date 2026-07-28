@@ -296,10 +296,12 @@ module internal UnificationInferExternalCall =
                         errorTy
                             ctx
                             tok
-                            (sprintf
-                                "No applicable (or no unique best) overload of '%s' on type '%s' for the given arguments"
-                                memberName
-                                (SymbolKeyOps.qualifiedName declTypeKey))
+                            (Kind.Message(
+                                sprintf
+                                    "No applicable (or no unique best) overload of '%s' on type '%s' for the given arguments"
+                                    memberName
+                                    (SymbolKeyOps.qualifiedName declTypeKey)
+                            ))
                     )
 
     /// Call-site overload resolution for an external *instance* method call
@@ -451,13 +453,15 @@ module internal UnificationInferExternalCall =
                         errorTy
                             ctx
                             node.Tok
-                            (sprintf
-                                "No overload for method '%s' takes the given arguments (%s)"
-                                memberName
-                                (describeParams argElems))
+                            (Kind.Message(
+                                sprintf
+                                    "No overload for method '%s' takes the given arguments (%s)"
+                                    memberName
+                                    (describeParams argElems)
+                            ))
                     )
                 | MemberPick.Ambiguous cands ->
-                    let shown =
+                    let candidates =
                         cands
                         |> List.map (fun m ->
                             sprintf "%s(%s)" memberName (describeParams (userMemberParams ctx typeParams args m))
@@ -468,7 +472,9 @@ module internal UnificationInferExternalCall =
                         errorTy
                             ctx
                             node.Tok
-                            (sprintf "Ambiguous call to overloaded method '%s'; candidates: %s" memberName shown)
+                            (Kind.Message(
+                                sprintf "Ambiguous call to overloaded method '%s'; candidates: %s" memberName candidates
+                            ))
                     )
                 | MemberPick.Resolved chosen ->
                     // Commit: unify the applied `argTy -> resultTy` against the chosen

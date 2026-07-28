@@ -67,20 +67,20 @@ let private isHeadStamped (ctx: PassContext) (ty: Type<SyntaxToken>) : bool =
 /// A head nothing resolves is blamed by NAME, exactly ONCE: the annotation is the cause,
 /// and everything downstream of it must recover in silence rather than spray secondary
 /// errors through every expression that touched the binder.
+///
+/// Asserted on the VERDICT rather than on a rendered sentence: the diagnostic carries WHICH
+/// type went undefined as data, so this pins the classification and the name it names, and
+/// a reworded message cannot break it — nor can a differently-worded diagnostic sneak past
+/// it by happening to contain the same substring. The severity it filters on is read off
+/// the same kind, so both halves of the assertion are one fact.
 let private expectSoleUndefinedType (name: string) (input: string) =
     let ctx, file = analyse input
     Unification.run ctx file
 
     let errors =
-        ctx.Diagnostics
-        |> Seq.filter (fun d -> d.Severity = Severity.Error)
-        |> Seq.map (fun d -> d.Message)
-        |> List.ofSeq
+        ctx.Diagnostics |> Diagnostic.errors |> Seq.map (fun d -> d.Kind) |> List.ofSeq
 
-    Expect.equal
-        errors
-        [ sprintf "The type '%s' is not defined" name ]
-        (sprintf "one diagnostic, naming the type, for: %s" input)
+    Expect.equal errors [ Kind.UndefinedType name ] (sprintf "one diagnostic, naming the type, for: %s" input)
 
 // ---------------------------------------------------------------------------
 // Locators for the expression-embedded type positions `CstWalk.iterExprEmbeddedTypes`
@@ -287,7 +287,7 @@ let tests =
                      residue a missed stamp would mint"
 
                 Expect.isFalse
-                    (ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error))
+                    (ctx.Diagnostics |> Seq.exists Diagnostic.isError)
                     "Widget -> Widget round-trips with no error"
             }
 

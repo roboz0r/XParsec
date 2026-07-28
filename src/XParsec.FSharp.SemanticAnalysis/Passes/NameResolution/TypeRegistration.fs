@@ -31,11 +31,7 @@ module NameResolutionTypeRegistration =
         (cmp: ComparisonVerdict)
         : unit =
         if eq = EqualityVerdict.Custom || cmp = ComparisonVerdict.Custom then
-            ctx.Error(
-                declTok,
-                "FS0378",
-                "[<CustomEquality>]/[<CustomComparison>] on a record or union is not supported in this compiler — wrap the type in a class that implements IEquatable<_>/IComparable<_>."
-            )
+            ctx.Report(declTok, Kind.CustomEqualityOnRecordOrUnion)
 
     /// A `Typar`'s source-text name; the leading `'`/`^` lives on a separate
     /// token. Anon (`_`) typars don't participate in scope — ValueNone.
@@ -176,12 +172,14 @@ module NameResolutionTypeRegistration =
 
         match TypeRegistry.recordKeyOrigin ctx.Types declSite.Key (SymbolKey.Type key) with
         | ValueSome _ ->
-            ctx.Error(
+            ctx.Report(
                 declSite.Tok,
-                sprintf
-                    "Internal error: project-local SymbolKey collision for '%s' (arity %d)"
-                    (SymbolKeyOps.typeMetaName key)
-                    arity
+                Kind.Message(
+                    sprintf
+                        "Internal error: project-local SymbolKey collision for '%s' (arity %d)"
+                        (SymbolKeyOps.typeMetaName key)
+                        arity
+                )
             )
         | ValueNone -> ()
 
@@ -248,13 +246,15 @@ module NameResolutionTypeRegistration =
         | ValueSome shape ->
             match externalClaimant shape with
             | Some asm when asm <> ctx.AssemblyName ->
-                ctx.Error(
+                ctx.Report(
                     declTok,
-                    sprintf
-                        "The type '%s' is declared by this project and already exists in the referenced assembly '%s'. A fully-qualified name names at most one type in a compilation — rename the type, or drop the reference to '%s'."
-                        (SymbolKeyOps.typeMetaName key)
-                        asm
-                        asm
+                    Kind.Message(
+                        sprintf
+                            "The type '%s' is declared by this project and already exists in the referenced assembly '%s'. A fully-qualified name names at most one type in a compilation — rename the type, or drop the reference to '%s'."
+                            (SymbolKeyOps.typeMetaName key)
+                            asm
+                            asm
+                    )
                 )
             | _ -> ()
 
@@ -419,7 +419,7 @@ module NameResolutionTypeRegistration =
                 let holder = localHolderChain ctx c
 
                 if TypeRegistry.isTypeClaimed ctx.Types holder name arity then
-                    ctx.Error(declSite.Tok, sprintf "Duplicate type definition: %s" name)
+                    ctx.Report(declSite.Tok, Kind.Message(sprintf "Duplicate type definition: %s" name))
 
                     // The first claimant keeps the name and this declaration registers nothing —
                     // it is absent from the group's working set, so no registrar can reach it and
@@ -1063,11 +1063,13 @@ module NameResolutionTypeRegistration =
                 // `IntrinsicReprInfo.Heritable` is `false`, so it can never reach
                 // codegen's base path.
                 | ValueSome(ExternKind.Interface _) ->
-                    ctx.Error(
+                    ctx.Report(
                         id.DeclSite.Tok,
-                        sprintf
-                            "Heritable external interface base ('(# interface \"…\" #)') is not yet supported (type '%s'); only '(# class \"…\" #)' may be inherited"
-                            name
+                        Kind.NotYetSupported(
+                            sprintf
+                                "a heritable external interface base ('(# interface \"…\" #)') on type '%s'; only '(# class \"…\" #)' may be inherited"
+                                name
+                        )
                     )
             | _ ->
                 // Guardrail: a transparent-alias abbrev cannot carry members.
@@ -1075,12 +1077,14 @@ module NameResolutionTypeRegistration =
                 // itself still registers so ordinary references keep resolving.
                 match ext with
                 | ValueSome _ ->
-                    ctx.Error(
+                    ctx.Report(
                         id.DeclSite.Tok,
-                        sprintf
-                            "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
-                            name
-                            name
+                        Kind.Message(
+                            sprintf
+                                "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
+                                name
+                                name
+                        )
                     )
                 | ValueNone -> ()
 

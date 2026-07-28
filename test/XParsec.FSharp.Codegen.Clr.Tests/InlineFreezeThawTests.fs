@@ -303,9 +303,7 @@ let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int
     let lexed, file = parseFile src
     let tast = TastUnpool.ofPools (Pipeline.analyse provider src lexed file)
 
-    Expect.isEmpty
-        (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
-        (sprintf "no errors for:\n%s" src)
+    Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) (sprintf "no errors for:\n%s" src)
 
     let rec result (e: Pooled.TExpr) : int64 =
         match e with

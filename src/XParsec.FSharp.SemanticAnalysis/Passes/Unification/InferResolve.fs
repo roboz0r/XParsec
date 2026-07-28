@@ -184,7 +184,7 @@ module internal UnificationInferResolve =
         | ExternalRecord c -> Set.ofArray c.FieldNames
 
     /// A pure field-set verdict, no diagnostics — the checker wrapper below owns every
-    /// `ctx.Error`. `PartialMatches` = every record whose declared field set ⊇ the typed set
+    /// `ctx.Report`. `PartialMatches` = every record whose declared field set ⊇ the typed set
     /// (the per-field candidate intersection, deduped by `TypeKey`) — F#'s `BuildFieldMap`
     /// intersection and the LSP-completion set. `ExactMatch` = the UNIQUE `PartialMatch` whose
     /// field set EQUALS the typed set (a superset of equal size ⟺ an equal set, so this subsumes
@@ -349,7 +349,7 @@ module internal UnificationInferResolve =
                 with
                 | [ only ] -> ValueSome only
                 | _ ->
-                    ctx.Error(diagTok, sprintf "Unknown record type qualifier: %s" typeName)
+                    ctx.Report(diagTok, Kind.Message(sprintf "Unknown record type qualifier: %s" typeName))
                     ValueNone
         | None ->
             let verdict = recordFieldSetVerdict ctx useSite true names
@@ -362,13 +362,18 @@ module internal UnificationInferResolve =
                 // (0) from "ambiguous" (>1) — NOT `PartialMatches.Length`, which also holds
                 // supersets.
                 if verdict.ExactCount = 0 then
-                    ctx.Error(diagTok, sprintf "No record type matches the field set: %s" (String.concat ", " names))
-                else
-                    ctx.Error(
+                    ctx.Report(
                         diagTok,
-                        sprintf
-                            "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
-                            verdict.ExactCount
+                        Kind.Message(sprintf "No record type matches the field set: %s" (String.concat ", " names))
+                    )
+                else
+                    ctx.Report(
+                        diagTok,
+                        Kind.Message(
+                            sprintf
+                                "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
+                                verdict.ExactCount
+                        )
                     )
 
                 ValueNone
@@ -517,7 +522,7 @@ module internal UnificationInferResolve =
             errorTy
                 ctx
                 memberTok
-                (sprintf "Type '%s' has no accessible member '%s'" (SymbolKeyOps.qualifiedName declTypeKey) memberName)
+                (Kind.NoMember(SymbolKeyOps.qualifiedName declTypeKey, MemberNoun.AccessibleMember, memberName))
 
     /// If `recv` is an *external generic type name* used as a static-access
     /// receiver (`EqualityComparer<int>` in `EqualityComparer<int>.Default`),

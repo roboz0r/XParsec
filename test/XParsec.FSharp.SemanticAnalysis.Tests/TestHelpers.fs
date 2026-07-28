@@ -127,19 +127,26 @@ let dummyTok: SyntaxToken =
 let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 
 /// Lex + parse a source string and return Lexed + an ImplementationFile
-/// (script fragments are wrapped as AnonymousModule). Raises on failure.
+/// (script fragments are wrapped as AnonymousModule). Raises on failure — including on a
+/// parse that only succeeded because RECOVERY patched a hole, which `parseUnrecovered`
+/// refuses for the same reason the drivers do: a patched tree is not the program anyone
+/// wrote. A test that WANTS one asks for it by name below.
 let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
-    match Lexing.lexString input with
-    | Result.Error e -> failwithf "lex failed: %A" e
-    | Result.Ok lexed ->
-        let reader = Reader.ofLexed lexed input Set.empty
+    match Pipeline.parseUnrecovered input with
+    | Result.Error ds -> failwithf "parse failed: %A" (ds |> List.map (fun d -> d.Message))
+    | Result.Ok parsed -> parsed.Lexed, parsed.File
 
-        match FSharpAst.parse reader with
-        | Result.Error e -> failwithf "parse failed: %A" e
-        | Result.Ok(FSharpAst.ImplementationFile f) -> lexed, f
-        | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
-            lexed, ImplementationFile.AnonymousModule elems
-        | Result.Ok ast -> failwithf "unexpected AST: %A" ast
+/// `parseFile` for a source whose parse is EXPECTED to need recovery: the tree comes out
+/// patched and what analysis then makes of it is the point of the test. Its own name so
+/// that analysing a patched tree is always a deliberate act, and so a source that stops
+/// needing recovery fails here rather than quietly changing what the test covers.
+let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
+    match Pipeline.parse input with
+    | Result.Error f -> failwithf "parse failed: %A" (f.Diagnostics |> List.map (fun d -> d.Message))
+    | Result.Ok parsed ->
+        match parsed.Diagnostics with
+        | [] -> failwith "expected a parse that needed recovery; nothing was reported"
+        | _ -> parsed.Lexed, parsed.File
 
 /// The call site a test lands a WIRE inline body on. `Inline.thawBody` takes one because a
 /// wire tree carries no positions of its own — an anchor indexes the producer's tokens —

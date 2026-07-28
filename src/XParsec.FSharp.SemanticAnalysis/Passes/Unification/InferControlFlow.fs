@@ -729,9 +729,10 @@ module internal UnificationInferControlFlow =
                 unify ctx node.Tok patTy elemTy
                 ctx.Resolution.ForInShape.Set(node.Key, shape)
             | ValueNone ->
-                ctx.Error(
+                ctx.Report(
                     node.Tok,
-                    "for-in: source is not a supported enumerable (expected IEnumerable<'T> or a pattern-based GetEnumerator())"
+                    Kind.Message
+                        "for-in: source is not a supported enumerable (expected IEnumerable<'T> or a pattern-based GetEnumerator())"
                 )
 
         let bodyTy = infer ctx body
@@ -771,11 +772,7 @@ module internal UnificationInferControlFlow =
             | _ -> ()
 
         match residual with
-        | _ :: _ ->
-            let names =
-                residual |> List.map (describeUnionMember ctx.Store) |> String.concat " | "
-
-            ctx.Warn(tok, sprintf "Incomplete pattern match on anonymous union: member(s) '%s' not handled" names)
+        | _ :: _ -> ctx.Report(tok, Kind.IncompleteAnonUnionMatch(residual |> List.map (describeUnionMember ctx.Store)))
         | [] -> ()
 
     and inferMatch

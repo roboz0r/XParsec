@@ -28,8 +28,7 @@ let private analyseWithCtx (provider: IExternalSymbolProvider) (input: string) :
     let lexed, file = parseFile input
     Pipeline.analyseSemWithContext provider input lexed file
 
-let private errors (tast: TastFile) : Diagnostic list =
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+let private errors (tast: TastFile) : Diagnostic list = tast.Diagnostics |> Diagnostic.errors
 
 /// The home assembly of the type `decl` names, read off the SHAPE the provider resolves
 /// for it. A `SymbolKey` is a NOMINAL identity and carries no home; the physical location

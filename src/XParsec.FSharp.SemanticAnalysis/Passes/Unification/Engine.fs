@@ -64,13 +64,17 @@ module UnificationEngine =
     /// `UnknownType` — named a nominal type the registry doesn't know.
     /// `Resolved` — carries the member-noun used in diagnostics, the
     /// typar→arg substitution, and a name→type lookup over the members.
+    ///
+    /// `kind` and `memberNoun` are the diagnostic's own discriminators (`NominalKind` /
+    /// `MemberNoun`), not strings: a string in either slot is a discriminator nothing
+    /// checks, and both are read straight back out into the verdict.
     [<RequireQualifiedAccess>]
     type private DotSource =
         | NotNominal
-        | UnknownType of name: string * kind: string
+        | UnknownType of name: string * kind: NominalKind
         | Resolved of
             name: string *
-            memberNoun: string *
+            memberNoun: MemberNoun *
             subst: Dictionary<TyVarId, SemType> *
             lookup: (string -> SemType voption)
         /// A project-local class: member lookup walks the inheritance chain, so
@@ -99,11 +103,11 @@ module UnificationEngine =
             | ValueSome info ->
                 DotSource.Resolved(
                     name,
-                    "field",
+                    MemberNoun.Field,
                     mkNamedTypeSubst ctx.Store info.TypeParams args,
                     fieldLookup info.Fields
                 )
-            | ValueNone -> DotSource.UnknownType(name, "record")
+            | ValueNone -> DotSource.UnknownType(name, NominalKind.Record)
         | ValueSome(NominalKind.Class, key, args) ->
             // Membership by the class's key (arity included): an arity-overloaded
             // local class (`Fun`2`/`Fun`3`) does not resolve by bare name, so a bare `ContainsKey`
@@ -125,11 +129,11 @@ module UnificationEngine =
             | ValueSome info ->
                 DotSource.Resolved(
                     name,
-                    "instance member",
+                    MemberNoun.InstanceMember,
                     mkNamedTypeSubst ctx.Store info.TypeParams args,
                     memberLookup info.Members
                 )
-            | ValueNone -> DotSource.UnknownType(name, "union")
+            | ValueNone -> DotSource.UnknownType(name, NominalKind.Union)
 
     /// `Defer` is the "I don't know yet" answer: the target is still free
     /// (or compound-with-free-args) and a future unification might pin it.
@@ -312,11 +316,13 @@ module UnificationEngine =
         | TyUnknown name, _
         | _, TyUnknown name ->
             if not (ctx.UndefinedTypeNames.Contains name) then
-                ctx.Error(
+                ctx.Report(
                     tok,
-                    sprintf
-                        "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
-                        name
+                    Kind.Message(
+                        sprintf
+                            "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
+                            name
+                    )
                 )
         | TyConst(k1, a1), TyConst(k2, a2) when k1 = k2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
         | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
@@ -408,12 +414,14 @@ module UnificationEngine =
             let root = UnionFind.find ctx.Store tv
 
             if occursAndAdjust ctx.Store root.Id other then
-                ctx.Error(
+                ctx.Report(
                     tok,
-                    sprintf
-                        "Occurs check: cannot construct infinite type %A = %A"
-                        (zonk ctx.Store (TyVar root.Id))
-                        (zonk ctx.Store other)
+                    Kind.Message(
+                        sprintf
+                            "Occurs check: cannot construct infinite type %A = %A"
+                            (zonk ctx.Store (TyVar root.Id))
+                            (zonk ctx.Store other)
+                    )
                 )
             else
                 // Linking to a plain TyConst (a dimensionless carrier) when
@@ -421,12 +429,12 @@ module UnificationEngine =
                 // dimensionless-vs-measured mismatch.
                 match ctx.Store.Units root, other with
                 | ValueSome m, TyConst _ when not m.IsDimensionless ->
-                    ctx.Error(tok, sprintf "Dimensionless %A used where <%O> expected" other m)
+                    ctx.Report(tok, Kind.Message(sprintf "Dimensionless %A used where <%O> expected" other m))
                 | _ -> ()
 
                 ctx.Store.SetLink(root, ValueSome other)
                 drainAll ctx tok root other
-        | _ -> ctx.Error(tok, sprintf "Type mismatch: %A vs %A" (zonk ctx.Store a) (zonk ctx.Store b))
+        | _ -> ctx.Report(tok, Kind.Message(sprintf "Type mismatch: %A vs %A" (zonk ctx.Store a) (zonk ctx.Store b)))
 
     /// Unify two same-length type-argument vectors positionally — the shared body
     /// of the `TyConst` / `TyRecord` / `TyUnion` / `TyClass` / `TyTuple` arms (each
@@ -518,14 +526,14 @@ module UnificationEngine =
                 solveAll ()
 
                 for d in pending do
-                    ctx.Error(d.Use.Tok, sprintf "Unknown %s type '%s'" kind name)
+                    ctx.Report(d.Use.Tok, Kind.UnknownNominalType(kind, name))
             | DotSource.Resolved(name, memberNoun, subst, lookup) ->
                 solveAll ()
 
                 for d in pending do
                     match lookup d.MemberName with
                     | ValueSome ty -> unify ctx d.Use.Tok (TyVar d.ResultTv) (substituteWith ctx.Store subst ty)
-                    | ValueNone -> ctx.Error(d.Use.Tok, sprintf "Type '%s' has no %s '%s'" name memberNoun d.MemberName)
+                    | ValueNone -> ctx.Report(d.Use.Tok, Kind.NoMember(name, memberNoun, d.MemberName))
             | DotSource.ClassChain(key, args) ->
                 // `tryClassChainMember` already returns the type instantiated
                 // against `args` (and any parent typar substitution), so no
@@ -537,8 +545,7 @@ module UnificationEngine =
                 for d in pending do
                     match tryClassChainMember ctx key args d.MemberName with
                     | ValueSome ty -> unify ctx d.Use.Tok (TyVar d.ResultTv) ty
-                    | ValueNone ->
-                        ctx.Error(d.Use.Tok, sprintf "Type '%s' has no instance member '%s'" shown d.MemberName)
+                    | ValueNone -> ctx.Report(d.Use.Tok, Kind.NoMember(shown, MemberNoun.InstanceMember, d.MemberName))
             | DotSource.ExternalClass(key, args) ->
                 // Deferred mirror of `resolveFieldStep`'s external arm: the receiver
                 // TyVar resolved to a BCL/contract class or interface (e.g. the
@@ -578,12 +585,9 @@ module UnificationEngine =
                         // leaves the node typed with the un-grounded arg typar.
                         unifyAppliedSig ctx d.Use.Tok (TyVar d.ResultTv) memberSig
                     | _ ->
-                        ctx.Error(
+                        ctx.Report(
                             d.Use.Tok,
-                            sprintf
-                                "Type '%s' has no instance member '%s'"
-                                (SymbolKeyOps.qualifiedName key)
-                                d.MemberName
+                            Kind.NoMember(SymbolKeyOps.qualifiedName key, MemberNoun.InstanceMember, d.MemberName)
                         )
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
@@ -874,19 +878,24 @@ module UnificationEngine =
 
                 match checkConstraint ctx c linkTarget with
                 | Satisfied -> ()
-                | Violated ->
-                    ctx.Error(
-                        tok,
-                        sprintf
-                            "The type '%A' does not support the '%s' constraint"
-                            (zonk ctx.Store linkTarget)
-                            (constraintKindName c.Kind)
-                    )
+                | Violated -> reportConstraintViolation ctx tok c linkTarget
                 | Defer ->
                     remaining <- c :: remaining
                     propagateToFreeArgs ctx c linkTarget
 
             ctx.Store.Constraints.Set(root, List.rev remaining)
+
+    /// THE one spelling of "this type does not answer that constraint". Both places a
+    /// constraint is checked against a settled type — the drain above and abbreviation
+    /// expansion — report through here, so the two cannot render the same violation
+    /// differently.
+    and reportConstraintViolation
+        (ctx: PassContext)
+        (tok: SyntaxToken)
+        (c: SemanticConstraint)
+        (target: SemType)
+        : unit =
+        ctx.Report(tok, Kind.ConstraintNotSupported(shown ctx.Store target, constraintKindName c.Kind))
 
     /// When a compound shape is partially resolved, the parent constraint is
     /// satisfied iff every component supports it, so a still-free component
@@ -1037,7 +1046,8 @@ module UnificationEngine =
                             ctx.Store.Srtp.Solve b
                             unifySrtpAgainst ctx tok candTy b
                         | ValueNone ->
-                            ctx.Error(tok, sprintf "Type '%s' has no built-in static member '%s'" primName b.MemberName)
+                            ctx.Report(tok, Kind.NoMember(primName, MemberNoun.BuiltInStaticMember, b.MemberName))
+
                             ctx.Store.Srtp.Solve b
                     | TyClass(classKey, classArgs) ->
                         match TypeRegistry.tryClassByKey ctx.Types classKey with
@@ -1050,7 +1060,7 @@ module UnificationEngine =
                             | None ->
                                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName classKey
 
-                                ctx.Error(tok, sprintf "Type '%s' has no static member '%s'" shown b.MemberName)
+                                ctx.Report(tok, Kind.NoMember(shown, MemberNoun.StaticMember, b.MemberName))
 
                                 ctx.Store.Srtp.Solve b
                         | ValueNone ->

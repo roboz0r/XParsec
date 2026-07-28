@@ -44,7 +44,9 @@ module internal UnificationInferApp =
         errorTy
             ctx
             tok
-            (sprintf "No definition for '%s' found — is the package that defines it referenced and opened?" spelling)
+            (Kind.Message(
+                sprintf "No definition for '%s' found — is the package that defines it referenced and opened?" spelling
+            ))
 
     /// Record the lambda-keyed `Fun`-arity verdict (and its
     /// result-typar position) for each source-lambda argument of an application.
@@ -191,7 +193,10 @@ module internal UnificationInferApp =
                 else
                     let allowed = members |> List.map (fun v -> v.Render) |> String.concat " | "
 
-                    ctx.Error(tok, sprintf "%s is not one of the allowed literal values: %s" lit.Render allowed)
+                    ctx.Report(
+                        tok,
+                        Kind.Message(sprintf "%s is not one of the allowed literal values: %s" lit.Render allowed)
+                    )
 
                     true
 
@@ -412,9 +417,10 @@ module internal UnificationInferApp =
                                 let rejectCallback = hasCallbackHole && not (PrintfSpec.callbackSinkAvailable fam)
 
                                 if rejectCallback then
-                                    ctx.Error(
+                                    ctx.Report(
                                         node.Tok,
-                                        "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
+                                        Kind.Message
+                                            "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
                                     )
 
                                 // Cold residuals — a specifier no backend renders faithfully
@@ -431,11 +437,13 @@ module internal UnificationInferApp =
                                 // `lowerablePlaceholders`, so a residual sets no marker regardless.
                                 match specs |> List.tryFind (fun p -> (PrintfHoleForm.tryClassify p).IsNone) with
                                 | Some p ->
-                                    ctx.Error(
+                                    ctx.Report(
                                         node.Tok,
-                                        sprintf
-                                            "printf format specifier %s cannot be lowered on this target"
-                                            (PrintfHoleForm.renderPlaceholder p)
+                                        Kind.Message(
+                                            sprintf
+                                                "printf format specifier %s cannot be lowered on this target"
+                                                (PrintfHoleForm.renderPlaceholder p)
+                                        )
                                     )
                                 | None -> ()
 
@@ -657,8 +665,7 @@ module internal UnificationInferApp =
             ctx.DynamicEscapes.Add { Root = resultVar; Node = node }
 
             resultTy
-        | ValueNone ->
-            errorTy ctx node.Tok "dynamic-access operator '?' (op_Dynamic) is not in scope (Vesper.Core missing?)"
+        | ValueNone -> errorTy ctx node.Tok (Kind.IntrinsicNotInScope "dynamic-access operator '?' (op_Dynamic)")
 
     /// `recv?name <- value` — the dynamic-set operator (`(?<-) recv "name" value`).
     /// Resolve `op_DynamicAssignment` and unify against `recv -> string -> value ->
@@ -688,10 +695,7 @@ module internal UnificationInferApp =
 
             ctx.Intrinsics.Unit
         | ValueNone ->
-            errorTy
-                ctx
-                node.Tok
-                "dynamic-set operator '?<-' (op_DynamicAssignment) is not in scope (Vesper.Core missing?)"
+            errorTy ctx node.Tok (Kind.IntrinsicNotInScope "dynamic-set operator '?<-' (op_DynamicAssignment)")
 
     and inferPrefix (infer: Infer) (ctx: PassContext) (node: NodeSite) (operand: Expr<SyntaxToken>) : SemType =
         let operandTy = infer ctx operand

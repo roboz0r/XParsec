@@ -409,8 +409,7 @@ let structTests =
                 let lexed, file = parseFile src
                 let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
 
-                let errors =
-                    tast.Residue.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+                let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 
                 if not (List.isEmpty errors) then
                     failwithf "consumer failed to analyse: %A" (errors |> List.map (fun d -> d.Message))

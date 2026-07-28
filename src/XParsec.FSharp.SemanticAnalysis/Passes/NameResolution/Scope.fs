@@ -208,7 +208,7 @@ module NameResolutionScope =
                 then
                     ()
                 else
-                    ctx.Error(tok, sprintf "Unresolved identifier: %s" name)
+                    ctx.Report(tok, Kind.Message(sprintf "Unresolved identifier: %s" name))
 
     /// True if `name` is a ctor reference in pattern position. F# spec treats
     /// uppercase-leading pattern idents as ctor references; we additionally
@@ -732,7 +732,7 @@ module NameResolutionScope =
                         then
                             ()
                         else
-                            ctx.Error(CstKeys.firstTokenOfExpr e, sprintf "Unresolved qualified name: %s" qualName)
+                            ctx.Report(CstKeys.firstTokenOfExpr e, Kind.UnresolvedQualifiedName qualName)
 
                 if not (tryLocalModuleMember ()) then
                     resolveQualifiedExternal ()
@@ -757,16 +757,11 @@ module NameResolutionScope =
             match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
             | ValueSome qualName ->
                 if not (tryStampExternalValue ctx (CstKeys.ofExpr e) qualName) then
-                    ctx.Error(CstKeys.firstTokenOfExpr e, sprintf "Unresolved qualified name: %s" qualName)
+                    ctx.Report(CstKeys.firstTokenOfExpr e, Kind.UnresolvedQualifiedName qualName)
             | ValueNone ->
                 // A non-symbolic op segment (active-pattern / nil / range) has no
                 // `op_` member to qualify — keep surfacing the gap.
-                ctx.Error(
-                    CstKeys.firstTokenOfExpr e,
-                    sprintf
-                        "Operator-form qualified names not yet resolved (starting at '%s')"
-                        (ctx.NameOf li.Idents.[0])
-                )
+                ctx.Report(CstKeys.firstTokenOfExpr e, Kind.OperatorFormQualifiedName(ctx.NameOf li.Idents.[0]))
         | Expr.LongIdentOrOp lio ->
             // TODO: remaining operator-form long idents (a bare non-symbolic
             // `LongIdentOrOp.Op`, e.g. an active-pattern or nil op-name used as a
@@ -775,10 +770,7 @@ module NameResolutionScope =
             let firstTok = CstKeys.firstTokenOfLongIdentOrOp lio
             let displayName = ctx.NameOf firstTok
 
-            ctx.Error(
-                CstKeys.firstTokenOfExpr e,
-                sprintf "Operator-form qualified names not yet resolved (starting at '%s')" displayName
-            )
+            ctx.Report(CstKeys.firstTokenOfExpr e, Kind.OperatorFormQualifiedName displayName)
         | Expr.TypeApp(expr = receiver; types = types) ->
             // The receiver's arity (its type-arg count) lives on this node, not on
             // the receiver's own visit. Classify receiver+arity together — ONCE — so

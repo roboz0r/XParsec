@@ -11,7 +11,7 @@ let private analyse (input: string) =
 let private errors (tast: TastFile) =
     [
         for d in tast.Diagnostics do
-            if d.Severity = Severity.Error then
+            if Diagnostic.isError d then
                 yield d.Message
     ]
 

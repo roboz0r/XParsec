@@ -99,7 +99,7 @@ module Validation =
                             | ValueSome info ->
                                 match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                                 | Some field when not field.IsMutable ->
-                                    ctx.Error(li.Idents.[1], sprintf "Cannot assign to immutable field '%s'" fieldName)
+                                    ctx.Report(li.Idents.[1], Kind.ImmutableFieldAssignment fieldName)
                                 | _ -> ()
                             | ValueNone -> ()
                         | _ -> ()
@@ -110,7 +110,7 @@ module Validation =
             let lhsKey = CstKeys.ofExpr core
 
             match ctx.Bindings.Binding.TryGetValue lhsKey with
-            | ValueSome rb when not rb.IsMutable -> ctx.Error(coreTok, "assignment to immutable binding")
+            | ValueSome rb when not rb.IsMutable -> ctx.Report(coreTok, Kind.Message "assignment to immutable binding")
             | _ -> ()
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             // Free TyVar receivers (unresolved record) skip silently; the
@@ -127,7 +127,7 @@ module Validation =
                     | ValueSome info ->
                         match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
                         | Some field when not field.IsMutable ->
-                            ctx.Error(li.Idents.[0], sprintf "Cannot assign to immutable field '%s'" fieldName)
+                            ctx.Report(li.Idents.[0], Kind.ImmutableFieldAssignment fieldName)
                         | _ -> ()
                     | ValueNone -> ()
                 | _ -> ()
@@ -147,11 +147,13 @@ module Validation =
 
             if seenRoots.Add(root.Id) && not (List.isEmpty pending) then
                 for d in pending do
-                    ctx.Error(
+                    ctx.Report(
                         d.Use.Tok,
-                        sprintf
-                            "Cannot resolve member '%s': receiver type was never constrained to a record or class type"
-                            d.MemberName
+                        Kind.Message(
+                            sprintf
+                                "Cannot resolve member '%s': receiver type was never constrained to a record or class type"
+                                d.MemberName
+                        )
                     )
 
     // A scheme-level "Constraint not resolved" tail check is reserved
@@ -189,10 +191,11 @@ module Validation =
                     // `let mutable` is not spelled there until `Elaborate`, which
                     // `Pipeline` runs AFTER this pass. So there is nothing here to point
                     // at, and naming no place beats manufacturing one from the key offset.
-                    ctx.ErrorAt(
+                    ctx.Report(
                         Site.Nowhere,
-                        "value restriction: mutable binding has unresolved type variable(s); \
-                         add a type annotation or constrain via a use site"
+                        Kind.Message
+                            "value restriction: mutable binding has unresolved type variable(s); \
+                             add a type annotation or constrain via a use site"
                     )
                 | _ -> ()
 
@@ -221,9 +224,10 @@ module Validation =
                 | ModuleElem.Import(ImportDecl.ImportDecl(openToken = openTok))
                 | ModuleElem.Import(ImportDecl.ImportDeclType(openToken = openTok)) ->
                     if seenNonImport then
-                        ctx.Error(
+                        ctx.Report(
                             openTok,
-                            "In a recursive declaration group, 'open' declarations must come first in each module."
+                            Kind.Message
+                                "In a recursive declaration group, 'open' declarations must come first in each module."
                         )
                 | _ -> seenNonImport <- true
 
@@ -251,9 +255,9 @@ module Validation =
     let private checkUseBindings (ctx: PassContext) (bindings: XParsec.FSharp.ImArr<Binding<SyntaxToken>>) : unit =
         for b in bindings do
             if not (isSimpleUsePat b.headPat) then
-                ctx.Error(
+                ctx.Report(
                     CstKeys.firstTokenOfPat b.headPat,
-                    "Only simple variable patterns can be bound in 'use' expressions"
+                    Kind.Message "Only simple variable patterns can be bound in 'use' expressions"
                 )
 
     let private mkWalker (ctx: PassContext) : CstWalk.ExprWalker<unit> =
@@ -311,7 +315,7 @@ module Validation =
                 | ExceptionDefn.Full(exceptionToken = t)
                 | ExceptionDefn.Abbreviation(exceptionToken = t) -> t
 
-            ctx.ErrorAt(Site.ofToken tok, "`exception` declarations are not yet validated")
+            ctx.Report(tok, Kind.NotYetSupported "validation of `exception` declarations")
         // `CstWalk.implFileElems` flattens a nested module's body into the
         // element list before `walkElems` runs, so a `ModuleElem.Module` should
         // never reach here. If one does, the flattening invariant has drifted
@@ -319,9 +323,9 @@ module Validation =
         // a diagnostic so the regression surfaces instead of vanishing into a
         // silent skip.
         | ModuleElem.Module(ModuleDefn.ModuleDefn(moduleToken = tok)) ->
-            ctx.ErrorAt(
-                Site.ofToken tok,
-                "Nested `module` reached Validation; `implFileElems` flattening invariant drifted"
+            ctx.Report(
+                tok,
+                Kind.Message "Nested `module` reached Validation; `implFileElems` flattening invariant drifted"
             )
         // `open` / `module R = …` are declaration-level nodes consumed by
         // open-resolution (NameResolution/Unification build the `OpenScope` from
@@ -329,12 +333,12 @@ module Validation =
         | ModuleElem.ModuleAbbrev _ -> ()
         | ModuleElem.Import _ -> ()
         | ModuleElem.CompilerDirective(CompilerDirectiveDecl(hash = tok)) ->
-            ctx.ErrorAt(Site.ofToken tok, "Compiler directives are not yet validated")
-        | ModuleElem.Missing -> ctx.ErrorAt(Site.Nowhere, "Missing module element (parse recovery)")
+            ctx.Report(tok, Kind.NotYetSupported "validation of compiler directives")
+        | ModuleElem.Missing -> ctx.Report(Site.Nowhere, Kind.Message "Missing module element (parse recovery)")
         | ModuleElem.SkipsTokens skipped ->
             // The whole run, not just its head: a span of tokens belonging to no node is
             // exactly what `Between` is for.
-            ctx.ErrorAt(Site.spanning skipped, "Skipped tokens at module level (parse recovery)")
+            ctx.Report(Site.spanning skipped, Kind.Message "Skipped tokens at module level (parse recovery)")
 
     let private walkElems
         (ctx: PassContext)

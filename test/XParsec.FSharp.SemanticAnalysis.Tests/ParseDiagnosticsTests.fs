@@ -2,6 +2,9 @@ module XParsec.FSharp.SemanticAnalysis.Tests.ParseDiagnosticsTests
 
 open Expecto
 open XParsec.FSharp.Lexer
+// Ahead of the SemanticAnalysis open so the bare `Diagnostic` is the semantic one; this is
+// here for the parser's `DiagnosticCode`, which `Kind.Parse` wraps.
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 // A file whose parse RECOVERS still has something to report: the tree came out complete
@@ -18,14 +21,33 @@ let private unclosedParen = "let f () = (1 + 2\n"
 let private mismatchedClose = "let r = {| x = 1 }\n"
 
 let private parsed (source: string) : Pipeline.ParsedUnit =
-    match Pipeline.parse "TEST" source with
+    match Pipeline.parse source with
     | Ok p -> p
     | Error f -> failtestf "expected a recovered parse, not a failure: %A" f.Diagnostics
 
-let private ofCode (code: string) (p: Pipeline.ParsedUnit) : Diagnostic =
-    match p.Diagnostics |> List.tryFind (fun d -> d.Code = code) with
+/// The diagnostic whose VERDICT is the one asked for. Asked of the `Kind` and not of a
+/// message substring or a stringly code: the classification is the thing the diagnostic
+/// carries, so a consumer selecting on it cannot be broken by a reworded sentence.
+let private ofKind (wanted: Kind -> bool) (what: string) (p: Pipeline.ParsedUnit) : Diagnostic =
+    match p.Diagnostics |> List.tryFind (fun d -> wanted d.Kind) with
     | Some d -> d
-    | None -> failtestf "no %s diagnostic; got %A" code p.Diagnostics
+    | None -> failtestf "no %s diagnostic; got %A" what p.Diagnostics
+
+let private unclosedDelimiter (p: Pipeline.ParsedUnit) : Diagnostic =
+    p
+    |> ofKind
+        (function
+        | Kind.Parse(DiagnosticCode.UnclosedDelimiter _) -> true
+        | _ -> false)
+        "unclosed delimiter"
+
+let private mismatchedDelimiter (p: Pipeline.ParsedUnit) : Diagnostic =
+    p
+    |> ofKind
+        (function
+        | Kind.Parse(DiagnosticCode.MismatchedDelimiter _) -> true
+        | _ -> false)
+        "mismatched delimiter"
 
 /// The single label every delimiter diagnostic carries, on the delimiter left open.
 let private openerLabel (d: Diagnostic) : Label =
@@ -56,7 +78,7 @@ let tests =
             // mistake, and the ONLY observable difference is the primary site. Asserting
             // them together is what stops one collapsing back into the other.
             test "an INSERTED close blames the hole it went into" {
-                let d = parsed unclosedParen |> ofCode "UnclosedDelimiter"
+                let d = parsed unclosedParen |> unclosedDelimiter
 
                 match d.Site with
                 | Site.After _ -> ()
@@ -68,7 +90,7 @@ let tests =
             }
 
             test "a WRONG close blames the token itself" {
-                let d = parsed mismatchedClose |> ofCode "MismatchedDelimiter"
+                let d = parsed mismatchedClose |> mismatchedDelimiter
 
                 // Nothing was inserted — the offending token was consumed as the close — so
                 // there is no gap to name and the token is the mistake.
@@ -96,7 +118,7 @@ let tests =
                     | Result.Error e -> failtestf "lex failed: %A" e
 
                 let recovered =
-                    match Pipeline.parse "TEST" source with
+                    match Pipeline.parse source with
                     | Ok p -> p.Diagnostics
                     | Error f -> f.Diagnostics
 
@@ -133,7 +155,7 @@ let tests =
                             Failure =
                                 {
                                     Lexed = ValueNone
-                                    Diagnostics = [ Diagnostic.nowhere "TEST" "lex error" ]
+                                    Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure "unreadable") ]
                                 }
                         }
 

@@ -3,6 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Generic
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open UnificationEngineCore
 
 // The pre-freeze inline-expansion pass. Runs
 // between `Elaborate.elaborate` and `Elaborate.freezeTypars`, on the still
@@ -295,45 +296,17 @@ module InlineExpansion =
                 )
                 result
 
-    /// A short display name for the receiver of an unresolved trait call. An unpinned
-    /// typar prints as F#'s anonymous `'a` — the honest rendering of "a type parameter
-    /// nothing pinned". Total by construction: this text reaches the USER, so no case
-    /// may fall through to a `%A` dump of the internal `SemType` DU.
-    let rec private receiverName (store: TypeStore) (t: SemType) : string =
-        match UnionFind.headZonk store t with
-        | TyConst(key, _) ->
-            let (DisplayName shown) = SymbolKeyOps.simpleName key
-            shown
-        | TyEnum key -> SymbolKeyOps.typeMetaName key
-        | TyClass(k, _)
-        | TyUnion(k, _)
-        | TyRecord(k, _) -> SymbolKeyOps.typeMetaName k
-        | TyVar _
-        | TyTypar _ -> "'a"
-        | TyFun _ -> "function"
-        | TyTuple _ -> "tuple"
-        | TyOr ms ->
-            ms.Members
-            |> EqSet.toList
-            |> List.map (receiverName store)
-            |> String.concat " | "
-        | TyLiteral v -> sprintf "%A" v
-        | TyUnknown name -> name
-        | TyKeyOf _
-        | TyIndexedAccess _
-        | TyConditional _ -> "type expression"
+    /// The verdict for a trait call the expansion could not dispatch. An operator is named
+    /// as the user WROTE it (`+`), never by the member it compiled to (`op_Addition`) —
+    /// `OperatorNames.sourceSymbol` inverts the lexer's own table, so the spelling cannot
+    /// drift from the name. A member outside that table is not an operator at all (a
+    /// user-written `(^T: (member GetAwaiter: …) x)`), and the verdict says so.
+    let private unsupportedTrait (store: TypeStore) (u: Inline.UnresolvedTrait) : Kind =
+        let receiver = shown store u.Receiver
 
-    /// The user-facing wording for a trait call the expansion could not dispatch.
-    /// An operator is named as the user WROTE it (`+`), never by the member it compiled
-    /// to (`op_Addition`) — `OperatorNames.sourceSymbol` inverts the lexer's own table,
-    /// so the spelling cannot drift from the name. A member outside that table is not an
-    /// operator at all (a user-written `(^T: (member GetAwaiter: …) x)`), and says so.
-    let private unsupportedTraitMessage (store: TypeStore) (u: Inline.UnresolvedTrait) : string =
         match OperatorNames.sourceSymbol u.MemberName with
-        | ValueSome symbol ->
-            sprintf "The type '%s' does not support the operator '%s'" (receiverName store u.Receiver) symbol
-        | ValueNone ->
-            sprintf "The type '%s' does not support the member '%s'" (receiverName store u.Receiver) u.MemberName
+        | ValueSome symbol -> Kind.TraitNotSupported(receiver, MemberNoun.Operator, symbol)
+        | ValueNone -> Kind.TraitNotSupported(receiver, MemberNoun.Member, u.MemberName)
 
     /// Expand the module-level inlines in one decl-list (the elaborated,
     /// `TyVar`-carrying decls paired with their freeze envs). The cross-unit inline-body
@@ -523,7 +496,7 @@ module InlineExpansion =
                         Inline.inlineExpand ctx decl (deriveInlineTypeArgs ctx.Store declTy spineArgs)
 
                     for u in unresolved do
-                        ctx.Error(siteTok, unsupportedTraitMessage ctx.Store u)
+                        ctx.Report(siteTok, unsupportedTrait ctx.Store u)
 
                     Inline.spliceAt mint siteTok expanded
                 | _ -> failwith "InlineExpansion: an inline body must be a TDecl.Let"
