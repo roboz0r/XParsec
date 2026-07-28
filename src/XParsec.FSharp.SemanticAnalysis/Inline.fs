@@ -18,10 +18,11 @@ open XParsec.FSharp.Parser
 // roots either way: a SAME-unit template still holds the roots its generalised scheme
 // quantified (the pre-freeze pass sees it directly), and a CROSS-unit one holds the
 // roots `thawBody` just minted. `inlineExpand` substitutes those roots to the caller's
-// concrete types; `freshen` does the NodeKey renaming so independent call sites don't
-// alias each other's bound names (and thus codegen local slots). The caller still owns
-// argument (beta) reduction of the resulting lambda against the actual arguments — it
-// needs the call-site args the caller holds.
+// concrete types; `spliceAt` does the NodeKey renaming so independent call sites don't
+// alias each other's bound names (and thus codegen local slots), and moves the copy onto
+// the call site's token so it names a position in the file it lands in. The caller still
+// owns argument (beta) reduction of the resulting lambda against the actual arguments —
+// it needs the call-site args the caller holds.
 
 module Inline =
 
@@ -31,9 +32,10 @@ module Inline =
     /// (`op_Addition`).
     ///
     /// Reported as data, not as a message: the expander runs off the type-erased
-    /// `TastWalk.Mapper` surface with no `PassContext`, and the spliced body's own tokens
-    /// address the LIBRARY file it came from — so the caller (`Passes.InlineExpansion`)
-    /// owns both the wording and the call-site key the diagnostic must be anchored at.
+    /// `TastWalk.Mapper` surface with no `PassContext`, and it runs BEFORE `spliceAt`
+    /// moves the body onto the call site, so the tokens it can see still address the
+    /// library file — the caller (`Passes.InlineExpansion`) owns both the wording and the
+    /// call-site key the diagnostic must be anchored at.
     /// Every expansion path returns these, so none can splice a body while quietly
     /// leaving an unresolvable trait call in it — neither backend has a `TraitCall` arm.
     type UnresolvedTrait =
@@ -308,10 +310,10 @@ module Inline =
     /// `quantifiedTypars` order. Returns the binding's `value` with every typar
     /// substituted, its `StaticOptimization` clauses resolved and its `TraitCall`s
     /// dispatched — paired with the trait calls that could NOT be dispatched, which the
-    /// caller must report. The body shares NodeKeys with the original (the caller
-    /// freshens them per expansion, and reduces the resulting lambda against the actual
-    /// arguments). Supplying fewer `typeArgs` than there are typars substitutes the
-    /// leading ones and leaves the rest abstract.
+    /// caller must report. The body still shares the template's NodeKeys and its
+    /// definition-site tokens (the caller runs `spliceAt` per expansion, and reduces the
+    /// resulting lambda against the actual arguments). Supplying fewer `typeArgs` than
+    /// there are typars substitutes the leading ones and leaves the rest abstract.
     ///
     /// The substituting walk runs even when there is nothing to substitute (a
     /// monomorphic binding, or a bare reference with no spine to derive typars from):
@@ -349,7 +351,10 @@ module Inline =
     /// Because a use is always lexically inside its binder, pre-order visits
     /// the binder (populating the map) before any reference to it. The caller
     /// owns `mint` so its counter is shared across every expansion in a build.
-    let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr =
+    ///
+    /// `anchor` is where the rewritten copy SITS. `ValueSome` moves it wholesale onto
+    /// that token; `ValueNone` leaves each node on its own.
+    let private rename (mint: unit -> NodeKey) (anchor: SyntaxToken voption) (body: TExpr) : TExpr =
         let remap = Dictionary<NodeKey, NodeKey>()
 
         let bind (k: NodeKey) : NodeKey =
@@ -372,6 +377,7 @@ module Inline =
         // to them is rewritten.
         let mapper: TastWalk.Mapper =
             { TastWalk.identityMapper with
+                Anchor = anchor
                 OverridePat =
                     fun _ p ->
                         match p with
@@ -399,6 +405,29 @@ module Inline =
             }
 
         TastWalk.mapExpr mapper body
+
+    /// Prepare an inline BODY for the call site at `anchor`: fresh binders, and every node
+    /// moved onto the call site's own token.
+    ///
+    /// The move is not cosmetic. An inlined body's meaningful source position IS the call
+    /// site — that is what a diagnostic, a stack trace or a source map wants — and a body
+    /// that arrived over the package wire carries tokens of the LIBRARY file it was
+    /// compiled from, which name different text (or nothing at all) in the file it is
+    /// being spliced into. Moving at the splice is what makes "every node of a file
+    /// anchors on a token of THAT file" hold of the frozen tree by construction, rather
+    /// than being a property one has to audit every splice path for.
+    ///
+    /// THE entry point for putting a body into a consuming tree: `freshen` below is for a
+    /// call-site expression being duplicated within its own file, which already sits where
+    /// it belongs.
+    let spliceAt (mint: unit -> NodeKey) (anchor: SyntaxToken) (body: TExpr) : TExpr =
+        rename mint (ValueSome anchor) body
+
+    /// Fresh binders only, positions untouched — for a copy of an expression that is
+    /// ALREADY this file's (an argument lambda duplicated at each of its uses inside the
+    /// body it was passed to). It is written where it stands, so its own positions are the
+    /// honest ones and are strictly finer than the enclosing call's.
+    let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr = rename mint ValueNone body
 
     /// The open method signature of an external symbol: its full curried
     /// monotype with the method-owned typars resolved to self-describing

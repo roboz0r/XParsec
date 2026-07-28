@@ -727,12 +727,12 @@ module TastPools =
         //
         // A LIST, not a key→id map, because the key is one-to-MANY over this space and a map
         // could only keep one of the nodes. Two lambdas share a key whenever they share a
-        // source token, which is routine: `Inline.freshen` renames a spliced body's binders
-        // but carries its tokens across, so every splice of an `inline` body re-pools that
-        // body's lambdas under their definition-site keys — and the published TEMPLATE is a
-        // second tree over the same source as the emitted function it was stashed from. The
-        // verdict belongs to ALL of them; a map would have silently given it to whichever was
-        // pooled last, and left every other copy to emit as an ordinary heap closure.
+        // source token, which is routine in two ways: the published TEMPLATE is a second tree
+        // over the same source as the emitted function it was stashed from, and an inline
+        // splice moves a whole body onto the CALL SITE's one token (`Inline.spliceAt`), so
+        // every lambda in it lands on that token together. The verdict belongs to ALL of
+        // them; a map would have silently given it to whichever was pooled last, and left
+        // every other copy to emit as an ordinary heap closure.
         let lambdaSlots = ResizeArray<struct (ExprPoolId * LambdaKey)>()
 
         let internBinder (site: BinderSite<'id>) : BinderId =

@@ -498,8 +498,8 @@ module InlineExpansion =
             // unreported one is an emitter crash, where a reported one is
             // "the type 'decimal' does not support the operator '+'" and stops the
             // compile before codegen. Reporting belongs here, not in `Inline`: the
-            // expander is `PassContext`-free, and the spliced body's tokens address the
-            // LIBRARY file it came from — the call site is the only honest anchor.
+            // expander is `PassContext`-free, and it sees the body before `spliceAt` moves
+            // it — so the call site is the only anchor available to it.
             //
             // Deriving the type arguments is not only for static-opt selection: for any
             // generic inline it GROUNDS the body's typars to the caller's types. Without
@@ -521,7 +521,7 @@ module InlineExpansion =
                     for u in unresolved do
                         ctx.Error(NodeKey.ofToken siteTok NodeKind.ExprApp, unsupportedTraitMessage ctx.Store u)
 
-                    Inline.freshen mint expanded
+                    Inline.spliceAt mint siteTok expanded
                 | _ -> failwith "InlineExpansion: an inline body must be a TDecl.Let"
 
             // Inline-first lambda elimination. A lambda
@@ -705,6 +705,15 @@ module InlineExpansion =
                                 // `nonInlinableLambdaParams` guaranteed every use is
                                 // saturated, so `betaReduce` consumes exactly the
                                 // lambda's arity — no surviving closure.
+                                //
+                                // `freshen`, not `spliceAt`: what is copied is the CALL
+                                // SITE's own argument, written in THIS file, and the use it
+                                // is copied to is inside a body already moved onto that same
+                                // call site — so its tokens are already local, and its own
+                                // are the finer ones. They are also what a `FunVerdicts`
+                                // entry for it is filed under (`LambdaKey.ofAnchor`), and
+                                // these copies are the only ones pooled: an inlined-away
+                                // parameter keeps no surviving `let`.
                                 | TExpr.Var(k, _, _) when lambdaEnv.ContainsKey k ->
                                     ValueSome(walk (betaReduce (Inline.freshen mint lambdaEnv.[k]) spineArgs))
                                 | TExpr.External(_, keyOpt, _, headTok) ->
@@ -819,13 +828,18 @@ module InlineExpansion =
                                 match body with
                                 | ValueSome ib ->
                                     match Inline.nullaryIntrinsicValueBody ib.Decl with
-                                    | ValueSome(TExpr.ILIntrinsic(op, operand, args, _, intrinsicTok)) ->
+                                    // The one splice that does not go through `expandAt`: a
+                                    // nullary intrinsic is a single node with no binders, so
+                                    // it needs no expansion — but it is still a body being
+                                    // put into THIS file, and takes the reference's own
+                                    // token for the reason `Inline.spliceAt` states.
+                                    | ValueSome(TExpr.ILIntrinsic(op, operand, args, _, _)) ->
                                         let groundedOperand =
                                             match operand with
                                             | ValueSome _ -> ValueSome refTy
                                             | ValueNone -> ValueNone
 
-                                        ValueSome(TExpr.ILIntrinsic(op, groundedOperand, args, refTy, intrinsicTok))
+                                        ValueSome(TExpr.ILIntrinsic(op, groundedOperand, args, refTy, tok))
                                     | _ -> etaReify body name keyOpt refTy tok |> ValueOption.map walk
                                 | ValueNone -> etaReify body name keyOpt refTy tok |> ValueOption.map walk
                             | _ -> ValueNone

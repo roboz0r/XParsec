@@ -139,6 +139,82 @@ module TastWalk =
         | TPatG.EnumCase(tok = tok)
         | TPatG.Or(tok = tok) -> tok
 
+    /// Move a node ONTO `tok` — every token it carries, not only the anchor `exprTok`
+    /// reads. The setter half of `exprTok`, and the only place that knows a node may hold
+    /// more than one: `ForTo`'s `identTok` and a `Format` hole's `Tok` are positions in the
+    /// same source and cannot be left addressing a different one.
+    ///
+    /// Node-local: children keep their own tokens, so a whole tree moves only by moving
+    /// through `mapExpr` with an `Anchor` set.
+    let withExprTok (tok: 'tok) (e: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
+        let hole (h: HoleSpecG<'ty, 'tok>) = { h with Tok = tok }
+
+        match e with
+        | TExprG.Const(v, ty, _) -> TExprG.Const(v, ty, tok)
+        | TExprG.Var(k, ty, _) -> TExprG.Var(k, ty, tok)
+        | TExprG.External(n, k, ty, _) -> TExprG.External(n, k, ty, tok)
+        | TExprG.Lambda(p, b, ty, _) -> TExprG.Lambda(p, b, ty, tok)
+        | TExprG.App(fn, a, ty, _) -> TExprG.App(fn, a, ty, tok)
+        | TExprG.Let(p, v, b, ty, _) -> TExprG.Let(p, v, b, ty, tok)
+        | TExprG.Use(p, v, b, d, ty, _) -> TExprG.Use(p, v, b, d, ty, tok)
+        | TExprG.IfThenElse(c, t, el, ty, _) -> TExprG.IfThenElse(c, t, el, ty, tok)
+        | TExprG.Tuple(items, ty, _) -> TExprG.Tuple(items, ty, tok)
+        | TExprG.Sequential(items, ty, _) -> TExprG.Sequential(items, ty, tok)
+        | TExprG.While(c, b, ty, _) -> TExprG.While(c, b, ty, tok)
+        | TExprG.ForTo(k, _, s, e2, b, ty, _) -> TExprG.ForTo(k, tok, s, e2, b, ty, tok)
+        | TExprG.ForIn(p, src, b, en, ty, _) -> TExprG.ForIn(p, src, b, en, ty, tok)
+        | TExprG.Match(sc, arms, ty, _) -> TExprG.Match(sc, arms, ty, tok)
+        | TExprG.TryWith(b, arms, ty, _) -> TExprG.TryWith(b, arms, ty, tok)
+        | TExprG.TryFinally(b, c, ty, _) -> TExprG.TryFinally(b, c, ty, tok)
+        | TExprG.Assignment(l, r, ty, _) -> TExprG.Assignment(l, r, ty, tok)
+        | TExprG.Null(ty, _) -> TExprG.Null(ty, tok)
+        | TExprG.Range(s, step, e2, ty, _) -> TExprG.Range(s, step, e2, ty, tok)
+        | TExprG.RecordCons(fields, ty, _) -> TExprG.RecordCons(fields, ty, tok)
+        | TExprG.RecordClone(src, ov, ty, _) -> TExprG.RecordClone(src, ov, ty, tok)
+        | TExprG.FieldGet(r, n, ty, _) -> TExprG.FieldGet(r, n, ty, tok)
+        | TExprG.FieldSet(r, n, v, ty, _) -> TExprG.FieldSet(r, n, v, ty, tok)
+        | TExprG.UnionCons(c, args, ty, _) -> TExprG.UnionCons(c, args, ty, tok)
+        | TExprG.New(c, k, args, ty, _) -> TExprG.New(c, k, args, ty, tok)
+        | TExprG.MethodCall(r, k, via, args, ty, _) -> TExprG.MethodCall(r, k, via, args, ty, tok)
+        | TExprG.PropertyGet(r, k, via, ty, _) -> TExprG.PropertyGet(r, k, via, ty, tok)
+        | TExprG.StaticMethodCall(k, args, ty, _) -> TExprG.StaticMethodCall(k, args, ty, tok)
+        | TExprG.StaticPropertyGet(k, ty, _) -> TExprG.StaticPropertyGet(k, ty, tok)
+        | TExprG.StaticFieldGet(k, n, ty, _) -> TExprG.StaticFieldGet(k, n, ty, tok)
+        | TExprG.StaticFieldSet(k, n, v, ty, _) -> TExprG.StaticFieldSet(k, n, v, ty, tok)
+        | TExprG.ExternalMember(r, k, n, isProp, ty, _) -> TExprG.ExternalMember(r, k, n, isProp, ty, tok)
+        | TExprG.Format(sink, segs, ty, _) ->
+            let segs =
+                segs
+                |> EqArray.map (fun seg ->
+                    match seg with
+                    | FormatSegG.Lit _ -> seg
+                    | FormatSegG.Hole(h, a) -> FormatSegG.Hole(hole h, a)
+                    | FormatSegG.DynHole d -> FormatSegG.DynHole { d with Spec = hole d.Spec }
+                    | FormatSegG.CallbackHole(spec, residue) -> FormatSegG.CallbackHole(hole spec, residue)
+                )
+
+            TExprG.Format(sink, segs, ty, tok)
+        | TExprG.ILIntrinsic(op, operand, args, ty, _) -> TExprG.ILIntrinsic(op, operand, args, ty, tok)
+        | TExprG.StaticOptimization(clauses, def, ty, _) -> TExprG.StaticOptimization(clauses, def, ty, tok)
+        | TExprG.Upcast(src, ty, _) -> TExprG.Upcast(src, ty, tok)
+        | TExprG.Downcast(src, ty, _) -> TExprG.Downcast(src, ty, tok)
+        | TExprG.TraitCall(recv, n, args, ty, _) -> TExprG.TraitCall(recv, n, args, ty, tok)
+        | TExprG.TypeTest(src, testTy, ty, _) -> TExprG.TypeTest(src, testTy, ty, tok)
+
+    /// The pattern twin of `withExprTok`. A pattern carries only its anchor.
+    let withPatTok (tok: 'tok) (p: TPatG<'ty, 'tok, 'id>) : TPatG<'ty, 'tok, 'id> =
+        match p with
+        | TPatG.NamedSimple(k, ty, _) -> TPatG.NamedSimple(k, ty, tok)
+        | TPatG.Wildcard(ty, _) -> TPatG.Wildcard(ty, tok)
+        | TPatG.Tuple(items, ty, _) -> TPatG.Tuple(items, ty, tok)
+        | TPatG.Const(v, ty, _) -> TPatG.Const(v, ty, tok)
+        | TPatG.Record(fields, ty, _) -> TPatG.Record(fields, ty, tok)
+        | TPatG.Union(c, fields, ty, _) -> TPatG.Union(c, fields, ty, tok)
+        | TPatG.TypeTestAs(testTy, inner, ty, _) -> TPatG.TypeTestAs(testTy, inner, ty, tok)
+        | TPatG.Null(ty, _) -> TPatG.Null(ty, tok)
+        | TPatG.EnumCase(k, n, ty, _) -> TPatG.EnumCase(k, n, ty, tok)
+        | TPatG.Or(alts, ty, _) -> TPatG.Or(alts, ty, tok)
+
     /// Peel a curried `App` chain into its head and the arguments paired with
     /// each `App` node's *result* type. The inverse of `rebuildApp`. Shared by
     /// every spine-walking client (`EmitLower`'s eta/lowering, the pre-freeze
@@ -172,6 +248,13 @@ module TastWalk =
             /// rebuilds. An override that constructs its own replacement is
             /// responsible for substituting types in the node it returns.
             MapType: SemType -> SemType
+            /// Where every node this mapper yields SITS. `ValueNone` leaves each node on
+            /// its own token; `ValueSome tok` moves the whole rewritten tree onto `tok`.
+            ///
+            /// It is applied to an `OverrideX` result too, so a pass that relocates a tree
+            /// cannot leave a replacement node behind at the position it came from — the
+            /// only way to keep an old token is to not set this.
+            Anchor: SyntaxToken voption
             OverrideExpr: Mapper -> TExpr -> TExpr voption
             OverridePat: Mapper -> TPat -> TPat voption
             OverrideArm: Mapper -> TMatchArm -> TMatchArm voption
@@ -182,10 +265,21 @@ module TastWalk =
     let identityMapper: Mapper =
         {
             MapType = id
+            Anchor = ValueNone
             OverrideExpr = fun _ _ -> ValueNone
             OverridePat = fun _ _ -> ValueNone
             OverrideArm = fun _ _ -> ValueNone
         }
+
+    let private anchorExpr (m: Mapper) (e: TExpr) : TExpr =
+        match m.Anchor with
+        | ValueNone -> e
+        | ValueSome tok -> withExprTok tok e
+
+    let private anchorPat (m: Mapper) (p: TPat) : TPat =
+        match m.Anchor with
+        | ValueNone -> p
+        | ValueSome tok -> withPatTok tok p
 
     /// Apply a type map to a `CallVia`'s payload. Only `CallVia.Interface` carries
     /// types (its constraining-interface instantiation args); `Self`/`Base` pass
@@ -228,9 +322,12 @@ module TastWalk =
 
     let rec mapPat (m: Mapper) (p: TPat) : TPat =
         match m.OverridePat m p with
-        | ValueSome p' -> p'
+        | ValueSome p' -> anchorPat m p'
         | ValueNone ->
             let f = m.MapType
+            // Move the node first, so the arms below carry the anchored token across and
+            // the sharing-preserving `p` they return is the anchored one.
+            let p = anchorPat m p
 
             // Sharing-preserving, exactly as `SemType.mapChildren`: return the input
             // `p` when `f` and the child walk leave every field reference-unchanged,
@@ -292,8 +389,10 @@ module TastWalk =
 
     let rec mapExpr (m: Mapper) (e: TExpr) : TExpr =
         match m.OverrideExpr m e with
-        | ValueSome e' -> e'
+        | ValueSome e' -> anchorExpr m e'
         | ValueNone ->
+            // See `mapPat` — the node moves before the rebuild, not after it.
+            let e = anchorExpr m e
             let f = m.MapType
             let pe = mapExpr m
             let pp = mapPat m
