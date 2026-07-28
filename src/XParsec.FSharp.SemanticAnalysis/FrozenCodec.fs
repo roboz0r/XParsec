@@ -6,12 +6,14 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
+open XParsec.FSharp.SemanticAnalysis.FrozenCodecDiagnostics
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecTypes
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecDecls
 
 /// A hand-rolled structural binary (de)serializer for the FROZEN domain, layered across
-/// four modules: the leaf domains (`FrozenCodecPrimitives` for the stream seam and the value
-/// structs, `FrozenCodecTypes` for `FrozenType` and the `SymbolKey`/`TypeKey` key cluster it
+/// five modules: the leaf domains (`FrozenCodecPrimitives` for the stream seam and the value
+/// structs, `FrozenCodecDiagnostics` for a `Diagnostic` and its `Kind`, `FrozenCodecTypes`
+/// for `FrozenType` and the `SymbolKey`/`TypeKey` key cluster it
 /// reaches), the non-tree declaration shell and scalar clusters a pool payload rides
 /// (`FrozenCodecDecls`), and — on top of both — the `FrozenPools` COLUMN codec here that
 /// `flatten`/`thaw` actually store. A plain `BinaryWriter`/`BinaryReader` over a

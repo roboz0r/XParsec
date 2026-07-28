@@ -37,10 +37,10 @@ module Pipeline =
     let private ofParseDiagnostics (diagnostics: XParsec.FSharp.Parser.Diagnostic list) : Diagnostic list =
         // Both delimiter diagnostics point back at the delimiter left open; only their
         // PRIMARY differs, because only one of them describes a hole.
-        let openedHere (opened: SyntaxToken) : Label list =
+        let openedHere (openedAt: Site) : Label list =
             [
                 {
-                    Site = Site.ofToken opened
+                    Site = openedAt
                     Message = DiagnosticCode.openedHereLabel
                 }
             ]
@@ -52,10 +52,12 @@ module Pipeline =
                     // The close was never written: the parser SYNTHESISED one, so the
                     // mistake is the hole it went into, and the token that exposed the
                     // absence is innocent.
-                    | DiagnosticCode.UnclosedDelimiter(opened, _) -> Site.gapBefore d.Token, openedHere opened
+                    | DiagnosticCode.UnclosedDelimiter(openedAt = openedAt) ->
+                        Site.gapBefore (Site.ofToken d.Token), openedHere openedAt
                     // The close IS written, just the wrong one, and the parser consumed it
                     // as the close. Nothing was inserted, so that token is the mistake.
-                    | DiagnosticCode.MismatchedDelimiter(opened, _) -> Site.ofToken d.Token, openedHere opened
+                    | DiagnosticCode.MismatchedDelimiter(openedAt = openedAt) ->
+                        Site.ofToken d.Token, openedHere openedAt
                     | _ ->
                         match d.TokenEnd with
                         | Some last -> Site.spanning [ d.Token; last ], []

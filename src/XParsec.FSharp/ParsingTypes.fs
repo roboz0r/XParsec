@@ -24,6 +24,116 @@ type SyntaxToken =
     member this.Token = this.PositionedToken.Token
 
 
+/// WHERE something is, in the token space of the file that produced it. Declared HERE, in
+/// the parser layer, because a position in a token stream is the parser's own notion: a
+/// `DiagnosticCode` names one, and every later layer (the semantic passes, the frozen
+/// format) speaks the same space rather than a translation of it.
+[<RequireQualifiedAccess>]
+type Site =
+    /// No place in the file: a whole-file lex/parse failure, a conformance verdict
+    /// about a signature rather than a position, a pass with no node in hand.
+    | Nowhere
+    /// One token.
+    | At of token: int<token>
+    /// A run of tokens, INCLUSIVE of both ends. `Between(t, t)` is `At t`; the
+    /// module's smart constructor collapses it.
+    | Between of first: int<token> * last: int<token>
+    /// The GAP after a token — a zero-width position, for something that is
+    /// MISSING. A recovery-inserted virtual `)` is here and nowhere else: it has
+    /// no token index of its own, so it cannot be `At` anything.
+    | After of token: int<token>
+
+[<RequireQualifiedAccess>]
+module Site =
+
+    /// The place a token names. A VIRTUAL token yields `Nowhere` — it carries no lexed
+    /// index, so there is nothing to point at. This is deliberately NOT `Anchor.ofToken`,
+    /// which faults instead: an anchor may never be virtual, whereas a recovery-inserted
+    /// token is exactly what a diagnostic wants to blame. A producer that means "a `)` is
+    /// missing here" says `Site.gapBefore` of the REAL token before the gap, which is
+    /// information this conversion does not have.
+    let ofToken (tok: SyntaxToken) : Site =
+        match tok.Index with
+        | TokenIndex.Regular i -> Site.At i
+        | TokenIndex.Virtual -> Site.Nowhere
+
+    /// The gap immediately BEFORE `site` — where something MISSING from the token stream
+    /// belonged. The type spells a gap only as `After` its predecessor, and trivia is
+    /// tokenised, so a placed site's predecessor always exists and its gap always ends
+    /// where that site starts. Nothing precedes token 0, so a hole at the very start of the
+    /// file stays `At 0`.
+    ///
+    /// Takes a `Site` and not a token because the caller that needs it — the seam that
+    /// re-points an unclosed-delimiter diagnostic at the hole rather than at the innocent
+    /// token that exposed it — is reading a diagnostic, which carries a place, not a token.
+    let gapBefore (site: Site) : Site =
+        match site with
+        | Site.At i when i > 0<token> -> Site.After(i - 1<token>)
+        | placed -> placed
+
+    /// The place `tok` names, or `fallback` when it names none — for a caller holding an
+    /// ENCLOSING span (the declaration the head sits in) that is still a real place when
+    /// the head itself is a recovery insertion.
+    let ofTokenOr (fallback: Site) (tok: SyntaxToken) : Site =
+        match ofToken tok with
+        | Site.Nowhere -> fallback
+        | positioned -> positioned
+
+    /// A run of tokens in the ONE canonical form the type admits: ends in order, and a
+    /// one-token run collapsed to `At` so a renderer meets exactly one spelling of "here".
+    /// The bare `Between` constructor can express neither rule, so every producer builds a
+    /// run through here.
+    let between (first: int<token>) (last: int<token>) : Site =
+        let lo = min first last
+        let hi = max first last
+
+        if lo = hi then Site.At lo else Site.Between(lo, hi)
+
+    /// The canonical form of any `Site`, including one a caller built with the bare
+    /// `Between` constructor or a blob decoded from bytes nothing wrote. The codec
+    /// normalises through this on BOTH sides, so a degenerate or inverted range cannot
+    /// survive a round trip in one form on the way out and another on the way back.
+    let normalise (s: Site) : Site =
+        match s with
+        | Site.Between(first, last) -> between first last
+        | Site.Nowhere
+        | Site.At _
+        | Site.After _ -> s
+
+    /// The run a SEQUENCE of tokens covers, from the leftmost that names a place to the
+    /// rightmost. Recovery insertions are skipped rather than faulting the whole span — a
+    /// run containing one is still somewhere — and `Nowhere` only when NO token names a
+    /// place. THE span builder: `between` takes indices, this takes what a caller holds.
+    let spanning (toks: SyntaxToken seq) : Site =
+        let mutable lo = ValueNone
+        let mutable hi = ValueNone
+
+        for tok in toks do
+            match tok.Index with
+            | TokenIndex.Regular i ->
+                lo <-
+                    ValueSome(
+                        match lo with
+                        | ValueSome l -> min l i
+                        | ValueNone -> i
+                    )
+
+                hi <-
+                    ValueSome(
+                        match hi with
+                        | ValueSome h -> max h i
+                        | ValueNone -> i
+                    )
+            | TokenIndex.Virtual -> ()
+
+        match lo, hi with
+        | ValueSome l, ValueSome h -> between l h
+        | _ -> Site.Nowhere
+
+    /// The run a written long-ident covers (`A.B.T` — first segment to last).
+    let ofLongIdent (li: LongIdent<SyntaxToken>) : Site = spanning li.Idents
+
+
 /// Represents #if expressions used in conditional compilation
 [<RequireQualifiedAccess>]
 type IfExpr<'T> =
@@ -112,11 +222,20 @@ module Offside =
         | OffsideContext.SeqBlock -> frame.Token.Token = Token.EOF
         | _ -> false
 
+/// WHAT the parser could not accept. Every payload here is a `Token`, a `Site` or a string
+/// — never a CST node. That is what lets a consumer forward the code whole (the semantic
+/// layer wraps it as its own `Kind.Parse`) and freeze it alongside the rest of a
+/// diagnostic: a node would drag raw char offsets and virtual tokens across a boundary
+/// built to keep them out. The tokens a code is ABOUT are named by `Site`, in the same
+/// token space every later layer speaks.
 [<RequireQualifiedAccess>]
 type DiagnosticCode =
     // TODO: Use F# error codes
     | Other of string
-    | TyparInConstant of Typar<SyntaxToken>
+    /// A unit-of-measure on a constant mentioning a type parameter. Payload-free: the
+    /// offending typar is what the diagnostic's own `Site` points at, and nothing ever read
+    /// the subtree this used to carry.
+    | TyparInConstant
     // Recovery-specific:
     | MissingExpression
     | MissingPattern
@@ -134,11 +253,15 @@ type DiagnosticCode =
     | ExpectedQuotationUntypedRight
     /// A close delimiter that never appeared: the parser SYNTHESISED a virtual one, so the
     /// mistake is a hole in the token stream and the token that exposed it is innocent.
-    | UnclosedDelimiter of opened: SyntaxToken * expected: Token
+    ///
+    /// `opened` is the opening delimiter's TOKEN (what the message spells it as) and
+    /// `openedAt` is WHERE it was written (what a secondary label points at) — the two
+    /// halves of the `SyntaxToken` this used to carry, and the only two anything read.
+    | UnclosedDelimiter of opened: Token * openedAt: Site * expected: Token
     /// A close delimiter that is PRESENT but wrong (`{| … }`). The parser accepts the token
     /// as the close rather than inserting anything, so that token IS the mistake and there
     /// is no hole to name — which is why this is not `UnclosedDelimiter`.
-    | MismatchedDelimiter of opened: SyntaxToken * expected: Token
+    | MismatchedDelimiter of opened: Token * openedAt: Site * expected: Token
 
 /// A parse diagnostic. Every one is an error — recovery only ever reports something the
 /// grammar could not accept — so there is no severity to carry.
@@ -316,7 +439,7 @@ module DiagnosticCode =
     let code (c: DiagnosticCode) : string =
         match c with
         | DiagnosticCode.Other _ -> "Other"
-        | DiagnosticCode.TyparInConstant _ -> "TyparInConstant"
+        | DiagnosticCode.TyparInConstant -> "TyparInConstant"
         | DiagnosticCode.MissingExpression -> "MissingExpression"
         | DiagnosticCode.MissingPattern -> "MissingPattern"
         | DiagnosticCode.MissingType -> "MissingType"
@@ -338,7 +461,7 @@ module DiagnosticCode =
     let message (c: DiagnosticCode) : string =
         match c with
         | DiagnosticCode.Other msg -> msg
-        | DiagnosticCode.TyparInConstant _ -> "A unit-of-measure on a constant cannot mention a type parameter"
+        | DiagnosticCode.TyparInConstant -> "A unit-of-measure on a constant cannot mention a type parameter"
         | DiagnosticCode.MissingExpression -> "Expected an expression"
         | DiagnosticCode.MissingPattern -> "Expected a pattern"
         | DiagnosticCode.MissingType -> "Expected a type"
@@ -353,10 +476,10 @@ module DiagnosticCode =
         | DiagnosticCode.ExpectedRBraceBar -> expecting Token.KWRBraceBar
         | DiagnosticCode.ExpectedQuotationTypedRight -> expecting Token.OpQuotationTypedRight
         | DiagnosticCode.ExpectedQuotationUntypedRight -> expecting Token.OpQuotationUntypedRight
-        | DiagnosticCode.UnclosedDelimiter(opened, expected) ->
-            $"Unclosed '{spelling opened.Token}': {expecting expected}"
-        | DiagnosticCode.MismatchedDelimiter(opened, expected) ->
-            $"Wrong close for '{spelling opened.Token}': {expecting expected}"
+        | DiagnosticCode.UnclosedDelimiter(opened = opened; expected = expected) ->
+            $"Unclosed '{spelling opened}': {expecting expected}"
+        | DiagnosticCode.MismatchedDelimiter(opened = opened; expected = expected) ->
+            $"Wrong close for '{spelling opened}': {expecting expected}"
 
     /// What the secondary label on the OPENING delimiter says. Both delimiter diagnostics
     /// point back at the same thing, so the wording is decided once rather than per code.

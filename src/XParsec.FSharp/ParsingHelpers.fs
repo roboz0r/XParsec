@@ -1019,7 +1019,7 @@ module Parsing =
         let mkDiag _ =
             let code =
                 match openTok with
-                | ValueSome o -> DiagnosticCode.UnclosedDelimiter(o, t)
+                | ValueSome o -> DiagnosticCode.UnclosedDelimiter(o.Token, Site.ofToken o, t)
                 | ValueNone -> DiagnosticCode.Other(DiagnosticCode.expecting t)
 
             ValueSome code

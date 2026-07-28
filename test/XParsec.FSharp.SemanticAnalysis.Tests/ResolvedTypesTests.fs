@@ -8,8 +8,16 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value input lexed file
 
+/// This pass's verdict, asked of the KIND rather than of a substring of its sentence: what
+/// the pass found is what the diagnostic carries, so a reworded message cannot make these
+/// tests silently stop looking at anything.
+let private isUnresolvedTyVars (d: Diagnostic) =
+    match d.Kind with
+    | Kind.Internal(InternalBreak.UnresolvedTyVars _) -> true
+    | _ -> false
+
 let private hasResolvedTypesDiag (tast: TastFile) =
-    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "ResolvedTypes")
+    tast.Diagnostics |> Seq.exists isUnresolvedTyVars
 
 [<Tests>]
 let tests =
@@ -93,7 +101,7 @@ let tests =
                 let added =
                     ctx.Diagnostics
                     |> Seq.skip before
-                    |> Seq.filter (fun d -> d.Message.Contains "ResolvedTypes")
+                    |> Seq.filter isUnresolvedTyVars
                     |> Seq.length
 
                 Expect.isGreaterThan added 0 "synthetic free TyVar fires a diagnostic"
@@ -152,7 +160,7 @@ let tests =
                 let added =
                     ctx.Diagnostics
                     |> Seq.skip before
-                    |> Seq.filter (fun d -> d.Message.Contains "ResolvedTypes")
+                    |> Seq.filter isUnresolvedTyVars
                     |> Seq.length
 
                 Expect.equal added 0 "TyVar bound by the matching scheme is allowed"

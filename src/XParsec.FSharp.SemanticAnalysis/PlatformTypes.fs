@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 // Pre:  Unification + Elaborate have settled every type to its ground SemType.

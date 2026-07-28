@@ -20,6 +20,39 @@ type Severity =
     | Error
     | Warning
 
+/// The PUBLISHED number a diagnostic is filed under — the identity a consumer suppresses,
+/// filters or asserts on across compiler versions, as distinct from the `Kind`, which is the
+/// classification itself and always exists.
+///
+/// A closed set with an explicit `Unpublished`, and NOT a `string`: "this verdict has no
+/// published number" is a fact worth stating, where the `""` that used to stand for it was a
+/// sentinel a consumer could compare equal to a real code by accident.
+[<RequireQualifiedAccess>]
+type DiagCode =
+    /// An fsc diagnostic number this compiler deliberately reproduces, so a program moved
+    /// between the two compilers is refused under the same number. Sourced from the F#
+    /// compiler itself (`FSComp.txt`'s numbered entries and
+    /// `CompilerDiagnostics.DiagnosticNumber` for the sub-200 exceptions), never invented.
+    | FSharp of number: int
+    /// This compiler's OWN published families: the `V24x` package-conformance codes, and the
+    /// front-end/driver refusals that are about a file rather than about a program.
+    | Vesper of code: string
+    /// No published number. Not a failure to assign one — most verdicts genuinely have none,
+    /// and the `Kind` is the classification a consumer should be selecting on.
+    | Unpublished
+
+[<RequireQualifiedAccess>]
+module DiagCode =
+
+    /// How a code prints. `Unpublished` renders empty, which is what a diagnostic with no
+    /// number has always shown — a DISPLAY choice, made here, rather than a value producers
+    /// and consumers pass around.
+    let render (c: DiagCode) : string =
+        match c with
+        | DiagCode.FSharp n -> sprintf "FS%04d" n
+        | DiagCode.Vesper code -> code
+        | DiagCode.Unpublished -> ""
+
 /// Which NOMINAL shape a type is — the axis a "this names no such type" verdict differs on,
 /// and the axis `tryResolveNominal` reports. Declared here rather than in the unification
 /// core because a diagnostic names it and the diagnostic types compile first.
@@ -106,15 +139,15 @@ module ConformanceVerdict =
     /// The `V24x` family code. Two findings can share one — `V240` is "the implementation
     /// does not answer the contract", however that came about — which is exactly why the
     /// code is a function of the verdict rather than a field on it.
-    let code (v: ConformanceVerdict) : string =
+    let code (v: ConformanceVerdict) : DiagCode =
         match v with
         | ConformanceVerdict.Unimplemented _
-        | ConformanceVerdict.SigWithoutImpl _ -> "V240"
-        | ConformanceVerdict.ModulePairingMismatch _ -> "V241"
-        | ConformanceVerdict.ImplWithoutContract _ -> "V242"
+        | ConformanceVerdict.SigWithoutImpl _ -> DiagCode.Vesper "V240"
+        | ConformanceVerdict.ModulePairingMismatch _ -> DiagCode.Vesper "V241"
+        | ConformanceVerdict.ImplWithoutContract _ -> DiagCode.Vesper "V242"
         | ConformanceVerdict.StaleSigOnly _
-        | ConformanceVerdict.UnknownSigOnly _ -> "V243"
-        | ConformanceVerdict.PairParseFailure _ -> "V244"
+        | ConformanceVerdict.UnknownSigOnly _ -> DiagCode.Vesper "V243"
+        | ConformanceVerdict.PairParseFailure _ -> DiagCode.Vesper "V244"
 
     let describe (v: ConformanceVerdict) : string =
         match v with
@@ -141,6 +174,48 @@ module ConformanceVerdict =
         | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
             sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail
 
+/// A broken invariant INSIDE this compiler. Never a verdict about the program: the source
+/// that provoked one may be perfectly correct, and telling its author to fix it is the wrong
+/// answer said confidently.
+///
+/// Its own vocabulary because "your code is wrong", "this compiler does not do that yet"
+/// (`Kind.NotYetSupported`) and "this is a compiler bug" are three different answers, and a
+/// consumer that cannot tell the third from the first reports a bug as a user error.
+///
+/// A DIAGNOSTIC rather than a crash, deliberately: a broken invariant reached in one
+/// declaration should surface ALONGSIDE the rest of the file's findings instead of replacing
+/// them with a stack trace. The invariants that cannot be carried on — where continuing
+/// would produce nonsense rather than a partial answer — still `failwith` at their site.
+[<RequireQualifiedAccess>]
+type InternalBreak =
+    /// The TAST reaching the freeze still holds inference metavariables, surfaced per
+    /// declaration rather than as a hard failure inside `toFrozen`.
+    | UnresolvedTyVars of count: int
+    /// Inference committed to a member that resolves in neither the local registry nor the
+    /// provider — an `Elaborate` break, named by the resolver that hit it.
+    | MemberNotResolvable of resolver: string * declaringType: string * memberName: string
+    /// A nested `module` reached a pass that runs on the FLATTENED element list, so
+    /// `CstWalk.implFileElems` no longer reaches every module-level construct — typically a
+    /// newly added one that slipped past the flattening.
+    | UnflattenedModule of pass: string
+
+[<RequireQualifiedAccess>]
+module InternalBreak =
+
+    /// The rendered English, prefixed by its reader at `Kind.message` so that every internal
+    /// break announces itself as one without each case having to remember to.
+    let describe (b: InternalBreak) : string =
+        match b with
+        | InternalBreak.UnresolvedTyVars count -> sprintf "the frozen TAST holds %d unresolved TyVar(s)" count
+        | InternalBreak.MemberNotResolvable(resolver, declaringType, memberName) ->
+            sprintf
+                "Elaborate.%s: member '%s' on %s was committed by inference but resolves in neither the local registry nor the provider"
+                resolver
+                memberName
+                declaringType
+        | InternalBreak.UnflattenedModule pass ->
+            sprintf "a nested `module` reached %s; the `implFileElems` flattening invariant has drifted" pass
+
 /// WHAT a diagnostic says. A case carries the facts its sentence is built from, never the
 /// sentence — so a consumer can ask "is this an undefined type, and which name?" without
 /// parsing English, and a renderer can be replaced without touching a producer.
@@ -150,9 +225,6 @@ type Kind =
     /// `name` names no type: no scope of this unit claims it and the target's external
     /// universe does not hold it.
     | UndefinedType of name: string
-    /// The TAST reaching the freeze still holds inference metavariables — a compiler bug,
-    /// surfaced per declaration rather than as a hard failure inside `toFrozen`.
-    | UnresolvedTyVars of count: int
     /// Types with no representation on the compiling target: they exist only as a
     /// .NET/BCL runtime type, so this back end cannot lower them.
     | UnrepresentableTypes of names: string list
@@ -164,9 +236,6 @@ type Kind =
     | TypeArgArity of name: string * expected: int * got: int
     | UnresolvedQualifiedName of name: string
     | OperatorFormQualifiedName of firstSegment: string
-    /// Inference committed to a member that resolves in neither the local registry nor the
-    /// provider — an `Elaborate` invariant break, named by the resolver that hit it.
-    | MemberNotResolvable of resolver: string * declaringType: string * memberName: string
     | ConstraintNotSupported of ty: string * constraintName: string
     /// An inline body's trait call the receiver cannot answer.
     | TraitNotSupported of receiver: string * noun: MemberNoun * name: string
@@ -217,6 +286,12 @@ type Kind =
     /// the reference set), so the fault is the reference set's, not the source's.
     | IntrinsicNotInScope of intrinsic: string
 
+    // ── Not the program's fault at all ─────────────────────────────────────────
+    /// A broken invariant inside this compiler. Beside `NotYetSupported` because they are
+    /// the two verdicts that are not about the source; see `InternalBreak` for why it is a
+    /// diagnostic rather than a crash.
+    | Internal of InternalBreak
+
     // ── Warnings ───────────────────────────────────────────────────────────────
     /// A `d?foo` whose result type was pinned to something concrete by context: the
     /// `dynamic` default never fired, so the member access is an unchecked assertion.
@@ -236,7 +311,9 @@ type Kind =
     | Driver of message: string
 
     /// A diagnostic the PARSER raised, forwarded whole. The parser owns its own error
-    /// vocabulary; this case is the seam, not a copy of it.
+    /// vocabulary; this case is the seam, not a copy of it. Forwardable BECAUSE a
+    /// `DiagnosticCode` holds no CST node — only tokens, `Site`s and strings — so it crosses
+    /// into the frozen format like any other verdict.
     | Parse of DiagnosticCode
 
     /// The un-migrated tail: a message built at the call site. Its call COUNT is the
@@ -246,74 +323,93 @@ type Kind =
 [<RequireQualifiedAccess>]
 module Kind =
 
-    /// The stable code a consumer filters on. A SEPARATE function from `message`, so
+    /// The published code a consumer filters on. A SEPARATE function from `message`, so
     /// minting a case does not force a code and renaming a case does not change one.
     ///
-    /// `""` means "this verdict has no stable code YET" — the honest answer for every kind
-    /// that never had one, and it is what such a diagnostic already printed. The kind
-    /// itself is the classification; a code is an additional, published commitment, made
-    /// only where fsc (or this compiler's own `V24x` family) has already published one.
-    /// EXHAUSTIVE rather than defaulted, so `""` is a decision each case states rather than
-    /// one a new case falls into. `string` rather than a closed enum while the set is still
-    /// moving; `Schema.DiagCode` is the closed-set-plus-`Unknown` shape it should become.
-    let code (k: Kind) : string =
+    /// Every `DiagCode.FSharp` number here is one fsc ITSELF files the same verdict under,
+    /// read out of the F# compiler sources rather than guessed: `FSComp.txt`'s numbered
+    /// entries, and `CompilerDiagnostics.fs`'s `DiagnosticNumber` for the sub-200 exceptions
+    /// (whose numbers live on the exception, not the message). The named exception or
+    /// resource each one comes from is in the comment beside it, so the claim is checkable
+    /// against that repo instead of taken on trust.
+    ///
+    /// EXHAUSTIVE rather than defaulted: `Unpublished` is a decision each case states, not
+    /// one a new case falls into — and it is the RIGHT answer for most of them. A code is an
+    /// extra, published commitment on top of the `Kind`; the `Kind` is the classification,
+    /// and a consumer that wants to select on a verdict this compiler owns should select on
+    /// that rather than wait for a number to be minted for it.
+    let code (k: Kind) : DiagCode =
         match k with
-        | Kind.CustomEqualityOnRecordOrUnion
-        | Kind.CapabilityNotImplemented _
-        | Kind.CapabilityNotNamed _ -> "FS0378"
-        | Kind.MissingGetHashCodeOverride -> "FS0344"
-        | Kind.CustomComparisonNeedsEquality -> "FS0379"
-        | Kind.StructuralEqualityAttributeOnWrongKind
-        | Kind.CustomEqualityAttributeOnInterface -> "FS0382"
-        | Kind.InvalidEqualityAttributeMix -> "FS0377"
-        | Kind.MemberAndLocalBindingClash _ -> "FS0905"
-        | Kind.DuplicateMember _ -> "FS0438"
-        | Kind.CyclicType(via = TypeCycle.Immediate) -> "FS0954"
-        | Kind.Conformance(verdict = v) -> ConformanceVerdict.code v
-        | Kind.LexFailure _ -> "LEX"
-        | Kind.ParseFailure _ -> "PARSE"
-        | Kind.Driver _ -> "DRV"
-        | Kind.Parse c -> DiagnosticCode.code c
-        | Kind.CyclicType(via = TypeCycle.Inheritance)
+        // ── Names and members that do not resolve. fsc files the whole family under one
+        // number (`UndefinedName`), and so do we: the noun differs, the verdict does not.
         | Kind.UndefinedType _
-        | Kind.UnresolvedTyVars _
-        | Kind.UnrepresentableTypes _
         | Kind.NoMember _
         | Kind.NoCase _
         | Kind.UnknownNominalType _
-        | Kind.TypeArgArity _
-        | Kind.UnresolvedQualifiedName _
+        | Kind.UnresolvedQualifiedName _ -> DiagCode.FSharp 39 // UndefinedName
+        | Kind.TypeArgArity _ -> DiagCode.FSharp 33 // TyconBadArgs
+        // ── Constructors: fsc's "union case expects N arguments" covers both the wrong
+        // count and the nullary-in-pattern-position case.
+        | Kind.ConstructorArity _
+        | Kind.NullaryConstructorPattern _ -> DiagCode.FSharp 19 // UnionCaseWrongArguments
+        | Kind.ImmutableFieldAssignment _ -> DiagCode.FSharp 5 // FieldNotMutable
+        | Kind.EnumCaseNotConstant -> DiagCode.FSharp 886 // tcInvalidEnumerationLiteral
+        // ── Measures reconcile through the type equation, which is where fsc reports them.
+        | Kind.MeasureMismatch _
+        | Kind.DimensionlessMeasureMismatch _ -> DiagCode.FSharp 1 // ErrorFromAddingTypeEquation
+        | Kind.DowncastUnrelated _ -> DiagCode.FSharp 7 // InvalidRuntimeCoercion
+        // ── The two "this coercion tells you nothing" warnings are one number in fsc.
+        | Kind.RedundantDowncast _
+        | Kind.UnrelatedTypeTest _ -> DiagCode.FSharp 67 // TypeTestUnnecessary
+        | Kind.IncompleteAnonUnionMatch _ -> DiagCode.FSharp 25 // MatchIncomplete
+        // ── Equality / comparison attribute legality.
+        | Kind.CustomEqualityOnRecordOrUnion
+        | Kind.CapabilityNotImplemented _
+        | Kind.CapabilityNotNamed _ -> DiagCode.FSharp 378
+        | Kind.MissingGetHashCodeOverride -> DiagCode.FSharp 344
+        | Kind.CustomComparisonNeedsEquality -> DiagCode.FSharp 379
+        | Kind.StructuralEqualityAttributeOnWrongKind
+        | Kind.CustomEqualityAttributeOnInterface -> DiagCode.FSharp 382
+        | Kind.InvalidEqualityAttributeMix -> DiagCode.FSharp 377
+        | Kind.MemberAndLocalBindingClash _ -> DiagCode.FSharp 905
+        | Kind.DuplicateMember _ -> DiagCode.FSharp 438
+        // fsc's message for 954 literally names "a struct field or inheritance relation",
+        // which is this case and not the inheritance WALK's own finding below.
+        | Kind.CyclicType(via = TypeCycle.Immediate) -> DiagCode.FSharp 954 // tcTypeDefinitionIsCyclicThroughInheritance
+        // ── This compiler's own published families.
+        | Kind.Conformance(verdict = v) -> ConformanceVerdict.code v
+        | Kind.LexFailure _ -> DiagCode.Vesper "LEX"
+        | Kind.ParseFailure _ -> DiagCode.Vesper "PARSE"
+        | Kind.Driver _ -> DiagCode.Vesper "DRV"
+        // The parser publishes its own vocabulary; forward it rather than renumber it.
+        | Kind.Parse c -> DiagCode.Vesper(DiagnosticCode.code c)
+        // ── No published number. Several of these are verdicts fsc has no analogue for at
+        // all (they are about THIS back end, about a feature it has not grown yet, or about
+        // a bug in it); the rest are ones whose fsc counterpart is a catch-all rather than a
+        // classification, which is not worth reproducing.
+        | Kind.CyclicType(via = TypeCycle.Inheritance)
+        | Kind.UnrepresentableTypes _
         | Kind.OperatorFormQualifiedName _
-        | Kind.MemberNotResolvable _
+        // An internal break is not a verdict about the program, so there is nothing for a
+        // user to look up and nothing for fsc to have numbered.
+        | Kind.Internal _
         | Kind.ConstraintNotSupported _
         | Kind.TraitNotSupported _
         | Kind.UpcastUnrelated _
-        | Kind.DowncastUnrelated _
-        | Kind.MeasureMismatch _
-        | Kind.DimensionlessMeasureMismatch _
-        | Kind.NullaryConstructorPattern _
         | Kind.AmbiguousConstructor _
-        | Kind.ConstructorArity _
         | Kind.NewRequiresClassType
-        | Kind.ImmutableFieldAssignment _
-        | Kind.EnumCaseNotConstant
         | Kind.RangeNotFirstClassValue
         | Kind.NotYetSupported _
         | Kind.IntrinsicNotInScope _
         | Kind.DynamicEscape _
         | Kind.HeterogeneousEnum _
-        | Kind.IncompleteAnonUnionMatch _
-        | Kind.UnrelatedTypeTest _
-        | Kind.RedundantDowncast _
-        | Kind.Message _ -> ""
+        | Kind.Message _ -> DiagCode.Unpublished
 
     /// The rendered English. Separate from `code` for the same reason, and so a future
     /// localisation or structured renderer replaces ONE function.
     let message (k: Kind) : string =
         match k with
         | Kind.UndefinedType name -> sprintf "The type '%s' is not defined" name
-        | Kind.UnresolvedTyVars count ->
-            sprintf "ResolvedTypes: TAST contains %d unresolved TyVar(s) — inference bug" count
         | Kind.UnrepresentableTypes names ->
             sprintf
                 "PlatformTypes: type(s) with no representation on the target platform: %s — they exist only as a .NET/BCL runtime type"
@@ -340,12 +436,6 @@ module Kind =
         | Kind.UnresolvedQualifiedName name -> sprintf "Unresolved qualified name: %s" name
         | Kind.OperatorFormQualifiedName firstSegment ->
             sprintf "Operator-form qualified names not yet resolved (starting at '%s')" firstSegment
-        | Kind.MemberNotResolvable(resolver, declaringType, memberName) ->
-            sprintf
-                "Elaborate.%s: member '%s' on %s was committed by inference but resolves in neither the local registry nor the provider (invariant broken)"
-                resolver
-                memberName
-                declaringType
         | Kind.ConstraintNotSupported(ty, constraintName) ->
             sprintf "The type '%s' does not support the '%s' constraint" ty constraintName
         | Kind.TraitNotSupported(receiver, noun, name) ->
@@ -399,6 +489,9 @@ module Kind =
                 name
         | Kind.NotYetSupported feature -> sprintf "not yet supported: %s" feature
         | Kind.IntrinsicNotInScope intrinsic -> sprintf "%s is not in scope (Vesper.Core missing?)" intrinsic
+        // The prefix is applied HERE rather than written into each `InternalBreak` case, so
+        // no internal break can be phrased as if it were the programmer's mistake.
+        | Kind.Internal b -> sprintf "internal compiler error: %s" (InternalBreak.describe b)
         | Kind.DynamicEscape pinnedType ->
             sprintf
                 "implicit escape from 'dynamic' to '%s': the compiler cannot verify this member access. Annotate the '?' expression — '(expr : %s)' — to assert the type explicitly."
@@ -434,7 +527,6 @@ module Kind =
         | Kind.UnrelatedTypeTest _
         | Kind.RedundantDowncast _ -> Severity.Warning
         | Kind.UndefinedType _
-        | Kind.UnresolvedTyVars _
         | Kind.UnrepresentableTypes _
         | Kind.NoMember _
         | Kind.NoCase _
@@ -442,7 +534,7 @@ module Kind =
         | Kind.TypeArgArity _
         | Kind.UnresolvedQualifiedName _
         | Kind.OperatorFormQualifiedName _
-        | Kind.MemberNotResolvable _
+        | Kind.Internal _
         | Kind.ConstraintNotSupported _
         | Kind.TraitNotSupported _
         | Kind.UpcastUnrelated _
@@ -506,7 +598,7 @@ type Diagnostic =
         Related: Label list
     }
 
-    member this.Code: string = Kind.code this.Kind
+    member this.Code: DiagCode = Kind.code this.Kind
     member this.Message: string = Kind.message this.Kind
     member this.Severity: Severity = Kind.severity this.Kind
 

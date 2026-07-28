@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec.FSharp.Parser
 
 // Pre:  Elaborate has produced a TastFile.
 // Post: ctx.Diagnostics carries an Error per TDecl whose TAST still
@@ -147,7 +148,7 @@ module ResolvedTypes =
             ()
 
         if acc.Count > 0 then
-            ctx.Report(declSite d, Kind.UnresolvedTyVars acc.Count)
+            ctx.Report(declSite d, Kind.Internal(InternalBreak.UnresolvedTyVars acc.Count))
 
     let run (ctx: PassContext) (tast: TastFile) : unit =
         let allowed = HashSet<TyVarId>()

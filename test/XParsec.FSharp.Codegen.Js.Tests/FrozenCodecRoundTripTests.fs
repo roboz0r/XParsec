@@ -385,7 +385,7 @@ let tests =
 
                 for d in [ labelled; { labelled with Related = [] } ] do
                     Expect.equal
-                        (roundTrips FrozenCodecTypes.writeDiagnostic FrozenCodecTypes.readDiagnostic d)
+                        (roundTrips FrozenCodecDiagnostics.writeDiagnostic FrozenCodecDiagnostics.readDiagnostic d)
                         d
                         "Diagnostic"
             }
@@ -411,7 +411,9 @@ let tests =
                 let kinds =
                     [
                         Kind.UndefinedType "Nope"
-                        Kind.UnresolvedTyVars 3
+                        Kind.Internal(InternalBreak.UnresolvedTyVars 3)
+                        Kind.Internal(InternalBreak.MemberNotResolvable("mkMethodCall", "Widget", "M"))
+                        Kind.Internal(InternalBreak.UnflattenedModule "Validation")
                         Kind.UnrepresentableTypes [ "System.Guid"; "System.DateTime" ]
                         Kind.UnrepresentableTypes []
                         Kind.NoMember("Widget", MemberNoun.Field, "nope")
@@ -430,7 +432,6 @@ let tests =
                         Kind.TypeArgArity("Map", 2, 1)
                         Kind.UnresolvedQualifiedName "A.B.c"
                         Kind.OperatorFormQualifiedName "A"
-                        Kind.MemberNotResolvable("mkMethodCall", "Widget", "M")
                         Kind.ConstraintNotSupported("int", "Equality")
                         Kind.TraitNotSupported("Widget", MemberNoun.Operator, "+")
                         Kind.UpcastUnrelated("int", "string")
@@ -475,26 +476,47 @@ let tests =
                     let d = Diagnostic.create k Site.Nowhere []
 
                     Expect.equal
-                        (roundTrips FrozenCodecTypes.writeDiagnostic FrozenCodecTypes.readDiagnostic d)
+                        (roundTrips FrozenCodecDiagnostics.writeDiagnostic FrozenCodecDiagnostics.readDiagnostic d)
                         d
                         "Diagnostic (Kind)"
             }
 
-            // The one case with no tag. A parse diagnostic belongs to the unit rather than to
-            // the analysis and never reaches a frozen file, and its payload is a parser CST
-            // subtree of raw offsets and virtual tokens — the two things this format keeps
-            // out. Faulting is the contract; encoding it lossily would let a blob decode to a
-            // verdict nobody wrote.
-            test "a parse diagnostic cannot be frozen" {
-                let d =
-                    Diagnostic.create (Kind.Parse DiagnosticCode.MissingExpression) Site.Nowhere []
+            // `Kind.Parse` forwards the PARSER's vocabulary whole, so the codec has to carry
+            // that vocabulary too. Every payload-carrying case is covered: a delimiter code
+            // is three fields (two `Token`s that must not swap, and a `Site`), and `Token` is
+            // a flag-bearing enum whose bits have to survive.
+            test "every parse DiagnosticCode round-trips inside a Kind.Parse" {
+                let codes =
+                    [
+                        DiagnosticCode.Other "a message the parser built"
+                        DiagnosticCode.TyparInConstant
+                        DiagnosticCode.MissingExpression
+                        DiagnosticCode.MissingPattern
+                        DiagnosticCode.MissingType
+                        DiagnosticCode.MissingRule
+                        DiagnosticCode.MissingTypeDefn
+                        DiagnosticCode.MissingModuleElem
+                        DiagnosticCode.UnexpectedTopLevel
+                        DiagnosticCode.ExpectedEnd
+                        DiagnosticCode.ExpectedRParen
+                        DiagnosticCode.ExpectedRBracket
+                        DiagnosticCode.ExpectedRArrayBracket
+                        DiagnosticCode.ExpectedRBraceBar
+                        DiagnosticCode.ExpectedQuotationTypedRight
+                        DiagnosticCode.ExpectedQuotationUntypedRight
+                        DiagnosticCode.UnclosedDelimiter(Token.KWLParen, Site.At 4<token>, Token.KWRParen)
+                        DiagnosticCode.MismatchedDelimiter(Token.KWLBraceBar, Site.At 2<token>, Token.KWRBraceBar)
+                        // A delimiter the parser itself inserted names no place of its own.
+                        DiagnosticCode.UnclosedDelimiter(Token.KWLBracket, Site.Nowhere, Token.KWRBracket)
+                    ]
 
-                Expect.throws
-                    (fun () ->
-                        roundTrips FrozenCodecTypes.writeDiagnostic FrozenCodecTypes.readDiagnostic d
-                        |> ignore
-                    )
-                    "writing a parse diagnostic faults"
+                for c in codes do
+                    let d = Diagnostic.create (Kind.Parse c) (Site.After 7<token>) []
+
+                    Expect.equal
+                        (roundTrips FrozenCodecDiagnostics.writeDiagnostic FrozenCodecDiagnostics.readDiagnostic d)
+                        d
+                        "Diagnostic (Kind.Parse)"
             }
 
             test "an anchor round-trips, its absence included" {

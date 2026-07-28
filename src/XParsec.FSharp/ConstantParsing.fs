@@ -113,7 +113,7 @@ module Constant =
             let mutable state: ParseState = reader.State
 
             for t in typars do
-                let code = DiagnosticCode.TyparInConstant t
+                let code = DiagnosticCode.TyparInConstant
 
                 let tokStart, tokEnd =
                     match t with

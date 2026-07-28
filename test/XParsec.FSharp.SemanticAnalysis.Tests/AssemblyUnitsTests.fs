@@ -1,6 +1,9 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.AssemblyUnitsTests
 
 open Expecto
+// Ahead of the SemanticAnalysis open so the bare `Diagnostic` stays the semantic one; this
+// is here for the parser's `DiagnosticCode`, which `Kind.Parse` wraps.
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.AssemblyUnits
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
@@ -918,7 +921,14 @@ module B =
 
                 let anchored = consolidatedDiagnostics all
 
-                match anchored |> List.filter (fun a -> a.Diagnostic.Code = "UnclosedDelimiter") with
+                // Selected on the VERDICT, not on a rendered code: the classification is what
+                // the diagnostic carries, so this cannot be broken by a renumbering.
+                let isUnclosed (a: AssemblyUnits.AnchoredDiagnostic) =
+                    match a.Diagnostic.Kind with
+                    | Kind.Parse(DiagnosticCode.UnclosedDelimiter _) -> true
+                    | _ -> false
+
+                match anchored |> List.filter isUnclosed with
                 | [ a ] ->
                     Expect.equal a.Path "broken.fs" "anchored to the unit that needed recovery"
                     Expect.isNonEmpty a.Diagnostic.Related "the opening delimiter is labelled"

@@ -313,19 +313,19 @@ let printFSharpAst (ctx: PrintContext) (input: string) (lexed: Lexed) (ast: FSha
 /// code the seam presents to a consumer, plus the payload for the cases a golden wants to
 /// see it on. EXHAUSTIVE, and deliberately so: under a catch-all, a new payload-carrying
 /// case would print a bare name into a golden — passing, while silently showing nothing of
-/// what it carries. `TyparInConstant`'s payload is a whole `Typar` subtree and is dropped,
-/// but that is now a decision this match states rather than one it falls into.
+/// what it carries. A delimiter code's `openedAt` is deliberately NOT printed: the golden
+/// already carries the diagnostic's own resolved position on the same line.
 let sprintDiagnosticCode (code: DiagnosticCode) : string =
     let name = DiagnosticCode.code code
 
     match code with
     | DiagnosticCode.Other msg -> $"{name}({msg})"
-    | DiagnosticCode.UnclosedDelimiter(opened, expected)
-    | DiagnosticCode.MismatchedDelimiter(opened, expected) ->
-        let openedBase = TokenInfo.withoutFlags opened.Token
+    | DiagnosticCode.UnclosedDelimiter(opened = opened; expected = expected)
+    | DiagnosticCode.MismatchedDelimiter(opened = opened; expected = expected) ->
+        let openedBase = TokenInfo.withoutFlags opened
         let expectedBase = TokenInfo.withoutFlags expected
         $"{name}({openedBase}, {expectedBase})"
-    | DiagnosticCode.TyparInConstant _
+    | DiagnosticCode.TyparInConstant
     | DiagnosticCode.MissingExpression
     | DiagnosticCode.MissingPattern
     | DiagnosticCode.MissingType

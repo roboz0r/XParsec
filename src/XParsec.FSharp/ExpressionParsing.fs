@@ -2329,7 +2329,7 @@ module Expr =
                 // diagnostic blames the token itself.
                 reader.State <-
                     ParseState.addDiagnosticAt
-                        (DiagnosticCode.MismatchedDelimiter(openTok, expectedClose))
+                        (DiagnosticCode.MismatchedDelimiter(openTok.Token, Site.ofToken openTok, expectedClose))
                         tok
                         reader.State
 

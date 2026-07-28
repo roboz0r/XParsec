@@ -307,8 +307,7 @@ module Validation =
                 | ValueNone -> ()
         // Emit a diagnostic rather than crashing — a single unhandled element
         // shouldn't halt validation of the rest of the file. Grow real arms
-        // as features land. `Missing` and `SkipsTokens` in particular are
-        // produced by parse-recovery and reachable in any in-progress file.
+        // as features land.
         | ModuleElem.Exception defn ->
             let tok =
                 match defn with
@@ -319,14 +318,10 @@ module Validation =
         // `CstWalk.implFileElems` flattens a nested module's body into the
         // element list before `walkElems` runs, so a `ModuleElem.Module` should
         // never reach here. If one does, the flattening invariant has drifted
-        // (e.g. a new module-level construct slipped past `implFileElems`); fire
-        // a diagnostic so the regression surfaces instead of vanishing into a
-        // silent skip.
+        // (e.g. a new module-level construct slipped past `implFileElems`) —
+        // which is a bug in THIS compiler, not in the source, and says so.
         | ModuleElem.Module(ModuleDefn.ModuleDefn(moduleToken = tok)) ->
-            ctx.Report(
-                tok,
-                Kind.Message "Nested `module` reached Validation; `implFileElems` flattening invariant drifted"
-            )
+            ctx.Report(tok, Kind.Internal(InternalBreak.UnflattenedModule "Validation"))
         // `open` / `module R = …` are declaration-level nodes consumed by
         // open-resolution (NameResolution/Unification build the `OpenScope` from
         // them); they carry no expression to validate.
@@ -334,11 +329,13 @@ module Validation =
         | ModuleElem.Import _ -> ()
         | ModuleElem.CompilerDirective(CompilerDirectiveDecl(hash = tok)) ->
             ctx.Report(tok, Kind.NotYetSupported "validation of compiler directives")
-        | ModuleElem.Missing -> ctx.Report(Site.Nowhere, Kind.Message "Missing module element (parse recovery)")
-        | ModuleElem.SkipsTokens skipped ->
-            // The whole run, not just its head: a span of tokens belonging to no node is
-            // exactly what `Between` is for.
-            ctx.Report(Site.spanning skipped, Kind.Message "Skipped tokens at module level (parse recovery)")
+        // Parse recovery's own nodes. The PARSER already reported each one — a
+        // `MissingModuleElem` for the hole, an `UnexpectedTopLevel` for the skipped run —
+        // and those diagnostics now reach the consumer (`Pipeline.parse` forwards them),
+        // so a second verdict here would be one mistake said twice, in two vocabularies,
+        // the second of them placeless. There is no expression to validate either way.
+        | ModuleElem.Missing
+        | ModuleElem.SkipsTokens _ -> ()
 
     let private walkElems
         (ctx: PassContext)

@@ -28,7 +28,6 @@
     <Compile Include="AttributeDecode.fs" />
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="PrintfHoleForm.fs" />
-    <Compile Include="Site.fs" />
     <Compile Include="Diagnostics.fs" />
     <Compile Include="SideTypes.fs" />
     <Compile Include="TastExpr.fs" />
@@ -58,6 +57,7 @@
          shell, then the columns `flatten`/`thaw` store — each reading only the ones above
          it. -->
     <Compile Include="FrozenCodecPrimitives.fs" />
+    <Compile Include="FrozenCodecDiagnostics.fs" />
     <Compile Include="FrozenCodecTypes.fs" />
     <Compile Include="FrozenCodecDecls.fs" />
     <Compile Include="FrozenCodec.fs" />

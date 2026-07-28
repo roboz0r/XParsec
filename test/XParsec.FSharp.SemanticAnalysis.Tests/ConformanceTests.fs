@@ -356,7 +356,7 @@ let enforcementTests =
 
                 Expect.equal (List.length errors) 1 "one hard error"
                 Expect.equal errors.Head.Severity Severity.Error "error severity"
-                Expect.equal errors.Head.Code "V240" "the FS0240 family"
+                Expect.equal errors.Head.Code (DiagCode.Vesper "V240") "the FS0240 family"
                 Expect.stringContains errors.Head.Message "deleted-impl.fsi" "names the orphaned .fsi"
             }
 
@@ -398,7 +398,7 @@ let enforcementTests =
                     ConformancePass.enforce (mkOutcome [ paired ] (Set.ofList [ "paired.fsi" ]))
 
                 Expect.equal (List.length errors) 1 "one hygiene error"
-                Expect.equal errors.Head.Code "V243" "stale exemption"
+                Expect.equal errors.Head.Code (DiagCode.Vesper "V243") "stale exemption"
             }
 
             test "a parse failure is a per-contract V244 error, not an abort that masks the rest" {
@@ -416,9 +416,9 @@ let enforcementTests =
                 let errors = ConformancePass.enforce outcome
 
                 Expect.equal (List.length errors) 2 "the parse failure does not mask the orphaned .fsi"
-                Expect.equal errors.Head.Code "V244" "the parse-failure family"
+                Expect.equal errors.Head.Code (DiagCode.Vesper "V244") "the parse-failure family"
                 Expect.stringContains errors.Head.Message "broken.fsi" "names the unparseable contract"
-                Expect.equal errors.[1].Code "V240" "the sibling drift still surfaces"
+                Expect.equal errors.[1].Code (DiagCode.Vesper "V240") "the sibling drift still surfaces"
             }
         ]
 
