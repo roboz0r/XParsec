@@ -362,9 +362,9 @@ namespace                 'namespace'       KWNamespace         tok=   0  pos=  
       Val:
         val               'val'             KWVal               tok= 562  pos=2683
         inline            'inline'          KWInline            tok= 564  pos=2687
-        StarOp:
+        ParenOp:
                           '('               KWLParen            tok= 566  pos=2694
-                          '*'               OpMultiply          tok= 567  pos=2695
+          SymbolicOp      '*'               OpMultiply          tok= 567  pos=2695
                           ')'               KWRParen            tok= 568  pos=2696
         :                 ':'               OpColon             tok= 569  pos=2697
         arg               'x'               Identifier          tok= 571  pos=2699
@@ -398,9 +398,9 @@ namespace                 'namespace'       KWNamespace         tok=   0  pos=  
             (             '('               KWLParen            tok= 603  pos=2742
             static        'static'          KWStatic            tok= 604  pos=2743
             member        'member'          KWMember            tok= 606  pos=2750
-            StarOp:
+            ParenOp:
                           '('               KWLParen            tok= 608  pos=2757
-                          '*'               OpMultiply          tok= 609  pos=2758
+              SymbolicOp  '*'               OpMultiply          tok= 609  pos=2758
                           ')'               KWRParen            tok= 610  pos=2759
             :             ':'               OpColon             tok= 611  pos=2760
             VarType:

@@ -1311,9 +1311,9 @@ namespace                                              'namespace'       KWNames
         let                                            'let'             KWLet               tok=1402  pos=3179
           inline                                       'inline'          KWInline            tok=1404  pos=3183
           Pat.Op:
-            StarOp:
+            ParenOp:
                                                        '('               KWLParen            tok=1406  pos=3190
-                                                       '*'               OpMultiply          tok=1408  pos=3192
+              SymbolicOp                               '*'               OpMultiply          tok=1408  pos=3192
                                                        ')'               KWRParen            tok=1410  pos=3194
           Pats:
             ParenBlock                                 '('               KWLParen            tok=1412  pos=3196
@@ -1364,9 +1364,9 @@ namespace                                              'namespace'       KWNames
                                       (                '('               KWLParen            tok=1448  pos=3245
                                       static           'static'          KWStatic            tok=1449  pos=3246
                                       member           'member'          KWMember            tok=1451  pos=3253
-                                      StarOp:
+                                      ParenOp:
                                                        '('               KWLParen            tok=1453  pos=3260
-                                                       '*'               OpMultiply          tok=1455  pos=3262
+                                        SymbolicOp     '*'               OpMultiply          tok=1455  pos=3262
                                                        ')'               KWRParen            tok=1457  pos=3264
                                       :                ':'               OpColon             tok=1458  pos=3265
                                       VarType:

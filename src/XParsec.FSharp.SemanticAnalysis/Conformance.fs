@@ -414,7 +414,6 @@ module Conformance =
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome ".."
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome ".. .."
         | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome "[]"
-        | IdentOrOp.StarOp _ -> ValueSome "*"
         | IdentOrOp.ParenOp(_, OpName.ActivePatternOp _, _) -> ValueNone
 
     /// The bound name of a `let` binding head pattern (the `.fs` side). Mirrors
@@ -441,7 +440,6 @@ module Conformance =
         match io with
         | IdentOrOp.Ident tok -> tok
         | IdentOrOp.ParenOp(lParen = lp) -> lp
-        | IdentOrOp.StarOp(lParen = lp) -> lp
 
     /// Summarise a parsed signature (`.fsi`) as its module-level `val` bindings (incl.
     /// `[<Literal>]` vals), in source order, flattened across nested modules.

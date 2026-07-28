@@ -45,7 +45,6 @@ module VesperLibTypeTranslate =
             OperatorNames.ofParenSymbolic (nameOfTok lexed input opTok) opTok
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome "op_Range"
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome "op_RangeStep"
-        | IdentOrOp.StarOp _ -> ValueSome "op_Multiply"
         | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome "op_Nil"
         | IdentOrOp.ParenOp(_, OpName.ActivePatternOp _, _) ->
             // Active-pattern compiled names are non-trivial — defer.

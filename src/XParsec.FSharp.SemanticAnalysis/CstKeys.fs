@@ -13,7 +13,6 @@ module CstKeys =
         match op with
         | IdentOrOp.Ident t -> t
         | IdentOrOp.ParenOp(lParen, _, _) -> lParen
-        | IdentOrOp.StarOp(lParen, _, _) -> lParen
 
     let firstTokenOfLongIdentOrOp (lio: LongIdentOrOp<SyntaxToken>) : SyntaxToken =
         match lio with

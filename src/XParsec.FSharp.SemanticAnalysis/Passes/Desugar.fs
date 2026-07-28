@@ -38,7 +38,6 @@ module Desugar =
     /// mapped directly. Range / active-pattern heads return `ValueNone`.
     let opPatCompiledName (nameOf: SyntaxToken -> string) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
-        | IdentOrOp.StarOp _ -> ValueSome "op_Multiply"
         | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome "op_Nil"
         | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) -> OperatorNames.ofParenSymbolic (nameOf tok) tok
         | _ -> ValueNone
