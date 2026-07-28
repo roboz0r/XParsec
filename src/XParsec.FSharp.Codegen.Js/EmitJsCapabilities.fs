@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
@@ -195,7 +196,7 @@ module EmitJsCapabilities =
         (imports: JsImports)
         (build: TastAccessor.ExprId -> JsExpr)
         (head: TastAccessor.ExprId)
-        (spine: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
+        (spine: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
         (loc: JsLoc voption)
         : JsExpr voption =
         match head, spine with

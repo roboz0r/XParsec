@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
 /// The input source text plus the file name to record for it. Its presence is
@@ -11,8 +12,8 @@ type JsSource =
         /// (e.g. `program.fsx`). Cosmetic — the resolver works off offsets.
         Path: string
         /// The original source text. Embedded verbatim as the map's
-        /// `sourcesContent` and used to resolve each node's `SyntaxToken`
-        /// offset to (line, column).
+        /// `sourcesContent`, and re-lexed to resolve each node's anchor index to a
+        /// (line, column).
         Content: string
     }
 
@@ -96,9 +97,23 @@ module Codegen =
             ReferencedProject.runtimeModules "js" manifestPaths
             |> Map.map (fun _ (fileName, source) -> { FileName = fileName; Source = source })
 
+        // A node's anchor is an index into the file's token table, so a map needs the
+        // table as well as the line starts. Re-lexing is what recovers it: the frozen
+        // spine deliberately stores no token text or offset, and the source is in hand
+        // exactly when a map is wanted.
         let resolver: EmitJsContext.Resolver =
             match project.Source with
-            | Some src -> ValueSome(EmitJsContext.LineIndex.build src.Content)
+            | Some src ->
+                match Lexing.lexString src.Content with
+                | Result.Ok lexed ->
+                    ValueSome
+                        {
+                            Lexed = lexed
+                            Lines = EmitJsContext.LineIndex.build src.Content
+                        }
+                // Source that does not lex cannot have produced this `tast`; emit the
+                // program unmapped rather than fail the compile over a map.
+                | Result.Error _ -> ValueNone
             | None -> ValueNone
 
         // The file's trees as columns, with an append-only overlay stacked over them:
@@ -107,15 +122,10 @@ module Codegen =
         // handed out keeps naming the same node.
         let pool = TastPoolBuilder.openOver tast
 
-        // Source text drives variable naming (recovering source identifiers from binder
-        // offsets) independently of whether maps are emitted.
         let ctx =
             EmitJsContext.WalkCtx.create
                 resolver
                 pool
-                (match project.Source with
-                 | Some src -> ValueSome src.Content
-                 | None -> ValueNone)
                 provider
                 (JsImports.create runtimeAssets)
                 (match project.Kind with

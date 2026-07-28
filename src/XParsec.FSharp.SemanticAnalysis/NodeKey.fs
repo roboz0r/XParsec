@@ -244,29 +244,13 @@ module NodeKey =
 /// (a lambda expression binds nothing, so it has no `BinderId` either). Distinctness and
 /// equality are the whole of what it supports.
 ///
-/// One home for the mint because the producer and the two consumers are in three different
-/// domains and none of them holds the others' representation: `InferApp` files the verdict
-/// off a CST pattern token, `TastPools.toPools` stamps the pooled lambda's id space off the
-/// frozen row's token, and `TastUnpool.rebuildFile` inverts that id back off the `ExprToks`
-/// column. A verdict filed under one spelling and sought under another does not fault — it
-/// silently resolves to no lambda, and the closure it was about is emitted as if no verdict
-/// existed.
+/// The producer and the two consumers are in three different domains and none of them holds
+/// the others' representation: `InferApp` files the verdict off a CST pattern token,
+/// `TastPools.toPools` stamps the pooled lambda's id space off the frozen row's anchor, and
+/// `TastUnpool.rebuildFile` inverts that id back off the `ExprToks` column. All three speak
+/// the same `int<token>` — the frozen spine stores anchors as indices (`Anchor`), so there
+/// is nothing left to resolve at any of them. A verdict filed under one spelling and sought
+/// under another does not fault — it silently resolves to no lambda, and the closure it was
+/// about is emitted as if no verdict existed.
 [<Struct>]
 type LambdaKey = | LambdaKey of anchor: int<token>
-
-module LambdaKey =
-
-    /// The key of the lambda anchored on `anchor`.
-    ///
-    /// A VIRTUAL anchor faults rather than keying: it carries no lexed index, so there is no
-    /// identity to file under. No anchor rule can yield one — every `CstKeys.firstTokenOfPat`
-    /// arm takes a real name, a real operator or a real opening delimiter, and recovery
-    /// synthesises only CLOSING delimiters — and the same lambda's frozen row is refused by
-    /// `TastPools.toPools`' anchor check for the same reason, so this faults where that would.
-    let ofAnchor (anchor: SyntaxToken) : LambdaKey =
-        match anchor.Index with
-        | TokenIndex.Regular i -> LambdaKey i
-        | TokenIndex.Virtual ->
-            failwithf
-                "LambdaKey.ofAnchor: a lambda anchors on the VIRTUAL token %A, which the lexer never produced"
-                anchor

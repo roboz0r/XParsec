@@ -174,7 +174,7 @@ module FrozenCodec =
         | ExprPayload.ForTo p ->
             w.Write 11uy
             writeBinderId w p.Var
-            writeSyntaxToken w p.IdentTok
+            writeAnchor w p.IdentTok
         | ExprPayload.ForIn enumerator ->
             w.Write 12uy
             writeForInEnumerator w enumerator
@@ -281,7 +281,7 @@ module FrozenCodec =
         | 10uy -> ExprPayload.While
         | 11uy ->
             let var = readBinderId r
-            let identTok = readSyntaxToken r
+            let identTok = readAnchor r
 
             ExprPayload.ForTo {| Var = var; IdentTok = identTok |}
         | 12uy -> ExprPayload.ForIn(readForInEnumerator r)
@@ -463,13 +463,13 @@ module FrozenCodec =
 
     let private writePools (w: BinaryWriter) (p: FrozenPools) =
         writeArrayWith w writeFrozenType p.ExprTys
-        writeArrayWith w writeSyntaxToken p.ExprToks
+        writeArrayWith w writeAnchor p.ExprToks
         writeIdColumn w writeExprPoolId p.ExprChildren
         writeIdColumn w writePatPoolId p.ExprPatChildren
         writeArrayWith w (fun w b -> writeVOptionWith w writeBinderId b) p.ExprVarBinder
         writeArrayWith w writeExprPayload p.ExprPayloads
         writeArrayWith w writeFrozenType p.PatTys
-        writeArrayWith w writeSyntaxToken p.PatToks
+        writeArrayWith w writeAnchor p.PatToks
         writeIdColumn w writePatPoolId p.PatChildren
         writeArrayWith w writePatPayload p.PatPayloads
         writeIdColumn w writeExprPoolId p.DeclExprChildren
@@ -478,7 +478,7 @@ module FrozenCodec =
         writeArrayWith w writeDeclPoolId p.Roots
         writeArrayWith w writeInlineTemplate p.InlineTemplates
         writeArrayWith w (fun w (s: string) -> w.Write s) p.BinderNames
-        writeArrayWith w (fun w t -> writeVOptionWith w writeSyntaxToken t) p.BinderToks
+        writeArrayWith w writeAnchor p.BinderToks
         writeResidue w p.Residue
         writeDenseTable w writeBinderId writeModuleBindingInfo p.ModuleMembers
         writeDenseTable w writeBinderId writeClosureRepr p.ClosureReprs
@@ -489,13 +489,13 @@ module FrozenCodec =
 
     let private readPools (r: BinaryReader) : FrozenPools =
         let exprTys = readArrayWith r readFrozenType
-        let exprToks = readArrayWith r readSyntaxToken
+        let exprToks = readArrayWith r readAnchor
         let exprChildren = readIdColumn r readExprPoolId
         let exprPatChildren = readIdColumn r readPatPoolId
         let exprVarBinder = readArrayWith r (fun r -> readVOptionWith r readBinderId)
         let exprPayloads = readArrayWith r readExprPayload
         let patTys = readArrayWith r readFrozenType
-        let patToks = readArrayWith r readSyntaxToken
+        let patToks = readArrayWith r readAnchor
         let patChildren = readIdColumn r readPatPoolId
         let patPayloads = readArrayWith r readPatPayload
         let declExprChildren = readIdColumn r readExprPoolId
@@ -504,7 +504,7 @@ module FrozenCodec =
         let roots = readArrayWith r readDeclPoolId
         let inlineTemplates = readArrayWith r readInlineTemplate
         let binderNames = readArrayWith r (fun r -> r.ReadString())
-        let binderToks = readArrayWith r (fun r -> readVOptionWith r readSyntaxToken)
+        let binderToks = readArrayWith r readAnchor
         let residue = readResidue r
         let moduleMembers = readDenseTable r readBinderId readModuleBindingInfo
         let closureReprs = readDenseTable r readBinderId readClosureRepr

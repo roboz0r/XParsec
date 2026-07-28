@@ -710,8 +710,8 @@ module InlineExpansion =
                                 // SITE's own argument, written in THIS file, and the use it
                                 // is copied to is inside a body already moved onto that same
                                 // call site — so its tokens are already local, and its own
-                                // are the finer ones. They are also what a `FunVerdicts`
-                                // entry for it is filed under (`LambdaKey.ofAnchor`), and
+                                // are the finer ones. They are also the anchor a
+                                // `FunVerdicts` entry for it is filed under, and
                                 // these copies are the only ones pooled: an inlined-away
                                 // parameter keeps no surviving `let`.
                                 | TExpr.Var(k, _, _) when lambdaEnv.ContainsKey k ->

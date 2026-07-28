@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
@@ -115,7 +116,7 @@ module JsFlatFns =
         (build: TastAccessor.ExprId -> JsExpr)
         (callee: JsExpr)
         (groups: TastAccessor.ArgGroup list)
-        (spine: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
+        (spine: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
         (loc: JsLoc voption)
         : JsExpr =
         let leading, rest = List.splitAt (List.length groups) spine

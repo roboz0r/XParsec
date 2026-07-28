@@ -10,11 +10,12 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // The leaf-codec gate: `read (write x) = x` STRUCTURALLY for every value in the leaf
 // domains — `FrozenType`, the `SymbolKey`/`TypeKey` key cluster (`FrozenCodecTypes`),
-// `NodeKey`, and `SyntaxToken` (`FrozenCodecPrimitives`). Data comes from two sources: the frozen conformance corpus (realistic
-// breadth), harvested from the leaf-bearing side tables + FrozenType child-walk of each
-// `Frozen.TastFile` (no full expr/decl tree walk — that arrives with the tree codec), and
-// hand-built edge cases that pin EVERY case shape the corpus may not exercise (an `FTOr`
-// of several members, a deeply nested type, each `MemberKind`, a `Virtual` token, …).
+// `NodeKey`, and a node's anchor (`FrozenCodecPrimitives`). Data comes from two sources:
+// the frozen conformance corpus (realistic breadth), harvested from the leaf-bearing side
+// tables + FrozenType child-walk of each `Frozen.TastFile` (no full expr/decl tree walk —
+// that arrives with the tree codec), and hand-built edge cases that pin EVERY case shape
+// the corpus may not exercise (an `FTOr` of several members, a deeply nested type, each
+// `MemberKind`, an absent anchor, …).
 
 /// Corpus programs the JS backend actually compiles — the same gate the byte-identity
 /// test uses, so `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
@@ -34,7 +35,7 @@ type private Harvest =
         SymbolKeys: SymbolKey list
         TypeKeys: TypeKey list
         NodeKeys: NodeKey list
-        Tokens: SyntaxToken list
+        Anchors: int<token> list
     }
 
 let private collect () : Harvest =
@@ -42,7 +43,7 @@ let private collect () : Harvest =
     let sks = HashSet<SymbolKey>(HashIdentity.Structural)
     let tks = HashSet<TypeKey>(HashIdentity.Structural)
     let nks = HashSet<NodeKey>(HashIdentity.Structural)
-    let toks = HashSet<SyntaxToken>(HashIdentity.Structural)
+    let toks = HashSet<int<token>>(HashIdentity.Structural)
 
     // FrozenType child-walk: collect the node and every key / nested type it reaches, so
     // the recursive codec is exercised over whole subtrees.
@@ -119,7 +120,7 @@ let private collect () : Harvest =
         // columns, so every type and slot it names is already reached by the spine walk
         // this harvest runs.
 
-        // Real frozen tokens, shallowly: the source anchor of each top-level decl body.
+        // Real frozen anchors, shallowly: the source anchor of each top-level decl body.
         for decl in file.Decls do
             match decl with
             | TDeclG.Let(_, value, _, _) -> toks.Add(TastWalk.exprTok value) |> ignore
@@ -273,16 +274,9 @@ let private collect () : Harvest =
             FTFun(FTTuple(EqArray.ofList [ ftCond; ftArray ]), FTOr(EqSet.ofSeq [ FTKeyOf ftRecord; ftCond; ftInt ]))
         ]
 
-    let mkTok (t: Token) (start: int) (idx: int) =
-        SyntaxToken.syntaxToken (PositionedToken.Create(t, start)) idx
-
-    let edgeTokens =
-        [
-            mkTok Token.None 0 0
-            mkTok Token.EOF 100 5
-            mkTok Token.Whitespace 7 3
-            SyntaxToken.virtualToken (PositionedToken.Create(Token.None, 0))
-        ]
+    // Both ends of the anchor's value range plus its absence, which the column stores as
+    // the negative space of the index rather than as a case of its own.
+    let edgeAnchors = [ 0<token>; 1<token>; 1_000_000<token>; Anchor.none ]
 
     for ft in edgeFrozen do
         visitFt ft
@@ -300,15 +294,15 @@ let private collect () : Harvest =
         ] do
         nks.Add nk |> ignore
 
-    for tok in edgeTokens do
-        toks.Add tok |> ignore
+    for a in edgeAnchors do
+        toks.Add a |> ignore
 
     {
         FrozenTypes = List.ofSeq fts
         SymbolKeys = List.ofSeq sks
         TypeKeys = List.ofSeq tks
         NodeKeys = List.ofSeq nks
-        Tokens = List.ofSeq toks
+        Anchors = List.ofSeq toks
     }
 
 let private roundTrips (write: System.IO.BinaryWriter -> 'a -> unit) (read: System.IO.BinaryReader -> 'a) (x: 'a) =
@@ -350,12 +344,12 @@ let tests =
                         "NodeKey"
             }
 
-            test "SyntaxToken round-trips structurally" {
-                for tok in h.Tokens do
+            test "an anchor round-trips, its absence included" {
+                for a in h.Anchors do
                     Expect.equal
-                        (roundTrips FrozenCodecPrimitives.writeSyntaxToken FrozenCodecPrimitives.readSyntaxToken tok)
-                        tok
-                        "SyntaxToken"
+                        (roundTrips FrozenCodecPrimitives.writeAnchor FrozenCodecPrimitives.readAnchor a)
+                        a
+                        "anchor"
             }
 
             // The harvest must actually reach the corpus, not just the edge cases —
@@ -370,6 +364,6 @@ let tests =
                 // carries. The hand-built edge cases below are the whole of this corpus,
                 // and their count is what the bound pins.
                 Expect.isGreaterThan (List.length h.NodeKeys) 1 "NodeKeys"
-                Expect.isGreaterThan (List.length h.Tokens) 4 "Tokens"
+                Expect.isGreaterThan (List.length h.Anchors) 4 "Anchors"
             }
         ]

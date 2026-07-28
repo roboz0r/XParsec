@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // What ONE frozen node is, once the tree dissolves: its dense id, its residual payload,
@@ -140,17 +141,19 @@ type DeclPoolId = | DeclPoolId of int
 /// lets the drain be a genuine interconversion with the columns instead of a view that has
 /// to consult a retained key to speak at all.
 ///
-/// The `'ty`/`'tok` axes are the frozen ones — this is the same freeze, at a different
-/// identity — so `Frozen.*` and `Pooled.*` differ in exactly one parameter.
+/// The `'ty` axis is the frozen one and `'tok` is the STORED anchor — the token's index in
+/// the file's own `Lexed` (`Anchor`), which is what the columns hold, so a drained tree
+/// names its positions exactly as the columns do and needs no `Lexed` to be rebuilt.
 module Pooled =
-    type TPat = TPatG<FrozenType, SyntaxToken, BinderId>
-    type TExpr = TExprG<FrozenType, SyntaxToken, BinderId>
+    type TPat = TPatG<FrozenType, int<token>, BinderId>
+    type TExpr = TExprG<FrozenType, int<token>, BinderId>
     type TMatchArm = TMatchArmG<TPat, TExpr>
-    type TDecl = TDeclG<FrozenType, SyntaxToken, BinderId>
-    type TTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, BinderId, TExpr>
+    type HoleSpec = HoleSpecG<FrozenType, int<token>>
+    type TDecl = TDeclG<FrozenType, int<token>, BinderId>
+    type TTypeDecl = TTypeDeclG<FrozenType, int<token>, BinderId, TExpr>
     type TTypeMember = TTypeMemberG<FrozenType, BinderId, TExpr>
-    type TInlineValue = TInlineValueG<FrozenType, SyntaxToken, BinderId>
-    type TastFile = TastFileG<FrozenType, SyntaxToken, BinderId>
+    type TInlineValue = TInlineValueG<FrozenType, int<token>, BinderId>
+    type TastFile = TastFileG<FrozenType, int<token>, BinderId>
 
 /// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
 /// by pool id instead of carrying the tree, and whose seven pattern-less BINDER slots name
@@ -161,7 +164,7 @@ module Pooled =
 /// a re-nesting record, so the ids ride the shape rather than `DeclExprChildren`. Both
 /// directions are `TastConvert.typeDecl` at the matching body/identity mappings, so nothing
 /// re-derives the shape.
-type PooledTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, BinderId, ExprPoolId>
+type PooledTypeDecl = TTypeDeclG<FrozenType, int<token>, BinderId, ExprPoolId>
 
 /// A binding's SOURCE arity with its tuple-group patterns named by pool id — the file's own
 /// `ValRepr`s, whose pats ARE nodes of the pooled tree (the peel reads the pooled lambda
@@ -246,9 +249,9 @@ type FormatSinkShape =
 [<RequireQualifiedAccess>]
 type FormatSegShape =
     | Lit of string
-    | Hole of Frozen.HoleSpec
-    | DynHole of hasWidth: bool * hasPrecision: bool * spec: Frozen.HoleSpec
-    | CallbackHole of Frozen.HoleSpec
+    | Hole of Pooled.HoleSpec
+    | DynHole of hasWidth: bool * hasPrecision: bool * spec: Pooled.HoleSpec
+    | CallbackHole of Pooled.HoleSpec
 
 /// The residual payload of a frozen expression node — one case per `ExprShape`, carrying
 /// ONLY the fields left after the columnar split drops `ty`/`tok` (the `ExprTys`/`ExprToks`
@@ -281,7 +284,7 @@ type ExprPayload =
     | ForTo of
         {|
             Var: BinderId
-            IdentTok: SyntaxToken
+            IdentTok: int<token>
         |}
     | ForIn of Frozen.ForInEnumerator
     /// One flag per arm: whether the arm carries a guard. The scrutinee is the first
@@ -456,11 +459,18 @@ module ExprPayload =
     /// Re-nest the children of a `Format`: the sink's own sub-expression first (the order
     /// `TastPools.exprChildren` yields), then each segment's, with the dyn-hole presence
     /// flags saying which dimensions are there.
+    ///
+    /// A hole is the one leaf that carries an anchor of its own, so `widenTok` is how the
+    /// stored index becomes whatever the rebuilding domain names positions by — `id` for a
+    /// tree that stays in the pool's own space, the drain's widening for one that leaves it.
     let format
+        (widenTok: int<token> -> 'tok)
         (sink: FormatSinkShape)
         (segments: FormatSegShape[])
         (nextExpr: unit -> 'e)
-        : FormatSinkG<'e> * FormatSegG<FrozenType, SyntaxToken, 'e>[] =
+        : FormatSinkG<'e> * FormatSegG<FrozenType, 'tok, 'e>[] =
+        let spec = TastConvert.hole id widenTok
+
         let sink' =
             match sink with
             | FormatSinkShape.ToWriter newline -> FormatSinkG.ToWriter(nextExpr (), newline)
@@ -474,8 +484,8 @@ module ExprPayload =
             |> Array.map (fun seg ->
                 match seg with
                 | FormatSegShape.Lit s -> FormatSegG.Lit s
-                | FormatSegShape.Hole spec -> FormatSegG.Hole(spec, nextExpr ())
-                | FormatSegShape.DynHole(hasWidth, hasPrecision, spec) ->
+                | FormatSegShape.Hole h -> FormatSegG.Hole(spec h, nextExpr ())
+                | FormatSegShape.DynHole(hasWidth, hasPrecision, h) ->
                     let width = if hasWidth then ValueSome(nextExpr ()) else ValueNone
                     let precision = if hasPrecision then ValueSome(nextExpr ()) else ValueNone
 
@@ -483,10 +493,10 @@ module ExprPayload =
                         {
                             Width = width
                             Precision = precision
-                            Spec = spec
+                            Spec = spec h
                             Value = nextExpr ()
                         }
-                | FormatSegShape.CallbackHole spec -> FormatSegG.CallbackHole(spec, nextExpr ())
+                | FormatSegShape.CallbackHole h -> FormatSegG.CallbackHole(spec h, nextExpr ())
             )
 
         sink', segments'
@@ -629,7 +639,10 @@ module DeclPayload =
 type ExprRow =
     {
         Ty: FrozenType
-        Tok: SyntaxToken
+        /// The node's anchor as the column stores it — an index, negative where no source
+        /// spells the node (`Anchor`). A row is the column transpose, so it holds the
+        /// column's own value; the surface that hands one out decodes it.
+        Tok: int<token>
         Children: ExprPoolId[]
         PatChildren: PatPoolId[]
         /// The `Var` reference edge (`ValueNone` at every other shape). A tree WALK cannot
@@ -670,7 +683,8 @@ module ExprRow =
 type PatRow =
     {
         Ty: FrozenType
-        Tok: SyntaxToken
+        /// See `ExprRow.Tok`.
+        Tok: int<token>
         Children: PatPoolId[]
         Payload: PatPayload
     }

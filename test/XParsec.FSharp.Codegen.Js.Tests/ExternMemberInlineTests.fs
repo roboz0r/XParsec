@@ -28,8 +28,9 @@ open XParsec.FSharp.Codegen.Js
 // `TryLookupMember(...).InlineBody` end-to-end) is deferred as disproportionate for this
 // stage.
 
-let private dummyTok: SyntaxToken =
-    SyntaxToken.virtualToken (PositionedToken.Create(Token.EOF, 0))
+/// The hand-built member body below belongs to no file, so it sits at no source position —
+/// the same anchor a lowering's own minted node takes.
+let private dummyTok: int<token> = Anchor.none
 
 /// A provider carrying a `widget` `.fsi` contract whose `extern` intrinsic declares
 /// `members` — the member-bearing `Class` a concrete (non-interface) member surface

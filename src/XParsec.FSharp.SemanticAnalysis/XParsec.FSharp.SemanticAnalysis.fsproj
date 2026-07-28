@@ -9,6 +9,7 @@
     <Compile Include="Cache.fs" />
     <Compile Include="Compression.fs" />
     <Compile Include="RecordFieldClassifier.fs" />
+    <Compile Include="Anchor.fs" />
     <Compile Include="NodeKey.fs" />
     <Compile Include="CstKeys.fs" />
     <Compile Include="CstWalk.fs" />

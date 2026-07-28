@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // A STACKED pool: an append-only overlay opened over an immutable `FrozenPools`, so a
@@ -157,8 +158,12 @@ module TastPoolBuilder =
     let exprTy (b: PoolBuilder) (id: ExprPoolId) : FrozenType =
         readExpr b id (fun p i -> p.ExprTys.[i]) (fun r -> r.Ty)
 
-    let exprTok (b: PoolBuilder) (id: ExprPoolId) : SyntaxToken =
-        readExpr b id (fun p i -> p.ExprToks.[i]) (fun r -> r.Tok)
+    /// Where the node SITS: its anchor token's index in the file's `Lexed`, or `ValueNone`
+    /// where no source spells it (an overlay-minted node, an `.fsi` contract's
+    /// reconstructed pattern). The column stores that absence as the negative space of the
+    /// index; this is where it is decoded, so no reader downstream meets a raw negative.
+    let exprTok (b: PoolBuilder) (id: ExprPoolId) : int<token> voption =
+        readExpr b id (fun p i -> p.ExprToks.[i]) (fun r -> r.Tok) |> Anchor.ofColumn
 
     let exprChildren (b: PoolBuilder) (id: ExprPoolId) : ExprPoolId[] =
         readExpr b id (fun p i -> p.ExprChildren.[i]) (fun r -> r.Children)
@@ -198,8 +203,9 @@ module TastPoolBuilder =
     let patTy (b: PoolBuilder) (id: PatPoolId) : FrozenType =
         readPat b id (fun p i -> p.PatTys.[i]) (fun r -> r.Ty)
 
-    let patTok (b: PoolBuilder) (id: PatPoolId) : SyntaxToken =
-        readPat b id (fun p i -> p.PatToks.[i]) (fun r -> r.Tok)
+    /// The pattern twin of `exprTok`.
+    let patTok (b: PoolBuilder) (id: PatPoolId) : int<token> voption =
+        readPat b id (fun p i -> p.PatToks.[i]) (fun r -> r.Tok) |> Anchor.ofColumn
 
     let patChildren (b: PoolBuilder) (id: PatPoolId) : PatPoolId[] =
         readPat b id (fun p i -> p.PatChildren.[i]) (fun r -> r.Children)
@@ -266,11 +272,11 @@ module TastPoolBuilder =
     /// line/column is taken from. `ValueNone` where no node spells the binder: an
     /// overlay-minted one, and a declaration's pattern-less key slot (see
     /// `FrozenPools.BinderToks`).
-    let binderTok (b: PoolBuilder) (id: BinderId) : SyntaxToken voption =
+    let binderTok (b: PoolBuilder) (id: BinderId) : int<token> voption =
         let (BinderId i) = id
 
         if i < b.BinderBase then
-            b.Base.BinderToks.[i]
+            Anchor.ofColumn b.Base.BinderToks.[i]
         else
             ValueNone
 
@@ -408,12 +414,16 @@ module TastPoolBuilder =
     /// The overlay's pooling sink. The walk is `TastPools`' — the one that built the base
     /// pool — so the tree shape is known in exactly one place; only the destination and the
     /// binder-id assignment differ.
-    let private sinkOf (b: PoolBuilder) : TastPools.PoolSink<BinderId> =
+    let private sinkOf (b: PoolBuilder) : TastPools.PoolSink<int<token>, BinderId> =
         {
             // The tree being poured in is ALREADY in this pool's identity space, so a
             // definition site IS its id and a reference resolves without a lookup: there
             // is no second spelling of a binder for the two to disagree about.
             InternBinder = fun site -> BinderKey.identity site.Binder
+            // Likewise already in the stored form: the tree names positions by the very
+            // index the columns hold. The overlay's rows are nodes of no file, so nothing
+            // here is held to anchoring on a real token of one.
+            Anchor = id
             AddExpr = appendExpr b
             AddPat = appendPat b
             AddDecl = appendDecl b
@@ -432,6 +442,13 @@ module TastPoolBuilder =
     /// move to native row appends on its own schedule.
     let appendExprTree (b: PoolBuilder) (e: Pooled.TExpr) : ExprPoolId = TastPools.poolExpr (sinkOf b) e
 
+    /// A drained node's POSITION, which is nothing: an anchor is an index into the pool's
+    /// own file and the consumer of a drained tree holds no `Lexed` for that file, so the
+    /// drain hands over a token that names no place rather than one that resolves to the
+    /// wrong thing. `Inline.spliceAt` puts the body on the call site as it lands; see
+    /// `Anchor.foreignToken` for why an unrelocated one then faults instead of rotting.
+    let private relocated (_: int<token>) : SyntaxToken = Anchor.foreignToken
+
     /// The DU subtree a pattern id denotes, resolved across BOTH layers, node-for-node
     /// (`TastUnpool.substitutePat` re-authors each node from its row, exactly as `ofPools`
     /// does for a whole pool).
@@ -447,7 +464,12 @@ module TastPoolBuilder =
     let rec private patTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: PatPoolId) : Frozen.TPat =
         let row = patRow b at
 
-        TastUnpool.substitutePat rename row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree rename b))
+        TastUnpool.substitutePat
+            rename
+            row.Ty
+            (relocated row.Tok)
+            row.Payload
+            (row.Children |> Array.map (patTree rename b))
 
     /// The DU subtree an expression id denotes — see `patTree`. Reached through `declTree`:
     /// the cross-unit wire carries whole declarations, never a bare expression.
@@ -456,8 +478,9 @@ module TastPoolBuilder =
 
         TastUnpool.substituteExpr
             rename
+            relocated
             row.Ty
-            row.Tok
+            (relocated row.Tok)
             row.VarBinder
             row.Payload
             (row.Children |> Array.map (exprTree rename b))
@@ -491,6 +514,7 @@ module TastPoolBuilder =
 
         TastUnpool.substituteDecl
             rename
+            relocated
             (exprTree rename b)
             row.Payload
             (row.ExprChildren |> Array.map (exprTree rename b))

@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Js
 
 open System.Collections.Generic
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
@@ -50,9 +51,15 @@ module EmitJsContext =
                 Column = offset - starts.[lo]
             }
 
-    /// Resolve a node's `'tok` to a source `loc`. `ValueNone` disables maps
-    /// (no source text supplied); `ValueSome` carries the line index.
-    type Resolver = LineIndex voption
+    /// What a node's anchor is resolved through, on the way to a source-map position: the
+    /// token table the anchor indexes, and the line starts of the text that table was lexed
+    /// from. Both or neither — an anchor is an INDEX, so it names a character offset only
+    /// alongside the `Lexed` that numbered it, and a line only alongside the text.
+    type Resolution = { Lexed: Lexed; Lines: LineIndex }
+
+    /// `ValueNone` disables maps: no source text was supplied, so there is nothing for an
+    /// anchor to resolve against.
+    type Resolver = Resolution voption
 
     /// The walker's ambient context.
     type WalkCtx =
@@ -64,7 +71,6 @@ module EmitJsContext =
             /// binder's emitted NAME comes from: `binderName` reads the pool's naming
             /// column rather than unpacking a `NodeKey`'s bits.
             Pool: PoolBuilder
-            Source: string voption
             Records: Dictionary<SymbolKey, JsRecordInfo>
             Unions: Dictionary<SymbolKey, JsUnionInfo>
             /// Locally-emitted classes (`[<CustomEquality>]` & plain classes), keyed
@@ -132,7 +138,6 @@ module EmitJsContext =
         let create
             (resolver: Resolver)
             (pool: PoolBuilder)
-            (source: string voption)
             (provider: IExternalSymbolProvider)
             (imports: JsImports)
             (exportTopLevel: bool)
@@ -140,7 +145,6 @@ module EmitJsContext =
             {
                 Resolver = resolver
                 Pool = pool
-                Source = source
                 Records = Dictionary()
                 Unions = Dictionary()
                 Classes = Dictionary()
@@ -154,10 +158,14 @@ module EmitJsContext =
                 Capabilities = ExternalSymbols.resolveCapabilities provider
             }
 
-    let locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
-        match ctx.Resolver with
-        | ValueSome idx -> ValueSome(LineIndex.resolve idx tok.StartIndex)
-        | ValueNone -> ValueNone
+    /// Where a node's anchor lands in the ORIGINAL source, for the map. Two ways to have no
+    /// answer, and both are honest: no source text was supplied at all, or the node sits at
+    /// no source position (a node this emission derived). The anchor is an index into the
+    /// token table, and the token is what carries the character offset the line index wants.
+    let locOf (ctx: WalkCtx) (anchor: int<token> voption) : JsLoc voption =
+        match ctx.Resolver, anchor with
+        | ValueSome r, ValueSome i -> ValueSome(LineIndex.resolve r.Lines r.Lexed.Tokens.[i].StartIndex)
+        | _ -> ValueNone
 
     // ---- Records -------------------------------------------------------------
 

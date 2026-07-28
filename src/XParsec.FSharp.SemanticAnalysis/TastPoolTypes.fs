@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // The FILE: `FrozenPools`, the columns every node of `TastPoolNodes.fs` is addressed in,
@@ -159,7 +160,12 @@ type FrozenPools =
         /// disagree. No DU node is retained — the columns are Node-sufficient, which the
         /// round-trip gate proves.
         ExprTys: FrozenType[]
-        ExprToks: SyntaxToken[]
+        /// Each node's anchor as a token INDEX into this file's own `Lexed` (`Anchor`), not
+        /// the token struct: everything the struct carried is recoverable from the index
+        /// against that `Lexed`, and the index is a quarter of its width on the column that
+        /// dominates a frozen file. Read through `TastPoolBuilder.exprTok`, which is where
+        /// the absence convention is decoded.
+        ExprToks: int<token>[]
         ExprChildren: ExprPoolId[][]
         ExprPatChildren: PatPoolId[][]
         ExprVarBinder: BinderId voption[]
@@ -170,7 +176,8 @@ type FrozenPools =
         /// expressions); `PatPayloads` the residual per-case payload, tag included. No DU
         /// node is retained.
         PatTys: FrozenType[]
-        PatToks: SyntaxToken[]
+        /// The pattern twin of `ExprToks`.
+        PatToks: int<token>[]
         PatChildren: PatPoolId[][]
         PatPayloads: PatPayload[]
         /// The declaration pool as struct-of-arrays, indexed by `DeclPoolId`.
@@ -205,15 +212,15 @@ type FrozenPools =
         /// the source's, unmangled: a target dialect's reserved-word and punctuation rules
         /// belong to the backend that emits the name.
         BinderNames: string[]
-        /// The token the binder's name is spelled at — the anchor a span or a line/column
-        /// is taken from. `ValueNone` for a definition site NO NODE SPELLS: a declaration's
-        /// pattern-less key slots (`TTypeMemberG.ThisKey`/`BaseKey`/`Params`, a secondary
-        /// ctor's params and lets, the base-ctor call's view of the primary params) hold a
-        /// binder key and no token, so there is none to store. Those slots still carry a
-        /// `BinderNames` entry: a member parameter's key is projected from its CST pattern
-        /// and so names a real source position even though the frozen shape keeps no token
-        /// for it.
-        BinderToks: SyntaxToken voption[]
+        /// The token the binder's name is spelled at, as an index into this file's `Lexed`
+        /// (`Anchor`) — what a span or a line/column is taken from. NEGATIVE for a
+        /// definition site NO NODE SPELLS: a declaration's pattern-less key slots
+        /// (`TTypeMemberG.ThisKey`/`BaseKey`/`Params`, a secondary ctor's params and lets,
+        /// the base-ctor call's view of the primary params) hold a binder key and no token,
+        /// so there is none to store. Those slots still carry a `BinderNames` entry: a
+        /// member parameter's key is projected from its CST pattern and so names a real
+        /// source position even though the frozen shape keeps no token for it.
+        BinderToks: int<token>[]
         /// The not-yet-pooled remainder of the source file, carried verbatim.
         Residue: FrozenFileResidue
         /// The source `Map<NodeKey,_>` side tables that keep a KEY, re-keyed by `BinderId`.

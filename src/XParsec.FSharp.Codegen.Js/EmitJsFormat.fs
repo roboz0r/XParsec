@@ -45,7 +45,7 @@ module EmitJsFormat =
     let buildHole
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
-        (hole: Frozen.HoleSpec)
+        (hole: Pooled.HoleSpec)
         (operand: TastAccessor.ExprId)
         (starWidth: TastAccessor.ExprId voption)
         (starPrecision: TastAccessor.ExprId voption)

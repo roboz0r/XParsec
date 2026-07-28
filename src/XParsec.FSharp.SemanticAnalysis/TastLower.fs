@@ -423,12 +423,6 @@ module TastLower =
                      CompiledReturnG.RValue vr.ResultTy)
         }
 
-    /// A virtual token for the wildcard leaves of a contract-reconstructed tuple
-    /// group (below): a `.fsi` `val` has no source position for the synthesised
-    /// pattern, so anchor it at offset 0 — the analogue of the synthetic `NodeKey`s.
-    let private contractPatTok =
-        SyntaxToken.virtualToken (PositionedToken.Create(Token.VirtualApp, 0))
-
     /// Build the SOURCE `ValRepr` for an EXTERNAL (contract-extracted) function. A
     /// `.fsi` `val` gives each curried group's arity (`CurriedSig`/`ArgsSpec`) but
     /// has no lambda tree to `peelValRepr`, so the groups are reconstructed from
@@ -445,7 +439,9 @@ module TastLower =
         // file's pool — it gets a standalone one, owned by this `ValRepr` and reachable
         // only through the handles it hands out. That is what the pool-carrying handle
         // buys: the consumer reads these pats through the same accessor as any other,
-        // and never learns they came from somewhere else.
+        // and never learns they came from somewhere else. Nor does any of them sit
+        // anywhere: a `.fsi` `val` has no lambda tree, so the reconstructed pattern
+        // is spelled by no token at all.
         let contractPats = TastPoolBuilder.openEmpty ()
 
         let groupOf (arity: int, pty: FrozenType) : ArgGroup =
@@ -455,9 +451,9 @@ module TastLower =
                     let items =
                         elems
                         |> EqArray.toArray
-                        |> Array.map (fun e -> TastAccessor.mintWildcardPat contractPats e contractPatTok)
+                        |> Array.map (fun e -> TastAccessor.mintWildcardPat contractPats e ValueNone)
 
-                    ArgGroupG.GTuple(TastAccessor.mintTuplePat contractPats items pty contractPatTok)
+                    ArgGroupG.GTuple(TastAccessor.mintTuplePat contractPats items pty ValueNone)
                 | _ ->
                     // A ≥2-width group is always an `FTTuple` (translateArgsSpec); keep a
                     // single param defensively rather than fabricate one.

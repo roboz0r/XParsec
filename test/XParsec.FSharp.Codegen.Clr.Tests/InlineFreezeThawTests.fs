@@ -30,9 +30,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //    the freeze/thaw half and a REAL cross-unit splice are pinned below.
 
 /// Every type mentioned by a frozen clause's constraints, in order.
-let private frozenConstraintTypes
-    (clauses: TStaticOptClauseG<FrozenType, XParsec.FSharp.Parser.SyntaxToken, 'id> list)
-    : FrozenType list =
+let private frozenConstraintTypes (clauses: TStaticOptClauseG<FrozenType, 'tok, 'id> list) : FrozenType list =
     [
         for c in clauses do
             for k in EqArray.toList c.Constraints do

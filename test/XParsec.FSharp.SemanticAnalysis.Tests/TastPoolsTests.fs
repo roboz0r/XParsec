@@ -40,7 +40,7 @@ let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Pooled.TPat) =
 
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr) =
     let binder = internedBinderId pools (BinderKey.ofExpr du)
-    Expect.equal pools.ExprPayloads.[i] (TastPools.exprPayload binder du) "expr payload"
+    Expect.equal pools.ExprPayloads.[i] (TastPools.exprPayload id binder du) "expr payload"
     let duExprKids = TastPools.exprChildren du
     let duPatKids = TastPools.exprPatChildren du
     Expect.equal pools.ExprChildren.[i].Length duExprKids.Length "expr child fan-out"
@@ -52,10 +52,11 @@ let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr)
 /// traversal the pool build and drain run (`TastConvert.typeDecl` at a collecting body
 /// mapping). Reusing it is what keeps this check from drifting away from the set of slots
 /// that are actually pooled — a newly-added body slot appears here for free.
-let private bodySlots (td: TTypeDeclG<FrozenType, SyntaxToken, 'id, 'body>) : 'body[] =
+let private bodySlots (td: TTypeDeclG<FrozenType, int<token>, 'id, 'body>) : 'body[] =
     let slots = ResizeArray<'body>()
 
     TastConvert.typeDecl
+        id
         id
         BinderKey.identity
         (fun b ->
@@ -103,10 +104,10 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Pooled.TDecl) =
         | p -> failtestf "a Type decl's pool payload is %A, not DeclPayload.Type" p
 
 /// A pooled lambda's `LambdaKey`. `FunVerdicts` is keyed by the lambda id space, not the
-/// binder pool, and the Node that carried the key is gone — so the key is recomputed from
-/// the `ExprToks` column exactly as `ofPools` does. One home for that recompute, so a test
-/// cannot key a verdict differently from the code under test.
-let private pooledLambdaKey (pools: FrozenPools) (ExprPoolId i) : LambdaKey = LambdaKey.ofAnchor pools.ExprToks.[i]
+/// binder pool, and the Node that carried the key is gone — so the key is read off the
+/// `ExprToks` column exactly as `ofPools` does. One home for that, so a test cannot key a
+/// verdict differently from the code under test.
+let private pooledLambdaKey (pools: FrozenPools) (ExprPoolId i) : LambdaKey = LambdaKey pools.ExprToks.[i]
 
 /// The id-resolution gate: the `ExprVarBinder` column is populated EXACTLY at the `Var`
 /// slots (each to an in-range `BinderId`), and each side table's source keys land on a
@@ -205,7 +206,7 @@ let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
     Expect.equal pools.BindingValReprs.Length namedLetRoots.Length "one recorded arity per simple-binder Let root"
 
 // The binder columns' ANCHOR obligation: a binder a NODE introduces (`NamedSimple`, read
-// via `patTok`; `ForTo.identTok`) has that very token in `BinderToks`, and the name in
+// via `patTok`; `ForTo.identTok`) has that very anchor in `BinderToks`, and the name in
 // `BinderNames` is the identifier the source spells there. The columns are what every
 // backend names a binder from, and nothing else in the file ties them back to the tree, so
 // the tie is asserted here. Returns the count of node-introduced binders checked, so a test
@@ -213,10 +214,10 @@ let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
 let private checkBinderAnchors (pools: FrozenPools) (frozen: Pooled.TastFile) : int =
     let mutable anchored = 0
 
-    let checkAnchor (BinderId i) (tok: SyntaxToken) (what: string) =
+    let checkAnchor (BinderId i) (tok: int<token>) (what: string) =
         anchored <- anchored + 1
 
-        Expect.equal pools.BinderToks.[i] (ValueSome tok) (sprintf "%s binder anchors on its own node token" what)
+        Expect.equal pools.BinderToks.[i] tok (sprintf "%s binder anchors on its own node token" what)
 
     let rec walkPat (p: Pooled.TPat) =
         match BinderKey.ofPat p with
@@ -484,8 +485,8 @@ let pooledCarrierCoverageTests =
 
 // The corpus never populates `FunVerdicts` (the value-struct / stack-closure emit path
 // is not yet reachable), so the round-trip gate above never exercises the lambda id
-// space. These inject a synthetic verdict keyed by a real frozen lambda's
-// `LambdaKey.ofAnchor` and drive the path directly: `FunVerdicts` is re-keyed onto the
+// space. These inject a synthetic verdict keyed by a real frozen lambda's own anchor and
+// drive the path directly: `FunVerdicts` is re-keyed onto the
 // lambda's `ExprPoolId` (off the binder pool), `ofPools` inverts back to the original
 // `LambdaKey`, and a key naming no pooled lambda faults.
 //

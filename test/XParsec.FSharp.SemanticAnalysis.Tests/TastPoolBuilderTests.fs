@@ -30,7 +30,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
     for i in 0 .. pools.ExprPayloads.Length - 1 do
         let id = ExprPoolId i
         Expect.equal (TastPoolBuilder.exprTy b id) pools.ExprTys.[i] "base expr ty"
-        Expect.equal (TastPoolBuilder.exprTok b id) pools.ExprToks.[i] "base expr tok"
+        Expect.equal (TastPoolBuilder.exprTok b id) (Anchor.ofColumn pools.ExprToks.[i]) "base expr tok"
         Expect.equal (TastPoolBuilder.exprChildren b id) pools.ExprChildren.[i] "base expr children"
         Expect.equal (TastPoolBuilder.exprPatChildren b id) pools.ExprPatChildren.[i] "base expr pat children"
         Expect.equal (TastPoolBuilder.exprVarBinder b id) pools.ExprVarBinder.[i] "base expr var binder"
@@ -39,7 +39,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
     for i in 0 .. pools.PatPayloads.Length - 1 do
         let id = PatPoolId i
         Expect.equal (TastPoolBuilder.patTy b id) pools.PatTys.[i] "base pat ty"
-        Expect.equal (TastPoolBuilder.patTok b id) pools.PatToks.[i] "base pat tok"
+        Expect.equal (TastPoolBuilder.patTok b id) (Anchor.ofColumn pools.PatToks.[i]) "base pat tok"
         Expect.equal (TastPoolBuilder.patChildren b id) pools.PatChildren.[i] "base pat children"
         Expect.equal (TastPoolBuilder.patPayload b id) pools.PatPayloads.[i] "base pat payload"
 
@@ -51,7 +51,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 
     for i in 0 .. pools.BinderNames.Length - 1 do
         let id = BinderId i
-        Expect.equal (TastPoolBuilder.binderTok b id) pools.BinderToks.[i] "base binder anchor"
+        Expect.equal (TastPoolBuilder.binderTok b id) (Anchor.ofColumn pools.BinderToks.[i]) "base binder anchor"
 
         Expect.equal
             (TastPoolBuilder.binderNaming b id)
@@ -123,9 +123,16 @@ let appendTests =
                 // the NODE carries rather than against the payload itself.
                 let duBinder = BinderKey.ofExpr du |> ValueOption.map BinderKey.identity
 
-                Expect.equal (TastPoolBuilder.exprPayload b id) (TastPools.exprPayload duBinder du) "appended payload"
+                // The tree is already in the stored anchor form, so the payload's own
+                // anchor needs no narrowing — `Operators.id` because `id` is the pool id
+                // in scope here.
+                Expect.equal
+                    (TastPoolBuilder.exprPayload b id)
+                    (TastPools.exprPayload Operators.id duBinder du)
+                    "appended payload"
+
                 Expect.equal (TastPoolBuilder.exprTy b id) (TastWalk.exprTy du) "appended ty"
-                Expect.equal (TastPoolBuilder.exprTok b id) (TastWalk.exprTok du) "appended tok"
+                Expect.equal (TastPoolBuilder.exprTok b id) (Anchor.ofColumn (TastWalk.exprTok du)) "appended tok"
 
                 // `appendExprTree` pools the WHOLE tree it is handed — its children are
                 // re-pooled into the overlay, not deduped against equal base rows.

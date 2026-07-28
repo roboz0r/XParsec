@@ -71,8 +71,8 @@ module internal UnificationInferApp =
                 // peel `EnclosedBlock` / `TypeAnnotation` wrappers — `Elaborate` strips
                 // them transparently, anchoring the frozen `Lambda` on the inner
                 // `Expr.Fun`'s FIRST parameter pattern's token (NOT the `fun` keyword).
-                // Key the verdict through `LambdaKey.ofAnchor`, off the token the frozen
-                // node carries, so the pool's lambda id space stamps the same key.
+                // Key the verdict off the anchor of the token the frozen node carries, so
+                // the pool's lambda id space stamps the same key.
                 let rec peelLambda e =
                     match e with
                     | Expr.EnclosedBlock(expr = inner)
@@ -84,7 +84,7 @@ module internal UnificationInferApp =
                 | ValueSome arg0Pat ->
                     match funSlotArityOf ctx.Store dom with
                     | ValueSome arity ->
-                        let lamKey = LambdaKey.ofAnchor (CstKeys.firstTokenOfPat arg0Pat)
+                        let lamKey = LambdaKey(Anchor.ofToken (CstKeys.firstTokenOfPat arg0Pat))
                         // Arity now; the result-typar position (if any) is filled in by
                         // the second pass below, once `currTy` reaches the result nominal.
                         ctx.FunVerdicts.Set(

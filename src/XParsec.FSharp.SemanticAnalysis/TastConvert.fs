@@ -57,11 +57,14 @@ module TastConvert =
         | TPatG.EnumCase(k, n, ty, tok) -> TPatG.EnumCase(k, n, f ty, tok)
         | TPatG.Or(alts, ty, tok) -> TPatG.Or(EqArray.map (pat f) alts, f ty, tok)
 
-    let hole (f: 'a -> 'b) (h: HoleSpecG<'a, 'tok>) : HoleSpecG<'b, 'tok> =
+    /// A format hole across BOTH axes: it is the one leaf that carries a token of its own
+    /// and no sub-expression, so the pooled form's re-nesting (`ExprPayload.format`) has to
+    /// widen its anchor here rather than at a node.
+    let hole (f: 'a -> 'b) (fTok: 'ta -> 'tb) (h: HoleSpecG<'a, 'ta>) : HoleSpecG<'b, 'tb> =
         {
             Ty = f h.Ty
             Source = h.Source
-            Tok = h.Tok
+            Tok = fTok h.Tok
         }
 
     let forInGetEnum (f: 'a -> 'b) (ge: ForInGetEnumG<'a>) : ForInGetEnumG<'b> =
@@ -167,16 +170,16 @@ module TastConvert =
         : FormatSegG<'b, 'tok, TExprG<'b, 'tok, 'id>> =
         match seg with
         | FormatSegG.Lit lit -> FormatSegG.Lit lit
-        | FormatSegG.Hole(h, a) -> FormatSegG.Hole(hole f h, expr f a)
+        | FormatSegG.Hole(h, a) -> FormatSegG.Hole(hole f id h, expr f a)
         | FormatSegG.DynHole d ->
             FormatSegG.DynHole
                 {
                     Width = ValueOption.map (expr f) d.Width
                     Precision = ValueOption.map (expr f) d.Precision
-                    Spec = hole f d.Spec
+                    Spec = hole f id d.Spec
                     Value = expr f d.Value
                 }
-        | FormatSegG.CallbackHole(spec, residue) -> FormatSegG.CallbackHole(hole f spec, expr f residue)
+        | FormatSegG.CallbackHole(spec, residue) -> FormatSegG.CallbackHole(hole f id spec, expr f residue)
 
     and constraintOf (f: 'a -> 'b) (c: TStaticOptConstraintG<'a>) : TStaticOptConstraintG<'b> =
         match c with
@@ -202,11 +205,12 @@ module TastConvert =
             IsMutable = fld.IsMutable
         }
 
-    // ── the type-declaration cluster: a TRIFUNCTOR in `('ty, 'id, 'body)` ───
+    // ── the type-declaration cluster: a functor in `('ty, 'tok, 'id, 'body)` ───
     //
-    // Every function below maps the embedded types through `fTy`, the pattern-less binder
-    // SLOTS through `fId`, and the member / preamble / ctor BODIES through `fBody`,
-    // independently. The `'ty`-only freeze runs it at `fId = BinderKey.identity` and `fBody = expr fTy`
+    // Every function below maps the embedded types through `fTy`, an enum case's identifier
+    // token through `fTok` (the cluster's only `'tok`, every other slot having gone to
+    // `'body`), the pattern-less binder SLOTS through `fId`, and the member / preamble /
+    // ctor BODIES through `fBody`, independently. The `'ty`-only freeze runs it at `fId = BinderKey.identity` and `fBody = expr fTy`
     // (`decl` below); a body-POOLING pass runs it at `fTy = id`, `fBody = <expr → pool id>`
     // and `fId = <key → binder id>`, and its inverse at the opposite two. So the seven body
     // slots, the seven key slots, and the declaration spine around them are enumerated in ONE
@@ -302,12 +306,20 @@ module TastConvert =
             IsProperty = am.IsProperty
         }
 
+    let enumCase (fTok: 'ta -> 'tb) (c: TEnumCaseG<'ta>) : TEnumCaseG<'tb> =
+        {
+            Name = c.Name
+            Value = c.Value
+            Tok = fTok c.Tok
+        }
+
     let kind
         (fTy: 'a -> 'b)
+        (fTok: 'ta -> 'tb)
         (fId: BinderKeyG<'ia> -> 'ib)
         (fBody: 'ba -> 'bb)
-        (k: TTypeKindG<'a, 'tok, 'ia, 'ba>)
-        : TTypeKindG<'b, 'tok, 'ib, 'bb> =
+        (k: TTypeKindG<'a, 'ta, 'ia, 'ba>)
+        : TTypeKindG<'b, 'tb, 'ib, 'bb> =
         let mem = typeMember fTy fId fBody
         let ifaces = EqArray.map (fun (ity, ms) -> fTy ity, EqArray.map mem ms)
 
@@ -322,9 +334,11 @@ module TastConvert =
                 ifaces interfaces,
                 valueKind
             )
-        // Enum cases carry no `'ty` (the value is a resolved literal) and no body, so the
-        // kind passes through unchanged whichever mapping is running.
-        | TTypeKindG.Enum cases -> TTypeKindG.Enum cases
+        // Enum cases carry no `'ty` (the value is a resolved literal) and no body, so their
+        // case identifier's token is the only thing here the mapping can touch — and the
+        // ONLY `'tok` in the whole declaration cluster, every other slot having gone to
+        // `'body`.
+        | TTypeKindG.Enum cases -> TTypeKindG.Enum(EqArray.map (enumCase fTok) cases)
         | TTypeKindG.Class c ->
             TTypeKindG.Class
                 {
@@ -345,17 +359,18 @@ module TastConvert =
 
     let typeDecl
         (fTy: 'a -> 'b)
+        (fTok: 'ta -> 'tb)
         (fId: BinderKeyG<'ia> -> 'ib)
         (fBody: 'ba -> 'bb)
-        (td: TTypeDeclG<'a, 'tok, 'ia, 'ba>)
-        : TTypeDeclG<'b, 'tok, 'ib, 'bb> =
+        (td: TTypeDeclG<'a, 'ta, 'ia, 'ba>)
+        : TTypeDeclG<'b, 'tb, 'ib, 'bb> =
         {
             Name = td.Name
             TypeKey = td.TypeKey
             Namespace = td.Namespace
             TypeParams = td.TypeParams
             IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
-            Kind = kind fTy fId fBody td.Kind
+            Kind = kind fTy fTok fId fBody td.Kind
             EqualitySupport = td.EqualitySupport
             ComparisonSupport = td.ComparisonSupport
         }
@@ -366,7 +381,7 @@ module TastConvert =
         | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f e, f ty)
         // The `'ty`-only conversion is the trifunctor at `fId = identity` (the slots stay in
         // the space they were in) and `fBody = expr f`.
-        | TDeclG.Type td -> TDeclG.Type(typeDecl f BinderKey.identity (expr f) td)
+        | TDeclG.Type td -> TDeclG.Type(typeDecl f id BinderKey.identity (expr f) td)
 
     let inlineBody (f: 'a -> 'b) (ib: TInlineBodyG<'a, 'tok, 'id>) : TInlineBodyG<'b, 'tok, 'id> =
         {

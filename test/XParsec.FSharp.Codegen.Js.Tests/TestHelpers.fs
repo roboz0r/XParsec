@@ -302,10 +302,11 @@ let errorText (ds: Diagnostic list) : string =
     ds |> List.map (fun d -> d.Message) |> String.concat "\n"
 
 /// The ONE shared `EmitJsContext.WalkCtx` builder, matching production wiring
-/// (`Codegen.compileWith`): a real `LineIndex` resolver over the source (the hand-built
-/// test copies wrongly left `Resolver = ValueNone`), `Source` carrying the input, and
-/// all lowering tables empty for `buildProgram` to fill. `runtime` is the injected
-/// package → `.mjs` map; `exportTopLevel` selects script (`false`) vs library (`true`).
+/// (`Codegen.compileWith`): a real resolver over the source — its token table AND its line
+/// starts, since an anchor is an index into the former (the hand-built test copies wrongly
+/// left `Resolver = ValueNone`) — and all lowering tables empty for `buildProgram` to fill.
+/// `runtime` is the injected package → `.mjs` map; `exportTopLevel` selects script
+/// (`false`) vs library (`true`).
 let private jsWalkCtx
     (provider: IExternalSymbolProvider)
     (runtime: Map<string, JsRuntimeModule>)
@@ -313,10 +314,19 @@ let private jsWalkCtx
     (input: string)
     (frozen: FrozenPools)
     : EmitJsContext.WalkCtx =
+    let resolver: EmitJsContext.Resolver =
+        match Lexing.lexString input with
+        | Result.Ok lexed ->
+            ValueSome
+                {
+                    Lexed = lexed
+                    Lines = EmitJsContext.LineIndex.build input
+                }
+        | Result.Error _ -> ValueNone
+
     EmitJsContext.WalkCtx.create
-        (ValueSome(EmitJsContext.LineIndex.build input))
+        resolver
         (TastPoolBuilder.openOver frozen)
-        (ValueSome input)
         provider
         (JsImports.create runtime)
         exportTopLevel

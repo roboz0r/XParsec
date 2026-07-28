@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open JsEmitHelpers
@@ -209,7 +210,7 @@ module JsExternalMembers =
         (provider: IExternalSymbolProvider)
         (build: TastAccessor.ExprId -> JsExpr)
         (head: TastAccessor.ExprId)
-        (spine: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
+        (spine: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
         (loc: JsLoc voption)
         : JsExpr voption =
         match head with

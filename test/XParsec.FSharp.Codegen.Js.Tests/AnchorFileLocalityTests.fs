@@ -9,32 +9,36 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // A frozen file's anchor columns index THAT file's `Lexed`, and nothing else.
 //
 // The way that stops being true is inline expansion: a body compiled from a library file
-// is spliced into a consumer's tree, and a token carried across from it names a position
+// is spliced into a consumer's tree, and an anchor carried across from it names a position
 // in the wrong file — a number still in range, so it resolves to some OTHER token rather
 // than faulting. `Inline.spliceAt` is what closes it, by moving every spliced node onto
 // the call site; these snippets are one per way a body reaches a consuming tree, and the
-// check is the one a token-index anchor column performs when it is dereferenced.
+// check is the dereference itself, which is the only thing an index can be wrong at.
+//
+// A library file is LONGER than any of these snippets, so an anchor that survived the
+// splice lands past this file's tokens — which is what makes the in-range test discriminate
+// rather than merely assert.
 
-/// Every anchor a frozen file carries, resolved against the file's OWN token stream. A
-/// token that came from somewhere else either indexes past the end or disagrees with what
-/// is actually at that index.
+/// Every anchor a frozen file carries, resolved against the file's OWN token stream. An
+/// anchor that came from somewhere else indexes past the end, or lands on a token whose
+/// text belongs to nothing this file's tree could have been anchored on.
 let private checkAnchors (what: string) (input: string) =
     let lexed, _ = parseFile input
     let pools = frozenOf input
 
-    let check (where: string) (t: SyntaxToken) =
-        match t.Index with
-        | TokenIndex.Virtual -> ()
-        | TokenIndex.Regular i ->
+    let check (where: string) (stored: int<token>) =
+        match Anchor.ofColumn stored with
+        | ValueNone -> ()
+        | ValueSome i ->
             Expect.isLessThan
                 (int i)
                 lexed.Tokens.Length
                 (sprintf "%s: %s anchor %d is past the end of this file's tokens" what where (int i))
 
-            Expect.equal
-                lexed.Tokens[i]
-                t.PositionedToken
-                (sprintf "%s: %s anchor %d names a different token in this file" what where (int i))
+            Expect.notEqual
+                lexed.Tokens[i].Token
+                Token.EOF
+                (sprintf "%s: %s anchor %d names this file's EOF, so it is no node's position" what where (int i))
 
     for t in pools.ExprToks do
         check "expr" t
@@ -43,9 +47,7 @@ let private checkAnchors (what: string) (input: string) =
         check "pat" t
 
     for t in pools.BinderToks do
-        match t with
-        | ValueSome t -> check "binder" t
-        | ValueNone -> ()
+        check "binder" t
 
 [<Tests>]
 let tests =

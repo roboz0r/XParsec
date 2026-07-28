@@ -122,34 +122,12 @@ module FrozenCodecPrimitives =
 
     let readBinderSlot (r: BinaryReader) : BinderKeyG<BinderId> = BinderKey.ofInterned (readBinderId r)
 
-    /// A `SyntaxToken` is its source offset + `Token` enum + `TokenIndex` case; the
-    /// `PositionedToken` is rebuilt from `(Token, StartIndex)` via its factory, and the
-    /// struct's full value equality makes `read (write t) = t` well-defined.
-    let writeSyntaxToken (w: BinaryWriter) (t: SyntaxToken) =
-        w.Write t.StartIndex
-        w.Write(uint16 t.Token)
-
-        match t.Index with
-        | TokenIndex.Regular i ->
-            w.Write 0uy
-            w.Write(int i)
-        | TokenIndex.Virtual -> w.Write 1uy
-
-    let readSyntaxToken (r: BinaryReader) : SyntaxToken =
-        let startIndex = r.ReadInt32()
-        let token: Token = LanguagePrimitives.EnumOfValue(r.ReadUInt16())
-        let positioned = PositionedToken.Create(token, startIndex)
-
-        let index =
-            match r.ReadByte() with
-            | 0uy -> TokenIndex.Regular(r.ReadInt32() * 1<token>)
-            | 1uy -> TokenIndex.Virtual
-            | b -> failwithf "FrozenCodec: unknown TokenIndex tag %d" b
-
-        {
-            PositionedToken = positioned
-            Index = index
-        }
+    /// A node's anchor: a bare token index (`Anchor`), absence and all. The blob is keyed
+    /// by the source hash, so the `Lexed` a reader resolves it against is the same one the
+    /// writer indexed — which is what lets the token's text, span and kind stay out of the
+    /// blob entirely rather than being written beside every node.
+    let writeAnchor (w: BinaryWriter) (a: int<token>) = w.Write(int a)
+    let readAnchor (r: BinaryReader) : int<token> = r.ReadInt32() * 1<token>
 
     let writeLiteralConst (w: BinaryWriter) (v: LiteralConst) =
         match v with

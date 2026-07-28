@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
@@ -24,7 +25,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (funcTy0: FrozenType)
-        (args: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
+        (args: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
         : unit =
         let mutable funcTy = funcTy0
 
@@ -50,7 +51,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (arrTy: FrozenType)
-        (spineArgs: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
+        (spineArgs: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
         : bool =
         let elemOf =
             match arrTy with
@@ -99,7 +100,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (groups: TastAccessor.ArgGroup list)
-        (leading: (TastAccessor.ExprId * FrozenType * SyntaxToken) list)
+        (leading: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
         : FrozenType list =
         let actualTys = ResizeArray<FrozenType>()
 

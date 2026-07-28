@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // The DRAIN direction of the frozen pools: columns back to the DU. Its inverse — the DU
@@ -39,15 +40,22 @@ module TastUnpool =
     /// column lookup for one that must speak the node space a source-shaped tree is
     /// addressed in (`Frozen.TExpr`). ONE hook, so both the reference edge and the `ForTo`
     /// binder land in the same space rather than each site picking its own way back.
+    ///
+    /// `widenTok` is the same arrangement for POSITIONS: `id` for a tree that stays in the
+    /// pool's own space, and the cross-unit wire's widening for one that leaves it
+    /// (`TastPoolBuilder.declTree`). It reaches the two anchors a payload carries — a
+    /// `ForTo`'s loop-variable token and a format hole's — the node's own arriving already
+    /// widened as `tok`.
     let substituteExpr
         (widenBinder: BinderId -> 'id)
+        (widenTok: int<token> -> 'tok)
         (ty: FrozenType)
-        (tok: SyntaxToken)
+        (tok: 'tok)
         (varBinder: BinderId voption)
         (payload: ExprPayload)
-        (es: TExprG<FrozenType, SyntaxToken, 'id>[])
-        (ps: TPatG<FrozenType, SyntaxToken, 'id>[])
-        : TExprG<FrozenType, SyntaxToken, 'id> =
+        (es: TExprG<FrozenType, 'tok, 'id>[])
+        (ps: TPatG<FrozenType, 'tok, 'id>[])
+        : TExprG<FrozenType, 'tok, 'id> =
         // A decl's own leading children are all its own, so both cursors start at 0; the
         // `Match`/`TryWith` arms below draw from `nextE` only after the node has taken its
         // scrutinee / body from it.
@@ -104,7 +112,7 @@ module TastUnpool =
             let startExpr = nextE ()
             let endExpr = nextE ()
             let body = nextE ()
-            TExprG.ForTo(widenBinder p.Var, p.IdentTok, startExpr, endExpr, body, ty, tok)
+            TExprG.ForTo(widenBinder p.Var, widenTok p.IdentTok, startExpr, endExpr, body, ty, tok)
         | ExprPayload.ForIn enumerator ->
             let pat = nextP ()
             let source = nextE ()
@@ -164,7 +172,7 @@ module TastUnpool =
             let receiver' = if p.HasReceiver then ValueSome(nextE ()) else ValueNone
             TExprG.ExternalMember(receiver', p.Key, p.MemberName, p.Storage, ty, tok)
         | ExprPayload.Format p ->
-            let sink', segments' = ExprPayload.format p.Sink p.Segments nextE
+            let sink', segments' = ExprPayload.format widenTok p.Sink p.Segments nextE
             TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
         | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
         | ExprPayload.StaticOptimization clauseConstraints ->
@@ -193,10 +201,10 @@ module TastUnpool =
     let substitutePat
         (widenBinder: BinderId -> 'id)
         (ty: FrozenType)
-        (tok: SyntaxToken)
+        (tok: 'tok)
         (payload: PatPayload)
-        (ps: TPatG<FrozenType, SyntaxToken, 'id>[])
-        : TPatG<FrozenType, SyntaxToken, 'id> =
+        (ps: TPatG<FrozenType, 'tok, 'id>[])
+        : TPatG<FrozenType, 'tok, 'id> =
         match payload with
         // The binder this pattern introduces, named in the caller's identity space — the
         // pat analogue of `ForTo.var`.
@@ -223,15 +231,17 @@ module TastUnpool =
     /// run at the inverse body and identity mappings.
     let substituteDecl
         (widenBinder: BinderId -> 'id)
-        (fromExpr: ExprPoolId -> TExprG<FrozenType, SyntaxToken, 'id>)
+        (widenTok: int<token> -> 'tok)
+        (fromExpr: ExprPoolId -> TExprG<FrozenType, 'tok, 'id>)
         (payload: DeclPayload)
-        (es: TExprG<FrozenType, SyntaxToken, 'id>[])
-        (ps: TPatG<FrozenType, SyntaxToken, 'id>[])
-        : TDeclG<FrozenType, SyntaxToken, 'id> =
+        (es: TExprG<FrozenType, 'tok, 'id>[])
+        (ps: TPatG<FrozenType, 'tok, 'id>[])
+        : TDeclG<FrozenType, 'tok, 'id> =
         match payload with
         | DeclPayload.Let p -> TDeclG.Let(ps.[0], es.[0], p.IsInline, p.Ty)
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
-        | DeclPayload.Type td -> TDeclG.Type(TastConvert.typeDecl id (BinderKey.identity >> widenBinder) fromExpr td)
+        | DeclPayload.Type td ->
+            TDeclG.Type(TastConvert.typeDecl id widenTok (BinderKey.identity >> widenBinder) fromExpr td)
 
     /// A dense `BinderId`-keyed side table as the keyed `Map` it was re-keyed FROM, each
     /// id resolved by the rebuild's own inverse of the interning: a `BinderKey` PROJECTED
@@ -264,7 +274,7 @@ module TastUnpool =
     /// correspondence is the identity; the round-trip gate is the only other caller, and
     /// what it supplies is a correspondence it derives — and proves bijective — by
     /// correlating the rebuilt tree with the source tree it is being compared to.
-    let rebuildFile (widenBinder: BinderId -> 'id) (pools: FrozenPools) : TastFileG<FrozenType, SyntaxToken, 'id> =
+    let rebuildFile (widenBinder: BinderId -> 'id) (pools: FrozenPools) : TastFileG<FrozenType, int<token>, 'id> =
         // The binder column back in the BINDER key space, re-admitted by PROJECTION and
         // never by fiat: as the trees below are rebuilt, each node is asked what it binds
         // with the same `BinderKey` projections `toPools` interned by, and only what they
@@ -283,12 +293,11 @@ module TastUnpool =
             | false, _ -> failwithf "TastUnpool: binder %O (%O) is interned but no rebuilt node introduces it" id k
 
         // The inverse of the lambda id space: a lambda's `ExprPoolId` back to the `LambdaKey`
-        // its verdict is filed under. With the Node gone, recompute that key from the
-        // lambda's `ExprToks` column — `LambdaKey.ofAnchor`, the construction `toPools`
-        // stamped the id space with.
-        let lambdaKeyOf (ExprPoolId i) : LambdaKey = LambdaKey.ofAnchor pools.ExprToks.[i]
+        // its verdict is filed under. The key IS the anchor, and the column holds the
+        // anchor, so there is nothing here to resolve.
+        let lambdaKeyOf (ExprPoolId i) : LambdaKey = LambdaKey pools.ExprToks.[i]
 
-        let rec fromPat (PatPoolId i) : TPatG<FrozenType, SyntaxToken, 'id> =
+        let rec fromPat (PatPoolId i) : TPatG<FrozenType, int<token>, 'id> =
             let ps = pools.PatChildren.[i] |> Array.map fromPat
 
             let p =
@@ -297,13 +306,14 @@ module TastUnpool =
             BinderKey.ofPat p |> ValueOption.iter readmit
             p
 
-        let rec fromExpr (ExprPoolId i) : TExprG<FrozenType, SyntaxToken, 'id> =
+        let rec fromExpr (ExprPoolId i) : TExprG<FrozenType, int<token>, 'id> =
             let es = pools.ExprChildren.[i] |> Array.map fromExpr
             let ps = pools.ExprPatChildren.[i] |> Array.map fromPat
 
             let e =
                 substituteExpr
                     widenBinder
+                    id
                     pools.ExprTys.[i]
                     pools.ExprToks.[i]
                     pools.ExprVarBinder.[i]
@@ -314,10 +324,10 @@ module TastUnpool =
             BinderKey.ofExpr e |> ValueOption.iter readmit
             e
 
-        let fromDecl (DeclPoolId i) : TDeclG<FrozenType, SyntaxToken, 'id> =
+        let fromDecl (DeclPoolId i) : TDeclG<FrozenType, int<token>, 'id> =
             let es = pools.DeclExprChildren.[i] |> Array.map fromExpr
             let ps = pools.DeclPatChildren.[i] |> Array.map fromPat
-            let d = substituteDecl widenBinder fromExpr pools.DeclPayloads.[i] es ps
+            let d = substituteDecl widenBinder id fromExpr pools.DeclPayloads.[i] es ps
 
             match d with
             | TDeclG.Type td -> Seq.iter readmit (BinderKey.ofTypeDecl td)

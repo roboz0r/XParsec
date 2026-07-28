@@ -109,7 +109,7 @@ module EmitFormat =
         // loads the local instead of a compile-time constant. `None` for a dim that is
         // static (or a plain hole).
         let emitHole
-            (hole: Frozen.HoleSpec)
+            (hole: Pooled.HoleSpec)
             (arg: TastAccessor.ExprId)
             (starWidthLocal: int option)
             (starPrecLocal: int option)

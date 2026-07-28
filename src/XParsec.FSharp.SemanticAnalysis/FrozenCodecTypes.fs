@@ -805,15 +805,15 @@ module FrozenCodecTypes =
     // A `HoleSpec` carries no sub-expression (its `Ty` is a `FrozenType`, its `Tok` a
     // token), so it is a leaf ahead of the tree group even though the format SEGMENT
     // that holds it is not.
-    let writeHoleSpec (w: BinaryWriter) (h: Frozen.HoleSpec) =
+    let writeHoleSpec (w: BinaryWriter) (h: Pooled.HoleSpec) =
         writeFrozenType w h.Ty
         writeHoleSpecSource w h.Source
-        writeSyntaxToken w h.Tok
+        writeAnchor w h.Tok
 
-    let readHoleSpec (r: BinaryReader) : Frozen.HoleSpec =
+    let readHoleSpec (r: BinaryReader) : Pooled.HoleSpec =
         let ty = readFrozenType r
         let source = readHoleSpecSource r
-        let tok = readSyntaxToken r
+        let tok = readAnchor r
         { Ty = ty; Source = source; Tok = tok }
 
     // ── the leaf type-declaration payloads (no sub-expression) ──────────────
@@ -880,15 +880,15 @@ module FrozenCodecTypes =
             IsMutable = isMutable
         }
 
-    let writeEnumCase (w: BinaryWriter) (c: Frozen.TEnumCase) =
+    let writeEnumCase (w: BinaryWriter) (c: TEnumCaseG<int<token>>) =
         w.Write c.Name
         writeVOptionWith w writeTEnumLiteral c.Value
-        writeSyntaxToken w c.Tok
+        writeAnchor w c.Tok
 
-    let readEnumCase (r: BinaryReader) : Frozen.TEnumCase =
+    let readEnumCase (r: BinaryReader) : TEnumCaseG<int<token>> =
         let name = r.ReadString()
         let value = readVOptionWith r readTEnumLiteral
-        let tok = readSyntaxToken r
+        let tok = readAnchor r
 
         {
             Name = name
