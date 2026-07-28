@@ -410,7 +410,7 @@ module TastPoolBuilder =
             // The overlay's binder index is keyed by `NodeKey` because it must also admit a
             // REFERENCE (`VarRef` below, a minted binder pattern), which names its binder
             // that way; the walk's definition sites widen into it.
-            InternBinder = BinderKey.toNodeKey >> internBinder b
+            InternBinder = BinderKey.identity >> internBinder b
             AddExpr = appendExpr b
             AddPat = appendPat b
             AddDecl = appendDecl b
@@ -465,6 +465,7 @@ module TastPoolBuilder =
         let row = declRow b id
 
         TastUnpool.substituteDecl
+            (binderKey b)
             (exprTree b)
             row.Payload
             (row.ExprChildren |> Array.map (exprTree b))

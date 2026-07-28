@@ -21,7 +21,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 let private internedBinderId (pools: FrozenPools) (b: BinderKey voption) : BinderId voption =
     b
     |> ValueOption.map (fun b ->
-        let key = BinderKey.toNodeKey b
+        let key = BinderKey.identity b
 
         match Array.tryFindIndex ((=) key) pools.BinderKeys with
         | Some i -> BinderId i
@@ -49,11 +49,12 @@ let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Frozen.TExpr)
 /// traversal the pool build and drain run (`TastConvert.typeDecl` at a collecting body
 /// mapping). Reusing it is what keeps this check from drifting away from the set of slots
 /// that are actually pooled — a newly-added body slot appears here for free.
-let private bodySlots (td: TTypeDeclG<FrozenType, SyntaxToken, 'body>) : 'body[] =
+let private bodySlots (td: TTypeDeclG<FrozenType, SyntaxToken, 'id, 'body>) : 'body[] =
     let slots = ResizeArray<'body>()
 
     TastConvert.typeDecl
         id
+        BinderKey.identity
         (fun b ->
             slots.Add b
             b
@@ -223,7 +224,7 @@ let private checkMintInvariant (frozen: Frozen.TastFile) : int =
 
     let rec walkPat (p: Frozen.TPat) =
         match BinderKey.ofPat p with
-        | ValueSome k -> checkReal (BinderKey.toNodeKey k) (TastWalk.patTok p) "NamedSimple"
+        | ValueSome k -> checkReal (BinderKey.identity k) (TastWalk.patTok p) "NamedSimple"
         | ValueNone -> ()
 
         for sub in TastPools.patChildren p do
@@ -259,7 +260,11 @@ let private checkProgram (src: string) =
     checkValReprPatsAreSpineNodes pools
 
     // The interconversion gate: `ofPools ∘ toPools` reconstructs a structurally-equal
-    // `Frozen.TastFile`. Compared DIRECTLY, DU value against DU value — the serializer is
+    // file. The rebuild's own identity space is the pool's dense one, so the comparison
+    // reads it through `nodeKeyedFile` — the tree is the same tree either way, and the
+    // source file to compare against is `NodeKey`-shaped.
+    //
+    // Compared DIRECTLY, DU value against DU value — the serializer is
     // no oracle here, because `FrozenCodec.flatten` itself pools the file, so flattening
     // both sides would compare `toPools (ofPools (toPools f))` with `toPools f` and prove
     // nothing about `ofPools`. `TastFileG.structurallyEqual` is the equality a whole-file
@@ -268,7 +273,7 @@ let private checkProgram (src: string) =
     // through the binder pool (not shared from the source), so an inequality is a genuine
     // decl-tree OR key-remap divergence.
     Expect.isTrue
-        (TastFileG.structurallyEqual (TastUnpool.ofPools pools) frozen)
+        (TastFileG.structurallyEqual (TastUnpool.nodeKeyedFile pools) frozen)
         "ofPools (toPools f) round-trips to a structurally-equal frozen file"
 
 // Representative programs, spanning binder shapes (lambda / let-in / for), control

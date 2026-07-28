@@ -50,9 +50,6 @@ module FrozenCodec =
     // writer at all: it is a projection of the payload (`ExprPayload.shape`), so the
     // payload's tag byte already carries it.
 
-    let private writeBinderId (w: BinaryWriter) (BinderId i) = w.Write i
-    let private readBinderId (r: BinaryReader) : BinderId = BinderId(r.ReadInt32())
-
     /// A jagged child-id column — one length-prefixed id list per pool slot. Generic over
     /// the id codec, so the expr-child and pat-child columns of all three domains share the
     /// one nesting convention rather than repeating it per domain.

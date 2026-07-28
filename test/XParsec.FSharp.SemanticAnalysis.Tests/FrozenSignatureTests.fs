@@ -16,7 +16,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// trees and the `NodeKey`-keyed side tables, which is what `ofPools` re-authors
 /// verbatim — the projection's INPUT is the pools, but its shape reads most directly
 /// here.
-let private duOf (frozen: FrozenPools) : Frozen.TastFile = TastUnpool.ofPools frozen
+let private duOf (frozen: FrozenPools) : Frozen.TastFile = TastUnpool.nodeKeyedFile frozen
 
 /// The `TypeKey` of the type declared under `name`, read out of the frozen decls.
 let private typeKeyOf (frozen: FrozenPools) (name: string) : TypeKey =

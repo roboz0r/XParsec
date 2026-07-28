@@ -204,7 +204,7 @@ module FrozenCodecDecls =
             ComparisonSupport = comparisonSupport
         }
 
-    and private writeTypeKind (w: BinaryWriter) (k: TTypeKindG<FrozenType, SyntaxToken, ExprPoolId>) =
+    and private writeTypeKind (w: BinaryWriter) (k: TTypeKindG<FrozenType, SyntaxToken, BinderId, ExprPoolId>) =
         match k with
         | TTypeKindG.Interface methods ->
             w.Write 0uy
@@ -227,7 +227,7 @@ module FrozenCodecDecls =
             w.Write 4uy
             writeEqArrayWith w writeEnumCase cases
 
-    and private readTypeKind (r: BinaryReader) : TTypeKindG<FrozenType, SyntaxToken, ExprPoolId> =
+    and private readTypeKind (r: BinaryReader) : TTypeKindG<FrozenType, SyntaxToken, BinderId, ExprPoolId> =
         match r.ReadByte() with
         | 0uy -> TTypeKindG.Interface(EqArray.ofArray (readArrayWith r readAbstractMethod))
         | 1uy ->
@@ -249,7 +249,7 @@ module FrozenCodecDecls =
     // bodies — shared by the class / union / record arms.
     and private writeInterfaces
         (w: BinaryWriter)
-        (interfaces: EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, ExprPoolId>>>)
+        (interfaces: EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, BinderId, ExprPoolId>>>)
         =
         writeEqArrayWith
             w
@@ -259,7 +259,9 @@ module FrozenCodecDecls =
             )
             interfaces
 
-    and private readInterfaces (r: BinaryReader) : EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, ExprPoolId>>> =
+    and private readInterfaces
+        (r: BinaryReader)
+        : EqArray<FrozenType * EqArray<TTypeMemberG<FrozenType, BinderId, ExprPoolId>>> =
         EqArray.ofArray (
             readArrayWith
                 r
@@ -270,7 +272,7 @@ module FrozenCodecDecls =
                 )
         )
 
-    and private writeClass (w: BinaryWriter) (c: TClassG<FrozenType, ExprPoolId>) =
+    and private writeClass (w: BinaryWriter) (c: TClassG<FrozenType, BinderId, ExprPoolId>) =
         writeEqArrayWith w writeRecordField c.Fields
         writeEqArrayWith w writeRecordField c.CtorParams
         writeEqArrayWith w writeTypeMember c.Members
@@ -279,13 +281,13 @@ module FrozenCodecDecls =
         w.Write c.IsSealed
         writeEqArrayWith w writePreambleEntry c.StaticPreamble
         writeEqArrayWith w writePreambleEntry c.InstancePreamble
-        writeNodeKey w c.ThisKey
+        writeBinderId w c.ThisKey
         writeEqArrayWith w writeSecondaryCtor c.SecondaryCtors
         writeVOptionWith w writeBaseCtorCall c.BaseCtorCall
         writeClassValueKind w c.ValueKind
         w.Write c.HasPrimaryCtor
 
-    and private readClass (r: BinaryReader) : TClassG<FrozenType, ExprPoolId> =
+    and private readClass (r: BinaryReader) : TClassG<FrozenType, BinderId, ExprPoolId> =
         let fields = EqArray.ofArray (readArrayWith r readRecordField)
         let ctorParams = EqArray.ofArray (readArrayWith r readRecordField)
         let members = EqArray.ofArray (readArrayWith r readTypeMember)
@@ -294,7 +296,7 @@ module FrozenCodecDecls =
         let isSealed = r.ReadBoolean()
         let staticPreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
         let instancePreamble = EqArray.ofArray (readArrayWith r readPreambleEntry)
-        let thisKey = readNodeKey r
+        let thisKey = readBinderId r
         let secondaryCtors = EqArray.ofArray (readArrayWith r readSecondaryCtor)
         let baseCtorCall = readVOptionWith r readBaseCtorCall
         let valueKind = readClassValueKind r
@@ -316,20 +318,20 @@ module FrozenCodecDecls =
             HasPrimaryCtor = hasPrimaryCtor
         }
 
-    and private writeTypeMember (w: BinaryWriter) (m: TTypeMemberG<FrozenType, ExprPoolId>) =
+    and private writeTypeMember (w: BinaryWriter) (m: TTypeMemberG<FrozenType, BinderId, ExprPoolId>) =
         w.Write m.Name
         w.Write m.IsStatic
         writeAccessibility w m.Accessibility
         writeTMemberKind w m.Kind
         w.Write m.IsOverride
-        writeVOptionWith w writeNodeKey m.ThisKey
-        writeVOptionWith w writeNodeKey m.BaseKey
+        writeVOptionWith w writeBinderId m.ThisKey
+        writeVOptionWith w writeBinderId m.BaseKey
         writeFrozenType w m.ThisTy
 
         writeEqArrayWith
             w
             (fun w (k, ty) ->
-                writeNodeKey w k
+                writeBinderId w k
                 writeFrozenType w ty
             )
             m.Params
@@ -338,14 +340,14 @@ module FrozenCodecDecls =
         writeFrozenType w m.ReturnTy
         writeMethodTypeParams w m.MethodTypeParams
 
-    and private readTypeMember (r: BinaryReader) : TTypeMemberG<FrozenType, ExprPoolId> =
+    and private readTypeMember (r: BinaryReader) : TTypeMemberG<FrozenType, BinderId, ExprPoolId> =
         let name = r.ReadString()
         let isStatic = r.ReadBoolean()
         let accessibility = readAccessibility r
         let kind = readTMemberKind r
         let isOverride = r.ReadBoolean()
-        let thisKey = readVOptionWith r readNodeKey
-        let baseKey = readVOptionWith r readNodeKey
+        let thisKey = readVOptionWith r readBinderId
+        let baseKey = readVOptionWith r readBinderId
         let thisTy = readFrozenType r
 
         let parameters =
@@ -353,7 +355,7 @@ module FrozenCodecDecls =
                 readArrayWith
                     r
                     (fun r ->
-                        let k = readNodeKey r
+                        let k = readBinderId r
                         let ty = readFrozenType r
                         k, ty
                     )
@@ -412,13 +414,13 @@ module FrozenCodecDecls =
         | 1uy -> TPreambleEntryG.Do(readExprPoolId r)
         | b -> failwithf "FrozenCodec: unknown TPreambleEntry tag %d" b
 
-    and private writeCtorLet (w: BinaryWriter) (cl: TCtorLetG<FrozenType, ExprPoolId>) =
-        writeNodeKey w cl.Binder
+    and private writeCtorLet (w: BinaryWriter) (cl: TCtorLetG<FrozenType, BinderId, ExprPoolId>) =
+        writeBinderId w cl.Binder
         writeFrozenType w cl.Type
         writeExprPoolId w cl.Init
 
-    and private readCtorLet (r: BinaryReader) : TCtorLetG<FrozenType, ExprPoolId> =
-        let binder = readNodeKey r
+    and private readCtorLet (r: BinaryReader) : TCtorLetG<FrozenType, BinderId, ExprPoolId> =
+        let binder = readBinderId r
         let ty = readFrozenType r
         let init = readExprPoolId r
 
@@ -437,11 +439,11 @@ module FrozenCodecDecls =
         let init = readExprPoolId r
         { Field = field; Init = init }
 
-    and private writeSecondaryCtor (w: BinaryWriter) (sc: TSecondaryCtorG<FrozenType, ExprPoolId>) =
+    and private writeSecondaryCtor (w: BinaryWriter) (sc: TSecondaryCtorG<FrozenType, BinderId, ExprPoolId>) =
         writeEqArrayWith
             w
             (fun w (k, ty) ->
-                writeNodeKey w k
+                writeBinderId w k
                 writeFrozenType w ty
             )
             sc.Params
@@ -450,13 +452,13 @@ module FrozenCodecDecls =
         writeEqArrayWith w writeExprPoolId sc.PrimaryArgs
         writeEqArrayWith w writeCtorFieldInit sc.FieldInits
 
-    and private readSecondaryCtor (r: BinaryReader) : TSecondaryCtorG<FrozenType, ExprPoolId> =
+    and private readSecondaryCtor (r: BinaryReader) : TSecondaryCtorG<FrozenType, BinderId, ExprPoolId> =
         let parameters =
             EqArray.ofArray (
                 readArrayWith
                     r
                     (fun r ->
-                        let k = readNodeKey r
+                        let k = readBinderId r
                         let ty = readFrozenType r
                         k, ty
                     )
@@ -473,11 +475,11 @@ module FrozenCodecDecls =
             FieldInits = fieldInits
         }
 
-    and private writeBaseCtorCall (w: BinaryWriter) (bc: TBaseCtorCallG<FrozenType, ExprPoolId>) =
+    and private writeBaseCtorCall (w: BinaryWriter) (bc: TBaseCtorCallG<FrozenType, BinderId, ExprPoolId>) =
         writeEqArrayWith
             w
             (fun w (k, ty) ->
-                writeNodeKey w k
+                writeBinderId w k
                 writeFrozenType w ty
             )
             bc.CtorParams
@@ -485,13 +487,13 @@ module FrozenCodecDecls =
         writeEqArrayWith w writeExprPoolId bc.Args
         writeVOptionWith w writeSymbolKey bc.ChosenCtor
 
-    and private readBaseCtorCall (r: BinaryReader) : TBaseCtorCallG<FrozenType, ExprPoolId> =
+    and private readBaseCtorCall (r: BinaryReader) : TBaseCtorCallG<FrozenType, BinderId, ExprPoolId> =
         let ctorParams =
             EqArray.ofArray (
                 readArrayWith
                     r
                     (fun r ->
-                        let k = readNodeKey r
+                        let k = readBinderId r
                         let ty = readFrozenType r
                         k, ty
                     )

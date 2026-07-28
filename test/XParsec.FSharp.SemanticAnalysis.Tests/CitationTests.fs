@@ -56,7 +56,10 @@ let private guarded () : (string * Type) list =
         "TastUnpool", moduleType "TastUnpool"
         "TastPoolBuilder", moduleType "TastPoolBuilder"
         "ArgGroups", moduleType "ArgGroups"
-        "BinderKey", moduleType "BinderKey"
+        // Under its compiled name: `BinderKey` is the `BinderKeyG<NodeKey>` abbreviation,
+        // which erases, and an abbreviation of the module's own name is still a clash — so
+        // the module takes the `Module` suffix and no type answers to the bare name.
+        "BinderKey", moduleType "BinderKeyModule"
     ]
 
 let private isFSharpModule (t: Type) =

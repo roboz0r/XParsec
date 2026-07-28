@@ -78,7 +78,7 @@ let rec private semRootsOf (store: TypeStore) (t: SemType) : TyVarId list =
 /// Run over every `.ty` slot of a decl, collecting them. `TastConvert` is the
 /// exhaustive functor, so this reaches every type in the tree — no hand-rolled walk
 /// that a new TAST case could silently escape.
-let private collectTys (d: TDeclG<'ty, 'tok>) : 'ty list =
+let private collectTys (d: TDeclG<'ty, 'tok, 'id>) : 'ty list =
     let acc = ResizeArray<'ty>()
 
     TastConvert.decl
@@ -116,7 +116,7 @@ let private distinctLeafCount (d: Frozen.TDecl) : int =
 let private freeze (src: string) : Frozen.TastFile =
     let ctx, tast = analyseWithCtx src
     Expect.isEmpty tast.Diagnostics "no diagnostics"
-    TastUnpool.ofPools (Freeze.run ctx tast)
+    TastUnpool.nodeKeyedFile (Freeze.run ctx tast)
 
 /// The frozen `let` decl of a single-binding program.
 let private frozenLetDecl (src: string) : Frozen.TDecl =
@@ -217,7 +217,7 @@ let rec private typarArity (ft: FrozenType) : int =
 let private publishing (unitASource: string) : IExternalSymbolProvider =
     let ctx, tastA = analyseWithCtx unitASource
     Expect.isEmpty tastA.Diagnostics "unit A has no diagnostics"
-    let unitA = TastUnpool.ofPools (Freeze.run ctx tastA)
+    let unitA = TastUnpool.nodeKeyedFile (Freeze.run ctx tastA)
 
     let published = unitA.InlineBodies |> EqArray.toList
 
@@ -269,7 +269,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 /// leaves an `App` head instead, which reaches no `Const`, so this cannot pass by accident.
 let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
     let lexed, file = parseFile src
-    let tast = TastUnpool.ofPools (Pipeline.analyse provider src lexed file)
+    let tast = TastUnpool.nodeKeyedFile (Pipeline.analyse provider src lexed file)
 
     Expect.isEmpty
         (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))

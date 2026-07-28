@@ -34,16 +34,16 @@ module TastNodeViews =
     /// The `type`-declaration cluster with its member/preamble/ctor BODY slots holding
     /// handles — the shape `TTypeDeclG`'s `'body` parameter exists for. Same spine as
     /// `Frozen.TTypeDecl`, ids in the body slots.
-    type TypeDecl = TTypeDeclG<FrozenType, SyntaxToken, ExprId>
-    type TypeKind = TTypeKindG<FrozenType, SyntaxToken, ExprId>
-    type Class = TClassG<FrozenType, ExprId>
-    type TypeMember = TTypeMemberG<FrozenType, ExprId>
+    type TypeDecl = TTypeDeclG<FrozenType, SyntaxToken, NodeKey, ExprId>
+    type TypeKind = TTypeKindG<FrozenType, SyntaxToken, NodeKey, ExprId>
+    type Class = TClassG<FrozenType, NodeKey, ExprId>
+    type TypeMember = TTypeMemberG<FrozenType, NodeKey, ExprId>
     type ClassLet = TClassLetG<FrozenType, ExprId>
     type PreambleEntry = TPreambleEntryG<FrozenType, ExprId>
-    type CtorLet = TCtorLetG<FrozenType, ExprId>
+    type CtorLet = TCtorLetG<FrozenType, NodeKey, ExprId>
     type CtorFieldInit = TCtorFieldInitG<ExprId>
-    type SecondaryCtor = TSecondaryCtorG<FrozenType, ExprId>
-    type BaseCtorCall = TBaseCtorCallG<FrozenType, ExprId>
+    type SecondaryCtor = TSecondaryCtorG<FrozenType, NodeKey, ExprId>
+    type BaseCtorCall = TBaseCtorCallG<FrozenType, NodeKey, ExprId>
 
     /// The compiled-form cluster with its tuple-group / destructuring patterns held as
     /// handles — the `'pat` instantiation every consumer reads, whether the pats came

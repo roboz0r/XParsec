@@ -34,10 +34,11 @@ open XParsec.FSharp.Parser
 // lambda id space — its dense id is the lambda's `ExprPoolId`.) Two of the six go further
 // and name it by nothing at all: a per-binder SCALAR is a `BinderColumn`, positionally
 // aligned with `BinderKeys`, so there is no stored key left to go stale (see
-// `BinderColumn` for when that applies and when it does not). `ofPools` resolves each id
-// back through `BinderKeys` to the retained NodeKey, so the round-trip exercises the remap
-// rather than copying the keys back verbatim: a reference or side-table key that resolves
-// to no interned binder faults there, which is the gate that keeps the enumeration honest.
+// `BinderColumn` for when that applies and when it does not). `ofPools` rebuilds the tree
+// AT those ids and re-derives every side-table key by asking the rebuilt nodes what they
+// bind, so the round-trip exercises the remap rather than copying the keys back verbatim: a
+// reference or side-table key that resolves to no interned binder faults there, which is
+// the gate that keeps the enumeration honest.
 
 /// A side table in its STORED form: a sparse association over a dense id space — an entry
 /// iff the source `Map<NodeKey, _>` held that binder / lambda. An array because that is
@@ -189,13 +190,15 @@ type FrozenPools =
         /// tree from the emitted function of the same name (see `PooledInlineValue`).
         InlineTemplates: PooledInlineValue[]
         /// The distinct binder entries as ONE dense column indexed by `BinderId`, its own
-        /// array disjoint from the `Pat*` columns: each binder's whole original `NodeKey` — the identity
-        /// `Var.binding` and the side tables resolve against, and the DU round-trip's carrier
-        /// for the `Raw` bits (kind included) the trees still reconstruct from, so the key
-        /// cannot be dropped while the backing is DU-form. The naming a backend emits is a
-        /// projection OF this column, not a second one beside it (`BinderNaming`). A
-        /// `NamedSimple` pattern still also appears in the pat columns for the tree walk; this
-        /// is the additional dense column references resolve against, not a re-pointing.
+        /// array disjoint from the `Pat*` columns: each binder's whole original `NodeKey`.
+        /// NO tree reads it — a drained tree names its binders by `BinderId` (`Pooled.*`),
+        /// and every pooled reference resolves against the id and not against this. What
+        /// keeps it is the naming a backend emits, which is a projection OF this column
+        /// rather than a second one beside it (`BinderNaming`), and the named `nodeKeyed*`
+        /// seams that owe a `NodeKey` to a consumer whose own vocabulary is still the node
+        /// space. A `NamedSimple` pattern still also appears in the pat columns for the tree
+        /// walk; this is the additional dense column references resolve against, not a
+        /// re-pointing.
         BinderKeys: NodeKey[]
         /// The not-yet-pooled remainder of the source file, carried verbatim.
         Residue: FrozenFileResidue

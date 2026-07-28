@@ -71,7 +71,7 @@ let tests =
                 let f = frozenOfJs "type C() =\n    member this.Id<'T> (x: 'T) : 'T = x\n"
 
                 let methodTypars =
-                    (TastUnpool.ofPools f).Decls
+                    (TastUnpool.nodeKeyedFile f).Decls
                     |> EqArray.toList
                     |> List.tryPick (fun d ->
                         match d with

@@ -429,9 +429,10 @@ module TastPools =
     type PoolSink =
         {
             /// Called for every binder a walked node INTRODUCES (a `NamedSimple` pattern's
-            /// binding, a `ForTo` loop variable), before the node's row is added, and
-            /// answering with the dense id that binder took — which is what the node's own
-            /// payload then names it by. Idempotent in the key.
+            /// binding, a `ForTo` loop variable, a declaration shape's pattern-less key
+            /// slot), before the node's row is added, and answering with the dense id that
+            /// binder took — which is what the node's own payload then names it by.
+            /// Idempotent in the key.
             InternBinder: BinderKey -> BinderId
             AddExpr: ExprRow -> ExprPoolId
             AddPat: PatRow -> PatPoolId
@@ -491,20 +492,19 @@ module TastPools =
     ///
     /// A `Type` decl is where the payload does real work: its member/preamble/ctor bodies
     /// are pooled through the sink and the declaration keeps their IDS in the slots that
-    /// held the trees (`PooledTypeDecl`). `TastConvert.typeDecl` supplies the traversal —
-    /// the same one the `'ty` freeze runs — so the seven body slots are enumerated in one
-    /// place. Its pattern-less binder slots (`this`, member/ctor parameters, ctor locals)
-    /// are interned FIRST, because a body may name any of them by `Var` and a reference
-    /// whose binder was never interned faults in `toPools`.
+    /// held the trees, and its pattern-less binder slots (`this`, member/ctor parameters,
+    /// ctor locals) likewise keep the dense id the intern hands back (`PooledTypeDecl`).
+    /// `TastConvert.typeDecl` supplies the traversal — the same one the `'ty` freeze runs —
+    /// so the seven body slots and the six key slots are enumerated in one place.
+    ///
+    /// The re-filing IS the interning: a slot is offered to the sink exactly where its id
+    /// replaces it, so no slot can be rewritten without having been interned and none can
+    /// be interned without being rewritten.
     let private declPayload (sink: PoolSink) (d: Frozen.TDecl) : DeclPayload =
         match d with
         | TDeclG.Let(isInline = isInline; ty = ty) -> DeclPayload.Let {| IsInline = isInline; Ty = ty |}
         | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
-        | TDeclG.Type td ->
-            for k in BinderKey.ofTypeDecl td do
-                sink.InternBinder k |> ignore
-
-            DeclPayload.Type(TastConvert.typeDecl id (poolExpr sink) td)
+        | TDeclG.Type td -> DeclPayload.Type(TastConvert.typeDecl id sink.InternBinder (poolExpr sink) td)
 
     /// Pool a declaration, its expr/pat roots (see `poolPat`) and — for a `Type` decl —
     /// its member bodies, which the payload names by id rather than surfacing as children.
@@ -618,7 +618,7 @@ module TastPools =
 
         // The binder pool: each distinct NodeKey a definition site introduces, interned to
         // a dense `BinderId` on first encounter. The introducing sites are enumerated by
-        // the `BinderKey` projections (`ofPat` / `ofExpr` / `ofTypeDecl`) as the trees are
+        // the `BinderKey` projections (`ofPat` / `ofExpr` / `ofDeclSlot`) as the trees are
         // walked, so nothing re-derives which nodes bind — and the side tables remapped
         // below were filed through those same projections.
         //
@@ -645,7 +645,7 @@ module TastPools =
         let lambdaSlots = ResizeArray<struct (ExprPoolId * NodeKey)>()
 
         let internBinder (b: BinderKey) : BinderId =
-            let k = BinderKey.toNodeKey b
+            let k = BinderKey.identity b
 
             match binderIds.TryGetValue k with
             | true, id -> id
@@ -774,7 +774,7 @@ module TastPools =
         // in its own body, which is where such an argument has to live to stay checkable
         // against the code it is about.
         let binderIdOf (referent: string) (b: BinderKey) : BinderId =
-            let k = BinderKey.toNodeKey b
+            let k = BinderKey.identity b
 
             match internedBinderId k with
             | ValueSome id -> id

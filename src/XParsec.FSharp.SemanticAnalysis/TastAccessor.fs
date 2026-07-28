@@ -911,9 +911,12 @@ module TastAccessor =
     [<return: Struct>]
     let private (|DType|_|) (d: DeclId) : TypeDecl voption =
         match declPayload d with
-        // The seven body slots are enumerated by `TastConvert` — the same traversal the
-        // pool build and drain run — so nothing here re-derives the declaration shape.
-        | DeclPayload.Type td -> ValueSome(TastConvert.typeDecl id (at d) td)
+        // The seven body slots and the six key slots are enumerated by `TastConvert` — the
+        // same traversal the pool build and drain run — so nothing here re-derives the
+        // declaration shape. The key slots widen back out of the dense space, this view
+        // being read by consumers whose own vocabulary is still `NodeKey`.
+        | DeclPayload.Type td ->
+            ValueSome(TastConvert.typeDecl id (BinderKey.identity >> TastPoolBuilder.binderKey d.Pool) (at d) td)
         | _ -> ValueNone
 
     /// The `type`-declaration payload of a `Type` decl (its `Kind`, `Key`, `Name`, …),

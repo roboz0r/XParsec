@@ -171,7 +171,7 @@ let freezeFor (src: string) : FrozenPools =
 /// the freeze's own pools against themselves, and every pool id is one this rebuild
 /// assigned.
 let poolsFor (src: string) : FrozenPools * Frozen.TastFile =
-    let frozen = TastUnpool.ofPools (freezeFor src)
+    let frozen = TastUnpool.nodeKeyedFile (freezeFor src)
     TastPools.toPools frozen, frozen
 
 /// Parse `input` and run the front-end passes up to NameResolution against

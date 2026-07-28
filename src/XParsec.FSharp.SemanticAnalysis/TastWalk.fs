@@ -29,7 +29,7 @@ open XParsec.FSharp.Parser
 [<RequireQualifiedAccess>]
 module TastWalk =
 
-    let exprTy (e: TExprG<'ty, 'tok>) : 'ty =
+    let exprTy (e: TExprG<'ty, 'tok, 'id>) : 'ty =
         match e with
         | TExprG.Const(ty = ty)
         | TExprG.Var(ty = ty)
@@ -71,7 +71,7 @@ module TastWalk =
         | TExprG.TraitCall(ty = ty)
         | TExprG.TypeTest(ty = ty) -> ty
 
-    let exprTok (e: TExprG<'ty, 'tok>) : 'tok =
+    let exprTok (e: TExprG<'ty, 'tok, 'id>) : 'tok =
         match e with
         | TExprG.Const(tok = tok)
         | TExprG.Var(tok = tok)
@@ -120,7 +120,7 @@ module TastWalk =
     let synthLambdaBodyKey (bodyTok: SyntaxToken) : NodeKey =
         NodeKey.ofSynthetic bodyTok.StartIndex NodeKind.SynthLambdaBody
 
-    let patTy (p: TPatG<'ty, 'tok>) : 'ty =
+    let patTy (p: TPatG<'ty, 'tok, 'id>) : 'ty =
         match p with
         | TPatG.NamedSimple(ty = ty)
         | TPatG.Wildcard(ty = ty)
@@ -133,7 +133,7 @@ module TastWalk =
         | TPatG.EnumCase(ty = ty)
         | TPatG.Or(ty = ty) -> ty
 
-    let patTok (p: TPatG<'ty, 'tok>) : 'tok =
+    let patTok (p: TPatG<'ty, 'tok, 'id>) : 'tok =
         match p with
         | TPatG.NamedSimple(tok = tok)
         | TPatG.Wildcard(tok = tok)
@@ -151,16 +151,19 @@ module TastWalk =
     /// every spine-walking client (`EmitLower`'s eta/lowering, the pre-freeze
     /// `InlineExpansion` pass).
     let rec collectSpine
-        (acc: (TExprG<'ty, 'tok> * 'ty * 'tok) list)
-        (e: TExprG<'ty, 'tok>)
-        : TExprG<'ty, 'tok> * (TExprG<'ty, 'tok> * 'ty * 'tok) list =
+        (acc: (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list)
+        (e: TExprG<'ty, 'tok, 'id>)
+        : TExprG<'ty, 'tok, 'id> * (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list =
         match e with
         | TExprG.App(fn, arg, ty, tok) -> collectSpine ((arg, ty, tok) :: acc) fn
         | head -> head, acc
 
     /// Re-fold a head + (arg, result-type, tok) spine back into a curried `App`
     /// chain. The inverse of `collectSpine`.
-    let rebuildApp (head: TExprG<'ty, 'tok>) (args: (TExprG<'ty, 'tok> * 'ty * 'tok) list) : TExprG<'ty, 'tok> =
+    let rebuildApp
+        (head: TExprG<'ty, 'tok, 'id>)
+        (args: (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list)
+        : TExprG<'ty, 'tok, 'id> =
         List.fold (fun acc (arg, resTy, tok) -> TExprG.App(acc, arg, resTy, tok)) head args
 
     /// Rewrite hooks. Every `OverrideX` receives the active `Mapper` so an
@@ -926,7 +929,7 @@ module TastWalk =
     /// This is the pre-freeze twin of the frozen binder pool's enumeration
     /// (`TastPools.toPools`), which is why a table restricted against it is honest: both
     /// sides enumerate through the same projections.
-    let declBinders (decls: TDeclG<SemType, SyntaxToken> seq) : HashSet<BinderKey> =
+    let declBinders (decls: TDeclG<SemType, SyntaxToken, NodeKey> seq) : HashSet<BinderKey> =
         let acc = HashSet<BinderKey>(HashIdentity.Structural)
 
         let it =

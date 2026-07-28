@@ -55,7 +55,7 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     // The vocabulary is a pool root array; `ofPools` drains it back to the DU form the
     // cross-unit wire (and `Inline.thawBody`) speaks.
     let frozen =
-        TastUnpool.ofPools (Pipeline.analyse realProvider.Value input lexed file)
+        TastUnpool.nodeKeyedFile (Pipeline.analyse realProvider.Value input lexed file)
 
     match frozen.InlineBodies |> EqArray.toList with
     // Thaw into `ctx0.Store` — the SAME arena `Inline.inlineExpand ctx0` and
@@ -362,7 +362,7 @@ let tests =
                 let sem = Pipeline.analyseSem realProvider.Value input lexed file
 
                 let frozen =
-                    TastUnpool.ofPools (Pipeline.analyse realProvider.Value input lexed file)
+                    TastUnpool.nodeKeyedFile (Pipeline.analyse realProvider.Value input lexed file)
 
                 // `k` is the module's first decl; its published identity is the one its
                 // `ModuleBindingInfo` mints — the same one the rewrite must have baked in.
@@ -374,7 +374,7 @@ let tests =
                         | ValueNone -> failtest "expected `let k` to introduce a binder"
                     | other -> failtestf "expected `let k` first, got %A" other
 
-                let kKey = BinderKey.toNodeKey kBinder
+                let kKey = BinderKey.identity kBinder
 
                 let expected =
                     match Map.tryFind kBinder sem.ModuleMembers with
@@ -422,7 +422,7 @@ let tests =
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
                 let lexed, file = parseFile input
                 let _, pools = Pipeline.analyseWithContext realProvider.Value input lexed file
-                let frozen = TastUnpool.ofPools pools
+                let frozen = TastUnpool.nodeKeyedFile pools
 
                 Expect.isEmpty (EqArray.toList frozen.InlineBodies) "the un-splice-able template is not published"
 

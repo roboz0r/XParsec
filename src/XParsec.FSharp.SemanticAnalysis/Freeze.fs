@@ -193,7 +193,7 @@ module Freeze =
     ///
     /// Taken in the REFERENCE domain (`Map<NodeKey, _>`): what drives the lookup is a
     /// `TExpr.Var`, which names its binder by `NodeKey`. The caller widens the
-    /// binder-keyed table once (`BinderKey.toNodeKey`) rather than this walk re-admitting
+    /// binder-keyed table once (`BinderKey.identity`) rather than this walk re-admitting
     /// a key per node.
     let private rewriteSiblingRefs (siblings: Map<NodeKey, ModuleBindingInfo>) (d: TDecl) : TDecl =
         let mapper: TastWalk.Mapper =
@@ -260,7 +260,7 @@ module Freeze =
                 | None -> string k
 
             ctx.Error(
-                BinderKey.toNodeKey binder,
+                BinderKey.identity binder,
                 sprintf
                     "This inline binding cannot be published: its body references %s, which has no exportable identity (a top-level binding declares no module, so it has no symbol key a consumer could resolve). Move it into a module."
                     (free |> List.map (fun k -> sprintf "'%s'" (name k)) |> String.concat ", ")
@@ -307,7 +307,7 @@ module Freeze =
             | TDecl.Let(head, _, _, _) when isInlineVocabulary d ->
                 match publishedInfo head with
                 | ValueSome(binder, info) ->
-                    let k = BinderKey.toNodeKey binder
+                    let k = BinderKey.identity binder
                     // The TEMPLATE, not `d`. `d` is this binding's emitted ordinary
                     // function — `Passes.InlineExpansion` walked it, resolving its
                     // static-opt clauses and trait calls against its own (unground)

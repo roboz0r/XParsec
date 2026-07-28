@@ -122,7 +122,7 @@ let appendTests =
                 // read-only lookup rather than read off the payload being checked.
                 let duBinder =
                     BinderKey.ofExpr du
-                    |> ValueOption.bind (BinderKey.toNodeKey >> TastPoolBuilder.tryBinderId b)
+                    |> ValueOption.bind (BinderKey.identity >> TastPoolBuilder.tryBinderId b)
 
                 Expect.equal (TastPoolBuilder.exprPayload b id) (TastPools.exprPayload duBinder du) "appended payload"
                 Expect.equal (TastPoolBuilder.exprTy b id) (TastWalk.exprTy du) "appended ty"

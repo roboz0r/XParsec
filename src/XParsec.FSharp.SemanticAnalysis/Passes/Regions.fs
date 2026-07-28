@@ -824,7 +824,7 @@ module Regions =
         Map.ofSeq (
             seq {
                 for binder in TastWalk.declBinders decls do
-                    let key = BinderKey.toNodeKey binder
+                    let key = BinderKey.identity binder
 
                     match ctx.Bindings.Escape.TryGetValue key with
                     | ValueNone -> ()

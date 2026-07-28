@@ -143,12 +143,32 @@ type DeclPoolId = | DeclPoolId of int
 [<Struct>]
 type BinderId = | BinderId of int
 
+/// The TAST at the POOLED identity: a tree whose binders are named by the dense
+/// `BinderId` the columns already address them by, rather than by the `NodeKey` a
+/// source-shaped tree names them by. `TastUnpool` rebuilds at these aliases, which is what
+/// lets the drain be a genuine interconversion with the columns instead of a view that has
+/// to consult a retained key to speak at all.
+///
+/// The `'ty`/`'tok` axes are the frozen ones — this is the same freeze, at a different
+/// identity — so `Frozen.*` and `Pooled.*` differ in exactly one parameter.
+module Pooled =
+    type TPat = TPatG<FrozenType, SyntaxToken, BinderId>
+    type TExpr = TExprG<FrozenType, SyntaxToken, BinderId>
+    type TMatchArm = TMatchArmG<TPat, TExpr>
+    type TDecl = TDeclG<FrozenType, SyntaxToken, BinderId>
+    type TInlineValue = TInlineValueG<FrozenType, SyntaxToken, BinderId>
+    type TastFile = TastFileG<FrozenType, SyntaxToken, BinderId>
+
 /// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
-/// by pool id instead of carrying the tree. The declaration SHAPE is unchanged — which body
-/// fills which slot is structure a flat child column could not express without a re-nesting
-/// record, so the ids ride the shape rather than `DeclExprChildren`. Both directions are
-/// `TastConvert.typeDecl` at the matching body mapping, so nothing re-derives the shape.
-type PooledTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, ExprPoolId>
+/// by pool id instead of carrying the tree, and whose six pattern-less BINDER slots name
+/// their definition site by `BinderId` — the same dense identity every other pooled
+/// reference uses, so a declaration's `this` / parameters / ctor locals are addressed
+/// exactly as a `NamedSimple` pattern's binder is. The declaration SHAPE is unchanged —
+/// which body fills which slot is structure a flat child column could not express without
+/// a re-nesting record, so the ids ride the shape rather than `DeclExprChildren`. Both
+/// directions are `TastConvert.typeDecl` at the matching body/identity mappings, so nothing
+/// re-derives the shape.
+type PooledTypeDecl = TTypeDeclG<FrozenType, SyntaxToken, BinderId, ExprPoolId>
 
 /// A binding's SOURCE arity with its tuple-group patterns named by pool id — the file's own
 /// `ValRepr`s, whose pats ARE nodes of the pooled tree (the peel reads the pooled lambda

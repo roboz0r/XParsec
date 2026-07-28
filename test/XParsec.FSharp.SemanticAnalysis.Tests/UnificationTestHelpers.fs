@@ -164,7 +164,7 @@ let freezeDecls (input: string) : Frozen.TastFile =
     let lexed, file = parseFile input
     // The freeze yields pools; these assertions read the decl tree, which `ofPools`
     // re-authors.
-    TastUnpool.ofPools (Pipeline.analyse realProvider.Value input lexed file)
+    TastUnpool.nodeKeyedFile (Pipeline.analyse realProvider.Value input lexed file)
 
 // The frozen type of the (sole) top-level `let f` binding.
 let frozenLetTy (file: Frozen.TastFile) : FrozenType =

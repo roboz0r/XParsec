@@ -97,22 +97,22 @@ let private collect () : Harvest =
 
     let harvestFile (file: Frozen.TastFile) =
         // The harvest is over the NodeKeys a file mentions, so the binder-keyed tables are
-        // widened here (`BinderKey.toNodeKey`) — `FunVerdicts`, on the lambda id space,
+        // widened here (`BinderKey.identity`) — `FunVerdicts`, on the lambda id space,
         // already speaks it.
         for KeyValue(k, _) in file.ModuleMembers do
-            nks.Add(BinderKey.toNodeKey k) |> ignore
+            nks.Add(BinderKey.identity k) |> ignore
 
         for KeyValue(k, _) in file.TopLevelNames do
-            nks.Add(BinderKey.toNodeKey k) |> ignore
+            nks.Add(BinderKey.identity k) |> ignore
 
         for KeyValue(k, _) in file.ClosureReprs do
-            nks.Add(BinderKey.toNodeKey k) |> ignore
+            nks.Add(BinderKey.identity k) |> ignore
 
         for KeyValue(k, _) in file.FunVerdicts do
             nks.Add k |> ignore
 
         for KeyValue(k, _) in file.BindingTyparArities do
-            nks.Add(BinderKey.toNodeKey k) |> ignore
+            nks.Add(BinderKey.identity k) |> ignore
 
         for k in file.IntrinsicReprKeys.Keys do
             visitSym k
@@ -121,7 +121,7 @@ let private collect () : Harvest =
             visitSym k
 
         for KeyValue(k, constraints) in file.GenericFnSchemes do
-            nks.Add(BinderKey.toNodeKey k) |> ignore
+            nks.Add(BinderKey.identity k) |> ignore
 
             for c in constraints do
                 match c with
@@ -140,7 +140,7 @@ let private collect () : Harvest =
             | TDeclG.Type _ -> ()
 
     for p in gated do
-        harvestFile (TastUnpool.ofPools (frozenOfJs p.Source))
+        harvestFile (TastUnpool.nodeKeyedFile (frozenOfJs p.Source))
 
     // ── hand-built edge cases: pin every case shape regardless of the corpus ──
     let nsGlobal = NamespaceKey.Global
