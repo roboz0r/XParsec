@@ -30,10 +30,15 @@ To compile a specific library project (path `src/<SourceProject>`) and isolate c
 - `XParsec.CLArgs`
 - `XParsec.FSharp`
 - `XParsec.FSharp.Codegen.Clr`
+- `XParsec.FSharp.Codegen.Common`
 - `XParsec.FSharp.Codegen.Js`
 - `XParsec.FSharp.SemanticAnalysis`
 - `XParsec.Json`
+- `XParsec.Toml`
 - `Vesper.Ts.Manifest.Schema`
+- `Vesper.UnionFind`
+
+Directories under `src/` with no `.fsproj` (`XParsec.C`, the `Vesper.*` runtime libraries such as `Vesper.Core` and `Vesper.List`) are **not** valid here — they are F# sources consumed by the compiler under test, not .NET projects. Likewise `test/Codegen.Conformance` and `test/ts-fixtures` are fixture directories, not suites.
 - `Vesper.Ts.Extractor` — but see the **Fable** action below: `Build` only runs the .NET/IDE pass, not the F#→JS compile.
 
 The terminal shows only error/warning lines plus the build summary; the full build output is always written to the log file (see Logging below).
@@ -47,19 +52,19 @@ To run a test suite, you must use the `Test` action and specify the exact test p
 ```
 
 **Valid test projects are:**
-- `XParsec.C.Tests`
 - `XParsec.CLArgs.Interactive`
 - `XParsec.CLArgs.Tests`
 - `XParsec.FSharp.Codegen.Clr.Tests`
+- `XParsec.FSharp.Codegen.Common.Tests`
 - `XParsec.FSharp.Codegen.Js.Tests`
-- `XParsec.FSharp.Lexer.Tests`
 - `XParsec.FSharp.SemanticAnalysis.Tests`
-- `XParsec.FSharp.Tests`
+- `XParsec.FSharp.Tests` — this is also where the **lexer** tests live; there is no separate lexer suite.
 - `XParsec.Json.Tests`
 - `XParsec.MessagePack.Tests`
 - `XParsec.Tests`
 - `XParsec.Toml.Tests`
 - `Vesper.Tests`
+- `Vesper.UnionFind.Tests`
 - `Vesper.Ts.Extractor.Tests` — the golden/snapshot suite for the TS extractor. Its extractor-run tests **SKIP** until the extractor has been Fable-built (see the **Fable** action); build it first, then run this suite (optionally with `-UpdateSnapshots` to regenerate the `.manifest.json` goldens).
 
 **Focusing a specific test — two options:**
