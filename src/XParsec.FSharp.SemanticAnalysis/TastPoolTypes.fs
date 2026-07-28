@@ -152,8 +152,8 @@ type FrozenPools =
     {
         /// The expression pool as struct-of-arrays: these columns are parallel, each
         /// indexed by `ExprPoolId`. `ExprTys`/`ExprToks` are the node's `ty`/`tok`;
-        /// `ExprChildren` the immediate child-expr ids in `TastPools.exprChildren` order;
-        /// `ExprPatChildren` the owned pat ids in `TastPools.exprPatChildren` order;
+        /// `ExprChildren` the immediate child-expr ids in `TastPoolShapes.exprChildren` order;
+        /// `ExprPatChildren` the owned pat ids in `TastPoolShapes.exprPatChildren` order;
         /// `ExprVarBinder` the `Var` reference id (`ValueSome` only at a `Var`);
         /// `ExprPayloads` the residual per-case payload, which is also the node's shape
         /// tag (`ExprPayload.shape`) — there is no separate tag column, so the two cannot
@@ -165,19 +165,19 @@ type FrozenPools =
         /// against that `Lexed`, and the index is a quarter of its width on the column that
         /// dominates a frozen file. Read through `TastPoolBuilder.exprTok`, which is where
         /// the absence convention is decoded.
-        ExprToks: int<token>[]
+        ExprToks: Anchor[]
         ExprChildren: ExprPoolId[][]
         ExprPatChildren: PatPoolId[][]
         ExprVarBinder: BinderId voption[]
         ExprPayloads: ExprPayload[]
         /// The pattern pool as struct-of-arrays: parallel columns indexed by `PatPoolId`.
         /// `PatTys`/`PatToks` are the node's `ty`/`tok`; `PatChildren` the immediate
-        /// sub-pat ids in `TastPools.patChildren` order (patterns own no child
+        /// sub-pat ids in `TastPoolShapes.patChildren` order (patterns own no child
         /// expressions); `PatPayloads` the residual per-case payload, tag included. No DU
         /// node is retained.
         PatTys: FrozenType[]
         /// The pattern twin of `ExprToks`.
-        PatToks: int<token>[]
+        PatToks: Anchor[]
         PatChildren: PatPoolId[][]
         PatPayloads: PatPayload[]
         /// The declaration pool as struct-of-arrays, indexed by `DeclPoolId`.
@@ -220,7 +220,7 @@ type FrozenPools =
         /// so there is none to store. Those slots still carry a `BinderNames` entry: a
         /// member parameter's key is projected from its CST pattern and so names a real
         /// source position even though the frozen shape keeps no token for it.
-        BinderToks: int<token>[]
+        BinderToks: Anchor[]
         /// The not-yet-pooled remainder of the source file, carried verbatim.
         Residue: FrozenFileResidue
         /// The source `Map<NodeKey,_>` side tables that keep a KEY, re-keyed by `BinderId`.

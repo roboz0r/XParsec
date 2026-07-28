@@ -30,7 +30,7 @@ open XParsec.FSharp.Codegen.Js
 
 /// The hand-built member body below belongs to no file, so it sits at no source position —
 /// the same anchor a lowering's own minted node takes.
-let private dummyTok: int<token> = Anchor.none
+let private dummyTok: Anchor = Anchor.nowhere
 
 /// A provider carrying a `widget` `.fsi` contract whose `extern` intrinsic declares
 /// `members` — the member-bearing `Class` a concrete (non-interface) member surface

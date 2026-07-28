@@ -72,7 +72,14 @@ module Inline =
     /// it and nothing else. That is what makes an `FTLocalTypar`'s body-relative
     /// `SchemeId` safe across units — it addresses nothing outside the body it arrived
     /// with, so there is nothing here that could resolve it against this unit.
-    let thawBody (store: TypeStore) (decl: Frozen.TDecl) : TDecl =
+    ///
+    /// It is also where the body ACQUIRES A POSITION. A `Wire.TDecl` sits `Anchor.nowhere`
+    /// throughout — an anchor indexes the producer's tokens, which this unit does not have —
+    /// so `at`, the call site, is the position every node takes. That is the position an
+    /// inlined body means anyway: what a diagnostic, a trace or a source map wants. Taking
+    /// it as an ARGUMENT is what makes "every node of a file anchors in that file" hold by
+    /// construction: there is no way to get a `TExpr` out of the wire without saying where.
+    let thawBody (store: TypeStore) (at: SyntaxToken) (decl: Wire.TDecl) : TDecl =
         let cache = Dictionary<TyparLeaf, SemType>()
 
         let mint (leaf: TyparLeaf) : SemType =
@@ -88,6 +95,7 @@ module Inline =
                 (fun i -> mint (TyparLeaf.Declaring i))
                 (fun j -> mint (TyparLeaf.Method j))
                 (fun scheme k -> mint (TyparLeaf.Local(scheme, k))))
+            (fun (_: Anchor) -> at)
             decl
 
     /// A module-level `let` value whose body is EXACTLY one intrinsic expression with
@@ -352,9 +360,11 @@ module Inline =
     /// the binder (populating the map) before any reference to it. The caller
     /// owns `mint` so its counter is shared across every expansion in a build.
     ///
-    /// `anchor` is where the rewritten copy SITS. `ValueSome` moves it wholesale onto
-    /// that token; `ValueNone` leaves each node on its own.
-    let private rename (mint: unit -> NodeKey) (anchor: SyntaxToken voption) (body: TExpr) : TExpr =
+    /// Positions are untouched — a copy of an expression that is ALREADY this file's (an
+    /// argument lambda duplicated at each of its uses inside the body it was passed to) is
+    /// written where it stands, so its own positions are the honest ones and are strictly
+    /// finer than the enclosing call's. Moving a tree is `relocate`.
+    let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr =
         let remap = Dictionary<NodeKey, NodeKey>()
 
         let bind (k: NodeKey) : NodeKey =
@@ -377,7 +387,6 @@ module Inline =
         // to them is rewritten.
         let mapper: TastWalk.Mapper =
             { TastWalk.identityMapper with
-                Anchor = anchor
                 OverridePat =
                     fun _ p ->
                         match p with
@@ -406,28 +415,18 @@ module Inline =
 
         TastWalk.mapExpr mapper body
 
-    /// Prepare an inline BODY for the call site at `anchor`: fresh binders, and every node
-    /// moved onto the call site's own token.
-    ///
-    /// The move is not cosmetic. An inlined body's meaningful source position IS the call
-    /// site — that is what a diagnostic, a stack trace or a source map wants — and a body
-    /// that arrived over the package wire carries tokens of the LIBRARY file it was
-    /// compiled from, which name different text (or nothing at all) in the file it is
-    /// being spliced into. Moving at the splice is what makes "every node of a file
-    /// anchors on a token of THAT file" hold of the frozen tree by construction, rather
-    /// than being a property one has to audit every splice path for.
-    ///
-    /// THE entry point for putting a body into a consuming tree: `freshen` below is for a
-    /// call-site expression being duplicated within its own file, which already sits where
-    /// it belongs.
-    let spliceAt (mint: unit -> NodeKey) (anchor: SyntaxToken) (body: TExpr) : TExpr =
-        rename mint (ValueSome anchor) body
+    /// Move a whole tree onto `at` — a change of the position axis, so it is the `'tok`
+    /// functor and nothing more (`TastConvert`). Not cosmetic: an inlined body's meaningful
+    /// source position IS the call site, which is what a diagnostic, a stack trace or a
+    /// source map wants, and a SAME-unit template's own positions are its definition site's,
+    /// shared by every expansion of it.
+    let relocate (at: SyntaxToken) (body: TExpr) : TExpr = TastConvert.expr id (fun _ -> at) body
 
-    /// Fresh binders only, positions untouched — for a copy of an expression that is
-    /// ALREADY this file's (an argument lambda duplicated at each of its uses inside the
-    /// body it was passed to). It is written where it stands, so its own positions are the
-    /// honest ones and are strictly finer than the enclosing call's.
-    let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr = rename mint ValueNone body
+    /// Prepare an inline BODY for the call site at `at`: fresh binders, and every node moved
+    /// onto the call site's own token. THE entry point for putting a same-unit template into
+    /// a consuming tree; a body off the WIRE lands through `thawBody`, which relocates it as
+    /// it realises it.
+    let spliceAt (mint: unit -> NodeKey) (at: SyntaxToken) (body: TExpr) : TExpr = freshen mint body |> relocate at
 
     /// The open method signature of an external symbol: its full curried
     /// monotype with the method-owned typars resolved to self-describing

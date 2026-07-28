@@ -1,6 +1,8 @@
 module XParsec.FSharp.Codegen.Clr.Tests.InlineFreezeThawTests
 
 open Expecto
+open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -86,6 +88,7 @@ let private collectTys (d: TDeclG<'ty, 'tok, 'id>) : 'ty list =
             acc.Add ty
             ty
         )
+        id
         d
     |> ignore
 
@@ -107,7 +110,7 @@ let private distinctCells (tvs: TyVarId list) : TyVarId list =
 /// leaf, shared across every occurrence of that leaf. Deriving the count from the
 /// frozen tree rather than hard-coding it is what keeps the assertion EXACT: a broken
 /// cache mints MORE cells than there are leaves, which a `>=` bound would not catch.
-let private distinctLeafCount (d: TDeclG<FrozenType, XParsec.FSharp.Parser.SyntaxToken, 'id>) : int =
+let private distinctLeafCount (d: TDeclG<FrozenType, Anchor, 'id>) : int =
     collectTys d |> List.collect typarLeavesIn |> List.distinct |> List.length
 
 /// The frozen unit of a source — the pools the freeze yields.
@@ -120,9 +123,21 @@ let private freezePools (src: string) : FrozenPools =
 /// inline vocabulary, which is what `ofPools` re-authors.
 let private freeze (src: string) : Pooled.TastFile = TastUnpool.ofPools (freezePools src)
 
+/// The call site a thaw lands its body on. `Inline.thawBody` takes one because a
+/// `Wire.TDecl` carries no positions of its own — an anchor indexes the PRODUCER's tokens.
+/// What these tests assert about a thawed body is its type CELLS and never where it sits,
+/// so one fixed real token stands for every splice.
+let private siteTok: SyntaxToken =
+    let lexed, _ = parseFile "let site = ()"
+
+    {
+        PositionedToken = lexed.Tokens.[0<token>]
+        Index = TokenIndex.Regular 0<token>
+    }
+
 /// The frozen `let` decl of a single-binding program, drained the way a provider serves a
 /// body (`declTree`) — the form `Inline.thawBody` takes.
-let private frozenLetDecl (src: string) : Frozen.TDecl =
+let private frozenLetDecl (src: string) : Wire.TDecl =
     let pools = freezePools src
     let pool = TastPoolBuilder.openOver pools
 
@@ -444,7 +459,7 @@ let tests =
                 let store = TypeStore()
 
                 let cells =
-                    Inline.thawBody store fDecl
+                    Inline.thawBody store siteTok fDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells
@@ -522,13 +537,13 @@ let tests =
                     |> distinctCells
 
                 let pCells =
-                    Inline.thawBody store pDecl
+                    Inline.thawBody store siteTok pDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells
 
                 let cCells =
-                    Inline.thawBody store cDecl
+                    Inline.thawBody store siteTok cDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells

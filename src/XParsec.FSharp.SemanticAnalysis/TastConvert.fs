@@ -1,23 +1,26 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-// Cross-type structural rebuild of the TAST term/declaration cluster: maps every
-// embedded `.ty` field through `f`, producing a tree at a *different* type
-// parameter (`TExprG<'a> -> TExprG<'b>`). This is the engine behind the genuine
-// freeze (`Freeze.run = TastConvert.file toFrozen`) and its
-// inverse bridge (`TastConvert.file ofFrozen`).
+// Cross-type structural rebuild of the TAST term/declaration cluster: maps every embedded
+// `.ty` field through `f` and every POSITION through `fTok`, producing a tree at different
+// type parameters. This is the engine behind the genuine freeze
+// (`Freeze.run = TastConvert.file toFrozen id`), behind the thaw that lands a wire body on
+// its call site (`Inline.thawBody`), and behind the RELOCATION a splice performs
+// (`Inline.spliceAt`, which is this at `f = id`).
 //
-// Distinct from `TastWalk`, whose `Mapper` is same-`'ty` (it rewrites a tree in
-// place with override hooks); this changes the type parameter and has no hooks, so
-// it is a separate, total functor. F#'s incomplete-match check fires here when the
-// TAST grows a case — the same enumeration guarantee `TastWalk` gives.
+// Distinct from `TastWalk`, whose `Mapper` is same-`'ty`, same-`'tok` (it rewrites a tree in
+// place with override hooks); this changes the type parameters and has no hooks, so it is a
+// separate, total functor. F#'s incomplete-match check fires here when the TAST grows a
+// case — the same enumeration guarantee `TastWalk` gives. Moving a whole tree onto one
+// position belongs HERE and not there: it is a change of axis, not a rewrite, and a hook
+// surface eight passes share should not carry one pass's concern.
 //
-// Two of the clusters take more than `'ty`: the type declaration is generic in
-// `('ty, 'id, 'body)` and the compiled form in `('ty, 'pat, 'id)`. The `'ty` freeze is just the
-// diagonal (`fId = BinderKey.identity`, `fBody = expr f`, `fPat = pat f`), while the frozen
-// POOLS instantiate the other parameters at dense ids and run the very same traversals in
-// both directions. Keeping them here rather than re-walking those shapes in `TastPools` is
-// what stops the declaration spine — the seven body slots and the seven key slots especially
-// — from being enumerated twice.
+// Two of the clusters take more than `'ty` and `'tok`: the type declaration is generic in
+// `('ty, 'tok, 'id, 'body)` and the compiled form in `('ty, 'pat, 'id)`. The tree-shaped
+// rebuild is just the diagonal (`Id = BinderKey.identity`, `Body = expr f fTok`,
+// `fPat = pat f fTok`), while the frozen POOLS instantiate the other parameters at dense ids
+// and run the very same traversals in both directions. Keeping them here rather than
+// re-walking those shapes in `TastPools` is what stops the declaration spine — the seven
+// body slots and the seven key slots especially — from being enumerated twice.
 //
 // The `'id` axis stops at the DECLARATION cluster: a `Var` reference and a `NamedSimple`
 // binding are named by the same axis, but nothing here re-files them — the tree-shaped
@@ -44,18 +47,21 @@ namespace XParsec.FSharp.SemanticAnalysis
 [<RequireQualifiedAccess>]
 module TastConvert =
 
-    let rec pat (f: 'a -> 'b) (p: TPatG<'a, 'tok, 'id>) : TPatG<'b, 'tok, 'id> =
+    let rec pat (f: 'a -> 'b) (fTok: 'ta -> 'tb) (p: TPatG<'a, 'ta, 'id>) : TPatG<'b, 'tb, 'id> =
+        let pp = pat f fTok
+        let tk = fTok
+
         match p with
-        | TPatG.NamedSimple(k, ty, tok) -> TPatG.NamedSimple(k, f ty, tok)
-        | TPatG.Wildcard(ty, tok) -> TPatG.Wildcard(f ty, tok)
-        | TPatG.Const(v, ty, tok) -> TPatG.Const(v, f ty, tok)
-        | TPatG.Tuple(items, ty, tok) -> TPatG.Tuple(EqArray.map (pat f) items, f ty, tok)
-        | TPatG.Record(fields, ty, tok) -> TPatG.Record(EqArray.map (fun (n, sub) -> n, pat f sub) fields, f ty, tok)
-        | TPatG.Union(c, fields, ty, tok) -> TPatG.Union(c, EqArray.map (pat f) fields, f ty, tok)
-        | TPatG.TypeTestAs(testTy, inner, ty, tok) -> TPatG.TypeTestAs(f testTy, pat f inner, f ty, tok)
-        | TPatG.Null(ty, tok) -> TPatG.Null(f ty, tok)
-        | TPatG.EnumCase(k, n, ty, tok) -> TPatG.EnumCase(k, n, f ty, tok)
-        | TPatG.Or(alts, ty, tok) -> TPatG.Or(EqArray.map (pat f) alts, f ty, tok)
+        | TPatG.NamedSimple(k, ty, tok) -> TPatG.NamedSimple(k, f ty, tk tok)
+        | TPatG.Wildcard(ty, tok) -> TPatG.Wildcard(f ty, tk tok)
+        | TPatG.Const(v, ty, tok) -> TPatG.Const(v, f ty, tk tok)
+        | TPatG.Tuple(items, ty, tok) -> TPatG.Tuple(EqArray.map pp items, f ty, tk tok)
+        | TPatG.Record(fields, ty, tok) -> TPatG.Record(EqArray.map (fun (n, sub) -> n, pp sub) fields, f ty, tk tok)
+        | TPatG.Union(c, fields, ty, tok) -> TPatG.Union(c, EqArray.map pp fields, f ty, tk tok)
+        | TPatG.TypeTestAs(testTy, inner, ty, tok) -> TPatG.TypeTestAs(f testTy, pp inner, f ty, tk tok)
+        | TPatG.Null(ty, tok) -> TPatG.Null(f ty, tk tok)
+        | TPatG.EnumCase(k, n, ty, tok) -> TPatG.EnumCase(k, n, f ty, tk tok)
+        | TPatG.Or(alts, ty, tok) -> TPatG.Or(EqArray.map pp alts, f ty, tk tok)
 
     /// A format hole across BOTH axes: it is the one leaf that carries a token of its own
     /// and no sub-expression, so the pooled form's re-nesting (`ExprPayload.format`) has to
@@ -89,65 +95,71 @@ module TastConvert =
         | ForInEnumeratorG.Pattern(enumTy, ge, members, isVal, disp) ->
             ForInEnumeratorG.Pattern(f enumTy, forInGetEnum f ge, forInEnumMembers f members, isVal, disp)
 
-    let rec expr (f: 'a -> 'b) (e: TExprG<'a, 'tok, 'id>) : TExprG<'b, 'tok, 'id> =
-        let pe = expr f
-        let pp = pat f
-        let pa = arm f
+    let rec expr (f: 'a -> 'b) (fTok: 'ta -> 'tb) (e: TExprG<'a, 'ta, 'id>) : TExprG<'b, 'tb, 'id> =
+        let pe = expr f fTok
+        let pp = pat f fTok
+        let pa = arm f fTok
+        let tk = fTok
 
         match e with
-        | TExprG.Const(v, ty, tok) -> TExprG.Const(v, f ty, tok)
-        | TExprG.Var(k, ty, tok) -> TExprG.Var(k, f ty, tok)
-        | TExprG.External(n, k, ty, tok) -> TExprG.External(n, k, f ty, tok)
-        | TExprG.Null(ty, tok) -> TExprG.Null(f ty, tok)
-        | TExprG.Lambda(p, b, ty, tok) -> TExprG.Lambda(pp p, pe b, f ty, tok)
-        | TExprG.App(fn, a, ty, tok) -> TExprG.App(pe fn, pe a, f ty, tok)
-        | TExprG.Let(p, v, body, ty, tok) -> TExprG.Let(pp p, pe v, pe body, f ty, tok)
-        | TExprG.Use(p, v, body, dispose, ty, tok) -> TExprG.Use(pp p, pe v, pe body, dispose, f ty, tok)
-        | TExprG.IfThenElse(c, t, el, ty, tok) -> TExprG.IfThenElse(pe c, pe t, pe el, f ty, tok)
-        | TExprG.Tuple(items, ty, tok) -> TExprG.Tuple(EqArray.map pe items, f ty, tok)
-        | TExprG.Sequential(items, ty, tok) -> TExprG.Sequential(EqArray.map pe items, f ty, tok)
-        | TExprG.While(c, b, ty, tok) -> TExprG.While(pe c, pe b, f ty, tok)
-        | TExprG.ForTo(k, it, s, e2, b, ty, tok) -> TExprG.ForTo(k, it, pe s, pe e2, pe b, f ty, tok)
-        | TExprG.ForIn(p, src, b, en, ty, tok) -> TExprG.ForIn(pp p, pe src, pe b, forInEnumerator f en, f ty, tok)
-        | TExprG.Match(sc, arms, ty, tok) -> TExprG.Match(pe sc, EqArray.map pa arms, f ty, tok)
-        | TExprG.TryWith(b, arms, ty, tok) -> TExprG.TryWith(pe b, EqArray.map pa arms, f ty, tok)
-        | TExprG.TryFinally(b, c, ty, tok) -> TExprG.TryFinally(pe b, pe c, f ty, tok)
-        | TExprG.Assignment(l, r, ty, tok) -> TExprG.Assignment(pe l, pe r, f ty, tok)
-        | TExprG.Range(s, step, e2, ty, tok) -> TExprG.Range(pe s, Option.map pe step, pe e2, f ty, tok)
-        | TExprG.RecordCons(fields, ty, tok) -> TExprG.RecordCons(EqArray.map (fun (n, v) -> n, pe v) fields, f ty, tok)
+        | TExprG.Const(v, ty, tok) -> TExprG.Const(v, f ty, tk tok)
+        | TExprG.Var(k, ty, tok) -> TExprG.Var(k, f ty, tk tok)
+        | TExprG.External(n, k, ty, tok) -> TExprG.External(n, k, f ty, tk tok)
+        | TExprG.Null(ty, tok) -> TExprG.Null(f ty, tk tok)
+        | TExprG.Lambda(p, b, ty, tok) -> TExprG.Lambda(pp p, pe b, f ty, tk tok)
+        | TExprG.App(fn, a, ty, tok) -> TExprG.App(pe fn, pe a, f ty, tk tok)
+        | TExprG.Let(p, v, body, ty, tok) -> TExprG.Let(pp p, pe v, pe body, f ty, tk tok)
+        | TExprG.Use(p, v, body, dispose, ty, tok) -> TExprG.Use(pp p, pe v, pe body, dispose, f ty, tk tok)
+        | TExprG.IfThenElse(c, t, el, ty, tok) -> TExprG.IfThenElse(pe c, pe t, pe el, f ty, tk tok)
+        | TExprG.Tuple(items, ty, tok) -> TExprG.Tuple(EqArray.map pe items, f ty, tk tok)
+        | TExprG.Sequential(items, ty, tok) -> TExprG.Sequential(EqArray.map pe items, f ty, tk tok)
+        | TExprG.While(c, b, ty, tok) -> TExprG.While(pe c, pe b, f ty, tk tok)
+        // `identTok` is a position like any other and moves with the node — the loop
+        // variable's name is written in the same file the `for` keyword is.
+        | TExprG.ForTo(k, it, s, e2, b, ty, tok) -> TExprG.ForTo(k, tk it, pe s, pe e2, pe b, f ty, tk tok)
+        | TExprG.ForIn(p, src, b, en, ty, tok) -> TExprG.ForIn(pp p, pe src, pe b, forInEnumerator f en, f ty, tk tok)
+        | TExprG.Match(sc, arms, ty, tok) -> TExprG.Match(pe sc, EqArray.map pa arms, f ty, tk tok)
+        | TExprG.TryWith(b, arms, ty, tok) -> TExprG.TryWith(pe b, EqArray.map pa arms, f ty, tk tok)
+        | TExprG.TryFinally(b, c, ty, tok) -> TExprG.TryFinally(pe b, pe c, f ty, tk tok)
+        | TExprG.Assignment(l, r, ty, tok) -> TExprG.Assignment(pe l, pe r, f ty, tk tok)
+        | TExprG.Range(s, step, e2, ty, tok) -> TExprG.Range(pe s, Option.map pe step, pe e2, f ty, tk tok)
+        | TExprG.RecordCons(fields, ty, tok) ->
+            TExprG.RecordCons(EqArray.map (fun (n, v) -> n, pe v) fields, f ty, tk tok)
         | TExprG.RecordClone(src, ov, ty, tok) ->
-            TExprG.RecordClone(pe src, EqArray.map (fun (n, v) -> n, pe v) ov, f ty, tok)
-        | TExprG.FieldGet(r, n, ty, tok) -> TExprG.FieldGet(pe r, n, f ty, tok)
-        | TExprG.FieldSet(r, n, v, ty, tok) -> TExprG.FieldSet(pe r, n, pe v, f ty, tok)
-        | TExprG.UnionCons(c, args, ty, tok) -> TExprG.UnionCons(c, EqArray.map pe args, f ty, tok)
-        | TExprG.New(c, k, args, ty, tok) -> TExprG.New(c, k, EqArray.map pe args, f ty, tok)
+            TExprG.RecordClone(pe src, EqArray.map (fun (n, v) -> n, pe v) ov, f ty, tk tok)
+        | TExprG.FieldGet(r, n, ty, tok) -> TExprG.FieldGet(pe r, n, f ty, tk tok)
+        | TExprG.FieldSet(r, n, v, ty, tok) -> TExprG.FieldSet(pe r, n, pe v, f ty, tk tok)
+        | TExprG.UnionCons(c, args, ty, tok) -> TExprG.UnionCons(c, EqArray.map pe args, f ty, tk tok)
+        | TExprG.New(c, k, args, ty, tok) -> TExprG.New(c, k, EqArray.map pe args, f ty, tk tok)
         | TExprG.MethodCall(r, k, via, args, ty, tok) ->
-            TExprG.MethodCall(pe r, k, viaOf f via, EqArray.map pe args, f ty, tok)
-        | TExprG.PropertyGet(r, k, via, ty, tok) -> TExprG.PropertyGet(pe r, k, viaOf f via, f ty, tok)
-        | TExprG.StaticMethodCall(k, args, ty, tok) -> TExprG.StaticMethodCall(k, EqArray.map pe args, f ty, tok)
-        | TExprG.StaticPropertyGet(k, ty, tok) -> TExprG.StaticPropertyGet(k, f ty, tok)
-        | TExprG.StaticFieldGet(k, n, ty, tok) -> TExprG.StaticFieldGet(k, n, f ty, tok)
-        | TExprG.StaticFieldSet(k, n, v, ty, tok) -> TExprG.StaticFieldSet(k, n, pe v, f ty, tok)
+            TExprG.MethodCall(pe r, k, viaOf f via, EqArray.map pe args, f ty, tk tok)
+        | TExprG.PropertyGet(r, k, via, ty, tok) -> TExprG.PropertyGet(pe r, k, viaOf f via, f ty, tk tok)
+        | TExprG.StaticMethodCall(k, args, ty, tok) -> TExprG.StaticMethodCall(k, EqArray.map pe args, f ty, tk tok)
+        | TExprG.StaticPropertyGet(k, ty, tok) -> TExprG.StaticPropertyGet(k, f ty, tk tok)
+        | TExprG.StaticFieldGet(k, n, ty, tok) -> TExprG.StaticFieldGet(k, n, f ty, tk tok)
+        | TExprG.StaticFieldSet(k, n, v, ty, tok) -> TExprG.StaticFieldSet(k, n, pe v, f ty, tk tok)
         | TExprG.ExternalMember(r, k, n, isProp, ty, tok) ->
-            TExprG.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty, tok)
-        | TExprG.Format(sink, segs, ty, tok) -> TExprG.Format(sinkOf f sink, EqArray.map (segOf f) segs, f ty, tok)
+            TExprG.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty, tk tok)
+        | TExprG.Format(sink, segs, ty, tok) ->
+            TExprG.Format(sinkOf f fTok sink, EqArray.map (segOf f fTok) segs, f ty, tk tok)
         | TExprG.ILIntrinsic(op, operand, args, ty, tok) ->
-            TExprG.ILIntrinsic(op, ValueOption.map f operand, EqArray.map pe args, f ty, tok)
+            TExprG.ILIntrinsic(op, ValueOption.map f operand, EqArray.map pe args, f ty, tk tok)
         | TExprG.StaticOptimization(clauses, def, ty, tok) ->
-            TExprG.StaticOptimization(EqArray.map (clause f) clauses, pe def, f ty, tok)
-        | TExprG.Upcast(src, ty, tok) -> TExprG.Upcast(pe src, f ty, tok)
-        | TExprG.Downcast(src, ty, tok) -> TExprG.Downcast(pe src, f ty, tok)
-        | TExprG.TraitCall(recv, n, args, ty, tok) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty, tok)
-        | TExprG.TypeTest(src, testTy, ty, tok) -> TExprG.TypeTest(pe src, f testTy, f ty, tok)
+            TExprG.StaticOptimization(EqArray.map (clause f fTok) clauses, pe def, f ty, tk tok)
+        | TExprG.Upcast(src, ty, tok) -> TExprG.Upcast(pe src, f ty, tk tok)
+        | TExprG.Downcast(src, ty, tok) -> TExprG.Downcast(pe src, f ty, tk tok)
+        | TExprG.TraitCall(recv, n, args, ty, tok) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty, tk tok)
+        | TExprG.TypeTest(src, testTy, ty, tok) -> TExprG.TypeTest(pe src, f testTy, f ty, tk tok)
 
     and arm
         (f: 'a -> 'b)
-        (a: TMatchArmG<TPatG<'a, 'tok, 'id>, TExprG<'a, 'tok, 'id>>)
-        : TMatchArmG<TPatG<'b, 'tok, 'id>, TExprG<'b, 'tok, 'id>> =
+        (fTok: 'ta -> 'tb)
+        (a: TMatchArmG<TPatG<'a, 'ta, 'id>, TExprG<'a, 'ta, 'id>>)
+        : TMatchArmG<TPatG<'b, 'tb, 'id>, TExprG<'b, 'tb, 'id>> =
         {
-            Pat = pat f a.Pat
-            Guard = ValueOption.map (expr f) a.Guard
-            Body = expr f a.Body
+            Pat = pat f fTok a.Pat
+            Guard = ValueOption.map (expr f fTok) a.Guard
+            Body = expr f fTok a.Body
         }
 
     and viaOf (f: 'a -> 'b) (v: CallVia<'a>) : CallVia<'b> =
@@ -156,40 +168,48 @@ module TastConvert =
         | CallVia.Base -> CallVia.Base
         | CallVia.Interface ifaceArgs -> CallVia.Interface(EqArray.map f ifaceArgs)
 
-    and sinkOf (f: 'a -> 'b) (s: FormatSinkG<TExprG<'a, 'tok, 'id>>) : FormatSinkG<TExprG<'b, 'tok, 'id>> =
+    and sinkOf
+        (f: 'a -> 'b)
+        (fTok: 'ta -> 'tb)
+        (s: FormatSinkG<TExprG<'a, 'ta, 'id>>)
+        : FormatSinkG<TExprG<'b, 'tb, 'id>> =
         match s with
         | FormatSinkG.ToStdOut nl -> FormatSinkG.ToStdOut nl
         | FormatSinkG.ToStdErr nl -> FormatSinkG.ToStdErr nl
-        | FormatSinkG.ToWriter(w, nl) -> FormatSinkG.ToWriter(expr f w, nl)
-        | FormatSinkG.ToBuilder w -> FormatSinkG.ToBuilder(expr f w)
+        | FormatSinkG.ToWriter(w, nl) -> FormatSinkG.ToWriter(expr f fTok w, nl)
+        | FormatSinkG.ToBuilder w -> FormatSinkG.ToBuilder(expr f fTok w)
         | FormatSinkG.ToString -> FormatSinkG.ToString
 
     and segOf
         (f: 'a -> 'b)
-        (seg: FormatSegG<'a, 'tok, TExprG<'a, 'tok, 'id>>)
-        : FormatSegG<'b, 'tok, TExprG<'b, 'tok, 'id>> =
+        (fTok: 'ta -> 'tb)
+        (seg: FormatSegG<'a, 'ta, TExprG<'a, 'ta, 'id>>)
+        : FormatSegG<'b, 'tb, TExprG<'b, 'tb, 'id>> =
+        let spec = hole f fTok
+        let pe = expr f fTok
+
         match seg with
         | FormatSegG.Lit lit -> FormatSegG.Lit lit
-        | FormatSegG.Hole(h, a) -> FormatSegG.Hole(hole f id h, expr f a)
+        | FormatSegG.Hole(h, a) -> FormatSegG.Hole(spec h, pe a)
         | FormatSegG.DynHole d ->
             FormatSegG.DynHole
                 {
-                    Width = ValueOption.map (expr f) d.Width
-                    Precision = ValueOption.map (expr f) d.Precision
-                    Spec = hole f id d.Spec
-                    Value = expr f d.Value
+                    Width = ValueOption.map pe d.Width
+                    Precision = ValueOption.map pe d.Precision
+                    Spec = spec d.Spec
+                    Value = pe d.Value
                 }
-        | FormatSegG.CallbackHole(spec, residue) -> FormatSegG.CallbackHole(hole f id spec, expr f residue)
+        | FormatSegG.CallbackHole(h, residue) -> FormatSegG.CallbackHole(spec h, pe residue)
 
     and constraintOf (f: 'a -> 'b) (c: TStaticOptConstraintG<'a>) : TStaticOptConstraintG<'b> =
         match c with
         | TStaticOptConstraintG.TyconEquals(tp, req) -> TStaticOptConstraintG.TyconEquals(f tp, f req)
         | TStaticOptConstraintG.IsStruct tp -> TStaticOptConstraintG.IsStruct(f tp)
 
-    and clause (f: 'a -> 'b) (c: TStaticOptClauseG<'a, 'tok, 'id>) : TStaticOptClauseG<'b, 'tok, 'id> =
+    and clause (f: 'a -> 'b) (fTok: 'ta -> 'tb) (c: TStaticOptClauseG<'a, 'ta, 'id>) : TStaticOptClauseG<'b, 'tb, 'id> =
         {
             Constraints = EqArray.map (constraintOf f) c.Constraints
-            Body = expr f c.Body
+            Body = expr f fTok c.Body
         }
 
     let unionCase (f: 'a -> 'b) (c: TUnionCaseG<'a>) : TUnionCaseG<'b> =
@@ -207,25 +227,36 @@ module TastConvert =
 
     // ── the type-declaration cluster: a functor in `('ty, 'tok, 'id, 'body)` ───
     //
-    // Every function below maps the embedded types through `fTy`, an enum case's identifier
-    // token through `fTok` (the cluster's only `'tok`, every other slot having gone to
-    // `'body`), the pattern-less binder SLOTS through `fId`, and the member / preamble /
-    // ctor BODIES through `fBody`, independently. The `'ty`-only freeze runs it at `fId = BinderKey.identity` and `fBody = expr fTy`
-    // (`decl` below); a body-POOLING pass runs it at `fTy = id`, `fBody = <expr → pool id>`
-    // and `fId = <key → binder id>`, and its inverse at the opposite two. So the seven body
-    // slots, the seven key slots, and the declaration spine around them are enumerated in ONE
-    // place, and neither pooling direction is a second hand-written walk of this shape.
-    //
-    // `fId` maps a whole `BinderKeyG` and the slot keeps that shape (`BinderKey.refile`): a
-    // key slot is a definition site by construction, so a re-axising pass moves one without
-    // being able to invent one, and the mapping is the same one an interning sink exposes.
-    let typeMember
-        (fTy: 'a -> 'b)
-        (fId: BinderKeyG<'ia> -> 'ib)
-        (fBody: 'ba -> 'bb)
-        (m: TTypeMemberG<'a, 'ia, 'ba>)
-        : TTypeMemberG<'b, 'ib, 'bb> =
-        let slot = BinderKey.refile fId
+    // Every function below maps the four axes independently. The `'ty`-only freeze runs it
+    // at `Id = BinderKey.identity` and `Body = expr` (`decl` below); a body-POOLING pass runs
+    // it at `Ty = id`, `Body = <expr → pool id>` and `Id = <key → binder id>`, and its
+    // inverse at the opposite two. So the seven body slots, the seven key slots, and the
+    // declaration spine around them are enumerated in ONE place, and neither pooling
+    // direction is a second hand-written walk of this shape.
+
+    /// The four mappings a declaration rebuild runs under, one per axis. A RECORD and not
+    /// four arguments: `Ty`, `Tok` and `Body` are bare arrows, and every run instantiates at
+    /// least two of them at `id`, so positional arguments could be transposed without the
+    /// types noticing. Naming them makes a transposition a compile error and each call site
+    /// say which axis it is moving.
+    ///
+    /// `Id` maps a whole `BinderKeyG` and the slot keeps that shape (`BinderKey.refile`): a
+    /// key slot is a definition site by construction, so a re-axising pass moves one without
+    /// being able to invent one, and the mapping is the same one an interning sink exposes.
+    type DeclRebuild<'ta, 'tb, 'toka, 'tokb, 'ida, 'idb, 'bodya, 'bodyb> =
+        {
+            Ty: 'ta -> 'tb
+            /// An enum case's identifier token — the cluster's only `'tok`, every other slot
+            /// having gone to `'body`.
+            Tok: 'toka -> 'tokb
+            Id: BinderKeyG<'ida> -> 'idb
+            Body: 'bodya -> 'bodyb
+        }
+
+    let typeMember (m': DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (m: TTypeMemberG<'a, 'ia, 'ba>) =
+        let fTy = m'.Ty
+        let fBody = m'.Body
+        let slot = BinderKey.refile m'.Id
 
         {
             Name = m.Name
@@ -255,16 +286,11 @@ module TastConvert =
         | TPreambleEntryG.Let l -> TPreambleEntryG.Let(classLet fTy fBody l)
         | TPreambleEntryG.Do e -> TPreambleEntryG.Do(fBody e)
 
-    let ctorLet
-        (fTy: 'a -> 'b)
-        (fId: BinderKeyG<'ia> -> 'ib)
-        (fBody: 'ba -> 'bb)
-        (cl: TCtorLetG<'a, 'ia, 'ba>)
-        : TCtorLetG<'b, 'ib, 'bb> =
+    let ctorLet (m: DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (cl: TCtorLetG<'a, 'ia, 'ba>) =
         {
-            Binder = BinderKey.refile fId cl.Binder
-            Type = fTy cl.Type
-            Init = fBody cl.Init
+            Binder = BinderKey.refile m.Id cl.Binder
+            Type = m.Ty cl.Type
+            Init = m.Body cl.Init
         }
 
     let ctorFieldInit (fBody: 'ba -> 'bb) (fi: TCtorFieldInitG<'ba>) : TCtorFieldInitG<'bb> =
@@ -273,28 +299,18 @@ module TastConvert =
             Init = fBody fi.Init
         }
 
-    let secondaryCtor
-        (fTy: 'a -> 'b)
-        (fId: BinderKeyG<'ia> -> 'ib)
-        (fBody: 'ba -> 'bb)
-        (sc: TSecondaryCtorG<'a, 'ia, 'ba>)
-        : TSecondaryCtorG<'b, 'ib, 'bb> =
+    let secondaryCtor (m: DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (sc: TSecondaryCtorG<'a, 'ia, 'ba>) =
         {
-            Params = EqArray.map (fun (k, ty) -> BinderKey.refile fId k, fTy ty) sc.Params
-            Lets = EqArray.map (ctorLet fTy fId fBody) sc.Lets
-            PrimaryArgs = EqArray.map fBody sc.PrimaryArgs
-            FieldInits = EqArray.map (ctorFieldInit fBody) sc.FieldInits
+            Params = EqArray.map (fun (k, ty) -> BinderKey.refile m.Id k, m.Ty ty) sc.Params
+            Lets = EqArray.map (ctorLet m) sc.Lets
+            PrimaryArgs = EqArray.map m.Body sc.PrimaryArgs
+            FieldInits = EqArray.map (ctorFieldInit m.Body) sc.FieldInits
         }
 
-    let baseCtorCall
-        (fTy: 'a -> 'b)
-        (fId: BinderKeyG<'ia> -> 'ib)
-        (fBody: 'ba -> 'bb)
-        (bc: TBaseCtorCallG<'a, 'ia, 'ba>)
-        : TBaseCtorCallG<'b, 'ib, 'bb> =
+    let baseCtorCall (m: DeclRebuild<'a, 'b, _, _, 'ia, 'ib, 'ba, 'bb>) (bc: TBaseCtorCallG<'a, 'ia, 'ba>) =
         {
-            CtorParams = EqArray.map (fun (k, ty) -> BinderKey.refile fId k, fTy ty) bc.CtorParams
-            Args = EqArray.map fBody bc.Args
+            CtorParams = EqArray.map (fun (k, ty) -> BinderKey.refile m.Id k, m.Ty ty) bc.CtorParams
+            Args = EqArray.map m.Body bc.Args
             ChosenCtor = bc.ChosenCtor
         }
 
@@ -313,14 +329,10 @@ module TastConvert =
             Tok = fTok c.Tok
         }
 
-    let kind
-        (fTy: 'a -> 'b)
-        (fTok: 'ta -> 'tb)
-        (fId: BinderKeyG<'ia> -> 'ib)
-        (fBody: 'ba -> 'bb)
-        (k: TTypeKindG<'a, 'ta, 'ia, 'ba>)
-        : TTypeKindG<'b, 'tb, 'ib, 'bb> =
-        let mem = typeMember fTy fId fBody
+    let kind (m: DeclRebuild<'a, 'b, 'ta, 'tb, 'ia, 'ib, 'ba, 'bb>) (k: TTypeKindG<'a, 'ta, 'ia, 'ba>) =
+        let fTy = m.Ty
+        let fBody = m.Body
+        let mem = typeMember m
         let ifaces = EqArray.map (fun (ity, ms) -> fTy ity, EqArray.map mem ms)
 
         match k with
@@ -335,10 +347,8 @@ module TastConvert =
                 valueKind
             )
         // Enum cases carry no `'ty` (the value is a resolved literal) and no body, so their
-        // case identifier's token is the only thing here the mapping can touch — and the
-        // ONLY `'tok` in the whole declaration cluster, every other slot having gone to
-        // `'body`.
-        | TTypeKindG.Enum cases -> TTypeKindG.Enum(EqArray.map (enumCase fTok) cases)
+        // case identifier's token is the only thing here the mapping can touch.
+        | TTypeKindG.Enum cases -> TTypeKindG.Enum(EqArray.map (enumCase m.Tok) cases)
         | TTypeKindG.Class c ->
             TTypeKindG.Class
                 {
@@ -350,42 +360,46 @@ module TastConvert =
                     IsSealed = c.IsSealed
                     StaticPreamble = EqArray.map (preambleEntry fTy fBody) c.StaticPreamble
                     InstancePreamble = EqArray.map (preambleEntry fTy fBody) c.InstancePreamble
-                    ThisKey = BinderKey.refile fId c.ThisKey
-                    SecondaryCtors = EqArray.map (secondaryCtor fTy fId fBody) c.SecondaryCtors
-                    BaseCtorCall = ValueOption.map (baseCtorCall fTy fId fBody) c.BaseCtorCall
+                    ThisKey = BinderKey.refile m.Id c.ThisKey
+                    SecondaryCtors = EqArray.map (secondaryCtor m) c.SecondaryCtors
+                    BaseCtorCall = ValueOption.map (baseCtorCall m) c.BaseCtorCall
                     ValueKind = c.ValueKind
                     HasPrimaryCtor = c.HasPrimaryCtor
                 }
 
-    let typeDecl
-        (fTy: 'a -> 'b)
-        (fTok: 'ta -> 'tb)
-        (fId: BinderKeyG<'ia> -> 'ib)
-        (fBody: 'ba -> 'bb)
-        (td: TTypeDeclG<'a, 'ta, 'ia, 'ba>)
-        : TTypeDeclG<'b, 'tb, 'ib, 'bb> =
+    let typeDecl (m: DeclRebuild<'a, 'b, 'ta, 'tb, 'ia, 'ib, 'ba, 'bb>) (td: TTypeDeclG<'a, 'ta, 'ia, 'ba>) =
         {
             Name = td.Name
             TypeKey = td.TypeKey
             Namespace = td.Namespace
             TypeParams = td.TypeParams
             IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
-            Kind = kind fTy fTok fId fBody td.Kind
+            Kind = kind m td.Kind
             EqualitySupport = td.EqualitySupport
             ComparisonSupport = td.ComparisonSupport
         }
 
-    let decl (f: 'a -> 'b) (d: TDeclG<'a, 'tok, 'id>) : TDeclG<'b, 'tok, 'id> =
+    let decl (f: 'a -> 'b) (fTok: 'ta -> 'tb) (d: TDeclG<'a, 'ta, 'id>) : TDeclG<'b, 'tb, 'id> =
         match d with
-        | TDeclG.Let(binding, value, isInline, ty) -> TDeclG.Let(pat f binding, expr f value, isInline, f ty)
-        | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f e, f ty)
-        // The `'ty`-only conversion is the trifunctor at `fId = identity` (the slots stay in
-        // the space they were in) and `fBody = expr f`.
-        | TDeclG.Type td -> TDeclG.Type(typeDecl f id BinderKey.identity (expr f) td)
+        | TDeclG.Let(binding, value, isInline, ty) -> TDeclG.Let(pat f fTok binding, expr f fTok value, isInline, f ty)
+        | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f fTok e, f ty)
+        // A tree-shaped rebuild leaves the identity axis alone — the key slots stay in the
+        // space they were in — and its bodies are the expression rebuild itself.
+        | TDeclG.Type td ->
+            TDeclG.Type(
+                typeDecl
+                    {
+                        Ty = f
+                        Tok = fTok
+                        Id = BinderKey.identity
+                        Body = expr f fTok
+                    }
+                    td
+            )
 
-    let inlineBody (f: 'a -> 'b) (ib: TInlineBodyG<'a, 'tok, 'id>) : TInlineBodyG<'b, 'tok, 'id> =
+    let inlineBody (f: 'a -> 'b) (fTok: 'ta -> 'tb) (ib: TInlineBodyG<'a, 'ta, 'id>) : TInlineBodyG<'b, 'tb, 'id> =
         {
-            Decl = decl f ib.Decl
+            Decl = decl f fTok ib.Decl
             ParamAttrs = ib.ParamAttrs
         }
 
@@ -416,19 +430,19 @@ module TastConvert =
             ResultTy = fTy vr.ResultTy
         }
 
-    let inlineValue (f: 'a -> 'b) (iv: TInlineValueG<'a, 'tok, 'id>) : TInlineValueG<'b, 'tok, 'id> =
+    let inlineValue (f: 'a -> 'b) (fTok: 'ta -> 'tb) (iv: TInlineValueG<'a, 'ta, 'id>) : TInlineValueG<'b, 'tb, 'id> =
         {
             Key = iv.Key
-            Body = inlineBody f iv.Body
+            Body = inlineBody f fTok iv.Body
         }
 
     /// The whole-file rebuild: `Decls` and `InlineBodies` mapped through `f`, the
     /// non-`'ty` snapshot fields (`Diagnostics` / `IntrinsicReprKeys` /
     /// `ModuleMembers` / `ClosureReprs`) carried over.
-    let file (f: 'a -> 'b) (tf: TastFileG<'a, 'tok, 'id>) : TastFileG<'b, 'tok, 'id> =
+    let file (f: 'a -> 'b) (fTok: 'ta -> 'tb) (tf: TastFileG<'a, 'ta, 'id>) : TastFileG<'b, 'tb, 'id> =
         {
-            Decls = EqArray.map (decl f) tf.Decls
-            InlineBodies = EqArray.map (inlineValue f) tf.InlineBodies
+            Decls = EqArray.map (decl f fTok) tf.Decls
+            InlineBodies = EqArray.map (inlineValue f fTok) tf.InlineBodies
             Diagnostics = tf.Diagnostics
             IntrinsicReprKeys = tf.IntrinsicReprKeys
             ModuleMembers = tf.ModuleMembers

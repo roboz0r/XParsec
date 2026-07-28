@@ -57,12 +57,15 @@ type PoolBuilder =
             /// How many binders this overlay has handed out — a COUNT and no column,
             /// because a minted binder has nothing a column could hold: no source spells
             /// it, so its naming is its slot (`BinderNaming.Minted`) and its anchor is
-            /// `ValueNone`. `mintBinder` is its sole appender.
+            /// `Anchor.nowhere`. `mintBinder` is its sole appender.
             mutable OvBinderCount: int
             /// The binder key `declTree` hands a DU-typed consumer for each binder of this
-            /// pool. Per BUILDER, not per drain: two drains of one subtree are two views of
-            /// the same binders, so they must name them alike — see `declTree`.
+            /// pool, and the counter it mints them from. Per BUILDER, not per drain: two
+            /// drains of one subtree are two views of the same binders, so they must name
+            /// them alike — see `declTree` for why the builder is also the LARGEST scope
+            /// either needs.
             DrainedBinderKeys: Dictionary<BinderId, NodeKey>
+            mutable DrainCount: int
         }
 
 /// A node HANDLE: a dense pool id together with the pool that resolves it. One generic
@@ -101,6 +104,7 @@ module TastPoolBuilder =
             OvDecls = ResizeArray()
             OvBinderCount = 0
             DrainedBinderKeys = Dictionary()
+            DrainCount = 0
         }
 
     /// A builder over no base at all — for nodes that belong to no frozen tree: an
@@ -162,8 +166,8 @@ module TastPoolBuilder =
     /// where no source spells it (an overlay-minted node, an `.fsi` contract's
     /// reconstructed pattern). The column stores that absence as the negative space of the
     /// index; this is where it is decoded, so no reader downstream meets a raw negative.
-    let exprTok (b: PoolBuilder) (id: ExprPoolId) : int<token> voption =
-        readExpr b id (fun p i -> p.ExprToks.[i]) (fun r -> r.Tok) |> Anchor.ofColumn
+    let exprTok (b: PoolBuilder) (id: ExprPoolId) : Anchor =
+        readExpr b id (fun p i -> p.ExprToks.[i]) (fun r -> r.Tok)
 
     let exprChildren (b: PoolBuilder) (id: ExprPoolId) : ExprPoolId[] =
         readExpr b id (fun p i -> p.ExprChildren.[i]) (fun r -> r.Children)
@@ -204,8 +208,8 @@ module TastPoolBuilder =
         readPat b id (fun p i -> p.PatTys.[i]) (fun r -> r.Ty)
 
     /// The pattern twin of `exprTok`.
-    let patTok (b: PoolBuilder) (id: PatPoolId) : int<token> voption =
-        readPat b id (fun p i -> p.PatToks.[i]) (fun r -> r.Tok) |> Anchor.ofColumn
+    let patTok (b: PoolBuilder) (id: PatPoolId) : Anchor =
+        readPat b id (fun p i -> p.PatToks.[i]) (fun r -> r.Tok)
 
     let patChildren (b: PoolBuilder) (id: PatPoolId) : PatPoolId[] =
         readPat b id (fun p i -> p.PatChildren.[i]) (fun r -> r.Children)
@@ -268,17 +272,17 @@ module TastPoolBuilder =
         else
             BinderNaming.Minted id
 
-    /// The token a binder's name is spelled at, across both layers — the anchor a span or a
-    /// line/column is taken from. `ValueNone` where no node spells the binder: an
+    /// Where a binder's name is spelled, across both layers — the anchor a span or a
+    /// line/column is taken from. `Anchor.nowhere` where no node spells the binder: an
     /// overlay-minted one, and a declaration's pattern-less key slot (see
     /// `FrozenPools.BinderToks`).
-    let binderTok (b: PoolBuilder) (id: BinderId) : int<token> voption =
+    let binderTok (b: PoolBuilder) (id: BinderId) : Anchor =
         let (BinderId i) = id
 
         if i < b.BinderBase then
-            Anchor.ofColumn b.Base.BinderToks.[i]
+            b.Base.BinderToks.[i]
         else
-            ValueNone
+            Anchor.nowhere
 
     // The size of the expr and binder id spaces: every id below the count resolves, and
     // the next append takes the count itself. Only these two exist because only these
@@ -394,11 +398,6 @@ module TastPoolBuilder =
 
     // ── the DU bridge, both directions ──────────────────────────────────────
 
-    /// Source of the counter-minted binder keys `declTree` re-mints with. Build-wide and
-    /// `Interlocked`, so two drains — of one subtree or of different pools, on any thread —
-    /// never mint the same key.
-    let mutable private drainBinderCounter = 0
-
     /// Fill in the `Var` reference edge of a row the pooling walk just appended. Private,
     /// and sound only there: the row is the overlay's own, freshly added, and the walk
     /// cannot have supplied the edge itself (binder ids are the sink's to assign). A base
@@ -414,15 +413,14 @@ module TastPoolBuilder =
     /// The overlay's pooling sink. The walk is `TastPools`' — the one that built the base
     /// pool — so the tree shape is known in exactly one place; only the destination and the
     /// binder-id assignment differ.
-    let private sinkOf (b: PoolBuilder) : TastPools.PoolSink<int<token>, BinderId> =
+    let private sinkOf (b: PoolBuilder) : TastPools.PoolSink<Anchor, BinderId> =
         {
             // The tree being poured in is ALREADY in this pool's identity space, so a
             // definition site IS its id and a reference resolves without a lookup: there
             // is no second spelling of a binder for the two to disagree about.
-            InternBinder = fun site -> BinderKey.identity site.Binder
+            InternBinder = BinderKey.identity
             // Likewise already in the stored form: the tree names positions by the very
-            // index the columns hold. The overlay's rows are nodes of no file, so nothing
-            // here is held to anchoring on a real token of one.
+            // index the columns hold, so nothing here is held to anchoring on a real token.
             Anchor = id
             AddExpr = appendExpr b
             AddPat = appendPat b
@@ -442,45 +440,33 @@ module TastPoolBuilder =
     /// move to native row appends on its own schedule.
     let appendExprTree (b: PoolBuilder) (e: Pooled.TExpr) : ExprPoolId = TastPools.poolExpr (sinkOf b) e
 
-    /// A drained node's POSITION, which is nothing: an anchor is an index into the pool's
-    /// own file and the consumer of a drained tree holds no `Lexed` for that file, so the
-    /// drain hands over a token that names no place rather than one that resolves to the
-    /// wrong thing. `Inline.spliceAt` puts the body on the call site as it lands; see
-    /// `Anchor.foreignToken` for why an unrelocated one then faults instead of rotting.
-    let private relocated (_: int<token>) : SyntaxToken = Anchor.foreignToken
-
     /// The DU subtree a pattern id denotes, resolved across BOTH layers, node-for-node
     /// (`TastUnpool.substitutePat` re-authors each node from its row, exactly as `ofPools`
     /// does for a whole pool).
     ///
     /// This direction exists for the one channel whose far end is still DU-typed: an
-    /// inline template crosses the PACKAGE wire as a `Frozen.TDecl` (`Frozen.TInlineBody`),
-    /// and a pool id means nothing outside the pool that issued it, the id space being
-    /// file-scoped. Private, and reached through `declTree`: a consumer moving a pattern
-    /// between POOLS wants `copyPatTreeInto`, which stays in the columns, and one reading a
-    /// node of this file's tree wants the accessor.
+    /// inline template crosses the PACKAGE wire as a `Wire.TDecl`, and a pool id means
+    /// nothing outside the pool that issued it, the id space being file-scoped. Private, and
+    /// reached through `declTree`: a consumer moving a pattern between POOLS wants
+    /// `copyPatTreeInto`, which stays in the columns, and one reading a node of this file's
+    /// tree wants the accessor.
     ///
     /// `rename` is the drain's binder freshener — see `declTree`.
-    let rec private patTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: PatPoolId) : Frozen.TPat =
+    let rec private patTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: PatPoolId) : Wire.TPat =
         let row = patRow b at
 
-        TastUnpool.substitutePat
-            rename
-            row.Ty
-            (relocated row.Tok)
-            row.Payload
-            (row.Children |> Array.map (patTree rename b))
+        TastUnpool.substitutePat rename row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree rename b))
 
     /// The DU subtree an expression id denotes — see `patTree`. Reached through `declTree`:
     /// the cross-unit wire carries whole declarations, never a bare expression.
-    let rec private exprTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: ExprPoolId) : Frozen.TExpr =
+    let rec private exprTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: ExprPoolId) : Wire.TExpr =
         let row = exprRow b at
 
         TastUnpool.substituteExpr
             rename
-            relocated
+            id
             row.Ty
-            (relocated row.Tok)
+            row.Tok
             row.VarBinder
             row.Payload
             (row.Children |> Array.map (exprTree rename b))
@@ -493,20 +479,25 @@ module TastPoolBuilder =
     /// hand a DU-typed consumer; what such a consumer needs of one is distinctness within
     /// the drained subtree plus equality between a binder and the references to it, and a
     /// counter-minted key gives both. Naming no position, it also cannot be mistaken for a
-    /// key that resolves against some unit's tree — the same rule the signature seam
-    /// applies to a contract parameter's slot (`TastLower.mintContractParamKey`).
+    /// key that resolves against some unit's tree.
     ///
-    /// The rename map is the BUILDER's, so two drains that reach one binder name it alike:
-    /// they are two views of the same definition site, and a consumer splicing both must
-    /// see that. Two different builders over one base still disagree, which is also right —
-    /// a drain is a fresh body each time it leaves the pool.
-    let declTree (b: PoolBuilder) (at: DeclPoolId) : Frozen.TDecl =
+    /// The counter and the rename map are the BUILDER's, which is the largest scope either
+    /// needs. Two drains that reach one binder must name it alike — they are two views of
+    /// the same definition site, and a consumer splicing both has to see that — and a
+    /// builder covers every drain of one pool. Two builders may hand out the same key, and
+    /// that is harmless: a drained body is renamed again by `Inline.spliceAt` against the
+    /// CONSUMING unit's counter before it lands, so no two of them ever meet unfreshened.
+    ///
+    /// Its anchors are nothing, and that is the type: a `Wire.TDecl` sits `Anchor.nowhere`
+    /// throughout, so `Inline.thawBody` cannot produce a `TExpr` from one without being told
+    /// where the body lands.
+    let declTree (b: PoolBuilder) (at: DeclPoolId) : Wire.TDecl =
         let rename (binder: BinderId) : NodeKey =
             match b.DrainedBinderKeys.TryGetValue binder with
             | true, k -> k
             | false, _ ->
-                let c = System.Threading.Interlocked.Increment(&drainBinderCounter)
-                let k = NodeKey.ofSyntheticCounter c NodeKind.SynthPreFreezeInline
+                b.DrainCount <- b.DrainCount + 1
+                let k = NodeKey.ofSyntheticCounter b.DrainCount NodeKind.SynthDrainedBinder
                 b.DrainedBinderKeys.[binder] <- k
                 k
 
@@ -514,7 +505,7 @@ module TastPoolBuilder =
 
         TastUnpool.substituteDecl
             rename
-            relocated
+            id
             (exprTree rename b)
             row.Payload
             (row.ExprChildren |> Array.map (exprTree rename b))

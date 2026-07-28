@@ -30,7 +30,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
     for i in 0 .. pools.ExprPayloads.Length - 1 do
         let id = ExprPoolId i
         Expect.equal (TastPoolBuilder.exprTy b id) pools.ExprTys.[i] "base expr ty"
-        Expect.equal (TastPoolBuilder.exprTok b id) (Anchor.ofColumn pools.ExprToks.[i]) "base expr tok"
+        Expect.equal (TastPoolBuilder.exprTok b id) pools.ExprToks.[i] "base expr tok"
         Expect.equal (TastPoolBuilder.exprChildren b id) pools.ExprChildren.[i] "base expr children"
         Expect.equal (TastPoolBuilder.exprPatChildren b id) pools.ExprPatChildren.[i] "base expr pat children"
         Expect.equal (TastPoolBuilder.exprVarBinder b id) pools.ExprVarBinder.[i] "base expr var binder"
@@ -39,7 +39,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
     for i in 0 .. pools.PatPayloads.Length - 1 do
         let id = PatPoolId i
         Expect.equal (TastPoolBuilder.patTy b id) pools.PatTys.[i] "base pat ty"
-        Expect.equal (TastPoolBuilder.patTok b id) (Anchor.ofColumn pools.PatToks.[i]) "base pat tok"
+        Expect.equal (TastPoolBuilder.patTok b id) pools.PatToks.[i] "base pat tok"
         Expect.equal (TastPoolBuilder.patChildren b id) pools.PatChildren.[i] "base pat children"
         Expect.equal (TastPoolBuilder.patPayload b id) pools.PatPayloads.[i] "base pat payload"
 
@@ -51,7 +51,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 
     for i in 0 .. pools.BinderNames.Length - 1 do
         let id = BinderId i
-        Expect.equal (TastPoolBuilder.binderTok b id) (Anchor.ofColumn pools.BinderToks.[i]) "base binder anchor"
+        Expect.equal (TastPoolBuilder.binderTok b id) pools.BinderToks.[i] "base binder anchor"
 
         Expect.equal
             (TastPoolBuilder.binderNaming b id)
@@ -63,7 +63,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 /// uses (`declTree`, the cross-unit inline wire's drain). An id-space boundary error shows
 /// up as a wrong or missing subtree; the drain is deterministic within a builder (its
 /// re-minted binder keys are the builder's), so the two drains are directly comparable.
-let private drainRoots (b: PoolBuilder) : Frozen.TDecl[] =
+let private drainRoots (b: PoolBuilder) : Wire.TDecl[] =
     TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
 
 // Programs spanning the domains the stack has to keep straight: a binder reference across
@@ -128,17 +128,17 @@ let appendTests =
                 // in scope here.
                 Expect.equal
                     (TastPoolBuilder.exprPayload b id)
-                    (TastPools.exprPayload Operators.id duBinder du)
+                    (TastPoolShapes.exprPayload Operators.id duBinder du)
                     "appended payload"
 
                 Expect.equal (TastPoolBuilder.exprTy b id) (TastWalk.exprTy du) "appended ty"
-                Expect.equal (TastPoolBuilder.exprTok b id) (Anchor.ofColumn (TastWalk.exprTok du)) "appended tok"
+                Expect.equal (TastPoolBuilder.exprTok b id) (TastWalk.exprTok du) "appended tok"
 
                 // `appendExprTree` pools the WHOLE tree it is handed — its children are
                 // re-pooled into the overlay, not deduped against equal base rows.
                 let kids = TastPoolBuilder.exprChildren b id
 
-                Expect.equal kids.Length (TastPools.exprChildren du).Length "appended child fan-out"
+                Expect.equal kids.Length (TastPoolShapes.exprChildren du).Length "appended child fan-out"
 
                 for (ExprPoolId k) in kids do
                     Expect.isGreaterThanOrEqual k baseCount "an appended child is an overlay id"
@@ -193,7 +193,7 @@ let appendTests =
                     (BinderNaming.Minted id)
                     "a minted binder is named after its own slot"
 
-                Expect.equal (TastPoolBuilder.binderTok b id) ValueNone "a minted binder anchors on nothing"
+                Expect.equal (TastPoolBuilder.binderTok b id) Anchor.nowhere "a minted binder anchors on nothing"
 
                 // A second mint is a SECOND binder: there is nothing to intern against, so
                 // the id space simply grows.

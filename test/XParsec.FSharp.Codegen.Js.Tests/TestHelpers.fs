@@ -121,6 +121,19 @@ let frozenOfJs (input: string) : FrozenPools =
 
     Freeze.run ctx tast
 
+/// The map's view of a source: its text plus the tokens a frozen node's anchor indexes into.
+/// A production driver hands the backend the `Lexed` the front end already built; a test
+/// that only has the text lexes here, which is the same table by construction.
+let jsSource (path: string) (input: string) : JsSource =
+    match Lexing.lexString input with
+    | Result.Error e -> failwithf "lex failed: %A" e
+    | Result.Ok lexed ->
+        {
+            Path = path
+            Content = input
+            Lexed = lexed
+        }
+
 /// Emit a named program's JS from an ALREADY-frozen tree, through the exact project shape the
 /// byte-identity gates pin (assembly `name`, `name + ".fsx"` source), stripping the trailing
 /// `//# sourceMappingURL` line. Single-sourced so the direct, round-trip, and cache-parity gates
@@ -128,7 +141,7 @@ let frozenOfJs (input: string) : FrozenPools =
 let emitFrozenJs (name: string) (src: string) (frozen: FrozenPools) : string =
     let project =
         { JsProjectInfo.defaults name with
-            Source = Some { Path = name + ".fsx"; Content = src }
+            Source = Some(jsSource (name + ".fsx") src)
         }
 
     let source =
@@ -142,7 +155,7 @@ let emitFrozenJs (name: string) (src: string) (frozen: FrozenPools) : string =
 let emitJs (input: string) : string =
     let project =
         { JsProjectInfo.defaults "Test" with
-            Source = Some { Path = "test.fsx"; Content = input }
+            Source = Some(jsSource "test.fsx" input)
         }
 
     let src =
@@ -156,7 +169,7 @@ let emitJs (input: string) : string =
 let emitJsLibrary (input: string) : string =
     let project =
         { JsProjectInfo.defaults "Test" with
-            Source = Some { Path = "test.fsx"; Content = input }
+            Source = Some(jsSource "test.fsx" input)
             Kind = Library
         }
 
@@ -198,7 +211,7 @@ let compileLibrary
     : string =
     let project =
         { JsProjectInfo.defaults moduleName with
-            Source = Some { Path = sourceFile; Content = input }
+            Source = Some(jsSource sourceFile input)
             Kind = Library
             GeneratedFrom = Some sourceFile
         }
@@ -231,12 +244,7 @@ let runJs (name: string) (input: string) : (int * string) option =
     let project =
         { JsProjectInfo.defaults name with
             OutputPath = Some jsPath
-            Source =
-                Some
-                    {
-                        Path = name + ".fsx"
-                        Content = input
-                    }
+            Source = Some(jsSource (name + ".fsx") input)
         }
 
     Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs input)

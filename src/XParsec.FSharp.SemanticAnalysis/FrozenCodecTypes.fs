@@ -880,12 +880,12 @@ module FrozenCodecTypes =
             IsMutable = isMutable
         }
 
-    let writeEnumCase (w: BinaryWriter) (c: TEnumCaseG<int<token>>) =
+    let writeEnumCase (w: BinaryWriter) (c: TEnumCaseG<Anchor>) =
         w.Write c.Name
         writeVOptionWith w writeTEnumLiteral c.Value
         writeAnchor w c.Tok
 
-    let readEnumCase (r: BinaryReader) : TEnumCaseG<int<token>> =
+    let readEnumCase (r: BinaryReader) : TEnumCaseG<Anchor> =
         let name = r.ReadString()
         let value = readVOptionWith r readTEnumLiteral
         let tok = readAnchor r

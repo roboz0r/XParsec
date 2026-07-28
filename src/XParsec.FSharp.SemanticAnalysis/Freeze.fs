@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 // The genuine freeze: the single
@@ -222,11 +223,32 @@ module Freeze =
     /// module-level sibling, is a reference to a TOP-LEVEL (implicit-`Program`-module)
     /// binding: those have NO `ModuleBindingInfo`, hence no `SymbolKey`, hence nothing to
     /// rewrite to.
-    let private freeVarsOfBody (d: TDecl) : NodeKey list =
+    ///
+    /// Each is paired with the token of the FIRST `Var` that names it — a reference spells
+    /// the identifier the user wrote, so the diagnostic below reads it off a token it holds
+    /// rather than looking for one at the key's offset.
+    let private freeVarsOfBody (d: TDecl) : (NodeKey * SyntaxToken) list =
         match d with
         // The decl's own binder is in scope in its body (a template may be recursive), so
         // it seeds the bound set; the walk binds the lambda params / locals as it enters them.
-        | TDecl.Let(pat, value, _, _) -> TastWalk.freeVars (TastWalk.bindersOfTPat pat) value |> List.ofSeq
+        | TDecl.Let(pat, value, _, _) ->
+            let free = TastWalk.freeVars (TastWalk.bindersOfTPat pat) value
+            let seen = HashSet<NodeKey>(HashIdentity.Structural)
+            let sites = ResizeArray<NodeKey * SyntaxToken>()
+
+            let it =
+                { TastWalk.identityIter with
+                    VisitExpr =
+                        fun _ e ->
+                            match e with
+                            | TExpr.Var(k, _, tok) when free.Contains k && seen.Add k -> sites.Add(k, tok)
+                            | _ -> ()
+
+                            true
+                }
+
+            TastWalk.iterExpr it value
+            List.ofSeq sites
         | _ -> []
 
     /// THE FAILURE POLICY for a template whose rewritten body still has a free `Var` —
@@ -247,22 +269,19 @@ module Freeze =
         match freeVarsOfBody rewritten with
         | [] -> true
         | free ->
-            // Named off the source at the definition site, by the same rule the frozen
-            // binder column is filled by — so a diagnostic spells a binding the way the
-            // emitted code does. A site the source spells nothing at falls back to the key,
-            // which at least says where it came from.
-            let name (k: NodeKey) =
-                let spelled = TastPools.identifierAt ctx.Input k
-
-                match spelled.Length with
-                | 0 -> string k
-                | _ -> spelled
+            // Named off the reference's own token — the identifier the user wrote at the
+            // site the message is about. A virtual token spells nothing, so that falls back
+            // to the key, which at least says where it came from.
+            let name (k: NodeKey, tok: SyntaxToken) =
+                match ctx.NameOf tok with
+                | "" -> string k
+                | spelled -> spelled
 
             ctx.Error(
                 BinderKey.identity binder,
                 sprintf
                     "This inline binding cannot be published: its body references %s, which has no exportable identity (a top-level binding declares no module, so it has no symbol key a consumer could resolve). Move it into a module."
-                    (free |> List.map (fun k -> sprintf "'%s'" (name k)) |> String.concat ", ")
+                    (free |> List.map (fun site -> sprintf "'%s'" (name site)) |> String.concat ", ")
             )
 
             false
@@ -351,7 +370,7 @@ module Freeze =
                 Diagnostics = List.ofSeq ctx.Diagnostics
             }
 
-        TastConvert.file (freezeTy ctx.Store (schemeBinders ctx)) frozen
+        TastConvert.file (freezeTy ctx.Store (schemeBinders ctx)) id frozen
 
     /// The SemanticAnalysis assembly's OUTPUT: the frozen file as struct-of-arrays pools.
     /// Every consumer — both backends, the signature projection, the compile cache —
@@ -362,4 +381,12 @@ module Freeze =
     /// pooled lambda spine, so `TastPools.toPools` derives it off the columns it has just
     /// filled and a tuple group's pattern is the spine node itself.
     let run (ctx: PassContext) (tast: TastFile) : FrozenPools =
-        toFrozenFile ctx tast |> TastPools.toPools ctx.Input
+        // No record means no source writes the binder: a class's `this`/`base` are MINTED
+        // from the declaration, and `Inline.freshen` mints one per spliced binder. Both are
+        // named after their slot downstream (`BinderNaming.Minted`).
+        let spellingOf (b: BinderKey) =
+            match ctx.BinderSpellings.TryGetValue b with
+            | ValueSome sp -> sp
+            | ValueNone -> BinderSpelling.unspelled
+
+        toFrozenFile ctx tast |> TastPools.toPools spellingOf

@@ -44,6 +44,27 @@ type BinderKeyG<'id> = private | Binder of 'id
 /// The binder key of a tree addressed by `NodeKey` — every pre-freeze and frozen domain.
 type BinderKey = BinderKeyG<NodeKey>
 
+/// How the SOURCE writes a binder: the identifier, and where it is written.
+///
+/// RECORDED where the binder's key is minted from a token
+/// (`PassContext.BinderSpellings`), never recovered afterwards. Not recovered from the
+/// key, whose number is a character offset that only happens to be a token start —
+/// searching for a token there is a coincidence dressed as a lookup. And not read back off
+/// the introducing node either, because the two come apart: `Inline.spliceAt` moves a
+/// spliced body onto its CALL SITE, after which the node's own token spells something else
+/// entirely.
+///
+/// A binder with no spelling is one no source writes — a class's `this`/`base`, a binder
+/// `Inline.freshen` minted — and the freeze stores that as the empty name, which
+/// `BinderNaming.ofColumn` reads back as `Minted`.
+[<Struct>]
+type BinderSpelling = { Name: string; At: Anchor }
+
+module BinderSpelling =
+
+    /// A binder no source writes.
+    let unspelled: BinderSpelling = { Name = ""; At = Anchor.nowhere }
+
 /// Whether a class declaration emits as a reference type, a `[<Struct>]` value
 /// type, or a `[<IsByRefLike>]` byref-like value type. Collapses the former
 /// `isStruct`/`isByRefLike` bool pair so the illegal `(isStruct = false,
@@ -578,14 +599,22 @@ module BinderKey =
     ///
     /// Peeling is the point: `let (x) = 5`'s head is a `Pat.EnclosedBlock` the tree does not
     /// keep, so a key taken off it names a node nothing binds.
-    let rec ofCstPat (p: Pat<SyntaxToken>) : BinderKey voption =
+    /// The two answers come from ONE match so that "which CST pattern binds" and "where its
+    /// name is written" cannot come apart — a producer filling a declaration's key slot
+    /// needs both, the slot keeping no token of its own (`PassContext.SpellBinder`).
+    let rec siteOfCstPat (p: Pat<SyntaxToken>) : struct (BinderKey * SyntaxToken) voption =
         match p with
-        | Pat.NamedSimple _ -> ValueSome(Binder(CstKeys.ofPat p))
+        | Pat.NamedSimple t -> ValueSome(struct (Binder(CstKeys.ofPat p), t))
         | Pat.Attributed(pat = inner)
         | Pat.EnclosedBlock(pat = inner)
         | Pat.Typed(pat = inner)
-        | Pat.As(pat = inner) -> ofCstPat inner
+        | Pat.As(pat = inner) -> siteOfCstPat inner
         | _ -> ValueNone
+
+    /// The binder a CST pattern introduces — `siteOfCstPat` without the token, for a caller
+    /// that only has to know a pattern binds.
+    let ofCstPat (p: Pat<SyntaxToken>) : BinderKey voption =
+        siteOfCstPat p |> ValueOption.map (fun (struct (b, _)) -> b)
 
     /// The `this` binder a type declaration introduces, shared by every member body and by
     /// the instance preamble. No node spells it — `type C() =` writes no `this` token — so

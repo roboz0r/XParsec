@@ -196,7 +196,7 @@ module EmitJsCapabilities =
         (imports: JsImports)
         (build: TastAccessor.ExprId -> JsExpr)
         (head: TastAccessor.ExprId)
-        (spine: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
+        (spine: (TastAccessor.ExprId * FrozenType * Anchor) list)
         (loc: JsLoc voption)
         : JsExpr voption =
         match head, spine with

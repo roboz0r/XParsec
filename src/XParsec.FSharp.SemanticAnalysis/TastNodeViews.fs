@@ -35,8 +35,8 @@ module TastNodeViews =
     /// The `type`-declaration cluster with its member/preamble/ctor BODY slots holding
     /// handles — the shape `TTypeDeclG`'s `'body` parameter exists for. Same spine as
     /// `Frozen.TTypeDecl`, ids in the body slots.
-    type TypeDecl = TTypeDeclG<FrozenType, int<token>, BinderId, ExprId>
-    type TypeKind = TTypeKindG<FrozenType, int<token>, BinderId, ExprId>
+    type TypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, ExprId>
+    type TypeKind = TTypeKindG<FrozenType, Anchor, BinderId, ExprId>
     type Class = TClassG<FrozenType, BinderId, ExprId>
     type TypeMember = TTypeMemberG<FrozenType, BinderId, ExprId>
     type ClassLet = TClassLetG<FrozenType, ExprId>
@@ -287,8 +287,8 @@ module TastNodeViews =
     /// instantiation of the one sink / segment / dyn-hole shape, so a formatter replays
     /// the same records here as in the tree domain.
     type FormatSink = FormatSinkG<ExprId>
-    type FormatSeg = FormatSegG<FrozenType, int<token>, ExprId>
-    type DynFormatHole = DynFormatHoleG<FrozenType, int<token>, ExprId>
+    type FormatSeg = FormatSegG<FrozenType, Anchor, ExprId>
+    type DynFormatHole = DynFormatHoleG<FrozenType, Anchor, ExprId>
 
     /// The scalar payload of a `Format` node — the sink and the interleaved
     /// literal/hole segments, minus the `ty`/`tok` the node also carries.

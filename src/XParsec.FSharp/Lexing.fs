@@ -118,6 +118,38 @@ type Lexed =
             let t1 = tokens[i + 1<_>] // Next token is guaranteed to exist (EOF)
             ReadableString(input, token.StartIndex, t1.StartIndex - token.StartIndex)
 
+    /// The IDENTIFIER token `i` spells, as a span into `input` — the name a binding site
+    /// introduces, with `` `` `` quoting stripped so `` ``my value`` `` reads as
+    /// `my value`. An EMPTY span for a token that spells no name: a keyword, an operator, a
+    /// virtual token, EOF, an unterminated backtick run, or `'T` (a type parameter is not a
+    /// value binder).
+    ///
+    /// Only the span, never a substring: the caller decides whether it needs to
+    /// materialise. What the lexer owns is which tokens are names and where a name's text
+    /// begins and ends, so no consumer has to re-derive F#'s identifier rules from
+    /// characters.
+    member this.GetIdentifierSpan(i: int<token>, input: string) : ReadOnlySpan<char> =
+        let tokens = this.Tokens
+
+        if i < 0<_> || int i >= tokens.Length then
+            invalidArg (nameof i) "Index out of range"
+
+        let token = tokens[i]
+
+        match token.Token with
+        | Token.Identifier -> this.GetTokenSpan(i, input)
+        // The token spans the quotes, which are not part of the name.
+        | Token.BacktickedIdentifier ->
+            let span = this.GetTokenSpan(i, input)
+            span.Slice(2, span.Length - 4)
+        | _ -> ReadOnlySpan<char>()
+
+    /// `GetIdentifierSpan` materialised — for a consumer that must RETAIN the name (the
+    /// frozen binder column), which a span cannot outlive. The empty string is what "this
+    /// token spells no name" reads as, no identifier being empty.
+    member this.GetIdentifier(i: int<token>, input: string) : string =
+        this.GetIdentifierSpan(i, input).ToString()
+
 // Format specifications for printf formats are strings with % markers
 // that indicate format. Format placeholders consist of %[flags][width][.precision][type]
 

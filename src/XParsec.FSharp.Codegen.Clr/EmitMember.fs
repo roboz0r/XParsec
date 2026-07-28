@@ -374,7 +374,7 @@ module EmitMember =
         // class/union the emitted tables carry it; when it lives in a referenced
         // package it does not — a *consumer*'s SRTP `+` / `-` dispatching to an
         // imported type's static operator (`Vesper.Set`'s `op_Addition`) reaches
-        // here. `Inline.resolveTraitCall` always mints a local-shaped
+        // here. `Inline.substMapper`'s trait dispatch always mints a local-shaped
         // `StaticMethodCall`; route the external case through the external
         // member-ref path instead of failing in `resolveStaticMember`.
         let isLocal =

@@ -669,7 +669,8 @@ module Elaborate =
                         yield! flatten it
                 // A parameter's slot is a definition site, so it is taken with the
                 // projection that answers for a pattern; a component that binds nothing
-                // (a wildcard, a nested destructuring) yields none and is dropped.
+                // (a wildcard, a nested destructuring) yields none and is dropped. Its
+                // spelling was recorded when `translatePat` built the pattern.
                 | _ ->
                     match BinderKey.ofPat tp with
                     | ValueSome binder -> yield (binder, TastWalk.patTy tp)
@@ -1076,9 +1077,12 @@ module Elaborate =
             match ace with
             | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
                 // A `let`-preamble head binds a simple name in v1; its key is the one
-                // `translatePat` mints, so a body reference resolves to this local.
-                match BinderKey.ofCstPat b.headPat with
-                | ValueSome binder ->
+                // `translatePat` mints, so a body reference resolves to this local. The
+                // slot keeps only the key, so the head's token is recorded here.
+                match BinderKey.siteOfCstPat b.headPat with
+                | ValueSome(struct (binder, at)) ->
+                    ctx.SpellBinder(binder, at)
+
                     lets.Add
                         {
                             Binder = binder

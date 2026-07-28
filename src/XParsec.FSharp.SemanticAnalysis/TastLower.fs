@@ -451,9 +451,9 @@ module TastLower =
                     let items =
                         elems
                         |> EqArray.toArray
-                        |> Array.map (fun e -> TastAccessor.mintWildcardPat contractPats e ValueNone)
+                        |> Array.map (fun e -> TastAccessor.mintWildcardPat contractPats e Anchor.nowhere)
 
-                    ArgGroupG.GTuple(TastAccessor.mintTuplePat contractPats items pty ValueNone)
+                    ArgGroupG.GTuple(TastAccessor.mintTuplePat contractPats items pty Anchor.nowhere)
                 | _ ->
                     // A ≥2-width group is always an `FTTuple` (translateArgsSpec); keep a
                     // single param defensively rather than fabricate one.

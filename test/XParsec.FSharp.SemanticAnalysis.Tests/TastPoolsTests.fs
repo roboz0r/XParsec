@@ -33,16 +33,16 @@ let private internedBinderId (pools: FrozenPools) (b: BinderKeyG<BinderId> vopti
 
 let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Pooled.TPat) =
     let binder = internedBinderId pools (BinderKey.ofPat du)
-    Expect.equal pools.PatPayloads.[i] (TastPools.patPayload binder du) "pat payload"
-    let duKids = TastPools.patChildren du
+    Expect.equal pools.PatPayloads.[i] (TastPoolShapes.patPayload binder du) "pat payload"
+    let duKids = TastPoolShapes.patChildren du
     Expect.equal pools.PatChildren.[i].Length duKids.Length "pat child fan-out"
     Array.iter2 (checkPat pools) pools.PatChildren.[i] duKids
 
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr) =
     let binder = internedBinderId pools (BinderKey.ofExpr du)
-    Expect.equal pools.ExprPayloads.[i] (TastPools.exprPayload id binder du) "expr payload"
-    let duExprKids = TastPools.exprChildren du
-    let duPatKids = TastPools.exprPatChildren du
+    Expect.equal pools.ExprPayloads.[i] (TastPoolShapes.exprPayload id binder du) "expr payload"
+    let duExprKids = TastPoolShapes.exprChildren du
+    let duPatKids = TastPoolShapes.exprPatChildren du
     Expect.equal pools.ExprChildren.[i].Length duExprKids.Length "expr child fan-out"
     Expect.equal pools.ExprPatChildren.[i].Length duPatKids.Length "expr's pat fan-out"
     Array.iter2 (checkExpr pools) pools.ExprChildren.[i] duExprKids
@@ -52,17 +52,19 @@ let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr)
 /// traversal the pool build and drain run (`TastConvert.typeDecl` at a collecting body
 /// mapping). Reusing it is what keeps this check from drifting away from the set of slots
 /// that are actually pooled — a newly-added body slot appears here for free.
-let private bodySlots (td: TTypeDeclG<FrozenType, int<token>, 'id, 'body>) : 'body[] =
+let private bodySlots (td: TTypeDeclG<FrozenType, Anchor, 'id, 'body>) : 'body[] =
     let slots = ResizeArray<'body>()
 
     TastConvert.typeDecl
-        id
-        id
-        BinderKey.identity
-        (fun b ->
-            slots.Add b
-            b
-        )
+        {
+            Ty = id
+            Tok = id
+            Id = BinderKey.identity
+            Body =
+                fun b ->
+                    slots.Add b
+                    b
+        }
         td
     |> ignore
 
@@ -205,48 +207,35 @@ let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
 
     Expect.equal pools.BindingValReprs.Length namedLetRoots.Length "one recorded arity per simple-binder Let root"
 
-// The binder columns' ANCHOR obligation: a binder a NODE introduces (`NamedSimple`, read
-// via `patTok`; `ForTo.identTok`) has that very anchor in `BinderToks`, and the name in
-// `BinderNames` is the identifier the source spells there. The columns are what every
-// backend names a binder from, and nothing else in the file ties them back to the tree, so
-// the tie is asserted here. Returns the count of node-introduced binders checked, so a test
-// can assert non-vacuous coverage.
-let private checkBinderAnchors (pools: FrozenPools) (frozen: Pooled.TastFile) : int =
-    let mutable anchored = 0
+// The binder columns' obligation, which is ONE obligation: a binder the SOURCE WRITES is
+// anchored at the token that writes it and named with the text there; a binder no source
+// writes has neither. Both columns are filled from a single record made where the binder's
+// key was minted (`PassContext.BinderSpellings`), so the check is that they agree with each
+// other and with the file's own tokens. Returns the count of written binders, so a test can
+// assert non-vacuous coverage.
+//
+// It is deliberately NOT "a binder is anchored where its introducing NODE sits". That held
+// only until `Inline.spliceAt` moved a spliced body onto its call site: the node then sits
+// at the call, while its binders — `freshen`-minted — are written nowhere at all. Asserting
+// the node form is what made deriving a name from a node's anchor look sound.
+let private checkBinderSpellings (src: string) (pools: FrozenPools) : int =
+    let lexed, _ = parseFile src
+    let mutable written = 0
 
-    let checkAnchor (BinderId i) (tok: int<token>) (what: string) =
-        anchored <- anchored + 1
+    for i in 0 .. pools.BinderNames.Length - 1 do
+        match pools.BinderNames.[i], pools.BinderToks.[i].Index with
+        | "", ValueNone -> ()
+        | "", ValueSome t -> failtestf "binder %d is anchored at token %d but has no name" i (int t)
+        | name, ValueNone -> failtestf "binder %d is named '%s' but is written nowhere" i name
+        | name, ValueSome t ->
+            written <- written + 1
 
-        Expect.equal pools.BinderToks.[i] tok (sprintf "%s binder anchors on its own node token" what)
+            Expect.equal
+                (lexed.GetIdentifier(t, src))
+                name
+                (sprintf "binder %d's name is the identifier at its own anchor" i)
 
-    let rec walkPat (p: Pooled.TPat) =
-        match BinderKey.ofPat p with
-        | ValueSome k -> checkAnchor (BinderKey.identity k) (TastWalk.patTok p) "NamedSimple"
-        | ValueNone -> ()
-
-        for sub in TastPools.patChildren p do
-            walkPat sub
-
-    let rec walkExpr (e: Pooled.TExpr) =
-        match e with
-        | TExprG.ForTo(var = var; identTok = identTok) -> checkAnchor var identTok "ForTo"
-        | _ -> ()
-
-        for pc in TastPools.exprPatChildren e do
-            walkPat pc
-
-        for ec in TastPools.exprChildren e do
-            walkExpr ec
-
-    for d in EqArray.toArray frozen.Decls do
-        match d with
-        | TDeclG.Let(binding = binding; value = value) ->
-            walkPat binding
-            walkExpr value
-        | TDeclG.Expression(expr = expr) -> walkExpr expr
-        | TDeclG.Type _ -> ()
-
-    anchored
+    written
 
 let private checkProgram (src: string) =
     let pools, frozen = poolsFor src
@@ -368,27 +357,26 @@ let tests =
 [<Tests>]
 let binderAnchorTests =
     testList
-        "TastPools anchors a binder on the node that introduces it"
+        "TastPools names a binder where the source writes it"
         [
             // Each program checks the obligation on its own binders; the aggregate asserts
-            // the set is non-vacuous, so a program mix that surfaced no node-introduced
-            // binder would fail loud rather than pass trivially. The `let`/`for`-heavy
-            // programs above cover both `NamedSimple` and `ForTo`.
+            // the set is non-vacuous, so a program mix in which the source wrote no binder
+            // at all would fail loud rather than pass trivially.
             for name, src in programs do
                 test name {
-                    let pools, frozen = poolsFor src
-                    checkBinderAnchors pools frozen |> ignore
+                    let pools, _ = poolsFor src
+                    checkBinderSpellings src pools |> ignore
                 }
 
-            test "the program set exercises node-introduced binders" {
+            test "the program set exercises source-written binders" {
                 let total =
                     programs
                     |> List.sumBy (fun (_, src) ->
-                        let pools, frozen = poolsFor src
-                        checkBinderAnchors pools frozen
+                        let pools, _ = poolsFor src
+                        checkBinderSpellings src pools
                     )
 
-                Expect.isGreaterThan total 0 "at least one binder is correlated to its node token"
+                Expect.isGreaterThan total 0 "at least one binder is named at its own anchor"
             }
         ]
 
@@ -573,7 +561,7 @@ let funVerdictLambdaKeyTests =
 
                 // A key on a token index past the end of any lexed file — a lambda-keyed
                 // entry naming no pooled lambda, the honest failure the resolver surfaces.
-                let bogus = LambdaKey 1_000_000<token>
+                let bogus = LambdaKey(Anchor.ofStored 1_000_000)
 
                 let injected =
                     { frozen with

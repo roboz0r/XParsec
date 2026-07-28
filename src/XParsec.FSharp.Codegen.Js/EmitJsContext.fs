@@ -162,8 +162,8 @@ module EmitJsContext =
     /// answer, and both are honest: no source text was supplied at all, or the node sits at
     /// no source position (a node this emission derived). The anchor is an index into the
     /// token table, and the token is what carries the character offset the line index wants.
-    let locOf (ctx: WalkCtx) (anchor: int<token> voption) : JsLoc voption =
-        match ctx.Resolver, anchor with
+    let locOf (ctx: WalkCtx) (anchor: Anchor) : JsLoc voption =
+        match ctx.Resolver, anchor.Index with
         | ValueSome r, ValueSome i -> ValueSome(LineIndex.resolve r.Lines r.Lexed.Tokens.[i].StartIndex)
         | _ -> ValueNone
 

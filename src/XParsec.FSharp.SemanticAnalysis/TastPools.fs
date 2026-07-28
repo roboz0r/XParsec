@@ -3,419 +3,22 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// The FILL direction of the id-indexable frozen pools: `toPools` walks the `Frozen.*` DU
-// assigning each node a dense id and recording its child edges as ids. The drain —
-// `substitute*` and `ofPools`, rebuilding the DU from the columns alone — is
-// `TastUnpool.fs`; the wire-shape types are split by scope, one NODE
-// (`ExprPoolId`/`ExprPayload`/`ExprRow`/…, `TastPoolNodes.fs`) versus the whole FILE
-// (`FrozenPools` and its side-table containers, `TastPoolTypes.fs`).
+// WHERE a node's projections LAND: the sink a pooling walk pours rows into, the walk
+// itself, and `toPools` — the whole-file fill that is the last step of the freeze
+// (`Freeze.run`) and its only production caller. What a node projects TO is
+// `TastPoolShapes.fs`, which this file is the sole consumer of; the drain — `substitute*`
+// and `ofPools`, rebuilding the DU from the columns alone — is `TastUnpool.fs`; the
+// wire-shape types are split by scope, one NODE (`ExprPoolId`/`ExprPayload`/`ExprRow`/…,
+// `TastPoolNodes.fs`) versus the whole FILE (`FrozenPools` and its side-table containers,
+// `TastPoolTypes.fs`).
 //
-// `toPools` is the LAST step of the freeze (`Freeze.run`) and its only production caller.
 // The corpus-wide `TastUnpool.ofPools ∘ toPools = id` is the proof that the columns carry
 // the whole tree.
 
 [<RequireQualifiedAccess>]
 module TastPools =
 
-    // ── the DU vocabulary ───────────────────────────────────────────────────
-    //
-    // Payload projection and child enumeration read off a `Frozen.*` node. This is the
-    // LAST place a frozen DU is walked — every consumer reads the columns — so the tree
-    // shape is written down exactly once, here, and the child ORDER these produce IS
-    // the order of the `ExprChildren`/`ExprPatChildren`/`PatChildren` columns. Each
-    // match is exhaustive with no catch-all: a new `TExprG`/`TPatG`/`TDeclG` case
-    // fails to compile rather than silently escaping the pool. A node's SHAPE tag is not
-    // among them — it is `ExprPayload.shape` of the payload these produce, never a
-    // second match over the DU.
-
-    /// The immediate child *expressions*, in evaluation order. Sub-patterns are NOT
-    /// children (see `exprPatChildren`); composite carriers with no node identity of
-    /// their own (match arms, format segments, static-opt clauses) are descended into
-    /// so every reachable sub-expression appears exactly once.
-    let exprChildren (e: TExprG<FrozenType, 'tok, 'id>) : TExprG<FrozenType, 'tok, 'id>[] =
-        let acc = ResizeArray<TExprG<FrozenType, 'tok, 'id>>()
-
-        match e with
-        | TExprG.Const _
-        | TExprG.Var _
-        | TExprG.External _
-        | TExprG.Null _
-        | TExprG.StaticPropertyGet _
-        | TExprG.StaticFieldGet _ -> ()
-        | TExprG.Lambda(body = body) -> acc.Add body
-        | TExprG.App(fn = fn; arg = arg) ->
-            acc.Add fn
-            acc.Add arg
-        | TExprG.Let(value = value; body = body) ->
-            acc.Add value
-            acc.Add body
-        | TExprG.Use(value = value; body = body) ->
-            acc.Add value
-            acc.Add body
-        | TExprG.IfThenElse(cond = cond; thenExpr = thenExpr; elseExpr = elseExpr) ->
-            acc.Add cond
-            acc.Add thenExpr
-            acc.Add elseExpr
-        | TExprG.Tuple(items = items)
-        | TExprG.Sequential(items = items) ->
-            for x in items do
-                acc.Add x
-        | TExprG.While(cond = cond; body = body) ->
-            acc.Add cond
-            acc.Add body
-        | TExprG.ForTo(startExpr = startExpr; endExpr = endExpr; body = body) ->
-            acc.Add startExpr
-            acc.Add endExpr
-            acc.Add body
-        | TExprG.ForIn(source = source; body = body) ->
-            acc.Add source
-            acc.Add body
-        | TExprG.Match(scrutinee = scrutinee; arms = arms) ->
-            acc.Add scrutinee
-
-            for arm in arms do
-                match arm.Guard with
-                | ValueSome g -> acc.Add g
-                | ValueNone -> ()
-
-                acc.Add arm.Body
-        | TExprG.TryWith(body = body; arms = arms) ->
-            acc.Add body
-
-            for arm in arms do
-                match arm.Guard with
-                | ValueSome g -> acc.Add g
-                | ValueNone -> ()
-
-                acc.Add arm.Body
-        | TExprG.TryFinally(body = body; cleanup = cleanup) ->
-            acc.Add body
-            acc.Add cleanup
-        | TExprG.Assignment(lhs = lhs; rhs = rhs) ->
-            acc.Add lhs
-            acc.Add rhs
-        | TExprG.Range(startExpr = startExpr; step = step; stopExpr = stopExpr) ->
-            acc.Add startExpr
-
-            match step with
-            | Some s -> acc.Add s
-            | None -> ()
-
-            acc.Add stopExpr
-        | TExprG.RecordCons(fields = fields) ->
-            for (_, v) in fields do
-                acc.Add v
-        | TExprG.RecordClone(source = source; overrides = overrides) ->
-            acc.Add source
-
-            for (_, v) in overrides do
-                acc.Add v
-        | TExprG.FieldGet(receiver = receiver) -> acc.Add receiver
-        | TExprG.FieldSet(receiver = receiver; value = value) ->
-            acc.Add receiver
-            acc.Add value
-        | TExprG.UnionCons(args = args) ->
-            for x in args do
-                acc.Add x
-        | TExprG.New(args = args) ->
-            for x in args do
-                acc.Add x
-        | TExprG.MethodCall(receiver = receiver; args = args) ->
-            acc.Add receiver
-
-            for x in args do
-                acc.Add x
-        | TExprG.PropertyGet(receiver = receiver) -> acc.Add receiver
-        | TExprG.StaticMethodCall(args = args) ->
-            for x in args do
-                acc.Add x
-        | TExprG.StaticFieldSet(value = value) -> acc.Add value
-        | TExprG.ExternalMember(receiver = receiver) ->
-            match receiver with
-            | ValueSome r -> acc.Add r
-            | ValueNone -> ()
-        | TExprG.Format(sink = sink; segments = segments) ->
-            match sink with
-            | FormatSinkG.ToWriter(writer = writer) -> acc.Add writer
-            | FormatSinkG.ToBuilder builder -> acc.Add builder
-            | FormatSinkG.ToStdOut _
-            | FormatSinkG.ToStdErr _
-            | FormatSinkG.ToString -> ()
-
-            for seg in segments do
-                match seg with
-                | FormatSegG.Lit _ -> ()
-                | FormatSegG.Hole(_, value) -> acc.Add value
-                | FormatSegG.DynHole hole ->
-                    match hole.Width with
-                    | ValueSome w -> acc.Add w
-                    | ValueNone -> ()
-
-                    match hole.Precision with
-                    | ValueSome p -> acc.Add p
-                    | ValueNone -> ()
-
-                    acc.Add hole.Value
-                | FormatSegG.CallbackHole(residue = residue) -> acc.Add residue
-        | TExprG.ILIntrinsic(args = args) ->
-            for x in args do
-                acc.Add x
-        | TExprG.StaticOptimization(clauses = clauses; defaultExpr = defaultExpr) ->
-            for clause in clauses do
-                acc.Add clause.Body
-
-            acc.Add defaultExpr
-        | TExprG.Upcast(source = source) -> acc.Add source
-        | TExprG.Downcast(source = source) -> acc.Add source
-        | TExprG.TypeTest(source = source) -> acc.Add source
-        | TExprG.TraitCall(args = args) ->
-            for x in args do
-                acc.Add x
-
-        acc.ToArray()
-
-    /// The immediate child *patterns* an expression owns directly, in source order —
-    /// the binders (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
-    /// (`Match`/`TryWith`) that are part of THIS node. They are NOT reachable through
-    /// `exprChildren` (which yields only sub-expressions). Only the six binder/arm
-    /// shapes own patterns. `ForTo`'s loop variable is a bare binder, not a pattern, so
-    /// it is not a pat child — it rides the node's own payload.
-    let exprPatChildren (e: TExprG<FrozenType, 'tok, 'id>) : TPatG<FrozenType, 'tok, 'id>[] =
-        let acc = ResizeArray<TPatG<FrozenType, 'tok, 'id>>()
-
-        match e with
-        | TExprG.Const _
-        | TExprG.Var _
-        | TExprG.External _
-        | TExprG.App _
-        | TExprG.IfThenElse _
-        | TExprG.Tuple _
-        | TExprG.Sequential _
-        | TExprG.While _
-        | TExprG.ForTo _
-        | TExprG.TryFinally _
-        | TExprG.Assignment _
-        | TExprG.Null _
-        | TExprG.Range _
-        | TExprG.RecordCons _
-        | TExprG.RecordClone _
-        | TExprG.FieldGet _
-        | TExprG.FieldSet _
-        | TExprG.UnionCons _
-        | TExprG.New _
-        | TExprG.MethodCall _
-        | TExprG.PropertyGet _
-        | TExprG.StaticMethodCall _
-        | TExprG.StaticPropertyGet _
-        | TExprG.StaticFieldGet _
-        | TExprG.StaticFieldSet _
-        | TExprG.ExternalMember _
-        | TExprG.Format _
-        | TExprG.ILIntrinsic _
-        | TExprG.StaticOptimization _
-        | TExprG.Upcast _
-        | TExprG.Downcast _
-        | TExprG.TypeTest _
-        | TExprG.TraitCall _ -> ()
-        | TExprG.Lambda(param = param) -> acc.Add param
-        | TExprG.Let(binding = binding) -> acc.Add binding
-        | TExprG.Use(binding = binding) -> acc.Add binding
-        | TExprG.ForIn(pat = pat) -> acc.Add pat
-        | TExprG.Match(arms = arms) ->
-            for arm in arms do
-                acc.Add arm.Pat
-        | TExprG.TryWith(arms = arms) ->
-            for arm in arms do
-                acc.Add arm.Pat
-
-        acc.ToArray()
-
-    /// The immediate sub-patterns, in source order (patterns own no child expressions).
-    let patChildren (p: TPatG<FrozenType, 'tok, 'id>) : TPatG<FrozenType, 'tok, 'id>[] =
-        let acc = ResizeArray<TPatG<FrozenType, 'tok, 'id>>()
-
-        match p with
-        | TPatG.NamedSimple _
-        | TPatG.Wildcard _
-        | TPatG.Const _
-        | TPatG.Null _
-        | TPatG.EnumCase _ -> ()
-        | TPatG.Tuple(items = items)
-        | TPatG.Or(alts = items) ->
-            for x in items do
-                acc.Add x
-        | TPatG.Record(fields = fields) ->
-            for (_, sub) in fields do
-                acc.Add sub
-        | TPatG.Union(fields = fields) ->
-            for x in fields do
-                acc.Add x
-        | TPatG.TypeTestAs(inner = inner) -> acc.Add inner
-
-        acc.ToArray()
-
-    /// The dense id of the binder the node being pooled INTRODUCES. `BinderKey.ofPat` /
-    /// `BinderKey.ofExpr` answer `ValueSome` for exactly the two payload cases that name
-    /// their own binder (`NamedSimple`, `ForTo`), and `poolPat`/`poolExpr` intern that
-    /// answer before building the payload — so a miss is those two statements of "which
-    /// node binds" having drifted apart, not a defect of the tree.
-    let private introducedBinder (site: string) (binder: BinderId voption) : BinderId =
-        match binder with
-        | ValueSome id -> id
-        | ValueNone -> failwithf "TastPools.%s: the node's payload names a binder the walk interned none for" site
-
-    /// The residual payload of a frozen expression node — its fields MINUS `ty`/`tok`, the
-    /// child expr ids (`exprChildren`), the owned pat ids (`exprPatChildren`), and the `Var`
-    /// binder id. The exact inverse of `substituteExpr`, mirroring `FrozenCodec.writeExprPayload`
-    /// for what each case emits beyond those. Exhaustive on the DU with no catch-all, so a
-    /// new `TExprG` case fails to compile here.
-    ///
-    /// `binder` is the dense id of the binder this node introduces (`introducedBinder`) —
-    /// `ForTo`'s loop variable and nothing else. `anchor` narrows the walked tree's tokens
-    /// to the stored index (the sink's, see `PoolSink.Anchor`); a `ForTo`'s `identTok` is
-    /// the one anchor a payload carries.
-    ///
-    /// Public as the DU-domain counterpart of the `ExprPayloads` column: the pool-build
-    /// gate checks a pooled node against the payload the DU node projects to, which is
-    /// the whole residual rather than just its tag.
-    let exprPayload
-        (anchor: 'tok -> int<token>)
-        (binder: BinderId voption)
-        (e: TExprG<FrozenType, 'tok, 'id>)
-        : ExprPayload =
-        // Per-arm guard-presence flags — the only residual structure a `Match`/`TryWith`
-        // records (the arm pats/guards/bodies themselves ride the child columns); this is
-        // what `substituteExpr.buildArms` re-nests them by.
-        let armGuards (arms: EqArray<TMatchArmG<_, _>>) =
-            arms |> EqArray.toArray |> Array.map (fun arm -> arm.Guard.IsSome)
-
-        match e with
-        | TExprG.Const(value = value) -> ExprPayload.Const value
-        | TExprG.Var _ -> ExprPayload.Var
-        | TExprG.External(compiledName = compiledName; key = key) ->
-            ExprPayload.External
-                {|
-                    CompiledName = compiledName
-                    Key = key
-                |}
-        | TExprG.Lambda _ -> ExprPayload.Lambda
-        | TExprG.App _ -> ExprPayload.App
-        | TExprG.Let _ -> ExprPayload.Let
-        | TExprG.Use(dispose = dispose) -> ExprPayload.Use dispose
-        | TExprG.IfThenElse _ -> ExprPayload.IfThenElse
-        | TExprG.Tuple _ -> ExprPayload.Tuple
-        | TExprG.Sequential _ -> ExprPayload.Sequential
-        | TExprG.While _ -> ExprPayload.While
-        | TExprG.ForTo(identTok = identTok) ->
-            ExprPayload.ForTo
-                {|
-                    Var = introducedBinder "exprPayload" binder
-                    IdentTok = anchor identTok
-                |}
-        | TExprG.ForIn(enumerator = enumerator) -> ExprPayload.ForIn enumerator
-        | TExprG.Match(arms = arms) -> ExprPayload.Match(armGuards arms)
-        | TExprG.TryWith(arms = arms) -> ExprPayload.TryWith(armGuards arms)
-        | TExprG.TryFinally _ -> ExprPayload.TryFinally
-        | TExprG.Assignment _ -> ExprPayload.Assignment
-        | TExprG.Null _ -> ExprPayload.Null
-        | TExprG.Range(step = step) -> ExprPayload.Range step.IsSome
-        | TExprG.RecordCons(fields = fields) -> ExprPayload.RecordCons(fields |> EqArray.toArray |> Array.map fst)
-        | TExprG.RecordClone(overrides = overrides) ->
-            ExprPayload.RecordClone(overrides |> EqArray.toArray |> Array.map fst)
-        | TExprG.FieldGet(fieldName = fieldName) -> ExprPayload.FieldGet fieldName
-        | TExprG.FieldSet(fieldName = fieldName) -> ExprPayload.FieldSet fieldName
-        | TExprG.UnionCons(caseName = caseName) -> ExprPayload.UnionCons caseName
-        | TExprG.New(className = className; key = key) -> ExprPayload.New {| ClassName = className; Key = key |}
-        | TExprG.MethodCall(key = key; via = via) -> ExprPayload.MethodCall {| Key = key; Via = via |}
-        | TExprG.PropertyGet(key = key; via = via) -> ExprPayload.PropertyGet {| Key = key; Via = via |}
-        | TExprG.StaticMethodCall(key = key) -> ExprPayload.StaticMethodCall key
-        | TExprG.StaticPropertyGet(key = key) -> ExprPayload.StaticPropertyGet key
-        | TExprG.StaticFieldGet(declKey = declKey; fieldName = fieldName) ->
-            ExprPayload.StaticFieldGet
-                {|
-                    DeclKey = declKey
-                    FieldName = fieldName
-                |}
-        | TExprG.StaticFieldSet(declKey = declKey; fieldName = fieldName) ->
-            ExprPayload.StaticFieldSet
-                {|
-                    DeclKey = declKey
-                    FieldName = fieldName
-                |}
-        | TExprG.ExternalMember(receiver = receiver; key = key; memberName = memberName; storage = storage) ->
-            ExprPayload.ExternalMember
-                {|
-                    HasReceiver = receiver.IsSome
-                    Key = key
-                    MemberName = memberName
-                    Storage = storage
-                |}
-        | TExprG.Format(sink = sink; segments = segments) ->
-            let sink' =
-                match sink with
-                | FormatSinkG.ToStdOut newline -> FormatSinkShape.ToStdOut newline
-                | FormatSinkG.ToStdErr newline -> FormatSinkShape.ToStdErr newline
-                | FormatSinkG.ToWriter(newline = newline) -> FormatSinkShape.ToWriter newline
-                | FormatSinkG.ToBuilder _ -> FormatSinkShape.ToBuilder
-                | FormatSinkG.ToString -> FormatSinkShape.ToString
-
-            // A hole carries an anchor of its own, so it is narrowed here exactly as a
-            // node's is — `ExprPayload.format` widens it back.
-            let spec = TastConvert.hole id anchor
-
-            let segments' =
-                segments
-                |> EqArray.toArray
-                |> Array.map (fun seg ->
-                    match seg with
-                    | FormatSegG.Lit s -> FormatSegShape.Lit s
-                    | FormatSegG.Hole(h, _) -> FormatSegShape.Hole(spec h)
-                    | FormatSegG.DynHole hole ->
-                        FormatSegShape.DynHole(hole.Width.IsSome, hole.Precision.IsSome, spec hole.Spec)
-                    | FormatSegG.CallbackHole(h, _) -> FormatSegShape.CallbackHole(spec h)
-                )
-
-            ExprPayload.Format {| Sink = sink'; Segments = segments' |}
-        | TExprG.ILIntrinsic(opCode = opCode; typeOperand = typeOperand) ->
-            ExprPayload.ILIntrinsic
-                {|
-                    OpCode = opCode
-                    TypeOperand = typeOperand
-                |}
-        | TExprG.StaticOptimization(clauses = clauses) ->
-            ExprPayload.StaticOptimization(clauses |> EqArray.toArray |> Array.map (fun clause -> clause.Constraints))
-        | TExprG.Upcast _ -> ExprPayload.Upcast
-        | TExprG.Downcast _ -> ExprPayload.Downcast
-        | TExprG.TypeTest(testTy = testTy) -> ExprPayload.TypeTest testTy
-        | TExprG.TraitCall(receiver = receiver; memberName = memberName) ->
-            ExprPayload.TraitCall
-                {|
-                    Receiver = receiver
-                    MemberName = memberName
-                |}
-
-    /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
-    /// child sub-pat ids (`patChildren`). The exact inverse of `substitutePat`, mirroring
-    /// `FrozenCodec.writePatPayload`. Exhaustive with no catch-all, so a new `TPat` case fails to
-    /// compile here. `binder` is as `exprPayload`'s — here it is `NamedSimple`'s own binder.
-    /// Public for the same reason as `exprPayload`.
-    let patPayload (binder: BinderId voption) (p: TPatG<FrozenType, 'tok, 'id>) : PatPayload =
-        match p with
-        | TPatG.NamedSimple _ -> PatPayload.NamedSimple(introducedBinder "patPayload" binder)
-        | TPatG.Wildcard _ -> PatPayload.Wildcard
-        | TPatG.Null _ -> PatPayload.Null
-        | TPatG.Tuple _ -> PatPayload.Tuple
-        | TPatG.Or _ -> PatPayload.Or
-        | TPatG.Const(value = value) -> PatPayload.Const value
-        | TPatG.Record(fields = fields) -> PatPayload.Record(fields |> EqArray.toArray |> Array.map fst)
-        | TPatG.Union(caseName = caseName) -> PatPayload.Union caseName
-        | TPatG.TypeTestAs(testTy = testTy) -> PatPayload.TypeTestAs testTy
-        | TPatG.EnumCase(enumKey = enumKey; caseName = caseName) ->
-            PatPayload.EnumCase
-                {|
-                    EnumKey = enumKey
-                    CaseName = caseName
-                |}
+    open TastPoolShapes
 
     /// The id-keyed record a row cannot carry, reported as the walk appends the node it
     /// belongs to. One case per such record, so the datum a case carries is the one that
@@ -434,19 +37,7 @@ module TastPools =
         /// overlay sink, which mints nodes spelled by no token at all — and drops the event
         /// unread, so nothing may depend on the anchor being a real one before the sink
         /// asks for it.
-        | LambdaPooled of anchor: int<token> * at: ExprPoolId
-
-    /// A definition site as a pooling sink sees it: the binder, plus where it is SPELLED.
-    /// The anchor is absent at a declaration's pattern-less key slot — those hold a binder
-    /// key and no token (`TastConvert.typeDecl`'s `fId` is handed nothing else), so there
-    /// is none to offer, and that is the whole of the mint domain the naming column cannot
-    /// anchor.
-    [<Struct>]
-    type BinderSite<'id> =
-        {
-            Binder: BinderKeyG<'id>
-            Anchor: int<token>
-        }
+        | LambdaPooled of anchor: Anchor * at: ExprPoolId
 
     /// Where a pooling walk PUTS the rows it produces. The walk itself — which nodes
     /// exist, in what order, and which child edges they carry — is `poolExpr`/`poolPat`/
@@ -466,13 +57,18 @@ module TastPools =
             /// slot), before the node's row is added, and answering with the dense id that
             /// binder took — which is what the node's own payload then names it by.
             /// Idempotent in the binder.
-            InternBinder: BinderSite<'id> -> BinderId
+            ///
+            /// The binder and NOTHING ELSE: how the source writes it is not a fact of the
+            /// walk, which sees only where a node ended up, and the two differ once
+            /// `Inline.spliceAt` has moved a body. `fill` joins the two by asking the
+            /// binder's own spelling record.
+            InternBinder: BinderKeyG<'id> -> BinderId
             /// How the walked tree's spelling of a position becomes the stored anchor. It
             /// is the sink's and not the walk's because it is a property of the DESTINATION:
             /// a node of a frozen FILE must anchor on a real lexed token of that file
             /// (`Anchor.ofToken` faults otherwise), while an overlay's rows belong to no
             /// file and owe that nothing.
-            Anchor: 'tok -> int<token>
+            Anchor: 'tok -> Anchor
             AddExpr: ExprRow -> ExprPoolId
             AddPat: PatRow -> PatPoolId
             AddDecl: DeclRow -> DeclPoolId
@@ -481,33 +77,18 @@ module TastPools =
             OnExprPooled: PooledEvent<'id> -> unit
         }
 
-    [<RequireQualifiedAccess>]
-    module PoolSink =
-
-        /// The sink's interning as `TastConvert.typeDecl` wants it: a declaration's key
-        /// slots are the sites NO node spells, so this is the one place an anchorless site
-        /// is built.
-        let internSlot (sink: PoolSink<'tok, 'id>) (b: BinderKeyG<'id>) : BinderId =
-            sink.InternBinder { Binder = b; Anchor = Anchor.none }
-
     /// Pool a pattern subtree post-order: a node's children are pooled before the node
     /// itself, so every child id its row names already resolves.
     let rec poolPat (sink: PoolSink<'tok, 'id>) (p: TPatG<FrozenType, 'tok, 'id>) : PatPoolId =
-        let anchor = sink.Anchor(TastWalk.patTok p)
-
         // Interned BEFORE the payload is built: the payload names this binder by the id
         // the intern hands back, so there is one identity rather than a key and an id.
-        // A pattern SPELLS the binder it introduces, so its own anchor is the name's.
-        let binder =
-            BinderKey.ofPat p
-            |> ValueOption.map (fun b -> sink.InternBinder { Binder = b; Anchor = anchor })
-
+        let binder = BinderKey.ofPat p |> ValueOption.map sink.InternBinder
         let kids = patChildren p |> Array.map (poolPat sink)
 
         sink.AddPat
             {
                 Ty = TastWalk.patTy p
-                Tok = anchor
+                Tok = sink.Anchor(TastWalk.patTok p)
                 Children = kids
                 Payload = patPayload binder p
             }
@@ -516,18 +97,8 @@ module TastPools =
     /// included.
     let rec poolExpr (sink: PoolSink<'tok, 'id>) (e: TExprG<FrozenType, 'tok, 'id>) : ExprPoolId =
         // A `ForTo` binds its loop variable with no pattern node behind it, so the
-        // intern cannot ride `poolPat` — and the token that spells it is the loop
-        // variable's own, not the node's anchor (which is the `for` keyword).
-        let binder =
-            BinderKey.siteOfExpr e
-            |> ValueOption.map (fun (struct (b, identTok)) ->
-                sink.InternBinder
-                    {
-                        Binder = b
-                        Anchor = sink.Anchor identTok
-                    }
-            )
-
+        // intern cannot ride `poolPat`.
+        let binder = BinderKey.ofExpr e |> ValueOption.map sink.InternBinder
         let exprKids = exprChildren e |> Array.map (poolExpr sink)
         let patKids = exprPatChildren e |> Array.map (poolPat sink)
 
@@ -569,7 +140,16 @@ module TastPools =
         | TDeclG.Let(isInline = isInline; ty = ty) -> DeclPayload.Let {| IsInline = isInline; Ty = ty |}
         | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
         | TDeclG.Type td ->
-            DeclPayload.Type(TastConvert.typeDecl id sink.Anchor (PoolSink.internSlot sink) (poolExpr sink) td)
+            DeclPayload.Type(
+                TastConvert.typeDecl
+                    {
+                        Ty = id
+                        Tok = sink.Anchor
+                        Id = sink.InternBinder
+                        Body = poolExpr sink
+                    }
+                    td
+            )
 
     /// Pool a declaration, its expr/pat roots (see `poolPat`) and — for a `Type` decl —
     /// its member bodies, which the payload names by id rather than surfacing as children.
@@ -651,57 +231,27 @@ module TastPools =
                 | DeclPayload.Type _ -> ()
         |]
 
-    /// The identifier `source` spells at a definition site, or the EMPTY string where none
-    /// is spelled there — a binder the freeze MINTED (a class's `this`/`base`, a freshened
-    /// inline binder) has no source name at all, and a counter-minted key names no place in
-    /// the file to look for one.
-    ///
-    /// THE reading of a binder's name, made once, at the freeze, so the text a backend
-    /// emits is a column value and not a re-scan of a source file the backend may no longer
-    /// hold (a unit emitted from its cache blob has none). The text is verbatim: mangling it
-    /// for a target dialect's reserved words or illegal characters belongs to the backend.
-    let identifierAt (source: string) (k: NodeKey) : string =
-        let isStart (c: char) = System.Char.IsLetter c || c = '_'
-
-        let isCont (c: char) =
-            System.Char.IsLetterOrDigit c || c = '_' || c = '\''
-
-        if
-            k.IsSynthetic
-            || k.Offset < 0
-            || k.Offset >= source.Length
-            || not (isStart source.[k.Offset])
-        then
-            ""
-        else
-            let mutable i = k.Offset
-
-            while i < source.Length && isCont source.[i] do
-                i <- i + 1
-
-            source.Substring(k.Offset, i - k.Offset)
-
     /// Pool a tree, assigning each reachable node a dense id and recording its child edges
     /// as ids. Generic in the identity the tree names binders by, because the fill runs in
     /// BOTH directions of the round-trip: a source-shaped file arrives naming them by
     /// `NodeKey`, a file drained back out of the columns by `BinderId`, and the columns are
     /// the same columns either way.
     ///
-    /// Two things differ between the directions, and both are arguments. `nameOf` is how the
-    /// naming column is filled — the one fact the identity does not carry: a `NodeKey` finds
-    /// it in the source text, a `BinderId` in the pool that issued it. `anchor` is how the
-    /// tree's spelling of a position becomes the stored index — a checked narrowing from a
-    /// `SyntaxToken`, or nothing at all for a tree already in the stored form. See `toPools`
-    /// and `rePool`.
+    /// Two things differ between the directions, and both are arguments. `spellingOf` is how
+    /// the two binder columns are filled — the one fact neither the identity nor the walk
+    /// carries: the producer's record for a source-shaped tree, the pool it came out of for
+    /// a drained one. `anchor` is how the tree's spelling of a position becomes the stored
+    /// one — a checked narrowing from a `SyntaxToken`, or nothing at all for a tree already
+    /// in the stored form. See `toPools` and `rePool`.
     let private fill
-        (nameOf: 'id -> string)
-        (anchor: 'tok -> int<token>)
+        (spellingOf: BinderKeyG<'id> -> BinderSpelling)
+        (anchor: 'tok -> Anchor)
         (file: TastFileG<FrozenType, 'tok, 'id>)
         : FrozenPools =
         // The expression pool as parallel column builders (struct-of-arrays); all are
         // appended together per node so they stay index-aligned by `ExprPoolId`.
         let exprTys = ResizeArray<FrozenType>()
-        let exprToks = ResizeArray<int<token>>()
+        let exprToks = ResizeArray<Anchor>()
         let exprChildrenCol = ResizeArray<ExprPoolId[]>()
         let exprPatChildrenCol = ResizeArray<PatPoolId[]>()
         let exprPayloads = ResizeArray<ExprPayload>()
@@ -714,7 +264,7 @@ module TastPools =
         // The pattern pool as parallel column builders (struct-of-arrays), index-aligned by
         // `PatPoolId`.
         let patTys = ResizeArray<FrozenType>()
-        let patToks = ResizeArray<int<token>>()
+        let patToks = ResizeArray<Anchor>()
         let patChildrenCol = ResizeArray<PatPoolId[]>()
         let patPayloads = ResizeArray<PatPayload>()
 
@@ -742,7 +292,7 @@ module TastPools =
         // it (a `this` slot has none anywhere) — the binder space is dense and independent,
         // inverted by position.
         let binderNames = ResizeArray<string>()
-        let binderToks = ResizeArray<int<token>>()
+        let binderToks = ResizeArray<Anchor>()
         let binderIds = System.Collections.Generic.Dictionary<'id, BinderId>()
 
         // The lambda id space: a source lambda's dense id IS its `ExprPoolId` (positional —
@@ -759,16 +309,19 @@ module TastPools =
         // every other copy to emit as an ordinary heap closure.
         let lambdaSlots = ResizeArray<struct (ExprPoolId * LambdaKey)>()
 
-        let internBinder (site: BinderSite<'id>) : BinderId =
-            let k = BinderKey.identity site.Binder
+        let internBinder (binder: BinderKeyG<'id>) : BinderId =
+            let k = BinderKey.identity binder
 
             match binderIds.TryGetValue k with
             | true, id -> id
             | false, _ ->
                 let id = BinderId binderNames.Count
                 binderIds.Add(k, id)
-                binderNames.Add(nameOf k)
-                binderToks.Add site.Anchor
+                // Both columns out of the ONE record, so the name and the place it is
+                // written at cannot come from different tokens.
+                let sp = spellingOf binder
+                binderNames.Add sp.Name
+                binderToks.Add sp.At
                 id
 
         // The sink: rows land at the end of the column builders, so a node's id is the
@@ -981,22 +534,36 @@ module TastPools =
             BindingValReprs = bindingValReprs pools
         }
 
-    /// Pool a source-shaped frozen file — the freeze's last step. `source` is the file's
-    /// own text, read only to fill the binder naming column (`identifierAt`).
+    /// Pool a source-shaped frozen file — the freeze's last step. `spellings` is the
+    /// producers' record of how the source writes each binder (`PassContext.BinderSpellings`),
+    /// which is the only thing here that knows: the walk sees where a node ENDED UP, and a
+    /// spliced body ends up on its call site.
     ///
-    /// This is where the file's tokens become indices, and `Anchor.ofToken` is what makes
+    /// This is where a binder's name is committed, so the text a backend emits is a column
+    /// value and not a re-scan of a source file the backend may no longer hold (a unit
+    /// emitted from its cache blob has none). The text is verbatim; mangling it for a target
+    /// dialect's reserved words belongs to the backend.
+    ///
+    /// It is also where the file's tokens become indices, and `Anchor.ofToken` is what makes
     /// "a frozen node anchors on a real token of its own file" a fact of the CONVERSION
     /// rather than an assertion some later reader might not make.
-    let toPools (source: string) (file: Frozen.TastFile) : FrozenPools =
-        fill (identifierAt source) Anchor.ofToken file
+    let toPools (spellings: BinderKey -> BinderSpelling) (file: Frozen.TastFile) : FrozenPools =
+        fill spellings Anchor.ofToken file
 
     /// Pool a tree DRAINED from `pools` (`TastUnpool.ofPools`) — the fill direction of the
     /// round-trip, which is what makes `ofPools` checkable at all: the columns are
     /// tree-sufficient exactly when re-pooling their own drain reproduces them.
     ///
-    /// The naming column cannot be re-read from source here, a `BinderId` naming no
-    /// position in a file; it is carried over from the pools the tree came out of, which is
-    /// the one place it was ever read. The anchors need no narrowing at all — a drained
-    /// tree already carries the stored index.
+    /// No producer is in reach on this side, so the spelling comes back off the pool the
+    /// tree was drained out of — where the producers' answer was written down. The node
+    /// anchors need no narrowing at all: a drained tree already carries the stored one.
     let rePool (pools: FrozenPools) (file: Pooled.TastFile) : FrozenPools =
-        fill (fun (BinderId i) -> pools.BinderNames.[i]) id file
+        let spellingOf (b: BinderKeyG<BinderId>) =
+            let (BinderId i) = BinderKey.identity b
+
+            {
+                Name = pools.BinderNames.[i]
+                At = pools.BinderToks.[i]
+            }
+
+        fill spellingOf id file

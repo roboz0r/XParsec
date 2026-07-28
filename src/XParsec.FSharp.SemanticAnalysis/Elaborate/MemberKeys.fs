@@ -4,7 +4,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 // The single home for minting a RESOLVED member's TOTAL `SymbolKey.MemberKey`. Both the
 // Elaborate method-call sites (`ElaborateResolve.mk*MethodCall`) and the inline
-// trait-call dispatcher (`Inline.resolveTraitCall`) mint through here, so the
+// trait-call dispatcher (`Inline.substMapper`) mint through here, so the
 // local-vs-external branch and the declaring-typar freeze live in ONE place — a lossy
 // placeholder method key is unrepresentable by construction.
 //

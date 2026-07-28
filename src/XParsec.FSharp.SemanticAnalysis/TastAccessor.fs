@@ -145,7 +145,7 @@ module TastAccessor =
 
     /// Where the node SITS: its anchor token's index in the file's `Lexed`, `ValueNone`
     /// where no source spells it (see `TastPoolBuilder.exprTok`).
-    let exprTok (e: ExprId) : int<token> voption = TastPoolBuilder.exprTok e.Pool e.Id
+    let exprTok (e: ExprId) : Anchor = TastPoolBuilder.exprTok e.Pool e.Id
 
     /// The immediate child *expressions*, in evaluation order — the recursion spine a
     /// generic walk (free-vars, closure discovery) follows. Sub-patterns are NOT
@@ -767,7 +767,7 @@ module TastAccessor =
     let patTy (p: PatId) : FrozenType = TastPoolBuilder.patTy p.Pool p.Id
 
     /// The pattern twin of `exprTok`.
-    let patTok (p: PatId) : int<token> voption = TastPoolBuilder.patTok p.Pool p.Id
+    let patTok (p: PatId) : Anchor = TastPoolBuilder.patTok p.Pool p.Id
 
     /// The immediate child *patterns*, in source order.
     let patChildren (p: PatId) : PatId[] =
@@ -901,7 +901,17 @@ module TastAccessor =
         // same traversal the pool build and drain run — so nothing here re-derives the
         // declaration shape. Only the BODIES move: a key slot already holds the dense id
         // every other pooled reference speaks, so it rides across unchanged.
-        | DeclPayload.Type td -> ValueSome(TastConvert.typeDecl id id BinderKey.identity (at d) td)
+        | DeclPayload.Type td ->
+            ValueSome(
+                TastConvert.typeDecl
+                    {
+                        Ty = id
+                        Tok = id
+                        Id = BinderKey.identity
+                        Body = at d
+                    }
+                    td
+            )
         | _ -> ValueNone
 
     /// The `type`-declaration payload of a `Type` decl (its `Kind`, `Key`, `Name`, …),
@@ -990,9 +1000,9 @@ module TastAccessor =
     /// Peel a curried `App` chain into its head and the arguments paired with each
     /// `App` node's *result* type and token. The inverse of `mintAppSpine`.
     let rec collectSpine
-        (acc: (ExprId * FrozenType * int<token> voption) list)
+        (acc: (ExprId * FrozenType * Anchor) list)
         (e: ExprId)
-        : ExprId * (ExprId * FrozenType * int<token> voption) list =
+        : ExprId * (ExprId * FrozenType * Anchor) list =
         match exprKind e with
         | ExprShape.App ->
             let app = exprApp e
@@ -1037,11 +1047,11 @@ module TastAccessor =
     // once, in the payload it supplies — there is no second tag argument to disagree
     // with it.
 
-    // A mint takes the anchor as the surface speaks it — `ValueNone` where the derived
-    // node sits at no source position at all — and `Anchor.toColumn` is where that becomes
-    // the column's own value. So no mint site holds the storage convention.
+    // A mint takes an `Anchor`, which is what the column holds — `Anchor.nowhere` where the
+    // derived node sits at no source position at all. No mint site holds a storage
+    // convention, there being none to hold.
 
-    let private mintExpr (pool: PoolBuilder) ty (tok: int<token> voption) children patChildren pl : ExprId =
+    let private mintExpr (pool: PoolBuilder) ty (tok: Anchor) children patChildren pl : ExprId =
         {
             Pool = pool
             Id =
@@ -1049,7 +1059,7 @@ module TastAccessor =
                     pool
                     {
                         Ty = ty
-                        Tok = Anchor.toColumn tok
+                        Tok = tok
                         Children = children
                         PatChildren = patChildren
                         VarBinder = ValueNone
@@ -1059,7 +1069,7 @@ module TastAccessor =
 
     /// A reference to `binding` — the binder's own dense id, so a reference minted before
     /// (or without) its defining pattern names the same binder either way.
-    let mintVar (pool: PoolBuilder) (binding: BinderId) (ty: FrozenType) (tok: int<token> voption) : ExprId =
+    let mintVar (pool: PoolBuilder) (binding: BinderId) (ty: FrozenType) (tok: Anchor) : ExprId =
         {
             Pool = pool
             Id =
@@ -1067,7 +1077,7 @@ module TastAccessor =
                     pool
                     {
                         Ty = ty
-                        Tok = Anchor.toColumn tok
+                        Tok = tok
                         Children = [||]
                         PatChildren = [||]
                         VarBinder = ValueSome binding
@@ -1076,16 +1086,16 @@ module TastAccessor =
         }
 
     /// `fn arg`, typed with the application's result type.
-    let mintApp (fn: ExprId) (arg: ExprId) (ty: FrozenType) (tok: int<token> voption) : ExprId =
+    let mintApp (fn: ExprId) (arg: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr fn.Pool ty tok [| fn.Id; arg.Id |] [||] ExprPayload.App
 
     /// Re-apply a head to a spine of `(arg, result type, token)` levels — the inverse
     /// of `collectSpine`.
-    let mintAppSpine (head: ExprId) (args: (ExprId * FrozenType * int<token> voption) list) : ExprId =
+    let mintAppSpine (head: ExprId) (args: (ExprId * FrozenType * Anchor) list) : ExprId =
         List.fold (fun acc (arg, resTy, tok) -> mintApp acc arg resTy tok) head args
 
     /// `fun param -> body`.
-    let mintLambda (param: PatId) (body: ExprId) (ty: FrozenType) (tok: int<token> voption) : ExprId =
+    let mintLambda (param: PatId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr body.Pool ty tok [| body.Id |] [| param.Id |] ExprPayload.Lambda
 
     /// `receiver.Key args` — an instance call on a project-local member.
@@ -1095,7 +1105,7 @@ module TastAccessor =
         (via: CallVia<FrozenType>)
         (args: ExprId[])
         (ty: FrozenType)
-        (tok: int<token> voption)
+        (tok: Anchor)
         : ExprId =
         mintExpr
             receiver.Pool
@@ -1105,7 +1115,7 @@ module TastAccessor =
             [||]
             (ExprPayload.MethodCall {| Key = key; Via = via |})
 
-    let private mintPat (pool: PoolBuilder) ty (tok: int<token> voption) children pl : PatId =
+    let private mintPat (pool: PoolBuilder) ty (tok: Anchor) children pl : PatId =
         {
             Pool = pool
             Id =
@@ -1113,22 +1123,22 @@ module TastAccessor =
                     pool
                     {
                         Ty = ty
-                        Tok = Anchor.toColumn tok
+                        Tok = tok
                         Children = children
                         Payload = pl
                     }
         }
 
     /// A simple binder pattern, introducing `binding`.
-    let mintNamedPat (pool: PoolBuilder) (binding: BinderId) (ty: FrozenType) (tok: int<token> voption) : PatId =
+    let mintNamedPat (pool: PoolBuilder) (binding: BinderId) (ty: FrozenType) (tok: Anchor) : PatId =
         mintPat pool ty tok [||] (PatPayload.NamedSimple binding)
 
     /// An anonymous `_` pattern.
-    let mintWildcardPat (pool: PoolBuilder) (ty: FrozenType) (tok: int<token> voption) : PatId =
+    let mintWildcardPat (pool: PoolBuilder) (ty: FrozenType) (tok: Anchor) : PatId =
         mintPat pool ty tok [||] PatPayload.Wildcard
 
     /// A tuple pattern over `items`.
-    let mintTuplePat (pool: PoolBuilder) (items: PatId[]) (ty: FrozenType) (tok: int<token> voption) : PatId =
+    let mintTuplePat (pool: PoolBuilder) (items: PatId[]) (ty: FrozenType) (tok: Anchor) : PatId =
         mintPat pool ty tok (items |> Array.map (fun i -> i.Id)) PatPayload.Tuple
 
     /// A top-level `let binding = value` declaration.

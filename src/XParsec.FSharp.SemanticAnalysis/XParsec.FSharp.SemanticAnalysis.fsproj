@@ -41,6 +41,7 @@
     <Compile Include="TastWalk.fs" />
     <Compile Include="TastPoolNodes.fs" />
     <Compile Include="TastPoolTypes.fs" />
+    <Compile Include="TastPoolShapes.fs" />
     <Compile Include="TastPools.fs" />
     <Compile Include="TastUnpool.fs" />
     <Compile Include="TastPoolBuilder.fs" />

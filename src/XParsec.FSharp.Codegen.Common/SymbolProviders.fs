@@ -132,7 +132,7 @@ module SymbolProviders =
     /// overload identity there is no rendered `argSig` for producer and use site to
     /// disagree on; the key `m` mints here is the same one an external entry / use site
     /// mints from the same frozen signature by construction.
-    let private collectInlineBodies (tast: FrozenPools) : Frozen.TInlineValue list * Frozen.TInlineValue list =
+    let private collectInlineBodies (tast: FrozenPools) : Wire.TInlineValue list * Wire.TInlineValue list =
         // The file's trees as columns, with an append-only overlay for the curried lambda
         // chains `harvestMemberBody` wraps each harvested body in. The overlay is
         // discarded with this call: what leaves is the drained DU template, never an id.
@@ -151,7 +151,7 @@ module SymbolProviders =
                                 ParamAttrs = iv.ParamAttrs
                             }
                     }
-                    : Frozen.TInlineValue
+                    : Wire.TInlineValue
             ]
 
         let members =
@@ -197,9 +197,9 @@ module SymbolProviders =
         (target: string option)
         (provider: IExternalSymbolProvider)
         (manifestPaths: string list)
-        : Frozen.TInlineValue list * Frozen.TInlineValue list =
-        let acc = ResizeArray<Frozen.TInlineValue>()
-        let memberAcc = ResizeArray<Frozen.TInlineValue>()
+        : Wire.TInlineValue list * Wire.TInlineValue list =
+        let acc = ResizeArray<Wire.TInlineValue>()
+        let memberAcc = ResizeArray<Wire.TInlineValue>()
 
         for manifestPath in manifestPaths do
             match ReferencedProject.loadManifest manifestPath with

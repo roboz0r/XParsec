@@ -839,6 +839,18 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// with), snapshotted by `Elaborate.run` onto `TastFile.GenericFnSchemes`. Read
     /// by the call-site phantom-typar solve (`EmitCall`).
     member val GenericFnSchemes = BinderTable<FrozenConstraint list>() with get
+    /// How the SOURCE writes each binder this file introduces — the identifier and where —
+    /// written by `SpellBinder` at the moment the binder's key is minted and the token that
+    /// produced it is still in hand, and read once by the freeze to fill the binder pool's
+    /// two columns.
+    ///
+    /// Recorded rather than derived later, because by the freeze there is nothing left that
+    /// knows. The key's number is a character offset that merely happens to be a token
+    /// start; and the introducing NODE's token is only the name's until `Inline.spliceAt`
+    /// moves a spliced body onto its call site, after which it spells the call. A binder
+    /// with no entry is one no source writes — `Inline.freshen` mints those, and they are
+    /// named after their slot (`BinderNaming.Minted`).
+    member val BinderSpellings = BinderTable<BinderSpelling>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
     /// the typar / required type translated to `SemType` while the binding's typar
@@ -1006,6 +1018,26 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         match token.Index with
         | TokenIndex.Regular iT -> this.Lexed.GetTokenString(iT, this.Input)
         | TokenIndex.Virtual -> ""
+
+    /// Record how the source writes `binder` (see `BinderSpellings`). Takes the binder and
+    /// the token TOGETHER, at the mint: a caller holding a freshly minted key holds the
+    /// token it came from, and this is the last moment that is true.
+    ///
+    /// Idempotent, and it must be: a ctor parameter's key is minted by name resolution and
+    /// re-projected by `Elaborate` off the pattern it elaborated to, and both land on the
+    /// same spelling because both project from the same identifier.
+    /// What counts as a name is the LEXER's answer (`GetIdentifierSpan`), not the token's
+    /// raw text: an operator binding's head is `(`, which writes no identifier — its emitted
+    /// name is the operator's compiled one and rides `ModuleMembers`. A token that spells
+    /// none records nothing, so the two columns stay consistent by construction: a binder
+    /// has a name exactly when it has an anchor.
+    member this.SpellBinder(binder: BinderKey, at: SyntaxToken) : unit =
+        match at.Index with
+        | TokenIndex.Virtual -> ()
+        | TokenIndex.Regular i ->
+            match this.Lexed.GetIdentifier(i, this.Input) with
+            | "" -> ()
+            | name -> this.BinderSpellings.Set(binder, { Name = name; At = Anchor.ofToken at })
 
     /// A written type name read off the syntax that spells it: the LAST segment is the type's
     /// short name, everything before it the dotted SOURCE path of the scope qualifying it

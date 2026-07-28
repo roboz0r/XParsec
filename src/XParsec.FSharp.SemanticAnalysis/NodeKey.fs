@@ -125,11 +125,17 @@ type NodeKind =
     /// `base` binder inside a derived class's member bodies. One per class with `inherit Base(...)`,
     /// shared across members; mirrors `SynthThisBinding`.
     | SynthBaseBinding = 1006us
-    /// Freshened binder of an inline template: minted wherever the template's binders must stay
-    /// distinct without being resolvable — by `Inline.freshen` so independent call sites don't
-    /// alias each other's bound names, and by the pool drain that puts a template on the
-    /// cross-unit wire. Counter-minted (`ofSyntheticCounter`) — it names no source position.
+    /// Freshened binder of an inline template, minted by `Inline.freshen` so independent call
+    /// sites don't alias each other's bound names. Counter-minted (`ofSyntheticCounter`) — it
+    /// names no source position.
     | SynthPreFreezeInline = 1007us
+    /// Binder of a template DRAINED from the pools onto the cross-unit wire
+    /// (`TastPoolBuilder.declTree`), whose slot means nothing in the consuming unit and so is
+    /// re-minted. Counter-minted like `SynthPreFreezeInline`, and a KIND of its own precisely
+    /// because it is: the two counters are independent, so sharing a kind would let a drain's
+    /// nth binder and a freshen's nth binder be one key. They meet — a drained body is
+    /// freshened at the splice — so that must be unrepresentable rather than merely unlikely.
+    | SynthDrainedBinder = 1008us
 
 [<Struct>]
 type NodeKey =
@@ -248,9 +254,9 @@ module NodeKey =
 /// the others' representation: `InferApp` files the verdict off a CST pattern token,
 /// `TastPools.toPools` stamps the pooled lambda's id space off the frozen row's anchor, and
 /// `TastUnpool.rebuildFile` inverts that id back off the `ExprToks` column. All three speak
-/// the same `int<token>` — the frozen spine stores anchors as indices (`Anchor`), so there
-/// is nothing left to resolve at any of them. A verdict filed under one spelling and sought
-/// under another does not fault — it silently resolves to no lambda, and the closure it was
-/// about is emitted as if no verdict existed.
+/// the same `Anchor` — the frozen spine stores anchors, so there is nothing left to resolve
+/// at any of them. A verdict filed under one spelling and sought under another does not
+/// fault — it silently resolves to no lambda, and the closure it was about is emitted as if
+/// no verdict existed.
 [<Struct>]
-type LambdaKey = | LambdaKey of anchor: int<token>
+type LambdaKey = | LambdaKey of anchor: Anchor

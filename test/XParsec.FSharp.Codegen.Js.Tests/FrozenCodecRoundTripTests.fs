@@ -35,7 +35,7 @@ type private Harvest =
         SymbolKeys: SymbolKey list
         TypeKeys: TypeKey list
         NodeKeys: NodeKey list
-        Anchors: int<token> list
+        Anchors: Anchor list
     }
 
 let private collect () : Harvest =
@@ -43,7 +43,7 @@ let private collect () : Harvest =
     let sks = HashSet<SymbolKey>(HashIdentity.Structural)
     let tks = HashSet<TypeKey>(HashIdentity.Structural)
     let nks = HashSet<NodeKey>(HashIdentity.Structural)
-    let toks = HashSet<int<token>>(HashIdentity.Structural)
+    let toks = HashSet<Anchor>(HashIdentity.Structural)
 
     // FrozenType child-walk: collect the node and every key / nested type it reaches, so
     // the recursive codec is exercised over whole subtrees.
@@ -276,7 +276,13 @@ let private collect () : Harvest =
 
     // Both ends of the anchor's value range plus its absence, which the column stores as
     // the negative space of the index rather than as a case of its own.
-    let edgeAnchors = [ 0<token>; 1<token>; 1_000_000<token>; Anchor.none ]
+    let edgeAnchors =
+        [
+            Anchor.ofStored 0
+            Anchor.ofStored 1
+            Anchor.ofStored 1_000_000
+            Anchor.nowhere
+        ]
 
     for ft in edgeFrozen do
         visitFt ft

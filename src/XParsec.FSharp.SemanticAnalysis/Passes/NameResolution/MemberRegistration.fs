@@ -39,11 +39,13 @@ module NameResolutionMemberRegistration =
 
         // The parameter's binding site is the pattern's own — the key a body's reference to
         // it resolves through — so it is taken with the projection that answers for a
-        // pattern rather than off the identifier token.
+        // pattern rather than off the identifier token. That projection also hands back the
+        // token, which the ctor-param slot keeps none of: it is recorded here, at the mint.
         let addParam (p: Pat<SyntaxToken>) (id: SyntaxToken) (annotation: Type<SyntaxToken> voption) =
-            match BinderKey.ofCstPat p with
+            match BinderKey.siteOfCstPat p with
             | ValueNone -> () // unreachable: every arm below hands a (wrapped) `NamedSimple`
-            | ValueSome binder ->
+            | ValueSome(struct (binder, at)) ->
+                ctx.SpellBinder(binder, at)
                 let tv = ctx.NewTypeVar()
                 ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
 

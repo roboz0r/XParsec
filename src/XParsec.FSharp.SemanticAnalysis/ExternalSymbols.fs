@@ -78,8 +78,8 @@ type ImportForm =
     | CommonJs
     | Namespace
 
-/// A published inline body as the provider serves it: the producing unit's own
-/// `Frozen.TInlineBody`, handed across the boundary VERBATIM.
+/// A published inline body as the provider serves it: the producing unit's own template,
+/// drained to the wire shape (`Wire.TDecl`) and handed across the boundary VERBATIM.
 ///
 /// Its binder keys are MINTED BY THE DRAIN (`TastPoolBuilder.declTree`), not the producer's
 /// own: a pooled binder is a slot, and a slot means nothing in the consuming unit's pool.
@@ -87,13 +87,17 @@ type ImportForm =
 /// between a binder and its references, which a counter-minted key gives — and, being
 /// counter-minted, it names no position anything could try to resolve it against.
 ///
+/// Nor does the body itself sit anywhere: an anchor indexes the PRODUCER's tokens, which
+/// the consumer does not have, so every node arrives `Anchor.nowhere` and `Inline.thawBody`
+/// must be told where the splice lands.
+///
 /// `FrozenType`, not `SemType` — a `SemType.TyVar` is a mutable `UnionFind` cell, and
 /// an oracle that hands one out lets a consumer's inference reach back and mutate a
 /// producer's. The consumer THAWS the body at the splice (`Inline.thawBody`), minting
 /// its own cells by construction; that thaw is the one immutable→mutable transition,
 /// and it sits on the consumer's side of the seam. Do NOT re-widen this to `SemType`
 /// to make a splice site convenient — thaw is the seam.
-type InlineBody = Frozen.TInlineBody
+type InlineBody = Wire.TInlineBody
 
 type ExternalSymbol =
     {

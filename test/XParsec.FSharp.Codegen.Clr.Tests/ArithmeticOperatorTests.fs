@@ -156,7 +156,7 @@ let tests =
                 // Every arithmetic body is a static-opt whose BASE is the SRTP trait
                 // call: that inversion is what makes an unsupported operand diagnose
                 // instead of riding a raw-IL base. Binary ops abstract twice, `~-` once.
-                let staticOptBase (decl: Frozen.TDecl) : Frozen.TExpr voption =
+                let staticOptBase (decl: Wire.TDecl) : Wire.TExpr voption =
                     match decl with
                     | TDeclG.Let(_,
                                  TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization(_, b, _, _), _, _), _, _),

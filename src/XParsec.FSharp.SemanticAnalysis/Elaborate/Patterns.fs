@@ -34,6 +34,15 @@ module internal ElaboratePatterns =
         | TyUnion(listKey, _) when RuntimeNames.isVesperListKey listKey -> "Cons", "Empty"
         | _ -> "Cons", "Nil"
 
+    /// A `NamedSimple` node, with HOW THE SOURCE WRITES its binder recorded as the node is
+    /// built — the last moment the key and the token that produced it are together
+    /// (`PassContext.BinderSpellings`). Both construction sites go through here, so neither
+    /// can mint a binder the freeze then has nothing to name.
+    let private namedSimple (ctx: PassContext) (key: NodeKey) (ty: SemType) (tok: SyntaxToken) : TPat =
+        let node = TPat.NamedSimple(key, ty, tok)
+        BinderKey.ofPat node |> ValueOption.iter (fun b -> ctx.SpellBinder(b, tok))
+        node
+
     /// Patterns Unification doesn't understand yet fall through loudly so the
     /// gap surfaces at translation time.
     let rec translatePat (ctx: PassContext) (p: Pat<SyntaxToken>) : TPat =
@@ -59,7 +68,7 @@ module internal ElaboratePatterns =
             // (`typeOfKey`) already carries the right `TyUnion`, so the backend
             // routes local vs external off that.
             TPat.Union(ctx.NameOf t, EqArray.empty, ty, tok)
-        | Pat.NamedSimple _ -> TPat.NamedSimple(key, ty, tok)
+        | Pat.NamedSimple _ -> namedSimple ctx key ty tok
         | Pat.Wildcard _ -> TPat.Wildcard(ty, tok)
         | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
             // `[a; b; c]` list-literal pattern → nested cons:
@@ -223,5 +232,5 @@ module internal ElaboratePatterns =
             // `NamedSimple` is what gives it a frozen identity at all
             // (`BinderKey.ofPat`), and so a `ModuleMembers` entry for the
             // cross-package inline-body loader to find.
-            TPat.NamedSimple(key, ty, tok)
+            namedSimple ctx key ty tok
         | _ -> failwithf "Elaborate.translatePat: TODO %A" p

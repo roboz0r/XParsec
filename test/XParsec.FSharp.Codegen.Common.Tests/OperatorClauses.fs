@@ -33,7 +33,7 @@ module InlineBodies =
     let ilOpCodes (body: InlineBody) : string list =
         let acc = ResizeArray<string>()
 
-        let rec walkExpr (e: Frozen.TExpr) =
+        let rec walkExpr (e: Wire.TExpr) =
             match e with
             | TExprG.ILIntrinsic(opCode, _, args, _, _) ->
                 acc.Add opCode
@@ -74,7 +74,7 @@ module InlineBodies =
             // structural type pins no width; the arithmetic contract writes neither.
             | _ -> None
 
-        let rec walkExpr (e: Frozen.TExpr) =
+        let rec walkExpr (e: Wire.TExpr) =
             match e with
             | TExprG.StaticOptimization(clauses, _, _, _) ->
                 for c in clauses do

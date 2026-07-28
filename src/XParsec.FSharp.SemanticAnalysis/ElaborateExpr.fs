@@ -288,15 +288,22 @@ module internal ElaborateExpr =
         | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
             let varKey = CstKeys.ofForToVar ident
 
-            TExpr.ForTo(
-                varKey,
-                ident,
-                translateExpr ctx startE,
-                translateExpr ctx endE,
-                translateExpr ctx body,
-                ty,
-                tok
-            )
+            let node =
+                TExpr.ForTo(
+                    varKey,
+                    ident,
+                    translateExpr ctx startE,
+                    translateExpr ctx endE,
+                    translateExpr ctx body,
+                    ty,
+                    tok
+                )
+
+            // A loop variable is the one binder with no pattern node behind it, so its
+            // spelling is recorded here rather than by `namedSimple`. `ident` and not the
+            // node's own token, which is the `for` keyword.
+            BinderKey.ofExpr node |> ValueOption.iter (fun b -> ctx.SpellBinder(b, ident))
+            node
         | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) -> translateForIn ctx key pat src body ty tok
         | Expr.String _ -> ElaborateStrings.translateString translateExpr ctx e ty tok
         | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->

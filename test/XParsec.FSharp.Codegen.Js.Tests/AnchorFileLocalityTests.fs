@@ -26,8 +26,8 @@ let private checkAnchors (what: string) (input: string) =
     let lexed, _ = parseFile input
     let pools = frozenOf input
 
-    let check (where: string) (stored: int<token>) =
-        match Anchor.ofColumn stored with
+    let check (where: string) (stored: Anchor) =
+        match stored.Index with
         | ValueNone -> ()
         | ValueSome i ->
             Expect.isLessThan

@@ -210,7 +210,7 @@ module JsExternalMembers =
         (provider: IExternalSymbolProvider)
         (build: TastAccessor.ExprId -> JsExpr)
         (head: TastAccessor.ExprId)
-        (spine: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
+        (spine: (TastAccessor.ExprId * FrozenType * Anchor) list)
         (loc: JsLoc voption)
         : JsExpr voption =
         match head with

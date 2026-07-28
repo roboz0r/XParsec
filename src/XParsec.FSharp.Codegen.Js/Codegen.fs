@@ -3,18 +3,18 @@ namespace XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
-/// The input source text plus the file name to record for it. Its presence is
-/// what turns on source-map emission, so the two travel as one unit rather than
-/// as a string whose emptiness doubles as an on/off flag.
+/// The input source as the map needs it: its text, its tokens, and the file name to record
+/// for it. Its presence is what turns on source-map emission, so the three travel as one
+/// unit rather than as a string whose emptiness doubles as an on/off flag.
 type JsSource =
     {
         /// The source file name recorded in the map's `sources` array
         /// (e.g. `program.fsx`). Cosmetic — the resolver works off offsets.
         Path: string
-        /// The original source text. Embedded verbatim as the map's
-        /// `sourcesContent`, and re-lexed to resolve each node's anchor index to a
-        /// (line, column).
+        /// The original source text, embedded verbatim as the map's `sourcesContent`.
         Content: string
+        /// The tokens `Content` lexed to.
+        Lexed: Lexed
     }
 
 /// Whether top-level `let` bindings emit as module `export`s or plain `const`s.
@@ -97,23 +97,17 @@ module Codegen =
             ReferencedProject.runtimeModules "js" manifestPaths
             |> Map.map (fun _ (fileName, source) -> { FileName = fileName; Source = source })
 
-        // A node's anchor is an index into the file's token table, so a map needs the
-        // table as well as the line starts. Re-lexing is what recovers it: the frozen
-        // spine deliberately stores no token text or offset, and the source is in hand
-        // exactly when a map is wanted.
+        // A node's anchor is an index into the file's token table, so a map needs the table
+        // as well as the line starts. Both come from `project.Source` — the table is the
+        // front end's own, the one the anchors were numbered against.
         let resolver: EmitJsContext.Resolver =
             match project.Source with
             | Some src ->
-                match Lexing.lexString src.Content with
-                | Result.Ok lexed ->
-                    ValueSome
-                        {
-                            Lexed = lexed
-                            Lines = EmitJsContext.LineIndex.build src.Content
-                        }
-                // Source that does not lex cannot have produced this `tast`; emit the
-                // program unmapped rather than fail the compile over a map.
-                | Result.Error _ -> ValueNone
+                ValueSome
+                    {
+                        Lexed = src.Lexed
+                        Lines = EmitJsContext.LineIndex.build src.Content
+                    }
             | None -> ValueNone
 
         // The file's trees as columns, with an append-only overlay stacked over them:

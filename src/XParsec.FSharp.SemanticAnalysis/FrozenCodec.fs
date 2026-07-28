@@ -45,7 +45,7 @@ module FrozenCodec =
     // cheaply than a bespoke varint would pay for in reader complexity.
     //
     // The payload tag writers below are EXHAUSTIVE with no catch-all — the same discipline
-    // `TastPools.exprPayload`/`substituteExpr` hold — so a new payload case fails to
+    // `TastPoolShapes.exprPayload`/`substituteExpr` hold — so a new payload case fails to
     // compile here rather than serializing as a silent alias. A node's SHAPE tag has no
     // writer at all: it is a projection of the payload (`ExprPayload.shape`), so the
     // payload's tag byte already carries it.

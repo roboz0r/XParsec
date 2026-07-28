@@ -60,17 +60,34 @@ module JsEmitHelpers =
     let jsSafe (name: string) =
         if Set.contains name jsReserved then name + "$" else name
 
-    /// A binder's NAMING → its emitted JS name. A binder the source spells takes that
-    /// identifier, mangled for the target dialect and nothing more: an apostrophe is not a
-    /// JS identifier character (`x'` → `x_`), and a JS reserved word is suffixed. A binder
-    /// no source spells is NAMED AFTER ITS SLOT (`_s<n>`), which is unique by construction
-    /// because the slot is the identity.
+    /// An F# identifier as a JS one. F# admits characters JS does not — an apostrophe
+    /// (`x'`), and inside `` `` `` quoting anything at all (`` ``my value`` ``) — so every
+    /// character JS rejects becomes `_`, and a leading digit (legal only inside quoting)
+    /// takes a `_` prefix.
     ///
-    /// The two mangles are the whole of what this adds to the column: the frozen file
-    /// stores the source's own text, because a target dialect's rules are the backend's.
+    /// NOT injective, and deliberately not made so: `x'` and `x_` already collided before
+    /// quoted names were spelled at all, and inventing a suffix scheme here would rename
+    /// every ordinary binder to buy a case the source has to go out of its way to write.
+    /// The mangle is the backend's whole contribution to naming — the frozen column holds
+    /// the source's own text, because a target dialect's rules are the backend's.
+    let jsIdent (name: string) : string =
+        let legal (c: char) =
+            System.Char.IsLetterOrDigit c || c = '_' || c = '$'
+
+        let mangled = String.map (fun c -> if legal c then c else '_') name
+
+        if mangled.Length > 0 && System.Char.IsDigit mangled.[0] then
+            "_" + mangled
+        else
+            mangled
+
+    /// A binder's NAMING → its emitted JS name. A binder the source spells takes that
+    /// identifier, mangled for the target dialect and nothing more (`jsIdent`, plus a
+    /// suffix for a JS reserved word). A binder no source spells is NAMED AFTER ITS SLOT
+    /// (`_s<n>`), which is unique by construction because the slot is the identity.
     let binderName (n: BinderNaming) : string =
         match n with
-        | BinderNaming.Source name -> jsSafe (name.Replace('\'', '_'))
+        | BinderNaming.Source name -> jsSafe (jsIdent name)
         | BinderNaming.Minted(BinderId slot) -> "_s" + string slot
 
     /// The emitted JS name of a binder named by ID — a `ForTo` loop variable, a flattened

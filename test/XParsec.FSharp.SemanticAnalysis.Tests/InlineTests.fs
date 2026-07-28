@@ -61,7 +61,7 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     match List.ofArray pools.InlineTemplates with
     // Thaw into `ctx0.Store` — the SAME arena `Inline.inlineExpand ctx0` and
     // `Inline.quantifiedTypars` read the thawed roots' dense ids against.
-    | [ v ] -> ctx0.Store, Inline.thawBody ctx0.Store (TastPoolBuilder.declTree pool v.Decl)
+    | [ v ] -> ctx0.Store, Inline.thawBody ctx0.Store (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
 [<Tests>]
@@ -386,7 +386,7 @@ let tests =
 
                 let body =
                     match List.ofArray pools.InlineTemplates with
-                    | [ v ] -> Inline.thawBody (TypeStore()) (TastPoolBuilder.declTree pool v.Decl)
+                    | [ v ] -> Inline.thawBody (TypeStore()) (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 let refs = ResizeArray<string * SymbolKey>()

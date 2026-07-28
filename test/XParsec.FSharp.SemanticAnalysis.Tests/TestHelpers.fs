@@ -141,6 +141,16 @@ let parseFile (input: string) : Lexed * ImplementationFile<SyntaxToken> =
             lexed, ImplementationFile.AnonymousModule elems
         | Result.Ok ast -> failwithf "unexpected AST: %A" ast
 
+/// The call site a test lands a WIRE inline body on. `Inline.thawBody` takes one because a
+/// wire tree carries no positions of its own — an anchor indexes the producer's tokens —
+/// and none of these tests asserts on where a thawed body sits, so the consuming file's
+/// first token stands for the splice.
+let spliceSite (lexed: Lexed) : SyntaxToken =
+    {
+        PositionedToken = lexed.Tokens.[0<token>]
+        Index = TokenIndex.Regular 0<token>
+    }
+
 /// Lex + parse a signature (`.fsi`) source string and return Lexed + a
 /// SignatureFile. Raises on failure.
 let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =

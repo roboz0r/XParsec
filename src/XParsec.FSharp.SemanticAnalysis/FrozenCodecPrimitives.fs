@@ -126,8 +126,8 @@ module FrozenCodecPrimitives =
     /// by the source hash, so the `Lexed` a reader resolves it against is the same one the
     /// writer indexed — which is what lets the token's text, span and kind stay out of the
     /// blob entirely rather than being written beside every node.
-    let writeAnchor (w: BinaryWriter) (a: int<token>) = w.Write(int a)
-    let readAnchor (r: BinaryReader) : int<token> = r.ReadInt32() * 1<token>
+    let writeAnchor (w: BinaryWriter) (a: Anchor) = w.Write(Anchor.toStored a)
+    let readAnchor (r: BinaryReader) : Anchor = Anchor.ofStored (r.ReadInt32())
 
     let writeLiteralConst (w: BinaryWriter) (v: LiteralConst) =
         match v with

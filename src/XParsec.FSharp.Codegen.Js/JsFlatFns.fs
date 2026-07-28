@@ -116,7 +116,7 @@ module JsFlatFns =
         (build: TastAccessor.ExprId -> JsExpr)
         (callee: JsExpr)
         (groups: TastAccessor.ArgGroup list)
-        (spine: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
+        (spine: (TastAccessor.ExprId * FrozenType * Anchor) list)
         (loc: JsLoc voption)
         : JsExpr =
         let leading, rest = List.splitAt (List.length groups) spine

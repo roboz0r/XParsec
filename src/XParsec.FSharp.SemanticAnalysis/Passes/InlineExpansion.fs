@@ -393,9 +393,13 @@ module InlineExpansion =
             // by construction, so nothing below can unify into the producer's inference
             // state. Thawed per lookup, so two call sites of one template never share a
             // cell either.
-            let thaw (ib: InlineBody) : TInlineBody =
+            //
+            // `at` is the call site the body lands on, which the thaw needs and not merely
+            // wants: a `Wire.TDecl` sits nowhere, so this is where it acquires a position,
+            // and every lookup below therefore has to name one.
+            let thaw (at: SyntaxToken) (ib: InlineBody) : TInlineBody =
                 {
-                    Decl = Inline.thawBody ctx.Store ib.Decl
+                    Decl = Inline.thawBody ctx.Store at ib.Decl
                     ParamAttrs = ib.ParamAttrs
                 }
 
@@ -414,9 +418,9 @@ module InlineExpansion =
             // construction (`Array.ofList` / ctor-as-value, handled by codegen recipes /
             // eta-expansion), so `ValueNone` is a genuine "no body", never a missed keyless
             // splice. A provider with no inline bodies returns `ValueNone`.
-            let lookupExternal (keyOpt: SymbolKey voption) : TInlineBody voption =
+            let lookupExternal (at: SyntaxToken) (keyOpt: SymbolKey voption) : TInlineBody voption =
                 match keyOpt with
-                | ValueSome key -> ExternalSymbolProviders.tryInlineBody provider key |> ValueOption.map thaw
+                | ValueSome key -> ExternalSymbolProviders.tryInlineBody provider key |> ValueOption.map (thaw at)
                 | ValueNone -> ValueNone
 
             // Eta-reify an `External` function used as a VALUE — `(+)` in
@@ -717,7 +721,7 @@ module InlineExpansion =
                                 | TExpr.Var(k, _, _) when lambdaEnv.ContainsKey k ->
                                     ValueSome(walk (betaReduce (Inline.freshen mint lambdaEnv.[k]) spineArgs))
                                 | TExpr.External(_, keyOpt, _, headTok) ->
-                                    match lookupExternal keyOpt with
+                                    match lookupExternal headTok keyOpt with
                                     // An external WITH an inline body ALWAYS splices —
                                     // no operand-groundness gate. An un-ground `^T`
                                     // simply selects no per-primitive
@@ -759,7 +763,7 @@ module InlineExpansion =
                                 //     body: keep the call, walking the receiver (inside the
                                 //     head) and the args, exactly the `_` catch-all rule.
                                 | TExpr.ExternalMember(receiver, key, _, _, _, memberTok) ->
-                                    match lookupExternal (ValueSome key) with
+                                    match lookupExternal memberTok (ValueSome key) with
                                     | ValueSome ib ->
                                         let fullSpine =
                                             match receiver with
@@ -823,7 +827,7 @@ module InlineExpansion =
                             // finds a body to splice. An external of non-function type
                             // (`System.Int32.MaxValue`) etas to nothing and stays a leaf.
                             | TExpr.External(name, keyOpt, refTy, tok) ->
-                                let body = lookupExternal keyOpt
+                                let body = lookupExternal tok keyOpt
 
                                 match body with
                                 | ValueSome ib ->

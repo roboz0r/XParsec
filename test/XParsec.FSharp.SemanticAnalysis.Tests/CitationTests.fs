@@ -53,13 +53,21 @@ let private guarded () : (string * Type) list =
         "BinderNaming", typeof<BinderNaming>
         "TastWalk", moduleType "TastWalk"
         "TastPools", moduleType "TastPools"
+        "TastPoolShapes", moduleType "TastPoolShapes"
         "TastUnpool", moduleType "TastUnpool"
         "TastPoolBuilder", moduleType "TastPoolBuilder"
+        "TastConvert", moduleType "TastConvert"
+        "TastLower", moduleType "TastLower"
+        "Inline", moduleType "Inline"
         "ArgGroups", moduleType "ArgGroups"
         // Under its compiled name: `BinderKey` is the `BinderKeyG<NodeKey>` abbreviation,
         // which erases, and an abbreviation of the module's own name is still a clash — so
         // the module takes the `Module` suffix and no type answers to the bare name.
         "BinderKey", moduleType "BinderKeyModule"
+        // Likewise: `Anchor` is the type, so its module takes the suffix. Guarding it is
+        // what keeps a citation of a position convention honest now that the convention IS
+        // the type's surface and nothing else.
+        "Anchor", moduleType "AnchorModule"
     ]
 
 let private isFSharpModule (t: Type) =
@@ -120,11 +128,21 @@ let private ownMembers (t: Type) : string[] =
         else
             [| name |]
 
+    // Non-public members too, for the reason `validMembers` states of the record/union
+    // representation: prose cites a helper by name whether or not it is `private`, and a
+    // visibility filter here would report every citation of one as dangling.
+    let anyVisibility =
+        BindingFlags.Public
+        ||| BindingFlags.NonPublic
+        ||| BindingFlags.Static
+        ||| BindingFlags.Instance
+
     Array.concat
         [
-            t.GetMethods() |> Array.collect (fun x -> unpackActivePattern x.Name)
-            t.GetProperties() |> Array.map (fun x -> x.Name)
-            t.GetNestedTypes() |> Array.map (fun x -> x.Name)
+            t.GetMethods anyVisibility
+            |> Array.collect (fun x -> unpackActivePattern x.Name)
+            t.GetProperties anyVisibility |> Array.map (fun x -> x.Name)
+            t.GetNestedTypes anyVisibility |> Array.map (fun x -> x.Name)
         ]
 
 /// The names a `` `T.X` `` citation may carry: `T`'s record fields, its union case names,

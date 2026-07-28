@@ -22,7 +22,7 @@ module FrozenCodecDecls =
     // apart, when a `TTypeMember`'s ten-field emit order had to be checked against a
     // reader you could not see at the same time.)
     //
-    // Instantiated at `<FrozenType, int<token>>` — every `'ty` payload rides
+    // Instantiated at `<FrozenType, Anchor>` — every `'ty` payload rides
     // `writeFrozenType`, every `'tok` rides `writeAnchor` (both defined in the
     // leaf group above). Each writer's `match` is EXHAUSTIVE with no catch-all, so a
     // new case fails to compile here; each reader reconstructs the case / record
@@ -204,7 +204,7 @@ module FrozenCodecDecls =
             ComparisonSupport = comparisonSupport
         }
 
-    and private writeTypeKind (w: BinaryWriter) (k: TTypeKindG<FrozenType, int<token>, BinderId, ExprPoolId>) =
+    and private writeTypeKind (w: BinaryWriter) (k: TTypeKindG<FrozenType, Anchor, BinderId, ExprPoolId>) =
         match k with
         | TTypeKindG.Interface methods ->
             w.Write 0uy
@@ -227,7 +227,7 @@ module FrozenCodecDecls =
             w.Write 4uy
             writeEqArrayWith w writeEnumCase cases
 
-    and private readTypeKind (r: BinaryReader) : TTypeKindG<FrozenType, int<token>, BinderId, ExprPoolId> =
+    and private readTypeKind (r: BinaryReader) : TTypeKindG<FrozenType, Anchor, BinderId, ExprPoolId> =
         match r.ReadByte() with
         | 0uy -> TTypeKindG.Interface(EqArray.ofArray (readArrayWith r readAbstractMethod))
         | 1uy ->

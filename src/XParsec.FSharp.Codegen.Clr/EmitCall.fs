@@ -25,7 +25,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (funcTy0: FrozenType)
-        (args: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
+        (args: (TastAccessor.ExprId * FrozenType * Anchor) list)
         : unit =
         let mutable funcTy = funcTy0
 
@@ -51,7 +51,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (arrTy: FrozenType)
-        (spineArgs: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
+        (spineArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
         : bool =
         let elemOf =
             match arrTy with
@@ -100,7 +100,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (groups: TastAccessor.ArgGroup list)
-        (leading: (TastAccessor.ExprId * FrozenType * int<token> voption) list)
+        (leading: (TastAccessor.ExprId * FrozenType * Anchor) list)
         : FrozenType list =
         let actualTys = ResizeArray<FrozenType>()
 

@@ -15,7 +15,7 @@ let private compileWithMap (input: string) (outputPath: string option) : JsArtif
     let project =
         { JsProjectInfo.defaults "Hi" with
             OutputPath = outputPath
-            Source = Some { Path = "hi.fsx"; Content = input }
+            Source = Some(jsSource "hi.fsx" input)
         }
 
     Codegen.compile project (frozenOf input)

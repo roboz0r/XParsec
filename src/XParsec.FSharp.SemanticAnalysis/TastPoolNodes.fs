@@ -31,7 +31,7 @@ open XParsec.FSharp.Parser
 // flags, per-segment kind, per-clause constraints, presence flags — to redistribute the
 // FLAT child columns back into their nested shape, since the node that once held that
 // shape is gone. Both directions reuse the pooling walk's child enumeration
-// (`TastPools.exprChildren`/`exprPatChildren`) and consume it in that same order —
+// (`TastPoolShapes.exprChildren`/`exprPatChildren`) and consume it in that same order —
 // the coupling the round-trip test guards — rather than re-deriving the tree spine. The
 // `ExprPayloads` build (`exprPayload`) and consume (`substituteExpr`) are inverse
 // per-case matches, each exhaustive so a new `TExprG`/`ExprShape` case fails to compile.
@@ -141,19 +141,36 @@ type DeclPoolId = | DeclPoolId of int
 /// lets the drain be a genuine interconversion with the columns instead of a view that has
 /// to consult a retained key to speak at all.
 ///
-/// The `'ty` axis is the frozen one and `'tok` is the STORED anchor — the token's index in
-/// the file's own `Lexed` (`Anchor`), which is what the columns hold, so a drained tree
-/// names its positions exactly as the columns do and needs no `Lexed` to be rebuilt.
+/// The `'ty` axis is the frozen one and `'tok` is the stored `Anchor`, which is what the
+/// columns hold — so a drained tree names its positions exactly as the columns do and needs
+/// no `Lexed` to be rebuilt.
 module Pooled =
-    type TPat = TPatG<FrozenType, int<token>, BinderId>
-    type TExpr = TExprG<FrozenType, int<token>, BinderId>
+    type TPat = TPatG<FrozenType, Anchor, BinderId>
+    type TExpr = TExprG<FrozenType, Anchor, BinderId>
     type TMatchArm = TMatchArmG<TPat, TExpr>
-    type HoleSpec = HoleSpecG<FrozenType, int<token>>
-    type TDecl = TDeclG<FrozenType, int<token>, BinderId>
-    type TTypeDecl = TTypeDeclG<FrozenType, int<token>, BinderId, TExpr>
+    type HoleSpec = HoleSpecG<FrozenType, Anchor>
+    type TDecl = TDeclG<FrozenType, Anchor, BinderId>
+    type TTypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, TExpr>
     type TTypeMember = TTypeMemberG<FrozenType, BinderId, TExpr>
-    type TInlineValue = TInlineValueG<FrozenType, int<token>, BinderId>
-    type TastFile = TastFileG<FrozenType, int<token>, BinderId>
+    type TInlineValue = TInlineValueG<FrozenType, Anchor, BinderId>
+    type TastFile = TastFileG<FrozenType, Anchor, BinderId>
+
+/// The TAST as it CROSSES A UNIT BOUNDARY — a package's inline template, drained from the
+/// producer's pools (`TastPoolBuilder.declTree`) for a consumer that shares neither of the
+/// producer's identity spaces.
+///
+/// Not the producer's `BinderId`s: a slot means nothing outside the pool that issued it, so
+/// the drain re-mints a `NodeKey` per binder. And not the producer's positions: the consumer
+/// holds no `Lexed` for that file, so every node arrives `Anchor.nowhere`. That is the whole
+/// of what distinguishes this from `Pooled`, and it is why `Inline.thawBody` must be told
+/// where the body lands — a wire tree cannot become a `TExpr` without being given a
+/// position, so a splice that failed to relocate is not a thing one can write.
+module Wire =
+    type TPat = TPatG<FrozenType, Anchor, NodeKey>
+    type TExpr = TExprG<FrozenType, Anchor, NodeKey>
+    type TDecl = TDeclG<FrozenType, Anchor, NodeKey>
+    type TInlineBody = TInlineBodyG<FrozenType, Anchor, NodeKey>
+    type TInlineValue = TInlineValueG<FrozenType, Anchor, NodeKey>
 
 /// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
 /// by pool id instead of carrying the tree, and whose seven pattern-less BINDER slots name
@@ -164,7 +181,7 @@ module Pooled =
 /// a re-nesting record, so the ids ride the shape rather than `DeclExprChildren`. Both
 /// directions are `TastConvert.typeDecl` at the matching body/identity mappings, so nothing
 /// re-derives the shape.
-type PooledTypeDecl = TTypeDeclG<FrozenType, int<token>, BinderId, ExprPoolId>
+type PooledTypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, ExprPoolId>
 
 /// A binding's SOURCE arity with its tuple-group patterns named by pool id — the file's own
 /// `ValRepr`s, whose pats ARE nodes of the pooled tree (the peel reads the pooled lambda
@@ -281,11 +298,7 @@ type ExprPayload =
     /// The loop binder + its `identTok`. `Var` is the binder this node INTRODUCES (not a
     /// reference, so it is not on the `ExprVarBinder` column), named by the same dense id
     /// the loop body's `Var` references resolve to — one identity, interned once.
-    | ForTo of
-        {|
-            Var: BinderId
-            IdentTok: int<token>
-        |}
+    | ForTo of {| Var: BinderId; IdentTok: Anchor |}
     | ForIn of Frozen.ForInEnumerator
     /// One flag per arm: whether the arm carries a guard. The scrutinee is the first
     /// child; each arm's guard (when present) and body follow in `exprChildren` order,
@@ -441,7 +454,7 @@ module ExprPayload =
 
     /// Re-nest the arm children of a `Match`/`TryWith`: each arm draws its pat, then its
     /// guard when `guardPresent` says it has one, then its body — the order
-    /// `TastPools.exprChildren`/`exprPatChildren` enumerated them in. Arm count is the
+    /// `TastPoolShapes.exprChildren`/`exprPatChildren` enumerated them in. Arm count is the
     /// flag array's length.
     let arms (guardPresent: bool[]) (nextPat: unit -> 'pat) (nextExpr: unit -> 'e) : TMatchArmG<'pat, 'e>[] =
         guardPresent
@@ -457,14 +470,14 @@ module ExprPayload =
         )
 
     /// Re-nest the children of a `Format`: the sink's own sub-expression first (the order
-    /// `TastPools.exprChildren` yields), then each segment's, with the dyn-hole presence
+    /// `TastPoolShapes.exprChildren` yields), then each segment's, with the dyn-hole presence
     /// flags saying which dimensions are there.
     ///
     /// A hole is the one leaf that carries an anchor of its own, so `widenTok` is how the
     /// stored index becomes whatever the rebuilding domain names positions by — `id` for a
     /// tree that stays in the pool's own space, the drain's widening for one that leaves it.
     let format
-        (widenTok: int<token> -> 'tok)
+        (widenTok: Anchor -> 'tok)
         (sink: FormatSinkShape)
         (segments: FormatSegShape[])
         (nextExpr: unit -> 'e)
@@ -503,7 +516,7 @@ module ExprPayload =
 
 /// The residual payload of a frozen pattern node — one case per `PatShape`, carrying ONLY
 /// the fields left after the columnar split drops `ty`/`tok` (the `PatTys`/`PatToks`
-/// columns) and the child sub-pat ids (`PatChildren`, in `TastPools.patChildren` order;
+/// columns) and the child sub-pat ids (`PatChildren`, in `TastPoolShapes.patChildren` order;
 /// patterns own no child expressions). Mirrors `FrozenCodec.writePatPayload` for what each case
 /// carries beyond those. Exhaustive: a new `TPat`/`PatShape` case fails to compile at
 /// `patPayload`/`substitutePat`.
@@ -642,7 +655,7 @@ type ExprRow =
         /// The node's anchor as the column stores it — an index, negative where no source
         /// spells the node (`Anchor`). A row is the column transpose, so it holds the
         /// column's own value; the surface that hands one out decodes it.
-        Tok: int<token>
+        Tok: Anchor
         Children: ExprPoolId[]
         PatChildren: PatPoolId[]
         /// The `Var` reference edge (`ValueNone` at every other shape). A tree WALK cannot
@@ -684,7 +697,7 @@ type PatRow =
     {
         Ty: FrozenType
         /// See `ExprRow.Tok`.
-        Tok: int<token>
+        Tok: Anchor
         Children: PatPoolId[]
         Payload: PatPayload
     }
