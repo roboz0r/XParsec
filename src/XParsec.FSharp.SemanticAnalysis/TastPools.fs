@@ -758,10 +758,13 @@ module TastPools =
         // answerable, so an arm that comes to pick a virtual token is caught here rather
         // than by whichever consumer first asks the anchor for text or a position.
         //
-        // It is a property of a node OF A FILE, which is why it lives on this sink and not
-        // in the pooling walk: an overlay sink (`TastPoolBuilder`) pools nodes that belong
-        // to no file at all — an `.fsi` contract's harvested member body has no source to
-        // anchor in — and those are not frozen nodes.
+        // It is a property of a node OF A FILE, which is why it lives on this sink rather
+        // than in the shared walk: `TastPoolBuilder`'s overlay keeps its own rows and never
+        // appends to these columns, so what it mints is not a node of this file and owes
+        // this nothing. The one production mint that does anchor on a virtual token is the
+        // contract parameter (`TastLower.externalValRepr`) — a `.fsi` `val` has no lambda
+        // tree, so its reconstructed pats are anchored at offset 0 and no reader ever asks
+        // them for a position.
         let anchor (tok: SyntaxToken) : SyntaxToken =
             match tok.Index with
             | TokenIndex.Regular _ -> tok
