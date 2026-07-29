@@ -51,14 +51,22 @@ module FrozenCodec =
     // writer at all: it is a projection of the payload (`ExprPayload.shape`), so the
     // payload's tag byte already carries it.
 
-    /// A jagged child-id column — one length-prefixed id list per pool slot. Generic over
-    /// the id codec, so the expr-child and pat-child columns of all three domains share the
-    /// one nesting convention rather than repeating it per domain.
-    let private writeIdColumn (w: FrozenWriter) (writeId: FrozenWriter -> 'id -> unit) (col: 'id[][]) =
-        writeArrayWith w (fun w ids -> writeArrayWith w writeId ids) col
+    /// A child-id column (`ChildColumn`) — the row starts, then the one flat id array they
+    /// delimit. Generic over the id codec, so the expr-child and pat-child columns of all
+    /// three domains share the one convention rather than repeating it per domain.
+    ///
+    /// Two flat arrays, so the wire carries ONE length prefix per column where the jagged
+    /// form carried one per slot — and the starts stand in for them, being the same numbers
+    /// running.
+    let private writeChildColumn (w: FrozenWriter) (writeId: FrozenWriter -> 'id -> unit) (col: ChildColumn<'id>) =
+        writeArrayWith w (fun w (s: int) -> w.Write s) col.Start
+        writeArrayWith w writeId col.Ids
 
-    let private readIdColumn (r: FrozenReader) (readId: FrozenReader -> 'id) : 'id[][] =
-        readArrayWith r (fun r -> readArrayWith r readId)
+    let private readChildColumn (r: FrozenReader) (readId: FrozenReader -> 'id) : ChildColumn<'id> =
+        let start = readArrayWith r (fun r -> r.ReadInt32())
+        let ids = readArrayWith r readId
+
+        { Start = start; Ids = ids }
 
     /// A per-binder column (`BinderColumn`) — one optional value per binder slot, in
     /// binder-pool order. NO id is written: the slot's position IS the binder, which is
@@ -467,16 +475,16 @@ module FrozenCodec =
     let private writeBody (w: FrozenWriter) (p: FrozenPools) =
         writeArrayWith w writeTypeId p.ExprTys
         writeArrayWith w writeAnchor p.ExprToks
-        writeIdColumn w writeExprPoolId p.ExprChildren
-        writeIdColumn w writePatPoolId p.ExprPatChildren
+        writeChildColumn w writeExprPoolId p.ExprChildren
+        writeChildColumn w writePatPoolId p.ExprPatChildren
         writeArrayWith w (fun w b -> writeVOptionWith w writeBinderId b) p.ExprVarBinder
         writeArrayWith w writeExprPayload p.ExprPayloads
         writeArrayWith w writeTypeId p.PatTys
         writeArrayWith w writeAnchor p.PatToks
-        writeIdColumn w writePatPoolId p.PatChildren
+        writeChildColumn w writePatPoolId p.PatChildren
         writeArrayWith w writePatPayload p.PatPayloads
-        writeIdColumn w writeExprPoolId p.DeclExprChildren
-        writeIdColumn w writePatPoolId p.DeclPatChildren
+        writeChildColumn w writeExprPoolId p.DeclExprChildren
+        writeChildColumn w writePatPoolId p.DeclPatChildren
         writeArrayWith w writeDeclPayload p.DeclPayloads
         writeArrayWith w writeDeclPoolId p.Roots
         writeArrayWith w writeInlineTemplate p.InlineTemplates
@@ -515,16 +523,16 @@ module FrozenCodec =
         let r = { r with Types = types }
         let exprTys = readArrayWith r readTypeId
         let exprToks = readArrayWith r readAnchor
-        let exprChildren = readIdColumn r readExprPoolId
-        let exprPatChildren = readIdColumn r readPatPoolId
+        let exprChildren = readChildColumn r readExprPoolId
+        let exprPatChildren = readChildColumn r readPatPoolId
         let exprVarBinder = readArrayWith r (fun r -> readVOptionWith r readBinderId)
         let exprPayloads = readArrayWith r readExprPayload
         let patTys = readArrayWith r readTypeId
         let patToks = readArrayWith r readAnchor
-        let patChildren = readIdColumn r readPatPoolId
+        let patChildren = readChildColumn r readPatPoolId
         let patPayloads = readArrayWith r readPatPayload
-        let declExprChildren = readIdColumn r readExprPoolId
-        let declPatChildren = readIdColumn r readPatPoolId
+        let declExprChildren = readChildColumn r readExprPoolId
+        let declPatChildren = readChildColumn r readPatPoolId
         let declPayloads = readArrayWith r readDeclPayload
         let roots = readArrayWith r readDeclPoolId
         let inlineTemplates = readArrayWith r readInlineTemplate

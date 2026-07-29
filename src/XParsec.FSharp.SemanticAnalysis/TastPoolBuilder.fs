@@ -174,11 +174,26 @@ module TastPoolBuilder =
     let exprTok (b: PoolBuilder) (id: ExprPoolId) : Anchor =
         readExpr b id (fun p i -> p.ExprToks.[i]) (fun r -> r.Tok)
 
+    // The child edges, by POSITION and as a whole list. The base column is CSR
+    // (`ChildColumn`), so `count`/`item` read the flat id array where the array forms have
+    // to cut a row out of it — which is why every consumer that wants ONE named child (an
+    // `App`'s fn/arg, a `Let`'s value/body) goes through the positional pair. The array
+    // forms are for the views whose payload IS a list and for a generic walk.
+
+    let exprChildCount (b: PoolBuilder) (id: ExprPoolId) : int =
+        readExpr b id (fun p i -> ChildColumn.count p.ExprChildren i) (fun r -> r.Children.Length)
+
+    let exprChild (b: PoolBuilder) (id: ExprPoolId) (k: int) : ExprPoolId =
+        readExpr b id (fun p i -> ChildColumn.item p.ExprChildren i k) (fun r -> r.Children.[k])
+
+    let exprPatChild (b: PoolBuilder) (id: ExprPoolId) (k: int) : PatPoolId =
+        readExpr b id (fun p i -> ChildColumn.item p.ExprPatChildren i k) (fun r -> r.PatChildren.[k])
+
     let exprChildren (b: PoolBuilder) (id: ExprPoolId) : ExprPoolId[] =
-        readExpr b id (fun p i -> p.ExprChildren.[i]) (fun r -> r.Children)
+        readExpr b id (fun p i -> ChildColumn.slice p.ExprChildren i) (fun r -> r.Children)
 
     let exprPatChildren (b: PoolBuilder) (id: ExprPoolId) : PatPoolId[] =
-        readExpr b id (fun p i -> p.ExprPatChildren.[i]) (fun r -> r.PatChildren)
+        readExpr b id (fun p i -> ChildColumn.slice p.ExprPatChildren i) (fun r -> r.PatChildren)
 
     let exprVarBinder (b: PoolBuilder) (id: ExprPoolId) : BinderId voption =
         readExpr b id (fun p i -> p.ExprVarBinder.[i]) (fun r -> r.VarBinder)
@@ -201,8 +216,8 @@ module TastPoolBuilder =
                 {
                     Ty = p.Types.[p.ExprTys.[i]]
                     Tok = p.ExprToks.[i]
-                    Children = p.ExprChildren.[i]
-                    PatChildren = p.ExprPatChildren.[i]
+                    Children = ChildColumn.slice p.ExprChildren i
+                    PatChildren = ChildColumn.slice p.ExprPatChildren i
                     VarBinder = p.ExprVarBinder.[i]
                     Payload = p.ExprPayloads.[i]
                 }
@@ -217,8 +232,12 @@ module TastPoolBuilder =
     let patTok (b: PoolBuilder) (id: PatPoolId) : Anchor =
         readPat b id (fun p i -> p.PatToks.[i]) (fun r -> r.Tok)
 
+    /// The pattern twin of `exprChild`.
+    let patChild (b: PoolBuilder) (id: PatPoolId) (k: int) : PatPoolId =
+        readPat b id (fun p i -> ChildColumn.item p.PatChildren i k) (fun r -> r.Children.[k])
+
     let patChildren (b: PoolBuilder) (id: PatPoolId) : PatPoolId[] =
-        readPat b id (fun p i -> p.PatChildren.[i]) (fun r -> r.Children)
+        readPat b id (fun p i -> ChildColumn.slice p.PatChildren i) (fun r -> r.Children)
 
     let patPayload (b: PoolBuilder) (id: PatPoolId) : PatPayload =
         readPat b id (fun p i -> p.PatPayloads.[i]) (fun r -> r.Payload)
@@ -235,17 +254,24 @@ module TastPoolBuilder =
                 {
                     Ty = p.Types.[p.PatTys.[i]]
                     Tok = p.PatToks.[i]
-                    Children = p.PatChildren.[i]
+                    Children = ChildColumn.slice p.PatChildren i
                     Payload = p.PatPayloads.[i]
                 }
             )
             (fun r -> r)
 
+    /// The declaration twins of `exprChild` — one expr / pat root by position.
+    let declExprChild (b: PoolBuilder) (id: DeclPoolId) (k: int) : ExprPoolId =
+        readDecl b id (fun p i -> ChildColumn.item p.DeclExprChildren i k) (fun r -> r.ExprChildren.[k])
+
+    let declPatChild (b: PoolBuilder) (id: DeclPoolId) (k: int) : PatPoolId =
+        readDecl b id (fun p i -> ChildColumn.item p.DeclPatChildren i k) (fun r -> r.PatChildren.[k])
+
     let declExprChildren (b: PoolBuilder) (id: DeclPoolId) : ExprPoolId[] =
-        readDecl b id (fun p i -> p.DeclExprChildren.[i]) (fun r -> r.ExprChildren)
+        readDecl b id (fun p i -> ChildColumn.slice p.DeclExprChildren i) (fun r -> r.ExprChildren)
 
     let declPatChildren (b: PoolBuilder) (id: DeclPoolId) : PatPoolId[] =
-        readDecl b id (fun p i -> p.DeclPatChildren.[i]) (fun r -> r.PatChildren)
+        readDecl b id (fun p i -> ChildColumn.slice p.DeclPatChildren i) (fun r -> r.PatChildren)
 
     let declPayload (b: PoolBuilder) (id: DeclPoolId) : DeclPayload =
         readDecl b id (fun p i -> p.DeclPayloads.[i]) (fun r -> r.Payload)
@@ -260,8 +286,8 @@ module TastPoolBuilder =
             id
             (fun p i ->
                 {
-                    ExprChildren = p.DeclExprChildren.[i]
-                    PatChildren = p.DeclPatChildren.[i]
+                    ExprChildren = ChildColumn.slice p.DeclExprChildren i
+                    PatChildren = ChildColumn.slice p.DeclPatChildren i
                     Payload = p.DeclPayloads.[i]
                 }
             )

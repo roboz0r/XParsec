@@ -35,18 +35,18 @@ let rec private checkPat (pools: FrozenPools) (PatPoolId i) (du: Pooled.TPat) =
     let binder = internedBinderId pools (BinderKey.ofPat du)
     Expect.equal pools.PatPayloads.[i] (TastPoolShapes.patPayload binder du) "pat payload"
     let duKids = TastPoolShapes.patChildren du
-    Expect.equal pools.PatChildren.[i].Length duKids.Length "pat child fan-out"
-    Array.iter2 (checkPat pools) pools.PatChildren.[i] duKids
+    Expect.equal (ChildColumn.count pools.PatChildren i) duKids.Length "pat child fan-out"
+    Array.iter2 (checkPat pools) (ChildColumn.slice pools.PatChildren i) duKids
 
 let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr) =
     let binder = internedBinderId pools (BinderKey.ofExpr du)
     Expect.equal pools.ExprPayloads.[i] (TastPoolShapes.exprPayload id binder du) "expr payload"
     let duExprKids = TastPoolShapes.exprChildren du
     let duPatKids = TastPoolShapes.exprPatChildren du
-    Expect.equal pools.ExprChildren.[i].Length duExprKids.Length "expr child fan-out"
-    Expect.equal pools.ExprPatChildren.[i].Length duPatKids.Length "expr's pat fan-out"
-    Array.iter2 (checkExpr pools) pools.ExprChildren.[i] duExprKids
-    Array.iter2 (checkPat pools) pools.ExprPatChildren.[i] duPatKids
+    Expect.equal (ChildColumn.count pools.ExprChildren i) duExprKids.Length "expr child fan-out"
+    Expect.equal (ChildColumn.count pools.ExprPatChildren i) duPatKids.Length "expr's pat fan-out"
+    Array.iter2 (checkExpr pools) (ChildColumn.slice pools.ExprChildren i) duExprKids
+    Array.iter2 (checkPat pools) (ChildColumn.slice pools.ExprPatChildren i) duPatKids
 
 /// A type declaration's body slots in traversal order, gathered by running the SAME
 /// traversal the pool build and drain run (`TastConvert.typeDecl` at a collecting body
@@ -79,19 +79,19 @@ let private checkDecl (pools: FrozenPools) (DeclPoolId i) (du: Pooled.TDecl) =
     match du with
     | TDeclG.Let(binding = binding; value = value) ->
         shapeIs DeclShape.Let "decl shape"
-        Expect.equal pools.DeclExprChildren.[i].Length 1 "let decl one value child"
-        Expect.equal pools.DeclPatChildren.[i].Length 1 "let decl one binding child"
-        checkExpr pools pools.DeclExprChildren.[i].[0] value
-        checkPat pools pools.DeclPatChildren.[i].[0] binding
+        Expect.equal (ChildColumn.count pools.DeclExprChildren i) 1 "let decl one value child"
+        Expect.equal (ChildColumn.count pools.DeclPatChildren i) 1 "let decl one binding child"
+        checkExpr pools (ChildColumn.item pools.DeclExprChildren i 0) value
+        checkPat pools (ChildColumn.item pools.DeclPatChildren i 0) binding
     | TDeclG.Expression(expr = expr) ->
         shapeIs DeclShape.Expression "decl shape"
-        Expect.equal pools.DeclExprChildren.[i].Length 1 "expression decl one child"
-        Expect.equal pools.DeclPatChildren.[i].Length 0 "expression decl no pat child"
-        checkExpr pools pools.DeclExprChildren.[i].[0] expr
+        Expect.equal (ChildColumn.count pools.DeclExprChildren i) 1 "expression decl one child"
+        Expect.equal (ChildColumn.count pools.DeclPatChildren i) 0 "expression decl no pat child"
+        checkExpr pools (ChildColumn.item pools.DeclExprChildren i 0) expr
     | TDeclG.Type duTd ->
         shapeIs DeclShape.Type "decl shape"
-        Expect.equal pools.DeclExprChildren.[i].Length 0 "type decl surfaces no expr child"
-        Expect.equal pools.DeclPatChildren.[i].Length 0 "type decl surfaces no pat child"
+        Expect.equal (ChildColumn.count pools.DeclExprChildren i) 0 "type decl surfaces no expr child"
+        Expect.equal (ChildColumn.count pools.DeclPatChildren i) 0 "type decl surfaces no pat child"
 
         // The member / preamble / ctor bodies are not children — they are named by id
         // INSIDE the payload's declaration shape, which is what keeps "which body fills
@@ -184,7 +184,7 @@ let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
 
     for i in 0 .. pools.ExprPayloads.Length - 1 do
         if pools.ExprPayloads.[i] = ExprPayload.Lambda then
-            lambdaParams.Add pools.ExprPatChildren.[i].[0] |> ignore
+            lambdaParams.Add(ChildColumn.item pools.ExprPatChildren i 0) |> ignore
 
     for _, vr in pools.BindingValReprs do
         for g in vr.Groups do
@@ -198,7 +198,7 @@ let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
         pools.Roots
         |> Array.filter (fun (DeclPoolId d) ->
             DeclPayload.shape pools.DeclPayloads.[d] = DeclShape.Let
-            && (let (PatPoolId head) = pools.DeclPatChildren.[d].[0]
+            && (let (PatPoolId head) = ChildColumn.item pools.DeclPatChildren d 0
 
                 match pools.PatPayloads.[head] with
                 | PatPayload.NamedSimple _ -> true

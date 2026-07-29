@@ -307,7 +307,7 @@ module TastUnpool =
         let lambdaKeyOf (ExprPoolId i) : LambdaKey = LambdaKey pools.ExprToks.[i]
 
         let rec fromPat (PatPoolId i) : TPatG<FrozenType, Anchor, 'id> =
-            let ps = pools.PatChildren.[i] |> Array.map fromPat
+            let ps = ChildColumn.slice pools.PatChildren i |> Array.map fromPat
 
             let p =
                 substitutePat widenBinder pools.Types.[pools.PatTys.[i]] pools.PatToks.[i] pools.PatPayloads.[i] ps
@@ -316,8 +316,8 @@ module TastUnpool =
             p
 
         let rec fromExpr (ExprPoolId i) : TExprG<FrozenType, Anchor, 'id> =
-            let es = pools.ExprChildren.[i] |> Array.map fromExpr
-            let ps = pools.ExprPatChildren.[i] |> Array.map fromPat
+            let es = ChildColumn.slice pools.ExprChildren i |> Array.map fromExpr
+            let ps = ChildColumn.slice pools.ExprPatChildren i |> Array.map fromPat
 
             let e =
                 substituteExpr
@@ -334,8 +334,8 @@ module TastUnpool =
             e
 
         let fromDecl (DeclPoolId i) : TDeclG<FrozenType, Anchor, 'id> =
-            let es = pools.DeclExprChildren.[i] |> Array.map fromExpr
-            let ps = pools.DeclPatChildren.[i] |> Array.map fromPat
+            let es = ChildColumn.slice pools.DeclExprChildren i |> Array.map fromExpr
+            let ps = ChildColumn.slice pools.DeclPatChildren i |> Array.map fromPat
             let d = substituteDecl widenBinder id fromExpr pools.DeclPayloads.[i] es ps
 
             match d with

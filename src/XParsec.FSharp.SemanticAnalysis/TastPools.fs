@@ -182,7 +182,8 @@ module TastPools =
     let private bindingValReprs (pools: FrozenPools) : DenseTable<BinderId, PooledValRepr> =
         let unLambda (ExprPoolId i) =
             match pools.ExprPayloads.[i] with
-            | ExprPayload.Lambda -> ValueSome(struct (pools.ExprPatChildren.[i].[0], pools.ExprChildren.[i].[0]))
+            | ExprPayload.Lambda ->
+                ValueSome(struct (ChildColumn.item pools.ExprPatChildren i 0, ChildColumn.item pools.ExprChildren i 0))
             | _ -> ValueNone
 
         let facts (PatPoolId i) : ArgGroups.ParamPatFacts<BinderId> =
@@ -203,13 +204,15 @@ module TastPools =
             for DeclPoolId d in pools.Roots do
                 match pools.DeclPayloads.[d] with
                 | DeclPayload.Let _ ->
-                    let (PatPoolId head) = pools.DeclPatChildren.[d].[0]
+                    let (PatPoolId head) = ChildColumn.item pools.DeclPatChildren d 0
 
                     match pools.PatPayloads.[head] with
                     // Only a simple binder has a side-table identity; a destructuring or
                     // wildcard head introduces none and needs none (see `BinderKey.ofPat`).
                     | PatPayload.NamedSimple binder ->
-                        let groups, body = ArgGroups.peel unLambda facts pools.DeclExprChildren.[d].[0]
+                        let groups, body =
+                            ArgGroups.peel unLambda facts (ChildColumn.item pools.DeclExprChildren d 0)
+
                         let (ExprPoolId b) = body
 
                         yield
@@ -258,8 +261,8 @@ module TastPools =
         // appended together per node so they stay index-aligned by `ExprPoolId`.
         let exprTys = ResizeArray<TypeId>()
         let exprToks = ResizeArray<Anchor>()
-        let exprChildrenCol = ResizeArray<ExprPoolId[]>()
-        let exprPatChildrenCol = ResizeArray<PatPoolId[]>()
+        let exprChildrenCol = ChildColumnBuilder<ExprPoolId>()
+        let exprPatChildrenCol = ChildColumnBuilder<PatPoolId>()
         let exprPayloads = ResizeArray<ExprPayload>()
 
         // Each `Var`'s expr id + the binder it references, captured in pass 1 and resolved
@@ -271,12 +274,12 @@ module TastPools =
         // `PatPoolId`.
         let patTys = ResizeArray<TypeId>()
         let patToks = ResizeArray<Anchor>()
-        let patChildrenCol = ResizeArray<PatPoolId[]>()
+        let patChildrenCol = ChildColumnBuilder<PatPoolId>()
         let patPayloads = ResizeArray<PatPayload>()
 
         // The declaration pool as parallel column builders, index-aligned by `DeclPoolId`.
-        let declExprChildrenCol = ResizeArray<ExprPoolId[]>()
-        let declPatChildrenCol = ResizeArray<PatPoolId[]>()
+        let declExprChildrenCol = ChildColumnBuilder<ExprPoolId>()
+        let declPatChildrenCol = ChildColumnBuilder<PatPoolId>()
         let declPayloads = ResizeArray<DeclPayload>()
 
         // The binder pool: each distinct definition site the walk reaches takes a dense
@@ -509,16 +512,16 @@ module TastPools =
                 Types = FrozenTypeTable.OfRows typeTable.Rows
                 ExprTys = exprTys.ToArray()
                 ExprToks = exprToks.ToArray()
-                ExprChildren = exprChildrenCol.ToArray()
-                ExprPatChildren = exprPatChildrenCol.ToArray()
+                ExprChildren = exprChildrenCol.ToColumn()
+                ExprPatChildren = exprPatChildrenCol.ToColumn()
                 ExprVarBinder = exprVarBinder
                 ExprPayloads = exprPayloads.ToArray()
                 PatTys = patTys.ToArray()
                 PatToks = patToks.ToArray()
-                PatChildren = patChildrenCol.ToArray()
+                PatChildren = patChildrenCol.ToColumn()
                 PatPayloads = patPayloads.ToArray()
-                DeclExprChildren = declExprChildrenCol.ToArray()
-                DeclPatChildren = declPatChildrenCol.ToArray()
+                DeclExprChildren = declExprChildrenCol.ToColumn()
+                DeclPatChildren = declPatChildrenCol.ToColumn()
                 DeclPayloads = declPayloads.ToArray()
                 Roots = roots
                 InlineTemplates = inlineTemplates

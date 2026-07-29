@@ -93,6 +93,62 @@ module BinderColumn =
     let tryItem (col: BinderColumn<'v>) (BinderId i) : 'v voption =
         if i < col.Length then col.[i] else ValueNone
 
+/// A CHILD-ID column: every slot's child ids, concatenated into one flat `Ids` array, with
+/// `Start.[i] .. Start.[i+1]` delimiting slot `i`'s. `Start` is one longer than the pool it
+/// indexes, so the last slot needs no special case.
+///
+/// Two arrays for the whole column, not one per node. The jagged form paid an object header
+/// plus an outer reference for EVERY slot — the leaves included, which are most of a tree
+/// and have no children at all — where here a childless slot is just `Start.[i] =
+/// Start.[i+1]` and occupies four bytes of `Start`.
+///
+/// `count`/`item` are the read surface, and they index the flat array with no row
+/// materialised: a view that names two children (`App`'s fn/arg, `Let`'s value/body) is two
+/// array reads. `slice` is for the paths that genuinely speak in whole arrays — a row
+/// transpose, a DU drain — and hands back the shared empty array where there are no
+/// children, so the common leaf costs nothing there either.
+type ChildColumn<'id> = { Start: int[]; Ids: 'id[] }
+
+[<RequireQualifiedAccess>]
+module ChildColumn =
+
+    /// The zero column — one start and no ids, which is what a pool with no slots has.
+    let empty<'id> : ChildColumn<'id> = { Start = [| 0 |]; Ids = [||] }
+
+    /// How many children slot `i` has — the bound `item` indexes into.
+    let count (col: ChildColumn<'id>) (i: int) : int = col.Start.[i + 1] - col.Start.[i]
+
+    /// Slot `i`'s `k`-th child.
+    let item (col: ChildColumn<'id>) (i: int) (k: int) : 'id = col.Ids.[col.Start.[i] + k]
+
+    /// Slot `i`'s children as their own array.
+    let slice (col: ChildColumn<'id>) (i: int) : 'id[] =
+        let s = col.Start.[i]
+
+        match col.Start.[i + 1] - s with
+        | 0 -> Array.empty
+        | n -> Array.sub col.Ids s n
+
+/// A `ChildColumn` under construction: slots appended one whole child list at a time, in
+/// pool order. That is how every producer of one fills it — the pooling sink adds a row's
+/// children exactly where the row takes its id — so the append is the only operation, and
+/// the running `Ids` count IS the next slot's start.
+type ChildColumnBuilder<'id>() =
+    // Seeded with slot 0's start, so `Start` is already the CSR form's `n+1` entries after
+    // `n` appends and an unfilled builder is `ChildColumn.empty`.
+    let starts = ResizeArray<int>([ 0 ])
+    let ids = ResizeArray<'id>()
+
+    member _.Add(kids: 'id[]) =
+        ids.AddRange kids
+        starts.Add ids.Count
+
+    member _.ToColumn() : ChildColumn<'id> =
+        {
+            Start = starts.ToArray()
+            Ids = ids.ToArray()
+        }
+
 /// One entry of the pooled inline VOCABULARY: a published template's identity and parameter
 /// attributes, with its declaration named by pool id.
 ///
@@ -182,8 +238,11 @@ type FrozenPools =
         /// dominates a frozen file. Read through `TastPoolBuilder.exprTok`, which is where
         /// the absence convention is decoded.
         ExprToks: Anchor[]
-        ExprChildren: ExprPoolId[][]
-        ExprPatChildren: PatPoolId[][]
+        /// The child edges in CSR form (`ChildColumn`) — one flat id array per column
+        /// rather than one array per node. Read through `TastPoolBuilder.exprChildCount` /
+        /// `exprChild`, which index it without materialising the sibling list.
+        ExprChildren: ChildColumn<ExprPoolId>
+        ExprPatChildren: ChildColumn<PatPoolId>
         ExprVarBinder: BinderId voption[]
         ExprPayloads: ExprPayload[]
         /// The pattern pool as struct-of-arrays: parallel columns indexed by `PatPoolId`.
@@ -197,7 +256,8 @@ type FrozenPools =
         PatTys: TypeId[]
         /// The pattern twin of `ExprToks`.
         PatToks: Anchor[]
-        PatChildren: PatPoolId[][]
+        /// The pattern twin of `ExprChildren`.
+        PatChildren: ChildColumn<PatPoolId>
         PatPayloads: PatPayload[]
         /// The declaration pool as struct-of-arrays, indexed by `DeclPoolId`.
         /// `DeclExprChildren`/`DeclPatChildren` are the decl's immediate expr/pat roots
@@ -205,8 +265,8 @@ type FrozenPools =
         /// decl surfaces none); `DeclPayloads` the residual per-case payload, tag included
         /// (it also carries the decl's type, there being no node-level `ty` column). No DU
         /// node is retained.
-        DeclExprChildren: ExprPoolId[][]
-        DeclPatChildren: PatPoolId[][]
+        DeclExprChildren: ChildColumn<ExprPoolId>
+        DeclPatChildren: ChildColumn<PatPoolId>
         DeclPayloads: DeclPayload[]
         /// The pool ids of the source file's `Decls`, in source order — the entry points
         /// for a pool walk / rebuild.
@@ -284,16 +344,16 @@ module FrozenPools =
             Types = FrozenTypeTable.Empty
             ExprTys = [||]
             ExprToks = [||]
-            ExprChildren = [||]
-            ExprPatChildren = [||]
+            ExprChildren = ChildColumn.empty
+            ExprPatChildren = ChildColumn.empty
             ExprVarBinder = [||]
             ExprPayloads = [||]
             PatTys = [||]
             PatToks = [||]
-            PatChildren = [||]
+            PatChildren = ChildColumn.empty
             PatPayloads = [||]
-            DeclExprChildren = [||]
-            DeclPatChildren = [||]
+            DeclExprChildren = ChildColumn.empty
+            DeclPatChildren = ChildColumn.empty
             DeclPayloads = [||]
             Roots = [||]
             InlineTemplates = [||]

@@ -164,23 +164,24 @@ module TastAccessor =
         TastPoolBuilder.exprPatChildren e.Pool e.Id |> Array.map (at e)
 
     // ONE child by position, without materialising the sibling list. `exprChildren` has
-    // to `Array.map` a fresh handle array — the pool column holds bare ids — so a view
-    // that wants two named children (`App`'s fn/arg, `Let`'s value/body) built and threw
-    // away an array per read, on the per-node path both backends' emit walks. Indexing
-    // the column costs nothing. The array forms stay for the views whose payload IS a
-    // list (`RecordCons`, `MethodCall`'s args, the match arms) and for a generic walk.
+    // to `Array.map` a fresh handle array — and, the base column being CSR, cut a row out
+    // of it first — so a view that wants two named children (`App`'s fn/arg, `Let`'s
+    // value/body) built and threw away an array per read, on the per-node path of both
+    // backends' emit walks. Indexing the column costs nothing. The array forms stay for
+    // the views whose payload IS a list (`RecordCons`, `MethodCall`'s args, the match
+    // arms) and for a generic walk.
 
     /// How many immediate child expressions `e` has — the bound `exprChild` indexes into.
     let exprChildCount (e: ExprId) : int =
-        (TastPoolBuilder.exprChildren e.Pool e.Id).Length
+        TastPoolBuilder.exprChildCount e.Pool e.Id
 
     /// The `i`-th immediate child expression, in `exprChildren` order.
     let exprChild (e: ExprId) (i: int) : ExprId =
-        at e (TastPoolBuilder.exprChildren e.Pool e.Id).[i]
+        at e (TastPoolBuilder.exprChild e.Pool e.Id i)
 
     /// The `i`-th owned sub-pattern, in `exprPatChildren` order.
     let exprPatChild (e: ExprId) (i: int) : PatId =
-        at e (TastPoolBuilder.exprPatChildren e.Pool e.Id).[i]
+        at e (TastPoolBuilder.exprPatChild e.Pool e.Id i)
 
     let private payload (e: ExprId) : ExprPayload = TastPoolBuilder.exprPayload e.Pool e.Id
 
@@ -776,7 +777,7 @@ module TastAccessor =
     /// The `i`-th immediate sub-pattern, without materialising its siblings — see
     /// `exprChild`.
     let patChild (p: PatId) (i: int) : PatId =
-        at p (TastPoolBuilder.patChildren p.Pool p.Id).[i]
+        at p (TastPoolBuilder.patChild p.Pool p.Id i)
 
     let private patPayload (p: PatId) : PatPayload = TastPoolBuilder.patPayload p.Pool p.Id
 
@@ -887,10 +888,10 @@ module TastAccessor =
 
     /// The `i`-th expr / pat root of a decl — see `exprChild`.
     let private declExprChild (d: DeclId) (i: int) : ExprId =
-        at d (TastPoolBuilder.declExprChildren d.Pool d.Id).[i]
+        at d (TastPoolBuilder.declExprChild d.Pool d.Id i)
 
     let private declPatChild (d: DeclId) (i: int) : PatId =
-        at d (TastPoolBuilder.declPatChildren d.Pool d.Id).[i]
+        at d (TastPoolBuilder.declPatChild d.Pool d.Id i)
 
     /// A `Type` decl → its declaration payload, member/preamble/ctor bodies resolved to
     /// handles.

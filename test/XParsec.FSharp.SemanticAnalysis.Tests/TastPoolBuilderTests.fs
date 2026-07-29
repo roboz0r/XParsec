@@ -26,7 +26,15 @@ let private firstLetValue (frozen: Pooled.TastFile) : Pooled.TExpr =
 /// value the base pool holds. Run against a builder that has already grown an overlay, so
 /// a layer check that got its boundary wrong (or an overlay that shadowed the base) shows
 /// up here rather than only at the freeze.
+///
+/// A child column has TWO read paths — the whole list and one child by position, each with
+/// its own layer arithmetic over the CSR form — so both are asserted against the same
+/// column, which is also what pins them to each other.
 let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
+    let inline positionally (kids: 'id[]) (byIndex: int -> 'id) (what: string) =
+        for k in 0 .. kids.Length - 1 do
+            Expect.equal (byIndex k) kids.[k] what
+
     for i in 0 .. pools.ExprPayloads.Length - 1 do
         let id = ExprPoolId i
         // The `ty` column holds a row of the base pool's own type table, so the expected
@@ -34,8 +42,13 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
         // against the table the id belongs to.
         Expect.equal (TastPoolBuilder.exprTy b id) pools.Types.[pools.ExprTys.[i]] "base expr ty"
         Expect.equal (TastPoolBuilder.exprTok b id) pools.ExprToks.[i] "base expr tok"
-        Expect.equal (TastPoolBuilder.exprChildren b id) pools.ExprChildren.[i] "base expr children"
-        Expect.equal (TastPoolBuilder.exprPatChildren b id) pools.ExprPatChildren.[i] "base expr pat children"
+        let kids = ChildColumn.slice pools.ExprChildren i
+        let patKids = ChildColumn.slice pools.ExprPatChildren i
+        Expect.equal (TastPoolBuilder.exprChildren b id) kids "base expr children"
+        Expect.equal (TastPoolBuilder.exprPatChildren b id) patKids "base expr pat children"
+        Expect.equal (TastPoolBuilder.exprChildCount b id) kids.Length "base expr child count"
+        positionally kids (TastPoolBuilder.exprChild b id) "base expr child by position"
+        positionally patKids (TastPoolBuilder.exprPatChild b id) "base expr pat child by position"
         Expect.equal (TastPoolBuilder.exprVarBinder b id) pools.ExprVarBinder.[i] "base expr var binder"
         Expect.equal (TastPoolBuilder.exprPayload b id) pools.ExprPayloads.[i] "base expr payload"
 
@@ -43,13 +56,19 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
         let id = PatPoolId i
         Expect.equal (TastPoolBuilder.patTy b id) pools.Types.[pools.PatTys.[i]] "base pat ty"
         Expect.equal (TastPoolBuilder.patTok b id) pools.PatToks.[i] "base pat tok"
-        Expect.equal (TastPoolBuilder.patChildren b id) pools.PatChildren.[i] "base pat children"
+        let kids = ChildColumn.slice pools.PatChildren i
+        Expect.equal (TastPoolBuilder.patChildren b id) kids "base pat children"
+        positionally kids (TastPoolBuilder.patChild b id) "base pat child by position"
         Expect.equal (TastPoolBuilder.patPayload b id) pools.PatPayloads.[i] "base pat payload"
 
     for i in 0 .. pools.DeclPayloads.Length - 1 do
         let id = DeclPoolId i
-        Expect.equal (TastPoolBuilder.declExprChildren b id) pools.DeclExprChildren.[i] "base decl expr children"
-        Expect.equal (TastPoolBuilder.declPatChildren b id) pools.DeclPatChildren.[i] "base decl pat children"
+        let kids = ChildColumn.slice pools.DeclExprChildren i
+        let patKids = ChildColumn.slice pools.DeclPatChildren i
+        Expect.equal (TastPoolBuilder.declExprChildren b id) kids "base decl expr children"
+        Expect.equal (TastPoolBuilder.declPatChildren b id) patKids "base decl pat children"
+        positionally kids (TastPoolBuilder.declExprChild b id) "base decl expr child by position"
+        positionally patKids (TastPoolBuilder.declPatChild b id) "base decl pat child by position"
         Expect.equal (TastPoolBuilder.declPayload b id) pools.DeclPayloads.[i] "base decl payload"
 
     for i in 0 .. pools.BinderNames.Length - 1 do
