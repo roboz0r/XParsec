@@ -304,6 +304,33 @@ module Constraint =
         choiceL [ pDefaultConstraint; pMemberTrait; pTyparConstraints ] "Constraint"
 
 [<RequireQualifiedAccess>]
+module TyparConstraints =
+    /// `when c1 [and c2]*` the general typar-constraint list,
+    /// shared by the three positions that accept one: inside `<...>`, trailing a
+    /// type header, and suffixing an inline type (`Type.WhenConstrainedType`).
+    let parse: Parser<TyparConstraints<SyntaxToken>, _, _, _> =
+        parser {
+            let! whenTok = pWhen
+            let! first = Constraint.parse
+
+            let! rest =
+                many (
+                    parser {
+                        let! andTok = pAnd
+                        let! c = Constraint.parse
+                        return struct (andTok, c)
+                    }
+                )
+
+            return
+                {
+                    WhenToken = whenTok
+                    Constraint = first
+                    AndConstraints = rest
+                }
+        }
+
+[<RequireQualifiedAccess>]
 module TyparDefns =
     let parse =
         parser {
@@ -319,17 +346,7 @@ module TyparDefns =
                     })
                     pComma
 
-            let! constraints =
-                opt (
-                    parser {
-                        let! whenTok = pWhen
-
-                        let! constrs, ands = sepBy1 Constraint.parse pAnd
-
-                        return TyparConstraints.TyparConstraints(whenTok, constrs, ands)
-                    }
-                )
-
+            let! constraints = opt TyparConstraints.parse
             let! rAngle = pCloseTypeParams
 
             return TyparDefns.TyparDefns(lAngle, defns, constraints, rAngle)
@@ -667,19 +684,12 @@ module Type =
             return acc
         }
 
-    let private pWhenConstraints =
-        parser {
-            let! whenTok = pWhen
-            let! constrs, ands = sepBy1 Constraint.parse pAnd
-            return TyparConstraints.TyparConstraints(whenTok, constrs, ands)
-        }
-
     // Entry point for simple types
     let parse =
         parser {
             let! typ = pFunctionType
 
-            match! opt pWhenConstraints with
+            match! opt TyparConstraints.parse with
             | ValueSome constraints -> return Type.WhenConstrainedType(typ, constraints)
             | ValueNone -> return typ
         }
@@ -735,7 +745,7 @@ module Type =
         parser {
             let! typ = pFunctionTypeNoUnion
 
-            match! opt pWhenConstraints with
+            match! opt TyparConstraints.parse with
             | ValueSome constraints -> return Type.WhenConstrainedType(typ, constraints)
             | ValueNone -> return typ
         }

@@ -179,51 +179,38 @@ module Binding =
             return struct (andTok, c)
         }
 
-    // Parses one `when c1 and c2 ... = optimizedExpr` clause, wrapping the given baseExpr.
-    let private pStaticOptimizationClause (baseExpr: Expr<SyntaxToken>) =
+    // Parses one `when c1 and c2 ... = optimizedExpr` clause.
+    let private pStaticOptimizationClause =
         parser {
             let! whenTok = pWhen
             let! firstC = pStaticOptimizationConstraint
             let! restPairs = many pAndConstraint
-
-            let constraints =
-                ImmutableArray.CreateRange(
-                    seq {
-                        yield firstC
-
-                        for struct (_, c) in restPairs do
-                            yield c
-                    }
-                )
-
-            let ands =
-                ImmutableArray.CreateRange(
-                    seq {
-                        for struct (a, _) in restPairs do
-                            yield a
-                    }
-                )
-
             let! equalsTok = pEquals
             let! optExpr = refExprSeqBlock.Parser
 
-            return Expr.LibraryOnlyStaticOptimization(baseExpr, whenTok, constraints, ands, equalsTok, optExpr)
+            return
+                {
+                    WhenToken = whenTok
+                    Constraint = firstC
+                    AndConstraints = restPairs
+                    EqualsToken = equalsTok
+                    OptimizedExpr = optExpr
+                }
         }
 
-    // Left-fold any trailing `when` clauses onto the binding body. Outermost node
-    // ends up holding the last `when` clause in source order, matching F# compiler semantics.
-    // Uses `choice` so that a peek failure (EndOfInput / offside) after the body cleanly
-    // falls back to returning the base expression unchanged. Without the fallback, every
+    // Collect any trailing `when` clauses onto the binding body, flat and in source order.
+    // `many` always succeeds and rewinds the reader on a failed attempt, so a peek failure
+    // (EndOfInput / offside) after the body cleanly yields no clauses. Without that, every
     // binding body would need to guarantee a following token, which is not true at
     // end-of-file or at the tail of a member list inside a type definition.
-    let rec private pChainStaticOptimizations (baseExpr: Expr<SyntaxToken>) =
-        let pClause =
-            parser {
-                let! wrapped = pStaticOptimizationClause baseExpr
-                return! pChainStaticOptimizations wrapped
-            }
+    let private pChainStaticOptimizations (baseExpr: Expr<SyntaxToken>) =
+        parser {
+            let! clauses = many pStaticOptimizationClause
 
-        choice [ pClause; preturn baseExpr ]
+            match clauses.Length with
+            | 0 -> return baseExpr
+            | _ -> return Expr.LibraryOnlyStaticOptimization(baseExpr, clauses)
+        }
 
     let private pBindingBody =
         // Captures the colon's column before consumption so the following type

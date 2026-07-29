@@ -52,14 +52,7 @@ module TypeName =
 
             // Parse optional postfix 'when' constraints (outside angle brackets):
             // type Set<'T, 'Tag> when 'Tag :> IComparer<'T> = ...
-            let! postfixConstraints =
-                opt (
-                    parser {
-                        let! whenTok = pWhen
-                        let! constrs, ands = sepBy1 Constraint.parse pAnd
-                        return TyparConstraints.TyparConstraints(whenTok, constrs, ands)
-                    }
-                )
+            let! postfixConstraints = opt TyparConstraints.parse
 
             return TypeName(attrs, access, prefixTypars, ident, typars, postfixConstraints)
         }

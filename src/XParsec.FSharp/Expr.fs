@@ -126,7 +126,22 @@ and TyparDefns<'T> =
     | TyparDefns of lAngle: 'T * defns: ImArr<TyparDefn<'T>> * constraints: TyparConstraints<'T> voption * rAngle: 'T
 
 and TyparDefn<'T> = | TyparDefn of attributes: Attributes<'T> voption * typar: Typar<'T>
-and TyparConstraints<'T> = | TyparConstraints of whenToken: 'T * constraints: ImArr<Constraint<'T>> * ands: ImArr<'T>
+
+and TyparConstraints<'T> =
+    {
+        WhenToken: 'T
+        Constraint: Constraint<'T>
+        AndConstraints: ImArr<struct ('T * Constraint<'T>)>
+    }
+
+    /// Every constraint in source order.
+    member this.Constraints =
+        seq {
+            yield this.Constraint
+
+            for struct (_, c) in this.AndConstraints do
+                yield c
+        }
 
 and [<RequireQualifiedAccess>] Constraint<'T> =
     | Coercion of typar: Typar<'T> * colonGreaterThan: 'T * typ: Type<'T>
@@ -372,15 +387,9 @@ type Expr<'T> =
         rParenMember: 'T *
         expr: Expr<'T> *
         rParen: 'T
-    // Library-only static optimization: expr when 'T: Type [and 'T: Type]* = optimizedExpr
-    // Chained clauses nest left-fold: outermost = last `when` clause in source order.
-    | LibraryOnlyStaticOptimization of
-        expr: Expr<'T> *
-        whenToken: 'T *
-        constraints: ImArr<StaticOptimizationConstraint<'T>> *
-        ands: ImArr<'T> *
-        equalsToken: 'T *
-        optimizedExpr: Expr<'T>
+    // Library-only static optimization:
+    //   defaultExpr when 'T: Type [and 'T: Type]* = optimizedExpr [when ... = ...]*
+    | LibraryOnlyStaticOptimization of defaultExpr: Expr<'T> * clauses: ImArr<StaticOptimizationClause<'T>>
     | String of kind: StringKind<'T> * parts: ImArr<StringPart<'T>> * closing: 'T
     // IL intrinsic literal: (# "il" type('T) args : returnType #)
     | ILIntrinsic of
@@ -408,6 +417,24 @@ type Expr<'T> =
     | SliceFromTo of startExpr: Expr<'T> * dotdot: 'T * endExpr: Expr<'T>
     | SliceAll of star: 'T
 
+/// One `when 'T: Type [and 'T: Type]* = optimizedExpr` clause of a `Expr.LibraryOnlyStaticOptimization`.
+and StaticOptimizationClause<'T> =
+    {
+        WhenToken: 'T
+        Constraint: StaticOptimizationConstraint<'T>
+        AndConstraints: ImArr<struct ('T * StaticOptimizationConstraint<'T>)>
+        EqualsToken: 'T
+        OptimizedExpr: Expr<'T>
+    }
+
+    /// Every constraint of the clause in source order — all must hold for it to be selected.
+    member this.Constraints =
+        seq {
+            yield this.Constraint
+
+            for struct (_, c) in this.AndConstraints do
+                yield c
+        }
 
 // Patterns
 

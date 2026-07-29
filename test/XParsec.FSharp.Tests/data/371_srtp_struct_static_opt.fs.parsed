@@ -15,25 +15,25 @@ FunctionOrValue:
                                    ')'               KWRParen            tok=  38  pos= 649
     =                              '='               OpEquality          tok=  40  pos= 651
       LibraryOnlyStaticOptimization:
-        LibraryOnlyStaticOptimization:
-          LibraryOnlyStaticOptimization:
-            App:
-              Func:
-                Ident              'GenericInt...'   Identifier          tok=  43  pos= 657
-              Args:
-                Ident              'value'           Identifier          tok=  45  pos= 674
-            when                   'when'            KWWhen              tok=  48  pos= 684
-            WhenTyparTyconEqualsTycon:
-              Typar.Named:
+        App:
+          Func:
+            Ident                  'GenericInt...'   Identifier          tok=  43  pos= 657
+          Args:
+            Ident                  'value'           Identifier          tok=  45  pos= 674
+        StaticOptimizationClause:
+          when                     'when'            KWWhen              tok=  48  pos= 684
+          WhenTyparTyconEqualsTycon:
+            Typar.Named:
                                    ''T'              TypeParameter       tok=  50  pos= 689
-              :                    ':'               OpColon             tok=  52  pos= 692
-              NamedType:
-                Ident              'int'             Identifier          tok=  54  pos= 694
-            =                      '='               OpEquality          tok=  56  pos= 702
-            StringLiteral          '"'               StringOpen          tok=  58  pos= 704
-            Parts:
-              Text                 'int'             StringFragment      tok=  59  pos= 705
+            :                      ':'               OpColon             tok=  52  pos= 692
+            NamedType:
+              Ident                'int'             Identifier          tok=  54  pos= 694
+          =                        '='               OpEquality          tok=  56  pos= 702
+          StringLiteral            '"'               StringOpen          tok=  58  pos= 704
+          Parts:
+            Text                   'int'             StringFragment      tok=  59  pos= 705
                                    '"'               StringClose         tok=  60  pos= 708
+        StaticOptimizationClause:
           when                     'when'            KWWhen              tok=  63  pos= 714
           WhenTyparIsStruct:
             Typar.Named:
@@ -90,22 +90,23 @@ FunctionOrValue:
                     ParenBlock     '('               KWLParen            tok= 111  pos= 843
                                    ')'               KWRParen            tok= 112  pos= 844
                                    ')'               KWRParen            tok= 112  pos= 844
-        when                       'when'            KWWhen              tok= 115  pos= 850
-        WhenTyparTyconEqualsTycon:
-          Typar.Named:
+        StaticOptimizationClause:
+          when                     'when'            KWWhen              tok= 115  pos= 850
+          WhenTyparTyconEqualsTycon:
+            Typar.Named:
                                    ''T'              TypeParameter       tok= 117  pos= 855
-          :                        ':'               OpColon             tok= 119  pos= 858
-          NamedType:
-            Ident                  'string'          Identifier          tok= 121  pos= 860
-        =                          '='               OpEquality          tok= 123  pos= 868
-        ILIntrinsic:
-          (#                       '(#'              KWLHashParen        tok= 125  pos= 870
-          StringLiteral            '"'               StringOpen          tok= 127  pos= 873
-                                   '"'               StringClose         tok= 128  pos= 874
-          Arg:
-            Ident                  'value'           Identifier          tok= 130  pos= 876
-          ILReturnType:
-            :                      ':'               OpColon             tok= 132  pos= 882
+            :                      ':'               OpColon             tok= 119  pos= 858
             NamedType:
-              Ident                'string'          Identifier          tok= 134  pos= 884
-          #)                       '#)'              KWRHashParen        tok= 136  pos= 891
+              Ident                'string'          Identifier          tok= 121  pos= 860
+          =                        '='               OpEquality          tok= 123  pos= 868
+          ILIntrinsic:
+            (#                     '(#'              KWLHashParen        tok= 125  pos= 870
+            StringLiteral          '"'               StringOpen          tok= 127  pos= 873
+                                   '"'               StringClose         tok= 128  pos= 874
+            Arg:
+              Ident                'value'           Identifier          tok= 130  pos= 876
+            ILReturnType:
+              :                    ':'               OpColon             tok= 132  pos= 882
+              NamedType:
+                Ident              'string'          Identifier          tok= 134  pos= 884
+            #)                     '#)'              KWRHashParen        tok= 136  pos= 891

@@ -55,27 +55,28 @@ FunctionOrValue:
           Args:
             Ident          'x'               Identifier          tok=  58  pos= 514
             Ident          'y'               Identifier          tok=  60  pos= 516
-        when               'when'            KWWhen              tok=  63  pos= 522
-        WhenTyparTyconEqualsTycon:
-          Typar.Static:
+        StaticOptimizationClause:
+          when             'when'            KWWhen              tok=  63  pos= 522
+          WhenTyparTyconEqualsTycon:
+            Typar.Static:
                            '^'               OpConcatenate       tok=  65  pos= 527
                            'T'               Identifier          tok=  66  pos= 528
-          :                ':'               OpColon             tok=  68  pos= 530
-          NamedType:
-            Ident          'int32'           Identifier          tok=  70  pos= 532
-        =                  '='               OpEquality          tok=  72  pos= 538
-        ILIntrinsic:
-          (#               '(#'              KWLHashParen        tok=  74  pos= 540
-          StringLiteral    '"'               StringOpen          tok=  76  pos= 543
-          Parts:
-            Text           'add'             StringFragment      tok=  77  pos= 544
-                           '"'               StringClose         tok=  78  pos= 547
-          Arg:
-            Ident          'x'               Identifier          tok=  80  pos= 549
-          Arg:
-            Ident          'y'               Identifier          tok=  82  pos= 551
-          ILReturnType:
-            :              ':'               OpColon             tok=  84  pos= 553
+            :              ':'               OpColon             tok=  68  pos= 530
             NamedType:
-              Ident        'int32'           Identifier          tok=  86  pos= 555
-          #)               '#)'              KWRHashParen        tok=  88  pos= 561
+              Ident        'int32'           Identifier          tok=  70  pos= 532
+          =                '='               OpEquality          tok=  72  pos= 538
+          ILIntrinsic:
+            (#             '(#'              KWLHashParen        tok=  74  pos= 540
+            StringLiteral  '"'               StringOpen          tok=  76  pos= 543
+            Parts:
+              Text         'add'             StringFragment      tok=  77  pos= 544
+                           '"'               StringClose         tok=  78  pos= 547
+            Arg:
+              Ident        'x'               Identifier          tok=  80  pos= 549
+            Arg:
+              Ident        'y'               Identifier          tok=  82  pos= 551
+            ILReturnType:
+              :            ':'               OpColon             tok=  84  pos= 553
+              NamedType:
+                Ident      'int32'           Identifier          tok=  86  pos= 555
+            #)             '#)'              KWRHashParen        tok=  88  pos= 561

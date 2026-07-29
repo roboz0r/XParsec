@@ -472,6 +472,14 @@ and walkStaticOptimizationConstraint (visitor: AstVisitor<'T>) (c: StaticOptimiz
         visitor.VisitToken "struct" structToken
         visitor.ExitSection "WhenTyparIsStruct"
 
+and walkTyparConstraints (visitor: AstVisitor<'T>) (cs: TyparConstraints<'T>) : unit =
+    visitor.VisitToken "when" cs.WhenToken
+    walkConstraint visitor cs.Constraint
+
+    for struct (andToken, c) in cs.AndConstraints do
+        visitor.VisitToken "and" andToken
+        walkConstraint visitor c
+
 and walkConstraint (visitor: AstVisitor<'T>) (c: Constraint<'T>) : unit =
     match c with
     | Constraint.Coercion(typar, colonGT, typ) ->
@@ -575,14 +583,7 @@ and walkTyparDefns (visitor: AstVisitor<'T>) (typars: TyparDefns<'T>) : unit =
         walkTypar visitor typar
 
     match constraints with
-    | ValueSome(TyparConstraints(whenToken, constraintList, ands)) ->
-        visitor.VisitToken "when" whenToken
-
-        for i in 0 .. constraintList.Length - 1 do
-            walkConstraint visitor constraintList[i]
-
-            if i < ands.Length then
-                visitor.VisitToken "and" ands[i]
+    | ValueSome cs -> walkTyparConstraints visitor cs
     | ValueNone -> ()
 
     visitor.VisitToken ">" rAngle
@@ -670,17 +671,10 @@ and walkType (visitor: AstVisitor<'T>) (ty: Type<'T>) : unit =
 
         visitor.VisitToken "" rBracket
         visitor.ExitSection "ArrayType"
-    | Type.WhenConstrainedType(typ, TyparConstraints.TyparConstraints(whenTok, constraints, ands)) ->
+    | Type.WhenConstrainedType(typ, constraints) ->
         visitor.EnterSection "WhenConstrainedType"
         walkType visitor typ
-        visitor.VisitToken "when" whenTok
-
-        for i in 0 .. constraints.Length - 1 do
-            walkConstraint visitor constraints[i]
-
-            if i < ands.Length then
-                visitor.VisitToken "and" ands[i]
-
+        walkTyparConstraints visitor constraints
         visitor.ExitSection "WhenConstrainedType"
     | Type.SubtypeConstraint(typar, colonGreaterThan, typ) ->
         visitor.EnterSection "SubtypeConstraint"
@@ -941,8 +935,8 @@ and walkExpr (visitor: AstVisitor<'T>) (expr: Expr<'T>) : unit =
             rParenMember
             inner
             rParen
-    | Expr.LibraryOnlyStaticOptimization(inner, whenToken, constraints, ands, equalsToken, optimizedExpr) ->
-        walkExprLibraryOnlyStaticOptimization visitor inner whenToken constraints ands equalsToken optimizedExpr
+    | Expr.LibraryOnlyStaticOptimization(defaultExpr, clauses) ->
+        walkExprLibraryOnlyStaticOptimization visitor defaultExpr clauses
     | Expr.String(kind, parts, closing) -> walkStringKindAndParts visitor kind parts closing
     | Expr.Object(lBrace, newKeyword, baseCall, members, interfaceImpls, rBrace) ->
         walkExprObject visitor lBrace newKeyword baseCall members interfaceImpls rBrace
@@ -1535,26 +1529,25 @@ and walkExprStaticMemberInvocation
 
 and walkExprLibraryOnlyStaticOptimization
     (visitor: AstVisitor<'T>)
-    (expr: Expr<'T>)
-    (whenToken: 'T)
-    (constraints: ImArr<StaticOptimizationConstraint<'T>>)
-    (ands: ImArr<'T>)
-    (equalsToken: 'T)
-    (optimizedExpr: Expr<'T>)
+    (defaultExpr: Expr<'T>)
+    (clauses: ImArr<StaticOptimizationClause<'T>>)
     : unit =
     visitor.EnterSection "LibraryOnlyStaticOptimization"
-    walkExpr visitor expr
-    visitor.VisitToken "when" whenToken
+    walkExpr visitor defaultExpr
 
-    if constraints.Length > 0 then
-        walkStaticOptimizationConstraint visitor constraints.[0]
+    for clause in clauses do
+        visitor.EnterSection "StaticOptimizationClause"
+        visitor.VisitToken "when" clause.WhenToken
+        walkStaticOptimizationConstraint visitor clause.Constraint
 
-        for i in 0 .. ands.Length - 1 do
-            visitor.VisitToken "and" ands.[i]
-            walkStaticOptimizationConstraint visitor constraints.[i + 1]
+        for struct (andToken, c) in clause.AndConstraints do
+            visitor.VisitToken "and" andToken
+            walkStaticOptimizationConstraint visitor c
 
-    visitor.VisitToken "=" equalsToken
-    walkExpr visitor optimizedExpr
+        visitor.VisitToken "=" clause.EqualsToken
+        walkExpr visitor clause.OptimizedExpr
+        visitor.ExitSection "StaticOptimizationClause"
+
     visitor.ExitSection "LibraryOnlyStaticOptimization"
 
 and walkExprObject
@@ -1926,14 +1919,7 @@ and walkTypeName (visitor: AstVisitor<'T>) (typeName: TypeName<'T>) : unit =
     | ValueNone -> ()
 
     match postfixConstraints with
-    | ValueSome(TyparConstraints(whenTok, constrs, ands)) ->
-        visitor.VisitToken "when" whenTok
-
-        for i in 0 .. constrs.Length - 1 do
-            walkConstraint visitor constrs[i]
-
-            if i < ands.Length then
-                visitor.VisitToken "and" ands[i]
+    | ValueSome cs -> walkTyparConstraints visitor cs
     | ValueNone -> ()
 
 and walkPrimaryConstrArgs (visitor: AstVisitor<'T>) (args: PrimaryConstrArgs<'T>) : unit =

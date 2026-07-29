@@ -25,16 +25,17 @@ FunctionOrValue:
               Typar.Named:
                            ''T'              TypeParameter       tok=  33  pos= 237
                            ')'               KWRParen            tok=  34  pos= 239
-        when               'when'            KWWhen              tok=  36  pos= 241
-        WhenTyparTyconEqualsTycon:
-          Typar.Named:
+        StaticOptimizationClause:
+          when             'when'            KWWhen              tok=  36  pos= 241
+          WhenTyparTyconEqualsTycon:
+            Typar.Named:
                            ''T'              TypeParameter       tok=  38  pos= 246
-          :                ':'               OpColon             tok=  39  pos= 248
-          NamedType:
-            Ident          'BigInteger'      Identifier          tok=  41  pos= 250
-        =                  '='               OpEquality          tok=  43  pos= 261
-        LongIdentOrOp:
-          LongIdent:
+            :              ':'               OpColon             tok=  39  pos= 248
+            NamedType:
+              Ident        'BigInteger'      Identifier          tok=  41  pos= 250
+          =                '='               OpEquality          tok=  43  pos= 261
+          LongIdentOrOp:
+            LongIdent:
                            'BigInteger'      Identifier          tok=  45  pos= 263
                            'Zero'            Identifier          tok=  47  pos= 274
 FunctionOrValue:
@@ -62,16 +63,17 @@ FunctionOrValue:
               Typar.Named:
                            ''T'              TypeParameter       tok=  71  pos= 319
                            ')'               KWRParen            tok=  72  pos= 321
-        when               'when'            KWWhen              tok=  74  pos= 323
-        WhenTyparTyconEqualsTycon:
-          Typar.Named:
+        StaticOptimizationClause:
+          when             'when'            KWWhen              tok=  74  pos= 323
+          WhenTyparTyconEqualsTycon:
+            Typar.Named:
                            ''T'              TypeParameter       tok=  76  pos= 328
-          :                ':'               OpColon             tok=  77  pos= 330
-          NamedType:
-            Ident          'BigInteger'      Identifier          tok=  79  pos= 332
-        =                  '='               OpEquality          tok=  81  pos= 343
-        LongIdentOrOp:
-          LongIdent:
+            :              ':'               OpColon             tok=  77  pos= 330
+            NamedType:
+              Ident        'BigInteger'      Identifier          tok=  79  pos= 332
+          =                '='               OpEquality          tok=  81  pos= 343
+          LongIdentOrOp:
+            LongIdent:
                            'BigInteger'      Identifier          tok=  83  pos= 345
                            'One'             Identifier          tok=  85  pos= 356
 FunctionOrValue:
@@ -104,20 +106,21 @@ FunctionOrValue:
               Typar.Named:
                            ''T'              TypeParameter       tok= 113  pos= 418
                            ')'               KWRParen            tok= 114  pos= 420
-        when               'when'            KWWhen              tok= 116  pos= 422
-        WhenTyparTyconEqualsTycon:
-          Typar.Named:
+        StaticOptimizationClause:
+          when             'when'            KWWhen              tok= 116  pos= 422
+          WhenTyparTyconEqualsTycon:
+            Typar.Named:
                            ''T'              TypeParameter       tok= 118  pos= 427
-          :                ':'               OpColon             tok= 119  pos= 429
-          NamedType:
-            Ident          'BigInteger'      Identifier          tok= 121  pos= 431
-        =                  '='               OpEquality          tok= 123  pos= 442
-        New                'new'             KWNew               tok= 125  pos= 444
-          NamedType:
-            Ident          'BigInteger'      Identifier          tok= 127  pos= 448
-          Arg:
-            ParenBlock     '('               KWLParen            tok= 128  pos= 458
-              Ident        'value'           Identifier          tok= 129  pos= 459
+            :              ':'               OpColon             tok= 119  pos= 429
+            NamedType:
+              Ident        'BigInteger'      Identifier          tok= 121  pos= 431
+          =                '='               OpEquality          tok= 123  pos= 442
+          New              'new'             KWNew               tok= 125  pos= 444
+            NamedType:
+              Ident        'BigInteger'      Identifier          tok= 127  pos= 448
+            Arg:
+              ParenBlock   '('               KWLParen            tok= 128  pos= 458
+                Ident      'value'           Identifier          tok= 129  pos= 459
                            ')'               KWRParen            tok= 130  pos= 464
 FunctionOrValue:
   let                      'let'             KWLet               tok= 133  pos= 467
@@ -149,18 +152,19 @@ FunctionOrValue:
               Typar.Named:
                            ''T'              TypeParameter       tok= 158  pos= 535
                            ')'               KWRParen            tok= 159  pos= 537
-        when               'when'            KWWhen              tok= 161  pos= 539
-        WhenTyparTyconEqualsTycon:
-          Typar.Named:
+        StaticOptimizationClause:
+          when             'when'            KWWhen              tok= 161  pos= 539
+          WhenTyparTyconEqualsTycon:
+            Typar.Named:
                            ''T'              TypeParameter       tok= 163  pos= 544
-          :                ':'               OpColon             tok= 164  pos= 546
-          NamedType:
-            Ident          'BigInteger'      Identifier          tok= 166  pos= 548
-        =                  '='               OpEquality          tok= 168  pos= 559
-        New                'new'             KWNew               tok= 170  pos= 561
-          NamedType:
-            Ident          'BigInteger'      Identifier          tok= 172  pos= 565
-          Arg:
-            ParenBlock     '('               KWLParen            tok= 173  pos= 575
-              Ident        'value'           Identifier          tok= 174  pos= 576
+            :              ':'               OpColon             tok= 164  pos= 546
+            NamedType:
+              Ident        'BigInteger'      Identifier          tok= 166  pos= 548
+          =                '='               OpEquality          tok= 168  pos= 559
+          New              'new'             KWNew               tok= 170  pos= 561
+            NamedType:
+              Ident        'BigInteger'      Identifier          tok= 172  pos= 565
+            Arg:
+              ParenBlock   '('               KWLParen            tok= 173  pos= 575
+                Ident      'value'           Identifier          tok= 174  pos= 576
                            ')'               KWRParen            tok= 175  pos= 581
