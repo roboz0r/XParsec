@@ -60,33 +60,64 @@ module ClrDriver =
             | [] -> Ok(Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project tast)
             | errors -> Error errors
 
+    /// The CLR target suffix: none. ONE binding for the provider build and for the cache
+    /// digest, because `buildContractWithRefs` selects the per-target manifest lists with it
+    /// and a digest naming a different one would let two targets' trees alias in the store.
+    /// They are computed in two different functions now, which is what makes sharing the
+    /// binding load-bearing rather than tidy.
+    let private clrTarget: string option = None
+
+    /// This compilation's cache digest — everything a cached front end depends on EXCEPT one
+    /// file's text. Fold it once and hand it to `compileCachedWith` for every file of the
+    /// compilation: it stats and reads the whole referenced-package source closure, which is
+    /// the same order of magnitude as the front end a hit elides, so folding it per file
+    /// would spend most of what the cache saves.
+    let compilationDigest (inputs: ClrCompilation) : Hashing.CompilationDigest =
+        Hashing.compilationDigest
+            {
+                HomeAssembly = inputs.Project.AssemblyName
+                Target = clrTarget
+                ReferenceAssemblies = inputs.BclReferences
+                Manifests = inputs.Manifests
+            }
+
     /// `compile`, but routing the per-file front end through the frozen-compile cache
-    /// (`store`). Opt-in: a caller enables caching only by passing a store; `compile` stays
-    /// cache-free and byte-identical. Behaviour is otherwise identical to `compile` — a HIT
-    /// (equal source + equal dependency signatures) skips parse + analyse + freeze and thaws
-    /// the cached tree; a MISS runs the front end and stores it; an errored front end is
-    /// returned as `Error` and NOT stored (`freezeResult`).
+    /// (`store`) against an already-folded compilation `digest`. Opt-in: a caller enables
+    /// caching only by passing a store; `compile` stays cache-free and byte-identical.
+    /// Behaviour is otherwise identical to `compile` — a HIT (equal source + equal digest)
+    /// skips parse + analyse + freeze and thaws the cached tree; a MISS runs the front end
+    /// and stores it; an errored front end is returned as `Error` and NOT stored
+    /// (`freezeResult`).
+    ///
+    /// The digest is a PARAMETER so that a driver compiling many files pays for it once. That
+    /// is the whole reason this and `compileCached` are two functions.
     ///
     /// The provider is built OUTSIDE the cache, on BOTH the hit and miss paths, because
     /// codegen consumes it (`compileWithBclReferences`) even on a hit — the cache elides only
-    /// the front end that yields the frozen tree, never emission. This is sound: every
-    /// dependency's exported signature is already folded into the cache key
-    /// (`Hashing.fileInputHash source inputs.Manifests`), so a hit implies a provider
-    /// equivalent to the one that produced the cached tree, hence identical codegen. The key's
+    /// the front end that yields the frozen tree, never emission. This is sound only because
+    /// the key covers every input the provider is built from as well as the source:
+    /// `Hashing.CompilationInputs` names them, and `compilationDigest` fills them from
+    /// exactly the three arguments handed to `buildContractWithRefs` plus the home assembly
+    /// `analyseFor` roots its minted keys at. A hit therefore implies a provider equivalent to
+    /// the one that produced the cached tree, hence identical codegen. The key's
     /// `QueryId.Freeze` / `Cache.CodeVersion` guards match the rest of the cache seam.
-    let compileCached
+    ///
+    /// A digest folded from OTHER inputs than `inputs` is the one way to misuse this, and it
+    /// is the reason `compilationDigest` takes the same `ClrCompilation` this does.
+    let compileCachedWith
         (store: ICacheStore)
+        (digest: Hashing.CompilationDigest)
         (inputs: ClrCompilation)
         (source: string)
         : Result<ClrArtifact, Diagnostic list> =
         let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.BclReferences None inputs.Manifests
+            ClrSymbolProviders.buildContractWithRefs inputs.BclReferences clrTarget inputs.Manifests
 
         let key =
             {
                 Query = QueryId.Freeze
                 CodeVersion = Cache.CodeVersion
-                Input = Hashing.fileInputHash source inputs.Manifests
+                Input = Hashing.fileInputHash source digest
             }
 
         FrozenCache.freezeResult
@@ -106,6 +137,16 @@ module ClrDriver =
         |> Result.map (fun frozen ->
             Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project frozen
         )
+
+    /// `compileCachedWith` for a ONE-FILE compilation, folding the digest inline. Compiling
+    /// several files through this would re-read the whole dependency closure per file — hoist
+    /// `compilationDigest` and call `compileCachedWith` instead.
+    let compileCached
+        (store: ICacheStore)
+        (inputs: ClrCompilation)
+        (source: string)
+        : Result<ClrArtifact, Diagnostic list> =
+        compileCachedWith store (compilationDigest inputs) inputs source
 
     /// THE shared multi-file glue seam: analyse an ordered `(path, source)` list as one
     /// assembly through `analyse` (the front end — `Pipeline.analyseFor` for a package

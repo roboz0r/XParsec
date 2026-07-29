@@ -59,14 +59,24 @@ module FrozenCodec =
     /// form carried one per slot — and the starts stand in for them, being the same numbers
     /// running.
     let private writeChildColumn (w: FrozenWriter) (writeId: FrozenWriter -> 'id -> unit) (col: ChildColumn<'id>) =
-        writeArrayWith w (fun w (s: int) -> w.Write s) col.Start
-        writeArrayWith w writeId col.Ids
+        writeArrayWith w (fun w (s: int) -> w.Write s) (ChildColumn.starts col)
+        writeArrayWith w writeId (ChildColumn.ids col)
 
+    /// Through `ChildColumn.ofStored`, which CHECKS the CSR invariant. Two independently
+    /// length-prefixed arrays can disagree, and a disagreement here does not fault on read —
+    /// it silently re-parents every slot past the discrepancy — so the column is validated at
+    /// the boundary the way `FrozenTypeTableBuilder`'s seeding validates the type rows.
     let private readChildColumn (r: FrozenReader) (readId: FrozenReader -> 'id) : ChildColumn<'id> =
         let start = readArrayWith r (fun r -> r.ReadInt32())
         let ids = readArrayWith r readId
 
-        { Start = start; Ids = ids }
+        ChildColumn.ofStored start ids
+
+    /// A decoded child column delimits the pool it is indexed by, and no other count. Named
+    /// per column so the fault says WHICH one disagreed rather than that one did.
+    let private checkSlots (name: string) (poolSize: int) (col: ChildColumn<'id>) =
+        if ChildColumn.length col <> poolSize then
+            failwithf "FrozenCodec: %s delimits %d slots but its pool holds %d" name (ChildColumn.length col) poolSize
 
     /// A per-binder column (`BinderColumn`) — one optional value per binder slot, in
     /// binder-pool order. NO id is written: the slot's position IS the binder, which is
@@ -548,6 +558,16 @@ module FrozenCodec =
 
         let bindingValReprs = readDenseTable r readBinderId readValRepr
         let bindingTyparArities = readBinderColumn r (fun r -> r.ReadInt32())
+
+        // `ChildColumn.ofStored` made each column well-formed in ISOLATION; this is the check
+        // isolation cannot make — that a column delimits exactly the pool it is indexed BY. A
+        // column truncated to fewer slots is internally consistent and would simply run off
+        // the end at whichever node first reached past it, so it is caught here instead.
+        checkSlots "ExprChildren" exprPayloads.Length exprChildren
+        checkSlots "ExprPatChildren" exprPayloads.Length exprPatChildren
+        checkSlots "PatChildren" patPayloads.Length patChildren
+        checkSlots "DeclExprChildren" declPayloads.Length declExprChildren
+        checkSlots "DeclPatChildren" declPayloads.Length declPatChildren
 
         {
             Types = types

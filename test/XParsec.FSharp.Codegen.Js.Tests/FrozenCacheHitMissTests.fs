@@ -24,14 +24,27 @@ let private gated =
         | _ -> false
     )
 
+/// The compilation every corpus program is keyed under. Folded ONCE for the whole list, which
+/// is what `Hashing.CompilationDigest` exists to make natural — the programs stand alone, so
+/// the digest is the same for all of them and only the source varies.
+let private conformanceDigest =
+    Hashing.compilationDigest
+        {
+            HomeAssembly = "Conformance"
+            Target = Some "js"
+            ReferenceAssemblies = []
+            Manifests = []
+        }
+
 /// The cache key a driver would assemble for a source file with no dependencies — the query tag
-/// and the poison-guard version live in the key (the cache module is query-agnostic). Empty deps
-/// is fine here: the corpus programs stand alone.
+/// and the poison-guard version live in the key (the cache module is query-agnostic). An empty
+/// environment is fine here: the corpus programs stand alone, and this gate is about hit/miss
+/// parity of the blob, not about what moves a key.
 let private freezeKey (src: string) : CacheKey =
     {
         Query = QueryId.Freeze
         CodeVersion = Cache.CodeVersion
-        Input = Hashing.fileInputHash src []
+        Input = Hashing.fileInputHash src conformanceDigest
     }
 
 [<Tests>]

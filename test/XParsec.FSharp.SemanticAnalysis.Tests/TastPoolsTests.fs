@@ -723,4 +723,53 @@ let staleSideTableEntryTests =
                             "the fault names the table holding the stale entry"
                     )
             }
+
+            // `ChildColumn` is CSR: `Start` and `Ids` are two independently length-prefixed
+            // wire arrays that can disagree. A disagreement does not fault on read — it hands
+            // back a different, in-range child list for every slot past it, silently
+            // re-parenting the tree — so `ofStored` is the checked way in and nothing else
+            // can build one. These gate the four conditions it enforces.
+            testList
+                "ChildColumn.ofStored rejects a malformed stored column"
+                [
+                    // A well-formed one, so the rejections below are not passing vacuously.
+                    test "a well-formed column is admitted and reads back" {
+                        let col = ChildColumn.ofStored [| 0; 2; 2; 3 |] [| 10; 11; 12 |]
+                        Expect.equal (ChildColumn.length col) 3 "three slots for four starts"
+                        Expect.equal (ChildColumn.count col 0) 2 "slot 0 fan-out"
+                        Expect.equal (ChildColumn.slice col 0) [| 10; 11 |] "slot 0 children"
+                        Expect.equal (ChildColumn.count col 1) 0 "an empty slot"
+                        Expect.equal (ChildColumn.item col 2 0) 12 "the last slot needs no special case"
+                    }
+
+                    test "an empty start array is rejected" {
+                        // Not the same as the empty COLUMN, which is `[| 0 |]` — CSR always
+                        // carries n+1 entries, so zero of them is no column at all.
+                        Expect.throws (fun () -> ChildColumn.ofStored [||] [||] |> ignore) "no slot-start array"
+                    }
+
+                    test "a column not starting at 0 is rejected" {
+                        Expect.throws
+                            (fun () -> ChildColumn.ofStored [| 1; 1 |] [||] |> ignore)
+                            "starts must begin at 0"
+                    }
+
+                    test "decreasing slot starts are rejected" {
+                        Expect.throws
+                            (fun () -> ChildColumn.ofStored [| 0; 2; 1; 2 |] [| 10; 11 |] |> ignore)
+                            "starts must be monotone"
+                    }
+
+                    test "starts that do not end at the id count are rejected" {
+                        // The one a truncated or over-long `Ids` array produces, and the one
+                        // that would otherwise read a valid-but-wrong child of the last slot.
+                        Expect.throws
+                            (fun () -> ChildColumn.ofStored [| 0; 2 |] [| 10; 11; 12 |] |> ignore)
+                            "a trailing id no slot claims"
+
+                        Expect.throws
+                            (fun () -> ChildColumn.ofStored [| 0; 3 |] [| 10; 11 |] |> ignore)
+                            "a slot claiming ids that are not there"
+                    }
+                ]
         ]

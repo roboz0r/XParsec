@@ -806,4 +806,106 @@ let tests =
                                 "js ⇒ base (= impl)"
                     }
                 ]
+
+            // The compile cache's key folds `sourceInputs`, and the provider build reads what
+            // it reads; a file in the second set and not the first is a stale hit. The two are
+            // held together by `declaredTarget`, which narrows the PROBE to the suffixes
+            // `targetSuffixes` reports — so this list gates that narrowing rather than the
+            // coincidence it replaced.
+            testList
+                "sourceInputs covers what the provider build reads"
+                [
+                    let loadOrFail (path: string) =
+                        match ReferencedProject.loadManifest path with
+                        | Result.Error e -> failtestf "loadManifest failed: %s" e
+                        | Result.Ok m -> m
+
+                    let writeManifest (name: string) (body: string) : string =
+                        let dir = Path.Combine(tmpSrc, name)
+                        Directory.CreateDirectory dir |> ignore
+                        let path = Path.Combine(dir, "manifest.toml")
+                        File.WriteAllText(path, body)
+                        path
+
+                    test "a manifest declaring no per-target key participates in no target" {
+                        // THE hole this narrowing closes. Such a manifest reports no suffixes,
+                        // so `sourceInputs` names no `.js.fs` companion — and `declaredTarget`
+                        // is what stops the harvest probing one anyway.
+                        let m =
+                            loadOrFail (
+                                writeManifest "TargetBlind" "[core]\nnamespace = \"X\"\nfiles = [\"contract.fsi\"]\n"
+                            )
+
+                        Expect.isEmpty (ReferencedProject.targetSuffixes m) "no per-target key ⇒ no suffix"
+
+                        Expect.equal
+                            (ReferencedProject.declaredTarget (Some "js") m)
+                            None
+                            "an undeclared target narrows to the base resolution"
+
+                        Expect.isFalse
+                            (List.contains "contract.js.fs" (ReferencedProject.sourceInputs m))
+                            "and so no per-target companion is named"
+                    }
+
+                    test "a manifest declaring the target keeps it, and names its companion" {
+                        let m =
+                            loadOrFail (
+                                writeManifest
+                                    "TargetAware"
+                                    "[core]\nnamespace = \"X\"\nfiles = [\"contract.fsi\"]\nimpl-js = [\"ops.js.fs\"]\n"
+                            )
+
+                        Expect.equal
+                            (ReferencedProject.declaredTarget (Some "js") m)
+                            (Some "js")
+                            "a declared target survives the narrowing"
+
+                        let inputs = ReferencedProject.sourceInputs m
+                        Expect.contains inputs "contract.js.fs" "the per-target companion is named"
+                        Expect.contains inputs "contract.fs" "so is the base companion"
+                        Expect.contains inputs "ops.js.fs" "and the override list itself"
+                    }
+
+                    test "a suffix declared only by runtime- still participates" {
+                        // `runtime-js` ships no source, but a package may declare it and no
+                        // other per-target key while still shipping `.js.fs` companions.
+                        let m =
+                            loadOrFail (
+                                writeManifest
+                                    "RuntimeOnly"
+                                    "[core]\nnamespace = \"X\"\nfiles = [\"contract.fsi\"]\nruntime-js = [\"x.mjs\"]\n"
+                            )
+
+                        Expect.equal
+                            (ReferencedProject.declaredTarget (Some "js") m)
+                            (Some "js")
+                            "a runtime-only suffix is still a declared target"
+
+                        let inputs = ReferencedProject.sourceInputs m
+                        Expect.contains inputs "contract.js.fs" "so its companion is named"
+                        Expect.isFalse (List.contains "x.mjs" inputs) "but a runtime asset is not a source"
+                    }
+
+                    test "every real package's declared targets name their own companions" {
+                        // The pairing across the shipped manifests, not a synthetic one: for
+                        // every target a package participates in, the companion the harvest
+                        // would probe is a path `sourceInputs` folds.
+                        for manifest in [ vesperCoreManifest; vesperListManifest ] do
+                            let m = loadOrFail manifest
+                            let inputs = ReferencedProject.sourceInputs m
+
+                            for t in ReferencedProject.targetSuffixes m do
+                                Expect.equal
+                                    (ReferencedProject.declaredTarget (Some t) m)
+                                    (Some t)
+                                    (sprintf "%s declares %s" m.Name t)
+
+                                for fsi in m.Files do
+                                    Expect.contains
+                                        inputs
+                                        (ReferencedProject.companionFs (Some t) fsi)
+                                        (sprintf "%s: %s's %s companion is folded" m.Name fsi t)
+                    }
+                ]
         ]

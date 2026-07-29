@@ -17,6 +17,7 @@
     <Compile Include="SemanticAnalysisFixtures.fs" />
     <Compile Include="InternProbe.fs" />
     <Compile Include="SemanticAnalysisBenchmarks.fs" />
+    <Compile Include="FrozenCodecBenchmarks.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

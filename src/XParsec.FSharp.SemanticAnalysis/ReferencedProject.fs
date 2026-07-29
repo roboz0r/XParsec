@@ -124,6 +124,102 @@ module ReferencedProject =
         )
         |> Map.ofSeq
 
+    /// The `.fs` companion an `.fsi` implies, RELATIVE to the manifest's directory:
+    /// `prim-types-exn.fsi` ⇒ `prim-types-exn.fs` on the base, `prim-types-exn.js.fs` for
+    /// target suffix `js`. Nothing here touches the filesystem — a companion is a derived
+    /// NAME, and whether it exists is the caller's question.
+    ///
+    /// ONE derivation, deliberately: the intrinsic-repr harvest probes these paths
+    /// (`baseFs` / `targetOverrideFs`) and `sourceInputs` must name a SUPERSET of them, or
+    /// the compile cache's key would miss a file the build reads. Two copies of the rule is
+    /// precisely how that coverage would rot.
+    ///
+    /// A superset and not the same set: `sourceInputs` is target-BLIND, so it derives a
+    /// companion for every declared suffix, while a given build probes one target's. It also
+    /// derives from every contract, including the per-target extras (`files-js`) whose
+    /// companion the harvest reaches by the BASE derivation — a `.js.fsi` shim's companion is
+    /// `.js.fs`, so `companionFs None` already names it and `companionFs (Some "js")` yields
+    /// a `.js.js.fs` that exists nowhere. Over-naming costs a rebuild; under-naming serves a
+    /// wrong blob, which is why the asymmetry runs this way.
+    let companionFs (target: string option) (fsiRel: string) : string =
+        match target with
+        | Some t -> Path.ChangeExtension(fsiRel, t + ".fs")
+        | None -> Path.ChangeExtension(fsiRel, ".fs")
+
+    /// Every target suffix this manifest mentions under ANY per-target key (`impl-js`,
+    /// `files-js`, `runtime-js`, …). There is no registry of target names — SemanticAnalysis
+    /// stores overrides inertly and never enumerates targets (`ImplOverrides`) — so the
+    /// manifest's own keys are the only enumeration there is.
+    ///
+    /// `RuntimeOverrides` contributes a SUFFIX even though its files are not sources: a
+    /// package may declare `runtime-js` and no other per-target key while still shipping
+    /// `.js.fs` companions, and a suffix missed here is a companion `sourceInputs` never names.
+    ///
+    /// This list is not merely the hash's coverage set — it is what a manifest PARTICIPATES
+    /// in at all, and `declaredTarget` is what makes that true rather than hoped for.
+    let targetSuffixes (m: Manifest) : string list =
+        [
+            m.ImplOverrides
+            m.InlineBodiesOverrides
+            m.FilesOverrides
+            m.SigOnlyOverrides
+            m.RuntimeOverrides
+        ]
+        |> List.collect (Map.toList >> List.map fst)
+        |> List.distinct
+
+    /// `target`, narrowed to `None` unless this manifest declares at least one per-target key
+    /// for it. A manifest that mentions a target NOWHERE has no per-target anything, so it
+    /// resolves exactly as the base does.
+    ///
+    /// This exists to make one coverage argument unnecessary. The per-target companion probe
+    /// (`targetOverrideFs`) is handed the DRIVER's target, which every manifest in the closure
+    /// receives regardless of what it declares; `sourceInputs` names companions only for the
+    /// suffixes `targetSuffixes` reports. Without this narrowing those two sets differ for a
+    /// manifest that ships a `<contract>.<t>.fs` and declares no `<key>-<t>` — the build reads
+    /// a file the cache key never names, which is a stale hit. Narrowing the PROBE makes the
+    /// two sets the same set by construction, rather than a pair that has to be kept in step.
+    let declaredTarget (target: string option) (m: Manifest) : string option =
+        match target with
+        | Some t when List.contains t (targetSuffixes m) -> Some t
+        | _ -> None
+
+    /// Every path the provider build may READ for this manifest, relative to the manifest's
+    /// own directory — and so the coverage set the compile cache's dependency hash folds
+    /// (`Hashing.dependencySignatureHash`). A path named here need not exist; the hash
+    /// records its absence.
+    ///
+    /// TARGET-BLIND, and that is the point: every target's lists UNIONED, never `resolve*`'s
+    /// selection for one. The cache key is computed with no target in hand, and the two
+    /// errors are not symmetric — folding too much costs a rebuild when an unrelated target
+    /// changes, folding too little serves a WRONG blob. So the REPLACE-vs-APPEND distinction
+    /// the `resolve*` helpers draw does not apply here: a union is right for both.
+    ///
+    /// `RuntimeOverrides`' files are the one deliberate omission. A runtime asset (the JS
+    /// `.mjs`) is shipped beside the backend's output and is never parsed, so it determines
+    /// no frozen tree; only its suffix counts (`targetSuffixes`).
+    let sourceInputs (m: Manifest) : string list =
+        let union (baseList: string list) (overrides: Map<string, string list>) =
+            baseList @ (overrides |> Map.toList |> List.collect snd)
+
+        // The contract surface, base + per-target extras — also what the companion probe
+        // iterates, which is why it is named once and reused.
+        let contracts = union m.Files m.FilesOverrides
+
+        [
+            yield! contracts
+            yield! union m.Impl m.ImplOverrides
+            yield! union m.InlineBodies m.InlineBodiesOverrides
+            yield! union m.SigOnly m.SigOnlyOverrides
+
+            for fsi in contracts do
+                yield companionFs None fsi
+
+                for t in targetSuffixes m do
+                    yield companionFs (Some t) fsi
+        ]
+        |> List.distinct
+
     /// Resolve the `impl` file list for an optional target suffix: the target's
     /// override if present, else the base `impl`. `None` (and any suffix with no
     /// override) yields the base list — the CLR path is `resolveImpl None`.
@@ -464,17 +560,20 @@ module ReferencedProject =
     /// The base `.fs` companion (`prim-types-exn.fsi` ⇒ `prim-types-exn.fs`) — the
     /// primitive *marker* + the CLR platform repr.
     let private baseFs (dir: string) (fsiRel: string) : string =
-        Path.Combine(dir, Path.ChangeExtension(fsiRel, ".fs"))
+        Path.Combine(dir, companionFs None fsiRel)
 
     /// The per-target override companion (`prim-types-exn.fsi`, target `js` ⇒
     /// `prim-types-exn.js.fs`) — `Some` ONLY when a distinct file exists, so the
     /// caller harvests the override without re-parsing the base as a fallback. `None`
     /// on the base target (CLR) or when a primitive ships no companion for this target.
-    let private targetOverrideFs (target: string option) (dir: string) (fsiRel: string) : string option =
-        match target with
+    ///
+    /// The target is taken through `declaredTarget` FIRST: a manifest declaring no per-target
+    /// key for it participates in no target, and so probes no companion the compile cache's
+    /// key does not already name. That is the whole of why this takes a `Manifest`.
+    let private targetOverrideFs (m: Manifest) (target: string option) (dir: string) (fsiRel: string) : string option =
+        match declaredTarget target m with
         | Some t ->
-            // `ChangeExtension("prim-types-exn.fsi", "js.fs")` → `prim-types-exn.js.fs`.
-            let abs = Path.Combine(dir, Path.ChangeExtension(fsiRel, t + ".fs"))
+            let abs = Path.Combine(dir, companionFs (Some t) fsiRel)
             if File.Exists abs then Some abs else None
         | None -> None
 
@@ -546,7 +645,7 @@ module ReferencedProject =
                 if File.Exists baseAbs then
                     harvestCompanion ctx.IntrinsicBaseReprs baseAbs
 
-                    match targetOverrideFs target dir rel with
+                    match targetOverrideFs manifest target dir rel with
                     | Some overrideAbs -> harvestCompanion ctx.IntrinsicReprs overrideAbs
                     | None ->
                         // Base target (CLR), or no per-target companion: the base repr

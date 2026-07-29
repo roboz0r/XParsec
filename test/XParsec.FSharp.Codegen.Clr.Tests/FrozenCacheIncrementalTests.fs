@@ -43,6 +43,13 @@ let private inputsWith (manifests: string list) (name: string) : ClrCompilation 
 let private digestOf (artifact: ClrArtifact) : string =
     ClrStructuralDigest.ofBytes (Codegen.toBytes artifact)
 
+/// The key `ClrDriver.compileCached` computes for this compilation, so a test can assert the
+/// key MOVED independently of observing the store. It calls the driver's OWN digest rather
+/// than mirroring its construction: a determinant the driver starts folding must not be able
+/// to pass this gate by being absent from a copy of it here.
+let private keyOf (inputs: ClrCompilation) (source: string) : InputHash =
+    Hashing.fileInputHash source (ClrDriver.compilationDigest inputs)
+
 let private okArtifact (label: string) (result: Result<ClrArtifact, Diagnostic list>) : ClrArtifact =
     match result with
     | Ok a -> a
@@ -102,7 +109,7 @@ let tests =
             test "a changed dependency contract misses (dependency invalidation)" {
                 // A resolvable custom package (its own namespace, no `depends-on`, one inert `val`
                 // the program never references) added to `Manifests` beside `Vesper.Core`, so its
-                // `.fsi` bytes fold into the driver's cache key via `Hashing.fileInputHash`. The
+                // `.fsi` bytes fold into the driver's cache key via `Hashing.frozenInputHash`. The
                 // program compiles against `Vesper.Core` alone; the extra contract only perturbs
                 // the KEY, which is exactly the dependency-signature seam under test. Fixture lives
                 // under repo `./tmp` (repo convention), rewritten fresh so a prior run cannot leak.
@@ -127,7 +134,7 @@ let tests =
                 let src = printProgram "hello"
 
                 // The key the driver computes, before the dependency changes.
-                let keyBefore = Hashing.fileInputHash src inputs.Manifests
+                let keyBefore = keyOf inputs src
 
                 let first = okArtifact "before" (ClrDriver.compileCached store inputs src)
                 Expect.equal (store :?> CountingStore).Stores 1 "the first compile stores once"
@@ -143,7 +150,7 @@ let tests =
                 // so the SAME source against the SAME manifest path is now a distinct key.
                 File.WriteAllText(fsiPath, contract "marker v2")
 
-                let keyAfter = Hashing.fileInputHash src inputs.Manifests
+                let keyAfter = keyOf inputs src
                 Expect.notEqual keyBefore keyAfter "a changed dependency contract changes the driver's cache key"
 
                 let second = okArtifact "after" (ClrDriver.compileCached store inputs src)
@@ -154,5 +161,72 @@ let tests =
                     (digestOf second)
                     (digestOf first)
                     "the program is unchanged, so it still emits identically — only the dependency key moved"
+            }
+
+            test "a changed dependency INLINE BODY misses" {
+                // The sibling of the test above, for the input that used to be invisible to the
+                // key. A `[core] inline-bodies` `.fs` is not contract — it is not in `files` — but
+                // its bodies are re-analysed and SPLICED into the consumer before the consumer is
+                // frozen, so its bytes are a compile determinant. Hashing the `.fsi` set alone
+                // left the key unmoved and served a blob carrying the OLD body.
+                //
+                // The program here does not reference the body, so the emitted assembly is
+                // identical either way — which is the point: the cache cannot know that, so it
+                // must MISS. Asserting the miss rather than the output is what makes this a gate
+                // on the key and not on codegen.
+                // The body is `ops.fs`, NOT `inl.fs`: a file named `inl.fs` would also be the
+                // derived `.fs` companion of `inl.fsi`, so the test would pass on companion
+                // coverage alone and prove nothing about the `inline-bodies` list. `ops.fs` is
+                // reachable only through that list — the same split Vesper.Core has between its
+                // impl and its `ops-platform.fs` inline bodies.
+                let root = tmpDir "frozen-cache-inline-body-inval"
+                let pkgDir = Path.Combine(root, "Inl")
+                Directory.CreateDirectory pkgDir |> ignore
+                let fsPath = Path.Combine(pkgDir, "ops.fs")
+                let manifestPath = Path.Combine(pkgDir, "manifest.toml")
+
+                File.WriteAllText(
+                    manifestPath,
+                    "[core]\nname = \"Inl\"\nnamespace = \"Inl\"\nfiles = [\"inl.fsi\"]\ninline-bodies = [\"ops.fs\"]\n"
+                )
+
+                File.WriteAllText(
+                    Path.Combine(pkgDir, "inl.fsi"),
+                    "namespace Inl\n\nmodule InlContract =\n\n    val inline bump: int -> int\n"
+                )
+
+                let body (increment: int) : string =
+                    sprintf "namespace Inl\n\nmodule InlContract =\n\n    let inline bump (x: int) = x + %d\n" increment
+
+                File.WriteAllText(fsPath, body 1)
+
+                let store = CountingStore() :> ICacheStore
+                let inputs = inputsWith [ vesperCoreManifest; manifestPath ] "IncInline"
+                let src = printProgram "hello"
+
+                let keyBefore = keyOf inputs src
+
+                let first = okArtifact "before" (ClrDriver.compileCached store inputs src)
+                Expect.equal (store :?> CountingStore).Stores 1 "the first compile stores once"
+
+                okArtifact "unchanged" (ClrDriver.compileCached store inputs src) |> ignore
+                Expect.equal (store :?> CountingStore).Stores 1 "an unchanged recompile hits"
+
+                // Edit ONLY the inline body. No `.fsi` moves.
+                File.WriteAllText(fsPath, body 2)
+
+                Expect.notEqual keyBefore (keyOf inputs src) "an edited inline body changes the driver's cache key"
+
+                let second = okArtifact "after" (ClrDriver.compileCached store inputs src)
+
+                Expect.equal (store :?> CountingStore).Stores 2 "the changed inline body is a MISS, not a stale hit"
+
+                // The program never calls `bump`, so the miss re-emits the same assembly. Gated
+                // rather than merely asserted in a comment: it is what makes this a test of the
+                // KEY alone — the emitted output could not have told the two compiles apart.
+                Expect.equal
+                    (digestOf second)
+                    (digestOf first)
+                    "the program does not reference the body, so it still emits identically"
             }
         ]

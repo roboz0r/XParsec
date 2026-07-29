@@ -615,10 +615,6 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
     member _.Item
         with get (id: ModuleId): ModuleKey = moduleKey id
 
-    /// How many DISTINCT types the unit interned. The row count, not an occurrence count:
-    /// the columns may name any of them any number of times.
-    member _.TypeCount: int = rows.Types.Length
-
     static member OfRows(rows: FrozenTypeRows) : FrozenTypeTable = FrozenTypeTable(rows)
 
     /// The tables of a unit that interned nothing — `FrozenPools.empty`'s, and an overlay

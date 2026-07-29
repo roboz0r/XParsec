@@ -7,7 +7,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 /// The module is deliberately QUERY-AGNOSTIC: which derivation this blob is (the `QueryId.Freeze`
 /// tag), which compiler version produced it, and the input hash all live in the `CacheKey` the
 /// caller assembles (`Query = QueryId.Freeze`, `CodeVersion = Cache.CodeVersion`, `Input` from
-/// `Hashing.fileInputHash`). This module only maps that key through the store.
+/// `Hashing.fileInputHash` over the compilation's `Hashing.compilationDigest`). This module only
+/// maps that key through the store.
 [<RequireQualifiedAccess>]
 module FrozenCache =
 

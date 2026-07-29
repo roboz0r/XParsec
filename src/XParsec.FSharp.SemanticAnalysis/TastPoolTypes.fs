@@ -107,13 +107,24 @@ module BinderColumn =
 /// array reads. `slice` is for the paths that genuinely speak in whole arrays — a row
 /// transpose, a DU drain — and hands back the shared empty array where there are no
 /// children, so the common leaf costs nothing there either.
-type ChildColumn<'id> = { Start: int[]; Ids: 'id[] }
+///
+/// The representation is PRIVATE, and the two ways in are `ChildColumnBuilder` (which cannot
+/// produce a malformed one) and `ofStored` (which checks). The reason is that the invariant is
+/// not self-announcing: `Start` out of step with `Ids` does not fault, it hands back a
+/// DIFFERENT, in-range child list for every slot after the discrepancy, silently re-parenting
+/// the tree. That is the same class of quiet failure `RowTable`'s seed check exists to rule
+/// out, and the arrays here arrive from the same place — the wire.
+type ChildColumn<'id> = private { Start: int[]; Ids: 'id[] }
 
 [<RequireQualifiedAccess>]
 module ChildColumn =
 
     /// The zero column — one start and no ids, which is what a pool with no slots has.
     let empty<'id> : ChildColumn<'id> = { Start = [| 0 |]; Ids = [||] }
+
+    /// How many slots the column delimits. `Start` carries the CSR `n+1` entries, so this is
+    /// one less — and it is what a reader checks a decoded column against its pool with.
+    let length (col: ChildColumn<'id>) : int = col.Start.Length - 1
 
     /// How many children slot `i` has — the bound `item` indexes into.
     let count (col: ChildColumn<'id>) (i: int) : int = col.Start.[i + 1] - col.Start.[i]
@@ -128,6 +139,40 @@ module ChildColumn =
         match col.Start.[i + 1] - s with
         | 0 -> Array.empty
         | n -> Array.sub col.Ids s n
+
+    /// The stored arrays, for the CODEC and nothing else — `starts` is the `n+1` CSR form and
+    /// `ids` the flat concatenation. Paired with `ofStored`, which is the checked way back.
+    let starts (col: ChildColumn<'id>) : int[] = col.Start
+    let ids (col: ChildColumn<'id>) : 'id[] = col.Ids
+
+    /// Re-admit a column from its two stored arrays — the CHECKED narrowing, and the only way
+    /// to build one that did not come from a `ChildColumnBuilder`.
+    ///
+    /// It is checked rather than trusted for the reason the type's own doc gives: the arrays
+    /// come off the wire, and a `Start` that is short, non-monotone, or does not end at
+    /// `ids.Length` re-parents the tree instead of faulting. Four conditions, and together
+    /// they are exactly the CSR well-formedness `ChildColumnBuilder` maintains by
+    /// construction — so a column reaching a reader is well-formed whichever way it was made.
+    /// O(n) over an array the decoder just built element by element, which is noise beside the
+    /// decode itself.
+    let ofStored (start: int[]) (ids: 'id[]) : ChildColumn<'id> =
+        if start.Length = 0 then
+            failwith "ChildColumn: a stored column has no slot-start array (CSR needs n+1 entries)"
+
+        if start.[0] <> 0 then
+            failwithf "ChildColumn: a stored column starts at %d, not 0" start.[0]
+
+        for i in 1 .. start.Length - 1 do
+            if start.[i] < start.[i - 1] then
+                failwithf "ChildColumn: stored slot starts decrease at %d (%d < %d)" i start.[i] start.[i - 1]
+
+        if start.[start.Length - 1] <> ids.Length then
+            failwithf
+                "ChildColumn: stored slot starts end at %d but the column holds %d ids"
+                start.[start.Length - 1]
+                ids.Length
+
+        { Start = start; Ids = ids }
 
 /// A `ChildColumn` under construction: slots appended one whole child list at a time, in
 /// pool order. That is how every producer of one fills it — the pooling sink adds a row's
