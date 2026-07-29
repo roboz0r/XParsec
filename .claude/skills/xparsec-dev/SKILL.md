@@ -55,7 +55,6 @@ To run a test suite, you must use the `Test` action and specify the exact test p
 - `XParsec.CLArgs.Interactive`
 - `XParsec.CLArgs.Tests`
 - `XParsec.FSharp.Codegen.Clr.Tests`
-- `XParsec.FSharp.Codegen.Common.Tests`
 - `XParsec.FSharp.Codegen.Js.Tests`
 - `XParsec.FSharp.SemanticAnalysis.Tests`
 - `XParsec.FSharp.Tests` — this is also where the **lexer** tests live; there is no separate lexer suite.
@@ -66,6 +65,8 @@ To run a test suite, you must use the `Test` action and specify the exact test p
 - `Vesper.Tests`
 - `Vesper.UnionFind.Tests`
 - `Vesper.Ts.Extractor.Tests` — the golden/snapshot suite for the TS extractor. Its extractor-run tests **SKIP** until the extractor has been Fable-built (see the **Fable** action); build it first, then run this suite (optionally with `-UpdateSnapshots` to regenerate the `.manifest.json` goldens).
+
+`test/XParsec.FSharp.Codegen.Common.Tests` is a shared helper library for tests not a test project.
 
 **Focusing a specific test — two options:**
 
