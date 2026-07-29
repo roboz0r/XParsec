@@ -29,7 +29,10 @@ let private firstLetValue (frozen: Pooled.TastFile) : Pooled.TExpr =
 let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
     for i in 0 .. pools.ExprPayloads.Length - 1 do
         let id = ExprPoolId i
-        Expect.equal (TastPoolBuilder.exprTy b id) pools.ExprTys.[i] "base expr ty"
+        // The `ty` column holds a row of the base pool's own type table, so the expected
+        // value is that row resolved — which is also the check that the accessor resolves it
+        // against the table the id belongs to.
+        Expect.equal (TastPoolBuilder.exprTy b id) pools.Types.[pools.ExprTys.[i]] "base expr ty"
         Expect.equal (TastPoolBuilder.exprTok b id) pools.ExprToks.[i] "base expr tok"
         Expect.equal (TastPoolBuilder.exprChildren b id) pools.ExprChildren.[i] "base expr children"
         Expect.equal (TastPoolBuilder.exprPatChildren b id) pools.ExprPatChildren.[i] "base expr pat children"
@@ -38,7 +41,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 
     for i in 0 .. pools.PatPayloads.Length - 1 do
         let id = PatPoolId i
-        Expect.equal (TastPoolBuilder.patTy b id) pools.PatTys.[i] "base pat ty"
+        Expect.equal (TastPoolBuilder.patTy b id) pools.Types.[pools.PatTys.[i]] "base pat ty"
         Expect.equal (TastPoolBuilder.patTok b id) pools.PatToks.[i] "base pat tok"
         Expect.equal (TastPoolBuilder.patChildren b id) pools.PatChildren.[i] "base pat children"
         Expect.equal (TastPoolBuilder.patPayload b id) pools.PatPayloads.[i] "base pat payload"

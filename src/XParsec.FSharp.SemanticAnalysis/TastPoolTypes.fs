@@ -149,8 +149,19 @@ type FrozenFileResidue =
 /// aligned with the binder pool (`BinderColumn`). `ofPools` rebuilds the maps from these,
 /// so the round-trip proves the remap is a faithful bijection over every referenced binder
 /// rather than trivially copying the source maps.
+[<NoEquality; NoComparison>]
 type FrozenPools =
     {
+        /// The unit's own interned type and key tables — what the `ty` columns index. Every
+        /// `TypeId` in this record is a row of THIS table and of no other: the tables are
+        /// per unit (see `FrozenTypeTable`), so an id from another unit's pools would name a
+        /// different, valid type rather than miss.
+        ///
+        /// Hash-consed as the pools are filled, so two structurally equal types of this file
+        /// occupy one row — which makes a within-file `TypeId` comparison a structural type
+        /// comparison, and allocates one `FrozenType` per DISTINCT type rather than per
+        /// occurrence.
+        Types: FrozenTypeTable
         /// The expression pool as struct-of-arrays: these columns are parallel, each
         /// indexed by `ExprPoolId`. `ExprTys`/`ExprToks` are the node's `ty`/`tok`;
         /// `ExprChildren` the immediate child-expr ids in `TastPoolShapes.exprChildren` order;
@@ -160,7 +171,11 @@ type FrozenPools =
         /// tag (`ExprPayload.shape`) — there is no separate tag column, so the two cannot
         /// disagree. No DU node is retained — the columns are Node-sufficient, which the
         /// round-trip gate proves.
-        ExprTys: FrozenType[]
+        ///
+        /// The node's type as a row of `Types`, not the tree: a 4-byte id on the column that
+        /// dominates a frozen file, resolved through `TastPoolBuilder.exprTy`, which is
+        /// where it becomes the `FrozenType` every consumer already matches on.
+        ExprTys: TypeId[]
         /// Each node's anchor as a token INDEX into this file's own `Lexed` (`Anchor`), not
         /// the token struct: everything the struct carried is recoverable from the index
         /// against that `Lexed`, and the index is a quarter of its width on the column that
@@ -176,7 +191,10 @@ type FrozenPools =
         /// sub-pat ids in `TastPoolShapes.patChildren` order (patterns own no child
         /// expressions); `PatPayloads` the residual per-case payload, tag included. No DU
         /// node is retained.
-        PatTys: FrozenType[]
+        ///
+        /// The pattern twin of `ExprTys` — a row of `Types`, read through
+        /// `TastPoolBuilder.patTy`.
+        PatTys: TypeId[]
         /// The pattern twin of `ExprToks`.
         PatToks: Anchor[]
         PatChildren: PatPoolId[][]
@@ -263,6 +281,7 @@ module FrozenPools =
     /// other node.
     let empty: FrozenPools =
         {
+            Types = FrozenTypeTable.Empty
             ExprTys = [||]
             ExprToks = [||]
             ExprChildren = [||]

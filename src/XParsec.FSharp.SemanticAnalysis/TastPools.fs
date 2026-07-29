@@ -188,7 +188,7 @@ module TastPools =
         let facts (PatPoolId i) : ArgGroups.ParamPatFacts<BinderId> =
             {
                 Shape = PatPayload.shape pools.PatPayloads.[i]
-                Ty = pools.PatTys.[i]
+                Ty = pools.Types.[pools.PatTys.[i]]
                 Binder =
                     match pools.PatPayloads.[i] with
                     | PatPayload.NamedSimple binder -> ValueSome binder
@@ -224,7 +224,7 @@ module TastPools =
                                 // second NodeKey-keyed copy of it.
                                 Typars = FrozenPools.typarArity pools binder
                                 Groups = groups
-                                ResultTy = pools.ExprTys.[b]
+                                ResultTy = pools.Types.[pools.ExprTys.[b]]
                             }
                     | _ -> ()
                 | DeclPayload.Expression _
@@ -248,9 +248,15 @@ module TastPools =
         (anchor: 'tok -> Anchor)
         (file: TastFileG<FrozenType, 'tok, 'id>)
         : FrozenPools =
+        // The unit's type tables, hash-consed AS THE COLUMNS ARE FILLED — there is no
+        // separate interning pass, so what a node's `ty` column holds is a row of the very
+        // table the pools ship with. A type is interned exactly where its column entry is
+        // appended (the sink below), which is what keeps the two from being built apart.
+        let typeTable = FrozenTypeTableBuilder()
+
         // The expression pool as parallel column builders (struct-of-arrays); all are
         // appended together per node so they stay index-aligned by `ExprPoolId`.
-        let exprTys = ResizeArray<FrozenType>()
+        let exprTys = ResizeArray<TypeId>()
         let exprToks = ResizeArray<Anchor>()
         let exprChildrenCol = ResizeArray<ExprPoolId[]>()
         let exprPatChildrenCol = ResizeArray<PatPoolId[]>()
@@ -263,7 +269,7 @@ module TastPools =
 
         // The pattern pool as parallel column builders (struct-of-arrays), index-aligned by
         // `PatPoolId`.
-        let patTys = ResizeArray<FrozenType>()
+        let patTys = ResizeArray<TypeId>()
         let patToks = ResizeArray<Anchor>()
         let patChildrenCol = ResizeArray<PatPoolId[]>()
         let patPayloads = ResizeArray<PatPayload>()
@@ -341,7 +347,7 @@ module TastPools =
                 AddExpr =
                     fun row ->
                         let id = exprPayloads.Count
-                        exprTys.Add row.Ty
+                        exprTys.Add(typeTable.Intern row.Ty)
                         exprToks.Add row.Tok
                         exprChildrenCol.Add row.Children
                         exprPatChildrenCol.Add row.PatChildren
@@ -350,7 +356,7 @@ module TastPools =
                 AddPat =
                     fun row ->
                         let id = patPayloads.Count
-                        patTys.Add row.Ty
+                        patTys.Add(typeTable.Intern row.Ty)
                         patToks.Add row.Tok
                         patChildrenCol.Add row.Children
                         patPayloads.Add row.Payload
@@ -498,6 +504,9 @@ module TastPools =
         // correctness weight.
         let pools =
             {
+                // Snapshotted AFTER every walk above, so the tables hold every type the
+                // columns name. Nothing below interns.
+                Types = FrozenTypeTable.OfRows typeTable.Rows
                 ExprTys = exprTys.ToArray()
                 ExprToks = exprToks.ToArray()
                 ExprChildren = exprChildrenCol.ToArray()

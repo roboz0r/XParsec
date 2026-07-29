@@ -1,291 +1,66 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-open System.IO
-
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
+open XParsec.FSharp.SemanticAnalysis.FrozenCodecRows
 
-/// The FROZEN type domain: `FrozenType` and the `SymbolKey`/`TypeKey` cluster it interlocks
-/// with, the non-generic leaf payloads the tree and the side tables carry, the printf
-/// hole-form cluster, and the leaf type-declaration payloads. Every writer here bottoms out
-/// in `FrozenCodecPrimitives`; `FrozenCodecDecls` (the declaration shell) and `FrozenCodec`
-/// (the pool columns) read this module, never the reverse.
+/// The FROZEN type domain: the reference codec every other module reaches a type through,
+/// the non-generic leaf payloads the tree and the side tables carry, the printf hole-form
+/// cluster, and the leaf type-declaration payloads. Every writer here bottoms out in
+/// `FrozenCodecPrimitives` and `FrozenCodecRows`; `FrozenCodecDecls` (the declaration shell)
+/// and `FrozenCodec` (the pool columns) read this module, never the reverse.
+///
+/// NOTHING is written structurally in the type domain. A `FrozenType`, a `SymbolKey`, a
+/// `TypeKey` and a `ModuleKey` each reach the wire as the id of their row in the unit's own
+/// tables, and those tables — the only place a type is spelled out — go out once per file
+/// from `FrozenCodecRows`. So a type occurring at a thousand nodes costs one row plus a
+/// thousand ints.
 ///
 /// Diagnostics are NOT here: a `Kind` reaches no type and no key, so it codes in
 /// `FrozenCodecDiagnostics` against the same primitives rather than riding this file.
 module FrozenCodecTypes =
 
-    // ── the key cluster + FrozenType (one mutually recursive group) ─────────
+    // ── a REFERENCE into the unit's tables ──────────────────────────────────
     //
-    // The domains interlock — a `MemberKey.ArgSig` is `EqArray<FrozenType>`, and an
-    // `FTConst` carries a `SymbolKey` — so their writers (and readers) are one `rec`
-    // group. Readers use explicit `let` sequencing, never positional constructor-arg
-    // evaluation, so field read order provably matches the writer's emit order — and each
-    // reader sits directly under the writer it must mirror, so "provably" means readable
-    // side by side rather than checked across a file.
+    // How every OTHER module writes a type or a key: as the id of its row. The whole codec
+    // below and in `FrozenCodecDecls` / `FrozenCodec` goes through these four pairs, so a
+    // type embedded in a payload costs exactly what a `ty` column entry costs.
+    //
+    // The write side INTERNS where the read side resolves, and that asymmetry is the point:
+    // the `ty` columns were interned at freeze, but a payload can carry a type they never
+    // did (an `ILIntrinsic`'s operand, a member's signature, a `ValRepr`'s result), and
+    // interning it here is what appends it to the unit's tables. `FrozenCodec.writePools`
+    // therefore emits the tables AFTER the body it interned them from.
+    //
+    // The tables ride the SINK (`FrozenWriter.Types`) and not a parameter, so these four
+    // pairs have the shape of every other element codec and the generic containers take
+    // them as-is — and a writer cannot emit into one stream while interning into another
+    // unit's tables.
 
-    let rec writeFrozenType (w: BinaryWriter) (t: FrozenType) =
-        match t with
-        | FTConst(key, args) ->
-            w.Write 0uy
-            writeSymbolKey w key
-            writeFtArray w args
-        | FTFun(arg, result) ->
-            w.Write 1uy
-            writeFrozenType w arg
-            writeFrozenType w result
-        | FTTuple items ->
-            w.Write 2uy
-            writeFtArray w items
-        | FTRecord(key, args) ->
-            w.Write 3uy
-            writeTypeKey w key
-            writeFtArray w args
-        | FTUnion(key, args) ->
-            w.Write 4uy
-            writeTypeKey w key
-            writeFtArray w args
-        | FTClass(key, args) ->
-            w.Write 5uy
-            writeTypeKey w key
-            writeFtArray w args
-        | FTEnum key ->
-            w.Write 6uy
-            writeTypeKey w key
-        | FTOr members ->
-            w.Write 7uy
-            w.Write members.Length
+    let writeTypeRef (w: FrozenWriter) (t: FrozenType) = writeTypeId w (w.Types.Intern t)
 
-            for i in 0 .. members.Length - 1 do
-                writeFrozenType w members.[i]
-        | FTLiteral value ->
-            w.Write 8uy
-            writeLiteralConst w value
-        | FTKeyOf ty ->
-            w.Write 9uy
-            writeFrozenType w ty
-        | FTIndexedAccess(objTy, index) ->
-            w.Write 10uy
-            writeFrozenType w objTy
-            writeFrozenType w index
-        | FTConditional payload ->
-            w.Write 11uy
-            writeFrozenType w payload.Check
-            writeFrozenType w payload.Extends
-            writeFrozenType w payload.WhenTrue
-            writeFrozenType w payload.WhenFalse
-        | FTTypar(axis, index) ->
-            w.Write 12uy
-            writeTyparAxis w axis
-            w.Write index
-        | FTLocalTypar(SchemeId scheme, index) ->
-            w.Write 13uy
-            w.Write scheme
-            w.Write index
-        | FTUnknown name ->
-            w.Write 14uy
-            w.Write name
+    let readTypeRef (r: FrozenReader) : FrozenType = r.Types.[readTypeId r]
 
-    and readFrozenType (r: BinaryReader) : FrozenType =
-        match r.ReadByte() with
-        | 0uy ->
-            let key = readSymbolKey r
-            let args = readFtArray r
-            FTConst(key, args)
-        | 1uy ->
-            let arg = readFrozenType r
-            let result = readFrozenType r
-            FTFun(arg, result)
-        | 2uy -> FTTuple(readFtArray r)
-        | 3uy ->
-            let key = readTypeKey r
-            let args = readFtArray r
-            FTRecord(key, args)
-        | 4uy ->
-            let key = readTypeKey r
-            let args = readFtArray r
-            FTUnion(key, args)
-        | 5uy ->
-            let key = readTypeKey r
-            let args = readFtArray r
-            FTClass(key, args)
-        | 6uy -> FTEnum(readTypeKey r)
-        // Rebuilt DIRECTLY, never through `FrozenType.MkUnion` (which flattens /
-        // dedupes / collapses): the stored member set must survive verbatim for the
-        // structural round-trip gate.
-        | 7uy -> FTOr(EqSet.ofSeq (readArrayWith r readFrozenType))
-        | 8uy -> FTLiteral(readLiteralConst r)
-        | 9uy -> FTKeyOf(readFrozenType r)
-        | 10uy ->
-            let objTy = readFrozenType r
-            let index = readFrozenType r
-            FTIndexedAccess(objTy, index)
-        | 11uy ->
-            let check = readFrozenType r
-            let extends = readFrozenType r
-            let whenTrue = readFrozenType r
-            let whenFalse = readFrozenType r
+    let writeSymbolRef (w: FrozenWriter) (k: SymbolKey) =
+        writeSymbolId w (w.Types.InternSymbol k)
 
-            FTConditional
-                {
-                    Check = check
-                    Extends = extends
-                    WhenTrue = whenTrue
-                    WhenFalse = whenFalse
-                }
-        | 12uy ->
-            let axis = readTyparAxis r
-            let index = r.ReadInt32()
-            FTTypar(axis, index)
-        | 13uy ->
-            let scheme = r.ReadInt32()
-            let index = r.ReadInt32()
-            FTLocalTypar(SchemeId scheme, index)
-        | 14uy -> FTUnknown(r.ReadString())
-        | b -> failwithf "FrozenCodec: unknown FrozenType tag %d" b
+    let readSymbolRef (r: FrozenReader) : SymbolKey = r.Types.[readSymbolId r]
 
-    and private writeFtArray (w: BinaryWriter) (xs: EqArray<FrozenType>) = writeEqArrayWith w writeFrozenType xs
+    let writeTypeKeyRef (w: FrozenWriter) (k: TypeKey) =
+        writeTypeKeyId w (w.Types.InternTypeKey k)
 
-    and private readFtArray (r: BinaryReader) : EqArray<FrozenType> =
-        EqArray.ofArray (readArrayWith r readFrozenType)
+    let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
 
-    and writeSymbolKey (w: BinaryWriter) (k: SymbolKey) =
-        match k with
-        | SymbolKey.Type tk ->
-            w.Write 0uy
-            writeTypeKey w tk
-        | SymbolKey.Binding bk ->
-            w.Write 1uy
-            writeBindingKey w bk
-        | SymbolKey.Member mk ->
-            w.Write 2uy
-            writeMemberKey w mk
+    let writeModuleRef (w: FrozenWriter) (m: ModuleKey) =
+        writeModuleId w (w.Types.InternModule m)
 
-    and readSymbolKey (r: BinaryReader) : SymbolKey =
-        match r.ReadByte() with
-        | 0uy -> SymbolKey.Type(readTypeKey r)
-        | 1uy -> SymbolKey.Binding(readBindingKey r)
-        | 2uy -> SymbolKey.Member(readMemberKey r)
-        | b -> failwithf "FrozenCodec: unknown SymbolKey tag %d" b
-
-    and writeTypeKey (w: BinaryWriter) (k: TypeKey) =
-        writeTypeHolder w k.Holder
-        w.Write k.Name
-        w.Write k.TyparArity
-
-    and readTypeKey (r: BinaryReader) : TypeKey =
-        let holder = readTypeHolder r
-        let name = r.ReadString()
-        let arity = r.ReadInt32()
-
-        {
-            Holder = holder
-            Name = name
-            TyparArity = arity
-        }
-
-    and private writeTypeHolder (w: BinaryWriter) (h: TypeHolder) =
-        match h with
-        | TypeHolder.InNamespace ns ->
-            w.Write 0uy
-            writeNamespaceKey w ns
-        | TypeHolder.InModule m ->
-            w.Write 1uy
-            writeModuleKey w m
-        | TypeHolder.InType outer ->
-            w.Write 2uy
-            writeTypeKey w outer
-
-    and private readTypeHolder (r: BinaryReader) : TypeHolder =
-        match r.ReadByte() with
-        | 0uy -> TypeHolder.InNamespace(readNamespaceKey r)
-        | 1uy -> TypeHolder.InModule(readModuleKey r)
-        | 2uy -> TypeHolder.InType(readTypeKey r)
-        | b -> failwithf "FrozenCodec: unknown TypeHolder tag %d" b
-
-    and private writeNamespaceKey (w: BinaryWriter) (ns: NamespaceKey) = writeStringArray w ns.Path
-
-    and private readNamespaceKey (r: BinaryReader) : NamespaceKey = { Path = readStringArray r }
-
-    and private writeModuleKey (w: BinaryWriter) (m: ModuleKey) =
-        writeModuleHolder w m.Holder
-        w.Write m.Name
-
-    and private readModuleKey (r: BinaryReader) : ModuleKey =
-        let holder = readModuleHolder r
-        let name = r.ReadString()
-        { Holder = holder; Name = name }
-
-    and private writeModuleHolder (w: BinaryWriter) (h: ModuleHolder) =
-        match h with
-        | ModuleHolder.InNamespace ns ->
-            w.Write 0uy
-            writeNamespaceKey w ns
-        | ModuleHolder.InModule parent ->
-            w.Write 1uy
-            writeModuleKey w parent
-
-    and private readModuleHolder (r: BinaryReader) : ModuleHolder =
-        match r.ReadByte() with
-        | 0uy -> ModuleHolder.InNamespace(readNamespaceKey r)
-        | 1uy -> ModuleHolder.InModule(readModuleKey r)
-        | b -> failwithf "FrozenCodec: unknown ModuleHolder tag %d" b
-
-    and private writeBindingKey (w: BinaryWriter) (b: BindingKey) =
-        writeModuleHolder w b.Decl
-        w.Write b.Name
-
-    and private readBindingKey (r: BinaryReader) : BindingKey =
-        let decl = readModuleHolder r
-        let name = r.ReadString()
-        { Decl = decl; Name = name }
-
-    and private writeMemberKey (w: BinaryWriter) (m: MemberKey) =
-        writeTypeKey w m.Decl
-        w.Write m.Name
-        writeFtArray w m.ArgSig
-        w.Write m.MethodTyparArity
-        writeMemberKind w m.Kind
-
-    and private readMemberKey (r: BinaryReader) : MemberKey =
-        let decl = readTypeKey r
-        let name = r.ReadString()
-        let argSig = readFtArray r
-        let methodTyparArity = r.ReadInt32()
-        let kind = readMemberKind r
-
-        {
-            Decl = decl
-            Name = name
-            ArgSig = argSig
-            MethodTyparArity = methodTyparArity
-            Kind = kind
-        }
-
-    and private writeMemberKind (w: BinaryWriter) (k: MemberKind) =
-        match k with
-        | MemberKind.Method -> w.Write 0uy
-        | MemberKind.Property -> w.Write 1uy
-        | MemberKind.InterfaceMethod iface ->
-            w.Write 2uy
-            writeTypeKey w iface
-        | MemberKind.ExplicitInterfaceImpl iface ->
-            w.Write 3uy
-            writeTypeKey w iface
-
-    and private readMemberKind (r: BinaryReader) : MemberKind =
-        match r.ReadByte() with
-        | 0uy -> MemberKind.Method
-        | 1uy -> MemberKind.Property
-        | 2uy -> MemberKind.InterfaceMethod(readTypeKey r)
-        | 3uy -> MemberKind.ExplicitInterfaceImpl(readTypeKey r)
-        | b -> failwithf "FrozenCodec: unknown MemberKind tag %d" b
+    let readModuleRef (r: FrozenReader) : ModuleKey = r.Types.[readModuleId r]
 
     // ── the `SymbolKey`-keyed container ─────────────────────────────────────
     //
-    // The one container helper that names a domain: it rides `writeSymbolKey` above, so it
+    // The one container helper that names a domain: it rides `writeSymbolRef` above, so it
     // cannot sit with the generic containers in `FrozenCodecPrimitives`. The two
     // `IReadOnlyDictionary<SymbolKey,_>` fields serialize as a length-prefixed
     // (key, value) sequence — no canonical order is imposed (the cache key hashes
@@ -295,25 +70,25 @@ module FrozenCodecTypes =
     /// concrete `Dictionary` exposed through the read-only face, exactly how
     /// `Elaborate` constructs `IntrinsicReprKeys` / `Accessibility`.
     let writeSymbolDict
-        (w: BinaryWriter)
-        (writeVal: BinaryWriter -> 'v -> unit)
+        (w: FrozenWriter)
+        (writeVal: FrozenWriter -> 'v -> unit)
         (d: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>)
         =
         w.Write d.Count
 
         for KeyValue(k, v) in d do
-            writeSymbolKey w k
+            writeSymbolRef w k
             writeVal w v
 
     let readSymbolDict
-        (r: BinaryReader)
-        (readVal: BinaryReader -> 'v)
+        (r: FrozenReader)
+        (readVal: FrozenReader -> 'v)
         : System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v> =
         let n = r.ReadInt32()
         let d = System.Collections.Generic.Dictionary<SymbolKey, 'v>(n)
 
         for _ in 1..n do
-            let k = readSymbolKey r
+            let k = readSymbolRef r
             let v = readVal r
             d.[k] <- v
 
@@ -321,7 +96,7 @@ module FrozenCodecTypes =
 
     // ── non-generic leaf payloads the tree / side tables carry ──────────────
 
-    let private writeIntWidth (w: BinaryWriter) (iw: IntWidth) =
+    let private writeIntWidth (w: FrozenWriter) (iw: IntWidth) =
         match iw with
         | IntWidth.SByte -> w.Write 0uy
         | IntWidth.Byte -> w.Write 1uy
@@ -334,7 +109,7 @@ module FrozenCodecTypes =
         | IntWidth.NativeInt -> w.Write 8uy
         | IntWidth.UNativeInt -> w.Write 9uy
 
-    let private readIntWidth (r: BinaryReader) : IntWidth =
+    let private readIntWidth (r: FrozenReader) : IntWidth =
         match r.ReadByte() with
         | 0uy -> IntWidth.SByte
         | 1uy -> IntWidth.Byte
@@ -348,7 +123,7 @@ module FrozenCodecTypes =
         | 9uy -> IntWidth.UNativeInt
         | b -> failwithf "FrozenCodec: unknown IntWidth tag %d" b
 
-    let writeTConstValue (w: BinaryWriter) (v: TConstValue) =
+    let writeTConstValue (w: FrozenWriter) (v: TConstValue) =
         match v with
         | TConstValue.Integral(width, bits) ->
             w.Write 0uy
@@ -374,7 +149,7 @@ module FrozenCodecTypes =
             w.Write s
         | TConstValue.Unit -> w.Write 7uy
 
-    let readTConstValue (r: BinaryReader) : TConstValue =
+    let readTConstValue (r: FrozenReader) : TConstValue =
         match r.ReadByte() with
         | 0uy ->
             let width = readIntWidth r
@@ -389,40 +164,40 @@ module FrozenCodecTypes =
         | 7uy -> TConstValue.Unit
         | b -> failwithf "FrozenCodec: unknown TConstValue tag %d" b
 
-    let writeAccessibility (w: BinaryWriter) (a: Accessibility) =
+    let writeAccessibility (w: FrozenWriter) (a: Accessibility) =
         match a with
         | Accessibility.Public -> w.Write 0uy
         | Accessibility.Internal -> w.Write 1uy
         | Accessibility.Private -> w.Write 2uy
 
-    let readAccessibility (r: BinaryReader) : Accessibility =
+    let readAccessibility (r: FrozenReader) : Accessibility =
         match r.ReadByte() with
         | 0uy -> Accessibility.Public
         | 1uy -> Accessibility.Internal
         | 2uy -> Accessibility.Private
         | b -> failwithf "FrozenCodec: unknown Accessibility tag %d" b
 
-    let writeClassValueKind (w: BinaryWriter) (k: ClassValueKind) =
+    let writeClassValueKind (w: FrozenWriter) (k: ClassValueKind) =
         match k with
         | ClassValueKind.RefType -> w.Write 0uy
         | ClassValueKind.Struct -> w.Write 1uy
         | ClassValueKind.RefStruct -> w.Write 2uy
 
-    let readClassValueKind (r: BinaryReader) : ClassValueKind =
+    let readClassValueKind (r: FrozenReader) : ClassValueKind =
         match r.ReadByte() with
         | 0uy -> ClassValueKind.RefType
         | 1uy -> ClassValueKind.Struct
         | 2uy -> ClassValueKind.RefStruct
         | b -> failwithf "FrozenCodec: unknown ClassValueKind tag %d" b
 
-    let writeEqualityVerdict (w: BinaryWriter) (v: EqualityVerdict) =
+    let writeEqualityVerdict (w: FrozenWriter) (v: EqualityVerdict) =
         match v with
         | EqualityVerdict.Structural -> w.Write 0uy
         | EqualityVerdict.Reference -> w.Write 1uy
         | EqualityVerdict.Custom -> w.Write 2uy
         | EqualityVerdict.NoEquality -> w.Write 3uy
 
-    let readEqualityVerdict (r: BinaryReader) : EqualityVerdict =
+    let readEqualityVerdict (r: FrozenReader) : EqualityVerdict =
         match r.ReadByte() with
         | 0uy -> EqualityVerdict.Structural
         | 1uy -> EqualityVerdict.Reference
@@ -430,59 +205,59 @@ module FrozenCodecTypes =
         | 3uy -> EqualityVerdict.NoEquality
         | b -> failwithf "FrozenCodec: unknown EqualityVerdict tag %d" b
 
-    let writeComparisonVerdict (w: BinaryWriter) (v: ComparisonVerdict) =
+    let writeComparisonVerdict (w: FrozenWriter) (v: ComparisonVerdict) =
         match v with
         | ComparisonVerdict.Structural -> w.Write 0uy
         | ComparisonVerdict.Custom -> w.Write 1uy
         | ComparisonVerdict.NoComparison -> w.Write 2uy
 
-    let readComparisonVerdict (r: BinaryReader) : ComparisonVerdict =
+    let readComparisonVerdict (r: FrozenReader) : ComparisonVerdict =
         match r.ReadByte() with
         | 0uy -> ComparisonVerdict.Structural
         | 1uy -> ComparisonVerdict.Custom
         | 2uy -> ComparisonVerdict.NoComparison
         | b -> failwithf "FrozenCodec: unknown ComparisonVerdict tag %d" b
 
-    let writeMemberStorage (w: BinaryWriter) (s: MemberStorage) =
+    let writeMemberStorage (w: FrozenWriter) (s: MemberStorage) =
         match s with
         | MemberStorage.Field -> w.Write 0uy
         | MemberStorage.Property -> w.Write 1uy
         | MemberStorage.Method -> w.Write 2uy
 
-    let readMemberStorage (r: BinaryReader) : MemberStorage =
+    let readMemberStorage (r: FrozenReader) : MemberStorage =
         match r.ReadByte() with
         | 0uy -> MemberStorage.Field
         | 1uy -> MemberStorage.Property
         | 2uy -> MemberStorage.Method
         | b -> failwithf "FrozenCodec: unknown MemberStorage tag %d" b
 
-    let writeTMemberKind (w: BinaryWriter) (k: TMemberKind) =
+    let writeTMemberKind (w: FrozenWriter) (k: TMemberKind) =
         match k with
         | TMemberKind.Method -> w.Write 0uy
         | TMemberKind.Property -> w.Write 1uy
 
-    let readTMemberKind (r: BinaryReader) : TMemberKind =
+    let readTMemberKind (r: FrozenReader) : TMemberKind =
         match r.ReadByte() with
         | 0uy -> TMemberKind.Method
         | 1uy -> TMemberKind.Property
         | b -> failwithf "FrozenCodec: unknown TMemberKind tag %d" b
 
-    let writeClosureRepr (w: BinaryWriter) (c: ClosureRepr) =
+    let writeClosureRepr (w: FrozenWriter) (c: ClosureRepr) =
         match c with
         | ClosureRepr.Heap -> w.Write 0uy
         | ClosureRepr.Stack -> w.Write 1uy
 
-    let readClosureRepr (r: BinaryReader) : ClosureRepr =
+    let readClosureRepr (r: FrozenReader) : ClosureRepr =
         match r.ReadByte() with
         | 0uy -> ClosureRepr.Heap
         | 1uy -> ClosureRepr.Stack
         | b -> failwithf "FrozenCodec: unknown ClosureRepr tag %d" b
 
-    let writeFunVerdict (w: BinaryWriter) (v: FunVerdict) =
+    let writeFunVerdict (w: FrozenWriter) (v: FunVerdict) =
         w.Write v.Arity
         writeVOptionWith w (fun w (i: int) -> w.Write i) v.ResultTyparPos
 
-    let readFunVerdict (r: BinaryReader) : FunVerdict =
+    let readFunVerdict (r: FrozenReader) : FunVerdict =
         let arity = r.ReadInt32()
         let resultTyparPos = readVOptionWith r (fun r -> r.ReadInt32())
 
@@ -491,37 +266,36 @@ module FrozenCodecTypes =
             ResultTyparPos = resultTyparPos
         }
 
-    /// A frozen typar bound — its `target` is a `FrozenType`, so this reuses the leaf
-    /// `writeFrozenType`/`readFrozenType` defined above.
-    let writeFrozenConstraint (w: BinaryWriter) (c: FrozenConstraint) =
+    /// A frozen typar bound — its `target` is a `FrozenType`, so this rides `writeTypeRef`.
+    let writeFrozenConstraint (w: FrozenWriter) (c: FrozenConstraint) =
         match c with
         | FrozenConstraint.Coercion(typarIndex, target) ->
             w.Write 0uy
             w.Write typarIndex
-            writeFrozenType w target
+            writeTypeRef w target
 
-    let readFrozenConstraint (r: BinaryReader) : FrozenConstraint =
+    let readFrozenConstraint (r: FrozenReader) : FrozenConstraint =
         match r.ReadByte() with
         | 0uy ->
             let typarIndex = r.ReadInt32()
-            let target = readFrozenType r
+            let target = readTypeRef r
             FrozenConstraint.Coercion(typarIndex, target)
         | b -> failwithf "FrozenCodec: unknown FrozenConstraint tag %d" b
 
-    let writeModuleBindingInfo (w: BinaryWriter) (m: ModuleBindingInfo) =
-        writeModuleKey w m.Holder
+    let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) =
+        writeModuleRef w m.Holder
         w.Write m.Name
 
-    let readModuleBindingInfo (r: BinaryReader) : ModuleBindingInfo =
-        let holder = readModuleKey r
+    let readModuleBindingInfo (r: FrozenReader) : ModuleBindingInfo =
+        let holder = readModuleRef r
         let name = r.ReadString()
         { Holder = holder; Name = name }
 
-    let writeIntrinsicReprInfo (w: BinaryWriter) (i: IntrinsicReprInfo) =
+    let writeIntrinsicReprInfo (w: FrozenWriter) (i: IntrinsicReprInfo) =
         w.Write i.Platform
         w.Write i.Heritable
 
-    let readIntrinsicReprInfo (r: BinaryReader) : IntrinsicReprInfo =
+    let readIntrinsicReprInfo (r: FrozenReader) : IntrinsicReprInfo =
         let platform = r.ReadString()
         let heritable = r.ReadBoolean()
 
@@ -530,7 +304,7 @@ module FrozenCodecTypes =
             Heritable = heritable
         }
 
-    let private writeTEnumLiteral (w: BinaryWriter) (l: TEnumLiteral) =
+    let private writeTEnumLiteral (w: FrozenWriter) (l: TEnumLiteral) =
         match l with
         | TEnumLiteral.Int value ->
             w.Write 0uy
@@ -539,34 +313,34 @@ module FrozenCodecTypes =
             w.Write 1uy
             w.Write value
 
-    let private readTEnumLiteral (r: BinaryReader) : TEnumLiteral =
+    let private readTEnumLiteral (r: FrozenReader) : TEnumLiteral =
         match r.ReadByte() with
         | 0uy -> TEnumLiteral.Int(readTConstValue r)
         | 1uy -> TEnumLiteral.String(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown TEnumLiteral tag %d" b
 
-    let writeParamAttrs (w: BinaryWriter) (a: ParamAttrs) = w.Write a.CallAtMostOnce
+    let writeParamAttrs (w: FrozenWriter) (a: ParamAttrs) = w.Write a.CallAtMostOnce
 
-    let readParamAttrs (r: BinaryReader) : ParamAttrs = { CallAtMostOnce = r.ReadBoolean() }
+    let readParamAttrs (r: FrozenReader) : ParamAttrs = { CallAtMostOnce = r.ReadBoolean() }
 
     /// A member's own method typars: each entry is the source name + the typar's
     /// frozen type (`FTTypar(Method, i)`), position = ABI index. Plain frozen data —
     /// no union-find cell rides the tree, so this round-trips structurally.
-    let writeMethodTypeParams (w: BinaryWriter) (mtps: EqArray<string * FrozenType>) =
+    let writeMethodTypeParams (w: FrozenWriter) (mtps: EqArray<string * FrozenType>) =
         writeEqArrayWith
             w
             (fun w (n: string, ty) ->
                 w.Write n
-                writeFrozenType w ty
+                writeTypeRef w ty
             )
             mtps
 
-    let readMethodTypeParams (r: BinaryReader) : EqArray<string * FrozenType> =
-        EqArray.ofArray (readArrayWith r (fun r -> let n = r.ReadString() in n, readFrozenType r))
+    let readMethodTypeParams (r: FrozenReader) : EqArray<string * FrozenType> =
+        EqArray.ofArray (readArrayWith r (fun r -> let n = r.ReadString() in n, readTypeRef r))
 
     // ── the printf hole-form cluster (a `HoleSpec` payload) ─────────────────
 
-    let private writePrintWidth (w: BinaryWriter) (p: PrintfHoleForm.PrintWidth) =
+    let private writePrintWidth (w: FrozenWriter) (p: PrintfHoleForm.PrintWidth) =
         match p with
         | PrintfHoleForm.PrintWidth.Default -> w.Write 0uy
         | PrintfHoleForm.PrintWidth.Never -> w.Write 1uy
@@ -575,7 +349,7 @@ module FrozenCodecTypes =
             w.Write n
         | PrintfHoleForm.PrintWidth.Star -> w.Write 3uy
 
-    let private readPrintWidth (r: BinaryReader) : PrintfHoleForm.PrintWidth =
+    let private readPrintWidth (r: FrozenReader) : PrintfHoleForm.PrintWidth =
         match r.ReadByte() with
         | 0uy -> PrintfHoleForm.PrintWidth.Default
         | 1uy -> PrintfHoleForm.PrintWidth.Never
@@ -583,7 +357,7 @@ module FrozenCodecTypes =
         | 3uy -> PrintfHoleForm.PrintWidth.Star
         | b -> failwithf "FrozenCodec: unknown PrintWidth tag %d" b
 
-    let private writePrintSize (w: BinaryWriter) (p: PrintfHoleForm.PrintSize) =
+    let private writePrintSize (w: FrozenWriter) (p: PrintfHoleForm.PrintSize) =
         match p with
         | PrintfHoleForm.PrintSize.Default -> w.Write 0uy
         | PrintfHoleForm.PrintSize.Cols n ->
@@ -591,27 +365,27 @@ module FrozenCodecTypes =
             w.Write n
         | PrintfHoleForm.PrintSize.Star -> w.Write 2uy
 
-    let private readPrintSize (r: BinaryReader) : PrintfHoleForm.PrintSize =
+    let private readPrintSize (r: FrozenReader) : PrintfHoleForm.PrintSize =
         match r.ReadByte() with
         | 0uy -> PrintfHoleForm.PrintSize.Default
         | 1uy -> PrintfHoleForm.PrintSize.Cols(r.ReadInt32())
         | 2uy -> PrintfHoleForm.PrintSize.Star
         | b -> failwithf "FrozenCodec: unknown PrintSize tag %d" b
 
-    let private writePrec (w: BinaryWriter) (p: PrintfHoleForm.Prec) =
+    let private writePrec (w: FrozenWriter) (p: PrintfHoleForm.Prec) =
         match p with
         | PrintfHoleForm.Prec.Const n ->
             w.Write 0uy
             w.Write n
         | PrintfHoleForm.Prec.Star -> w.Write 1uy
 
-    let private readPrec (r: BinaryReader) : PrintfHoleForm.Prec =
+    let private readPrec (r: FrozenReader) : PrintfHoleForm.Prec =
         match r.ReadByte() with
         | 0uy -> PrintfHoleForm.Prec.Const(r.ReadInt32())
         | 1uy -> PrintfHoleForm.Prec.Star
         | b -> failwithf "FrozenCodec: unknown Prec tag %d" b
 
-    let private writeRadix (w: BinaryWriter) (radix: PrintfHoleForm.Radix) =
+    let private writeRadix (w: FrozenWriter) (radix: PrintfHoleForm.Radix) =
         match radix with
         | PrintfHoleForm.Radix.Hex upper ->
             w.Write 0uy
@@ -619,14 +393,14 @@ module FrozenCodecTypes =
         | PrintfHoleForm.Radix.Binary -> w.Write 1uy
         | PrintfHoleForm.Radix.Octal -> w.Write 2uy
 
-    let private readRadix (r: BinaryReader) : PrintfHoleForm.Radix =
+    let private readRadix (r: FrozenReader) : PrintfHoleForm.Radix =
         match r.ReadByte() with
         | 0uy -> PrintfHoleForm.Radix.Hex(r.ReadBoolean())
         | 1uy -> PrintfHoleForm.Radix.Binary
         | 2uy -> PrintfHoleForm.Radix.Octal
         | b -> failwithf "FrozenCodec: unknown Radix tag %d" b
 
-    let private writeAlignment (w: BinaryWriter) (a: PrintfHoleForm.Alignment) =
+    let private writeAlignment (w: FrozenWriter) (a: PrintfHoleForm.Alignment) =
         match a with
         | PrintfHoleForm.Alignment.None -> w.Write 0uy
         | PrintfHoleForm.Alignment.Const n ->
@@ -636,14 +410,14 @@ module FrozenCodecTypes =
             w.Write 2uy
             w.Write leftJustify
 
-    let private readAlignment (r: BinaryReader) : PrintfHoleForm.Alignment =
+    let private readAlignment (r: FrozenReader) : PrintfHoleForm.Alignment =
         match r.ReadByte() with
         | 0uy -> PrintfHoleForm.Alignment.None
         | 1uy -> PrintfHoleForm.Alignment.Const(r.ReadInt32())
         | 2uy -> PrintfHoleForm.Alignment.Star(r.ReadBoolean())
         | b -> failwithf "FrozenCodec: unknown Alignment tag %d" b
 
-    let private writeFieldFormat (w: BinaryWriter) (f: PrintfHoleForm.FieldFormat) =
+    let private writeFieldFormat (w: FrozenWriter) (f: PrintfHoleForm.FieldFormat) =
         match f with
         | PrintfHoleForm.FieldFormat.Verbatim -> w.Write 0uy
         | PrintfHoleForm.FieldFormat.DecimalZeroPad width ->
@@ -688,7 +462,7 @@ module FrozenCodecTypes =
             w.Write typeChar
             writeOptionWith w (fun w (n: int) -> w.Write n) zeroPad
 
-    let private readFieldFormat (r: BinaryReader) : PrintfHoleForm.FieldFormat =
+    let private readFieldFormat (r: FrozenReader) : PrintfHoleForm.FieldFormat =
         match r.ReadByte() with
         | 0uy -> PrintfHoleForm.FieldFormat.Verbatim
         | 1uy -> PrintfHoleForm.FieldFormat.DecimalZeroPad(r.ReadInt32())
@@ -728,7 +502,7 @@ module FrozenCodecTypes =
             PrintfHoleForm.FieldFormat.ForcedSign(space, precision, typeChar, zeroPad)
         | b -> failwithf "FrozenCodec: unknown FieldFormat tag %d" b
 
-    let private writeHoleForm (w: BinaryWriter) (h: PrintfHoleForm.HoleForm) =
+    let private writeHoleForm (w: FrozenWriter) (h: PrintfHoleForm.HoleForm) =
         match h with
         | PrintfHoleForm.HoleForm.PercentA(width, size) ->
             w.Write 0uy
@@ -742,7 +516,7 @@ module FrozenCodecTypes =
             w.Write 2uy
             w.Write hasValue
 
-    let private readHoleForm (r: BinaryReader) : PrintfHoleForm.HoleForm =
+    let private readHoleForm (r: FrozenReader) : PrintfHoleForm.HoleForm =
         match r.ReadByte() with
         | 0uy ->
             let width = readPrintWidth r
@@ -755,7 +529,7 @@ module FrozenCodecTypes =
         | 2uy -> PrintfHoleForm.HoleForm.Callback(r.ReadBoolean())
         | b -> failwithf "FrozenCodec: unknown HoleForm tag %d" b
 
-    let private writeHoleSpecSource (w: BinaryWriter) (s: HoleSpecSource) =
+    let private writeHoleSpecSource (w: FrozenWriter) (s: HoleSpecSource) =
         match s with
         | HoleSpecSource.Classified form ->
             w.Write 0uy
@@ -764,7 +538,7 @@ module FrozenCodecTypes =
             w.Write 1uy
             writeOptionWith w (fun w (s: string) -> w.Write s) fmt
 
-    let private readHoleSpecSource (r: BinaryReader) : HoleSpecSource =
+    let private readHoleSpecSource (r: FrozenReader) : HoleSpecSource =
         match r.ReadByte() with
         | 0uy -> HoleSpecSource.Classified(readHoleForm r)
         | 1uy -> HoleSpecSource.RawFormat(readOptionWith r (fun r -> r.ReadString()))
@@ -773,29 +547,29 @@ module FrozenCodecTypes =
     // A `HoleSpec` carries no sub-expression (its `Ty` is a `FrozenType`, its `Tok` a
     // token), so it is a leaf ahead of the tree group even though the format SEGMENT
     // that holds it is not.
-    let writeHoleSpec (w: BinaryWriter) (h: Pooled.HoleSpec) =
-        writeFrozenType w h.Ty
+    let writeHoleSpec (w: FrozenWriter) (h: Pooled.HoleSpec) =
+        writeTypeRef w h.Ty
         writeHoleSpecSource w h.Source
         writeAnchor w h.Tok
 
-    let readHoleSpec (r: BinaryReader) : Pooled.HoleSpec =
-        let ty = readFrozenType r
+    let readHoleSpec (r: FrozenReader) : Pooled.HoleSpec =
+        let ty = readTypeRef r
         let source = readHoleSpecSource r
         let tok = readAnchor r
         { Ty = ty; Source = source; Tok = tok }
 
     // ── the leaf type-declaration payloads (no sub-expression) ──────────────
 
-    let writeAbstractMethod (w: BinaryWriter) (m: Frozen.TAbstractMethod) =
+    let writeAbstractMethod (w: FrozenWriter) (m: Frozen.TAbstractMethod) =
         w.Write m.Name
         writeStringArray w m.MethodTypeParams
-        writeFrozenType w m.Signature
+        writeTypeRef w m.Signature
         w.Write m.IsProperty
 
-    let readAbstractMethod (r: BinaryReader) : Frozen.TAbstractMethod =
+    let readAbstractMethod (r: FrozenReader) : Frozen.TAbstractMethod =
         let name = r.ReadString()
         let methodTypeParams = readStringArray r
-        let signature = readFrozenType r
+        let signature = readTypeRef r
         let isProperty = r.ReadBoolean()
 
         {
@@ -805,18 +579,18 @@ module FrozenCodecTypes =
             IsProperty = isProperty
         }
 
-    let writeUnionCase (w: BinaryWriter) (c: Frozen.TUnionCase) =
+    let writeUnionCase (w: FrozenWriter) (c: Frozen.TUnionCase) =
         w.Write c.Name
 
         writeEqArrayWith
             w
             (fun w (nameOpt: string voption, ty) ->
                 writeVOptionWith w (fun w (s: string) -> w.Write s) nameOpt
-                writeFrozenType w ty
+                writeTypeRef w ty
             )
             c.Fields
 
-    let readUnionCase (r: BinaryReader) : Frozen.TUnionCase =
+    let readUnionCase (r: FrozenReader) : Frozen.TUnionCase =
         let name = r.ReadString()
 
         let fields =
@@ -825,21 +599,21 @@ module FrozenCodecTypes =
                     r
                     (fun r ->
                         let nameOpt = readVOptionWith r (fun r -> r.ReadString())
-                        let ty = readFrozenType r
+                        let ty = readTypeRef r
                         nameOpt, ty
                     )
             )
 
         { Name = name; Fields = fields }
 
-    let writeRecordField (w: BinaryWriter) (f: Frozen.TRecordField) =
+    let writeRecordField (w: FrozenWriter) (f: Frozen.TRecordField) =
         w.Write f.Name
-        writeFrozenType w f.Type
+        writeTypeRef w f.Type
         w.Write f.IsMutable
 
-    let readRecordField (r: BinaryReader) : Frozen.TRecordField =
+    let readRecordField (r: FrozenReader) : Frozen.TRecordField =
         let name = r.ReadString()
-        let ty = readFrozenType r
+        let ty = readTypeRef r
         let isMutable = r.ReadBoolean()
 
         {
@@ -848,12 +622,12 @@ module FrozenCodecTypes =
             IsMutable = isMutable
         }
 
-    let writeEnumCase (w: BinaryWriter) (c: TEnumCaseG<Anchor>) =
+    let writeEnumCase (w: FrozenWriter) (c: TEnumCaseG<Anchor>) =
         w.Write c.Name
         writeVOptionWith w writeTEnumLiteral c.Value
         writeAnchor w c.Tok
 
-    let readEnumCase (r: BinaryReader) : TEnumCaseG<Anchor> =
+    let readEnumCase (r: FrozenReader) : TEnumCaseG<Anchor> =
         let name = r.ReadString()
         let value = readVOptionWith r readTEnumLiteral
         let tok = readAnchor r

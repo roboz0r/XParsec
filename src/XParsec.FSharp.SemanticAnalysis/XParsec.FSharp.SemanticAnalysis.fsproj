@@ -17,6 +17,10 @@
     <Compile Include="SymbolKeys.fs" />
     <Compile Include="SemanticScalars.fs" />
     <Compile Include="SemanticInfo.fs" />
+    <!-- Immediately after the domain it interns: the frozen types and keys in ROW form,
+         which the pool columns address by id and the codec stores. It reads `SemanticInfo`
+         and the scalars, nothing else. -->
+    <Compile Include="FrozenTypeTable.fs" />
     <Compile Include="SemTypeWalks.fs" />
     <Compile Include="TypeStore.fs" />
     <Compile Include="FrozenTypeBridge.fs" />
@@ -57,6 +61,7 @@
          shell, then the columns `flatten`/`thaw` store — each reading only the ones above
          it. -->
     <Compile Include="FrozenCodecPrimitives.fs" />
+    <Compile Include="FrozenCodecRows.fs" />
     <Compile Include="FrozenCodecDiagnostics.fs" />
     <Compile Include="FrozenCodecTypes.fs" />
     <Compile Include="FrozenCodecDecls.fs" />

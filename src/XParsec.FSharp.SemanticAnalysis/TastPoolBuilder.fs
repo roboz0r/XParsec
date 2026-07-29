@@ -159,8 +159,13 @@ module TastPoolBuilder =
         else
             ofRow b.OvDecls.[i - b.DeclBase]
 
+    /// The node's type, across both layers. The BASE column holds a row id of the base
+    /// pool's own type table and is resolved through it; an OVERLAY row holds the type
+    /// itself, because a lowering that retypes a node (`ClosureVerdictRewrite`,
+    /// `copyPatTreeInto`) mints a type the frozen unit never interned — and the base table
+    /// is immutable, which is what makes stacking sound in the first place.
     let exprTy (b: PoolBuilder) (id: ExprPoolId) : FrozenType =
-        readExpr b id (fun p i -> p.ExprTys.[i]) (fun r -> r.Ty)
+        readExpr b id (fun p i -> p.Types.[p.ExprTys.[i]]) (fun r -> r.Ty)
 
     /// Where the node SITS: its anchor token's index in the file's `Lexed`, or `ValueNone`
     /// where no source spells it (an overlay-minted node, an `.fsi` contract's
@@ -194,7 +199,7 @@ module TastPoolBuilder =
             id
             (fun p i ->
                 {
-                    Ty = p.ExprTys.[i]
+                    Ty = p.Types.[p.ExprTys.[i]]
                     Tok = p.ExprToks.[i]
                     Children = p.ExprChildren.[i]
                     PatChildren = p.ExprPatChildren.[i]
@@ -204,8 +209,9 @@ module TastPoolBuilder =
             )
             (fun r -> r)
 
+    /// The pattern twin of `exprTy`.
     let patTy (b: PoolBuilder) (id: PatPoolId) : FrozenType =
-        readPat b id (fun p i -> p.PatTys.[i]) (fun r -> r.Ty)
+        readPat b id (fun p i -> p.Types.[p.PatTys.[i]]) (fun r -> r.Ty)
 
     /// The pattern twin of `exprTok`.
     let patTok (b: PoolBuilder) (id: PatPoolId) : Anchor =
@@ -227,7 +233,7 @@ module TastPoolBuilder =
             id
             (fun p i ->
                 {
-                    Ty = p.PatTys.[i]
+                    Ty = p.Types.[p.PatTys.[i]]
                     Tok = p.PatToks.[i]
                     Children = p.PatChildren.[i]
                     Payload = p.PatPayloads.[i]

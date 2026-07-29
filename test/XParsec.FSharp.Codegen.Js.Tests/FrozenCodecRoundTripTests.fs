@@ -9,13 +9,16 @@ open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // The leaf-codec gate: `read (write x) = x` STRUCTURALLY for every value in the leaf
-// domains — `FrozenType`, the `SymbolKey`/`TypeKey` key cluster (`FrozenCodecTypes`),
-// `NodeKey`, and a node's anchor (`FrozenCodecPrimitives`). Data comes from two sources:
-// the frozen conformance corpus (realistic breadth), harvested from the leaf-bearing side
-// tables + FrozenType child-walk of each `Frozen.TastFile` (no full expr/decl tree walk —
-// that arrives with the tree codec), and hand-built edge cases that pin EVERY case shape
-// the corpus may not exercise (an `FTOr` of several members, a deeply nested type, each
-// `MemberKind`, an absent anchor, …).
+// domains — a diagnostic and its `Kind` / `Site`, and a node's anchor
+// (`FrozenCodecPrimitives`) — and, for the type domain, `materialise (read (write (intern
+// x))) = x`: a type reaches the blob ONLY as a row id now, so what has to survive is the
+// whole path through the unit's tables and their row codec, not a structural writer.
+//
+// Data comes from two sources: the frozen conformance corpus (realistic breadth), harvested
+// from the leaf-bearing side tables + FrozenType child-walk of each `Frozen.TastFile` (no
+// full expr/decl tree walk — that arrives with the tree codec), and hand-built edge cases
+// that pin EVERY case shape the corpus may not exercise (an `FTOr` of several members, a
+// deeply nested type, each `MemberKind`, an absent anchor, …).
 
 /// Corpus programs the JS backend actually compiles — the same gate the byte-identity
 /// test uses, so `frozenOfJs` never trips on a `Diagnose` program's error diagnostics.
@@ -313,35 +316,66 @@ let private collect () : Harvest =
         Anchors = List.ofSeq toks
     }
 
-let private roundTrips (write: System.IO.BinaryWriter -> 'a -> unit) (read: System.IO.BinaryReader -> 'a) (x: 'a) =
-    FrozenCodecPrimitives.ofBytes read (FrozenCodecPrimitives.toBytes write x)
+/// Round-trip a codec that resolves no type reference — a `Site`, an anchor, a diagnostic, or
+/// the type ROWS themselves. Empty tables on both sides, and that is the assertion: any of
+/// these reaching for `w.Types` would fault rather than quietly resolve against a stand-in.
+let private roundTrips (write: FrozenWriter -> 'a -> unit) (read: FrozenReader -> 'a) (x: 'a) =
+    FrozenCodecPrimitives.ofBytes
+        FrozenTypeTable.Empty
+        read
+        (FrozenCodecPrimitives.toBytes (FrozenTypeTableBuilder()) write x)
+
+/// The harvest interned into ONE unit's tables, and the table those rows make after a trip
+/// through the row codec — the ids alongside, so each source value can be asked for back.
+type private Interned =
+    {
+        TypeIds: TypeId list
+        SymbolIds: SymbolId list
+        TypeKeyIds: TypeKeyId list
+        Table: FrozenTypeTable
+    }
+
+/// The whole path a type now takes to a blob and back: intern it into the unit's tables,
+/// write the ROWS, read them, materialise the id. Interning every harvested value into ONE
+/// builder is also what the freeze does — the corpus's types share their sub-types heavily,
+/// so this exercises rows that name rows, not just isolated values.
+let private intern (h: Harvest) : Interned =
+    let builder = FrozenTypeTableBuilder()
+    let typeIds = h.FrozenTypes |> List.map builder.Intern
+    let symbolIds = h.SymbolKeys |> List.map builder.InternSymbol
+    let typeKeyIds = h.TypeKeys |> List.map builder.InternTypeKey
+
+    let rows =
+        roundTrips FrozenCodecRows.writeTypeRows FrozenCodecRows.readTypeRows builder.Rows
+
+    {
+        TypeIds = typeIds
+        SymbolIds = symbolIds
+        TypeKeyIds = typeKeyIds
+        Table = FrozenTypeTable.OfRows rows
+    }
 
 [<Tests>]
 let tests =
     let h = collect ()
+    let interned = intern h
 
     testList
         "FrozenCodec leaf round-trip"
         [
-            test "FrozenType round-trips structurally" {
-                for ft in h.FrozenTypes do
-                    Expect.equal
-                        (roundTrips FrozenCodecTypes.writeFrozenType FrozenCodecTypes.readFrozenType ft)
-                        ft
-                        "FrozenType"
+            test "FrozenType survives interning, the row codec and materialisation" {
+                for (ft, id) in List.zip h.FrozenTypes interned.TypeIds do
+                    Expect.equal interned.Table.[id] ft "FrozenType"
             }
 
-            test "SymbolKey round-trips structurally" {
-                for sk in h.SymbolKeys do
-                    Expect.equal
-                        (roundTrips FrozenCodecTypes.writeSymbolKey FrozenCodecTypes.readSymbolKey sk)
-                        sk
-                        "SymbolKey"
+            test "SymbolKey survives interning, the row codec and materialisation" {
+                for (sk, id) in List.zip h.SymbolKeys interned.SymbolIds do
+                    Expect.equal interned.Table.[id] sk "SymbolKey"
             }
 
-            test "TypeKey round-trips structurally" {
-                for tk in h.TypeKeys do
-                    Expect.equal (roundTrips FrozenCodecTypes.writeTypeKey FrozenCodecTypes.readTypeKey tk) tk "TypeKey"
+            test "TypeKey survives interning, the row codec and materialisation" {
+                for (tk, id) in List.zip h.TypeKeys interned.TypeKeyIds do
+                    Expect.equal interned.Table.[id] tk "TypeKey"
             }
 
             test "a diagnostic's Site round-trips, every case" {

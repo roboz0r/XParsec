@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 
 /// The FROZEN diagnostic domain: a `Diagnostic`, the `Kind` that is its verdict, and the
 /// small closed vocabularies a kind's facts are drawn from. Split from `FrozenCodecTypes`
-/// because it shares nothing with the frozen TYPE domain but a `BinaryWriter` — a `Kind`
+/// because it shares nothing with the frozen TYPE domain but the codec sink — a `Kind`
 /// carries strings, ints and its own enums, never a `FrozenType` or a key.
 ///
 /// `Site` itself is a primitive (`FrozenCodecPrimitives.writeSite`): it is the position
@@ -19,16 +19,16 @@ module FrozenCodecDiagnostics =
 
     // `Diagnostic` is qualified below rather than aliased; see the type's declaration for
     // why the bare name would otherwise be the parser's.
-    let private writeLabel (w: BinaryWriter) (l: Label) =
+    let private writeLabel (w: FrozenWriter) (l: Label) =
         writeSite w l.Site
         w.Write l.Message
 
-    let private readLabel (r: BinaryReader) : Label =
+    let private readLabel (r: FrozenReader) : Label =
         let site = readSite r
         let message = r.ReadString()
         { Site = site; Message = message }
 
-    let private writeMemberNoun (w: BinaryWriter) (n: MemberNoun) =
+    let private writeMemberNoun (w: FrozenWriter) (n: MemberNoun) =
         match n with
         | MemberNoun.Field -> w.Write 0uy
         | MemberNoun.InstanceMember -> w.Write 1uy
@@ -40,7 +40,7 @@ module FrozenCodecDiagnostics =
         | MemberNoun.Operator -> w.Write 7uy
         | MemberNoun.Member -> w.Write 8uy
 
-    let private readMemberNoun (r: BinaryReader) : MemberNoun =
+    let private readMemberNoun (r: FrozenReader) : MemberNoun =
         match r.ReadByte() with
         | 0uy -> MemberNoun.Field
         | 1uy -> MemberNoun.InstanceMember
@@ -53,20 +53,20 @@ module FrozenCodecDiagnostics =
         | 8uy -> MemberNoun.Member
         | b -> failwithf "FrozenCodec: unknown MemberNoun tag %d" b
 
-    let private writeNominalKind (w: BinaryWriter) (k: NominalKind) =
+    let private writeNominalKind (w: FrozenWriter) (k: NominalKind) =
         match k with
         | NominalKind.Record -> w.Write 0uy
         | NominalKind.Class -> w.Write 1uy
         | NominalKind.Union -> w.Write 2uy
 
-    let private readNominalKind (r: BinaryReader) : NominalKind =
+    let private readNominalKind (r: FrozenReader) : NominalKind =
         match r.ReadByte() with
         | 0uy -> NominalKind.Record
         | 1uy -> NominalKind.Class
         | 2uy -> NominalKind.Union
         | b -> failwithf "FrozenCodec: unknown NominalKind tag %d" b
 
-    let private writeConformanceVerdict (w: BinaryWriter) (v: ConformanceVerdict) =
+    let private writeConformanceVerdict (w: FrozenWriter) (v: ConformanceVerdict) =
         match v with
         | ConformanceVerdict.Unimplemented(sigFile, detail) ->
             w.Write 0uy
@@ -95,7 +95,7 @@ module FrozenCodecDiagnostics =
             w.Write sigFile
             w.Write detail
 
-    let private readConformanceVerdict (r: BinaryReader) : ConformanceVerdict =
+    let private readConformanceVerdict (r: FrozenReader) : ConformanceVerdict =
         match r.ReadByte() with
         | 0uy ->
             let sigFile = r.ReadString()
@@ -117,15 +117,15 @@ module FrozenCodecDiagnostics =
     /// `Token` is a `uint16`-backed enum, so it rides as its own representation — including
     /// the flag bits, which a diagnostic's spelling helper masks off on READ
     /// (`TokenInfo.withoutFlags`) rather than at rest.
-    let private writeToken (w: BinaryWriter) (t: Token) = w.Write(uint16 t)
+    let private writeToken (w: FrozenWriter) (t: Token) = w.Write(uint16 t)
 
-    let private readToken (r: BinaryReader) : Token =
+    let private readToken (r: FrozenReader) : Token =
         LanguagePrimitives.EnumOfValue(r.ReadUInt16())
 
     /// The PARSER's verdict, forwarded whole by `Kind.Parse`. Codeable at all because every
     /// `DiagnosticCode` payload is a `Token`, a `Site` or a string — see that type for why
     /// it holds no CST node.
-    let private writeDiagnosticCode (w: BinaryWriter) (c: DiagnosticCode) =
+    let private writeDiagnosticCode (w: FrozenWriter) (c: DiagnosticCode) =
         match c with
         | DiagnosticCode.Other msg ->
             w.Write 0uy
@@ -156,7 +156,7 @@ module FrozenCodecDiagnostics =
             writeSite w openedAt
             writeToken w expected
 
-    let private readDiagnosticCode (r: BinaryReader) : DiagnosticCode =
+    let private readDiagnosticCode (r: FrozenReader) : DiagnosticCode =
         match r.ReadByte() with
         | 0uy -> DiagnosticCode.Other(r.ReadString())
         | 1uy -> DiagnosticCode.TyparInConstant
@@ -184,7 +184,7 @@ module FrozenCodecDiagnostics =
             DiagnosticCode.MismatchedDelimiter(opened, openedAt, readToken r)
         | b -> failwithf "FrozenCodec: unknown DiagnosticCode tag %d" b
 
-    let private writeInternalBreak (w: BinaryWriter) (b: InternalBreak) =
+    let private writeInternalBreak (w: FrozenWriter) (b: InternalBreak) =
         match b with
         | InternalBreak.UnresolvedTyVars count ->
             w.Write 0uy
@@ -198,7 +198,7 @@ module FrozenCodecDiagnostics =
             w.Write 2uy
             w.Write pass
 
-    let private readInternalBreak (r: BinaryReader) : InternalBreak =
+    let private readInternalBreak (r: FrozenReader) : InternalBreak =
         match r.ReadByte() with
         | 0uy -> InternalBreak.UnresolvedTyVars(r.ReadInt32())
         | 1uy ->
@@ -212,7 +212,7 @@ module FrozenCodecDiagnostics =
     /// so a new `Kind` case cannot land without being given a tag; the reader is a byte
     /// match and can only fault on a tag nothing wrote, which is why the round-trip test
     /// covers one value per case rather than trusting the two to agree.
-    let private writeKind (w: BinaryWriter) (k: Kind) =
+    let private writeKind (w: FrozenWriter) (k: Kind) =
         match k with
         | Kind.UndefinedType name ->
             w.Write 0uy
@@ -368,7 +368,7 @@ module FrozenCodecDiagnostics =
             w.Write 46uy
             writeDiagnosticCode w c
 
-    let private readKind (r: BinaryReader) : Kind =
+    let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
         | 0uy -> Kind.UndefinedType(r.ReadString())
         | 1uy -> Kind.Internal(readInternalBreak r)
@@ -472,12 +472,12 @@ module FrozenCodecDiagnostics =
         | 46uy -> Kind.Parse(readDiagnosticCode r)
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
-    let writeDiagnostic (w: BinaryWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =
+    let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =
         writeSite w d.Site
         writeKind w d.Kind
         writeListWith w writeLabel d.Related
 
-    let readDiagnostic (r: BinaryReader) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
+    let readDiagnostic (r: FrozenReader) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
         let site = readSite r
         let kind = readKind r
         Diagnostic.create kind site (readListWith r readLabel)

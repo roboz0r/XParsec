@@ -1,24 +1,23 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-open System.IO
-
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
+open XParsec.FSharp.SemanticAnalysis.FrozenCodecRows
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecDiagnostics
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecTypes
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecDecls
 
-/// A hand-rolled structural binary (de)serializer for the FROZEN domain, layered across
-/// five modules: the leaf domains (`FrozenCodecPrimitives` for the stream seam and the value
-/// structs, `FrozenCodecDiagnostics` for a `Diagnostic` and its `Kind`, `FrozenCodecTypes`
-/// for `FrozenType` and the `SymbolKey`/`TypeKey` key cluster it
-/// reaches), the non-tree declaration shell and scalar clusters a pool payload rides
-/// (`FrozenCodecDecls`), and — on top of both — the `FrozenPools` COLUMN codec here that
-/// `flatten`/`thaw` actually store. A plain `BinaryWriter`/`BinaryReader` over a
-/// `MemoryStream`; the blob is Brotli-wrapped at the store seam (`Compression`), so
-/// nothing here hand-rolls varints or bit-packing.
+/// A hand-rolled structural binary (de)serializer for the FROZEN domain, layered across six
+/// modules: the leaf domains (`FrozenCodecPrimitives` for the `FrozenWriter`/`FrozenReader`
+/// seam and the value structs, `FrozenCodecRows` for the unit's interned type/key TABLES,
+/// `FrozenCodecDiagnostics` for a `Diagnostic` and its `Kind`, `FrozenCodecTypes` for the id
+/// every other module names a type by and the leaf payloads), the non-tree declaration shell
+/// and scalar clusters a pool payload rides (`FrozenCodecDecls`), and — on top of all of them
+/// — the `FrozenPools` COLUMN codec here that `flatten`/`thaw` actually store. A plain
+/// `BinaryWriter`/`BinaryReader` under the seam; the blob is Brotli-wrapped at the store seam
+/// (`Compression`), so nothing here hand-rolls varints or bit-packing.
 ///
 /// The stored form is the pools, not the DU, and the pools are what the front end now
 /// yields: `flatten` IS the column writers and `thaw` their inverse, with no conversion on
@@ -28,13 +27,13 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecDecls
 /// template's decl, a `ValRepr`'s tuple group — a pool id is written instead.
 ///
 /// Two invariants the writer/reader pair upholds:
-///   * The writer's `match` is EXHAUSTIVE with no catch-all, so a new `FrozenType`
-///     or key case fails to compile here rather than silently mis-serializing; the
-///     reader mirrors the same byte-tag discipline case for case.
-///   * The reader reconstructs each DU case DIRECTLY, never through a normalizing
-///     smart constructor. `FTOr` in particular is rebuilt as `FTOr (EqSet.ofSeq …)`,
-///     NOT via `FrozenType.MkUnion` (which flattens / collapses): the gate is
-///     STRUCTURAL `read (write x) = x`, so the exact stored set must survive.
+///   * The writer's `match` is EXHAUSTIVE with no catch-all, so a new payload or row case
+///     fails to compile here rather than silently mis-serializing; the reader mirrors the
+///     same byte-tag discipline case for case.
+///   * The reader reconstructs each DU case DIRECTLY, never through a normalizing smart
+///     constructor, so the exact stored value survives — the discipline `FrozenCodecRows`
+///     states for the row it most matters on (`TypeRow.Or`, which must not be re-normalised
+///     through `FrozenType.MkUnion`).
 [<RequireQualifiedAccess>]
 module FrozenCodec =
 
@@ -55,29 +54,29 @@ module FrozenCodec =
     /// A jagged child-id column — one length-prefixed id list per pool slot. Generic over
     /// the id codec, so the expr-child and pat-child columns of all three domains share the
     /// one nesting convention rather than repeating it per domain.
-    let private writeIdColumn (w: BinaryWriter) (writeId: BinaryWriter -> 'id -> unit) (col: 'id[][]) =
+    let private writeIdColumn (w: FrozenWriter) (writeId: FrozenWriter -> 'id -> unit) (col: 'id[][]) =
         writeArrayWith w (fun w ids -> writeArrayWith w writeId ids) col
 
-    let private readIdColumn (r: BinaryReader) (readId: BinaryReader -> 'id) : 'id[][] =
+    let private readIdColumn (r: FrozenReader) (readId: FrozenReader -> 'id) : 'id[][] =
         readArrayWith r (fun r -> readArrayWith r readId)
 
     /// A per-binder column (`BinderColumn`) — one optional value per binder slot, in
     /// binder-pool order. NO id is written: the slot's position IS the binder, which is
     /// the whole property of the column form, so the wire carries a presence byte where the
     /// keyed form carried four id bytes plus a value.
-    let private writeBinderColumn (w: BinaryWriter) (writeVal: BinaryWriter -> 'v -> unit) (col: BinderColumn<'v>) =
+    let private writeBinderColumn (w: FrozenWriter) (writeVal: FrozenWriter -> 'v -> unit) (col: BinderColumn<'v>) =
         writeArrayWith w (fun w v -> writeVOptionWith w writeVal v) col
 
-    let private readBinderColumn (r: BinaryReader) (readVal: BinaryReader -> 'v) : BinderColumn<'v> =
+    let private readBinderColumn (r: FrozenReader) (readVal: FrozenReader -> 'v) : BinderColumn<'v> =
         readArrayWith r (fun r -> readVOptionWith r readVal)
 
     /// A dense side table — the `(id, value)` association a `Map<NodeKey,_>` was re-keyed
     /// to. Generic over BOTH codecs, so the `BinderId`-keyed tables and the one
     /// `ExprPoolId`-keyed (`FunVerdicts`) share this single pair.
     let private writeDenseTable
-        (w: BinaryWriter)
-        (writeId: BinaryWriter -> 'id -> unit)
-        (writeVal: BinaryWriter -> 'v -> unit)
+        (w: FrozenWriter)
+        (writeId: FrozenWriter -> 'id -> unit)
+        (writeVal: FrozenWriter -> 'v -> unit)
         (xs: ('id * 'v)[])
         =
         writeArrayWith
@@ -89,9 +88,9 @@ module FrozenCodec =
             xs
 
     let private readDenseTable
-        (r: BinaryReader)
-        (readId: BinaryReader -> 'id)
-        (readVal: BinaryReader -> 'v)
+        (r: FrozenReader)
+        (readId: FrozenReader -> 'id)
+        (readVal: FrozenReader -> 'v)
         : ('id * 'v)[] =
         readArrayWith
             r
@@ -101,7 +100,7 @@ module FrozenCodec =
                 id, v
             )
 
-    let private writeFormatSinkShape (w: BinaryWriter) (s: FormatSinkShape) =
+    let private writeFormatSinkShape (w: FrozenWriter) (s: FormatSinkShape) =
         match s with
         | FormatSinkShape.ToStdOut newline ->
             w.Write 0uy
@@ -115,7 +114,7 @@ module FrozenCodec =
         | FormatSinkShape.ToBuilder -> w.Write 3uy
         | FormatSinkShape.ToString -> w.Write 4uy
 
-    let private readFormatSinkShape (r: BinaryReader) : FormatSinkShape =
+    let private readFormatSinkShape (r: FrozenReader) : FormatSinkShape =
         match r.ReadByte() with
         | 0uy -> FormatSinkShape.ToStdOut(r.ReadBoolean())
         | 1uy -> FormatSinkShape.ToStdErr(r.ReadBoolean())
@@ -124,7 +123,7 @@ module FrozenCodec =
         | 4uy -> FormatSinkShape.ToString
         | b -> failwithf "FrozenCodec: unknown FormatSinkShape tag %d" b
 
-    let private writeFormatSegShape (w: BinaryWriter) (s: FormatSegShape) =
+    let private writeFormatSegShape (w: FrozenWriter) (s: FormatSegShape) =
         match s with
         | FormatSegShape.Lit text ->
             w.Write 0uy
@@ -141,7 +140,7 @@ module FrozenCodec =
             w.Write 3uy
             writeHoleSpec w spec
 
-    let private readFormatSegShape (r: BinaryReader) : FormatSegShape =
+    let private readFormatSegShape (r: FrozenReader) : FormatSegShape =
         match r.ReadByte() with
         | 0uy -> FormatSegShape.Lit(r.ReadString())
         | 1uy -> FormatSegShape.Hole(readHoleSpec r)
@@ -153,7 +152,7 @@ module FrozenCodec =
         | 3uy -> FormatSegShape.CallbackHole(readHoleSpec r)
         | b -> failwithf "FrozenCodec: unknown FormatSegShape tag %d" b
 
-    let private writeExprPayload (w: BinaryWriter) (p: ExprPayload) =
+    let private writeExprPayload (w: FrozenWriter) (p: ExprPayload) =
         match p with
         | ExprPayload.Const value ->
             w.Write 0uy
@@ -162,7 +161,7 @@ module FrozenCodec =
         | ExprPayload.External p ->
             w.Write 2uy
             w.Write p.CompiledName
-            writeVOptionWith w writeSymbolKey p.Key
+            writeVOptionWith w writeSymbolRef p.Key
         | ExprPayload.Lambda -> w.Write 3uy
         | ExprPayload.App -> w.Write 4uy
         | ExprPayload.Let -> w.Write 5uy
@@ -210,33 +209,33 @@ module FrozenCodec =
         | ExprPayload.New p ->
             w.Write 24uy
             w.Write p.ClassName
-            writeVOptionWith w writeSymbolKey p.Key
+            writeVOptionWith w writeSymbolRef p.Key
         | ExprPayload.MethodCall p ->
             w.Write 25uy
-            writeSymbolKey w p.Key
+            writeSymbolRef w p.Key
             writeCallVia w p.Via
         | ExprPayload.PropertyGet p ->
             w.Write 26uy
-            writeSymbolKey w p.Key
+            writeSymbolRef w p.Key
             writeCallVia w p.Via
         | ExprPayload.StaticMethodCall key ->
             w.Write 27uy
-            writeSymbolKey w key
+            writeSymbolRef w key
         | ExprPayload.StaticPropertyGet key ->
             w.Write 28uy
-            writeSymbolKey w key
+            writeSymbolRef w key
         | ExprPayload.StaticFieldGet p ->
             w.Write 29uy
-            writeSymbolKey w p.DeclKey
+            writeSymbolRef w p.DeclKey
             w.Write p.FieldName
         | ExprPayload.StaticFieldSet p ->
             w.Write 30uy
-            writeSymbolKey w p.DeclKey
+            writeSymbolRef w p.DeclKey
             w.Write p.FieldName
         | ExprPayload.ExternalMember p ->
             w.Write 31uy
             w.Write p.HasReceiver
-            writeSymbolKey w p.Key
+            writeSymbolRef w p.Key
             w.Write p.MemberName
             writeMemberStorage w p.Storage
         | ExprPayload.Format p ->
@@ -246,7 +245,7 @@ module FrozenCodec =
         | ExprPayload.ILIntrinsic p ->
             w.Write 33uy
             w.Write p.OpCode
-            writeVOptionWith w writeFrozenType p.TypeOperand
+            writeVOptionWith w writeTypeRef p.TypeOperand
         | ExprPayload.StaticOptimization clauseConstraints ->
             w.Write 34uy
             writeArrayWith w (fun w cs -> writeEqArrayWith w writeStaticOptConstraint cs) clauseConstraints
@@ -254,19 +253,19 @@ module FrozenCodec =
         | ExprPayload.Downcast -> w.Write 36uy
         | ExprPayload.TypeTest testTy ->
             w.Write 37uy
-            writeFrozenType w testTy
+            writeTypeRef w testTy
         | ExprPayload.TraitCall p ->
             w.Write 38uy
-            writeFrozenType w p.Receiver
+            writeTypeRef w p.Receiver
             w.Write p.MemberName
 
-    let private readExprPayload (r: BinaryReader) : ExprPayload =
+    let private readExprPayload (r: FrozenReader) : ExprPayload =
         match r.ReadByte() with
         | 0uy -> ExprPayload.Const(readTConstValue r)
         | 1uy -> ExprPayload.Var
         | 2uy ->
             let compiledName = r.ReadString()
-            let key = readVOptionWith r readSymbolKey
+            let key = readVOptionWith r readSymbolRef
 
             ExprPayload.External
                 {|
@@ -300,20 +299,20 @@ module FrozenCodec =
         | 23uy -> ExprPayload.UnionCons(r.ReadString())
         | 24uy ->
             let className = r.ReadString()
-            let key = readVOptionWith r readSymbolKey
+            let key = readVOptionWith r readSymbolRef
             ExprPayload.New {| ClassName = className; Key = key |}
         | 25uy ->
-            let key = readSymbolKey r
+            let key = readSymbolRef r
             let via = readCallVia r
             ExprPayload.MethodCall {| Key = key; Via = via |}
         | 26uy ->
-            let key = readSymbolKey r
+            let key = readSymbolRef r
             let via = readCallVia r
             ExprPayload.PropertyGet {| Key = key; Via = via |}
-        | 27uy -> ExprPayload.StaticMethodCall(readSymbolKey r)
-        | 28uy -> ExprPayload.StaticPropertyGet(readSymbolKey r)
+        | 27uy -> ExprPayload.StaticMethodCall(readSymbolRef r)
+        | 28uy -> ExprPayload.StaticPropertyGet(readSymbolRef r)
         | 29uy ->
-            let declKey = readSymbolKey r
+            let declKey = readSymbolRef r
             let fieldName = r.ReadString()
 
             ExprPayload.StaticFieldGet
@@ -322,7 +321,7 @@ module FrozenCodec =
                     FieldName = fieldName
                 |}
         | 30uy ->
-            let declKey = readSymbolKey r
+            let declKey = readSymbolRef r
             let fieldName = r.ReadString()
 
             ExprPayload.StaticFieldSet
@@ -332,7 +331,7 @@ module FrozenCodec =
                 |}
         | 31uy ->
             let hasReceiver = r.ReadBoolean()
-            let key = readSymbolKey r
+            let key = readSymbolRef r
             let memberName = r.ReadString()
             let storage = readMemberStorage r
 
@@ -349,7 +348,7 @@ module FrozenCodec =
             ExprPayload.Format {| Sink = sink; Segments = segments |}
         | 33uy ->
             let opCode = r.ReadString()
-            let typeOperand = readVOptionWith r readFrozenType
+            let typeOperand = readVOptionWith r readTypeRef
 
             ExprPayload.ILIntrinsic
                 {|
@@ -362,9 +361,9 @@ module FrozenCodec =
             )
         | 35uy -> ExprPayload.Upcast
         | 36uy -> ExprPayload.Downcast
-        | 37uy -> ExprPayload.TypeTest(readFrozenType r)
+        | 37uy -> ExprPayload.TypeTest(readTypeRef r)
         | 38uy ->
-            let receiver = readFrozenType r
+            let receiver = readTypeRef r
             let memberName = r.ReadString()
 
             ExprPayload.TraitCall
@@ -374,7 +373,7 @@ module FrozenCodec =
                 |}
         | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b
 
-    let private writePatPayload (w: BinaryWriter) (p: PatPayload) =
+    let private writePatPayload (w: FrozenWriter) (p: PatPayload) =
         match p with
         | PatPayload.NamedSimple binder ->
             w.Write 0uy
@@ -394,13 +393,13 @@ module FrozenCodec =
             w.Write caseName
         | PatPayload.TypeTestAs testTy ->
             w.Write 8uy
-            writeFrozenType w testTy
+            writeTypeRef w testTy
         | PatPayload.EnumCase p ->
             w.Write 9uy
-            writeSymbolKey w p.EnumKey
+            writeSymbolRef w p.EnumKey
             w.Write p.CaseName
 
-    let private readPatPayload (r: BinaryReader) : PatPayload =
+    let private readPatPayload (r: FrozenReader) : PatPayload =
         match r.ReadByte() with
         | 0uy -> PatPayload.NamedSimple(readBinderId r)
         | 1uy -> PatPayload.Wildcard
@@ -410,9 +409,9 @@ module FrozenCodec =
         | 5uy -> PatPayload.Const(readTConstValue r)
         | 6uy -> PatPayload.Record(readArrayWith r (fun r -> r.ReadString()))
         | 7uy -> PatPayload.Union(r.ReadString())
-        | 8uy -> PatPayload.TypeTestAs(readFrozenType r)
+        | 8uy -> PatPayload.TypeTestAs(readTypeRef r)
         | 9uy ->
-            let enumKey = readSymbolKey r
+            let enumKey = readSymbolRef r
             let caseName = r.ReadString()
 
             PatPayload.EnumCase
@@ -422,37 +421,37 @@ module FrozenCodec =
                 |}
         | b -> failwithf "FrozenCodec: unknown PatPayload tag %d" b
 
-    let private writeDeclPayload (w: BinaryWriter) (p: DeclPayload) =
+    let private writeDeclPayload (w: FrozenWriter) (p: DeclPayload) =
         match p with
         | DeclPayload.Let p ->
             w.Write 0uy
             w.Write p.IsInline
-            writeFrozenType w p.Ty
+            writeTypeRef w p.Ty
         | DeclPayload.Expression ty ->
             w.Write 1uy
-            writeFrozenType w ty
+            writeTypeRef w ty
         | DeclPayload.Type td ->
             w.Write 2uy
             writeTypeDecl w td
 
-    let private readDeclPayload (r: BinaryReader) : DeclPayload =
+    let private readDeclPayload (r: FrozenReader) : DeclPayload =
         match r.ReadByte() with
         | 0uy ->
             let isInline = r.ReadBoolean()
-            let ty = readFrozenType r
+            let ty = readTypeRef r
             DeclPayload.Let {| IsInline = isInline; Ty = ty |}
-        | 1uy -> DeclPayload.Expression(readFrozenType r)
+        | 1uy -> DeclPayload.Expression(readTypeRef r)
         | 2uy -> DeclPayload.Type(readTypeDecl r)
         | b -> failwithf "FrozenCodec: unknown DeclPayload tag %d" b
 
     /// The three not-yet-pooled fields, verbatim — none of them a tree, so this writer
     /// bottoms out entirely in the leaf codecs.
-    let private writeResidue (w: BinaryWriter) (res: FrozenFileResidue) =
+    let private writeResidue (w: FrozenWriter) (res: FrozenFileResidue) =
         writeListWith w writeDiagnostic res.Diagnostics
         writeSymbolDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
         writeSymbolDict w writeAccessibility res.Accessibility
 
-    let private readResidue (r: BinaryReader) : FrozenFileResidue =
+    let private readResidue (r: FrozenReader) : FrozenFileResidue =
         let diagnostics = readListWith r readDiagnostic
         let intrinsicReprKeys = readSymbolDict r readIntrinsicReprInfo
         let accessibility = readSymbolDict r readAccessibility
@@ -463,14 +462,16 @@ module FrozenCodec =
             Accessibility = accessibility
         }
 
-    let private writePools (w: BinaryWriter) (p: FrozenPools) =
-        writeArrayWith w writeFrozenType p.ExprTys
+    /// Every column and side table, in `FrozenPools` declaration order — but NOT the tables
+    /// the types in them are ids into, which `writePools` puts in front of this.
+    let private writeBody (w: FrozenWriter) (p: FrozenPools) =
+        writeArrayWith w writeTypeId p.ExprTys
         writeArrayWith w writeAnchor p.ExprToks
         writeIdColumn w writeExprPoolId p.ExprChildren
         writeIdColumn w writePatPoolId p.ExprPatChildren
         writeArrayWith w (fun w b -> writeVOptionWith w writeBinderId b) p.ExprVarBinder
         writeArrayWith w writeExprPayload p.ExprPayloads
-        writeArrayWith w writeFrozenType p.PatTys
+        writeArrayWith w writeTypeId p.PatTys
         writeArrayWith w writeAnchor p.PatToks
         writeIdColumn w writePatPoolId p.PatChildren
         writeArrayWith w writePatPayload p.PatPayloads
@@ -485,18 +486,40 @@ module FrozenCodec =
         writeDenseTable w writeBinderId writeModuleBindingInfo p.ModuleMembers
         writeDenseTable w writeBinderId writeClosureRepr p.ClosureReprs
         writeDenseTable w writeExprPoolId writeFunVerdict p.FunVerdicts
+
         writeDenseTable w writeBinderId (fun w cs -> writeListWith w writeFrozenConstraint cs) p.GenericFnSchemes
+
         writeDenseTable w writeBinderId writeValRepr p.BindingValReprs
         writeBinderColumn w (fun w (i: int) -> w.Write i) p.BindingTyparArities
 
-    let private readPools (r: BinaryReader) : FrozenPools =
-        let exprTys = readArrayWith r readFrozenType
+    let private writePools (w: FrozenWriter) (p: FrozenPools) =
+        // The tables must be READ first — everything below names a type by row id — but they
+        // are not KNOWN until the body has been written: a payload embeds types the `ty`
+        // columns never carried (a signature, an `isinst` operand, a `ValRepr`'s result), and
+        // interning them is what appends them to the unit's tables. So the body goes to a
+        // buffer and the completed rows are emitted in front of it.
+        //
+        // Both writes go through `w.Types` — the sink's own builder, seeded by `flatten` from
+        // this unit's stored rows, which preserves every id the freeze minted so the `ty`
+        // column entries stay valid. There is no second builder to write the wrong tables in
+        // front of the wrong body.
+        let body = toBytes w.Types writeBody p
+        writeTypeRows w w.Types.Rows
+        w.Write(body, 0, body.Length)
+
+    let private readPools (r: FrozenReader) : FrozenPools =
+        // The tables come first and everything below resolves against THEM: the reader
+        // arrives holding none (there are none until they are read) and is rebound to the
+        // unit's own before a single column is touched.
+        let types = FrozenTypeTable.OfRows(readTypeRows r)
+        let r = { r with Types = types }
+        let exprTys = readArrayWith r readTypeId
         let exprToks = readArrayWith r readAnchor
         let exprChildren = readIdColumn r readExprPoolId
         let exprPatChildren = readIdColumn r readPatPoolId
         let exprVarBinder = readArrayWith r (fun r -> readVOptionWith r readBinderId)
         let exprPayloads = readArrayWith r readExprPayload
-        let patTys = readArrayWith r readFrozenType
+        let patTys = readArrayWith r readTypeId
         let patToks = readArrayWith r readAnchor
         let patChildren = readIdColumn r readPatPoolId
         let patPayloads = readArrayWith r readPatPayload
@@ -519,6 +542,7 @@ module FrozenCodec =
         let bindingTyparArities = readBinderColumn r (fun r -> r.ReadInt32())
 
         {
+            Types = types
             ExprTys = exprTys
             ExprToks = exprToks
             ExprChildren = exprChildren
@@ -547,15 +571,26 @@ module FrozenCodec =
 
     // ── the whole frozen file (top-level entry points) ──────────────────────
 
-    /// Flatten an entire frozen file to a byte blob: write the columns. The pools ARE the
-    /// stored form, so this is the column writers and nothing else. No interning and no
-    /// compression — `Compression` wraps the blob at the store seam, and the cache key
-    /// hashes INPUTS, not the blob, so no byte canonicalization is owed here. `thaw` is the
-    /// exact inverse.
-    let flatten (pools: FrozenPools) : byte[] = toBytes writePools pools
+    /// Flatten an entire frozen file to a byte blob: the unit's type/key tables, then the
+    /// columns. The pools ARE the stored form, so the columns go out as they stand; the only
+    /// work done here is EXTENDING the tables with the types a payload embeds, which the
+    /// freeze had no column to intern them from. No compression — `Compression` wraps the
+    /// blob at the store seam, and the cache key hashes INPUTS, not the blob, so no byte
+    /// canonicalization is owed here.
+    ///
+    /// `thaw` inverts it up to that extension: the tables come back longer than they went
+    /// in, and every id that was already minted still names the row it named. Flattening the
+    /// thawed pools reproduces the blob byte for byte.
+    let flatten (pools: FrozenPools) : byte[] =
+        toBytes (FrozenTypeTableBuilder.OfRows pools.Types.Rows) writePools pools
 
-    /// Rebuild the frozen file's pools from a `flatten` blob. The `Residue`'s two
-    /// `IReadOnlyDictionary` fields come back as concrete `Dictionary`s (reference
-    /// equality), so a whole-record `=` on a thawed file is NOT sound — compare through
-    /// `TastUnpool.ofPools` and `TastFileG.structurallyEqual`.
-    let thaw (bytes: byte[]) : FrozenPools = ofBytes readPools bytes
+    /// Rebuild the frozen file's pools from a `flatten` blob. `FrozenPools` carries no
+    /// equality, so the ways to ask whether this reproduced its input are the two that mean
+    /// something: `TastFileG.structurallyEqual` over `TastUnpool.ofPools` for the tree, and
+    /// re-`flatten` for the bytes.
+    ///
+    /// The empty tables are the honest starting point: at this frame the blob's own tables
+    /// have not been read yet, and `readPools` rebinds the reader to them before it resolves
+    /// anything.
+    let thaw (bytes: byte[]) : FrozenPools =
+        ofBytes FrozenTypeTable.Empty readPools bytes

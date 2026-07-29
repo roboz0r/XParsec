@@ -34,6 +34,7 @@
     <Compile Include="EqSetTests.fs" />
     <Compile Include="RecordFieldClassifierTests.fs" />
     <Compile Include="FrozenTypeTests.fs" />
+    <Compile Include="FrozenTypeTableTests.fs" />
     <Compile Include="MkUnionTests.fs" />
     <Compile Include="ExternalSignatureOracleTests.fs" />
     <Compile Include="FrozenSignatureTests.fs" />

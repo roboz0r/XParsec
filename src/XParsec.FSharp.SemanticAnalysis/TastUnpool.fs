@@ -310,7 +310,7 @@ module TastUnpool =
             let ps = pools.PatChildren.[i] |> Array.map fromPat
 
             let p =
-                substitutePat widenBinder pools.PatTys.[i] pools.PatToks.[i] pools.PatPayloads.[i] ps
+                substitutePat widenBinder pools.Types.[pools.PatTys.[i]] pools.PatToks.[i] pools.PatPayloads.[i] ps
 
             BinderKey.ofPat p |> ValueOption.iter readmit
             p
@@ -323,7 +323,7 @@ module TastUnpool =
                 substituteExpr
                     widenBinder
                     id
-                    pools.ExprTys.[i]
+                    pools.Types.[pools.ExprTys.[i]]
                     pools.ExprToks.[i]
                     pools.ExprVarBinder.[i]
                     pools.ExprPayloads.[i]

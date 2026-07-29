@@ -47,7 +47,10 @@ let tests =
                 let result: Result<FrozenPools, string> =
                     FrozenCache.freezeResult store (freezeKey "aa01") (fun () -> Error "front-end failed")
 
-                Expect.equal result (Error "front-end failed") "the produce error propagates"
+                match result with
+                | Error e -> Expect.equal e "front-end failed" "the produce error propagates"
+                | Ok _ -> failtest "expected the produce Error to propagate, got Ok"
+
                 Expect.equal store.Stores 0 "an errored compile stores nothing"
                 Expect.equal ((store :> ICacheStore).TryLoad(freezeKey "aa01")) ValueNone "no blob under the key"
             }
@@ -67,7 +70,7 @@ let tests =
                 Expect.equal store.Stores 1 "the miss stored exactly once"
 
                 match first with
-                | Ok f -> Expect.equal f frozen "the miss returns the produced tree"
+                | Ok f -> Expect.isTrue (obj.ReferenceEquals(f, frozen)) "the miss returns the produced tree itself"
                 | Error e -> failtestf "expected Ok on the miss, got Error %A" e
 
                 let second = FrozenCache.freezeResult store key produce

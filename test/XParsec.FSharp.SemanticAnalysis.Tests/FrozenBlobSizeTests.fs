@@ -13,13 +13,15 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // across Brotli versions or minor payload reorderings, so a tight assertion would be noise; the
 // job here is to catch a format change that inflates the blob by a LARGE factor.
 //
-// Measured, same three programs (compressed bytes):
+// Measured, same three programs (compressed bytes). "ty columns" interned only a node's own
+// type; "all types" interns everything a payload, a side table or a declaration shape embeds
+// as well, which is the point at which no type is written structurally anywhere:
 //
-//   | program                             | tree codec | pool columns |
-//   |-------------------------------------|-----------:|-------------:|
-//   | curried fns                         |        391 |          475 |
-//   | record type + literal + field get   |        214 |          255 |
-//   | match + for-to + mutable accumulator|        382 |          469 |
+//   | program                             | tree codec | pool columns | ty columns | all types |
+//   |-------------------------------------|-----------:|-------------:|-----------:|----------:|
+//   | curried fns                         |        391 |          475 |        418 |       387 |
+//   | record type + literal + field get   |        214 |          255 |        217 |       204 |
+//   | match + for-to + mutable accumulator|        382 |          469 |        376 |       366 |
 //
 // (The pool figures moved down from 504 / 282 / 508 as data the blob already carried
 // elsewhere came out: the redundant `BinderNamings` column, the re-pooled `ValRepr`
@@ -31,13 +33,18 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // below are unchanged throughout: they exist to catch a LARGE inflation, not to track the
 // number.)
 //
-// The pool form is ~22% LARGER, and that is inherent to it rather than a defect: the recursive
-// tree codec encodes the tree spine implicitly in its nesting (zero bytes), whereas the columnar
-// form must name every child edge explicitly — a length prefix plus a 4-byte dense id per edge,
-// per domain — which is precisely what buys O(1) id-indexed access. The compensating size work is
-// interning `FrozenType`/`SymbolKey`/`TypeKey` (each recurs thousands of times across the
-// columns and is stored verbatim today); it is deliberately a separate change, since the cache
-// key hashes INPUTS rather than the blob, so size is decoupled from correctness.
+// The columnar form is inherently spine-heavier than the recursive tree codec, which encodes
+// the tree spine implicitly in its nesting (zero bytes) where the columns must name every
+// child edge explicitly — a length prefix plus a 4-byte dense id per edge, per domain, which
+// is precisely what buys O(1) id-indexed access. What paid that back is HASH-CONSING the
+// types: a `FrozenType` (and the `SymbolKey`/`TypeKey` cluster it reaches) recurs at
+// thousands of nodes and was stored verbatim at each, and is now one row plus a 4-byte id
+// per occurrence. The columns are now BELOW the tree codec on all three, with the id-indexed
+// access kept.
+//
+// Nothing in the type domain is written structurally any more, so there is no more of this
+// particular win left: the only thing that spells a type out is the row table itself, once
+// per distinct type per unit. What is left to trade is the SPINE (step 8's CSR children).
 
 /// Freeze `src` and return the raw and compressed blob lengths — the pair the cache actually
 /// trades off (`FrozenCache` stores the compressed form).
