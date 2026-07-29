@@ -863,12 +863,13 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// named after their slot (`BinderNaming.Minted`).
     member val BinderSpellings = BinderTable<BinderSpelling>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
-    /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
-    /// the typar / required type translated to `SemType` while the binding's typar
-    /// scope is live. Elaborate reads it to build each `TExpr.StaticOptimization`
-    /// clause; the typar carries the inline binding's quantified root so
-    /// `Inline.inlineExpand` can substitute it at the call site.
-    member val StaticOpt = SideTable<EqArray<TStaticOptConstraint>>() with get
+    /// `when ^T : …` constraints of each of that construct's clauses (outer array in
+    /// source order, positionally aligned with the node's `clauses`; inner array is one
+    /// clause's `and`-joined list), with the typar / required type translated to
+    /// `SemType` while the binding's typar scope is live. Elaborate reads it to build
+    /// each `TExpr.StaticOptimization` clause; the typar carries the inline binding's
+    /// quantified root so `Inline.inlineExpand` can substitute it at the call site.
+    member val StaticOpt = SideTable<EqArray<EqArray<TStaticOptConstraint>>>() with get
     /// The metavar arena for this file: the single authority that mints `TypeVar`
     /// handles (`ctx.NewTypeVar()`) with dense per-file ids and owns the id-indexed
     /// side-tables payload families migrate into. One per `PassContext`, like the

@@ -454,9 +454,11 @@ module CstWalk =
             iterExpr walker env s
             iterExpr walker env b
 
-        | Expr.LibraryOnlyStaticOptimization(expr = a; optimizedExpr = b) ->
-            iterExpr walker env a
-            iterExpr walker env b
+        | Expr.LibraryOnlyStaticOptimization(defaultExpr = d; clauses = clauses) ->
+            iterExpr walker env d
+
+            for clause in clauses do
+                iterExpr walker env clause.OptimizedExpr
 
         | Expr.ILIntrinsic(args = args) ->
             for x in args do
@@ -725,11 +727,12 @@ module CstWalk =
 
         // A static-optimization clause's tycon-equality constraint names a type on
         // its RHS (`when ^T : int` / `when ^T : System.DateTime`).
-        | Expr.LibraryOnlyStaticOptimization(constraints = cs) ->
-            for c in cs do
-                match c with
-                | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(rhsType = rhs) -> onType rhs
-                | StaticOptimizationConstraint.WhenTyparIsStruct _ -> ()
+        | Expr.LibraryOnlyStaticOptimization(clauses = clauses) ->
+            for clause in clauses do
+                for c in clause.Constraints do
+                    match c with
+                    | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(rhsType = rhs) -> onType rhs
+                    | StaticOptimizationConstraint.WhenTyparIsStruct _ -> ()
 
         | Expr.Object(baseCall = baseCall; members = members; interfaceImpls = impls) ->
             let ctorTy =
@@ -823,9 +826,7 @@ module CstWalk =
             | Type.SkipsTokens _ -> ()
 
     and iterTypeConstraints (it: TypeIter) (cs: TyparConstraints<SyntaxToken>) : unit =
-        let (TyparConstraints(constraints = constraints)) = cs
-
-        for c in constraints do
+        for c in cs.Constraints do
             iterTypeConstraint it c
 
     and iterTypeConstraint (it: TypeIter) (c: Constraint<SyntaxToken>) : unit =

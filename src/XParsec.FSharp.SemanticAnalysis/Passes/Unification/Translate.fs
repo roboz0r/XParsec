@@ -822,9 +822,7 @@ module internal UnificationTranslate =
     /// (binding-level, type-defn fill-in, inline `WhenConstrainedType`)
     /// seed it first.
     and translateConstraints (ctx: PassContext) (tcs: TyparConstraints<SyntaxToken>) : unit =
-        let (TyparConstraints(constraints = cs)) = tcs
-
-        for c in cs do
+        for c in tcs.Constraints do
             translateConstraint ctx c
 
     /// Idempotent — already-`Filled` entries short-circuit. Re-entry through

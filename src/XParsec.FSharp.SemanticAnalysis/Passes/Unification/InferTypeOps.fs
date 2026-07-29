@@ -94,13 +94,13 @@ module internal UnificationInferTypeOps =
         | ValueSome(ReturnType(typ = t)) -> translateType ctx t
         | ValueNone -> ctx.Intrinsics.Unit
 
-    /// `expr when ^T : Type [and ^U : Type]* = optimizedExpr` — one clause of an
-    /// F# library-only static optimization. Type the default `baseE` (its type is
+    /// `defaultExpr when ^T : Type [and ^U : Type]* = optimizedExpr [when … = …]*` — an
+    /// F# library-only static optimization. Type the default `defaultE` (its type is
     /// the node's type — the operator's declared result, e.g. `bool` for the
-    /// equality family, `^T3` for `(+)`) and type this clause's `optimizedExpr` so
-    /// its own subtree (operands, nested inline IL) is solved.
+    /// equality family, `^T3` for `(+)`) and type every clause's `OptimizedExpr` so
+    /// each own subtree (operands, nested inline IL) is solved.
     ///
-    /// The clause body is **NOT** cross-unified with the base. F#'s static-opt
+    /// No clause body is cross-unified with the default. F#'s static-opt
     /// rule is per-clause — "assume the constraint, then check the body against the
     /// return type": under `when ^T1 : int …` the body's `int` matches the (then-also
     /// -`int`) declared result `^T3`. The earlier blanket `unify baseTy optTy` only
@@ -122,27 +122,27 @@ module internal UnificationInferTypeOps =
         (infer: Infer)
         (ctx: PassContext)
         (key: NodeKey)
-        (baseE: Expr<SyntaxToken>)
-        (constraints: ImmutableArray<StaticOptimizationConstraint<SyntaxToken>>)
-        (optimizedExpr: Expr<SyntaxToken>)
+        (defaultE: Expr<SyntaxToken>)
+        (clauses: ImmutableArray<StaticOptimizationClause<SyntaxToken>>)
         : SemType =
-        let baseTy = infer ctx baseE
-        infer ctx optimizedExpr |> ignore
+        let defaultTy = infer ctx defaultE
 
-        let resolved =
-            EqArray.ofSeq (
-                seq {
-                    for c in constraints do
-                        match c with
-                        | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar = tp; rhsType = rhs) ->
-                            TStaticOptConstraint.TyconEquals(translateType ctx (Type.VarType tp), translateType ctx rhs)
-                        | StaticOptimizationConstraint.WhenTyparIsStruct(typar = tp) ->
-                            TStaticOptConstraint.IsStruct(translateType ctx (Type.VarType tp))
-                }
-            )
+        let resolveConstraint c =
+            match c with
+            | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar = tp; rhsType = rhs) ->
+                TStaticOptConstraint.TyconEquals(translateType ctx (Type.VarType tp), translateType ctx rhs)
+            | StaticOptimizationConstraint.WhenTyparIsStruct(typar = tp) ->
+                TStaticOptConstraint.IsStruct(translateType ctx (Type.VarType tp))
 
-        ctx.StaticOpt.Set(key, resolved)
-        baseTy
+        // One entry per clause, in the node's clause order, so Elaborate pairs them by index.
+        let resolved = ResizeArray(clauses.Length)
+
+        for clause in clauses do
+            infer ctx clause.OptimizedExpr |> ignore
+            resolved.Add(EqArray.ofSeq (Seq.map resolveConstraint clause.Constraints))
+
+        ctx.StaticOpt.Set(key, EqArray.ofSeq resolved)
+        defaultTy
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
     /// member-trait call, only ever the static-opt BASE of a `let inline` arithmetic

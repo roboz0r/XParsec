@@ -93,12 +93,13 @@ let private expectSoleUndefinedType (name: string) (input: string) =
 /// first binding's body (`(e :?> 'T) when 'T: Widget = alt`).
 let private staticOptRhsTypes (file: ImplementationFile<SyntaxToken>) : Type<SyntaxToken> list =
     match firstBindingExpr file with
-    | Expr.LibraryOnlyStaticOptimization(constraints = cs) ->
+    | Expr.LibraryOnlyStaticOptimization(clauses = clauses) ->
         [
-            for c in cs do
-                match c with
-                | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(rhsType = t) -> yield t
-                | StaticOptimizationConstraint.WhenTyparIsStruct _ -> ()
+            for clause in clauses do
+                for c in clause.Constraints do
+                    match c with
+                    | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(rhsType = t) -> yield t
+                    | StaticOptimizationConstraint.WhenTyparIsStruct _ -> ()
         ]
     | _ -> failtest "expected the binding body to parse as Expr.LibraryOnlyStaticOptimization"
 

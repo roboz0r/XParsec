@@ -99,9 +99,9 @@ module CstKeys =
         | Expr.RecordClone(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.New(newToken = t) -> t
         | Expr.ILIntrinsic(lHashParen = t) -> t
-        // The clause's `when` token, so chained clauses key distinctly (the
-        // `InfixApp` operator-token rule).
-        | Expr.LibraryOnlyStaticOptimization(whenToken = t) -> t
+        // The first clause's `when` token, so the construct never collides with the
+        // default expr it wraps (the `InfixApp` operator-token rule).
+        | Expr.LibraryOnlyStaticOptimization(clauses = clauses) when clauses.Length > 0 -> clauses.[0].WhenToken
         // The `[` token, so a lookup never collides with its receiver (the
         // `InfixApp` operator-token rule).
         | Expr.IndexedLookup(lBracket = t) -> t

@@ -359,7 +359,8 @@ module internal ElaborateExpr =
         | Expr.ILIntrinsic(instrParts = parts; args = args) -> translateIlIntrinsic ctx parts args ty tok
         | Expr.StaticMemberInvocation(membersign = msig; expr = argExpr) ->
             ElaborateApply.translateStaticMemberInvocation translateExpr ctx argExpr msig ty tok
-        | Expr.LibraryOnlyStaticOptimization _ -> translateStaticOptimization ctx e ty tok
+        | Expr.LibraryOnlyStaticOptimization(defaultExpr = defaultE; clauses = clauses) ->
+            translateStaticOptimization ctx key defaultE clauses ty tok
         // `value<'T>` — an explicit type application on a VALUE reference (NOT the
         // `TypeAppStaticMember` class-receiver forms, which are a `DotLookup` over the
         // `TypeApp` and matched above). The `<'T>` only pinned the instantiation in
@@ -561,36 +562,39 @@ module internal ElaborateExpr =
         else
             TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty, tok)
 
-    /// The clause chain nests left-fold (outermost = the last `when` in
-    /// source order). Peel it into a flat source-ordered clause list plus
-    /// the leading default expr, reading each clause's resolved constraints
-    /// from the side table Unification keyed by that clause node's key.
-    /// Visiting outermost→innermost and prepending yields source order.
+    /// The CST clauses are already flat and source-ordered, which is the order
+    /// `TExpr.StaticOptimization` selects in (first clause whose constraints hold).
+    /// Unification filed the RESOLVED constraints of every clause under this one
+    /// construct's key, positionally aligned with `clauses`, so the two are paired
+    /// by index here. A missing/short side-table entry can only mean Unification
+    /// never reached this node (an error path), and yields an unconstrained clause —
+    /// which `Inline` reads as "always selected", so it degrades to the source's own
+    /// first clause rather than to the default.
     and private translateStaticOptimization
         (ctx: PassContext)
-        (e: Expr<SyntaxToken>)
+        (key: NodeKey)
+        (defaultE: Expr<SyntaxToken>)
+        (clauses: ImmutableArray<StaticOptimizationClause<SyntaxToken>>)
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        let rec peel (node: Expr<SyntaxToken>) (acc: TStaticOptClause list) : TExpr * TStaticOptClause list =
-            match node with
-            | Expr.LibraryOnlyStaticOptimization(expr = inner; optimizedExpr = optE) ->
-                let cs =
-                    match ctx.StaticOpt.TryGetValue(CstKeys.ofExpr node) with
-                    | ValueSome v -> v
-                    | ValueNone -> EqArray.empty
+        let resolved =
+            match ctx.StaticOpt.TryGetValue key with
+            | ValueSome v -> v
+            | ValueNone -> EqArray.empty
 
-                peel
-                    inner
-                    ({
-                        Constraints = cs
-                        Body = translateExpr ctx optE
-                     }
-                     :: acc)
-            | other -> translateExpr ctx other, acc
+        // Source order throughout, so any diagnostic a body raises is reported where it reads.
+        let defaultT = translateExpr ctx defaultE
+        let translated = ResizeArray(clauses.Length)
 
-        let defaultExpr, clauses = peel e []
-        TExpr.StaticOptimization(EqArray.ofList clauses, defaultExpr, ty, tok)
+        for i in 0 .. clauses.Length - 1 do
+            translated.Add
+                {
+                    Constraints = if i < resolved.Length then resolved.[i] else EqArray.empty
+                    Body = translateExpr ctx clauses.[i].OptimizedExpr
+                }
+
+        TExpr.StaticOptimization(EqArray.ofSeq translated, defaultT, ty, tok)
 
     and private translateRules (ctx: PassContext) (rules: ImmutableArray<Rule<SyntaxToken>>) : EqArray<TMatchArm> =
         EqArray.ofSeq (

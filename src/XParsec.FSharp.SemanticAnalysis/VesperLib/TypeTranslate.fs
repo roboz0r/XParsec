@@ -330,10 +330,8 @@ module VesperLibTypeTranslate =
         (acc: ConstraintCollector)
         (clauses: TyparConstraints<SyntaxToken>)
         : unit =
-        let (TyparConstraints(_, items, _)) = clauses
-
-        for i in 0 .. items.Length - 1 do
-            match items.[i] with
+        for c in clauses.Constraints do
+            match c with
             | Constraint.Equality(t, _, _) ->
                 match typarName lexed input t with
                 | ValueSome n -> acc.Add(RawConstraint.Trait(n, SemanticConstraintKind.Equality))

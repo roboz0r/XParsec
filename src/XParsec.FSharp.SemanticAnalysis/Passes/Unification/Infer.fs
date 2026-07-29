@@ -126,8 +126,8 @@ module UnificationInfer =
             | Expr.IndexedLookup(expr = recv; indexExpr = idx) -> inferIndexedLookup infer ctx node recv idx
             | Expr.New(typ = t; expr = argExpr) -> inferNew infer ctx node t argExpr
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic infer ctx args rt
-            | Expr.LibraryOnlyStaticOptimization(expr = baseE; constraints = cs; optimizedExpr = optE) ->
-                inferLibraryOnlyStaticOptimization infer ctx node.Key baseE cs optE
+            | Expr.LibraryOnlyStaticOptimization(defaultExpr = defaultE; clauses = clauses) ->
+                inferLibraryOnlyStaticOptimization infer ctx node.Key defaultE clauses
             | Expr.StaticMemberInvocation(membersign = msig; expr = argExpr) ->
                 inferStaticMemberInvocation infer ctx msig argExpr
             | Expr.TypeApp(expr = inner; types = typeArgs) -> inferTypeApp infer ctx node.Tok inner typeArgs
