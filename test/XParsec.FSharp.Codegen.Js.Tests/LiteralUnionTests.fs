@@ -50,7 +50,9 @@ let private widgetManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private widgetProvider: IExternalSymbolProvider = stackTs widgetManifest
+let private widgetContract = contractTs widgetManifest
+
+let private widgetProvider: IExternalSymbolProvider = widgetContract.Provider
 
 let private analyse (input: string) : Diagnostic list = analyseWith widgetProvider input
 
@@ -72,7 +74,7 @@ let private widgetRuntime =
 
 let private emitWidget (input: string) : string =
     emitWith
-        widgetProvider
+        widgetContract
         (Map.ofList
             [
                 "widgetlib",

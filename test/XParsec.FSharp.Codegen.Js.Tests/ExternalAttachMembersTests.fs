@@ -49,7 +49,7 @@ let private boxManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private boxProvider: IExternalSymbolProvider = stackTs boxManifest
+let private boxContract = contractTs boxManifest
 
 // A hand-authored runtime whose factory returns a STATEFUL object: state lives in
 // `this._v` and every method reads/writes `this`, so a lowering that detached the
@@ -73,7 +73,7 @@ let private boxRuntime =
 /// runtime above.
 let private emitBox (input: string) : string =
     emitWith
-        boxProvider
+        boxContract
         (Map.ofList
             [
                 "boxlib",

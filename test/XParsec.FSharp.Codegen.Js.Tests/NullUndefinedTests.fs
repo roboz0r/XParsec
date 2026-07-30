@@ -55,7 +55,7 @@ let private nullManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private nullProvider: IExternalSymbolProvider = stackTs nullManifest
+let private nullContract = contractTs nullManifest
 
 /// Hand-authored JS runtime backing the `nulllib` manifest. A single-argument
 /// external static-member call passes its argument directly (`$N_renderN(value)`),
@@ -82,7 +82,7 @@ let private program =
 /// Emit `input` to JS through the `nulllib` provider, injecting the runtime module.
 let private emitWithNull (input: string) : string =
     emitWith
-        nullProvider
+        nullContract
         (Map.ofList
             [
                 "nulllib",

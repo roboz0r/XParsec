@@ -22,7 +22,9 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // pack, so it also proves the ctor-argSig dedup (`Map`'s cross-file no-arg ctor merge)
 // loads cleanly.
 
-let private mapProvider: IExternalSymbolProvider = stackTs es2015Manifest
+let private mapContract = contractTs es2015Manifest
+
+let private mapProvider: IExternalSymbolProvider = mapContract.Provider
 
 // The gate program. Every observed value is a TOP-LEVEL `let` so library-mode emit
 // exports it (`export const …`) and the harness below reads it — the MittE2E idiom, so
@@ -62,7 +64,7 @@ let private analyseErrors (input: string) : string list =
 
 // A Global pack needs no runtime modules — that is the whole point (Map is intrinsic).
 let private emitMap (input: string) : string =
-    emitWith mapProvider Map.empty true input
+    emitWith mapContract Map.empty true input
 
 [<Tests>]
 let tests =

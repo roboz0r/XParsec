@@ -39,7 +39,9 @@ let private manifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private provider: IExternalSymbolProvider = stackTs manifest
+let private contract = contractTs manifest
+
+let private provider: IExternalSymbolProvider = contract.Provider
 
 /// A POJO-consuming runtime: `configure` reads `opts.label` / `opts.retries` off the
 /// object it is handed — only a verbatim record (native own props) round-trips here.
@@ -48,7 +50,7 @@ let private runtime =
 
 let private emitCfg (input: string) : string =
     emitWith
-        provider
+        contract
         (Map.ofList
             [
                 "cfglib3",

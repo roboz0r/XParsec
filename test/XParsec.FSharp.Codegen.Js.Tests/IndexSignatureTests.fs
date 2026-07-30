@@ -94,7 +94,9 @@ let private manifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private provider: IExternalSymbolProvider = stackTs manifest
+let private contract = contractTs manifest
+
+let private provider: IExternalSymbolProvider = contract.Provider
 
 let private analyseErrors (input: string) : string list =
     analyseWith provider input |> List.map (fun d -> d.Message)
@@ -102,7 +104,7 @@ let private analyseErrors (input: string) : string list =
 /// Emit through the `ixlib` provider, injecting a stub runtime module so the variable /
 /// function imports resolve (the synthetic package has no `.toml` asset).
 let private emitIx (input: string) : string =
-    emitWith provider (Map.ofList [ "ixlib", { FileName = "ixlib.mjs"; Source = "" } ]) false input
+    emitWith contract (Map.ofList [ "ixlib", { FileName = "ixlib.mjs"; Source = "" } ]) false input
 
 [<Tests>]
 let tests =

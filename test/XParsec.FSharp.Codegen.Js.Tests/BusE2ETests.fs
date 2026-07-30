@@ -56,7 +56,7 @@ let private busManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private busProvider: IExternalSymbolProvider = stackTs busManifest
+let private busContract = contractTs busManifest
 
 // State (registered handlers + last recorded payload) lives on `this`; `emit` invokes
 // each handler with the payload, and the Vesper handler calls back through `this.record`.
@@ -79,7 +79,7 @@ let private busRuntime =
 
 let private emitBus (input: string) : string =
     emitWith
-        busProvider
+        busContract
         (Map.ofList
             [
                 "buslib",

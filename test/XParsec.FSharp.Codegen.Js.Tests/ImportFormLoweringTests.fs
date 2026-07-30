@@ -41,7 +41,7 @@ let private overloadedFnManifest (pkg: string) (fnName: string) (import: Schema.
 /// `pkg` so the erase's `addRef` import resolves (the synthetic package has no `.toml`
 /// asset — the import contract is what these tests pin).
 let private emitOverload (man: Schema.PackageManifest) (fileName: string) (input: string) : string =
-    emitWith (stackTs man) (Map.ofList [ man.Package, { FileName = fileName; Source = "" } ]) false input
+    emitWith (contractTs man) (Map.ofList [ man.Package, { FileName = fileName; Source = "" } ]) false input
 
 [<Tests>]
 let tests =
@@ -123,7 +123,7 @@ let tests =
                         ]
 
                 let js =
-                    emitWith (stackTs nodeFsManifest) runtime false "Node.Fs.readFileSync(\"p\")\n"
+                    emitWith (contractTs nodeFsManifest) runtime false "Node.Fs.readFileSync(\"p\")\n"
 
                 Expect.stringContains
                     js

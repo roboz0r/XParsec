@@ -48,16 +48,16 @@ let private utilManifestJson =
 /// The `util` package's overload provider, layered over the standard JS provider (so the
 /// argument's primitive types still resolve). The synthetic `Util` type + its `format`
 /// overloads come from the TS-manifest provider.
-let private utilProvider: IExternalSymbolProvider =
+let private utilContract =
     match Codec.deserialize utilManifestJson with
     | Error e -> failwithf "util manifest does not parse: %s" e
-    | Ok man -> stackTs man
+    | Ok man -> contractTs man
 
 /// Emit `input` to JS through `provider`, injecting a fake `util` runtime module so the
 /// erase branch's bare-export `addRef` import resolves (the synthetic package has no
 /// `.toml`/`runtime-js` asset of its own — the erase contract is what this test pins).
 let private emitWithUtil (input: string) : string =
-    emitWith utilProvider (Map.ofList [ "util", { FileName = "util.mjs"; Source = "" } ]) false input
+    emitWith utilContract (Map.ofList [ "util", { FileName = "util.mjs"; Source = "" } ]) false input
 
 [<Tests>]
 let tests =

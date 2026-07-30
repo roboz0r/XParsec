@@ -51,14 +51,16 @@ let private paletteManifest: Schema.PackageManifest =
 
 /// The `palette` enum provider, layered over the standard JS provider (so the integer
 /// literals / primitives still resolve). The enum shapes come from the TS-manifest provider.
-let private paletteProvider: IExternalSymbolProvider = stackTs paletteManifest
+let private paletteContract = contractTs paletteManifest
+
+let private paletteProvider: IExternalSymbolProvider = paletteContract.Provider
 
 /// Emit `input` to JS through the `palette` provider, injecting a fake `palette` runtime
 /// module so the enum-object import resolves (the synthetic package ships no runtime
 /// asset of its own — the import contract is what this test pins).
 let private emitWithPalette (input: string) : string =
     emitWith
-        paletteProvider
+        paletteContract
         (Map.ofList
             [
                 "palette",

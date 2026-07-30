@@ -109,10 +109,10 @@ module JsMapSources =
             m.Ordered.Add entry
             m.ByPath.[src.File.Path] <- entry
 
-        /// The slot `file` was published at, or `ValueNone` when it was not published — a file
-        /// the emission reached but the compilation never retained. Its nodes then keep the
-        /// call-site position, which is the answer a single-source map has always given them;
-        /// `EmitJsContext.locOf` names the one configuration that still produces such a file.
+        /// The slot `file` was published at, or `ValueNone` when it was not published. Every file
+        /// an emission reaches IS published (`EmitJs.buildProgram` walks the whole retention), so
+        /// `ValueNone` is a broken invariant rather than a position to fall back from —
+        /// `EmitJsContext.locOf` faults on it instead of reading the consuming file's anchor.
         let tryFind (file: OriginPath) (m: MapSources) : ProducerSource voption =
             match m.ByPath.TryGetValue file with
             | true, entry -> ValueSome entry

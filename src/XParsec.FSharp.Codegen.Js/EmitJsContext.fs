@@ -23,8 +23,12 @@ module EmitJsContext =
     /// is every producer file the compilation retained past its parse, which is what makes a
     /// node copied out of an inline specialization resolvable at all: its own anchor was moved
     /// onto the call site, and its producer position is an index into one of these.
-    /// `OriginSources.empty` is the single-source configuration — nothing was retained, so
-    /// every node keeps the call-site position a one-file map has always given it.
+    ///
+    /// `OriginSources.empty` is the single-source configuration: the empty contract retains
+    /// nothing AND serves no body, so no node has an origin and every node keeps the call-site
+    /// position a one-file map has always given it. An empty retention beside a body-serving
+    /// provider is not a configuration — the two are halves of one `SymbolProviders.Contract`,
+    /// which is what makes every origin file publishable (`locOf`).
     type Resolution =
         {
             Lexed: Lexed
@@ -163,12 +167,22 @@ module EmitJsContext =
     /// it indexes. A node copied out of a specialization entry was MOVED onto the call site
     /// (`InlineExpand.expand`), so its own anchor reads against the consuming file and would
     /// silently attribute the producer's code to the caller's line; the producer position rides
-    /// beside it in `NodeOrigins` and is what the map publishes whenever that file was retained.
+    /// beside it in `NodeOrigins` and is what the map publishes.
     ///
     /// The origin is resolved along the node's AUTHORSHIP CHAIN (`Derivation`), so a node this
     /// walk derived from a spliced one — the operator node of an inlined body, re-authored by
     /// the pure-`let` substitution — still names the producer instead of falling back to the
     /// call site's anchor, which is in range, plausible, and the wrong file.
+    ///
+    /// A node's origin file is ALWAYS publishable, so failing to find it is a broken invariant
+    /// and faults. The provider that served the body and the retained anchor domain are halves of
+    /// one `SymbolProviders.Contract`: an origin exists only where a served body carried an
+    /// `OriginFile` (`InlineExpansion` splices a body without one on the spot), that file is in
+    /// the same contract's retention, and `buildProgram` publishes every retained file the
+    /// expansion reached. Reading the call site's anchor instead of faulting would answer with a
+    /// position that is in range, plausible, and in the wrong FILE — the one error no later pass
+    /// can tell from a right one, which is what this whole resolution exists to prevent
+    /// (`OriginSources.tokenAt` faults on the sibling read of the same condition).
     let locOf (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsLoc voption =
         match ctx.Resolver with
         | ValueNone -> ValueNone
@@ -181,20 +195,11 @@ module EmitJsContext =
             match InlineExpand.Derivation.tryFind ctx.Derivation ctx.NodeOrigins e with
             | ValueSome origin ->
                 match MapSources.tryFind origin.File.Path ctx.MapSources with
-                // The producer file was never RETAINED, so there is no text its anchor could be
-                // read against and the node keeps the call-site position a single-source map
-                // gives it.
-                //
-                // Unreachable under `Codegen.compileWith`, where `Resolver.Origins` and the
-                // provider are halves of ONE contract: an entry exists only where a served body
-                // carried an `OriginFile` (`InlineExpansion` splices a body without one on the
-                // spot), that file is in the same collection's retention, and `buildProgram`
-                // publishes every retained file the expansion reached. The configuration that
-                // DOES reach here is a `WalkCtx` built directly with `Origins =
-                // OriginSources.empty` over a provider that serves outlined bodies — the
-                // emit-TEXT test contexts, which assert on the generated source and read no
-                // position.
-                | ValueNone -> consuming ()
+                | ValueNone ->
+                    failwithf
+                        "EmitJs: the node's origin file %s (package %s) was reached but never published to the map, so its position is readable only against the consuming file — the provider that served the body and the retained anchor domain are not the same contract"
+                        origin.File.Path.Relative
+                        origin.File.Path.BucketName
                 | ValueSome producer ->
                     // Faults on a producer file edited since the tree was anchored against it —
                     // the one failure that would otherwise publish a well-formed position in the

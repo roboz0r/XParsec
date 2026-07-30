@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Js.Tests.JsNamespaceTests
 open Expecto
 open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
@@ -64,7 +65,9 @@ let private somepkgManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private es2015Provider: IExternalSymbolProvider = stackTs es2015Manifest
+let private es2015Contract = contractTs es2015Manifest
+
+let private es2015Provider: IExternalSymbolProvider = es2015Contract.Provider
 
 /// Package B (refs-table shape): references `Widget` with `home = es2015`, so its
 /// homed identity must mint under the `Js` namespace (`Js.Widget`) — the same qualified
@@ -85,10 +88,10 @@ let private manifestB: Schema.PackageManifest =
 let private bProviderRaw: IExternalSymbolProvider =
     TsManifestProvider.providerOfManifest manifestB
 
-/// Emit `input` through `provider` with NO injected runtime modules (a global pack needs
+/// Emit `input` through `contract` with NO injected runtime modules (a global pack needs
 /// none — that is the whole point). Global emit records no import, so `entryFor` is never hit.
-let private emitGlobal (provider: IExternalSymbolProvider) (input: string) : string =
-    emitWith provider Map.empty false input
+let private emitGlobal (contract: SymbolProviders.Contract) (input: string) : string =
+    emitWith contract Map.empty false input
 
 [<Tests>]
 let tests =
@@ -100,7 +103,7 @@ let tests =
                 // dotted-name seam), type-checks, and emits `new Widget(` — the BARE export.
                 // No `import` and no `es2015` home leaks into the output: the runtime provides
                 // `Widget` intrinsically (the `Global` flag on the resolved shape).
-                let js = emitGlobal es2015Provider "let w = new Js.Widget()\n"
+                let js = emitGlobal es2015Contract "let w = new Js.Widget()\n"
 
                 Expect.stringContains js "new Widget(" (sprintf "expected bare `new Widget(`, got:\n%s" js)
 
@@ -116,7 +119,7 @@ let tests =
             test "(b) member access on a mounted global type resolves and emits a native receiver.member call" {
                 // `w.ping()` on the `Js.Widget` value resolves through the provider
                 // (`MemberLowering.AttachedNative`) and lowers to `w.ping()` — still no import.
-                let js = emitGlobal es2015Provider "let w = new Js.Widget()\nw.ping()\n"
+                let js = emitGlobal es2015Contract "let w = new Js.Widget()\nw.ping()\n"
 
                 Expect.stringContains js ".ping(" (sprintf "expected the native member call `.ping(`, got:\n%s" js)
 
@@ -129,7 +132,7 @@ let tests =
                 // The value-export sibling: the mounted `Js.spin()` from the `es2015` global
                 // home emits the BARE `spin()` — `JsImports.addRef` skips recording (returns the
                 // bare export name) for a `globalLibHomes` home.
-                let js = emitGlobal es2015Provider "Js.spin()\n"
+                let js = emitGlobal es2015Contract "Js.spin()\n"
 
                 Expect.stringContains js "spin(" (sprintf "expected bare `spin(`, got:\n%s" js)
 
@@ -152,7 +155,7 @@ let tests =
                             }
                         ]
 
-                let js = emitWith (stackTs somepkgManifest) runtime false "poke()\n"
+                let js = emitWith (contractTs somepkgManifest) runtime false "poke()\n"
 
                 Expect.stringContains
                     js

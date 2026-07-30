@@ -300,6 +300,23 @@ let stackTsMany (manifests: Schema.PackageManifest list) : IExternalSymbolProvid
             jsProvider.Value
         ]
 
+/// The EMIT contract of a `stackTsMany` stack: that stack as the provider, re-seated in
+/// `jsContract` — the contract of the JS-native leaf it layers over — so it carries that leaf's
+/// retention as its anchor domain. A TS manifest is declaration data: it carries no F# source and
+/// so serves no inline body, which makes the leaf the only layer a served body can come from and
+/// its retained producer files the only domain such a body's anchors index.
+///
+/// Layering and re-seating are ONE step so a caller cannot take the stack and leave the domain
+/// behind: a provider from one manifest set beside an anchor domain from another resolves a
+/// served body's position against a file that was never retained (`SymbolProviders.Contract`).
+let contractTsMany (manifests: Schema.PackageManifest list) : SymbolProviders.Contract =
+    { jsContract.Value with
+        Provider = stackTsMany manifests
+    }
+
+/// `contractTsMany` for one manifest — the emit contract behind `stackTs`.
+let contractTs (manifest: Schema.PackageManifest) : SymbolProviders.Contract = contractTsMany [ manifest ]
+
 /// Analyse `input` through `provider` (the self-host front end) and return the ERROR
 /// diagnostics — the shared body of the per-package `analyse`/`analyseErrors` wrappers.
 let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic list =
@@ -318,8 +335,11 @@ let errorText (ds: Diagnostic list) : string =
 /// left `Resolver = ValueNone`) — and all lowering tables empty for `buildProgram` to fill.
 /// `runtime` is the injected package → `.mjs` map; `exportTopLevel` selects script
 /// (`false`) vs library (`true`).
+///
+/// Takes the whole `contract`, exactly as `Codegen.compileWith` does, so the provider that
+/// serves an inline body and the retention its producer positions index are one value here too.
 let private jsWalkCtx
-    (provider: IExternalSymbolProvider)
+    (contract: SymbolProviders.Contract)
     (runtime: Map<string, JsRuntimeModule>)
     (exportTopLevel: bool)
     (input: string)
@@ -332,34 +352,33 @@ let private jsWalkCtx
                 {
                     Lexed = lexed
                     Lines = JsMapSources.LineIndex.build input
-                    // These callers assert on emitted TEXT, not on positions, and hold a bare
-                    // provider rather than the contract it was projected from — so no anchor
-                    // domain is available and every node keeps the call-site position, exactly
-                    // as a single-source build gives it. THE configuration `locOf`'s
-                    // unretained-producer arm exists for.
-                    Origins = OriginSources.empty
+                    Origins = contract.Origins
                 }
         | Result.Error _ -> ValueNone
 
     EmitJsContext.WalkCtx.create
         resolver
         (TastPoolBuilder.openOver frozen)
-        provider
+        contract.Provider
         (JsImports.create runtime)
         exportTopLevel
 
-/// Front-end + freeze `input` through `provider`, then emit JS with the injected
+/// Front-end + freeze `input` through `contract`, then emit JS with the injected
 /// `runtime` modules — the shared body of the per-package `emitWithX` helpers. Routes
 /// through `frozenImplJs` (analyse-for-self-host + freeze) and the one `jsWalkCtx`
 /// builder, so every provider test emits through identical, production-matched wiring.
+///
+/// The program is analysed and emitted through the SAME contract, so a body spliced out of a
+/// dependency resolves its position against the file it was written in (`contractTs` /
+/// `JsNativeSymbols.jsNativeContractFor` are how one is built).
 let emitWith
-    (provider: IExternalSymbolProvider)
+    (contract: SymbolProviders.Contract)
     (runtime: Map<string, JsRuntimeModule>)
     (exportTopLevel: bool)
     (input: string)
     : string =
-    let frozen = frozenImplJs provider input
-    let ctx = jsWalkCtx provider runtime exportTopLevel input frozen
+    let frozen = frozenImplJs contract.Provider input
+    let ctx = jsWalkCtx contract runtime exportTopLevel input frozen
     (JsPrint.print (EmitJs.buildProgram ctx)).Source
 
 /// The Node round-trip assertion, documented ONCE: write `files` to a tmp dir, run the

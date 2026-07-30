@@ -49,7 +49,9 @@ let private dynManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private dynProvider: IExternalSymbolProvider = stackTs dynManifest
+let private dynContract = contractTs dynManifest
+
+let private dynProvider: IExternalSymbolProvider = dynContract.Provider
 
 /// Hand-authored JS runtime backing the `dynlib` manifest. `mkObj` returns a nested
 /// object so `d?foo?bar` (computed chain) and `d?bar <- v` (write) work; `useAny`
@@ -69,7 +71,7 @@ let private warningsWith (input: string) : Diagnostic list =
 
 let private emitWithDyn (input: string) : string =
     emitWith
-        dynProvider
+        dynContract
         (Map.ofList
             [
                 "dynlib",

@@ -69,15 +69,15 @@ let private calcManifestJson =
 
 /// The `calc` provider, layered over the standard JS provider (so `float`/`string`
 /// argument types still resolve). `Calc` + its overload set come from the manifest.
-let private calcProvider: IExternalSymbolProvider =
+let private calcContract =
     match Codec.deserialize calcManifestJson with
     | Error e -> failwithf "calc manifest does not parse: %s" e
-    | Ok man -> stackTs man
+    | Ok man -> contractTs man
 
 /// Emit `input` to JS through the `calc` provider, injecting a fake `calc` runtime
 /// module so the static-member `addMemberRef` import resolves.
 let private emitWithCalc (input: string) : string =
-    emitWith calcProvider (Map.ofList [ "calc", { FileName = "calc.mjs"; Source = "" } ]) false input
+    emitWith calcContract (Map.ofList [ "calc", { FileName = "calc.mjs"; Source = "" } ]) false input
 
 [<Tests>]
 let tests =

@@ -82,7 +82,9 @@ let private manifest: Schema.PackageManifest =
 /// Provider construction is EAGER (the `TsManifestSymbolProvider` ctor expands every
 /// member): building this at module load already exercises the `log` dedup — a revived
 /// `ErasedDistinction` abort would fail every test in the list, not just one.
-let private provider: IExternalSymbolProvider = stackTs manifest
+let private contract = contractTs manifest
+
+let private provider: IExternalSymbolProvider = contract.Provider
 
 /// Bind the external `api` value to a LOCAL first: an instance-method call dispatches
 /// on a local-binding receiver (`a.greet …`), the shape the dot-access / instance-probe
@@ -95,7 +97,7 @@ let private analyseErrors (input: string) : string list =
 /// Emit through the `optlib` provider, injecting a stub runtime module so the `api`
 /// value import resolves (the synthetic package has no `.toml` asset).
 let private emitApi (input: string) : string =
-    emitWith provider (Map.ofList [ "optlib", { FileName = "optlib.mjs"; Source = "" } ]) false (withApi input)
+    emitWith contract (Map.ofList [ "optlib", { FileName = "optlib.mjs"; Source = "" } ]) false (withApi input)
 
 [<Tests>]
 let tests =

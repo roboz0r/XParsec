@@ -57,7 +57,7 @@ let private idManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private idProvider: IExternalSymbolProvider = stackTs idManifest
+let private idContract = contractTs idManifest
 
 /// Hand-authored runtime backing the `idlib` manifest. A single-argument external
 /// static-member call passes its argument directly (`$Id_identity(x)`).
@@ -77,7 +77,7 @@ let private program =
 
 let private emitWithId (input: string) : string =
     emitWith
-        idProvider
+        idContract
         (Map.ofList
             [
                 "idlib",

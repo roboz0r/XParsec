@@ -54,13 +54,17 @@ let private setManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private setProvider: IExternalSymbolProvider = stackTs setManifest
+let private setContract = contractTs setManifest
+
+let private setProvider: IExternalSymbolProvider = setContract.Provider
 
 // The REAL vendored es2015 pack: its `Map<K,V>.[Symbol.iterator](): MapIterator<[K,V]>`
 // now carries a genuine `(K, V)` TUPLE (the extractor's tuple arm), so the provider homes
 // `Map` as `seq<K*V>` and `for (k, v) in m` destructures — no hand fixture needed. `Map`
 // is a Node global (constructible, `.set` intrinsic), so it round-trips under Node.
-let private mapProvider: IExternalSymbolProvider = stackTs es2015Manifest
+let private mapContract = contractTs es2015Manifest
+
+let private mapProvider: IExternalSymbolProvider = mapContract.Provider
 
 // A function-local mutable accumulates the iteration (module-level `let mutable` is a
 // separate emit gap — it lowers to `const`; the loop capture is deferred separately). `sum` is a
@@ -95,7 +99,7 @@ let private analyseErrors (input: string) : string list =
     analyseWith setProvider input |> List.map (fun d -> d.Message)
 
 let private emitSet (input: string) : string =
-    emitWith setProvider Map.empty true input
+    emitWith setContract Map.empty true input
 
 // `for (k, v) in m` over `[K,V]` pairs — the tuple binder (step 2). Both `k` and `v` are
 // used at runtime (`total <- total + k + v`), so the destructuring binds both positions.
@@ -129,7 +133,7 @@ let private analyseMapErrors (input: string) : string list =
     analyseWith mapProvider input |> List.map (fun d -> d.Message)
 
 let private emitMap (input: string) : string =
-    emitWith mapProvider Map.empty true input
+    emitWith mapContract Map.empty true input
 
 [<Tests>]
 let tests =

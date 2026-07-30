@@ -148,16 +148,18 @@ let private pokeMember () : TastAccessor.TypeMember = pokeMemberOf "$0 + 1" ftIn
 let private widgetManifest: string =
     System.IO.Path.Combine(__SOURCE_DIRECTORY__, "fixtures", "widget", "manifest.toml")
 
-/// The JS-native provider stack with the `widget` fixture layered ahead of the standard
-/// JS manifests — so widget's Class + `Poke` member AND the harvested member inline body
-/// (keyed under the finalized member key) are all present.
-let private widgetProvider: Lazy<IExternalSymbolProvider> =
-    lazy JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) (widgetManifest :: TestHelpers.jsManifests)
+/// The JS-native contract with the `widget` fixture layered ahead of the standard JS
+/// manifests — so widget's Class + `Poke` member AND the harvested member inline body
+/// (keyed under the finalized member key) are all present. The WHOLE contract, because the
+/// spliced body's positions are readable only against this set's retained producer files:
+/// `widget.js.fs` is in this retention and in no other.
+let private widgetFixtureContract: Lazy<SymbolProviders.Contract> =
+    lazy JsNativeSymbols.jsNativeContractFor (Some Target.Js) (widgetManifest :: TestHelpers.jsManifests)
 
-/// Emit a consumer snippet through the widget-inclusive provider. No runtime module is
+/// Emit a consumer snippet through the widget-inclusive contract. No runtime module is
 /// injected: `widget`'s member is fully spliced, so the emitted `usePoke` imports nothing.
 let private emitWidget (input: string) : string =
-    TestHelpers.emitWith widgetProvider.Value Map.empty false input
+    TestHelpers.emitWith widgetFixtureContract.Value Map.empty false input
 
 [<Tests>]
 let tests =

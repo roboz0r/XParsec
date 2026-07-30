@@ -86,7 +86,7 @@ let private chainManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private chainProvider: IExternalSymbolProvider = stackTs chainManifest
+let private chainContract = contractTs chainManifest
 
 /// A runtime `Leaf` whose inherited `value`/`describe` live on the object itself; a
 /// lowering that failed to home the inherited member would read `undefined`.
@@ -106,7 +106,7 @@ let private chainRuntime =
 
 let private emitChain (input: string) : string =
     emitWith
-        chainProvider
+        chainContract
         (Map.ofList
             [
                 "chainlib",

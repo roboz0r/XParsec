@@ -1045,8 +1045,10 @@ module EmitJs =
         // whatever order its dictionary enumerates: the array is then a function of the input,
         // and two builds of one program publish the same map.
         //
-        // A file the expansion named but that was never retained is simply not published — its
-        // nodes keep the call-site position, which is what a single-source map gave them.
+        // Every file the expansion named IS retained — the provider that served the body and the
+        // retention are halves of one `SymbolProviders.Contract` — so this publishes the whole of
+        // what the walk will go on to ask for, and `EmitJsContext.locOf` faults on an origin file
+        // missing from the map rather than answering with the call site's position.
         match ctx0.Resolver with
         | ValueNone -> ()
         | ValueSome r ->

@@ -45,7 +45,9 @@ let private echoManifest: Schema.PackageManifest =
         Refs = []
     }
 
-let private echoProvider: IExternalSymbolProvider = stackTs echoManifest
+let private echoContract = contractTs echoManifest
+
+let private echoProvider: IExternalSymbolProvider = echoContract.Provider
 
 /// Hand-authored runtime backing `boxlib`: `makeBox()` yields an object whose
 /// `echo` instance method is the identity (so the native `receiver.member(args)`
@@ -71,7 +73,7 @@ let private analyseErrors (input: string) : string list =
 
 let private emitWithEcho (input: string) : string =
     emitWith
-        echoProvider
+        echoContract
         (Map.ofList
             [
                 "boxlib",

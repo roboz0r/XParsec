@@ -108,8 +108,8 @@ let private mittRuntimeSource = MittFixture.runtimeSource
 
 // es2015 is STACKED under mitt+recorder so mitt's `all: Map<…>` homed ref resolves as a
 // real `Js.Map` — a member call on `e.all` types and emits native `.has(`.
-let private mittProvider: IExternalSymbolProvider =
-    stackTsMany [ MittFixture.manifest; recorderManifest; es2015Manifest ]
+let private mittContract =
+    contractTsMany [ MittFixture.manifest; recorderManifest; es2015Manifest ]
 
 // The full-surface Vesper program. Effectful unit member calls are bound (`let u = …`)
 // per the front-end sequencing convention.
@@ -171,7 +171,7 @@ let private emitWithMitt (input: string) : string =
                 }
             ]
 
-    emitWith mittProvider runtime true input
+    emitWith mittContract runtime true input
 
 [<Tests>]
 let tests =
