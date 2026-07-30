@@ -462,6 +462,9 @@ module Regions =
         // direction `App` is, and safe.
         | TExpr.InlineCall(_, args, _, _) ->
             joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
+        // Purely an anchor-domain marker: it allocates nothing and evaluates to its body,
+        // so it rides the body's region exactly as a `Downcast` rides its source's.
+        | TExpr.CallerExpr(body, _, _) -> inferRegion s ctx body
 
     /// Process a `TExpr.Lambda` whose closure region is `r` (a fresh region for an
     /// anonymous lambda, or the pre-minted region of a function-form binding).

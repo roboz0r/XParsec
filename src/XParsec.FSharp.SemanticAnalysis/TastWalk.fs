@@ -70,6 +70,7 @@ module TastWalk =
         | TExprG.Downcast(ty = ty)
         | TExprG.TraitCall(ty = ty)
         | TExprG.InlineCall(ty = ty)
+        | TExprG.CallerExpr(ty = ty)
         | TExprG.TypeTest(ty = ty) -> ty
 
     let exprTok (e: TExprG<'ty, 'tok, 'id>) : 'tok =
@@ -113,6 +114,7 @@ module TastWalk =
         | TExprG.Downcast(tok = tok)
         | TExprG.TraitCall(tok = tok)
         | TExprG.InlineCall(tok = tok)
+        | TExprG.CallerExpr(tok = tok)
         | TExprG.TypeTest(tok = tok) -> tok
 
     let patTy (p: TPatG<'ty, 'tok, 'id>) : 'ty =
@@ -730,6 +732,15 @@ module TastWalk =
                     else
                         TExpr.InlineCall(spec, args, ty', tok)
                 | ValueSome args' -> TExpr.InlineCall(spec, args', ty', tok)
+            // `ty`/`tok` ARE the body's, so the mapped body supplies both rather than being
+            // mapped alongside a second copy of them that could disagree.
+            | TExpr.CallerExpr(body, _, _) ->
+                let body' = pe body
+
+                if refEq body' body then
+                    e
+                else
+                    TExpr.CallerExpr(body', exprTy body', exprTok body')
 
     and mapArm (m: Mapper) (arm: TMatchArm) : TMatchArm =
         match m.OverrideArm m arm with
@@ -921,6 +932,7 @@ module TastWalk =
                     walk c.Body
             | TExpr.Upcast(src, _, _)
             | TExpr.Downcast(src, _, _)
+            | TExpr.CallerExpr(src, _, _)
             | TExpr.TypeTest(src, _, _, _) -> walk src
 
     and iterArm (it: Iter) (arm: TMatchArm) : unit =

@@ -159,6 +159,7 @@ module TastPoolShapes =
         | TExprG.Upcast(source = source) -> acc.Add source
         | TExprG.Downcast(source = source) -> acc.Add source
         | TExprG.TypeTest(source = source) -> acc.Add source
+        | TExprG.CallerExpr(body = body) -> acc.Add body
         | TExprG.TraitCall(args = args) ->
             for x in args do
                 acc.Add x
@@ -213,7 +214,8 @@ module TastPoolShapes =
         | TExprG.Downcast _
         | TExprG.TypeTest _
         | TExprG.TraitCall _
-        | TExprG.InlineCall _ -> ()
+        | TExprG.InlineCall _
+        | TExprG.CallerExpr _ -> ()
         | TExprG.Lambda(param = param) -> acc.Add param
         | TExprG.Let(binding = binding) -> acc.Add binding
         | TExprG.Use(binding = binding) -> acc.Add binding
@@ -391,6 +393,7 @@ module TastPoolShapes =
                     MemberName = memberName
                 |}
         | TExprG.InlineCall(spec = spec) -> ExprPayload.InlineCall spec
+        | TExprG.CallerExpr _ -> ExprPayload.CallerExpr
 
     /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
     /// child sub-pat ids (`patChildren`). The exact inverse of `substitutePat`, mirroring

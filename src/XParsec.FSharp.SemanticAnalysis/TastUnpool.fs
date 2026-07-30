@@ -189,6 +189,7 @@ module TastUnpool =
 
             let defaultExpr = nextE ()
             TExprG.StaticOptimization(clauses', defaultExpr, ty, tok)
+        | ExprPayload.CallerExpr -> TExprG.CallerExpr(nextE (), ty, tok)
         | ExprPayload.Upcast -> TExprG.Upcast(nextE (), ty, tok)
         | ExprPayload.Downcast -> TExprG.Downcast(nextE (), ty, tok)
         | ExprPayload.TypeTest testTy ->

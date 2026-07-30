@@ -610,6 +610,13 @@ type private Renderer() =
 
             push ")"
 
+        // Rendered, not elided: the marker says the subtree was written in the CALLER's file,
+        // and a rendering that hid it would show a fused entry as if it were homogeneous.
+        | TExpr.CallerExpr(body, _, _) ->
+            push "caller<"
+            this.Expr body
+            push ">"
+
     member this.Pat(p: TPat) : unit =
         match p with
         | TPat.NamedSimple(k, _, _) -> push (nameOf k)

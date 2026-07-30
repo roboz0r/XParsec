@@ -41,16 +41,19 @@ let private frozenFiles: (string * FrozenPools) list =
 let private survivesRoundTrip (f: FrozenPools) : bool =
     TastFileG.structurallyEqual (TastUnpool.ofPools f) (TastUnpool.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f)))
 
-/// A pools value bearing a specialization entry AND an `InlineCall` edge naming it. No
-/// corpus program reaches either — nothing places a deferred body yet — so the two carriers
-/// are grafted onto a real frozen file, leaving every other column exactly as the freeze
-/// built it. The entry is keyed by a template the file genuinely publishes and its body IS
-/// that template's decl, which is the entry shape: a `let` of lambdas.
+/// A pools value bearing a specialization entry, an `InlineCall` edge naming it, and a
+/// `CallerExpr` mark. No corpus program reaches any of the three — nothing places a deferred
+/// body yet, and the pass flattens its own marks away — so the carriers are grafted onto a
+/// real frozen file, leaving every other column exactly as the freeze built it. The entry is
+/// keyed by a template the file genuinely publishes and its body IS that template's decl,
+/// which is the entry shape: a `let` of lambdas.
 let private withSpecialization () : FrozenPools =
     // A NESTED module: a top-level `let inline` has no home module and so no exportable
     // identity, and publishes nothing (`Freeze.toFrozenFile`).
+    // `not` is a ONE-operand intrinsic, so the flattened tree is guaranteed to hold a node
+    // with exactly one expr child and no pattern — the shape the `CallerExpr` graft needs.
     let pools =
-        frozenOfJs "module M\n\nmodule N =\n    let inline f x = x + 1\n\nlet y = N.f 2\n"
+        frozenOfJs "module M\n\nmodule N =\n    let inline f x = x + 1\n\nlet y = N.f 2\nlet z = not true\n"
 
     let template =
         match pools.InlineTemplates with
@@ -66,8 +69,18 @@ let private withSpecialization () : FrozenPools =
             && ChildColumn.count pools.ExprPatChildren i = 0
         )
 
+    // `CallerExpr` wraps exactly one expression and owns no pattern, so a slot with that shape
+    // stands in for one the same way.
+    let unary =
+        [ 0 .. pools.ExprPayloads.Length - 1 ]
+        |> List.find (fun i ->
+            ChildColumn.count pools.ExprChildren i = 1
+            && ChildColumn.count pools.ExprPatChildren i = 0
+        )
+
     let payloads = Array.copy pools.ExprPayloads
     payloads.[leaf] <- ExprPayload.InlineCall(SpecializationId 0)
+    payloads.[unary] <- ExprPayload.CallerExpr
 
     { pools with
         ExprPayloads = payloads
@@ -196,12 +209,13 @@ let tests =
                         (name + " did not survive flatten/thaw structurally")
                 }
 
-            // The specialization root array and the `InlineCall` payload are the one part of
-            // the wire the corpus above leaves at zero, so it would pass with either missing
-            // from the writer entirely. Assert on the decoded carriers themselves, not only
-            // on the drained tree: an entry the writer skipped and the reader defaulted to
-            // empty is invisible to a tree comparison that has no edge pointing into it.
-            test "a specialization entry and the InlineCall naming it survive flatten/thaw" {
+            // The specialization root array and the `InlineCall`/`CallerExpr` payloads are the
+            // one part of the wire the corpus above leaves at zero, so it would pass with any
+            // of them missing from the writer entirely. Assert on the decoded carriers
+            // themselves, not only on the drained tree: an entry the writer skipped and the
+            // reader defaulted to empty is invisible to a tree comparison that has no edge
+            // pointing into it.
+            test "a specialization entry, the InlineCall naming it and a CallerExpr survive flatten/thaw" {
                 let grafted = withSpecialization ()
                 let rt = FrozenCodec.thaw (FrozenCodec.flatten grafted)
 

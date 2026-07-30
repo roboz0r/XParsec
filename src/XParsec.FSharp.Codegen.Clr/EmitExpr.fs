@@ -150,6 +150,7 @@ module EmitExpr =
         // trait calls are grounded, before emission — so neither edge survives to the time
         // the router runs. Shared with the JS backend so the two say one thing.
         | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
+        | ExprShape.CallerExpr -> TastLower.callerExprUnexpanded ()
         | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)
 
     /// Emit an expression as a statement: evaluate it and discard any value.

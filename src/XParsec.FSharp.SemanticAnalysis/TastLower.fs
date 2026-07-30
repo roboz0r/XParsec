@@ -24,20 +24,27 @@ module TastLower =
     /// (`StaticParamG`, generic over `'ty`/`'pat`); this is the pooled instantiation.
     type StaticParam = TastAccessor.StaticParam
 
-    /// The fault an emit router raises on a `TExpr.InlineCall`. The node is an EDGE into the
-    /// file's specialization table, so a backend that has not expanded the table has no body
-    /// to emit — and there is nothing to report to a user, because no source spells the
-    /// node: reaching an emitter means the expansion was skipped, not that the source was
-    /// wrong.
+    /// The fault an emit router raises on a node the specialization-table expansion was
+    /// supposed to consume. There is nothing to report to a user, because no source spells
+    /// any such node: reaching an emitter means the expansion was skipped, not that the
+    /// source was wrong.
     ///
     /// Sited once, in the one module all three codegen projects already read, because the
     /// routers would otherwise each state the invariant in their own words and drift.
+    let private unexpanded (what: string) : 'a =
+        failwithf
+            "Emit: %s reached the emitter — the specialization table is expanded before emission, so this node should not exist here"
+            what
+
+    /// `TExpr.InlineCall` is an EDGE into the file's specialization table, so a backend that
+    /// has not expanded the table has no body to emit.
     let inlineCallUnexpanded (spec: SpecializationId) : 'a =
         let (SpecializationId i) = spec
+        unexpanded (sprintf "an InlineCall on specialization %d" i)
 
-        failwithf
-            "Emit: an InlineCall on specialization %d reached the emitter — the specialization table is expanded before emission, so this node should not exist here"
-            i
+    /// `TExpr.CallerExpr` marks an anchor-domain boundary INSIDE a specialization entry, so
+    /// it can only be reached through an edge the same expansion would have consumed.
+    let callerExprUnexpanded () : 'a = unexpanded "a CallerExpr"
 
     /// The fault an emit router raises on a `TExpr.TraitCall`. An SRTP constraint has no
     /// compiled signature on ANY target, so this is not a per-backend feature gap:

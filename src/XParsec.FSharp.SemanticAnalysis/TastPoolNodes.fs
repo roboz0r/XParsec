@@ -101,6 +101,7 @@ type ExprShape =
     | TypeTest
     | TraitCall
     | InlineCall
+    | CallerExpr
 
 /// The post-freeze shape tag of a pattern node — one case per `TPatG` case (mirrors
 /// `ExprShape`'s relationship to `TExprG`, `PatPayload.shape` included).
@@ -387,6 +388,9 @@ type ExprPayload =
     /// not a child edge — several call sites share one entry, so making it a child would
     /// turn the DAG into a tree by duplication.
     | InlineCall of spec: SpecializationId
+    /// EMPTY, and necessarily so: the pop is RELATIVE and names no file, so the node's whole
+    /// content is its position in the tree plus its single child expression.
+    | CallerExpr
 
 [<RequireQualifiedAccess>]
 module ExprPayload =
@@ -438,6 +442,7 @@ module ExprPayload =
         | ExprPayload.TypeTest _ -> ExprShape.TypeTest
         | ExprPayload.TraitCall _ -> ExprShape.TraitCall
         | ExprPayload.InlineCall _ -> ExprShape.InlineCall
+        | ExprPayload.CallerExpr -> ExprShape.CallerExpr
 
     // ── re-nesting the flat child columns ───────────────────────────────────
     //

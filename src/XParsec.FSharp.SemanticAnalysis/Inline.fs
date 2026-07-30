@@ -458,6 +458,49 @@ module Inline =
     /// it realises it.
     let spliceAt (mint: unit -> NodeKey) (at: SyntaxToken) (body: TExpr) : TExpr = freshen mint body |> relocate at
 
+    /// Mark `body` as CALLER material: an expression written at the call site that a reduction
+    /// FUSED into a specialization entry, and so anchored one frame out from the entry's own
+    /// `OriginFile` (`TExprG.CallerExpr`).
+    ///
+    /// THE constructor of the node — its `ty`/`tok` ARE its body's by definition, so routing
+    /// every mint through here is what keeps them from being filled in twice and disagreeing.
+    let callerExpr (body: TExpr) : TExpr =
+        TExpr.CallerExpr(body, TastWalk.exprTy body, TastWalk.exprTok body)
+
+    /// The node under any caller marks — `CallerExpr` is semantically transparent, so a SHAPE
+    /// test (is this an `External`? an application head?) must read through it or a rewrite
+    /// would stop recognising the very material an earlier fusion marked.
+    ///
+    /// Recursive because marks NEST: an argument two frames out from the entry it now sits in
+    /// pops twice, and both layers are equally transparent to a shape test.
+    let rec unmarked (e: TExpr) : TExpr =
+        match e with
+        | TExpr.CallerExpr(body, _, _) -> unmarked body
+        | _ -> e
+
+    /// Does the tree mark any caller-anchored material?
+    ///
+    /// The question a SHAREABLE entry must answer `false`. A `CallerExpr` pops ONE frame, and
+    /// "the frame out" names a single file only while the entry has a single call edge —
+    /// which is precisely what sharing gives up. So this is not a diagnostic aid but the
+    /// condition under which the node is well-defined at all.
+    let containsCallerExpr (e: TExpr) : bool =
+        let mutable found = false
+
+        TastWalk.iterExpr
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun _ n ->
+                        match n with
+                        | TExpr.CallerExpr _ -> found <- true
+                        | _ -> ()
+
+                        not found
+            }
+            e
+
+        found
+
     /// Beta-reduce a curried lambda against its spine args, lowering each application to a
     /// `TExpr.Let`. The lambda count must be at least the
     /// spine-arg count; a leftover lambda is a partial application and is returned as it
@@ -489,8 +532,9 @@ module Inline =
 
     /// Splice a resolved-specialization GRAPH back into a tree: every `TExpr.InlineCall` is
     /// replaced by the entry it names, applied to the edge's own arguments, descending into
-    /// the entry's own edges as it goes. Total on the graph and idempotent on its output — a
-    /// tree with no edges left comes back unchanged.
+    /// the entry's own edges as it goes, and every `TExpr.CallerExpr` inside one is unwrapped.
+    /// Total on the graph and idempotent on its output — a tree with no edges left comes back
+    /// unchanged.
     ///
     /// The entry's body is MOVED onto the call site (`spliceAt`) rather than copied where it
     /// stands, and that is forced rather than chosen: an `Anchor` is an index into ONE file's
@@ -517,6 +561,13 @@ module Inline =
 
                 let body = go (spliceAt mint tok (specializationValue spec entries.[i]))
                 ValueSome(betaReduce body [ for a in args -> go a, TastWalk.exprTy a, tok ])
+            // Flattening COLLAPSES the frame stack — `spliceAt` moves the entry's every node
+            // onto the call site, so the frame a `CallerExpr` popped back to is the frame its
+            // parent now sits in and the marker has nothing left to say. Unwrapped rather
+            // than kept, because a node that claims a distinction the tree no longer draws is
+            // worse than no node: it is transparent to semantics by construction, so dropping
+            // it changes evaluation order not at all.
+            | TExpr.CallerExpr(body, _, _) -> ValueSome(go body)
             | _ -> ValueNone
 
         and go (x: TExpr) : TExpr =

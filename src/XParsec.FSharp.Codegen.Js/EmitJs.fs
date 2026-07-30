@@ -625,6 +625,7 @@ module EmitJs =
         // the walker runs. Arms of their own so the fault names the invariant rather than the
         // node, and the same ones the CLR router raises.
         | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
+        | ExprShape.CallerExpr -> TastLower.callerExprUnexpanded ()
         | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)
 
     /// Build one `match` arm's statements: when the pattern matches (and the guard,

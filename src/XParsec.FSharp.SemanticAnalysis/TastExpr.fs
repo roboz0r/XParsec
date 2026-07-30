@@ -501,6 +501,34 @@ type TExprG<'ty, 'tok, 'id> =
     /// `TDecl.Let` of lambdas, and a parameter that resolution fused into the body is not
     /// one of them, so the count agrees by construction rather than by a stored arity.
     | InlineCall of spec: SpecializationId * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    /// A CONTEXT POP — the dual of `InlineCall`'s push, and the only thing that makes a
+    /// specialization entry honest about the material a reduction FUSED into it.
+    ///
+    /// Descending through an `InlineCall` means an `Anchor` indexes the entry's `OriginFile`.
+    /// Everything under a `CallerExpr` is instead anchored in the file of whatever called
+    /// that entry — one frame out. So `a && b` outlines as `if a then ⟨CallerExpr b⟩ else
+    /// false`: the `if`/`then`/`else` were written in the operator's own file, the `b`
+    /// subtree at the call site.
+    ///
+    /// It pops ONE frame RELATIVELY and names no file. Origins live on entries and never on
+    /// nodes — the premise the whole table rests on — and popping relatively is also what
+    /// makes nesting free: a fused argument that is itself an inline call reads push → pop →
+    /// push with nothing to reconcile.
+    ///
+    /// "The caller" is unambiguous only because an entry holding fused material has exactly
+    /// ONE call edge; a SHAREABLE (closed) entry must therefore never contain this node.
+    /// That is what licenses the node rather than a property it happens to have, and
+    /// `Passes.InlineExpansion` checks it on every entry it interns.
+    ///
+    /// SEMANTICALLY TRANSPARENT: it evaluates to its body and nothing else, and `Inline.flatten`
+    /// unwraps it. It is not a way to defer an argument — the fusion it marks already IS the
+    /// deferral, which is why a fused argument cannot instead ride on the edge's eager `args`
+    /// (`&&` must not evaluate `b` unless `a` is true).
+    ///
+    /// `ty` and `tok` are its BODY's, always (`Inline.callerExpr` is the only constructor).
+    /// The pop applies at this node, so its position reads in the caller's domain exactly as
+    /// its body's does, and there is no position of its own to get wrong.
+    | CallerExpr of body: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
 
 /// One arm of a `Match` / `TryWith`. `'pat`/`'e` abstract over how the arm's pattern and
 /// its guard/body expressions are carried, exactly as `'body` does for a type

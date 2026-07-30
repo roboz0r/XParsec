@@ -1,6 +1,6 @@
 # Inline provenance — deferred body placement via `TExpr.InlineCall`
 
-**Status (2026-07-29): steps 1-3 landed, step 4 next — see "Where this stands" at the end
+**Status (2026-07-29): steps 1-4 landed, step 5 next — see "Where this stands" at the end
 for the carried gaps.** Replaces the physical TAST-level splice
 performed by `Passes/InlineExpansion.fs` with a resolved-specialization table plus an
 `InlineCall` edge node, so that a body's ORIGIN FILE survives into the frozen TAST and
@@ -201,6 +201,12 @@ is native and `PassContext` is in hand; the `TraitNotSupported` diagnostic
    constant). A uniform invariant is checkable where a conditional one is not; a peephole can
    drop trivial wrappers later if node count ever matters. Touch list is step 1's, re-run.
 
+   LANDED. `Placement` (Outlined / Spliced) is read off the served body before any parameter is
+   classified, so a SPLICED reduction — a same-unit template, or a foreign body with no
+   retained origin — marks nothing: its body was moved onto the call site, so nothing pushed a
+   frame and nothing may pop one. `mintEntry` faults on a shareable entry that marks anything.
+   See "Where this stands" for the two positions marking still cannot reach.
+
 5. **Cycle detection + closure assertion.** The DAG needs an explicit acyclicity check with
    a real diagnostic. Confirmed 2026-07-29: no recursion guard exists anywhere, and there is
    no cyclic-inline diagnostic at all. Add the closure assertion from the shape section
@@ -256,8 +262,28 @@ is native and `PassContext` is in hand; the `TraitNotSupported` diagnostic
 
 ## Where this stands (2026-07-29)
 
-Steps 1-3 are landed (`b62d4f99`, `5809ed93`, `3aadd68e`). Two carried gaps beyond the fused
--entry finding above:
+Steps 1-4 are landed (`b62d4f99`, `5809ed93`, `3aadd68e`, + `TExpr.CallerExpr`). The
+fused-entry finding under step 7 is ADDRESSED for subtree-shaped fused material — the
+`[<CallAtMostOnce>]` and inline-first-lambda mechanisms both leave a marked subtree — but two
+positions still ride an entry unmarked, and a source map must not assume otherwise:
+
+- **A fused external at a CALL HEAD loses its mark.** `Placement.fuse` marks it, but the
+  walker's `App` arm reads the head through `Inline.unmarked` (it must, or the head stops
+  being recognised and falls through as a bare external no backend can call) and the rewrite
+  CONSUMES the node. The resulting `InlineCall`/splice is anchored at the caller's head token
+  while sitting in the entry. `x |> ignore` is the live case. Fixing it means anchoring that
+  edge at the APPLICATION node the entry itself wrote — the position `collectSpine` already
+  pairs with each argument — rather than at the head.
+- **A fused lambda's own BINDER token stays with its pattern.** `underLambdas` marks what the
+  lambda computes, but `Inline.betaReduce` turns its parameters into `TPat.NamedSimple`s
+  carrying the call site's tokens inside a `Let` the entry wrote, and no EXPRESSION marker can
+  cover a pattern.
+
+Consequently the only marks a corpus program produces today are `[<CallAtMostOnce>]` ones
+(`&&`, `||`). The lambda mechanism marks correctly but no fixture reaches it inside an
+outlined entry.
+
+Two further carried gaps:
 
 - **Same-unit `let inline` still splices.** Only FOREIGN bodies become entries.
   `TSpecializationG.Origin` is a mandatory `OriginFile` and none is constructible for the unit

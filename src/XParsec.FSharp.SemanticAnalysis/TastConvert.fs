@@ -153,6 +153,7 @@ module TastConvert =
         // The `spec` index is domain-free: the table it indexes is remapped whole alongside
         // the tree (`file`), so the slot a call names is the same slot after the map.
         | TExprG.InlineCall(spec, args, ty, tok) -> TExprG.InlineCall(spec, EqArray.map pe args, f ty, tk tok)
+        | TExprG.CallerExpr(body, ty, tok) -> TExprG.CallerExpr(pe body, f ty, tk tok)
 
     and arm
         (f: 'a -> 'b)

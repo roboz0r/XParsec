@@ -94,6 +94,15 @@ module InlineExpansion =
         | TExpr.Lambda(TPat.NamedSimple _, body, _, _) -> 1 + lambdaArity body
         | _ -> 0
 
+    /// Rewrite what a curried lambda COMPUTES, leaving its abstractions in place. The lambda
+    /// spine has to survive the rewrite because `Inline.betaReduce` matches on it, and its
+    /// binders are consumed against arguments belonging to whatever body the lambda is spliced
+    /// into — so a rewrite about the lambda's own origin applies below them, not around them.
+    let rec private underLambdas (f: TExpr -> TExpr) (e: TExpr) : TExpr =
+        match e with
+        | TExpr.Lambda(param, body, ty, tok) -> TExpr.Lambda(param, underLambdas f body, ty, tok)
+        | _ -> f e
+
     /// Of the lambda-valued inline parameters in `candidates` (key → its bound
     /// lambda), the ones that are NOT eligible for inline-first elimination —
     /// i.e. a parameter with at least one use that is not a *fully saturated*
@@ -324,6 +333,33 @@ module InlineExpansion =
         | FuseAtMostOnce
         /// Bound by an ordinary `let` (a physical splice) or abstracted by the entry (an edge).
         | Survive
+
+    /// Where a reduction's body will LIVE — which is the whole of what decides whether the
+    /// call-site material it FUSES in changes anchor domain, and so whether that material
+    /// needs a `TExpr.CallerExpr` around it.
+    ///
+    /// Decided from the served body alone (does the provider retain a producer file?), before
+    /// any parameter is classified, so one reduction cannot mark half its fusions.
+    [<RequireQualifiedAccess>]
+    type private Placement =
+        /// Abstracted into a specialization entry, whose nodes stay anchored in the producer
+        /// file its `OriginFile` names. Descending the edge PUSHES that file, so fused
+        /// call-site material is one frame out and pops back.
+        | Outlined
+        /// Moved onto the call site, so the body and the material fused into it are already
+        /// one domain. Nothing pushed a frame, so nothing may pop one.
+        | Spliced
+
+    [<RequireQualifiedAccess>]
+    module private Placement =
+
+        /// A fused call-site argument as it must appear INSIDE the body it is fused into.
+        /// Applied UNCONDITIONALLY at an outlined site, a trivial argument included: a uniform
+        /// invariant is checkable where one that skips `Var`s and constants is not.
+        let fuse (placement: Placement) (arg: TExpr) : TExpr =
+            match placement with
+            | Placement.Outlined -> Inline.callerExpr arg
+            | Placement.Spliced -> arg
 
     /// One curried parameter of an inline body paired with the argument the call site supplies
     /// for it. A record because `AppTok` and `PatTok` are two DIFFERENT positions that are
@@ -691,7 +727,12 @@ module InlineExpansion =
             //      vanishes;
             //   4. a declared `[<CallAtMostOnce>]` parameter is marked `FuseAtMostOnce`;
             //   5. everything else survives.
+            //
+            // `placement` reaches step (2) because that fusion happens HERE rather than in the
+            // reduction: an argument substituted into an outlined body has left its own file
+            // and is marked accordingly.
             let classifyApplication
+                (placement: Placement)
                 (paramAttrs: ParamAttrs[])
                 (expanded: TExpr)
                 (args: (TExpr * SemType * SyntaxToken) list)
@@ -738,11 +779,15 @@ module InlineExpansion =
                 // (no side effect, no capture). Without this the binding survives as
                 // `let func = ignore in func arg`, leaving `ignore` a bare external
                 // value codegen cannot eta-expand ("no call recipe for external …").
+                //
+                // Recognised through `Inline.unmarked`: an argument an OUTER fusion already
+                // marked is still the bare external value this rule is about, and re-marking
+                // it here is right rather than redundant — two frames out is two pops.
                 let externalValParams =
                     bindings
                     |> List.choose (fun p ->
-                        match p.Arg with
-                        | TExpr.External _ -> Some(p.Key, p.Arg)
+                        match Inline.unmarked p.Arg with
+                        | TExpr.External _ -> Some(p.Key, Placement.fuse placement p.Arg)
                         | _ -> None
                     )
 
@@ -808,12 +853,18 @@ module InlineExpansion =
             // The three fusions are all substitutions INTO the body, so their order relative to
             // one another does not matter: a fused parameter's key is `mint`-fresh and occurs
             // only in the body, never in another parameter's argument.
-            let reduceClassified (walk: TExpr -> TExpr) (peeled: Peeled) : Reduced =
+            let reduceClassified (placement: Placement) (walk: TExpr -> TExpr) (peeled: Peeled) : Reduced =
                 let fusedLambdas =
                     peeled.Params |> List.filter (fun p -> p.Disposition = Disposition.FuseLambda)
 
+                // Marked UNDER its own binders, not around the whole lambda. `Inline.betaReduce`
+                // consumes those binders against arguments taken from the BODY the lambda is
+                // spliced into, so the `Let`s that replace them belong to that body's file;
+                // only what the lambda computes was written at the call site. (The binder
+                // PATTERN's own token stays with it and no expression marker can cover it —
+                // the one position a fused lambda still attributes to the body's file.)
                 for p in fusedLambdas do
-                    lambdaEnv.[p.Key] <- p.Arg
+                    lambdaEnv.[p.Key] <- underLambdas (Placement.fuse placement) p.Arg
 
                 let core = walk peeled.Core
 
@@ -831,7 +882,8 @@ module InlineExpansion =
                     // neither carries a surviving binding.
                     | Disposition.FuseExternalValue
                     | Disposition.FuseLambda -> ()
-                    | Disposition.FuseAtMostOnce -> body <- substituteVar p.Key (walk p.Arg) body
+                    | Disposition.FuseAtMostOnce ->
+                        body <- substituteVar p.Key (Placement.fuse placement (walk p.Arg)) body
                     | Disposition.Survive -> survivors.Add { p with Arg = walk p.Arg }
 
                 survivors.Reverse()
@@ -900,6 +952,21 @@ module InlineExpansion =
                         reduced.Survivors
                         (reduced.Body, TastWalk.exprTy reduced.Body)
 
+                // What LICENSES `TExpr.CallerExpr`: the node pops one frame, and "the frame
+                // out" names a single file only while the entry has a single call edge. A
+                // shareable entry is exactly the one that gives that up, so a mark inside it
+                // would be undefined rather than merely unhelpful.
+                //
+                // It holds by construction — `shareable` implies `Peeled.isClosed`, which is
+                // "no parameter fused", and a nested reduction puts its own fusions in its own
+                // entry — so this is the check that a fusion bug shows up as a fault here
+                // instead of as a body silently shared across sites with one site's material
+                // baked into it.
+                if shareable && Inline.containsCallerExpr value then
+                    failwithf
+                        "InlineExpansion: specialization %d is shareable but marks caller material — a closed reduction fused nothing, so this entry's parameters were mis-classified"
+                        slot
+
                 entries.[slot] <-
                     ValueSome
                         {
@@ -931,10 +998,18 @@ module InlineExpansion =
                 (spineArgs: (TExpr * SemType * SyntaxToken) list)
                 : TExpr =
                 let resolved = resolveAt headTok served.Decl spineArgs
-                let peeled = classifyApplication served.ParamAttrs resolved.Body spineArgs
+
+                // Read off the served body, ahead of the classification, so every fusion of one
+                // reduction agrees about which file its material ends up in.
+                let placement =
+                    match served.Origin with
+                    | ValueSome _ -> Placement.Outlined
+                    | ValueNone -> Placement.Spliced
+
+                let peeled = classifyApplication placement served.ParamAttrs resolved.Body spineArgs
 
                 match served.Origin with
-                | ValueNone -> letBound (reduceClassified walk peeled)
+                | ValueNone -> letBound (reduceClassified placement walk peeled)
                 | ValueSome origin ->
                     let grounding =
                         {
@@ -967,7 +1042,7 @@ module InlineExpansion =
                         TExpr.InlineCall(spec, EqArray.ofList args, resultTy, headTok)
                     | ValueNone ->
                         let spec, survivors =
-                            mintEntry grounding shareable origin (fun () -> reduceClassified walk peeled)
+                            mintEntry grounding shareable origin (fun () -> reduceClassified placement walk peeled)
 
                         TExpr.InlineCall(spec, EqArray.ofList [ for p in survivors -> p.Arg ], resultTy, headTok)
 
@@ -990,15 +1065,28 @@ module InlineExpansion =
 
                             match e with
                             | TExpr.App _ ->
-                                let head, spineArgs = TastWalk.collectSpine [] e
+                                let markedHead, spineArgs = TastWalk.collectSpine [] e
+
+                                // Dispatch reads THROUGH any caller mark: a fused external value
+                                // in head position is still the head it was before the fusion
+                                // marked it, and a head that stopped being recognised would fall
+                                // to the catch-all as a bare external no backend can call. The
+                                // mark is consumed with the node — the rewrite replaces the head
+                                // itself, so there is no subtree left for it to cover.
+                                let head = Inline.unmarked markedHead
 
                                 match head with
                                 | TExpr.Var(k, _, headTok) when localInlines.ContainsKey k ->
                                     ValueSome(
                                         letBound (
                                             reduceClassified
+                                                // A same-unit template is MOVED onto the call
+                                                // site, so its body and the arguments fused into
+                                                // it are one anchor domain already.
+                                                Placement.Spliced
                                                 walk
                                                 (classifyApplication
+                                                    Placement.Spliced
                                                     (localParamAttrs k)
                                                     (expandLocalAt headTok localInlines.[k] spineArgs)
                                                     spineArgs)
@@ -1041,7 +1129,9 @@ module InlineExpansion =
                                     // its recipe path.
                                     | _ ->
                                         ValueSome(
-                                            TastWalk.rebuildApp head [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
+                                            TastWalk.rebuildApp
+                                                markedHead
+                                                [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
                                         )
                                 // A dotted member call on an external type — the same
                                 // head `x.get_Item(2)` / `w.Poke 41` lowers to. The
@@ -1070,16 +1160,18 @@ module InlineExpansion =
                                     | ValueNone ->
                                         ValueSome(
                                             TastWalk.rebuildApp
-                                                (walk head)
+                                                (walk markedHead)
                                                 [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
                                         )
                                 // A non-external, non-local-inline head (e.g. a
                                 // higher-order parameter): lower the head and args,
-                                // keeping the spine intact.
+                                // keeping the spine intact. The head SURVIVES here, so it is
+                                // rebuilt marked — only a rewrite that consumes the node
+                                // consumes its mark.
                                 | _ ->
                                     ValueSome(
                                         TastWalk.rebuildApp
-                                            (walk head)
+                                            (walk markedHead)
                                             [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
                                     )
                             // A BARE (non-applied) reference to a LOCAL inline — the
