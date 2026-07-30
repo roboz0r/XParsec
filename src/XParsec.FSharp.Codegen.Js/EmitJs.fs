@@ -606,15 +606,19 @@ module EmitJs =
         // already shows the IIFE shape, so what is missing is the catch-side arm matching.
         // `TypeTest` (`e :? T`) is the expression face of the gap `compileMatchPattern`
         // already refuses as `PatShape.TypeTestAs` — this backend gives values no runtime
-        // nominal identity to test. A value-position `Range` was reported at Elaborate
-        // (`RangeNotFirstClassValue`; the counted for-in lowering, which mints `ForTo`, is its
-        // only supported use), so it arrives here only on an already-diagnosed path. One
-        // message for the four: what the arms distinguish is "not on this target" from the
-        // "cannot be here" below, not one node from another.
+        // nominal identity to test.
         | ExprShape.Null
-        | ExprShape.Range
         | ExprShape.TryWith
         | ExprShape.TypeTest -> failwithf "EmitJs: unsupported expression %A" e
+
+        // NOT a target gap: `..` is an ordinary operator in F# (`val inline (..): ^T -> ^T ->
+        // seq<^T>`), so a range wants no node of its own at all, and `TExpr.Range` exists only
+        // to carry the rejection of a use this compiler does not yet materialise a seq for.
+        // Every surviving one was already reported at Elaborate (`RangeNotFirstClassValue`);
+        // the counted for-in lowering, which mints `ForTo`, consumes the one supported form.
+        // So reaching here means emitting a program already known bad — and the arm disappears
+        // with the node once `(..)` resolves through the contract like any other operator.
+        | ExprShape.Range -> failwithf "EmitJs: unsupported expression %A" e
 
         // Not "unsupported" but IMPOSSIBLE here: the specialization table is expanded, and
         // trait calls are grounded, before emission — so neither edge survives to the time

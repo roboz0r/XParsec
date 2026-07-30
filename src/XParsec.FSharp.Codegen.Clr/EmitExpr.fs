@@ -130,12 +130,20 @@ module EmitExpr =
         | ExprShape.Downcast -> EmitIntrinsic.buildDowncast buildExpr env b e
         | ExprShape.TypeTest -> EmitIntrinsic.buildTypeTest buildExpr env b e
 
-        // Not yet emitted by the CLR backend. These shapes still occur in the frozen
-        // tree (closure discovery walks `TryWith` bodies, for one), so they reach the
-        // emitter rather than being lowered away. An explicit arm each keeps the dispatch
-        // exhaustive over `ExprShape`: a newly added shape breaks the build here and
-        // forces a routing decision instead of silently falling through.
-        | ExprShape.TryWith
+        // Not yet emitted by the CLR backend. This shape still occurs in the frozen tree
+        // (closure discovery walks `TryWith` bodies), so it reaches the emitter rather than
+        // being lowered away. An explicit arm keeps the dispatch exhaustive over
+        // `ExprShape`: a newly added shape breaks the build here and forces a routing
+        // decision instead of silently falling through.
+        | ExprShape.TryWith -> failwithf "Emit: unsupported expression: %A" e
+
+        // NOT a target gap: `..` is an ordinary operator in F# (`val inline (..): ^T -> ^T ->
+        // seq<^T>`), so a range wants no node of its own at all, and `TExpr.Range` exists only
+        // to carry the rejection of a use this compiler does not yet materialise a seq for.
+        // Every surviving one was already reported at Elaborate (`RangeNotFirstClassValue`);
+        // the counted for-in lowering, which mints `ForTo`, consumes the one supported form.
+        // So reaching here means emitting a program already known bad — and the arm disappears
+        // with the node once `(..)` resolves through the contract like any other operator.
         | ExprShape.Range -> failwithf "Emit: unsupported expression: %A" e
 
         // Not "unsupported" but IMPOSSIBLE here: the specialization table is expanded, and
