@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Lexer
 
 open System
+open XParsec.FSharp
 
 type TokenKind =
     | Keyword = 0
@@ -2510,109 +2511,6 @@ module internal OperatorInfo =
         | PrecedenceLevel.Parens -> Associativity.Non
         | _ -> invalidOp $"Unknown precedence level {p}."
 
-    let private names =
-        [|
-            "[]", "op_Nil"
-            "::", "op_ColonColon"
-            "+", "op_Addition"
-            "-", "op_Subtraction"
-            "*", "op_Multiply"
-            "/", "op_Division"
-            "**", "op_Exponentiation"
-            "@", "op_Append"
-            "^", "op_Concatenate"
-            "%", "op_Modulus"
-            "&&&", "op_BitwiseAnd"
-            "|||", "op_BitwiseOr"
-            "^^^", "op_ExclusiveOr"
-            "<<<", "op_LeftShift"
-            "~~~", "op_LogicalNot"
-            ">>>", "op_RightShift"
-            "~+", "op_UnaryPlus"
-            "~-", "op_UnaryNegation"
-            "=", "op_Equality"
-            "<>", "op_Inequality"
-            "<=", "op_LessThanOrEqual"
-            ">=", "op_GreaterThanOrEqual"
-            "<", "op_LessThan"
-            ">", "op_GreaterThan"
-            "?", "op_Dynamic"
-            "?<-", "op_DynamicAssignment"
-            "|>", "op_PipeRight"
-            "||>", "op_PipeRight2"
-            "|||>", "op_PipeRight3"
-            "<|", "op_PipeLeft"
-            "<||", "op_PipeLeft2"
-            "<|||", "op_PipeLeft3"
-            "!", "op_Dereference"
-            ">>", "op_ComposeRight"
-            "<<", "op_ComposeLeft"
-            "<@ @>", "op_Quotation"
-            "<@@ @@>", "op_QuotationUntyped"
-            "~%", "op_Splice"
-            "~%%", "op_SpliceUntyped"
-            "~&", "op_AddressOf"
-            "~&&", "op_IntegerAddressOf"
-            "||", "op_BooleanOr"
-            "&&", "op_BooleanAnd"
-            "+=", "op_AdditionAssignment"
-            "-=", "op_SubtractionAssignment"
-            "*=", "op_MultiplyAssignment"
-            "/=", "op_DivisionAssignment"
-            "..", "op_Range"
-            ".. ..", "op_RangeStep"
-        |]
-
-
-    let private opCharTranslateTable =
-        [|
-            ('>', "Greater")
-            ('<', "Less")
-            ('+', "Plus")
-            ('-', "Minus")
-            ('*', "Multiply")
-            ('=', "Equals")
-            ('~', "Twiddle")
-            ('%', "Percent")
-            ('.', "Dot")
-            ('$', "Dollar")
-            ('&', "Amp")
-            ('|', "Bar")
-            ('@', "At")
-            ('#', "Hash")
-            ('^', "Hat")
-            ('!', "Bang")
-            ('?', "Qmark")
-            ('/', "Divide")
-            (':', "Colon")
-            ('(', "LParen")
-            (',', "Comma")
-            (')', "RParen")
-            (' ', "Space")
-            ('[', "LBrack")
-            (']', "RBrack")
-        |]
-
-    let getOperatorName (s: string) =
-        if String.IsNullOrEmpty(s) then
-            invalidArg "s" "Operator cannot be null or empty."
-        elif String.IsNullOrWhiteSpace(s) then
-            // Special case for an operator that is just whitespace (function application)
-            // Typically whitespace is trivia.
-            "op_Space"
-        else
-            match Array.tryFind (fun (op, _) -> op = s) names with
-            | Some(_, name) -> name
-            | None ->
-                let sb = System.Text.StringBuilder("op_")
-
-                for c in s do
-                    match Array.tryFind (fun (ch, _) -> ch = c) opCharTranslateTable with
-                    | Some(ch, translation) -> sb.Append(translation) |> ignore
-                    | None -> invalidArg "s" (sprintf "Operator %s contains invalid character '%c'." s c)
-
-                sb.ToString()
-
 [<Struct>]
 type OperatorInfo =
     internal
@@ -2660,7 +2558,7 @@ type OperatorInfo =
             // For operator keywords, the name is just the token name (e.g., "op_ColonEquals" for ":=")
             this.Token.ToString()
         else
-            OperatorInfo.getOperatorName literal
+            OperatorData.nameOfSymbol literal
 
     static member TryCreate(token: PositionedToken) =
         if TokenInfo.isOperator token.Token || TokenInfo.isOperatorKeyword token.Token then

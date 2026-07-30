@@ -2,7 +2,7 @@
 
 open System.Collections.Generic
 open System.Collections.Immutable
-open XParsec.FSharp.Lexer
+open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
@@ -37,7 +37,7 @@ module internal UnificationInferApp =
     /// that recognising operators by name string cost us everywhere else.
     let private unresolvedOperator (ctx: PassContext) (tok: SyntaxToken) (name: string) : SemType =
         let spelling =
-            match OperatorNames.sourceSymbol name with
+            match OperatorData.sourceSpelling name with
             | ValueSome symbol -> symbol
             | ValueNone -> name
 
@@ -701,7 +701,7 @@ module internal UnificationInferApp =
         let operandTy = infer ctx operand
 
         match ctx.Desugared.TryGetValue node.Key with
-        | ValueSome(DesugaredForm.OpName "op_AddressOf") ->
+        | ValueSome(DesugaredForm.OpName OperatorData.OpAddressOf) ->
             // `&local` (managed address-of) is the byref intrinsic, not a
             // provider operator — `op_AddressOf` has no Vesper.Core / BCL symbol.
             // Type it directly as `TyConst("byref", [operandTy])` (mirroring

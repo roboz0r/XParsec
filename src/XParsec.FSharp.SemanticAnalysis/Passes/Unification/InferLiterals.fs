@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -112,12 +113,12 @@ module internal UnificationInferLiterals =
 
     let isComparisonOp (name: string) : bool =
         match name with
-        | "op_Equality"
-        | "op_Inequality"
-        | "op_LessThan"
-        | "op_GreaterThan"
-        | "op_LessThanOrEqual"
-        | "op_GreaterThanOrEqual" -> true
+        | OperatorData.OpEquality
+        | OperatorData.OpInequality
+        | OperatorData.OpLessThan
+        | OperatorData.OpGreaterThan
+        | OperatorData.OpLessThanOrEqual
+        | OperatorData.OpGreaterThanOrEqual -> true
         | _ -> false
 
     /// Fires before the provider lookup in `inferInfix` so measured
@@ -145,25 +146,25 @@ module internal UnificationInferLiterals =
             unify ctx tok carrier (carrierOf ctx.Store rightTy)
 
             match name, leftUnits, rightUnits with
-            | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 when m1.Equals m2 ->
+            | (OperatorData.OpAddition | OperatorData.OpSubtraction), ValueSome m1, ValueSome m2 when m1.Equals m2 ->
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
-            | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 ->
+            | (OperatorData.OpAddition | OperatorData.OpSubtraction), ValueSome m1, ValueSome m2 ->
                 ctx.Report(tok, Kind.MeasureMismatch(string m1, string m2))
 
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m1)))
-            | ("op_Addition" | "op_Subtraction"), ValueSome m, ValueNone
-            | ("op_Addition" | "op_Subtraction"), ValueNone, ValueSome m ->
+            | (OperatorData.OpAddition | OperatorData.OpSubtraction), ValueSome m, ValueNone
+            | (OperatorData.OpAddition | OperatorData.OpSubtraction), ValueNone, ValueSome m ->
                 ctx.Report(tok, Kind.DimensionlessMeasureMismatch(string m))
 
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
-            | "op_Multiply", ValueSome m1, ValueSome m2 ->
+            | OperatorData.OpMultiply, ValueSome m1, ValueSome m2 ->
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.mul m1 m2))))
-            | "op_Multiply", ValueSome m, ValueNone
-            | "op_Multiply", ValueNone, ValueSome m -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
-            | "op_Division", ValueSome m1, ValueSome m2 ->
+            | OperatorData.OpMultiply, ValueSome m, ValueNone
+            | OperatorData.OpMultiply, ValueNone, ValueSome m -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+            | OperatorData.OpDivision, ValueSome m1, ValueSome m2 ->
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.div m1 m2))))
-            | "op_Division", ValueSome m, ValueNone -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
-            | "op_Division", ValueNone, ValueSome m ->
+            | OperatorData.OpDivision, ValueSome m, ValueNone -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
+            | OperatorData.OpDivision, ValueNone, ValueSome m ->
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.inv m))))
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some ctx.Intrinsics.Bool
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name ->

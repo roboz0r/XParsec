@@ -1,6 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-open XParsec.FSharp.Lexer
+open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
@@ -143,7 +143,7 @@ module internal ElaborateAccess =
             let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
 
             let opExpr =
-                TExpr.External("op_DynamicAssignment", opKey, TyFun(recvTy, namePartial), tok)
+                TExpr.External(OperatorData.OpDynamicAssignment, opKey, TyFun(recvTy, namePartial), tok)
 
             let app1 = TExpr.App(opExpr, translateExpr ctx r, namePartial, tok)
             let app2 = TExpr.App(app1, nameLit, valuePartial, tok)
@@ -212,7 +212,10 @@ module internal ElaborateAccess =
 
         let partialTy = TyFun(ctx.Intrinsics.String, ty)
         let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
-        let opExpr = TExpr.External("op_Dynamic", opKey, TyFun(recvTy, partialTy), tok)
+
+        let opExpr =
+            TExpr.External(OperatorData.OpDynamic, opKey, TyFun(recvTy, partialTy), tok)
+
         let app1 = TExpr.App(opExpr, translateExpr ctx r, partialTy, tok)
         TExpr.App(app1, nameLit, ty, tok)
 

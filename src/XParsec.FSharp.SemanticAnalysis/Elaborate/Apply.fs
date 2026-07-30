@@ -1,7 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Immutable
-open XParsec.FSharp.Lexer
+open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaboratePatterns
@@ -283,7 +283,7 @@ module internal ElaborateApply =
         (tok: SyntaxToken)
         : TExpr =
         match ctx.Desugared.TryGetValue key with
-        | ValueSome(DesugaredForm.OpName "op_AddressOf") ->
+        | ValueSome(DesugaredForm.OpName OperatorData.OpAddressOf) ->
             // `&local` → push the local's *address*. The operand is an addressable
             // mutable local (a `Var` bound to a slot); lower to an `ldloca`
             // intrinsic (mirroring PP2b's `ldobj` lowering), which codegen emits by

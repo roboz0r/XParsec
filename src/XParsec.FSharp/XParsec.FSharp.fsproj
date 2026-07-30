@@ -6,6 +6,7 @@
   <ItemGroup>
     <Compile Include="MoreParsers.fs" />
     <Compile Include="UtilTypes.fs" />
+    <Compile Include="OperatorData.fs" />
     <Compile Include="Token.fs" />
     <Compile Include="Lexing.fs" />
     <Compile Include="NumericLiterals.fs" />

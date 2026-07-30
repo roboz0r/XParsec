@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open VesperLibTyparCapture
@@ -40,12 +41,12 @@ module VesperLibTypeTranslate =
         // has no `op_` member in expression position — see `OperatorNames.ofToken`),
         // so it is mapped here before delegating to the shared resolver.
         | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) when opTok.Token = Token.KWColonColon ->
-            ValueSome "op_ColonColon"
+            ValueSome OperatorData.OpColonColon
         | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) ->
             OperatorNames.ofParenSymbolic (nameOfTok lexed input opTok) opTok
-        | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome "op_Range"
-        | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome "op_RangeStep"
-        | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome "op_Nil"
+        | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome OperatorData.OpRange
+        | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome OperatorData.OpRangeStep
+        | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome OperatorData.OpNil
         | IdentOrOp.ParenOp(_, OpName.ActivePatternOp _, _) ->
             // Active-pattern compiled names are non-trivial — defer.
             ValueNone

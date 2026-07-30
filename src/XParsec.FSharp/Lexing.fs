@@ -2349,49 +2349,6 @@ module Lexing =
         open System.Collections.Concurrent
         let generatedNameCache = ConcurrentDictionary<string, string>()
 
-        let standardOperators =
-            Map.ofList
-                [
-                    "[]", "op_Nil"
-                    "::", "op_Cons"
-                    "+", "op_Addition"
-                    "-", "op_Subtraction"
-                    "*", "op_Multiply"
-                    "**", "op_Exponentiation"
-                    "/", "op_Division"
-                    "@", "op_Append"
-                    "^", "op_Concatenate"
-                    "%", "op_Modulus"
-                    "&&&", "op_BitwiseAnd"
-                    "|||", "op_BitwiseOr"
-                    "^^^", "op_ExclusiveOr"
-                    "<<<", "op_LeftShift"
-                    "~~~", "op_LogicalNot"
-                    ">>>", "op_RightShift"
-                    "~+", "op_UnaryPlus"
-                    "~-", "op_UnaryNegation"
-                    "=", "op_Equality"
-                    "<=", "op_LessThanOrEqual"
-                    ">=", "op_GreaterThanOrEqual"
-                    "<", "op_LessThan"
-                    ">", "op_GreaterThan"
-                    "?", "op_Dynamic"
-                    "?<-", "op_DynamicAssignment"
-                    "|>", "op_PipeRight"
-                    "<|", "op_PipeLeft"
-                    "!", "op_Dereference"
-                    ">>", "op_ComposeRight"
-                    "<<", "op_ComposeLeft"
-                    // "<@ @>", "op_Quotation"
-                    // "<@@ @@>", "op_QuotationUntyped"
-                    "+=", "op_AdditionAssignment"
-                    "-=", "op_SubtractionAssignment"
-                    "*=", "op_MultiplyAssignment"
-                    "/=", "op_DivisionAssignment"
-                    "..", "op_Range"
-                // ".. ..", "op_RangeStep"
-                ]
-
         let generateOperatorName (t: Token) (operatorText: string) =
             if operatorText.Length = 0 then
                 invalidArg "operatorText" "Operator text cannot be empty."
@@ -2402,48 +2359,7 @@ module Lexing =
             if t.IsKeyword then
                 operatorText // Keywords are not renamed
             else
-                let getCharName =
-                    function
-                    | '>' -> "Greater"
-                    | '<' -> "Less"
-                    | '+' -> "Plus"
-                    | '-' -> "Minus"
-                    | '*' -> "Multiply"
-                    | '/' -> "Divide"
-                    | '=' -> "Equals"
-                    | '~' -> "Twiddle"
-                    | '$' -> "Dollar"
-                    | '%' -> "Percent"
-                    | '.' -> "Dot"
-                    | '&' -> "Amp"
-                    | '|' -> "Bar"
-                    | '@' -> "At"
-                    | '^' -> "Hat"
-                    | '!' -> "Bang"
-                    | '?' -> "Qmark"
-                    | '(' -> "LParen"
-                    | ',' -> "Comma"
-                    | ')' -> "RParen"
-                    | '[' -> "LBrack"
-                    | ']' -> "RBrack"
-                    | ':' -> "Colon"
-                    // Handle unsupported characters gracefully.
-                    | c -> invalidArg "operator" (sprintf "Unsupported character '%c' in operator." c)
-
-                match Map.tryFind operatorText standardOperators with
-                | Some name -> name
-                | None ->
-                    generatedNameCache.GetOrAdd(
-                        operatorText,
-                        fun operator ->
-                            seq {
-                                "op_"
-
-                                for c in operator do
-                                    getCharName c
-                            }
-                            |> String.Concat
-                    )
+                generatedNameCache.GetOrAdd(operatorText, (fun op -> OperatorData.nameOfSymbol op))
 
     [<AutoOpen>]
     module internal FormatStrings =

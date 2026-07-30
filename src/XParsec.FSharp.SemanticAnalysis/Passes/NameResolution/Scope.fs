@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Immutable
+open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeHeadStamp
@@ -809,11 +810,11 @@ module NameResolutionScope =
         // v)`; its inner `DynamicLookup` is also visited and stamps `op_Dynamic`,
         // but `inferDynamicSet` reads the `op_DynamicAssignment` stamp on the
         // enclosing `Assignment` node (below), so the inner stamp is inert.
-        | Expr.DynamicLookup _ -> stampExternalSymbol ctx (CstKeys.ofExpr e) "op_Dynamic"
+        | Expr.DynamicLookup _ -> stampExternalSymbol ctx (CstKeys.ofExpr e) OperatorData.OpDynamic
         // `recv?name <- value` — the dynamic setter; stamp `op_DynamicAssignment`
         // on the enclosing `Assignment` (the key `inferDynamicSet` reads).
         | Expr.Assignment(leftExpr = Expr.DynamicLookup _) ->
-            stampExternalSymbol ctx (CstKeys.ofExpr e) "op_DynamicAssignment"
+            stampExternalSymbol ctx (CstKeys.ofExpr e) OperatorData.OpDynamicAssignment
         | _ -> ()
 
     let mkWalker (ctx: PassContext) : CstWalk.ExprWalker<Scope list> =

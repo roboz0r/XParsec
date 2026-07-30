@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -38,7 +39,7 @@ module Desugar =
     /// mapped directly. Range / active-pattern heads return `ValueNone`.
     let opPatCompiledName (nameOf: SyntaxToken -> string) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
-        | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome "op_Nil"
+        | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome OperatorData.OpNil
         | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) -> OperatorNames.ofParenSymbolic (nameOf tok) tok
         | _ -> ValueNone
 
@@ -46,18 +47,18 @@ module Desugar =
     /// unary `-x` (PrefixApp). The PrefixApp form maps to op_UnaryNegation.
     let private prefixOpName (t: Token) : string voption =
         match t with
-        | Token.OpSubtraction -> ValueSome "op_UnaryNegation"
+        | Token.OpSubtraction -> ValueSome OperatorData.OpUnaryNegation
         // `~~~x` (bitwise complement) lexes to the distinct `OpLogicalNot`
         // (wellKnownOps); `~-`/`~+` only appear as binding heads / values today,
         // not as their own prefix use site (`-x` is `OpSubtraction`).
-        | Token.OpLogicalNot -> ValueSome "op_LogicalNot"
+        | Token.OpLogicalNot -> ValueSome OperatorData.OpLogicalNot
         // `&local` is the managed address-of (byref): its prefix compiled name is
         // `op_AddressOf`. Unlike the other prefix ops it has no provider symbol —
         // `inferPrefix` / `translatePrefix` special-case the name (the byref
         // intrinsic + an `ldloca` of the local), so it never reaches operator
         // resolution. `&&` (`OpAmpAmp`, native int address-of) is left unmapped
         // (no consumer) and the boolean `&&` is an `InfixApp`, not a prefix.
-        | Token.OpAmp -> ValueSome "op_AddressOf"
+        | Token.OpAmp -> ValueSome OperatorData.OpAddressOf
         | _ -> ValueNone
 
     /// `[ … ]` / `[| … |]` literals share the same lowering target — the

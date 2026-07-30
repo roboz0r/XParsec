@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -26,31 +27,31 @@ module OperatorNames =
     /// (the contract surface) names `op_ColonColon` itself before delegating.
     let ofToken (t: Token) : string voption =
         match t with
-        | Token.OpAddition -> ValueSome "op_Addition"
-        | Token.OpSubtraction -> ValueSome "op_Subtraction"
-        | Token.OpMultiply -> ValueSome "op_Multiply"
-        | Token.OpDivision -> ValueSome "op_Division"
-        | Token.OpModulus -> ValueSome "op_Modulus"
-        | Token.OpLessThan -> ValueSome "op_LessThan"
-        | Token.OpGreaterThan -> ValueSome "op_GreaterThan"
-        | Token.OpLessThanOrEqual -> ValueSome "op_LessThanOrEqual"
-        | Token.OpGreaterThanOrEqual -> ValueSome "op_GreaterThanOrEqual"
-        | Token.OpEquality -> ValueSome "op_Equality"
-        | Token.OpInequality -> ValueSome "op_Inequality"
-        | Token.OpBitwiseAnd -> ValueSome "op_BitwiseAnd"
-        | Token.OpBitwiseOr -> ValueSome "op_BitwiseOr"
-        | Token.OpExclusiveOr -> ValueSome "op_ExclusiveOr"
-        | Token.OpLeftShift -> ValueSome "op_LeftShift"
-        | Token.OpRightShift -> ValueSome "op_RightShift"
-        | Token.OpAmpAmp -> ValueSome "op_BooleanAnd"
-        | Token.OpBarBar -> ValueSome "op_BooleanOr"
+        | Token.OpAddition -> ValueSome OperatorData.OpAddition
+        | Token.OpSubtraction -> ValueSome OperatorData.OpSubtraction
+        | Token.OpMultiply -> ValueSome OperatorData.OpMultiply
+        | Token.OpDivision -> ValueSome OperatorData.OpDivision
+        | Token.OpModulus -> ValueSome OperatorData.OpModulus
+        | Token.OpLessThan -> ValueSome OperatorData.OpLessThan
+        | Token.OpGreaterThan -> ValueSome OperatorData.OpGreaterThan
+        | Token.OpLessThanOrEqual -> ValueSome OperatorData.OpLessThanOrEqual
+        | Token.OpGreaterThanOrEqual -> ValueSome OperatorData.OpGreaterThanOrEqual
+        | Token.OpEquality -> ValueSome OperatorData.OpEquality
+        | Token.OpInequality -> ValueSome OperatorData.OpInequality
+        | Token.OpBitwiseAnd -> ValueSome OperatorData.OpBitwiseAnd
+        | Token.OpBitwiseOr -> ValueSome OperatorData.OpBitwiseOr
+        | Token.OpExclusiveOr -> ValueSome OperatorData.OpExclusiveOr
+        | Token.OpLeftShift -> ValueSome OperatorData.OpLeftShift
+        | Token.OpRightShift -> ValueSome OperatorData.OpRightShift
+        | Token.OpAmpAmp -> ValueSome OperatorData.OpBooleanAnd
+        | Token.OpBarBar -> ValueSome OperatorData.OpBooleanOr
         // Pipes and composition are polymorphic FSharp.Core functions, not
         // language intrinsics — they resolve through the same provider path as
         // any other named operator.
-        | Token.OpPipeRight -> ValueSome "op_PipeRight"
-        | Token.OpPipeLeft -> ValueSome "op_PipeLeft"
-        | Token.OpComposeRight -> ValueSome "op_ComposeRight"
-        | Token.OpComposeLeft -> ValueSome "op_ComposeLeft"
+        | Token.OpPipeRight -> ValueSome OperatorData.OpPipeRight
+        | Token.OpPipeLeft -> ValueSome OperatorData.OpPipeLeft
+        | Token.OpComposeRight -> ValueSome OperatorData.OpComposeRight
+        | Token.OpComposeLeft -> ValueSome OperatorData.OpComposeLeft
         // The dynamic-access operators. `?` / `?<-` lex to KEYWORD-kind tokens
         // (`OpDynamic` / `OpDynamicAssignment`), so `OperatorInfo.GetName` returns the
         // bare token name ("OpDynamic") rather than the compiled `op_*` form — map them
@@ -58,37 +59,15 @@ module OperatorNames =
         // binding heads in `ops-dynamic.js.fsi` harvest under the names the front end
         // resolves (`op_Dynamic` / `op_DynamicAssignment`). Never appear as a bare
         // `InfixApp` op (a `?` use site is `Expr.DynamicLookup`), so this is additive.
-        | Token.OpDynamic -> ValueSome "op_Dynamic"
-        | Token.OpDynamicAssignment -> ValueSome "op_DynamicAssignment"
+        | Token.OpDynamic -> ValueSome OperatorData.OpDynamic
+        | Token.OpDynamicAssignment -> ValueSome OperatorData.OpDynamicAssignment
         | _ -> ValueNone
-
-    /// The SOURCE spelling of a compiled operator member name (`op_Addition` ⇒ `+`),
-    /// for a DIAGNOSTIC that must name the operator the user wrote rather than the
-    /// member it compiled to ("the type 'decimal' does not support the operator '+'").
-    ///
-    /// INVERTED from the lexer's `Lexing.Operator.standardOperators` — the symbol→name
-    /// table `generateOperatorName` itself reads — rather than hand-copied, so the
-    /// spelling of an operator cannot drift from the name it compiles to. Names outside
-    /// that table (an operator `generateOperatorName` spells out per-character, or a
-    /// plain method name) yield `ValueNone`: the caller falls back to the compiled name.
-    let private symbolOfCompiledName: Map<string, string> =
-        Lexing.Operator.standardOperators
-        |> Map.toSeq
-        |> Seq.map (fun (symbol, compiled) -> compiled, symbol)
-        |> Map.ofSeq
-
-    let sourceSymbol (compiledName: string) : string voption =
-        match Map.tryFind compiledName symbolOfCompiledName with
-        | Some symbol -> ValueSome symbol
-        | None -> ValueNone
 
     /// Compiled name for a parenthesised *symbolic* operator head (`(<<<)`,
     /// `(~-)`, `(|>)`). The dedicated-token operators resolve through `ofToken`;
     /// everything else — the generic-token family a `(...)` head collapses to —
-    /// defers to the parser's canonical operator-name function
-    /// (`OperatorInfo.getOperatorName`, fed the head's lexed `text`), the one
-    /// place the symbol→name table actually lives. `text` is the operator's lexed
-    /// source (`&&&`, `~-`, …).
+    /// defers to the canonical operator-name function, fed the head's lexed `text`
+    /// (the operator's source spelling: `&&&`, `~-`, …).
     let ofParenSymbolic (text: string) (tok: SyntaxToken) : string voption =
         match ofToken tok.Token with
         | ValueSome _ as found -> found

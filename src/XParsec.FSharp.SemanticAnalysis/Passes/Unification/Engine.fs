@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
-open XParsec.FSharp.Lexer
+open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
@@ -923,29 +923,48 @@ module UnificationEngine =
     and private numericPrimitives = RuntimeNames.numericTypeNames
 
     and private arithmeticBinaryOps =
-        Set.ofList [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ]
+        Set.ofList
+            [
+                OperatorData.OpAddition
+                OperatorData.OpSubtraction
+                OperatorData.OpMultiply
+                OperatorData.OpDivision
+                OperatorData.OpModulus
+            ]
 
     // Bitwise AND/OR/XOR have the same `^T * ^T -> ^T` primitive shape as
     // arithmetic; the shift operators differ — their second operand is `int32`,
     // not `^T` (`op_LeftShift`/`op_RightShift`: `^T * int32 -> ^T`).
     and private bitwiseBinaryOps =
-        Set.ofList [ "op_BitwiseAnd"; "op_BitwiseOr"; "op_ExclusiveOr" ]
+        Set.ofList
+            [
+                OperatorData.OpBitwiseAnd
+                OperatorData.OpBitwiseOr
+                OperatorData.OpExclusiveOr
+            ]
 
-    and private shiftOps = Set.ofList [ "op_LeftShift"; "op_RightShift" ]
+    and private shiftOps =
+        Set.ofList [ OperatorData.OpLeftShift; OperatorData.OpRightShift ]
 
     // Unary `~-` / `~+` / `~~~` — one primitive operand, `^T -> ^T`.
     and private unaryPrimitiveOps =
-        Set.ofList [ "op_UnaryNegation"; "op_UnaryPlus"; "op_LogicalNot" ]
+        Set.ofList
+            [
+                OperatorData.OpUnaryNegation
+                OperatorData.OpUnaryPlus
+                OperatorData.OpLogicalNot
+            ]
 
-    and private equalityBinaryOps = Set.ofList [ "op_Equality"; "op_Inequality" ]
+    and private equalityBinaryOps =
+        Set.ofList [ OperatorData.OpEquality; OperatorData.OpInequality ]
 
     and private orderingBinaryOps =
         Set.ofList
             [
-                "op_LessThan"
-                "op_GreaterThan"
-                "op_LessThanOrEqual"
-                "op_GreaterThanOrEqual"
+                OperatorData.OpLessThan
+                OperatorData.OpGreaterThan
+                OperatorData.OpLessThanOrEqual
+                OperatorData.OpGreaterThanOrEqual
             ]
 
     // Equality stays in Vesper.Core, ordering in Vesper.Comparison. Both families
@@ -956,7 +975,7 @@ module UnificationEngine =
     and private comparisonBinaryOps = Set.union equalityBinaryOps orderingBinaryOps
 
     and private tryPrimitiveTraitCandidate (memberName: string) (primName: string) (argCount: int) : SemType voption =
-        if primName = "string" && memberName = "op_Addition" && argCount = 2 then
+        if primName = "string" && memberName = OperatorData.OpAddition && argCount = 2 then
             // String concatenation: `string * string -> string`. `string` is not a
             // numeric primitive, but the `(+)` inline's `when ^T : string` clause
             // makes `string + string` valid (codegen lowers it to

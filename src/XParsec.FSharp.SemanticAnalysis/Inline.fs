@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec.FSharp
 open XParsec.FSharp.Parser
 // `Unification.zonk` and `shown`: the pre-freeze type questions below are asked THROUGH
 // union-find, which is the substrate this side of the freeze and not a pass's private state.
@@ -750,7 +751,7 @@ module Inline =
     let internal unsupportedTrait (store: TypeStore) (u: UnresolvedTrait) : Kind =
         let receiver = shown store u.Receiver
 
-        match OperatorNames.sourceSymbol u.MemberName with
+        match OperatorData.sourceSpelling u.MemberName with
         | ValueSome symbol -> Kind.TraitNotSupported(receiver, MemberNoun.Operator, symbol)
         | ValueNone -> Kind.TraitNotSupported(receiver, MemberNoun.Member, u.MemberName)
 
@@ -761,7 +762,7 @@ module Inline =
     let servedName (key: SymbolKey) : string =
         let (DisplayName name) = SymbolKeyOps.simpleName key
 
-        match OperatorNames.sourceSymbol name with
+        match OperatorData.sourceSpelling name with
         | ValueSome symbol -> symbol
         | ValueNone -> name
 
