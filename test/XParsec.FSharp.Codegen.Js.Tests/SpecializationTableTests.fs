@@ -19,21 +19,104 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // keeps them). The front-end-only providers the SA suite composes publish no bodies at all.
 
 /// Run the front end up to (and including) inline expansion, and hand back the pass's own
-/// product — the flattened decls AND the table its edges named.
+/// product — the flattened decls AND the table its edges named — paired with the diagnostics
+/// THE PASS reported, kept apart from whatever the passes before it found so that a verdict
+/// about an expansion cannot be mistaken for one about the source that reached it.
 ///
 /// The prefix mirrors `Pipeline.analyseSemWithContextForCore` up to `Elaborate.run`, stopping
 /// where the table would otherwise be flattened away and discarded.
-let private expandedFor (input: string) : InlineExpansion.Expanded =
+let private expandedWith
+    (provider: IExternalSymbolProvider)
+    (input: string)
+    : InlineExpansion.Expanded * Diagnostic list =
     let lexed, file = parseFile input
-    let ctx = PassContext(jsProvider.Value, input, lexed)
+    let ctx = PassContext(provider, input, lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
     Validation.run ctx file
 
     match ctx.Diagnostics |> List.ofSeq |> Diagnostic.errors with
-    | [] -> InlineExpansion.run ctx (Elaborate.elaborate ctx file)
-    | errors -> failtestf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
+    | [] ->
+        let before = ctx.Diagnostics.Count
+        let expanded = InlineExpansion.run ctx (Elaborate.elaborate ctx file)
+        expanded, [ for i in before .. ctx.Diagnostics.Count - 1 -> ctx.Diagnostics.[i] ]
+    | errors -> failtestf "analysis errors before expansion: %A" (errors |> List.map (fun d -> d.Message))
+
+let private expandedWithDiagnostics (input: string) : InlineExpansion.Expanded * Diagnostic list =
+    expandedWith jsProvider.Value input
+
+let private expandedFor (input: string) : InlineExpansion.Expanded =
+    match expandedWithDiagnostics input with
+    | expanded, [] -> expanded
+    | _, ds -> failtestf "the expansion reported: %A" (ds |> List.map (fun d -> d.Message))
+
+/// The recursive-inline verdicts among `ds`, as the binding each closes on and the way round.
+let private cyclicInlines (ds: Diagnostic list) : (string * string list) list =
+    [
+        for d in ds do
+            match d.Kind with
+            | Kind.CyclicInline(binding, via) -> yield binding, via
+            | _ -> ()
+    ]
+
+/// A synthetic PRODUCER package, written under `tmp/` and resolved against like any other.
+///
+/// Authored here rather than added to a real manifest because the bodies these tests need are
+/// exactly the ones a working library cannot hold: an inline binding that calls itself has no
+/// expansion, so a package carrying one breaks every consumer that touches it. A package is
+/// nonetheless the only route to a body with a retained `OriginFile` — and without one there is
+/// no entry, no table, and nothing for the acyclicity check to find a cycle on.
+///
+/// `selfLoop`'s parameter SURVIVES its reduction, so its entry is shareable and interned;
+/// `fusedLoop`'s `[<CallAtMostOnce>]` operand is fused, so its entry is deliberately NOT interned
+/// and only the slot reservation stands between it and an unbounded expansion.
+let private recursiveProducer: Lazy<IExternalSymbolProvider> =
+    lazy
+        let dir = tmpDir "Cycle.Probe"
+
+        let write (name: string) (text: string) =
+            System.IO.File.WriteAllText(System.IO.Path.Combine(dir, name), text)
+
+        // No `depends-on`: it resolves package names against sibling directories of the package
+        // itself, and this one lives beside no library. The manifest list supplies Vesper.Core.
+        write
+            "manifest.toml"
+            """[core]
+name = "Cycle.Probe"
+namespace = "CycleProbe"
+description = "Inline bodies that call themselves, for the acyclicity check."
+files = ["probe.fsi"]
+impl = []
+inline-bodies = ["probe.fs"]
+inline-bodies-js = ["probe.fs"]
+"""
+
+        write
+            "probe.fsi"
+            """namespace CycleProbe
+
+[<AutoOpen>]
+module Probe =
+    val inline selfLoop: x: int -> int
+    val inline fusedLoop: a: int -> b: int -> int
+"""
+
+        write
+            "probe.fs"
+            """namespace CycleProbe
+
+open Vesper
+
+[<AutoOpen>]
+module Probe =
+    let rec inline selfLoop (x: int) : int = selfLoop x
+    let rec inline fusedLoop (a: int) ([<CallAtMostOnce>] b: int) : int = fusedLoop a b
+"""
+
+        JsNativeSymbols.buildJsNativeContractFor
+            (Some Target.Js)
+            (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
 
 /// The entries resolved from the template `name` names — `op_Addition`, `op_Multiply`, … —
 /// picked out of a table that also holds every other inline the source happened to reach.
@@ -143,6 +226,80 @@ let tests =
     testList
         "SpecializationTable"
         [
+            test "a self-referential `let inline` is a verdict, not an exhausted stack" {
+                // A local template SPLICES, so there is no entry and no table: the guard that
+                // stops this is the in-flight frame, and what it produces has to be a diagnostic
+                // about the user's source — the expansion the program asks for does not exist.
+                let _, ds = expandedWithDiagnostics "let rec inline f x = f x\nlet a = f 1\n"
+
+                Expect.equal
+                    (cyclicInlines ds)
+                    [ "f", [] ]
+                    "`f` reaches itself directly, so the chain is the binding and nothing between"
+            }
+
+            test "a MUTUALLY recursive pair is caught, and the verdict names the way round" {
+                let _, ds =
+                    expandedWithDiagnostics "let rec inline f x = g x\nand inline g x = f x\nlet a = f 1\n"
+
+                // Each binding is separately unexpandable and each is reported where it is
+                // written, so the two rotations are two verdicts and not one repeated.
+                Expect.containsAll
+                    (cyclicInlines ds)
+                    [ "f", [ "g" ]; "g", [ "f" ] ]
+                    "a → b → a is a cycle even though neither binding names itself"
+            }
+
+            test "a recursive SERVED body terminates into a cyclic table, which is rejected" {
+                // The outlined half. `selfLoop`'s reduction is CLOSED, so its entry is shareable
+                // and interned; what stops the expansion is the reserved slot, and what the call
+                // that reaches it becomes is a back edge — leaving a finite, inspectable table.
+                let expanded, ds = expandedWith recursiveProducer.Value "let a = selfLoop 1\n"
+
+                Expect.equal
+                    (cyclicInlines ds)
+                    [ "selfLoop", [] ]
+                    "the verdict comes off the TABLE, and names the template the entry resolved"
+
+                match Inline.findCycle expanded.Specializations with
+                | ValueSome cycle ->
+                    Expect.equal
+                        (List.length cycle)
+                        1
+                        "a body that reaches itself at one grounding is a ONE-entry cycle: a self-edge"
+                | ValueNone -> failtest "the table the verdict was read off must actually be cyclic"
+
+                // Unflattened, and necessarily so: flattening is what would not terminate.
+                Expect.isNonEmpty
+                    (expanded.Decls
+                     |> List.collect (fun (d, _) ->
+                         match d with
+                         | TDecl.Let(_, value, _, _) -> Inline.edges value
+                         | _ -> []
+                     ))
+                    "the declarations keep their edges, since nothing may walk a cyclic table"
+            }
+
+            test "a recursive served body whose reduction FUSES is rejected too" {
+                // The case the INTERNING does not reach: `fusedLoop`'s `[<CallAtMostOnce>]`
+                // operand is fused, so the entry is deliberately not shareable and no lookup will
+                // ever return it. Only the slot reservation — which covers every outlined entry,
+                // not just the shareable ones — keeps this finite.
+                let expanded, ds = expandedWith recursiveProducer.Value "let a = fusedLoop 1 2\n"
+
+                Expect.equal (cyclicInlines ds) [ "fusedLoop", [] ] "the fused path reaches the same verdict"
+
+                Expect.isTrue
+                    (ValueOption.isSome (Inline.findCycle expanded.Specializations))
+                    "…because its expansion terminated into a table rather than into the stack"
+
+                Expect.isNonEmpty
+                    (expanded.Specializations
+                     |> Array.toList
+                     |> List.filter (entryValue >> Inline.containsCallerExpr))
+                    "the entry really did fuse call-site material, or this exercises the shareable path again"
+            }
+
             test "two call sites at the SAME grounding share one entry" {
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 30 + 40\n"
 
@@ -393,5 +550,77 @@ let tests =
                     | TDecl.Type _ -> ()
 
                 Expect.equal edges 0 "every edge was spliced back, so the pass's output is what it always was"
+            }
+
+            test "a fused entry named by TWO edges is what the closure assertion convicts" {
+                // The condition that LICENSES the mark: a `CallerExpr` pops one frame, and "the
+                // frame out" names one file only while the entry has one caller. `(&&)`'s entry
+                // fuses, so a second edge to it would make its own mark undefined.
+                let expanded = expandedFor "let a = true && false\n"
+
+                let slot =
+                    match
+                        expanded.Specializations
+                        |> Array.tryFindIndex (fun e -> SymbolKeyOps.intrinsicName e.Key.Template = "op_BooleanAnd")
+                    with
+                    | Some i -> i
+                    | None -> failtest "the fixture must reach `(&&)`'s fused entry"
+
+                let spec = SpecializationId slot
+                let entry = expanded.Specializations.[slot]
+
+                let edge =
+                    TExpr.InlineCall(spec, EqArray.empty, TastWalk.exprTy (entryValue entry), SyntaxToken.nowhere)
+
+                Expect.isEmpty
+                    (Inline.miscountedFusedEntries [ edge ] expanded.Specializations)
+                    "one edge to a fused entry is exactly what the invariant asks for"
+
+                Expect.equal
+                    (Inline.miscountedFusedEntries [ edge; edge ] expanded.Specializations)
+                    [ spec, 2 ]
+                    "…and a second one convicts it, naming the entry and the count"
+            }
+
+            test "a fused external in call-head position anchors where the ENTRY wrote it" {
+                // `(|>) arg func = func arg` binds `func` to the bare external `not`, which the
+                // classification substitutes into the body — so the `App` the walker then meets
+                // has a head written HERE inside an application written in `ops-std.fs`. The
+                // rewrite consumes the head and its mark with it, so the edge that replaces the
+                // application can only be right if it takes the APPLICATION's position: there is
+                // no marker left to say the head's would have been the caller's.
+                let input = "let b = true\nlet a = b |> not\n"
+                let expanded = expandedFor input
+                let lexed, _ = parseFile input
+                let origins = JsNativeSymbols.jsNativeInlineOriginsFor (Some Target.Js) jsManifests
+
+                let entry =
+                    match entriesFor "op_PipeRight" expanded.Specializations with
+                    | [ e ] -> e
+                    | other -> failtestf "expected exactly one `(|>)` entry, got %d" (List.length other)
+
+                Expect.isEmpty
+                    (callerMarked (entryValue entry))
+                    "the rewrite consumed the head, so no mark is left to carry the position"
+
+                // The entry-references-entry leg of the DAG, which no other fixture reaches: `(|>)`
+                // outlines an application whose head has an entry of its own.
+                Expect.isNonEmpty (Inline.edges (entryValue entry)) "the entry's body names another entry"
+
+                let ownToks = unmarkedPositions (entryValue entry)
+
+                for tok in ownToks do
+                    match tok.Index with
+                    | TokenIndex.Virtual -> ()
+                    | TokenIndex.Regular _ ->
+                        Expect.equal
+                            (OriginSources.tokenAt origins entry.Origin (ForeignAnchor.ofAnchor (Anchor.ofToken tok)))
+                            tok
+                            "every unmarked node of the entry — the edge included — reads against its `OriginFile`"
+
+                Expect.isGreaterThan
+                    (List.min (tokenIndices ownToks))
+                    (int lexed.Tokens.Length)
+                    "…and past the end of the CONSUMING file, so none of them is the caller's head token"
             }
         ]

@@ -276,6 +276,14 @@ type Kind =
     | MemberAndLocalBindingClash of name: string
     | DuplicateMember of name: string
     | CyclicType of name: string * via: TypeCycle
+    /// An `inline` binding whose expansion reaches itself. `binding` is the binding the cycle
+    /// closes on; `via` the bindings between it and itself in call order, EMPTY for a direct
+    /// self-reference — so the pair is non-empty by construction and a renderer never has to
+    /// decide what an empty chain would mean.
+    ///
+    /// The bindings as DATA rather than an arrow-joined sentence, like every other case: a
+    /// consumer asking "which binding is recursive?" must not have to parse English.
+    | CyclicInline of binding: string * via: string list
 
     // ── Written, understood, not implemented ───────────────────────────────────
     /// The program is not WRONG — this compiler does not do that yet. Its own verdict
@@ -388,6 +396,10 @@ module Kind =
         // a bug in it); the rest are ones whose fsc counterpart is a catch-all rather than a
         // classification, which is not worth reproducing.
         | Kind.CyclicType(via = TypeCycle.Inheritance)
+        // fsc has no analogue: it declines to inline a recursive binding and emits the
+        // ordinary function instead, where a cross-unit `val inline` here has no such
+        // function to fall back to. A refusal fsc never makes cannot borrow its number.
+        | Kind.CyclicInline _
         | Kind.UnrepresentableTypes _
         | Kind.OperatorFormQualifiedName _
         // An internal break is not a verdict about the program, so there is nothing for a
@@ -487,6 +499,11 @@ module Kind =
             sprintf
                 "Type '%s' involves an immediate cyclic reference through a struct field or inheritance relation"
                 name
+        | Kind.CyclicInline(binding, via) ->
+            sprintf
+                "The inline binding '%s' expands into itself (%s) — an inline body is spliced at its call site, so a binding that reaches itself has no expansion"
+                binding
+                (String.concat " → " (binding :: via @ [ binding ]))
         | Kind.NotYetSupported feature -> sprintf "not yet supported: %s" feature
         | Kind.IntrinsicNotInScope intrinsic -> sprintf "%s is not in scope (Vesper.Core missing?)" intrinsic
         // The prefix is applied HERE rather than written into each `InternalBreak` case, so
@@ -559,6 +576,7 @@ module Kind =
         | Kind.MemberAndLocalBindingClash _
         | Kind.DuplicateMember _
         | Kind.CyclicType _
+        | Kind.CyclicInline _
         | Kind.NotYetSupported _
         | Kind.IntrinsicNotInScope _
         | Kind.Conformance _

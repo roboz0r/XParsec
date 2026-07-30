@@ -207,18 +207,16 @@ is native and `PassContext` is in hand; the `TraitNotSupported` diagnostic
    frame and nothing may pop one. `mintEntry` faults on a shareable entry that marks anything.
    See "Where this stands" for the two positions marking still cannot reach.
 
-5. **Cycle detection + closure assertion.** The DAG needs an explicit acyclicity check with
-   a real diagnostic. Confirmed 2026-07-29: no recursion guard exists anywhere, and there is
-   no cyclic-inline diagnostic at all. Add the closure assertion from the shape section
-   alongside it.
-
-   State after the interning landed: `mintEntry` reserves the slot BEFORE building the body,
-   so a template reaching itself at the same grounding emits `InlineCall(self)` — the table
-   comes out finite and cyclic, i.e. inspectable, instead of recursing forever. Two gaps this
-   step must close: `Inline.flatten` has NO cycle guard, so a cyclic table now diverges in the
-   flattener rather than the expander; and the reservation only covers SHAREABLE entries — a
-   fused reduction is deliberately not interned, so a recursive fused inline still diverges at
-   expansion exactly as before. Reject the cycle on the table, before anything walks it.
+5. **Cycle detection + closure assertion.** LANDED. `Kind.CyclicInline` is the verdict;
+   `Inline.findCycle` is `flatten`'s precondition, checked on the finished table so nothing
+   walks a cyclic one, and a cyclic table leaves the decls unflattened. The reservation now
+   reaches EVERY outlined entry rather than only the shareable ones (it rides
+   `ExpansionFrame.Slot`, where `interned` is left to mean "finished and reusable"), so a fused
+   recursion terminates into a back edge like a shareable one. A SPLICED reduction has no entry
+   to point an edge at, so the in-flight frame stack answers it directly and reports there;
+   walking call-site material pops the stack to the depth that material was written at, or
+   `1 - 2 - 3` would convict itself. `Inline.miscountedFusedEntries` is the closure assertion's
+   graph-wide half — an entry that marks caller material must be named by exactly one edge.
 
 6. **Backend flattening in `Codegen.Common`.** A shared recursive graph expansion that
    splices entries at emit, maintaining the frame stack as it descends. Both backends
@@ -267,13 +265,10 @@ fused-entry finding under step 7 is ADDRESSED for subtree-shaped fused material 
 `[<CallAtMostOnce>]` and inline-first-lambda mechanisms both leave a marked subtree — but two
 positions still ride an entry unmarked, and a source map must not assume otherwise:
 
-- **A fused external at a CALL HEAD loses its mark.** `Placement.fuse` marks it, but the
-  walker's `App` arm reads the head through `Inline.unmarked` (it must, or the head stops
-  being recognised and falls through as a bare external no backend can call) and the rewrite
-  CONSUMES the node. The resulting `InlineCall`/splice is anchored at the caller's head token
-  while sitting in the entry. `x |> ignore` is the live case. Fixing it means anchoring that
-  edge at the APPLICATION node the entry itself wrote — the position `collectSpine` already
-  pairs with each argument — rather than at the head.
+- **A fused external at a CALL HEAD loses its mark.** FIXED with step 5: the `App` arm anchors
+  every rewrite at the application node it REPLACES (`TastWalk.exprTok e`) rather than at the
+  head, so the edge is producer material by construction and needs no marker. The live case is
+  `b |> not` on JS (`ignore` has no JS inline body, so its head is never consumed).
 - **A fused lambda's own BINDER token stays with its pattern.** `underLambdas` marks what the
   lambda computes, but `Inline.betaReduce` turns its parameters into `TPat.NamedSimple`s
   carrying the call site's tokens inside a `Let` the entry wrote, and no EXPRESSION marker can
@@ -293,8 +288,7 @@ Two further carried gaps:
   still CORRECT for a local inline — its definition site is in the same file — so what is lost
   is line precision, not the headline result. Making locals entries needs `Origin` to become a
   DU and locals to be keyed by something other than `SymbolKey`.
-- **The entry-references-entry leg of the DAG is unexercised.** Flattening supports and
-  handles it, but no fixture produces an entry whose body carries another edge (`ops-platform`
-  bodies are raw `(# … #)` intrinsics that call nothing out; `<>`, `<=`, `&&`, `hash`, `=`,
-  `|>`, `ignore`, string `+` and a piped local function were all probed). Since nesting is the
-  whole point of the frame chain, step 5 should not rely on it being right by inspection.
+- **The entry-references-entry leg of the DAG is now exercised.** `b |> not` on the JS target
+  outlines `(|>)` into an entry whose body is an `InlineCall` naming `not`'s own entry — the
+  earlier probes missed it because `ignore` has no JS inline body, so `x |> ignore` leaves an
+  ordinary `App`. Covered by the call-head anchoring test.

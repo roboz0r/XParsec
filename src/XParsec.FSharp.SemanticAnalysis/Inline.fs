@@ -528,7 +528,114 @@ module Inline =
         | TDecl.Let(_, value, _, _) -> value
         | other ->
             let (SpecializationId i) = spec
-            failwithf "Inline.flatten: specialization %d is not a `TDecl.Let`: %A" i other
+            failwithf "Inline: specialization %d is not a `TDecl.Let`: %A" i other
+
+    /// Every specialization `e` NAMES, in walk order and with repeats — the graph's EDGE
+    /// relation, read off a tree rather than stored. One reading, so the acyclicity check and
+    /// the call-edge count below cannot disagree about what an edge is.
+    let edges (e: TExpr) : SpecializationId list =
+        let acc = ResizeArray<SpecializationId>()
+
+        TastWalk.iterExpr
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun _ n ->
+                        match n with
+                        | TExpr.InlineCall(spec, _, _, _) -> acc.Add spec
+                        | _ -> ()
+
+                        true
+            }
+            e
+
+        List.ofSeq acc
+
+    /// The slot an id names, bounds-checked. An out-of-range id is a MINTING bug and not a
+    /// graph shape, so every walk of the table faults on it identically rather than each one
+    /// inventing its own message.
+    let private checkedSlot (entries: TSpecialization[]) (SpecializationId i) : int =
+        if i < 0 || i >= entries.Length then
+            failwithf "Inline: specialization %d is out of range (%d entries)" i entries.Length
+
+        i
+
+    /// An entry's abstraction, reached by id — `specializationValue` with the bounds check the
+    /// id needs anyway.
+    let private entryValue (entries: TSpecialization[]) (spec: SpecializationId) : TExpr =
+        specializationValue spec entries.[checkedSlot entries spec]
+
+    /// The first cycle in the specialization graph, as the entries ON it in call order (so a
+    /// direct self-reference is a one-element list). `ValueNone` ⇒ the table is the DAG the
+    /// design says it is.
+    ///
+    /// THE precondition of `flatten`, and it has to be checked on the TABLE rather than during
+    /// the walk that consumes it: an entry that reaches itself is a finite, inspectable thing
+    /// here and an unbounded recursion once anything starts substituting bodies into bodies.
+    /// A cyclic table is a program error (a recursive `let inline` has no expansion), so the
+    /// caller reports `Kind.CyclicInline` and expands nothing.
+    let findCycle (entries: TSpecialization[]) : SpecializationId list voption =
+        // Unvisited / on the current DFS path / finished. The middle state is the whole test:
+        // an edge back into the current path is a cycle, where an edge into a FINISHED entry is
+        // ordinary sharing — the table is a DAG, so a diamond is legal and must not be reported.
+        let unvisited, onPath, finished = 0, 1, 2
+        let state = Array.create entries.Length unvisited
+        let path = ResizeArray<int>()
+        let mutable found = ValueNone
+
+        let rec visit (i: int) =
+            state.[i] <- onPath
+            path.Add i
+
+            for spec in edges (entryValue entries (SpecializationId i)) do
+                if ValueOption.isNone found then
+                    let j = checkedSlot entries spec
+
+                    if state.[j] = onPath then
+                        let start = path.IndexOf j
+                        found <- ValueSome [ for k in start .. path.Count - 1 -> SpecializationId path.[k] ]
+                    elif state.[j] = unvisited then
+                        visit j
+
+            path.RemoveAt(path.Count - 1)
+            state.[i] <- finished
+
+        for i in 0 .. entries.Length - 1 do
+            if ValueOption.isNone found && state.[i] = unvisited then
+                visit i
+
+        found
+
+    /// Entries that FUSED call-site material yet are named by other than exactly ONE edge,
+    /// paired with the edge count that convicts them. Empty ⇒ the table is sound.
+    ///
+    /// This is what LICENSES `TExprG.CallerExpr`. The node pops ONE frame, and "the frame out"
+    /// names a single file only while the entry it sits in has a single call edge — so an
+    /// entry that fused material and is reached twice does not merely look wrong, it makes its
+    /// own marks undefined. `mintEntry` asserts the narrow half at the moment an entry is built
+    /// (a SHAREABLE entry marks nothing); this is the half that needs the finished graph,
+    /// because an edge count is a fact about the whole table and not about one reduction.
+    ///
+    /// `roots` are the trees OUTSIDE the table — the file's own declarations — whose edges
+    /// count exactly as an entry's do.
+    let miscountedFusedEntries (roots: TExpr seq) (entries: TSpecialization[]) : (SpecializationId * int) list =
+        let counts = Array.zeroCreate<int> entries.Length
+
+        let count (e: TExpr) =
+            for spec in edges e do
+                let i = checkedSlot entries spec
+                counts.[i] <- counts.[i] + 1
+
+        for r in roots do
+            count r
+
+        for i in 0 .. entries.Length - 1 do
+            count (entryValue entries (SpecializationId i))
+
+        [
+            for i in 0 .. entries.Length - 1 do
+                if containsCallerExpr (entryValue entries (SpecializationId i)) && counts.[i] <> 1 then
+                    yield SpecializationId i, counts.[i]
+        ]
 
     /// Splice a resolved-specialization GRAPH back into a tree: every `TExpr.InlineCall` is
     /// replaced by the entry it names, applied to the edge's own arguments, descending into
@@ -547,19 +654,16 @@ module Inline =
     /// `mint` is the caller's binder freshener. Two edges into one entry each take their own
     /// copy, so their binders — and the codegen local slots those become — must not alias.
     ///
-    /// There is no cycle guard: an entry that (transitively) names itself makes this diverge,
-    /// exactly as the physical expansion it replaces did. The difference is that the cycle now
-    /// exists as a finite, inspectable table before anything walks it.
+    /// PRECONDITION: `entries` is ACYCLIC. This substitutes bodies into bodies, so an entry
+    /// that (transitively) names itself makes it diverge — which is why the caller rejects the
+    /// cycle on the table (`findCycle`) before reaching here. Deferral is what makes that
+    /// possible at all: the recursion exists as a finite, inspectable table, where the physical
+    /// expansion this replaces could only meet it as an exhausted stack.
     let flatten (mint: unit -> NodeKey) (entries: TSpecialization[]) (e: TExpr) : TExpr =
         let rec expand (n: TExpr) : TExpr voption =
             match n with
             | TExpr.InlineCall(spec, args, _, tok) ->
-                let (SpecializationId i) = spec
-
-                if i < 0 || i >= entries.Length then
-                    failwithf "Inline.flatten: specialization %d is out of range (%d entries)" i entries.Length
-
-                let body = go (spliceAt mint tok (specializationValue spec entries.[i]))
+                let body = go (spliceAt mint tok (entryValue entries spec))
                 ValueSome(betaReduce body [ for a in args -> go a, TastWalk.exprTy a, tok ])
             // Flattening COLLAPSES the frame stack — `spliceAt` moves the entry's every node
             // onto the call site, so the frame a `CallerExpr` popped back to is the frame its

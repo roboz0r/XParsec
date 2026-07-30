@@ -367,6 +367,10 @@ module FrozenCodecDiagnostics =
         | Kind.Parse c ->
             w.Write 46uy
             writeDiagnosticCode w c
+        | Kind.CyclicInline(binding, via) ->
+            w.Write 47uy
+            w.Write binding
+            writeStringList w via
 
     let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
@@ -470,6 +474,9 @@ module FrozenCodecDiagnostics =
         | 44uy -> Kind.Driver(r.ReadString())
         | 45uy -> Kind.Message(r.ReadString())
         | 46uy -> Kind.Parse(readDiagnosticCode r)
+        | 47uy ->
+            let binding = r.ReadString()
+            Kind.CyclicInline(binding, readStringList r)
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =
