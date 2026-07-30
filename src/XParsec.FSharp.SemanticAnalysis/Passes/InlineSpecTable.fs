@@ -12,10 +12,9 @@ open XParsec.FSharp.SemanticAnalysis
 // stated once. Held inside the pass it was six lines of mutable state a thousand-line closure
 // could touch in any order.
 //
-// What is deliberately ABSENT is the walk: the table is reached through a `Reservation`, which
-// is a position and a sink for an id and nothing else, so no operation here can come to depend
-// on how the pass represents its expansion chain. The pass supplies that (`InlineReduction`'s
-// `reserving`) and gets nothing back but the slot.
+// What is deliberately ABSENT is the walk: an `Outlining` is a position, a grounding and two
+// thunks, so no operation here can come to depend on how the pass represents its expansion
+// chain.
 module InlineSpecTable =
 
     /// What becomes of ONE curried parameter of an inline body at ONE call site. The three
@@ -87,30 +86,14 @@ module InlineSpecTable =
             Site: SyntaxToken
         }
 
-    /// What a reduction that is about to be OUTLINED must hand the table so that the slot can
-    /// be reserved before the body is built: where a verdict about the entry can be positioned,
-    /// and where to publish the id once it exists.
-    ///
-    /// Two plain values and not the walk's own frame: the table's business is entries, and a
-    /// table that knew how the walk represents its expansion chain could come to depend on it.
-    [<NoEquality; NoComparison>]
-    type Reservation =
-        {
-            /// The call site in the file being compiled whose expansion began building this
-            /// entry — see `PendingEntry` for why the entry itself cannot supply one.
-            Site: SyntaxToken
-            /// Publish the reserved id where a re-entrant call will look for it. Called BEFORE
-            /// the body is built, which is the whole of what makes a recursive template
-            /// terminate into a back edge instead of recursing until the stack goes.
-            Announce: SpecializationId -> unit
-        }
-
     /// ONE outlined reduction, as the table consumes it: everything needed to reuse an entry
     /// or mint one, and to build the edge that names whichever it was.
     [<NoEquality; NoComparison>]
     type Outlining =
         {
-            Reservation: Reservation
+            /// The call site in the file being compiled whose expansion began building this
+            /// entry — see `PendingEntry` for why the entry itself cannot supply one.
+            Site: SyntaxToken
             Grounding: Grounding
             /// May a LATER site at the same grounding name this same entry? False when the
             /// reduction fused any call-site material, or when its type arguments are not
@@ -119,18 +102,19 @@ module InlineSpecTable =
             /// The producer file the entry's nodes stay anchored in. Taken off the placement
             /// that made the reduction outlined, so it cannot be paired with a spliced one.
             Origin: OriginFile
-            /// The position and result type of the EDGE — this file's call site, NOT
-            /// `Reservation.Site` and not anything read off the entry: a reused entry's types
-            /// belong to the thaw that built it, where this node belongs to this file.
+            /// The position and result type of the EDGE — this file's call site, NOT `Site`
+            /// and not anything read off the entry: a reused entry's types belong to the thaw
+            /// that built it, where this node belongs to this file.
             EdgeTok: SyntaxToken
             EdgeTy: SemType
             /// The edge's arguments when an interned entry is REUSED. A thunk because walking
             /// them is an expansion in its own right, and the minting path takes its arguments
             /// off the survivors `Build` leaves instead.
             ReuseArgs: unit -> TExpr list
-            /// Build the reduction that fills a freshly reserved slot. Runs AFTER the slot
-            /// exists, so whatever it recurses into can name it.
-            Build: unit -> Reduced
+            /// Build the reduction that fills a freshly reserved slot. Takes the slot, which is
+            /// what a re-entrant call inside the body names — so the id exists before anything
+            /// can recurse, and a recursive template terminates instead of exhausting the stack.
+            Build: SpecializationId -> Reduced
         }
 
     // Queries over a FINISHED `TSpecialization[]` — the graph invariants the finish step
@@ -345,25 +329,17 @@ module InlineSpecTable =
         /// Arity is therefore the surviving-parameter count and nothing stores it — a
         /// parameter the reduction fused is simply not a parameter of the entry.
         ///
-        /// The slot is reserved, and ANNOUNCED, BEFORE `Build` runs. That ordering is what a
-        /// template whose resolution reaches itself meets: it finds a reserved id it can name
-        /// and terminates into a back edge, leaving a CYCLIC table — a finite thing
-        /// `findCycle` rejects — where building first would recurse until the stack
-        /// goes. It reaches EVERY outlined reduction, fused ones included: reserving only for
-        /// the shareable ones would leave the recursion that cannot be shared diverging.
+        /// `Build` is handed the slot, so a template whose resolution reaches itself finds an id
+        /// it can name and terminates, where building first would recurse until the stack goes.
+        /// Every outlined reduction gets one, fused ones included: minting only for the
+        /// shareable ones would leave the recursion that cannot be shared diverging.
         let private mintEntry (o: Outlining) (t: SpecTable) : SpecializationId * InlineParam list =
             let slot = t.Entries.Count
             let spec = SpecializationId slot
 
-            t.Entries.Add
-                {
-                    Built = ValueNone
-                    Site = o.Reservation.Site
-                }
+            t.Entries.Add { Built = ValueNone; Site = o.Site }
 
-            o.Reservation.Announce spec
-
-            let reduced = o.Build()
+            let reduced = o.Build spec
 
             let value, declTy =
                 List.foldBack

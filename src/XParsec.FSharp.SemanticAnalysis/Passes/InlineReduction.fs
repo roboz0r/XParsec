@@ -146,8 +146,24 @@ module InlineReduction =
     /// The chain is a list, INNERMOST FIRST, threaded through the walk as a parameter rather
     /// than held anywhere: pushing a frame is a cons and popping one is a tail, so a piece of
     /// material is walked under the chain it was WRITTEN under by construction and no reader has
-    /// to state a depth. The one thing the walk mutates is `Slot`, and only on a frame it
-    /// already holds.
+    /// to state a depth.
+    ///
+    /// An inline binding that reaches ITSELF has no expansion: splicing the body in presents
+    /// the same call again, forever. This is what stops that — the compiler reports a cycle
+    /// instead of substituting until its stack goes.
+    ///
+    /// Both cases are the SAME compile error (`Kind.CyclicInline`); they differ only in where
+    /// it is raised, and so in how much of the loop it can name.
+    [<RequireQualifiedAccess>]
+    type internal CycleReport =
+        /// From the finished table. The call is left as a reference to this binding's entry,
+        /// which keeps the graph finite, and the cycle check then names EVERY binding on the
+        /// loop rather than just the call that closed it.
+        | FromTable of SpecializationId
+        /// From the call itself. A spliced reduction has no entry to reference, so there is
+        /// nothing to leave behind and nothing for a later check to find.
+        | AtThisCall
+
     [<NoEquality; NoComparison>]
     type internal ExpansionFrame =
         {
@@ -159,14 +175,8 @@ module InlineReduction =
             /// node of a producer's body, whose anchor indexes a file this compilation is not
             /// reporting against.
             Site: SyntaxToken
-            /// The table slot this expansion reserved, once it has one. A re-entrant call becomes
-            /// a back EDGE to it, which is what leaves the table finite and CYCLIC — a thing
-            /// `InlineSpecTable.findCycle` can reject — instead of minting entries until the
-            /// stack goes.
-            ///
-            /// `ValueNone` for a SPLICED reduction: it has no entry, so there is nothing for an
-            /// edge to name and the recursive call is left unexpanded instead.
-            mutable Slot: SpecializationId voption
+            /// How a call reaching this binding again is reported.
+            CycleReport: CycleReport
         }
 
     /// A FRESH reduction and the two chains its material belongs to: `Own` is the frame this
@@ -193,16 +203,28 @@ module InlineReduction =
         /// The chain this reduction's own BODY is walked under, innermost first.
         let frames (f: InFlight) : ExpansionFrame list = f.Own :: f.Caller
 
-        /// The outermost frame, whose `Site` is the only position a verdict about this
-        /// expansion can carry: every deeper site is a node of a producer's body.
-        let outermost (f: InFlight) : ExpansionFrame =
-            match f.Caller with
-            | [] -> f.Own
-            | caller -> List.last caller
+    /// What a FRESH reduction is handed once its template is known not to be on the chain: how
+    /// to push its frame, and where a verdict about it is positioned.
+    ///
+    /// The frame is a FUNCTION of the cycle report because a reduction does not know how its
+    /// own recursion would be reported until it has classified its parameters and either taken
+    /// a table slot or settled on a splice. Nothing walks the body before then, so no call can
+    /// reach the binding while the answer is still unsettled.
+    [<NoEquality; NoComparison>]
+    type internal Entering =
+        {
+            Frame: CycleReport -> InFlight
+            /// The chain the CALL SITE's material was written under — what an argument this
+            /// site supplied is walked against, independent of the re-entry answer.
+            Caller: ExpansionFrame list
+            /// The outermost in-flight site — a position in the file being compiled, which
+            /// every deeper site fails to be.
+            Site: SyntaxToken
+        }
 
     /// The call an expansion is being entered FOR: which binding it calls, where it stands, and
     /// the two forms an ANSWER needs it in — which are NOT the same form, and conflating them is
-    /// how a back edge comes to disagree with the entry it names.
+    /// how an edge comes to disagree with the entry it names.
     ///
     /// An answered call is either an EDGE into the entry the re-entered expansion reserved, or
     /// the call left exactly as written. The edge is positional against that entry's parameters,
@@ -578,15 +600,6 @@ module InlineReduction =
             )
             r.Survivors
             r.Body
-
-    /// The reservation a FRESH reduction makes when it outlines its body. The one place the
-    /// walk's frame representation meets the table's, and it goes one way: the frame supplies a
-    /// position and a sink for the id, and learns nothing back.
-    let internal reserving (inFlight: InFlight) : Reservation =
-        {
-            Site = (InFlight.outermost inFlight).Site
-            Announce = fun spec -> inFlight.Own.Slot <- ValueSome spec
-        }
 
     /// Reach a cross-unit body by its resolved `SymbolKey` — the sole channel
     /// (`tryInlineBody`), which routes a value key and a member key to the entry that CARRIES
