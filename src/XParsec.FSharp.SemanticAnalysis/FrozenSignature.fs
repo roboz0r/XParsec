@@ -58,7 +58,12 @@ module FrozenSignature =
     /// Project a frozen implementation file's INTERNAL-or-better signature to a
     /// provider view. `assemblyName` is this unit's home assembly — a file-N entity is
     /// the same assembly as N+1, so it rides every entry's `Origin`.
-    let toProvider (assemblyName: string) (frozen: FrozenPools) : IExternalSymbolProvider =
+    ///
+    /// `producer` is the file `frozen` was analysed FROM, retained. Every anchor in every
+    /// template published below is an index into that file's `Lexed`, so taking it as an
+    /// argument is what makes the pairing a fact of the call rather than something a caller
+    /// has to remember while it still has the parse in hand.
+    let toProvider (assemblyName: string) (producer: OriginSource) (frozen: FrozenPools) : IExternalSymbolProvider =
         // Home origin for an entity in namespace `ns`: this frozen signature's assembly.
         let originIn (ns: NamespaceKey) : SymbolOrigin =
             {
@@ -495,11 +500,7 @@ module FrozenSignature =
             for iv in frozen.InlineTemplates do
                 match { Pool = pool; Id = iv.Decl } with
                 | TastAccessor.DLet { Binding = TastAccessor.PNamed binder } ->
-                    // Unanchored: this view is built off a FROZEN unit, and the parse whose
-                    // `Lexed` the template's indices address is long gone by the time a unit
-                    // is frozen. A consumer of one of these bodies therefore has only the
-                    // relocating thaw.
-                    d.[binder] <- InlineBody.unanchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs
+                    d.[binder] <- InlineBody.anchoredIn producer (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs
                 | _ -> ()
 
             d

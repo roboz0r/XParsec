@@ -104,12 +104,12 @@ printfn \"%d\" (s + e)
             //
             // Both halves are exercised at once, because both were blocked by the same
             // missing identity: unit 2 CALLS unit 1's top-level `addBase` directly, and it
-            // SPLICES unit 1's top-level `let inline twice`, whose published body references
+            // EXPANDS unit 1's top-level `let inline twice`, whose published body references
             // `addBase` — a reference the freeze can only bake in as a `SymbolKey`. Emission
             // homes both on the anonymous Program holder (the CLR has no namespace-level
             // method), which is exactly why the identity and the emission are separate facts:
             // the key says `addBase`, the metadata says which type it landed on.
-            test "two units run: unit 2 calls and SPLICES unit 1's top-level bindings" {
+            test "two units run: unit 2 calls and EXPANDS unit 1's top-level bindings" {
                 // Unit 1 declares no module at all. Only a top-level FUNCTION may live in a
                 // non-entry unit — a top-level VALUE is entry-file-only top-level code
                 // (`Layout.combine`) — so both bindings here are functions.
@@ -136,13 +136,13 @@ let inline twice (x: int) : int = addBase (addBase x)
                     (refs |> List.contains asmName)
                     (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
 
-                // The spliced template must land on unit 1's `addBase`, not on nothing:
+                // The expanded template must land on unit 1's `addBase`, not on nothing:
                 // `twice 11` = addBase (addBase 11) = 31, plus `addBase 1` = 11 ⇒ 42.
                 let exitCode, output = runEntryPoint bytes
                 let actual = output.Replace("\r", "").Trim()
 
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
-                Expect.equal actual "42" "the spliced inline template and the direct call both resolved cross-unit"
+                Expect.equal actual "42" "the expanded inline template and the direct call both resolved cross-unit"
 
                 // `addBase` emits under its SOURCE name on the Program holder — the name its
                 // key qualifies to — which is what let unit 2's reference find it.

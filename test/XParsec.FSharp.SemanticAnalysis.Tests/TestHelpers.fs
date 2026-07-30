@@ -176,11 +176,16 @@ let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =
 /// name the freeze stamped its origins with — two spellings of it can drift apart.
 let testAsm = "TestAsm"
 
+/// Freeze `src` through the whole front end, keeping the origin it was analysed FROM — what
+/// a consumer of the frozen output must be handed to read its templates' positions.
+let freezeWithOrigin (src: string) : OriginSource * FrozenPools =
+    let lexed, file = parseFile src
+    let origin = Hashing.originSourceOfText src lexed
+    origin, Pipeline.analyseFor testAsm realProvider.Value origin file
+
 /// Freeze `src` through the whole front end: the pooled output the cache stores, the codec
 /// flattens, and the signature projection reads. Raises on lex/parse failure.
-let freezeFor (src: string) : FrozenPools =
-    let lexed, file = parseFile src
-    Pipeline.analyseFor testAsm realProvider.Value (Hashing.originSourceOfText src lexed) file
+let freezeFor (src: string) : FrozenPools = snd (freezeWithOrigin src)
 
 /// The pools under test, with the DU they encode. The freeze yields POOLS; `ofPools`
 /// re-authors the tree they carry, and `rePool` then re-derives every column from THAT

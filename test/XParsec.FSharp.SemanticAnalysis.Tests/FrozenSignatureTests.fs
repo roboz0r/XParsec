@@ -116,8 +116,8 @@ let tests =
         "FrozenSignature projection"
         [
             test "record / union / class types project with home-assembly origin" {
-                let frozen = freezeFor projectionSrc
-                let provider = FrozenSignature.toProvider testAsm frozen
+                let origin, frozen = freezeWithOrigin projectionSrc
+                let provider = FrozenSignature.toProvider testAsm origin frozen
                 let store = provider :> IExternalSymbolStore
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Box")) with
@@ -134,8 +134,10 @@ let tests =
             }
 
             test "union cases resolve by bare case name" {
-                let frozen = freezeFor projectionSrc
-                let resolver = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolResolver
+                let origin, frozen = freezeWithOrigin projectionSrc
+
+                let resolver =
+                    FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolResolver
 
                 match resolver.TryLookupUnionCase "Just" with
                 | ValueSome uc ->
@@ -152,8 +154,8 @@ let tests =
             }
 
             test "augmentation members project on the store face" {
-                let frozen = freezeFor projectionSrc
-                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
+                let origin, frozen = freezeWithOrigin projectionSrc
+                let store = FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolStore
                 let widgetKey = SymbolKey.Type(typeKeyOf frozen "Widget")
 
                 let memberName = membersOfType frozen "Widget" |> List.head |> (fun m -> m.Name)
@@ -164,8 +166,8 @@ let tests =
             }
 
             test "module values project; mono vs generic arity preserved" {
-                let frozen = freezeFor projectionSrc
-                let provider = FrozenSignature.toProvider testAsm frozen
+                let origin, frozen = freezeWithOrigin projectionSrc
+                let provider = FrozenSignature.toProvider testAsm origin frozen
                 let store = provider :> IExternalSymbolStore
                 let resolver = provider :> IExternalSymbolResolver
 
@@ -189,8 +191,8 @@ let tests =
             }
 
             test "let inline carries a frozen inline body" {
-                let frozen = freezeFor projectionSrc
-                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
+                let origin, frozen = freezeWithOrigin projectionSrc
+                let store = FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolStore
 
                 match store.TryLookupByKey(bindingKey frozen "twice") with
                 | ValueSome s -> Expect.isTrue s.InlineBody.IsSome "twice publishes its inline body"
@@ -198,8 +200,8 @@ let tests =
             }
 
             test "internal-or-better filter: private dropped, internal kept" {
-                let frozen = freezeFor projectionSrc
-                let provider = FrozenSignature.toProvider testAsm frozen
+                let origin, frozen = freezeWithOrigin projectionSrc
+                let provider = FrozenSignature.toProvider testAsm origin frozen
                 let store = provider :> IExternalSymbolStore
                 let resolver = provider :> IExternalSymbolResolver
 
@@ -219,8 +221,8 @@ let tests =
             }
 
             test "IntrinsicForwardRepr passes this unit's IntrinsicReprKeys through verbatim" {
-                let frozen = freezeFor projectionSrc
-                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
+                let origin, frozen = freezeWithOrigin projectionSrc
+                let store = FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolStore
                 // A plain impl unit declares no intrinsics, so the forward axis is its
                 // (empty) `IntrinsicReprKeys` — the wiring is the assertion.
                 Expect.equal
@@ -271,8 +273,8 @@ module M =
 "
 
                 // Project the `.fs`.
-                let frozen = freezeFor implSrc
-                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
+                let origin, frozen = freezeWithOrigin implSrc
+                let store = FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolStore
 
                 // Extract the `.fsi`, canonicalizing primitives through the SAME provider
                 // the front end used, so both sides mint one `int` identity.
@@ -352,8 +354,11 @@ module M =
     type R = { X: int; Y: int }
 "
 
-                let frozen = freezeFor src
-                let resolver = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolResolver
+                let origin, frozen = freezeWithOrigin src
+
+                let resolver =
+                    FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolResolver
+
                 let rName = SymbolKeyOps.typeMetaName (typeKeyOf frozen "R")
 
                 for field in [ "X"; "Y" ] do
@@ -390,8 +395,8 @@ module M =
         | Down = 1
 "
 
-                let frozen = freezeFor src
-                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
+                let origin, frozen = freezeWithOrigin src
+                let store = FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolStore
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Direction")) with
                 | ValueSome(ExternalTypeShape.Enum(cases, origin)) ->
@@ -417,8 +422,8 @@ module M =
         | Off = \"off\"
 "
 
-                let frozen = freezeFor src
-                let store = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolStore
+                let origin, frozen = freezeWithOrigin src
+                let store = FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolStore
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Mode")) with
                 | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
@@ -441,8 +446,10 @@ module M =
     type Box<'T> = { Value: 'T }
 "
 
-                let frozen = freezeFor src
-                let resolver = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolResolver
+                let origin, frozen = freezeWithOrigin src
+
+                let resolver =
+                    FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolResolver
 
                 match resolver.TryRecordsWithField "Value" with
                 | [| c |] ->
@@ -465,8 +472,11 @@ module M =
     type B = { Shared: int; OnlyB: int }
 "
 
-                let frozen = freezeFor src
-                let resolver = FrozenSignature.toProvider testAsm frozen :> IExternalSymbolResolver
+                let origin, frozen = freezeWithOrigin src
+
+                let resolver =
+                    FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolResolver
+
                 let aName = SymbolKeyOps.typeMetaName (typeKeyOf frozen "A")
                 let bName = SymbolKeyOps.typeMetaName (typeKeyOf frozen "B")
 

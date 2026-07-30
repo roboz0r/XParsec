@@ -736,6 +736,43 @@ module N =
                     (sprintf "a cross-unit `member private` dispatch must be rejected (diagnostics: %A)" privErrs)
             }
 
+            test "a prior unit's inline template is OUTLINED, not spliced" {
+                // A view carries the file it was projected from, so a template it serves has
+                // both readings available and the expansion abstracts the call into a
+                // specialization entry. Anchored in unit 1, which is the whole point: an entry
+                // keeps the producer's positions, and a spliced body cannot.
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    let inline twice (x: int) : int = x + x
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let four = Test.A.M.twice 2
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let consumer = all.[1]
+
+                Expect.isEmpty
+                    (consumer.Frozen.Residue.Diagnostics |> Diagnostic.errors)
+                    (sprintf "the cross-unit inline call resolves (diagnostics: %A)" consumer.Frozen.Residue.Diagnostics)
+
+                match List.ofArray consumer.Frozen.Specializations with
+                | [ entry ] ->
+                    Expect.equal entry.Origin all.[0].Source.File "the entry is anchored in the DECLARING unit"
+                | other -> failtestf "expected exactly one specialization entry, got %d" (List.length other)
+            }
+
             test "cross-unit INTRINSIC: a prior unit's primitive resolves in a later unit's annotation" {
                 // unit 1 declares an intrinsic-repr primitive (`type x = (# "…" #)` — an
                 // `ILIntrinsic` abbrev kept OUT of `Decls`); unit 2 annotates a binding with

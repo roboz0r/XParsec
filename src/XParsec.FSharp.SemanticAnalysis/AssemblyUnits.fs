@@ -121,7 +121,7 @@ module AssemblyUnits =
 
                 let origin = unitSource assemblyName path source parsed.Lexed
                 let frozen = analyse assemblyName composed origin parsed.File
-                let view = FrozenSignature.toProvider assemblyName frozen
+                let view = FrozenSignature.toProvider assemblyName origin frozen
 
                 // Push this file's view so LATER files can resolve its exports. It rides
                 // at the head, so it composes NEAREST for the immediately-following file.

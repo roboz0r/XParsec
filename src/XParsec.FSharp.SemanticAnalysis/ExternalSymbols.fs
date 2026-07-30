@@ -114,10 +114,9 @@ type InlineBody =
         /// which the file could be found again (the collection that parsed it is the only
         /// thing that ever held it). Carrying it here is what makes that unrepresentable.
         ///
-        /// `ValueNone` for a provider that retains none — a same-assembly prior-file view
-        /// (`FrozenSignature.toProvider`) reconstructs its bodies off a frozen unit and never
-        /// held the parse. Such a body has exactly ONE reading available, the relocating
-        /// `InlineThaw.body`, so it can be spliced but never left behind an edge.
+        /// `ValueNone` for a provider that retains none. Such a body has exactly ONE reading
+        /// available, the relocating `InlineThaw.body`, so it can be spliced but never left
+        /// behind an edge.
         Origin: OriginSource voption
     }
 
@@ -133,6 +132,16 @@ module InlineBody =
             Decl = decl
             ParamAttrs = paramAttrs
             Origin = ValueNone
+        }
+
+    /// A body served WITH the producer file its anchors index — the shape a publisher that
+    /// still holds the parse its tree was frozen from owes its consumers. Both readings are
+    /// then available, so the body can be left behind an edge rather than only spliced.
+    let anchoredIn (origin: OriginSource) (decl: Wire.TDecl) (paramAttrs: ParamAttrs[]) : InlineBody =
+        {
+            Decl = decl
+            ParamAttrs = paramAttrs
+            Origin = ValueSome origin
         }
 
 type ExternalSymbol =
