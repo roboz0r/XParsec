@@ -100,6 +100,13 @@ module HolderPlan =
         (refStructNsNames: HashSet<string * string>)
         (lowered0: TastAccessor.DeclId list)
         : HolderPlan =
+        // How every top-level decl of this unit emits (name, holder, handle key), decided
+        // ONCE — before bridging, which rewrites expressions inside decls but neither adds
+        // nor removes a top-level binder, so the same table is valid for `lowered` below.
+        // Every collector reads it, so none of them can name a binding differently from
+        // another, and the shadowing rule it applies is stated in exactly one place.
+        let emissions = Emit.emissions moduleMembers programHolder lowered0
+
         // The capture-only eligible set drives bridging: a value-use of a function
         // that survives as a static method becomes a curried bridge; a capture-demoted
         // function keeps its closure (no bridge). It is computed on the UN-bridged
@@ -114,13 +121,13 @@ module HolderPlan =
         let preResolvedTopLevel =
             let s = HashSet<BinderId>()
 
-            for mv in Emit.collectModuleValues moduleMembers lowered0 do
+            for mv in Emit.collectModuleValues emissions lowered0 do
                 s.Add mv.Key |> ignore
 
-            for mv in Emit.collectProgramValues moduleMembers programHolder refStructNsNames lowered0 do
+            for mv in Emit.collectProgramValues emissions programHolder refStructNsNames lowered0 do
                 s.Add mv.Key |> ignore
 
-            for fn in Emit.collectGenericModuleValues moduleMembers programHolder lowered0 do
+            for fn in Emit.collectGenericModuleValues emissions lowered0 do
                 s.Add fn.Key |> ignore
 
             s
@@ -139,7 +146,7 @@ module HolderPlan =
         // the plan so closure discovery / `buildMain` walk the same rewritten nodes.
         let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
 
-        let moduleValues = Emit.collectModuleValues moduleMembers lowered
+        let moduleValues = Emit.collectModuleValues emissions lowered
         let moduleValueKeys = HashSet<BinderId>(moduleValues |> List.map (fun mv -> mv.Key))
 
         // Top-level (implicit-"Program"-module) ground values — holderless `let`s in
@@ -149,7 +156,7 @@ module HolderPlan =
         // also join `resolvedTopLevel` (the capture/static-fn analysis treats them as
         // bound, never a captured local).
         let programValues =
-            Emit.collectProgramValues moduleMembers programHolder refStructNsNames lowered
+            Emit.collectProgramValues emissions programHolder refStructNsNames lowered
 
         let programValueKeys =
             HashSet<BinderId>(programValues |> List.map (fun mv -> mv.Key))
@@ -160,8 +167,7 @@ module HolderPlan =
         // holder (real F#'s representation of a generic value); a reference `call`s
         // its `MethodSpec`. They join the static-method machinery as 0-param fns
 
-        let genericModuleValues =
-            Emit.collectGenericModuleValues moduleMembers programHolder lowered
+        let genericModuleValues = Emit.collectGenericModuleValues emissions lowered
 
         let genericModuleValueKeys =
             HashSet<BinderId>(genericModuleValues |> List.map (fun fn -> fn.Key))
@@ -171,7 +177,7 @@ module HolderPlan =
         // a lambda whose key was never eligible is skipped here and falls to closure
         // discovery.
         let collectedFns =
-            Emit.collectStaticFns moduleMembers programHolder genericFnSchemes eligible (CompiledFns.gather lowered)
+            Emit.collectStaticFns emissions genericFnSchemes eligible (CompiledFns.gather lowered)
 
         // Generic module values emit exactly like static fns (signature, body,
         // handle, holder method slot); merge them in so every downstream pass —

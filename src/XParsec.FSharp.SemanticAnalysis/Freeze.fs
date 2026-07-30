@@ -220,9 +220,12 @@ module Freeze =
     /// slot in the emitted code, with nothing having said so).
     ///
     /// The residue this can actually catch, after `rewriteSiblingRefs` has keyed every
-    /// module-level sibling, is a reference to a TOP-LEVEL (implicit-`Program`-module)
-    /// binding: those have NO `ModuleBindingInfo`, hence no `SymbolKey`, hence nothing to
-    /// rewrite to.
+    /// module-level sibling, is a reference to a binding that introduces no single named
+    /// value to key — a destructuring `let (a, b) = p` at module level. Its components are
+    /// in scope in the template's body but the binding as a whole has no
+    /// `ModuleBindingInfo`, hence no `SymbolKey`, hence nothing to rewrite to. (Whether a
+    /// binding is TOP-LEVEL is no longer part of this: a top-level `let` declares no module
+    /// but is held by its file's namespace, so it has an identity like any other.)
     ///
     /// Each is paired with the token of the FIRST `Var` that names it — a reference spells
     /// the identifier the user wrote, so the diagnostic below reads it off a token it holds
@@ -261,10 +264,11 @@ module Freeze =
     /// binder is in scope — so nothing local regresses.
     ///
     /// Rejecting it is a CONCESSION, not a rule of the language: the input is legal F#,
-    /// and the reason we cannot publish it is ours — a top-level binding has no
-    /// `ModuleBindingInfo` to key. Giving those an identity (a `Program`-holder
-    /// `ModuleKey`) would empty this arm of population, and is the eventual fix. Until
-    /// then the boundary refuses what it cannot represent, loudly.
+    /// and the reason we cannot publish it is ours — a module-level destructuring `let`
+    /// binds several names at once and so has no single `ModuleBindingInfo` to key. The
+    /// boundary refuses what it cannot represent, loudly. (A TOP-LEVEL sibling no longer
+    /// reaches here: those now carry an identity of their own, held by the file's
+    /// namespace, so `rewriteSiblingRefs` keys them like any other sibling.)
     let private publishable (ctx: PassContext) (declTok: SyntaxToken) (rewritten: TDecl) : bool =
         match freeVarsOfBody rewritten with
         | [] -> true
@@ -281,7 +285,7 @@ module Freeze =
                 declTok,
                 Kind.Message(
                     sprintf
-                        "This inline binding cannot be published: its body references %s, which has no exportable identity (a top-level binding declares no module, so it has no symbol key a consumer could resolve). Move it into a module."
+                        "This inline binding cannot be published: its body references %s, which has no exportable identity (a module-level binding that binds several names at once has no single symbol key a consumer could resolve). Bind it with its own `let`."
                         (free |> List.map (fun site -> sprintf "'%s'" (name site)) |> String.concat ", ")
                 )
             )
@@ -297,12 +301,10 @@ module Freeze =
         // ONE fold decides publication and produces the published entries. The inline
         // VOCABULARY predicate (`isInlineVocabulary` + an exportable identity) decides
         // WHAT gets published; `tast.ModuleMembers` — every module-level binder, inline or
-        // not — is what the body is rewritten AGAINST. A template with no
-        // `ModuleBindingInfo` (a top-level `let inline` outside any module) has no home
-        // module and so no exportable identity: it is spliced within its own unit and
-        // published nowhere. That is not an inline-specific hole — NO top-level binding
-        // is part of a unit's exported surface (`FrozenSignature` skips them all), because
-        // one may only be declared in an executable's entry file, which nothing links to.
+        // not, in a module or at the top level — is what the body is rewritten AGAINST. A
+        // template with no `ModuleBindingInfo` binds no single name (a destructuring `let`
+        // head) and so has no exportable identity: it is spliced within its own unit and
+        // published nowhere.
         //
         // Publication is ADDITIVE: `Decls` keeps the binding and both backends emit it as
         // an ordinary module function.

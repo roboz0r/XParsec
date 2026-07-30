@@ -258,20 +258,20 @@ type internal Assembler
         // Register this unit's home-local module functions so a SIBLING unit's cross-file
         // call resolves to the local `MethodDef` (`ClrRecipes.emitExternalCall` probes
         // `env.LocalModuleFns` before minting an `AssemblyRef`-scoped `MemberRef`). The
-        // key is the fn's `SymbolKey` — the SAME identity `emitExternalCall` reconstructs
-        // from the call's declaring module + name (a named-holder fn's `SymbolKey` is
-        // `valueKey (InModule holder) name`), so the two sides meet. Holder-less fns
-        // (`None`) are never cross-referenced — they live on the anonymous Program holder —
-        // so skip them. For a single unit no `External` call ever targets this table,
-        // leaving emission unchanged.
+        // key is the fn's `SymbolKey` — which IS the identity the front end stamped on the
+        // reference (`ModuleBindingInfo.Key`), so the two sides meet by construction.
+        //
+        // Holder-less (top-level) fns register too: they live on the anonymous Program
+        // holder, but that is only where they EMIT — their identity is held by the file's
+        // namespace and a sibling unit can name it. A fn with no identity at all (a
+        // shadowed or entry-expression-local binding) carries a minted key no reference
+        // can spell, so registering it is inert. For a single unit no `External` call ever
+        // targets this table, leaving emission unchanged.
         for fn in plan.StaticFns do
-            match fn.Holder with
-            | Some _ ->
-                let localMethodDef =
-                    toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
+            let localMethodDef =
+                toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
 
-                provider.RegisterLocalModuleFn(fn.SymbolKey, localMethodDef)
-            | None -> ()
+            provider.RegisterLocalModuleFn(fn.SymbolKey, localMethodDef)
 
         // A *generic* closure is a real generic `TypeDefinition`; its layout-derived
         // handle lets capture-field `MemberRef`s and the construction-site `Newobj` both

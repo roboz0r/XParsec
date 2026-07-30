@@ -160,26 +160,128 @@ module EmitClosures =
         walkFreeRefs bound (fun key _ -> acc.Add key |> ignore) body
         acc
 
-    /// A top-level binding's stable handle key: its `SymbolKey`, from the declaring
-    /// holder (a named module, or the Program holder for a holderless binding) and its
-    /// emitted `name`. Minted from the same (holder, name) the metadata row uses, so the
-    /// combined `MethodKey.StaticFn` / `FieldKey.ModuleValue` handle map keys on an
-    /// identity that is unique across compilation units (distinct qualified names) and,
-    /// with the offset the shadowable names carry, across shadowed entry-file rows.
-    let private bindingSymbolKey (holder: HolderKey) (name: string) : SymbolKey =
-        SymbolKeyOps.valueKey (ModuleHolder.InModule holder) name
+    /// What a top-level decl EMITS as: the metadata name, the holder class it lands on
+    /// (`ValueNone` ⇒ the anonymous "Program" holder, which the CLR needs because it has no
+    /// namespace-level member), and the stable handle key the combined
+    /// `MethodKey.StaticFn` / `FieldKey.ModuleValue` maps are keyed by.
+    ///
+    /// Both cases below fill it, and only one of them is an identity. That is the whole
+    /// reason it is a named record: a reader must not mistake the residue naming for a
+    /// symbol a consumer could resolve.
+    type Emission =
+        {
+            Name: string
+            /// `None` ⇒ the anonymous "Program" holder. The `option` (not `voption`) shape
+            /// is `StaticFn.Holder`'s, so a collector hands this straight through.
+            Holder: HolderKey option
+            SymbolKey: SymbolKey
+        }
+
+    /// The emission of a module-level binding, whose exportable identity the front end
+    /// recorded (`Elaborate.translateModuleElem` files one for every module-level `let`
+    /// with a simple binder — in a `module` or at the top level alike). Name and key come
+    /// STRAIGHT off that identity, so the vocabulary a consumer resolves and the metadata
+    /// this writes cannot drift; `ModuleBindingInfo.Key` is the one place either is derived
+    /// from. A top-level binding's identity is held by its file's namespace, which no CLR
+    /// type corresponds to, so it emits on the Program holder — an emission choice that
+    /// leaves the identity untouched.
+    let private declaredEmission (info: ModuleBindingInfo) : Emission =
+        {
+            Name = info.Name
+            Holder =
+                match info.DeclaringModule with
+                | ValueSome m -> Some m
+                | ValueNone -> None
+            SymbolKey = info.Key
+        }
+
+    /// The emission of a top-level decl that carries NO exportable identity, so its name
+    /// and handle key have to be minted rather than recovered. Two decls are like that:
+    ///
+    ///   * one the front end never saw as a module element — a `let` that
+    ///     `TastLower.lower` peeled out of the entry expression, which the parser had
+    ///     folded into a top-level statement chain (a value written AFTER a top-level
+    ///     `do`). It is a local of the entry expression that happens to need storage.
+    ///   * one whose name a LATER binding in the same holder re-binds. The later binding
+    ///     owns the name from then on, so nothing outside can reach this one.
+    ///
+    /// The mint is the source name the frozen binder column spells it with (a binder no
+    /// source names — one the freeze minted — takes `value`) suffixed with the binder's own
+    /// SLOT, which keeps its field/method row and its handle key unique WITHOUT claiming to
+    /// be an identity anyone could resolve.
+    let private residueEmission (programHolder: HolderKey) (pool: PoolBuilder) (k: BinderId) : Emission =
+        let (BinderId slot) = k
+
+        let source =
+            match TastPoolBuilder.binderNaming pool k with
+            | BinderNaming.Source n -> n
+            | BinderNaming.Minted _ -> "value"
+
+        let name = sprintf "%s$%d" source slot
+
+        {
+            Name = name
+            Holder = None
+            SymbolKey = SymbolKeyOps.valueKey (ModuleHolder.InModule programHolder) name
+        }
+
+    /// How EVERY top-level decl of a unit emits, decided in ONE pass so the answer cannot
+    /// differ between the collectors that ask (module values, program values, generic
+    /// values, static fns) — they each see a slice of the decls, and shadowing is a fact
+    /// about the whole list.
+    ///
+    /// A binding takes its recorded identity (`declaredEmission`) only if it still OWNS its
+    /// name: `let x = 1` followed by `let x = x + 10` binds one name twice, so both carry
+    /// the same identity — which is what shadowing means — and only the LAST of them can be
+    /// named from outside. The earlier ones still need storage (the second's initialiser
+    /// reads the first), so they take the residue mint, which is what keeps the metadata
+    /// row and the handle key injective while the vocabulary stays single-valued.
+    let emissions
+        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
+        (programHolder: HolderKey)
+        (decls: TastAccessor.DeclId list)
+        : Dictionary<BinderId, Emission> =
+        let bound =
+            [
+                for d in decls do
+                    match d with
+                    | TastAccessor.DLet letd ->
+                        match letd.Binding with
+                        | TastAccessor.PNamed k -> k, letd.Value.Pool
+                        | _ -> ()
+                    | _ -> ()
+            ]
+
+        // The binder each identity ends up naming: later declarations overwrite earlier
+        // ones, exactly as the name environment does.
+        let owner = Dictionary<SymbolKey, BinderId>()
+
+        for (k, _) in bound do
+            match Map.tryFind k moduleMembers with
+            | Some info -> owner.[info.Key] <- k
+            | None -> ()
+
+        let result = Dictionary<BinderId, Emission>()
+
+        for (k, pool) in bound do
+            result.[k] <-
+                match Map.tryFind k moduleMembers with
+                | Some info when owner.[info.Key] = k -> declaredEmission info
+                | _ -> residueEmission programHolder pool k
+
+        result
 
     /// The shared classification shell behind `collectModuleValues` /
-    /// `collectGenericModuleValues`: a non-`inline`, non-`Lambda` `let name = value`.
-    /// `tyOk` selects which type shapes qualify (fully ground vs. open-but-encodable);
-    /// `project` builds the caller's row from the resolved binding key, type, init
-    /// value, and the holder info — `Some` for a value on a *named* module holder,
-    /// `None` for a *top-level* (implicit-"Program"-module) value. A caller that only
-    /// wants named-holder values returns `None` on the holderless case.
+    /// `collectGenericModuleValues` / `collectProgramValues`: a non-`inline`,
+    /// non-`Lambda` `let name = value`. `tyOk` selects which type shapes qualify (fully
+    /// ground vs. open-but-encodable); `project` builds the caller's row from the
+    /// resolved binding key, type, init value, and the decl's `Emission` — whose
+    /// `Holder` says which of the two homes it takes, so a caller that wants only one
+    /// of them returns `None` on the other.
     let private classifyModuleValues
-        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
+        (emissions: Dictionary<BinderId, Emission>)
         (tyOk: FrozenType -> bool)
-        (project: BinderId -> FrozenType -> TastAccessor.ExprId -> ModuleBindingInfo option -> 'a option)
+        (project: BinderId -> FrozenType -> TastAccessor.ExprId -> Emission -> 'a option)
         (decls: TastAccessor.DeclId list)
         : 'a list =
         decls
@@ -192,7 +294,7 @@ module EmitClosures =
                     && TastAccessor.exprKind letd.Value <> ExprShape.Lambda
                     && tyOk (TastAccessor.patTy letd.Binding)
                     ->
-                    project k (TastAccessor.patTy letd.Binding) letd.Value (Map.tryFind k moduleMembers)
+                    project k (TastAccessor.patTy letd.Binding) letd.Value emissions.[k]
                 | _ -> None
             | _ -> None
         )
@@ -205,31 +307,31 @@ module EmitClosures =
     /// current treatment rather than crashing contract extraction). Each becomes
     /// a `public static` field on its holder, initialised by the holder's
     /// `.cctor`, and every reference is an `ldsfld` — never a `Main` local or a
-    /// closure capture. Generic values, function values (lambdas), and anonymous
-    /// top-level ("Program") values are out of scope and keep their current
-    /// treatment.
+    /// closure capture. Generic values, function values (lambdas), and top-level
+    /// ("Program") values are out of scope and keep their current treatment.
     let collectModuleValues
-        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
+        (emissions: Dictionary<BinderId, Emission>)
         (decls: TastAccessor.DeclId list)
         : ModuleValue list =
         decls
         |> classifyModuleValues
-            moduleMembers
+            emissions
             ftIsGround
-            (fun k ty value info ->
+            (fun k ty value em ->
                 // Only a *named*-holder ground value is a field here; a top-level
-                // (holderless) ground value is `collectProgramValues`' job.
-                info
-                |> Option.map (fun info ->
-                    {
-                        Key = k
-                        SymbolKey = bindingSymbolKey info.Holder info.Name
-                        Name = info.Name
-                        Ty = ty
-                        Init = value
-                        Holder = info.Holder
-                    }
-                )
+                // (Program-holder) ground value is `collectProgramValues`' job.
+                match em.Holder with
+                | None -> None
+                | Some holder ->
+                    Some
+                        {
+                            Key = k
+                            SymbolKey = em.SymbolKey
+                            Name = em.Name
+                            Ty = ty
+                            Init = value
+                            Holder = holder
+                        }
             )
 
     /// True when `t` is free of leaked inference metavars (`FTUnknown`) and of
@@ -248,23 +350,6 @@ module EmitClosures =
         | FTUnknown _
         | FTLocalTypar _ -> false
         | t -> FrozenType.forallChildren ftNoUnknown t
-
-    /// The emitted metadata name of a *top-level* (holderless) binding on the
-    /// Program holder: the source name the frozen binder column spells it with (a binder
-    /// no source names — one the freeze minted — takes `value`), suffixed with the
-    /// binder's own SLOT (`x` → `x$<slot>`). A top-level binding is SHADOWABLE
-    /// (`let x = 1 … let x = 2` is two Program-holder rows sharing the source name), so
-    /// the slot makes each row's field/method name unique — and, since its `SymbolKey`
-    /// handle key is minted from this same name, makes that key injective too.
-    let private topLevelName (pool: PoolBuilder) (k: BinderId) : string =
-        let (BinderId slot) = k
-
-        let name =
-            match TastPoolBuilder.binderNaming pool k with
-            | BinderNaming.Source n -> n
-            | BinderNaming.Minted _ -> "value"
-
-        sprintf "%s$%d" name slot
 
     /// `(ns, name)` of a `TypeSlotKey` — used to match a value's type against the
     /// ref-struct set, keyed on `(ns, name)` because the use-site `FTClass` key and
@@ -286,19 +371,15 @@ module EmitClosures =
     /// (`EmitExpr.buildExpr`). A function-typed generic value (a stored closure) is
     /// still deferred.
     ///
-    /// Both a value on a named holder and a top-level (implicit-"Program"-module)
-    /// generic value classify: the latter records no `ModuleBindingInfo`, so it gets
-    /// `Holder = None` (the Program holder) and its slot-suffixed source name
-    /// (`topLevelName`).
+    /// Both a value on a named holder and a top-level one classify; the latter declares
+    /// no module, so it emits on the Program holder (`Holder = None`) under its own name.
     /// Position-independent — a method is computed on demand. A non-generalisable
     /// generic value never reaches here: the front end's value restriction
     /// (`InferGeneralize.shouldGeneralise`) keeps an expansive parameterless binding
     /// monomorphic (and `Validation.checkValueRestriction` errors a mutable one), so
     /// its type is either ground or an `FTUnknown` the `tyOk` gate rejects.
     let collectGenericModuleValues
-        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
-        (programHolder: HolderKey)
-
+        (emissions: Dictionary<BinderId, Emission>)
         (decls: TastAccessor.DeclId list)
         : StaticFn list =
         // Open (`not ftIsGround`) but encodable (`ftNoUnknown`) and not itself a
@@ -315,22 +396,15 @@ module EmitClosures =
 
         decls
         |> classifyModuleValues
-            moduleMembers
+            emissions
             tyOk
-            (fun k ty value info ->
-                let name, holder =
-                    match info with
-                    | Some info -> info.Name, Some info.Holder
-                    // A top-level generic value: `None` holder ⇒ the Program holder.
-                    | None -> topLevelName value.Pool k, None
-
+            (fun k ty value em ->
                 Some
                     {
                         Key = k
-                        // Holderless ⇒ the Program holder is this key's declaring module.
-                        SymbolKey = bindingSymbolKey (Option.defaultValue programHolder holder) name
-                        Name = name
-                        Holder = holder
+                        SymbolKey = em.SymbolKey
+                        Name = em.Name
+                        Holder = em.Holder
                         Params = []
                         // A generic module VALUE is never applied (it reaches codegen
                         // as a bare `Var`, see `EmitExpr`): no source groups, and it
@@ -346,19 +420,16 @@ module EmitClosures =
                     }
             )
 
-    /// Classify the *top-level* (implicit-"Program"-module) ground values: a
-    /// non-`inline`, non-`Lambda`, non-function `let name = <value>` with no
-    /// enclosing named module (it records no
-    /// `ModuleBindingInfo`) whose type is fully ground. Each becomes a `public
-    /// static` field on the anonymous "Program" holder; the leading/trailing
-    /// `.cctor`-vs-`Main` placement is decided later in `HolderPlan.create`.
-    /// Generic top-level values are handled by `collectGenericModuleValues`'
-    /// holderless fallback; function-typed values (a stored closure) are deferred,
-    /// as for a named holder.
+    /// Classify the *top-level* ground values: a non-`inline`, non-`Lambda`,
+    /// non-function `let name = <value>` that declares no enclosing module, whose type is
+    /// fully ground. Each becomes a `public static` field on the anonymous "Program"
+    /// holder; the leading/trailing `.cctor`-vs-`Main` placement is decided later in
+    /// `HolderPlan.create`. Generic top-level values are handled by
+    /// `collectGenericModuleValues`' holderless fallback; function-typed values (a stored
+    /// closure) are deferred, as for a named holder.
     let collectProgramValues
-        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
+        (emissions: Dictionary<BinderId, Emission>)
         (programHolder: HolderKey)
-
         // `(ns, name)` of every `[<Struct; IsByRefLike>]` type declared in this
         // assembly. `EmitLower.lower` strips type decls, so the caller computes this
         // from `tast.Decls`.
@@ -388,22 +459,19 @@ module EmitClosures =
 
         decls
         |> classifyModuleValues
-            moduleMembers
+            emissions
             tyOk
-            (fun k ty value info ->
-                // A named-holder value (`module Foo`) takes the named-holder path;
-                // only a top-level (`holder = None`) value — recording no
-                // `ModuleBindingInfo` — becomes a Program-holder field here.
-                match info with
+            (fun k ty value em ->
+                // A named-holder value (`module Foo`) takes the named-holder path; only a
+                // value that declares no module becomes a Program-holder field here.
+                match em.Holder with
                 | Some _ -> None
                 | None ->
-                    let name = topLevelName value.Pool k
-
                     Some
                         {
                             Key = k
-                            SymbolKey = bindingSymbolKey programHolder name
-                            Name = name
+                            SymbolKey = em.SymbolKey
+                            Name = em.Name
                             Ty = ty
                             Init = value
                             Holder = programHolder
@@ -613,16 +681,16 @@ module EmitClosures =
         eligible
 
     /// Build the **static-method** `StaticFn`s from the precomputed `eligible` set
-    /// (`staticEligible`): each gathered function whose key is eligible, with its
-    /// holder / name resolved from `moduleMembers` (a named-holder source name, or the
-    /// anonymous `fn$<offset>` on the "Program" holder). Taking `eligible` as input —
-    /// rather than recomputing it — guarantees the set bridging assumed and the set
-    /// emitted as static methods are the same. A gathered function NOT in `eligible`
-    /// (capture-demoted, or a binding `bridgeStaticFnEscapes` newly turned into a
-    /// lambda whose key was never eligible) is left for closure discovery.
+    /// (`staticEligible`): each gathered function whose key is eligible, named by the
+    /// unit's `emissions` table (a named-holder source name, or the same source name on
+    /// the "Program" holder for a top-level function — the CLR having no namespace-level
+    /// method to put it on). Taking `eligible` as input — rather than recomputing it —
+    /// guarantees the set bridging assumed and the set emitted as static methods are the
+    /// same. A gathered function NOT in `eligible` (capture-demoted, or a binding
+    /// `bridgeStaticFnEscapes` newly turned into a lambda whose key was never eligible) is
+    /// left for closure discovery.
     let collectStaticFns
-        (moduleMembers: Map<BinderId, ModuleBindingInfo>)
-        (programHolder: HolderKey)
+        (emissions: Dictionary<BinderId, Emission>)
         // Per-binding frozen typar bounds from the front-end
         // scheme. Looked up by `c.Key`; absent ⇒ no bounds. Carried onto
         // `StaticFn.Constraints` and read by the call-site phantom-typar solve.
@@ -633,15 +701,7 @@ module EmitClosures =
         [
             for c in fns do
                 if eligible.Contains c.Key then
-                    // A binding inside a named module emits with its source name on its
-                    // holder type; a top-level function keeps the anonymous
-                    // `fn$<slot>` name on the "Program" holder (`Holder = None`).
-                    let name, holder =
-                        match Map.tryFind c.Key moduleMembers with
-                        | Some info -> info.Name, Some info.Holder
-                        | None ->
-                            let (BinderId slot) = c.Key
-                            sprintf "fn$%d" slot, None
+                    let em = emissions.[c.Key]
 
                     let constraints =
                         match Map.tryFind c.Key genericFnSchemes with
@@ -651,11 +711,9 @@ module EmitClosures =
                     yield
                         {
                             Key = c.Key
-                            // Holderless ⇒ the Program holder is this key's declaring
-                            // module; its `fn$<offset>` name is already offset-unique.
-                            SymbolKey = bindingSymbolKey (Option.defaultValue programHolder holder) name
-                            Name = name
-                            Holder = holder
+                            SymbolKey = em.SymbolKey
+                            Name = em.Name
+                            Holder = em.Holder
                             Params = c.Params
                             Groups = c.Groups
                             Body = c.Body

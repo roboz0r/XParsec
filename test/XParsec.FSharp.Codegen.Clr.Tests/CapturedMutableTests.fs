@@ -295,7 +295,14 @@ let tests =
                 let closureReprs = Map.ofArray pools.ClosureReprs
                 let genericFnSchemes = Map.ofArray pools.GenericFnSchemes
 
-                let moduleValues = Emit.collectModuleValues moduleMembers lowered0
+                // A holderless static fn keys on the Program holder, mirroring
+                // `Layout.build` (this test asserts only discovered closures, so the
+                // holder name is immaterial — any valid `ModuleKey` yields the same set).
+                let programHolder =
+                    SymbolKeyOps.moduleKeyOf (ModuleHolder.InNamespace NamespaceKey.Global) "Program"
+
+                let emissions = Emit.emissions moduleMembers programHolder lowered0
+                let moduleValues = Emit.collectModuleValues emissions lowered0
                 let moduleValueKeys = HashSet<BinderId>(moduleValues |> List.map (fun mv -> mv.Key))
 
                 // Mirror `HolderPlan.create`: the capture-only eligible set drives
@@ -304,19 +311,8 @@ let tests =
                 let eligible = Emit.staticEligible moduleValueKeys fns0
                 let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
 
-                // A holderless static fn keys on the Program holder, mirroring
-                // `Layout.build` (this test asserts only discovered closures, so the
-                // holder name is immaterial — any valid `ModuleKey` yields the same set).
-                let programHolder =
-                    SymbolKeyOps.moduleKeyOf (ModuleHolder.InNamespace NamespaceKey.Global) "Program"
-
                 let staticFns =
-                    Emit.collectStaticFns
-                        moduleMembers
-                        programHolder
-                        genericFnSchemes
-                        eligible
-                        (CompiledFns.gather lowered)
+                    Emit.collectStaticFns emissions genericFnSchemes eligible (CompiledFns.gather lowered)
 
                 let typarsMap = Dictionary<BinderId, int>()
 

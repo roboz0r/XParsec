@@ -1859,22 +1859,19 @@ module Elaborate =
         | _ -> None
 
     /// `c` is the element's declaring containment — the `namespace` group plus the
-    /// `module`s it is nested in. Its innermost module is the compiled holder type a `let`
-    /// binding lands on: such a binding records its `NodeKey` → `ModuleBindingInfo` so the
-    /// backend emits it as a named public static method on that holder (e.g.
-    /// `ListModule::fold`) rather than on the anonymous "Program" holder. The holder is
-    /// `ModuleRules.holderChain` — the SAME chain builder the type-key mint reads
-    /// (`localTypeHolder`), so a binding and a type declared in one module are held by the
-    /// same module key, nesting included.
+    /// `module`s it is nested in. EVERY module-level `let` in it records its `NodeKey` →
+    /// `ModuleBindingInfo`, so every one of them has an exportable identity: a binding
+    /// inside a `module` is held by that module (and emits as a named public static method
+    /// on its holder, `ListModule::fold`), a top-level one by the namespace the file
+    /// declares. The holder is `ctx.CurrentHolder` = `ModuleRules.holderChain` — the SAME
+    /// chain builder the type-key mint reads (`localTypeHolder`), so a binding and a type
+    /// declared in one module are held by the same module key, nesting included.
     let private translateModuleElem
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
         (m: ModuleElem<SyntaxToken>)
         : (TDecl * (TyVarId * SemType) list) list =
-        let holder =
-            match ctx.CurrentHolder with
-            | ModuleHolder.InModule mk -> Some mk
-            | ModuleHolder.InNamespace _ -> None
+        let holder = ctx.CurrentHolder
 
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
@@ -1903,38 +1900,34 @@ module Elaborate =
                     // node `ElaboratePatterns.translatePat` ERASES.
                     let binder = if elided then ValueNone else BinderKey.ofPat tpat
 
-                    // Inside a named module: record where this binding's static
-                    // method belongs. The emitted method takes its `[<CompiledName>]`
-                    // (the IL boundary name, e.g. `Set.empty` ⇒ `SetModule.Empty`),
-                    // falling back to the source name — matching the contract
-                    // extractor's `compiledNameForVal`, so a separately-compiled
+                    // Record this binding's exportable identity. The emitted member takes
+                    // its `[<CompiledName>]` (the IL boundary name, e.g. `Set.empty` ⇒
+                    // `SetModule.Empty`), falling back to the source name — matching the
+                    // contract extractor's `compiledNameForVal`, so a separately-compiled
                     // consumer resolving `Set.empty` to `SetModule.Empty` finds the
                     // method this emits. Both the producer-internal call resolver
                     // (`SymbolProviders`) and codegen key off this same `Name`.
-                    match holder with
-                    | Some h ->
-                        match memberNameOfBinding ctx b, binder with
-                        | ValueSome nm, ValueSome bk ->
-                            let compiledNm =
-                                match VesperLibTypeTranslate.tryCompiledName ctx.Lexed ctx.Input b.attributes with
-                                | ValueSome cn -> cn
-                                | ValueNone -> nm
+                    //
+                    // A head that introduces no binder (a destructuring `let (a, b) = p`)
+                    // records nothing — there is no single value to name, so there is
+                    // nothing to export and nothing downstream to look up.
+                    match memberNameOfBinding ctx b, binder with
+                    | ValueSome nm, ValueSome bk ->
+                        let compiledNm =
+                            match VesperLibTypeTranslate.tryCompiledName ctx.Lexed ctx.Input b.attributes with
+                            | ValueSome cn -> cn
+                            | ValueNone -> nm
 
-                            // The holder is the containment chain itself, so the binding's
-                            // `SymbolKey` is a direct construction downstream
-                            // (`ModuleBindingInfo.Key`), never a dotted-string re-parse.
-                            let info: ModuleBindingInfo = { Holder = h; Name = compiledNm }
-                            ctx.Bindings.ModuleMembers.[bk] <- info
-                            // Capture the binding's declared accessibility under its own
-                            // `SymbolKey` (honestly — the file→file projection thresholds
-                            // it internal-or-better, the `.fsi` extractor public-only).
-                            ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
-                        | _ -> ()
-                    // A top-level (implicit-Program-module) binding records no
-                    // `ModuleBindingInfo`, and needs none: it declares no module, so there
-                    // is no holder to place it on, and its NAME is the one the frozen
-                    // binder column already carries.
-                    | None -> ()
+                        // The holder is the containment chain itself, so the binding's
+                        // `SymbolKey` is a direct construction downstream
+                        // (`ModuleBindingInfo.Key`), never a dotted-string re-parse.
+                        let info: ModuleBindingInfo = { Holder = holder; Name = compiledNm }
+                        ctx.Bindings.ModuleMembers.[bk] <- info
+                        // Capture the binding's declared accessibility under its own
+                        // `SymbolKey` (honestly — the file→file projection thresholds
+                        // it internal-or-better, the `.fsi` extractor public-only).
+                        ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
+                    | _ -> ()
 
                     let valT = translateBinding ctx b
                     let declTy = typeOfKey ctx (CstKeys.ofBinding b)

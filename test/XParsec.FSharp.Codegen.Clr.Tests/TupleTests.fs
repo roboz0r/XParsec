@@ -123,13 +123,9 @@ let encodeTests =
 /// `System.ValueTuple`n` whose `Item` fields hold the constructed elements.
 [<Tests>]
 let constructTests =
-    /// The single `fn$…`-mangled static method an emitted bare program carries.
+    /// The single top-level static method an emitted bare program carries.
     let theStaticFn (bytes: byte[]) : MethodInfo =
-        let asm = loadAssembly bytes
-
-        asm.GetTypes()
-        |> Array.collect (fun t -> t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static))
-        |> Array.find (fun m -> m.Name.StartsWith "fn$")
+        programHolderMethods bytes |> Array.head
 
     testList
         "Tuple representation — Step 3 (construct a tuple value)"
@@ -200,14 +196,7 @@ let constructTests =
 let destructureTests =
     let invokeIntFn (source: string) (arg: int) : int =
         let _, artifact = compileSource "TupleStep4" source
-        let asm = loadAssembly (Codegen.toBytes artifact)
-
-        let m =
-            asm.GetTypes()
-            |> Array.collect (fun t ->
-                t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
-            )
-            |> Array.find (fun m -> m.Name.StartsWith "fn$")
+        let m = programHolderMethods (Codegen.toBytes artifact) |> Array.head
 
         m.Invoke(null, [| box arg |]) :?> int
 
@@ -268,14 +257,7 @@ let destructureTests =
 let lambdaParamTests =
     let invokeIntFn (source: string) (arg: int) : int =
         let _, artifact = compileSource "TupleStep5" source
-        let asm = loadAssembly (Codegen.toBytes artifact)
-
-        let m =
-            asm.GetTypes()
-            |> Array.collect (fun t ->
-                t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
-            )
-            |> Array.find (fun m -> m.Name.StartsWith "fn$")
+        let m = programHolderMethods (Codegen.toBytes artifact) |> Array.head
 
         m.Invoke(null, [| box arg |]) :?> int
 

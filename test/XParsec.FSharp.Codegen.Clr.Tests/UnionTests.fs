@@ -272,12 +272,10 @@ let tests =
                 Expect.isNotNull emptyM "IntList has a static Empty factory"
                 Expect.isNotNull consM "IntList has a static Cons factory"
 
-                let sumM =
-                    asm.GetTypes()
-                    |> Array.collect (fun t ->
-                        t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
-                    )
-                    |> Array.filter (fun m -> m.Name.StartsWith "fn$")
+                // `sum` declares no module (it sits directly under `namespace
+                // Vesper.Collections`), so it emits on the Program holder — under its
+                // own source name, which is also the name its key qualifies to.
+                let sumM = programHolderMethodsOf asm
 
                 match sumM with
                 | [| sumM |] ->

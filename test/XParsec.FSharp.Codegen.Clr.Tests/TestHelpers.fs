@@ -1522,9 +1522,9 @@ let peInterfaceImplCount (bytes: byte[]) : int =
 /// an empty array for an abstract method (no body). Throws if the method is
 /// not found.
 /// Raw IL bytes of the first method on `declaringType` whose name satisfies
-/// `nameMatches`. Use when the emitted method name is synthetic (a holder-less
-/// top-level function lands on "Program" as `fn$<n>`) so an exact name can't be
-/// pinned. Throws if no matching method is found.
+/// `nameMatches`. Use when the caller cannot pin an exact name — e.g. to reach the
+/// top-level functions on the "Program" holder without listing them (`n <> "Main"`).
+/// Throws if no matching method is found.
 let peMethodIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[] =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()
@@ -1568,8 +1568,8 @@ let peMethodIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string
             buf
 
 /// Like `peMethodIlWhere` but returns the IL of EVERY method on `declaringType`
-/// whose name matches — for when several methods share a synthetic naming scheme
-/// (`fn$<n>` for top-level functions) and the caller picks the right one by
+/// whose name matches — for when several methods qualify (every top-level function on
+/// the "Program" holder) and the caller picks the right one by
 /// inspecting the IL (e.g. "the one containing a `constrained.` prefix").
 let peMethodsIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: string -> bool) : byte[][] =
     use peReader = openPe bytes
@@ -1605,6 +1605,27 @@ let peMethodsIlWhere (bytes: byte[]) (declaringType: string) (nameMatches: strin
                             ilReader.ReadBytes(ilReader.RemainingBytes, buf, 0)
                             yield buf
     |]
+
+/// Every TOP-LEVEL function's emitted static method, by reflection: one declared on the
+/// anonymous "Program" holder, which is where a binding that declares no module lands,
+/// minus the synthesised entry point. Each carries its own SOURCE name — the holder is an
+/// emission choice, not part of the binding's identity — so what says "this function
+/// declared no module" is membership of that type, never a name shape. `[||]` when the
+/// assembly has no Program holder at all (a library of named modules).
+///
+/// Takes the loaded `Assembly`, not the bytes, because a caller that also reflects TYPES
+/// out of the same PE must hold ONE load: a second load of the same bytes is a different
+/// assembly, and mixing the two crosses type identities.
+let programHolderMethodsOf (asm: Assembly) : MethodInfo[] =
+    match asm.GetType "Program" with
+    | null -> [||]
+    | program ->
+        program.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
+        |> Array.filter (fun m -> m.Name <> "Main")
+
+/// `programHolderMethodsOf` for a caller that reflects nothing else out of the PE.
+let programHolderMethods (bytes: byte[]) : MethodInfo[] =
+    programHolderMethodsOf (loadAssembly bytes)
 
 let peMethodIl (bytes: byte[]) (declaringType: string) (methodName: string) : byte[] =
     use peReader = openPe bytes

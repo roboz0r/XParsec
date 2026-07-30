@@ -226,13 +226,15 @@ let tests =
                         }
                         // The anonymous holder, last, so that `Main` — the final row of the
                         // final node — falls inside its method range.
-                        // A top-level (Program-holder) value's field name carries its
-                        // binder slot (`p` → `p$<slot>`) so two shadowed `let p`s stay
-                        // distinct rows, and its `SymbolKey` handle key — minted from this
-                        // same name — stays injective.
+                        // A top-level value's field carries its SOURCE name: the binding
+                        // declares no module, but it has a real identity all the same (held
+                        // by the file's namespace), and the field name is minted from that
+                        // one key. Only a binding with no identity — one a later `let` of
+                        // the same name shadows, or one peeled out of the entry expression —
+                        // falls back to a slot-suffixed mint.
                         {
                             Type = "Program"
-                            Fields = [ "p$7"; "c$8"; "s$9"; "t$10"; "n$11" ]
+                            Fields = [ "p"; "c"; "s"; "t"; "n" ]
                             Methods = [ "Main" ]
                         }
                     ]

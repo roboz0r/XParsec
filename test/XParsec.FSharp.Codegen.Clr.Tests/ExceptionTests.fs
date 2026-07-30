@@ -17,22 +17,16 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 let private lines xs = String.concat "\n" xs
 
 /// Compile a source that defines a single top-level `let f … = raise …`,
-/// reflect the emitted `fn$…` static method, invoke it, and return the CLR
-/// exception it throws (unwrapped from `TargetInvocationException`). The
-/// function is given one `int` parameter it ignores so it emits as a plain
-/// static method we can invoke with a dummy argument.
+/// reflect its emitted static method, invoke it, and return the CLR exception it
+/// throws (unwrapped from `TargetInvocationException`). The function is given one
+/// `int` parameter it ignores so it emits as a plain static method we can invoke
+/// with a dummy argument.
 let private thrownBy (assemblyName: string) (src: string) : exn =
     let tast, artifact = compileSource assemblyName src
 
     Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message)))
 
-    let asm = loadAssembly (Codegen.toBytes artifact)
-
-    let fn =
-        asm.GetTypes()
-        |> Array.collect (fun t -> t.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static))
-        |> Array.filter (fun m -> m.Name.StartsWith "fn$")
-        |> Array.exactlyOne
+    let fn = programHolderMethods (Codegen.toBytes artifact) |> Array.exactlyOne
 
     try
         fn.Invoke(null, [| box 0 |]) |> ignore

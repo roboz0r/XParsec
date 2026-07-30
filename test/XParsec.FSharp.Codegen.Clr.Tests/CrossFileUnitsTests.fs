@@ -96,6 +96,61 @@ printfn \"%d\" (s + e)
                 Expect.equal actual "24" "cross-file module fn + generic fn combine to 24"
             }
 
+            // A TOP-LEVEL binding — one written outside any `module` — is exportable like any
+            // other: it declares no module, but it is held by the file's namespace, so it has
+            // a `SymbolKey` the freeze can publish and a consumer can resolve. This is the case
+            // the publish boundary used to REFUSE ("no exportable identity … move it into a
+            // module"), and refusing it took the whole template with it.
+            //
+            // Both halves are exercised at once, because both were blocked by the same
+            // missing identity: unit 2 CALLS unit 1's top-level `addBase` directly, and it
+            // SPLICES unit 1's top-level `let inline twice`, whose published body references
+            // `addBase` — a reference the freeze can only bake in as a `SymbolKey`. Emission
+            // homes both on the anonymous Program holder (the CLR has no namespace-level
+            // method), which is exactly why the identity and the emission are separate facts:
+            // the key says `addBase`, the metadata says which type it landed on.
+            test "two units run: unit 2 calls and SPLICES unit 1's top-level bindings" {
+                // Unit 1 declares no module at all. Only a top-level FUNCTION may live in a
+                // non-entry unit — a top-level VALUE is entry-file-only top-level code
+                // (`Layout.combine`) — so both bindings here are functions.
+                let unit1 =
+                    "\
+let addBase (x: int) : int = x + 10
+
+let inline twice (x: int) : int = addBase (addBase x)
+"
+
+                // Unit 2 (entry, last): resolves both by their BARE names — a top-level
+                // binding in a header-less file is keyed in the global namespace, so it
+                // qualifies to exactly the name written here.
+                let unit2 = "printfn \"%d\" (twice 11 + addBase 1)\n"
+
+                let asmName = "CrossFileTopLevel"
+                let bytes = compileTwoUnits asmName unit1 unit2
+
+                // As above: a cross-file call that failed to re-home to the local `MethodDef`
+                // would emit a self-`AssemblyRef` and fault the loader.
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                // The spliced template must land on unit 1's `addBase`, not on nothing:
+                // `twice 11` = addBase (addBase 11) = 31, plus `addBase 1` = 11 ⇒ 42.
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "the spliced inline template and the direct call both resolved cross-unit"
+
+                // `addBase` emits under its SOURCE name on the Program holder — the name its
+                // key qualifies to — which is what let unit 2's reference find it.
+                let names = programHolderMethods bytes |> Array.map (fun m -> m.Name)
+
+                Expect.contains names "addBase" (sprintf "addBase emitted under its own name; got %A" names)
+            }
+
             test "two units run: unit 2 boxes a value into unit 1's obj record field (cross-unit box)" {
                 // The field-init coercion (`unifyArg`) type-checks `{ V = 7 }` into unit 1's
                 // `V: obj` cross-unit; codegen must then box it (the external `recordFieldTy`

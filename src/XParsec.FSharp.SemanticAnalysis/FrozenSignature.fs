@@ -506,10 +506,12 @@ module FrozenSignature =
 
         // EVERY module binding rides `Decls`, `inline` ones included (an inline binding is
         // emitted as an ordinary module function as well as published as a template), and
-        // its identity is in `ModuleMembers` — a top-level binding has none, and is never
-        // exported. So ONE loop registers them all, and a template is not a second entry
-        // that overwrites the first: it is the binding's `InlineBody`, looked up at the
-        // binder the decl already carries.
+        // its identity is in `ModuleMembers` — including a TOP-LEVEL binding's, which is
+        // keyed in the file's namespace and so exports under its bare name. A binding with
+        // no entry there binds no single name (a destructuring `let`) and has nothing to
+        // export. So ONE loop registers them all, and a template is not a second entry that
+        // overwrites the first: it is the binding's `InlineBody`, looked up at the binder
+        // the decl already carries.
         //
         // That also means ONE export threshold, applied to `ModuleBindingInfo.Key`. The
         // template's own `PooledInlineValue.Key` is minted from the same place

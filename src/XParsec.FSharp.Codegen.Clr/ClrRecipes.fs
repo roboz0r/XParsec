@@ -311,9 +311,11 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         | _ -> ValueNone
 
     /// General external module-function call: a `call` to a static method `<ns>::<name>` compiled into
-    /// a referenced package by our own backend, generalised from `emitFold`. `declFullName` is the
-    /// declaring module's compiled holder name (the call key's `ns`, e.g. `Vesper.OptionModule`),
-    /// `name` the method, `fnTy` the *use-site* curried function type.
+    /// a referenced package by our own backend, generalised from `emitFold`. `binding` is the callee's
+    /// own identity — the key `Elaborate` stamped on the reference — and `fnTy` the *use-site* curried
+    /// function type. The key is taken WHOLE rather than rebuilt from a `(module, name)` pair: a
+    /// top-level binding is held by a namespace, not a module, so a pair could not spell it and the
+    /// probe below would miss the very function the producer registered.
     ///
     /// The open method signature is reconstructed by the symbol layer's `Inline.openMethodSignature`
     /// accessor: it instantiates the symbol and hands back a curried monotype whose method-own typars
@@ -324,8 +326,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// needs no `MethodSpec`. `ValueNone` ⇒ the symbol is unknown to the provider, or carries no home
     /// assembly (a project-local symbol the provider never sees), in which case the caller falls back to
     /// its hard error.
-    let emitExternalCall (declModule: ModuleKey) (name: string) (fnTy: FrozenType) : CallRecipe voption =
-        let valueKey = SymbolKeyOps.valueKey (ModuleHolder.InModule declModule) name
+    let emitExternalCall (binding: BindingKey) (fnTy: FrozenType) : CallRecipe voption =
+        let name = binding.Name
+        let valueKey = SymbolKey.Binding binding
         let compiledFullName = SymbolKeyOps.qualifiedName valueKey
 
         match symbols.TryLookupOpenSignature valueKey with
@@ -414,14 +417,23 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // key alone names no assembly. The mono arm `call`s the base handle directly; the
             // generic arm uses it as the `MethodSpec.Method` base (SRM accepts a `MethodDef`
             // there), so only the base handle swaps — all signature / typar recovery is identical.
-            let callBase =
+            //
+            // The external fallback needs a declaring TYPE to scope the `MemberRef`, and
+            // only a module has one. A binding held directly by a namespace (a top-level
+            // `let`) has no such type in any assembly but the one that emitted it — where
+            // the probe above already found it — so `ValueNone` there is an honest "not
+            // callable from here", not a holder left to guess.
+            let callBaseOpt =
                 match env.LocalModuleFns.TryGetValue valueKey with
-                | true, defHandle -> defHandle
+                | true, defHandle -> ValueSome defHandle
                 | _ ->
-                    let parent = env.ExternalModuleRef(openSig.Origin, declModule)
-                    toEntity (ctx.MemberRef(parent, name, msig))
+                    match binding.Decl with
+                    | ModuleHolder.InNamespace _ -> ValueNone
+                    | ModuleHolder.InModule declModule ->
+                        let parent = env.ExternalModuleRef(openSig.Origin, declModule)
+                        ValueSome(toEntity (ctx.MemberRef(parent, name, msig)))
 
-            let callHandle =
+            let callHandleOf (callBase: EntityHandle) =
                 if methodTyparArity = 0 then
                     callBase
                 elif List.isEmpty openSig.Constraints then
@@ -477,7 +489,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 | ValueSome groups -> CallArity.Grouped(groups, List.length flatParamTys)
                 | ValueNone -> CallArity.Flat(List.length flatParamTys)
 
-            ValueSome
+            callBaseOpt
+            |> ValueOption.map (fun callBase ->
+                let callHandle = callHandleOf callBase
+
                 {
                     Emit = fun il -> il.Encoder.Call callHandle
                     Arity = arity
@@ -485,6 +500,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     // `unit` value (a value-position result still needs one).
                     Pushes = if returnsVoid then 0 else 1
                 }
+            )
 
     /// Member refs + the `AppendFormatted<T>` factory for lowering a `TExpr.Format` to the
     /// `Vesper.Formatter` write-through handler. All members hang off the non-generic `Formatter` value
@@ -1023,7 +1039,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b
     member _.FlatFunInterfaceSpecN(tys) = flatFunInterfaceSpecN tys
     member _.EmitFold fnTy = emitFold fnTy
-    member _.EmitExternalCall(declModule, name, fnTy) = emitExternalCall declModule name fnTy
+    member _.EmitExternalCall(binding, fnTy) = emitExternalCall binding fnTy
     member _.BuildFormatHandles() = buildFormatHandles ()
     member _.FormatSinkHandles = formatSinkHandles.Value
     member _.StructuralFormatSignature() = structuralFormatSignature ()

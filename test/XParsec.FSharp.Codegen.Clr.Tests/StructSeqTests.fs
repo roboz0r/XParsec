@@ -67,7 +67,7 @@ let structSeqTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "struct Fun dispatch returns Invoke result"
 
-                let il = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                let il = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let hasConstrained =
                     il
@@ -181,7 +181,7 @@ let structSeqTests =
             // captured value is distinct each time), so caching would be WRONG. The
             // HEAP capturing path is UNTOUCHED — it still `newobj`s per construction
             // (no `.cctor`, no cached field). Proven by the construction site (here the
-            // body of `outer`, a `fn$` static method) still containing `newobj`.
+            // body of `outer`, a top-level static method) still containing `newobj`.
             //
             // NOTE: `apply`'s parameter is a PLAIN arrow `int -> int`, NOT a constrained
             // `'TF :> Fun` typar. The value-struct lowering now lowers a capturing lambda
@@ -199,7 +199,7 @@ let structSeqTests =
 
                 // The capturing closure's construction site (the `outer` static method)
                 // still `newobj`s (0x73) — caching did not apply.
-                let outerIls = peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                let outerIls = peMethodsIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let anyNewobj = outerIls |> Array.exists (fun il -> Array.contains 0x73uy il)
 
@@ -227,7 +227,7 @@ let structSeqTests =
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "captureless struct Fun dispatch returns 42"
 
-                let il = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                let il = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let hasConstrained =
                     il
@@ -286,7 +286,7 @@ let structSeqTests =
 
                 // (3) `apply`'s body dispatches via `constrained.` (0xFE 0x16) with NO
                 // box (0x8C): `!TF` is the struct `TypeDef`, so the JIT devirtualises.
-                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let hasConstrained =
                     applyIl
@@ -342,21 +342,21 @@ let structSeqTests =
                 let fieldCount = (md.GetTypeDefinition closureTd).GetFields() |> Seq.length
                 Expect.equal fieldCount 1 "the capturing value-struct closure has exactly one capture field"
 
-                // (3) Construction is by-value: the construction site (`mk`, a `fn$`
+                // (3) Construction is by-value: the construction site (`mk`, a top-level
                 // static method) must NOT `newobj` (0x73), NOT `ldsfld` (0x7E) a
                 // cached singleton, and there must be no caching `.cctor`. The
                 // capture is pushed and a `call` (0x28) to the value-type ctor stores
                 // it by value.
-                let mkIls = peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                let mkIls = peMethodsIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let anyNewobj = mkIls |> Array.exists (fun il -> Array.contains 0x73uy il)
-                Expect.isFalse anyNewobj "no fn$ method newobjs the value-struct closure (0x73)"
+                Expect.isFalse anyNewobj "no top-level method newobjs the value-struct closure (0x73)"
 
                 let anyLdsfld = mkIls |> Array.exists (fun il -> Array.contains 0x7Euy il)
-                Expect.isFalse anyLdsfld "no fn$ method ldsflds a cached singleton (0x7E)"
+                Expect.isFalse anyLdsfld "no top-level method ldsflds a cached singleton (0x7E)"
 
                 let anyCall = mkIls |> Array.exists (fun il -> Array.contains 0x28uy il)
-                Expect.isTrue anyCall "a fn$ method `call`s the value-struct ctor (0x28) with the capture pushed"
+                Expect.isTrue anyCall "a top-level method `call`s the value-struct ctor (0x28) with the capture pushed"
 
                 let closureCctors =
                     peMethodNames bytes
@@ -365,7 +365,7 @@ let structSeqTests =
                 Expect.isEmpty closureCctors "no value-struct closure was given a Step-B caching .cctor"
 
                 // (4) `apply`'s body dispatches via `constrained.` (0xFE 0x16) with NO
-                // box (0x8C). `apply` is also a `fn$`; assert across all of them that a
+                // box (0x8C). `apply` is also a top-level static method; assert across all of them that a
                 // `constrained.` prefix is present and no `box` appears anywhere.
                 let hasConstrained =
                     mkIls
@@ -380,7 +380,10 @@ let structSeqTests =
                     "apply IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
 
                 let anyBox = mkIls |> Array.exists (fun il -> Array.contains 0x8Cuy il)
-                Expect.isFalse anyBox "no fn$ method contains a `box` (non-allocating capturing value-struct dispatch)"
+
+                Expect.isFalse
+                    anyBox
+                    "no top-level method contains a `box` (non-allocating capturing value-struct dispatch)"
             }
 
             // A SATURATED 2-arg SOURCE lambda (`fun x y -> x + y`)
@@ -447,7 +450,7 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x73uy mainIl) "Main does NOT newobj the value-struct closure (0x73)"
 
                 // (4) `apply2`'s body dispatches via `constrained.` (0xFE 0x16) with NO box.
-                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let hasConstrained =
                     applyIl
@@ -521,7 +524,7 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x73uy mainIl) "Main does NOT newobj the value-struct closure (0x73)"
 
                 // (4) `apply3`'s body dispatches via `constrained.` (0xFE 0x16) with NO box.
-                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let hasConstrained =
                     applyIl
@@ -594,7 +597,7 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x73uy mainIl) "Main does NOT newobj the value-struct closure (0x73)"
 
                 // (4) `apply4`'s body dispatches via `constrained.` (0xFE 0x16) with NO box.
-                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let hasConstrained =
                     applyIl
@@ -666,8 +669,8 @@ let structSeqTests =
                 Expect.equal (output.Replace("\r", "").Trim()) "9" "constrained struct dispatch returns the impl value"
 
                 // The holder-less top-level `callIt` is emitted on the "Program" type
-                // under a synthetic `fn$<n>` name, so target it structurally.
-                let il = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                // under its source name on the Program holder, so target it structurally.
+                let il = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let hasConstrained =
                     il
@@ -694,7 +697,7 @@ let structSeqTests =
                     "5"
                     "generic-interface constrained dispatch returns the impl value"
 
-                let il = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                let il = peMethodIlWhere bytes "Program" (fun n -> n <> "Main")
 
                 let hasConstrained =
                     il
@@ -996,11 +999,11 @@ let structSeqTests =
 
                 // The fold loop drives `f.Invoke(state, y)` via `constrained. !TFunc
                 // callvirt Fun::Invoke` — the hot accumulator, also non-allocating.
-                // Several free top-level fns land on "Program" as `fn$<n>`; pick the
+                // Several free top-level fns land on "Program"; pick the
                 // one whose body carries a `constrained.` prefix (the fold loop) and
                 // assert it has no `box`.
                 let programFoldIl =
-                    peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                    peMethodsIlWhere bytes "Program" (fun n -> n <> "Main")
                     |> Array.filter (fun il ->
                         il
                         |> Array.windowed 2
@@ -1009,7 +1012,7 @@ let structSeqTests =
 
                 Expect.isNonEmpty
                     programFoldIl
-                    "a top-level fn$ (the fold loop) contains a `constrained.` prefix (Fun typar dispatch)"
+                    "a top-level fn (the fold loop) contains a `constrained.` prefix (Fun typar dispatch)"
 
                 Expect.isFalse
                     (programFoldIl |> Array.exists (Array.contains 0x8Cuy))
@@ -1132,7 +1135,7 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x8Cuy curIl) "MapEnumerator.Current IL contains no `box`"
 
                 let programFoldIl =
-                    peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                    peMethodsIlWhere bytes "Program" (fun n -> n <> "Main")
                     |> Array.filter (fun il ->
                         il
                         |> Array.windowed 2
@@ -1182,7 +1185,7 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x8Cuy curIl) "MapEnumerator.Current IL contains no `box`"
 
                 let programFoldIl =
-                    peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                    peMethodsIlWhere bytes "Program" (fun n -> n <> "Main")
                     |> Array.filter (fun il ->
                         il
                         |> Array.windowed 2
@@ -1285,7 +1288,7 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x8Cuy curIl) "MapEnumerator.Current IL contains no `box`"
 
                 let programFoldIl =
-                    peMethodsIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+                    peMethodsIlWhere bytes "Program" (fun n -> n <> "Main")
                     |> Array.filter (fun il ->
                         il
                         |> Array.windowed 2

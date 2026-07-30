@@ -323,17 +323,21 @@ let nestedModuleTests =
                     | other -> failtestf "expected exactly one module member, got %A" other
 
                 Expect.equal info.Name "f" "the binding's compiled name"
-                Expect.equal info.Holder.Name "B" "held by the INNERMOST module"
 
-                match info.Holder.Holder with
-                | ModuleHolder.InModule a ->
-                    Expect.equal a.Name "A" "which is itself held by the outer module"
+                match info.DeclaringModule with
+                | ValueNone -> failtest "expected a declaring module"
+                | ValueSome b ->
+                    Expect.equal b.Name "B" "held by the INNERMOST module"
 
-                    Expect.equal
-                        (List.ofSeq a.Namespace.Path.Underlying)
-                        [ "N" ]
-                        "and the outer module by the namespace — neither module is a namespace segment"
-                | other -> failtestf "expected B's holder to be module A, got %A" other
+                    match b.Holder with
+                    | ModuleHolder.InModule a ->
+                        Expect.equal a.Name "A" "which is itself held by the outer module"
+
+                        Expect.equal
+                            (List.ofSeq a.Namespace.Path.Underlying)
+                            [ "N" ]
+                            "and the outer module by the namespace — neither module is a namespace segment"
+                    | other -> failtestf "expected B's holder to be module A, got %A" other
 
                 Expect.equal
                     (SymbolKeyOps.qualifiedName info.Key)

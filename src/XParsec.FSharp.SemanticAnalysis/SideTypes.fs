@@ -20,43 +20,50 @@ type Accessibility =
     | Internal
     | Private
 
-/// Where a module-level `let` should be emitted: a *named* holder type (an F#
-/// module compiles to a static class) rather than the anonymous "Program" holder
-/// the backend uses for top-level functions. Recorded for every binding inside a
-/// `module Foo = …`; the backend keys this off the binding's `NodeKey` to give the
-/// emitted static method its source `Name` on the holder type (e.g.
-/// `Vesper.Collections.ListModule::fold`). The `Module` suffix follows the F# rule
-/// that a module sharing a name with a type in its namespace compiles to
-/// `<Name>Module`, and is applied by the producer, so `Holder.Name` IS the compiled
-/// holder-type name.
+/// The EXPORTABLE IDENTITY of a module-level `let`, recorded for EVERY one of them —
+/// a binding inside a `module Foo = …` and a top-level binding alike. It is what makes
+/// a binding nameable from outside the tree that declares it: `Freeze` mints an inline
+/// template's published `SymbolKey` through it (an inline binding never reaches codegen,
+/// so nothing else would ever mint its identity), `FrozenSignature` exports it, and both
+/// backends name the emitted member from it. All of those agree BY CONSTRUCTION because
+/// `Key` is the one place any of them is derived from — including the key a `.fsi`
+/// contract extractor mints for the same binding, which builds the same holder chain from
+/// the same facts.
 ///
-/// `Holder` is a `ModuleKey` — the containment chain, not a `(namespace, module)`
-/// pair of strings. That is what makes `Key` a DIRECT construction rather than a
-/// re-parse: the binding's identity is the chain plus the name, with nothing thrown
-/// away at the boundary and nothing guessed back. `Freeze` mints an inline value's
-/// published `SymbolKey` through it (an inline binding never reaches codegen, so
-/// nothing else would ever mint its identity), and it agrees BY CONSTRUCTION with
-/// the key a `.fsi` contract extractor mints for the same binding — both build the
-/// same holder chain from the same three facts.
+/// `Holder` is the binding's DECLARING SCOPE, and its two shapes are the whole of the
+/// distinction the backends need:
+///
+///   * `InModule m` — declared in a `module Foo = …`. `m` is the containment chain, not a
+///     `(namespace, module)` pair of strings, so `Key` is a direct construction rather
+///     than a re-parse. `m.Name` is the COMPILED holder-type name (`ListModule`; the
+///     `Module` suffix rule is applied by the producer, `ModuleRules.holderNameOf`), and
+///     an F# module compiles to a static class, so it is also the emitted type's name —
+///     `Vesper.Collections.ListModule::fold`.
+///   * `InNamespace ns` — declared in no module at all: a top-level `let`, in the
+///     namespace the file declares (the global one for a file with no header). The CLR has
+///     no namespace-level method, so a backend homes these on its own program holder —
+///     but that is an EMISSION choice, not an identity: the binding's name is `ns.name`
+///     and nothing in the vocabulary mentions the holder a backend picked.
+///
+/// A top-level binding therefore has as real an identity as any other, which is why
+/// nothing in the pipeline may key one by the ABSENCE of this record.
 type ModuleBindingInfo =
     {
-        Holder: ModuleKey
+        Holder: ModuleHolder
         Name: string
     }
 
     /// The binding's interned identity — the key a use-site `TExpr.External` carries.
-    member this.Key: SymbolKey =
-        SymbolKeyOps.valueKey (ModuleHolder.InModule this.Holder) this.Name
+    member this.Key: SymbolKey = SymbolKeyOps.valueKey this.Holder this.Name
 
-    /// The compiled holder-TYPE name (the module's own simple name, `ModuleSuffix`
-    /// already applied). What the backend names the emitted static class.
-    member this.HolderName: string = this.Holder.Name
-
-    /// The declaring namespace, dotted; `None` for the global namespace.
-    member this.Namespace: string option =
-        match SymbolKeyOps.holderFullName this.Holder.Holder with
-        | "" -> None
-        | ns -> Some ns
+    /// The named module this binding is declared in, or `ValueNone` when it declares
+    /// none (a top-level `let`). THE predicate behind every "is this a top-level
+    /// binding?" question — the freeze, the conformance lookup and the CLR holder plan
+    /// all ask it here, so none of them can answer it a second way.
+    member this.DeclaringModule: ModuleKey voption =
+        match this.Holder with
+        | ModuleHolder.InModule m -> ValueSome m
+        | ModuleHolder.InNamespace _ -> ValueNone
 
 /// The per-source-lambda value-struct closure verdict, keyed
 /// (in the side table / `TastFile`) by the lambda argument's `NodeKey`. One record

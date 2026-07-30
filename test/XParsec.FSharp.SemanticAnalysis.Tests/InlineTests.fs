@@ -573,12 +573,70 @@ let tests =
                 Expect.isFalse (vars.Contains kKey) "no residual Var naming `k`'s binder"
             }
 
-            test "an inline template referencing a TOP-LEVEL binding is diagnosed, not published" {
-                // A top-level (implicit-`Program`-module) binding records no
-                // `ModuleBindingInfo`, hence no `SymbolKey` — there is nothing for the
-                // sibling rewrite to bake in, so the free `Var` survives. That is exactly
-                // what the publish-time free-`Var` check exists to catch.
+            test "an inline template referencing a TOP-LEVEL binding IS published" {
+                // A top-level binding declares no module, but it is held by the file's
+                // namespace and so has a `SymbolKey` like any other module-level binding.
+                // The sibling rewrite bakes that key in, so the template publishes — this is
+                // the case the publish-time free-`Var` check used to refuse for want of an
+                // identity to name.
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
+                let lexed, file = parseFile input
+                let sem = Pipeline.analyseSem realProvider.Value input lexed file
+                let _, pools = Pipeline.analyseWithContext realProvider.Value input lexed file
+                let frozen = TastUnpool.ofPools pools
+
+                Expect.isEmpty frozen.Diagnostics "no diagnostics — nothing is refused"
+
+                let kKey =
+                    match sem.Decls.[0] with
+                    | TDecl.Let(head, _, _, _) ->
+                        match BinderKey.ofPat head with
+                        | ValueSome b ->
+                            match Map.tryFind b sem.ModuleMembers with
+                            | Some info -> info.Key
+                            | None -> failtest "the top-level `k` has no ModuleBindingInfo"
+                        | ValueNone -> failtest "expected `let k` to introduce a binder"
+                    | other -> failtestf "expected `let k` first, got %A" other
+
+                // Held by the file's namespace — the global one here — so it qualifies to
+                // the bare name a consumer resolves it by.
+                Expect.equal
+                    kKey
+                    (SymbolKeyOps.valueKey (ModuleHolder.InNamespace NamespaceKey.Global) "k")
+                    "a top-level binding is keyed in its file's namespace"
+
+                let refs = ResizeArray<string * SymbolKey>()
+
+                let collect =
+                    { TastWalk.identityIter with
+                        VisitExpr =
+                            fun _ e ->
+                                match e with
+                                | TExpr.External(name, ValueSome key, _, _) -> refs.Add(name, key)
+                                | _ -> ()
+
+                                true
+                    }
+
+                let pool = TastPoolBuilder.openOver pools
+
+                let body =
+                    match List.ofArray pools.InlineTemplates with
+                    | [ v ] -> Inline.thawBody (TypeStore()) (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
+                    | other -> failtestf "expected exactly one published body, got %d" (List.length other)
+
+                match body with
+                | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr collect value
+                | other -> failtestf "unexpected published decl %A" other
+
+                Expect.contains refs ("k", kKey) "the top-level sibling reference carries its SymbolKey"
+            }
+
+            test "an inline template referencing a DESTRUCTURING module binding is diagnosed, not published" {
+                // The residue the publish-time free-`Var` check still catches: `let (a, b) =
+                // …` binds two names at once, so it has no single `ModuleBindingInfo` and
+                // nothing for the sibling rewrite to bake in.
+                let input = "module M =\n    let (a, b) = (1, 2)\n    let inline addA x = x + a\n"
                 let lexed, file = parseFile input
                 let _, pools = Pipeline.analyseWithContext realProvider.Value input lexed file
                 let frozen = TastUnpool.ofPools pools

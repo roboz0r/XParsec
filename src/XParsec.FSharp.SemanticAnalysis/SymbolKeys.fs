@@ -68,11 +68,16 @@ type NamespaceKey =
 /// What holds a module: a namespace, or an enclosing module (modules nest).
 ///
 /// Also what holds a `BindingKey`. `InNamespace` in *that* position means the binding
-/// has NO declaring module — it sits directly in the namespace. F# source cannot
-/// produce one (a namespace cannot hold a value), but the EXTERNAL vocabulary does:
-/// a TS package's top-level export (`TsManifestProvider`, `nsPath = ""`) and a
-/// flat-package contract extern (`ExternalSymbols.monoFrozen "printfn"`) are both
-/// exactly that.
+/// has NO declaring module — it sits directly in the namespace. That is what a TOP-LEVEL
+/// `let` is: a binding written outside any `module`, whose identity is its file's
+/// namespace plus its name (the global namespace for a file with no header, so it
+/// qualifies to the bare name). The EXTERNAL vocabulary produces the same shape — a TS
+/// package's top-level export (`TsManifestProvider`, `nsPath = ""`) and a flat-package
+/// contract extern (`ExternalSymbols.monoFrozen "printfn"`) are both exactly that.
+///
+/// No CLR type corresponds to it, so a backend homes such a binding on a holder of its own
+/// choosing (the anonymous "Program" holder). That is an EMISSION choice and leaves the
+/// identity alone: nothing about the key names the type a backend picked.
 [<RequireQualifiedAccess>]
 type ModuleHolder =
     | InNamespace of ns: NamespaceKey

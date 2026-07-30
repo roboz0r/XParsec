@@ -311,14 +311,16 @@ module EmitTypes =
     type StaticFn =
         {
             Key: BinderId
-            /// This binding's stable handle key: its `SymbolKey` (declaring holder +
-            /// emitted `Name`). The combined `MethodKey.StaticFn` handle map keys on
-            /// this rather than the per-file `Key` — a bare `NodeKey` collides across
-            /// compilation units (same offset in two files) and, under top-level
-            /// shadowing, across two rows of the entry file. Built from the SAME
-            /// (holder, `Name`) the metadata name uses, so the key and the emitted
-            /// name agree and stay extractable; a holderless binding's `Name` carries
-            /// the source offset so shadowed bindings stay distinct.
+            /// This binding's stable handle key. The combined `MethodKey.StaticFn`
+            /// handle map keys on this rather than the per-file `Key` — a bare
+            /// `NodeKey` collides across compilation units (same offset in two files).
+            ///
+            /// For a binding that HAS an exportable identity this IS that identity
+            /// (`ModuleBindingInfo.Key`) — the same key the front end stamped on every
+            /// reference to it — which is what lets a cross-file call re-home to this
+            /// method (`ClrEnv.LocalModuleFns`). A binding with no identity (one a later
+            /// `let` shadows, one peeled out of the entry expression) instead carries a
+            /// mint that no reference can spell; see `EmitClosures.residueEmission`.
             SymbolKey: SymbolKey
             Name: string
             /// `Some holderKey` when from a named `module Foo = …`: emits as a
@@ -353,21 +355,17 @@ module EmitTypes =
         }
 
     /// A module-level value (`let x = e` at module scope) lowered to a `public
-    /// static` field on its module holder, initialised by the holder's `.cctor`
-    ///. Only values on a *named* module classify
-    /// (anonymous "Program" values keep their `Main`-local treatment, see
-    /// `collectModuleValues`), so the holder is always known. `Init` is the
-    /// initialiser the `.cctor` evaluates and `stsfld`s — taken from the lowered decls.
+    /// static` field, initialised by its holder's `.cctor`. `Holder` is always known:
+    /// a value on a NAMED module gets that module's holder class
+    /// (`collectModuleValues`), a top-level one the anonymous "Program" holder
+    /// (`collectProgramValues`). `Init` is the initialiser the `.cctor` evaluates and
+    /// `stsfld`s — taken from the lowered decls.
     type ModuleValue =
         {
             Key: BinderId
-            /// This value's stable handle key: its `SymbolKey` (declaring holder +
-            /// emitted `Name`). The combined `FieldKey.ModuleValue` handle map keys on
-            /// this rather than the per-file `Key` — a bare `NodeKey` collides across
-            /// compilation units and, under top-level shadowing, across two rows of the
-            /// entry file. Built from the SAME (holder, `Name`) the metadata name uses;
-            /// a Program-holder value's `Name` carries the source offset so shadowed
-            /// bindings stay distinct.
+            /// This value's stable handle key, on the same terms as `StaticFn.SymbolKey`:
+            /// the binding's own identity when it has one, a mint no reference can spell
+            /// when it has none.
             SymbolKey: SymbolKey
             Name: string
             Ty: FrozenType

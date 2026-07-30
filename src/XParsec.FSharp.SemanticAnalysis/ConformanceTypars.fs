@@ -98,13 +98,16 @@ module ConformanceTypars =
 
     /// The provider lookup names to try for a frozen module binding, most-specific
     /// first. A contract provider registers a module function under its compiled name
-    /// (`ListModule.fold` = `Holder.Name`) AND its source-name alias (`List.fold`), so
-    /// `Holder.Name` resolves a `[<RequireQualifiedAccess>]` / `ModuleSuffix` module's
-    /// members; the bare `Name` covers a binding compiled with no holder (a top-level
-    /// value in a named module).
+    /// (`ListModule.fold` = the declaring module's `Name`) AND its source-name alias
+    /// (`List.fold`), so the compiled name resolves a `[<RequireQualifiedAccess>]` /
+    /// `ModuleSuffix` module's members; the bare `Name` covers a binding compiled with no
+    /// holder — a top-level binding, which declares no module to qualify it with.
     let private lookupNames (info: ModuleBindingInfo option) (name: string) : string list =
         match info with
-        | Some mi -> [ mi.HolderName + "." + mi.Name; mi.Name ] |> List.distinct
+        | Some mi ->
+            match mi.DeclaringModule with
+            | ValueSome m -> [ m.Name + "." + mi.Name; mi.Name ] |> List.distinct
+            | ValueNone -> [ mi.Name ]
         | None -> [ name ]
 
     /// Check every NON-inline generic module binding of a frozen `.fs` file against the

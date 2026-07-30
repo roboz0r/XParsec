@@ -37,7 +37,10 @@ module Emit =
 
     let closureIsCached = EmitTypes.closureIsCached
 
+    type Emission = EmitClosures.Emission
+
     let lower = EmitLower.lower
+    let emissions = EmitClosures.emissions
     let collectModuleValues = EmitClosures.collectModuleValues
     let collectGenericModuleValues = EmitClosures.collectGenericModuleValues
     let collectProgramValues = EmitClosures.collectProgramValues

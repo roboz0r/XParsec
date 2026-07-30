@@ -474,15 +474,31 @@ module internal Layout =
             | ValueNone -> false
 
         // Every unit's holder-less fns, in unit order, on the one Program holder.
+        //
+        // This is the one place two units' bindings share a TYPE, so it is the one place
+        // their identities can collide: a top-level binding is keyed by its file's
+        // NAMESPACE, and two files that declare the same namespace (or none) can both
+        // declare `let f`. F# keeps them apart by giving each header-less file an implicit
+        // module named after the FILE, which this front end has no file identity to mint —
+        // so the collision is real and this refuses it by name rather than letting
+        // `deriveHandles` throw an opaque duplicate-key `ArgumentException`.
         let holderlessFnRows =
+            let seen = HashSet<SymbolKey>()
+
             [
                 for u in units do
-                    for fn in u.Plan.HolderlessFns ->
-                        {
-                            Key = MethodKey.StaticFn fn.SymbolKey
-                            Name = fn.Name
-                            Attrs = staticMethodAttrs
-                        }
+                    for fn in u.Plan.HolderlessFns do
+                        if not (seen.Add fn.SymbolKey) then
+                            failwithf
+                                "Layout.combine: top-level binding %s is declared by more than one file — two files declaring the same namespace cannot both hold a binding of that name (F# would distinguish them by an implicit module named after each file)"
+                                (SymbolKeyOps.qualifiedName fn.SymbolKey)
+
+                        yield
+                            {
+                                Key = MethodKey.StaticFn fn.SymbolKey
+                                Name = fn.Name
+                                Attrs = staticMethodAttrs
+                            }
             ]
 
         // The Program holder exists when there is any top-level code or namespace-level fn

@@ -53,11 +53,6 @@ module FrozenCodecTypes =
 
     let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
 
-    let writeModuleRef (w: FrozenWriter) (m: ModuleKey) =
-        writeModuleId w (w.Types.InternModule m)
-
-    let readModuleRef (r: FrozenReader) : ModuleKey = r.Types.[readModuleId r]
-
     // ── the `SymbolKey`-keyed container ─────────────────────────────────────
     //
     // The one container helper that names a domain: it rides `writeSymbolRef` above, so it
@@ -282,14 +277,17 @@ module FrozenCodecTypes =
             FrozenConstraint.Coercion(typarIndex, target)
         | b -> failwithf "FrozenCodec: unknown FrozenConstraint tag %d" b
 
-    let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) =
-        writeModuleRef w m.Holder
-        w.Write m.Name
+    /// The wire form is the binding's `Key` and nothing else — the record's two fields ARE
+    /// that key's two components, so storing the key keeps `ModuleBindingInfo.Key` the one
+    /// place the identity is derived, on the wire as much as in memory. It also rides the
+    /// symbol intern table, which already carries a `Binding` key held by either shape of
+    /// `ModuleHolder`.
+    let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) = writeSymbolRef w m.Key
 
     let readModuleBindingInfo (r: FrozenReader) : ModuleBindingInfo =
-        let holder = readModuleRef r
-        let name = r.ReadString()
-        { Holder = holder; Name = name }
+        match readSymbolRef r with
+        | SymbolKey.Binding bk -> { Holder = bk.Decl; Name = bk.Name }
+        | k -> failwithf "FrozenCodec: a ModuleBindingInfo stored a non-Binding key: %A" k
 
     let writeIntrinsicReprInfo (w: FrozenWriter) (i: IntrinsicReprInfo) =
         w.Write i.Platform

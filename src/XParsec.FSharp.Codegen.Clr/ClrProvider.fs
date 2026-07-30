@@ -352,20 +352,19 @@ type ClrProvider
             if compiledName = "List.fold" then
                 ValueSome(recipes.EmitFold(fnTy))
             else
-                // General external module-function call: route by the Elaborate-stamped key to the
-                // declaring module (`ns`) + method (`name`), and mint
-                // a `call` (+ `MethodSpec` when generic) to the static method our backend emitted into
-                // the referenced package. Only a module-qualified value key (`ns <> ""`) is a module
-                // function; a bare key (an operator-as-value) is not, and operators are expanded to
-                // `TExpr.ILIntrinsic` by `Emit.lower` before emission anyway. `EmitExternalCall`
-                // returns `ValueNone` when the symbol is unknown to the provider, falling through to
-                // the caller's hard error. (Every lowerable printf call is now a `TExpr.Format`
-                // lowered in Elaborate, so no `printfn` App reaches here — the cold recipe is gone.)
+                // General external module-function call: route by the Elaborate-stamped key
+                // — WHOLE, so a binding held by a namespace (a top-level `let` in a sibling
+                // file) routes as readily as a module-held one — and mint a `call`
+                // (+ `MethodSpec` when generic) to the static method our backend emitted.
+                // `EmitExternalCall` returns `ValueNone` when the symbol is unknown to the
+                // provider or unreachable from here, falling through to the caller's hard
+                // error. A non-binding key (an operator-as-value) is not a module function
+                // at all, and operators are expanded to `TExpr.ILIntrinsic` by `Emit.lower`
+                // before emission anyway. (Every lowerable printf call is now a
+                // `TExpr.Format` lowered in Elaborate, so no `printfn` App reaches here —
+                // the cold recipe is gone.)
                 match key with
-                | ValueSome(SymbolKey.Binding {
-                                                  Decl = ModuleHolder.InModule m
-                                                  Name = name
-                                              }) -> recipes.EmitExternalCall(m, name, fnTy)
+                | ValueSome(SymbolKey.Binding binding) -> recipes.EmitExternalCall(binding, fnTy)
                 | _ -> ValueNone
 
         member _.TryEmitCtor(key, chosen, tyArgs, argTypes) =
