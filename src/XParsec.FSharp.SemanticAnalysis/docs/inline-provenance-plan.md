@@ -1,6 +1,7 @@
 # Inline provenance — deferred body placement via `TExpr.InlineCall`
 
-**Status (2026-07-29): designed, not started.** Replaces the physical TAST-level splice
+**Status (2026-07-29): steps 1-3 landed, step 4 next — see "Where this stands" at the end
+for the carried gaps.** Replaces the physical TAST-level splice
 performed by `Passes/InlineExpansion.fs` with a resolved-specialization table plus an
 `InlineCall` edge node, so that a body's ORIGIN FILE survives into the frozen TAST and
 codegen flattens the graph at emit. Delete this doc once it lands (or is abandoned) per
@@ -172,7 +173,35 @@ is native and `PassContext` is in hand; the `TraitNotSupported` diagnostic
    too, so uniformity is the accurate representation. `etaReify` (`:421`) mints an
    `InlineCall` rather than an `App`.
 
-4. **Cycle detection + closure assertion.** The DAG needs an explicit acyclicity check with
+4. **`TExpr.CallerExpr` — the context POP.** Fusion substitutes call-site material into an
+   entry's body, so an entry is not context-homogeneous and its single `OriginFile` lies
+   about the fused subtrees (see the fused-entry finding under the source-map step). This is
+   the fix, and it is why the entry keeps its provenance instead of conceding it.
+
+   Descending through an `InlineCall` PUSHES the entry's file context — inside it, an
+   `Anchor` indexes the entry's `OriginFile`. `CallerExpr` POPS back to the parent's, so
+   `a && b` outlines as `if a then ⟨CallerExpr b⟩ else false`: the `if`/`then`/`else` anchor
+   in the producer, the `b` subtree in the consumer.
+
+   Three properties that must hold, and that make the node narrow:
+
+   - **It pops one frame; it does NOT name a file.** Origins stay on entries and never on
+     nodes, so the premise the whole design rests on survives, and nesting works for free (a
+     fused argument that is itself an inline call gives push → pop → push).
+   - **It is well-defined only because of the closure assertion.** "The parent" is
+     unambiguous exactly when a fused entry has one call edge. That assertion stops being a
+     bug-detector and becomes what LICENSES the node — so the two must land together, and a
+     shareable (closed) entry must never contain a `CallerExpr`. Assert it, don't document it.
+   - **It is transparent to semantics.** The flattener unwraps it; evaluation order is
+     untouched. That matters because the reason a fused argument cannot simply ride on the
+     edge's `args` is evaluation order — `&&` must not evaluate `b` eagerly, and an edge
+     argument to a lambda is eager. Fusion IS the laziness, so it cannot be undone.
+
+   Minted UNCONDITIONALLY at every fusion site, including trivial ones (a fused `Var` or
+   constant). A uniform invariant is checkable where a conditional one is not; a peephole can
+   drop trivial wrappers later if node count ever matters. Touch list is step 1's, re-run.
+
+5. **Cycle detection + closure assertion.** The DAG needs an explicit acyclicity check with
    a real diagnostic. Confirmed 2026-07-29: no recursion guard exists anywhere, and there is
    no cyclic-inline diagnostic at all. Add the closure assertion from the shape section
    alongside it.
@@ -185,7 +214,7 @@ is native and `PassContext` is in hand; the `TraitNotSupported` diagnostic
    fused reduction is deliberately not interned, so a recursive fused inline still diverges at
    expansion exactly as before. Reject the cycle on the table, before anything walks it.
 
-5. **Backend flattening in `Codegen.Common`.** A shared recursive graph expansion that
+6. **Backend flattening in `Codegen.Common`.** A shared recursive graph expansion that
    splices entries at emit, maintaining the frame stack as it descends. Both backends
    consume it: JS is the branch's target, and CLR's handling is the trivial always-splice
    but has to stay green.
@@ -200,7 +229,7 @@ is native and `PassContext` is in hand; the `TraitNotSupported` diagnostic
    flattened by whatever emits members, not by `lower`. A flattening hung off `lower` alone
    would silently miss every member body and pass its tests.
 
-6. **Multi-source `JsSourceMap`.** `JsSourceMap.build` today takes a single `src.Path` /
+7. **Multi-source `JsSourceMap`.** `JsSourceMap.build` today takes a single `src.Path` /
    `src.Content` off `project.Source` (`Codegen.fs:151`). The V3 segment encoding already
    carries the source-index axis — `[genColΔ, srcIndexΔ, srcLineΔ, srcColΔ]`
    (`JsPrint.fs:415-418`) — it is simply always 0. Extend to `sources[]` /
