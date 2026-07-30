@@ -216,9 +216,9 @@ module InlineExpansion =
             | [] -> f.Own
             | caller -> List.last caller
 
-    /// The application an expansion is being entered FOR, in the two forms the RECURSIVE answer
-    /// needs it — which are NOT the same form, and conflating them is how a back edge comes to
-    /// disagree with the entry it names.
+    /// The call an expansion is being entered FOR: which binding it calls, where it stands, and
+    /// the two forms an ANSWER needs it in — which are NOT the same form, and conflating them is
+    /// how a back edge comes to disagree with the entry it names.
     ///
     /// An answered call is either an EDGE into the entry the re-entered expansion reserved, or
     /// the call left exactly as written. The edge is positional against that entry's parameters,
@@ -226,18 +226,28 @@ module InlineExpansion =
     /// that includes the receiver, at curried position 0. The un-expanded rebuild is the
     /// original application, where the receiver belongs inside the head it was written in and no
     /// spine ever mentioned it.
+    ///
+    /// The FRESH reduction reads this SAME record, so the position and the result type an entry
+    /// mints its edge with are the very ones the recursive answer would have used — one
+    /// derivation of each, rather than a second that has to be argued equal to the first.
     [<NoEquality; NoComparison>]
     type private PendingCall =
         {
+            /// WHICH binding is being called: the identity a recursion is detected on, and the
+            /// template a fresh reduction enters. Also all a frame needs to be NAMED, the
+            /// diagnostic spelling of a binding being a function of its identity alone.
+            Template: TemplateId
             /// The position the expansion stands in for. A rewrite inherits the position of the
             /// node it REPLACES, so for an application that is the APPLICATION node's own token
             /// and never the head's — the two differ exactly when an outer fusion substituted
             /// the head in, which makes the head call-site material sitting inside a producer's
-            /// own application. It is also the site the fresh frame records.
+            /// own application. It is also the site the fresh frame records, and the anchor a
+            /// fresh reduction's own edge is minted at.
             Tok: SyntaxToken
             /// The node's own result type, which the outermost `App` already records
             /// (`collectSpine` pairs each argument with its node's result) and a bare reference
-            /// carries directly.
+            /// carries directly. It is the type of EVERY edge minted for this call, recursive or
+            /// fresh.
             Ty: SemType
             /// The spine AS APPLIED — what the entry's parameters were peeled against, so an
             /// edge's arguments are positional against them by construction. Unwalked: only the
@@ -251,6 +261,33 @@ module InlineExpansion =
             /// the application as written. A thunk, forced only on that answer, so no material
             /// is walked for an answer that discards it.
             Rebuild: unit -> TExpr
+        }
+
+    /// A call HEAD that names a cross-unit symbol, reduced to the three things an answer needs
+    /// of it: the key that resolves it, the spine the callee's parameters are peeled against,
+    /// and the head an un-expanded rebuild leaves standing.
+    ///
+    /// The two head shapes — a plain `External` and the dotted `ExternalMember` that
+    /// `x.get_Item(2)` / `w.Poke 41` lowers to — differ in exactly this much, and the whole of
+    /// the difference is that the receiver is a FIELD of the member head rather than a spine
+    /// argument. An EDGE is positional against parameters peeled from the spine, so a member
+    /// call must carry its receiver at curried position 0 (`this`→receiver; a STATIC member has
+    /// none and prepends nothing) for each `pi` to align to `argi`. A REBUILD leaves the
+    /// receiver inside the head — where it is the one piece of material nothing else walks, so
+    /// that head must be walked where a plain `External` head must not.
+    ///
+    /// Taken before the expansion so the expansion is written ONCE: the two shapes reach the
+    /// same reduction by the same path, and cannot drift into two.
+    [<NoEquality; NoComparison>]
+    type private ExternalHead =
+        {
+            /// `ValueNone` is a genuine "carries no inline body", never a missed lookup — see
+            /// `lookupExternal`. A member head is always keyed.
+            Key: SymbolKey voption
+            Spine: (TExpr * SemType * SyntaxToken) list
+            /// A thunk: the walk a member head needs is wasted on any answer that expands the
+            /// call, which is every answer but the rebuild.
+            RebuiltHead: unit -> TExpr
         }
 
     /// A lambda argument eligible for inline-first elimination, with the chain it was WRITTEN
@@ -642,70 +679,6 @@ module InlineExpansion =
             )
         | ValueNone -> ValueNone
 
-    /// Expand one template's body with the binding marked IN FLIGHT, giving `fresh` the frame
-    /// to walk it under. A call that reaches a binding already being expanded is RECURSIVE —
-    /// its expansion has no fixed point, since splicing the body in presents the same call
-    /// again — so it is ANSWERED HERE rather than expanded, and that is what makes this pass
-    /// terminate on a recursive `let inline` instead of exhausting the stack.
-    ///
-    /// THE gate: every reduction of every kind (local or served, spliced or outlined, applied
-    /// or bare) passes through it, so no path can recurse by having been forgotten — and the
-    /// recursive answer is INSIDE it, so no call site can give a different one.
-    ///
-    /// `frames` is the chain the CALL SITE was written under. A fresh reduction merely NAMES
-    /// the frame the callee's body is to be walked with — nothing is pushed anywhere, so there
-    /// is nothing to unwind however `fresh` returns, and a caller that walks its own material
-    /// walks it under the very list it was handed.
-    ///
-    /// What a recursive call BECOMES turns on whether the re-entered expansion reserved a table
-    /// slot. One that did can represent its own recursion: the call is a back EDGE into the
-    /// entry being built, carrying `Spine` — the same list that expansion peeled its parameters
-    /// from, so the edge and the entry agree on arity by construction — so the table comes out
-    /// finite and cyclic and `Inline.findCycle` rejects it ONCE, naming every binding on the
-    /// cycle, where a report from here would name only the arc this particular call closed. One
-    /// that did not (a SPLICED reduction has no entry) has nothing for an edge to name, so the
-    /// call is left as written by its own `Rebuild` and the verdict is reported here instead.
-    let private expandingTemplate
-        (t: SpecTable)
-        (frames: ExpansionFrame list)
-        (template: TemplateId)
-        (name: string)
-        (call: PendingCall)
-        (fresh: InFlight -> TExpr)
-        : TExpr =
-        match frames |> List.tryFindIndex (fun f -> f.Template = template) with
-        | Some i ->
-            // At most one frame can match: a template found on the chain is answered rather
-            // than entered, so it is never on it twice. `frames` is innermost first, so the
-            // re-entered frame CLOSES the prefix through `i`, and that prefix reversed is the
-            // loop in call order — the binding that was re-entered, then each binding it
-            // called, out to the call closing it.
-            let chain = frames |> List.truncate (i + 1) |> List.rev
-            let reentered = List.head chain
-
-            match reentered.Slot with
-            | ValueSome spec ->
-                TExpr.InlineCall(spec, EqArray.ofList [ for (a, _, _) in call.Spine -> call.Walk a ], call.Ty, call.Tok)
-            | ValueNone ->
-                // Positioned at the OUTERMOST in-flight frame's site: a nested call's own token
-                // is a node of a producer's body (or of a copy moved onto that outer site), so
-                // the outermost frame's is the only one that names a place in the file being
-                // compiled. The chain is what `Kind.CyclicInline` names.
-                SpecTable.reportCycle (List.last frames).Site [ for f in chain -> f.Name ] t
-                call.Rebuild()
-        | None ->
-            fresh
-                {
-                    Own =
-                        {
-                            Template = template
-                            Name = name
-                            Site = call.Tok
-                            Slot = ValueNone
-                        }
-                    Caller = frames
-                }
-
     /// What one run of the pass produced.
     ///
     /// `Decls` CARRY EDGES — a `TExpr.InlineCall` per outlined call site — and
@@ -795,6 +768,81 @@ module InlineExpansion =
             let expandLocalAt = expandLocalAt ctx mint
             let etaReify = etaReify ctx mint
 
+            // Expand one template's body with the binding marked IN FLIGHT, giving `fresh` the
+            // frame to walk it under. A call that reaches a binding already being expanded is
+            // RECURSIVE — its expansion has no fixed point, since splicing the body in presents
+            // the same call again — so it is ANSWERED HERE rather than expanded, and that is what
+            // makes this pass terminate on a recursive `let inline` instead of exhausting the
+            // stack.
+            //
+            // THE gate: every reduction of every kind (local or served, spliced or outlined,
+            // applied or bare) passes through it, so no path can recurse by having been forgotten
+            // — and the recursive answer is INSIDE it, so no call site can give a different one.
+            //
+            // `frames` is the chain the CALL SITE was written under. A fresh reduction merely
+            // NAMES the frame the callee's body is to be walked with — nothing is pushed
+            // anywhere, so there is nothing to unwind however `fresh` returns, and a caller that
+            // walks its own material walks it under the very list it was handed.
+            //
+            // What a recursive call BECOMES turns on whether the re-entered expansion reserved a
+            // table slot. One that did can represent its own recursion: the call is a back EDGE
+            // into the entry being built, carrying `Spine` — the same list that expansion peeled
+            // its parameters from, so the edge and the entry agree on arity by construction — so
+            // the table comes out finite and cyclic and `Inline.findCycle` rejects it ONCE,
+            // naming every binding on the cycle, where a report from here would name only the arc
+            // this particular call closed. One that did not (a SPLICED reduction has no entry)
+            // has nothing for an edge to name, so the call is left as written by its own
+            // `Rebuild` and the verdict is reported here instead.
+            //
+            // Inside `run` because naming a frame needs `localName`, and the table it reports a
+            // cycle to is this run's.
+            let expandingTemplate (frames: ExpansionFrame list) (call: PendingCall) (fresh: InFlight -> TExpr) : TExpr =
+                match frames |> List.tryFindIndex (fun f -> f.Template = call.Template) with
+                | Some i ->
+                    // At most one frame can match: a template found on the chain is answered
+                    // rather than entered, so it is never on it twice. `frames` is innermost
+                    // first, so the re-entered frame CLOSES the prefix through `i`, and that
+                    // prefix reversed is the loop in call order — the binding that was re-entered,
+                    // then each binding it called, out to the call closing it.
+                    let chain = frames |> List.truncate (i + 1) |> List.rev
+                    let reentered = List.head chain
+
+                    match reentered.Slot with
+                    | ValueSome spec ->
+                        TExpr.InlineCall(
+                            spec,
+                            EqArray.ofList [ for (a, _, _) in call.Spine -> call.Walk a ],
+                            call.Ty,
+                            call.Tok
+                        )
+                    | ValueNone ->
+                        // Positioned at the OUTERMOST in-flight frame's site: a nested call's own
+                        // token is a node of a producer's body (or of a copy moved onto that outer
+                        // site), so the outermost frame's is the only one that names a place in
+                        // the file being compiled. The chain is what `Kind.CyclicInline` names.
+                        SpecTable.reportCycle (List.last frames).Site [ for f in chain -> f.Name ] specs
+                        call.Rebuild()
+                | None ->
+                    // How a diagnostic spells the binding is a function of its IDENTITY alone, so
+                    // it is taken here rather than at each call site: no frame can come to be
+                    // named after a binding other than the one it expands.
+                    let name =
+                        match call.Template with
+                        | TemplateId.Local k -> localName k
+                        | TemplateId.Foreign key -> Inline.servedName key
+
+                    fresh
+                        {
+                            Own =
+                                {
+                                    Template = call.Template
+                                    Name = name
+                                    Site = call.Tok
+                                    Slot = ValueNone
+                                }
+                            Caller = frames
+                        }
+
             // Inline-first lambda elimination. A lambda
             // argument bound to an inline function's parameter and FULLY APPLIED
             // inside the body is inlined at each use so its closure never exists —
@@ -815,12 +863,10 @@ module InlineExpansion =
             // The three fusions are all substitutions INTO the body, so their order relative to
             // one another does not matter: a fused parameter's key is `mint`-fresh and occurs
             // only in the body, never in another parameter's argument.
-            let reduceClassified
-                (placement: Placement)
-                (walkAt: ExpansionFrame list -> TExpr -> TExpr)
-                (inFlight: InFlight)
-                (peeled: Peeled)
-                : Reduced =
+            //
+            // In the walker's own `let rec` chain because it walks: every reduction resolves the
+            // nested inline heads inside the body it is reducing.
+            let rec reduceClassified (placement: Placement) (inFlight: InFlight) (peeled: Peeled) : Reduced =
                 let fusedLambdas =
                     peeled.Params |> List.filter (fun p -> p.Disposition = Disposition.FuseLambda)
 
@@ -877,14 +923,13 @@ module InlineExpansion =
             // specialization when the served body has a producer file to be anchored in, and
             // otherwise the physical form its thaw already committed to — a body the provider
             // retained no file for cannot be an entry, there being no anchor domain to record.
-            let expandExternalCall
-                (walkAt: ExpansionFrame list -> TExpr -> TExpr)
-                (inFlight: InFlight)
-                (siteTok: SyntaxToken)
-                (served: ServedBody)
-                (spineArgs: (TExpr * SemType * SyntaxToken) list)
-                : TExpr =
-                let resolved = resolveAt siteTok served.Decl spineArgs
+            //
+            // WHERE the call stands, WHAT it evaluates to and the spine its parameters are peeled
+            // against are all read off `call` — the same record the recursive answer reads — so a
+            // fresh entry's edge and a back edge into it cannot be positioned or typed
+            // differently. See `PendingCall`.
+            and expandExternalCall (inFlight: InFlight) (served: ServedBody) (call: PendingCall) : TExpr =
+                let resolved = resolveAt call.Tok served.Decl call.Spine
 
                 // Read off the served body, ahead of the classification, so every fusion of one
                 // reduction agrees about which file its material ends up in — and matched ONCE
@@ -892,10 +937,11 @@ module InlineExpansion =
                 // it outlined.
                 let placement = Placement.ofOrigin served.Origin
 
-                let peeled = classifyApplication placement served.ParamAttrs resolved.Body spineArgs
+                let peeled =
+                    classifyApplication placement served.ParamAttrs resolved.Body call.Spine
 
                 match placement with
-                | Placement.Spliced -> letBound (reduceClassified placement walkAt inFlight peeled)
+                | Placement.Spliced -> letBound (reduceClassified placement inFlight peeled)
                 | Placement.Outlined origin ->
                     SpecTable.outline
                         {
@@ -913,16 +959,10 @@ module InlineExpansion =
                                 Peeled.isClosed peeled
                                 && resolved.TypeArgs |> Array.forall (Inline.isGroundType ctx.Store)
                             Origin = origin
-                            EdgeTok = siteTok
-                            // The application's own result type, which the outermost `App` node
-                            // already records (`collectSpine` pairs each argument with its
-                            // node's result).
-                            EdgeTy =
-                                match List.tryLast spineArgs with
-                                | Some(_, ty, _) -> ty
-                                | None -> TastWalk.exprTy resolved.Body
+                            EdgeTok = call.Tok
+                            EdgeTy = call.Ty
                             ReuseArgs = fun () -> peeled.Params |> List.map (fun p -> walkAt inFlight.Caller p.Arg)
-                            Build = fun () -> reduceClassified placement walkAt inFlight peeled
+                            Build = fun () -> reduceClassified placement inFlight peeled
                         }
                         specs
 
@@ -931,7 +971,7 @@ module InlineExpansion =
             // It goes through the ordinary outlining path precisely because those are the only
             // differences — the token the intrinsic was WRITTEN at is exactly what an entry
             // keeps, so a parallel notion of "a body from elsewhere" would have to re-derive it.
-            let outlineNullaryIntrinsic
+            and outlineNullaryIntrinsic
                 (inFlight: InFlight)
                 (origin: OriginFile)
                 (template: SymbolKey)
@@ -984,7 +1024,11 @@ module InlineExpansion =
             // would instead let the walker descend into a saturated op's
             // partial-application sub-`App` and expand it with a single arg —
             // leaving a dangling `fun y -> …` closure with a free `TyVar`.
-            let rec mapperAt (frames: ExpansionFrame list) : TastWalk.Mapper =
+            and mapperAt (frames: ExpansionFrame list) : TastWalk.Mapper =
+                // The gate, bound to the chain THIS mapper's material was written under, so a
+                // call site below names only the call it is answering.
+                let expandingTemplate = expandingTemplate frames
+
                 { TastWalk.identityMapper with
                     OverrideExpr =
                         fun m e ->
@@ -1025,10 +1069,12 @@ module InlineExpansion =
                                 // is the arm's own no-inline-body fallthrough — see `PendingCall`
                                 // for why those are two different shapes.
                                 let pendingApp
+                                    (template: TemplateId)
                                     (spine: (TExpr * SemType * SyntaxToken) list)
                                     (rebuild: unit -> TExpr)
                                     : PendingCall =
                                     {
+                                        Template = template
                                         Tok = appTok
                                         Ty = TastWalk.exprTy e
                                         Spine = spine
@@ -1036,15 +1082,36 @@ module InlineExpansion =
                                         Rebuild = rebuild
                                     }
 
+                                // How a cross-unit head presents itself, taken ONCE so the
+                                // expansion behind it is written once — see `ExternalHead`.
+                                // `ValueNone` is any other head.
+                                let externalHead: ExternalHead voption =
+                                    match head with
+                                    | TExpr.External(_, keyOpt, _, _) ->
+                                        ValueSome
+                                            {
+                                                Key = keyOpt
+                                                Spine = spineArgs
+                                                RebuiltHead = fun () -> markedHead
+                                            }
+                                    | TExpr.ExternalMember(receiver, key, _, _, _, memberTok) ->
+                                        ValueSome
+                                            {
+                                                Key = ValueSome key
+                                                Spine =
+                                                    match receiver with
+                                                    | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: spineArgs
+                                                    | ValueNone -> spineArgs
+                                                RebuiltHead = fun () -> walk markedHead
+                                            }
+                                    | _ -> ValueNone
+
                                 match head with
                                 | TExpr.Var(k, _, _) when localInlines.ContainsKey k ->
                                     ValueSome(
                                         expandingTemplate
-                                            specs
-                                            frames
-                                            (TemplateId.Local k)
-                                            (localName k)
                                             (pendingApp
+                                                (TemplateId.Local k)
                                                 spineArgs
                                                 (fun () -> TastWalk.rebuildApp markedHead (walkedArgs ())))
                                             (fun inFlight ->
@@ -1054,7 +1121,6 @@ module InlineExpansion =
                                                         // site, so its body and the arguments fused
                                                         // into it are one anchor domain already.
                                                         Placement.Spliced
-                                                        walkAt
                                                         inFlight
                                                         (classifyApplication
                                                             Placement.Spliced
@@ -1089,86 +1155,45 @@ module InlineExpansion =
                                             fused.CallerFrames
                                             (Inline.betaReduce (Inline.freshen mint fused.Body) spineArgs)
                                     )
-                                | TExpr.External(_, keyOpt, _, _) ->
-                                    match lookupExternal appTok keyOpt with
-                                    // An external WITH an inline body ALWAYS expands —
-                                    // no operand-groundness gate. An un-ground `^T`
-                                    // simply selects no per-primitive
-                                    // `StaticOptimization` clause and falls to the
-                                    // body's BASE, which is where the safe generic
-                                    // default lives (`EqualityComparer<^T>.Default.Equals`
-                                    // for `=`). Declining instead routed the
-                                    // head to a name-keyed raw-IL fallback, turning a
-                                    // structural `=` into a reference `ceq`.
-                                    | ValueSome served ->
-                                        ValueSome(
-                                            expandingTemplate
-                                                specs
-                                                frames
-                                                (TemplateId.Foreign served.Key)
-                                                (Inline.servedName served.Key)
-                                                (pendingApp
-                                                    spineArgs
-                                                    (fun () -> TastWalk.rebuildApp markedHead (walkedArgs ())))
-                                                (fun inFlight ->
-                                                    expandExternalCall walkAt inFlight appTok served spineArgs
-                                                )
-                                        )
-                                    // An external with no inline body (a real
-                                    // cross-package call): keep the head, lower the
-                                    // args — exactly codegen's `head'` rule, left for
-                                    // its recipe path.
-                                    | _ -> ValueSome(TastWalk.rebuildApp markedHead (walkedArgs ()))
-                                // A dotted member call on an external type — the same
-                                // head `x.get_Item(2)` / `w.Poke 41` lowers to. The
-                                // member-keyed inline store forks call-vs-splice here:
-                                //   * `ValueSome served` — a concrete `(# … #)`-bodied member
-                                //     (harvested `this`-first). EXPAND it. The receiver is
-                                //     a FIELD of the head, not a spine arg, so PREPEND it
-                                //     onto the spine (`this`→receiver); a STATIC member
-                                //     (`receiver = ValueNone`) prepends nothing. Then
-                                //     expand via the SAME path the `External` arm uses —
-                                //     `expandExternalCall` consumes the
-                                //     spine POSITIONALLY, so with `this` at curried
-                                //     position 0 each `pi` aligns to `argi`.
-                                //   * `ValueNone` — a real CLR/JS method with no inline
-                                //     body: keep the call, walking the receiver (inside the
-                                //     head) and the args, exactly the `_` catch-all rule.
-                                | TExpr.ExternalMember(receiver, key, _, _, _, memberTok) ->
-                                    match lookupExternal appTok (ValueSome key) with
-                                    | ValueSome served ->
-                                        let fullSpine =
-                                            match receiver with
-                                            | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: spineArgs
-                                            | ValueNone -> spineArgs
+                                | _ ->
+                                    match externalHead with
+                                    | ValueSome ext ->
+                                        match lookupExternal appTok ext.Key with
+                                        // An external WITH an inline body ALWAYS expands —
+                                        // no operand-groundness gate. An un-ground `^T`
+                                        // simply selects no per-primitive
+                                        // `StaticOptimization` clause and falls to the
+                                        // body's BASE, which is where the safe generic
+                                        // default lives (`EqualityComparer<^T>.Default.Equals`
+                                        // for `=`). Declining instead routed the
+                                        // head to a name-keyed raw-IL fallback, turning a
+                                        // structural `=` into a reference `ceq`.
+                                        | ValueSome served ->
+                                            // The one record BOTH answers read: the gate mints a
+                                            // back edge from it and the fresh reduction mints its
+                                            // entry's edge from it.
+                                            let call =
+                                                pendingApp
+                                                    (TemplateId.Foreign served.Key)
+                                                    ext.Spine
+                                                    (fun () -> TastWalk.rebuildApp (ext.RebuiltHead()) (walkedArgs ()))
 
-                                        ValueSome(
-                                            expandingTemplate
-                                                specs
-                                                frames
-                                                (TemplateId.Foreign served.Key)
-                                                (Inline.servedName served.Key)
-                                                // The receiver is a FIELD of the head, which is
-                                                // where the two answers part company: an EDGE is
-                                                // positional against parameters peeled from
-                                                // `fullSpine`, so it must carry the receiver as
-                                                // argument 0, while a rebuild leaves it inside the
-                                                // head — where it is the one piece of material
-                                                // nothing else walks.
-                                                (pendingApp
-                                                    fullSpine
-                                                    (fun () -> TastWalk.rebuildApp (walk markedHead) (walkedArgs ())))
-                                                (fun inFlight ->
-                                                    expandExternalCall walkAt inFlight appTok served fullSpine
-                                                )
-                                        )
+                                            ValueSome(
+                                                expandingTemplate
+                                                    call
+                                                    (fun inFlight -> expandExternalCall inFlight served call)
+                                            )
+                                        // No inline body — a real cross-package call, or a real
+                                        // CLR/JS method: keep the head, lower the args, exactly
+                                        // codegen's `head'` rule, left for its recipe path.
+                                        | ValueNone ->
+                                            ValueSome(TastWalk.rebuildApp (ext.RebuiltHead()) (walkedArgs ()))
+                                    // A non-external, non-local-inline head (e.g. a
+                                    // higher-order parameter): lower the head and args,
+                                    // keeping the spine intact. The head SURVIVES here, so it is
+                                    // rebuilt marked — only a rewrite that consumes the node
+                                    // consumes its mark.
                                     | ValueNone -> ValueSome(TastWalk.rebuildApp (walk markedHead) (walkedArgs ()))
-                                // A non-external, non-local-inline head (e.g. a
-                                // higher-order parameter): lower the head and args,
-                                // keeping the spine intact. The head SURVIVES here, so it is
-                                // rebuilt marked — only a rewrite that consumes the node
-                                // consumes its mark.
-                                | _ -> ValueSome(TastWalk.rebuildApp (walk markedHead) (walkedArgs ()))
                             // A BARE (non-applied) reference to a LOCAL inline — the
                             // template used as a value. No spine, so no type argument is
                             // derivable and the body's typars stay abstract; it still
@@ -1178,11 +1203,8 @@ module InlineExpansion =
                             | TExpr.Var(k, _, tok) when localInlines.ContainsKey k ->
                                 ValueSome(
                                     expandingTemplate
-                                        specs
-                                        frames
-                                        (TemplateId.Local k)
-                                        (localName k)
                                         {
+                                            Template = TemplateId.Local k
                                             Tok = tok
                                             Ty = TastWalk.exprTy e
                                             // No spine at all: a bare reference applies nothing,
@@ -1257,11 +1279,8 @@ module InlineExpansion =
                                             // would cost the uniformity that makes the gate total.
                                             ValueSome(
                                                 expandingTemplate
-                                                    specs
-                                                    frames
-                                                    (TemplateId.Foreign served.Key)
-                                                    (Inline.servedName served.Key)
                                                     {
+                                                        Template = TemplateId.Foreign served.Key
                                                         Tok = tok
                                                         Ty = refTy
                                                         Spine = []
