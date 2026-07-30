@@ -458,6 +458,76 @@ module Inline =
     /// it realises it.
     let spliceAt (mint: unit -> NodeKey) (at: SyntaxToken) (body: TExpr) : TExpr = freshen mint body |> relocate at
 
+    /// Beta-reduce a curried lambda against its spine args, lowering each application to a
+    /// `TExpr.Let`. The lambda count must be at least the
+    /// spine-arg count; a leftover lambda is a partial application and is returned as it
+    /// stands. The `SemType` of each spine element is the applying `App` node's RESULT type,
+    /// carried only because that is the shape `TastWalk.collectSpine` yields — the reduction
+    /// reads the argument and the position it was applied at.
+    ///
+    /// Anchoring: the synthesised `Let` sits at the application node it lowers, and the binder
+    /// keeps the lambda parameter's own token.
+    let rec betaReduce (fn: TExpr) (args: (TExpr * SemType * SyntaxToken) list) : TExpr =
+        match fn, args with
+        | _, [] -> fn
+        | TExpr.Lambda(TPat.NamedSimple(k, paramTy, patTok), lamBody, _, _), (arg, _, appTok) :: rest ->
+            let reduced = betaReduce lamBody rest
+            TExpr.Let(TPat.NamedSimple(k, paramTy, patTok), arg, reduced, TastWalk.exprTy reduced, appTok)
+        | TExpr.Lambda(param, _, _, _), _ ->
+            failwithf "Inline.betaReduce: inline parameter destructuring is out of scope: %A" param
+        | _, _ :: _ -> failwith "Inline.betaReduce: over-application of an inline function"
+
+    /// The entry's abstraction, or a fault naming the entry that broke the invariant. An entry
+    /// is ALWAYS a `TDecl.Let` of lambdas (`TSpecializationG.Decl`); everything below reads it
+    /// through here so the invariant is asserted in one place.
+    let private specializationValue (spec: SpecializationId) (entry: TSpecialization) : TExpr =
+        match entry.Decl with
+        | TDecl.Let(_, value, _, _) -> value
+        | other ->
+            let (SpecializationId i) = spec
+            failwithf "Inline.flatten: specialization %d is not a `TDecl.Let`: %A" i other
+
+    /// Splice a resolved-specialization GRAPH back into a tree: every `TExpr.InlineCall` is
+    /// replaced by the entry it names, applied to the edge's own arguments, descending into
+    /// the entry's own edges as it goes. Total on the graph and idempotent on its output — a
+    /// tree with no edges left comes back unchanged.
+    ///
+    /// The entry's body is MOVED onto the call site (`spliceAt`) rather than copied where it
+    /// stands, and that is forced rather than chosen: an `Anchor` is an index into ONE file's
+    /// tokens, so a node that now lives in the consuming file's tree must be readable against
+    /// that file. What the graph keeps — and what a physical expansion could not — is the
+    /// body's own positions ON THE ENTRY, beside the `OriginFile` that says which file they
+    /// index; a consumer that wants a producer position reads it there rather than off this
+    /// spliced copy.
+    ///
+    /// `mint` is the caller's binder freshener. Two edges into one entry each take their own
+    /// copy, so their binders — and the codegen local slots those become — must not alias.
+    ///
+    /// There is no cycle guard: an entry that (transitively) names itself makes this diverge,
+    /// exactly as the physical expansion it replaces did. The difference is that the cycle now
+    /// exists as a finite, inspectable table before anything walks it.
+    let flatten (mint: unit -> NodeKey) (entries: TSpecialization[]) (e: TExpr) : TExpr =
+        let rec expand (n: TExpr) : TExpr voption =
+            match n with
+            | TExpr.InlineCall(spec, args, _, tok) ->
+                let (SpecializationId i) = spec
+
+                if i < 0 || i >= entries.Length then
+                    failwithf "Inline.flatten: specialization %d is out of range (%d entries)" i entries.Length
+
+                let body = go (spliceAt mint tok (specializationValue spec entries.[i]))
+                ValueSome(betaReduce body [ for a in args -> go a, TastWalk.exprTy a, tok ])
+            | _ -> ValueNone
+
+        and go (x: TExpr) : TExpr =
+            TastWalk.mapExpr
+                { TastWalk.identityMapper with
+                    OverrideExpr = fun _ n -> expand n
+                }
+                x
+
+        go e
+
     /// The open method signature of an external symbol: its full curried
     /// monotype with the method-owned typars resolved to self-describing
     /// `TyTypar(Method, i)` nodes (`MethodTyparArity` of them). This is the

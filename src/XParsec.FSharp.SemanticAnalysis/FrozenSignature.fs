@@ -495,11 +495,11 @@ module FrozenSignature =
             for iv in frozen.InlineTemplates do
                 match { Pool = pool; Id = iv.Decl } with
                 | TastAccessor.DLet { Binding = TastAccessor.PNamed binder } ->
-                    d.[binder] <-
-                        {
-                            Decl = TastPoolBuilder.declTree pool iv.Decl
-                            ParamAttrs = iv.ParamAttrs
-                        }
+                    // Unanchored: this view is built off a FROZEN unit, and the parse whose
+                    // `Lexed` the template's indices address is long gone by the time a unit
+                    // is frozen. A consumer of one of these bodies therefore has only the
+                    // relocating thaw.
+                    d.[binder] <- InlineBody.unanchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs
                 | _ -> ()
 
             d

@@ -92,8 +92,8 @@ type ImportForm =
 /// but the `Lexed` they index, so they arrive marked (`ForeignAnchor`) rather than blanked, and
 /// a consumer must either name the producer file it reads them against
 /// (`OriginSources.tokenAt`, which is also where the file's content hash is checked) or move
-/// the body onto a position of its own (`Inline.thawBody`). This entry names no file, so a
-/// splice reached through it takes the second route.
+/// the body onto a position of its own (`Inline.thawBody`). WHICH of the two is available is
+/// `Origin` below.
 ///
 /// `FrozenType`, not `SemType` — a `SemType.TyVar` is a mutable `UnionFind` cell, and
 /// an oracle that hands one out lets a consumer's inference reach back and mutate a
@@ -101,7 +101,39 @@ type ImportForm =
 /// its own cells by construction; that thaw is the one immutable→mutable transition,
 /// and it sits on the consumer's side of the seam. Do NOT re-widen this to `SemType`
 /// to make a splice site convenient — thaw is the seam.
-type InlineBody = Wire.TInlineBody
+type InlineBody =
+    {
+        Decl: Wire.TDecl
+        ParamAttrs: ParamAttrs[]
+        /// The producer file `Decl`'s `ForeignAnchor`s index, RETAINED — its text and token
+        /// table, not merely its identity.
+        ///
+        /// Retained rather than named because a served body and the file that gives its
+        /// integers a meaning are ONE fact: a provider that hands out the body and drops the
+        /// file has published indices nothing can ever read, and there is no later point at
+        /// which the file could be found again (the collection that parsed it is the only
+        /// thing that ever held it). Carrying it here is what makes that unrepresentable.
+        ///
+        /// `ValueNone` for a provider that retains none — a same-assembly prior-file view
+        /// (`FrozenSignature.toProvider`) reconstructs its bodies off a frozen unit and never
+        /// held the parse. Such a body has exactly ONE reading available, the relocating
+        /// `Inline.thawBody`, so it can be spliced but never left behind an edge.
+        Origin: OriginSource voption
+    }
+
+[<RequireQualifiedAccess>]
+module InlineBody =
+
+    /// A body whose producer file was NOT retained — the shape every provider that
+    /// reconstructs templates off a frozen unit publishes. Named so that "this provider
+    /// keeps no anchor domain" is a decision spelled once rather than a `ValueNone` repeated
+    /// at each construction site.
+    let unanchored (decl: Wire.TDecl) (paramAttrs: ParamAttrs[]) : InlineBody =
+        {
+            Decl = decl
+            ParamAttrs = paramAttrs
+            Origin = ValueNone
+        }
 
 type ExternalSymbol =
     {

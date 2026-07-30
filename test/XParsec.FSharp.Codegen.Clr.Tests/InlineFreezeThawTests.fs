@@ -244,15 +244,14 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 
     // Drained the way a provider serves a template — `declTree`, which re-mints the body's
     // binders into the node space a consuming unit's splice speaks.
+    //
+    // UNANCHORED, so these bodies take the relocating thaw and are spliced physically: this
+    // fixture is about what survives the freeze/thaw seam, and an outlined body would put the
+    // shapes asserted below behind a specialization edge instead.
     let published =
         [
             for t in unitA.InlineTemplates ->
-                t.Key,
-                ({
-                    Decl = TastPoolBuilder.declTree pool t.Decl
-                    ParamAttrs = t.ParamAttrs
-                }
-                : InlineBody)
+                t.Key, InlineBody.unanchored (TastPoolBuilder.declTree pool t.Decl) t.ParamAttrs
         ]
 
     let bodies = dict published

@@ -108,11 +108,10 @@ module SymbolProviders =
             // entry is `ParamAttrs.Default`.
             let paramAttrs = Array.create curried.Length ParamAttrs.Default
 
-            Some
-                {
-                    Decl = TastPoolBuilder.declTree pool decl.Id
-                    ParamAttrs = paramAttrs
-                }
+            // Unanchored HERE: the caller is what knows which producer file this member's
+            // pool was built from, and stamps it on. A hand-built fixture that never had one
+            // keeps `ValueNone` and is spliced rather than outlined.
+            Some(InlineBody.unanchored (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
         | _ -> None
 
     /// A unit's published inline vocabulary, read off its FROZEN tree.
@@ -132,11 +131,25 @@ module SymbolProviders =
     /// overload identity there is no rendered `argSig` for producer and use site to
     /// disagree on; the key `m` mints here is the same one an external entry / use site
     /// mints from the same frozen signature by construction.
-    let private collectInlineBodies (tast: FrozenPools) : Wire.TInlineValue list * Wire.TInlineValue list =
+    /// A published body under the identity it is served by. The `Wire.TInlineValue` shape,
+    /// except that the body carries the producer file its anchors index — which is the whole
+    /// reason this collection retains the parse at all.
+    type KeyedInlineBody = { Key: SymbolKey; Body: InlineBody }
+
+    /// `tast` is the frozen form of `origin`, so every anchor in every body drained below is an
+    /// index into THAT file's `Lexed`. Taking the origin as an argument is what makes the
+    /// pairing a fact of the call rather than something a caller has to remember to do
+    /// afterwards, when the parse it would need is already out of scope.
+    let private collectInlineBodies
+        (origin: OriginSource)
+        (tast: FrozenPools)
+        : KeyedInlineBody list * KeyedInlineBody list =
         // The file's trees as columns, with an append-only overlay for the curried lambda
         // chains `harvestMemberBody` wraps each harvested body in. The overlay is
         // discarded with this call: what leaves is the drained DU template, never an id.
         let pool = TastPoolBuilder.openOver tast
+
+        let anchoredIn (body: InlineBody) : InlineBody = { body with Origin = ValueSome origin }
 
         // The published VALUE templates, drained off their own pool roots — the wire form
         // is DU-typed because a pool id means nothing in the consuming unit's pool.
@@ -145,13 +158,8 @@ module SymbolProviders =
                 for iv in tast.InlineTemplates ->
                     {
                         Key = iv.Key
-                        Body =
-                            {
-                                Decl = TastPoolBuilder.declTree pool iv.Decl
-                                ParamAttrs = iv.ParamAttrs
-                            }
+                        Body = anchoredIn (InlineBody.unanchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs)
                     }
-                    : Wire.TInlineValue
             ]
 
         let members =
@@ -199,8 +207,8 @@ module SymbolProviders =
     /// text.
     type CollectedInlineBodies =
         {
-            Values: Wire.TInlineValue list
-            Members: Wire.TInlineValue list
+            Values: KeyedInlineBody list
+            Members: KeyedInlineBody list
             Origins: OriginSources
         }
 
@@ -217,8 +225,8 @@ module SymbolProviders =
         (provider: IExternalSymbolProvider)
         (manifestPaths: string list)
         : CollectedInlineBodies =
-        let acc = ResizeArray<Wire.TInlineValue>()
-        let memberAcc = ResizeArray<Wire.TInlineValue>()
+        let acc = ResizeArray<KeyedInlineBody>()
+        let memberAcc = ResizeArray<KeyedInlineBody>()
         let mutable origins = OriginSources.empty
 
         for manifestPath in manifestPaths do
@@ -239,7 +247,11 @@ module SymbolProviders =
                     match VesperLib.parseFileFull file with
                     | Result.Error _ -> ()
                     | Result.Ok parsed ->
-                        origins <- OriginSources.add (Hashing.originSource parsed) origins
+                        // ONE retention, and it is also what every body drained below records
+                        // as its anchor domain — so the retained file and the file an entry
+                        // names cannot come apart.
+                        let origin = Hashing.originSource parsed
+                        origins <- OriginSources.add origin origins
 
                         let implFile =
                             match parsed.Ast with
@@ -260,7 +272,7 @@ module SymbolProviders =
                             let _, tast =
                                 Pipeline.analyseWithContextFor manifest.Name provider parsed.Input parsed.Lexed f
 
-                            let values, members = collectInlineBodies tast
+                            let values, members = collectInlineBodies origin tast
 
                             acc.AddRange values
                             memberAcc.AddRange members

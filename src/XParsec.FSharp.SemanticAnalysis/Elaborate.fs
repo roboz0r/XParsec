@@ -2096,8 +2096,11 @@ module Elaborate =
                     ctx.InlineTemplates.[k] <- freezeTypars ctx.Store env d
                 | _ -> ()
 
-            elaborated
-            |> InlineExpansion.run ctx
+            // `.Decls` only: the pass flattens the specialization table back into them before
+            // returning, so nothing here has an edge to resolve. Publishing the table onto the
+            // frozen file is what would let the BACKENDS flatten instead, and nothing consumes
+            // it there yet.
+            (InlineExpansion.run ctx elaborated).Decls
             |> List.map (fun (d, env) -> freezeTypars ctx.Store env d)
 
         // Elaborate assumes well-typed input: it asserts its invariants with `failwith`
