@@ -221,7 +221,7 @@ let tests =
                         clean "isnull-string" "let f (s: string) = isNull s"
                     }
 
-                    // Root 4 — `InlineExpansion.expandLocalAt` must always
+                    // Root 4 — `InlineReduction.expandLocalAt` must always
                     // `deriveInlineTypeArgs`. A generic `let inline` expanded with zero
                     // type args leaves the callee's generalised typars (e.g. `:?> 'T`
                     // result typar) free in the caller's frozen TAST: beta-reduction

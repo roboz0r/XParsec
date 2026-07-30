@@ -129,6 +129,7 @@
     <Compile Include="Elaborate\Printf.fs" />
     <Compile Include="ElaborateExpr.fs" />
     <Compile Include="Passes\InlineSpecTable.fs" />
+    <Compile Include="Passes\InlineReduction.fs" />
     <Compile Include="Passes\InlineExpansion.fs" />
     <Compile Include="Elaborate.fs" />
     <Compile Include="Passes\RefCellPromotion.fs" />

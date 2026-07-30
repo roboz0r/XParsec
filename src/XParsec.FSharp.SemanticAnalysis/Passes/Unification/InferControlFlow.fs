@@ -143,7 +143,7 @@ module internal UnificationInferControlFlow =
                 // stored.
                 //
                 // TODO (ref-struct pattern-Dispose): once a byref-like predicate exists
-                // (`SemType` has no ref-struct case today — see `InlineExpansion.fs` /
+                // (`SemType` has no ref-struct case today — see `InlineReduction.fs` /
                 // `Regions.fs`), also dispose a *non-`IDisposable`* `[<IsByRefLike>]` `E`
                 // that exposes a public `Dispose()`, calling its own method (a ref struct
                 // can't be boxed to `IDisposable`). That mirrors the `use`-binder

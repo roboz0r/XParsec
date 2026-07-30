@@ -14,7 +14,7 @@ open XParsec.FSharp.SemanticAnalysis
 //
 // What is deliberately ABSENT is the walk: the table is reached through a `Reservation`, which
 // is a position and a sink for an id and nothing else, so no operation here can come to depend
-// on how the pass represents its expansion chain. The pass supplies that (`InlineExpansion`'s
+// on how the pass represents its expansion chain. The pass supplies that (`InlineReduction`'s
 // `reserving`) and gets nothing back but the slot.
 module InlineSpecTable =
 
