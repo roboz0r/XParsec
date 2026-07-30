@@ -162,6 +162,11 @@ module TastPoolShapes =
         | TExprG.TraitCall(args = args) ->
             for x in args do
                 acc.Add x
+        // The ENTRY is not a child: it is a separate pool root, shared by every call site
+        // that names it. Only the call's own argument expressions belong to this node.
+        | TExprG.InlineCall(args = args) ->
+            for x in args do
+                acc.Add x
 
         acc.ToArray()
 
@@ -207,7 +212,8 @@ module TastPoolShapes =
         | TExprG.Upcast _
         | TExprG.Downcast _
         | TExprG.TypeTest _
-        | TExprG.TraitCall _ -> ()
+        | TExprG.TraitCall _
+        | TExprG.InlineCall _ -> ()
         | TExprG.Lambda(param = param) -> acc.Add param
         | TExprG.Let(binding = binding) -> acc.Add binding
         | TExprG.Use(binding = binding) -> acc.Add binding
@@ -384,6 +390,7 @@ module TastPoolShapes =
                     Receiver = receiver
                     MemberName = memberName
                 |}
+        | TExprG.InlineCall(spec = spec) -> ExprPayload.InlineCall spec
 
     /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
     /// child sub-pat ids (`patChildren`). The exact inverse of `substitutePat`, mirroring

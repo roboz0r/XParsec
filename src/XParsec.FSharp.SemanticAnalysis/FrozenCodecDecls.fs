@@ -49,6 +49,10 @@ module FrozenCodecDecls =
     let readPatPoolId (r: FrozenReader) : PatPoolId = PatPoolId(r.ReadInt32())
     let writeDeclPoolId (w: FrozenWriter) (DeclPoolId i) = w.Write i
     let readDeclPoolId (r: FrozenReader) : DeclPoolId = DeclPoolId(r.ReadInt32())
+    // Not a pool COLUMN index but a root-array one; same width, same reasoning.
+    let writeSpecializationId (w: FrozenWriter) (SpecializationId i) = w.Write i
+
+    let readSpecializationId (r: FrozenReader) : SpecializationId = SpecializationId(r.ReadInt32())
 
     let rec writeDisposal (w: FrozenWriter) (d: Disposal) =
         match d with
@@ -526,6 +530,28 @@ module FrozenCodecDecls =
             Key = key
             Decl = decl
             ParamAttrs = paramAttrs
+        }
+
+    /// A resolved-specialization entry: the grounding it is keyed by, then its declaration
+    /// named by pool id like any other root. The key's type arguments go through
+    /// `writeTypeRef` and so are INTERNED here — the `ty` columns never carried them.
+    and writeSpecialization (w: FrozenWriter) (s: PooledSpecialization) =
+        writeSymbolRef w s.Key.Template
+        writeEqArrayWith w writeTypeRef s.Key.TypeArgs
+        writeDeclPoolId w s.Decl
+
+    and readSpecialization (r: FrozenReader) : PooledSpecialization =
+        let template = readSymbolRef r
+        let typeArgs = EqArray.ofArray (readArrayWith r readTypeRef)
+        let decl = readDeclPoolId r
+
+        {
+            Key =
+                {
+                    Template = template
+                    TypeArgs = typeArgs
+                }
+            Decl = decl
         }
 
     and private writeArgGroup (w: FrozenWriter) (g: ArgGroupG<FrozenType, PatPoolId, BinderId>) =

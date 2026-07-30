@@ -69,6 +69,7 @@ module TastWalk =
         | TExprG.Upcast(ty = ty)
         | TExprG.Downcast(ty = ty)
         | TExprG.TraitCall(ty = ty)
+        | TExprG.InlineCall(ty = ty)
         | TExprG.TypeTest(ty = ty) -> ty
 
     let exprTok (e: TExprG<'ty, 'tok, 'id>) : 'tok =
@@ -111,6 +112,7 @@ module TastWalk =
         | TExprG.Upcast(tok = tok)
         | TExprG.Downcast(tok = tok)
         | TExprG.TraitCall(tok = tok)
+        | TExprG.InlineCall(tok = tok)
         | TExprG.TypeTest(tok = tok) -> tok
 
     let patTy (p: TPatG<'ty, 'tok, 'id>) : 'ty =
@@ -715,6 +717,19 @@ module TastWalk =
                     e
                 else
                     TExpr.TypeTest(src', testTy', ty', tok)
+            // The type map does NOT reach the entry's body: the table is a separate root
+            // and is mapped as one (`TastConvert.file`). Mapping it from here would rewrite
+            // a shared entry once per call site.
+            | TExpr.InlineCall(spec, args, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve pe args with
+                | ValueNone ->
+                    if refEq ty' ty then
+                        e
+                    else
+                        TExpr.InlineCall(spec, args, ty', tok)
+                | ValueSome args' -> TExpr.InlineCall(spec, args', ty', tok)
 
     and mapArm (m: Mapper) (arm: TMatchArm) : TMatchArm =
         match m.OverrideArm m arm with
@@ -866,6 +881,7 @@ module TastWalk =
             | TExpr.New(_, _, args, _, _)
             | TExpr.StaticMethodCall(_, args, _, _)
             | TExpr.TraitCall(_, _, args, _, _)
+            | TExpr.InlineCall(_, args, _, _)
             | TExpr.ILIntrinsic(_, _, args, _, _) ->
                 for x in args do
                     walk x

@@ -257,6 +257,20 @@ type SchemeId = | SchemeId of int
 [<Struct>]
 type BinderId = | BinderId of int
 
+/// A dense index into a file's RESOLVED-SPECIALIZATION table
+/// (`TastFileG.Specializations` / `FrozenPools.Specializations`) — the identity a
+/// `TExprG.InlineCall` names the body it calls by. An entry IS its slot, exactly as a binder
+/// is, so nothing beside the index is stored at the edge.
+///
+/// Its own type and not a bare `int`, for the reason every other dense id here has one: an
+/// index is meaningful only against the array it indexes, and the tree already carries four
+/// other index spaces an untyped one would silently interchange with.
+///
+/// Declared with the other dense scalars because `TExprG` is typed over it and compiles long
+/// before the table.
+[<Struct>]
+type SpecializationId = | SpecializationId of int
+
 /// The constant value a structural LITERAL type carries (`FTLiteral`/`TyLiteral`).
 /// String first (`"GET"`); `Int` falls out for numeric literal unions. No `bool`
 /// (design §"Literal types stay structural … string first; skip bool"). A literal

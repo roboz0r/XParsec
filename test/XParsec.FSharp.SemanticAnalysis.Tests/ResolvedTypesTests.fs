@@ -85,6 +85,7 @@ let tests =
                     {
                         Decls = EqArray.ofList synthDecls
                         InlineBodies = EqArray.empty
+                        Specializations = EqArray.empty
                         Diagnostics = []
                         IntrinsicReprKeys = System.Collections.Generic.Dictionary()
                         ModuleMembers = Map.empty
@@ -144,6 +145,7 @@ let tests =
                                     )
                                 ]
                         InlineBodies = EqArray.empty
+                        Specializations = EqArray.empty
                         Diagnostics = []
                         IntrinsicReprKeys = System.Collections.Generic.Dictionary()
                         ModuleMembers = Map.empty

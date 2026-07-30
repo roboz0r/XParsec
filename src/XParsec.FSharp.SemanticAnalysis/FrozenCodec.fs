@@ -276,6 +276,9 @@ module FrozenCodec =
             w.Write 38uy
             writeTypeRef w p.Receiver
             w.Write p.MemberName
+        | ExprPayload.InlineCall spec ->
+            w.Write 39uy
+            writeSpecializationId w spec
 
     let private readExprPayload (r: FrozenReader) : ExprPayload =
         match r.ReadByte() with
@@ -389,6 +392,7 @@ module FrozenCodec =
                     Receiver = receiver
                     MemberName = memberName
                 |}
+        | 39uy -> ExprPayload.InlineCall(readSpecializationId r)
         | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b
 
     let private writePatPayload (w: FrozenWriter) (p: PatPayload) =
@@ -498,6 +502,7 @@ module FrozenCodec =
         writeArrayWith w writeDeclPayload p.DeclPayloads
         writeArrayWith w writeDeclPoolId p.Roots
         writeArrayWith w writeInlineTemplate p.InlineTemplates
+        writeArrayWith w writeSpecialization p.Specializations
         writeArrayWith w (fun w (s: string) -> w.Write s) p.BinderNames
         writeArrayWith w writeAnchor p.BinderToks
         writeResidue w p.Residue
@@ -546,6 +551,7 @@ module FrozenCodec =
         let declPayloads = readArrayWith r readDeclPayload
         let roots = readArrayWith r readDeclPoolId
         let inlineTemplates = readArrayWith r readInlineTemplate
+        let specializations = readArrayWith r readSpecialization
         let binderNames = readArrayWith r (fun r -> r.ReadString())
         let binderToks = readArrayWith r readAnchor
         let residue = readResidue r
@@ -586,6 +592,7 @@ module FrozenCodec =
             DeclPayloads = declPayloads
             Roots = roots
             InlineTemplates = inlineTemplates
+            Specializations = specializations
             BinderNames = binderNames
             BinderToks = binderToks
             Residue = residue

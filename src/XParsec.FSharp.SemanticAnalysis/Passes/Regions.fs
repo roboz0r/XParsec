@@ -456,6 +456,12 @@ module Regions =
         // in case a residual one survives so captures inside it still register.
         | TExpr.TraitCall(_, _, args, _, _) ->
             joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
+        // The ENTRY's body is not walked from here: it is a separate root, shared by every
+        // call site, so walking it per site would mint one region per site for one body's
+        // allocations. The edge is treated as the opaque call it is — coarse in the same
+        // direction `App` is, and safe.
+        | TExpr.InlineCall(_, args, _, _) ->
+            joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
 
     /// Process a `TExpr.Lambda` whose closure region is `r` (a fresh region for an
     /// anonymous lambda, or the pre-minted region of a function-form binding).

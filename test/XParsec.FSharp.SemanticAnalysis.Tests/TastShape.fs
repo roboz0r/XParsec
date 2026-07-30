@@ -592,6 +592,24 @@ type private Renderer() =
 
             push ")"
 
+        // The entry is a separate root, so the rendering shows the SLOT and the call's own
+        // args; a golden that inlined the body here would print one body per call site and
+        // stop showing that the two calls share it.
+        | TExpr.InlineCall(SpecializationId spec, args, _, _) ->
+            push "spec#"
+            push (string spec)
+            push "("
+
+            args
+            |> EqArray.iteri (fun i a ->
+                if i > 0 then
+                    push ", "
+
+                this.Expr a
+            )
+
+            push ")"
+
     member this.Pat(p: TPat) : unit =
         match p with
         | TPat.NamedSimple(k, _, _) -> push (nameOf k)

@@ -2128,6 +2128,10 @@ module Elaborate =
             // domains, which is where the same-unit splice (`Passes.InlineExpansion`)
             // reads it and where both backends emit it as an ordinary module function.
             InlineBodies = EqArray.empty
+            // No entry is minted here, and none exists yet: `InlineExpansion.run` above
+            // resolves a call by SPLICING the resolved body into the consuming tree, so
+            // there is no `InlineCall` edge to name a slot from.
+            Specializations = EqArray.empty
             Diagnostics = List.ofSeq ctx.Diagnostics
             // Snapshot so the backend can key the emitted IL type off the representation
             // string without the PassContext. The KEY-addressed table, not its by-name

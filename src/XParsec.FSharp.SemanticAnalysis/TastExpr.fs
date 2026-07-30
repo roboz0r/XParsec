@@ -487,6 +487,20 @@ type TExprG<'ty, 'tok, 'id> =
     /// resolve via `Vector2`'s `op_Multiply`. Carrying a candidate SET here (rather than
     /// one receiver) is what buys that.
     | TraitCall of receiver: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
+    /// A call to a RESOLVED INLINE SPECIALIZATION: the `spec`-th entry of the file's
+    /// specialization table (`TastFileG.Specializations`), applied to `args`. The body is
+    /// NOT here — it stays in the table — so a body reached from N call sites is one entry
+    /// and N edges, and the provenance of each edge is its own.
+    ///
+    /// `tok` is the CALL SITE, in the file this node belongs to; the entry's nodes are
+    /// anchored where the body was WRITTEN. Keeping the two apart is the whole point of the
+    /// node: a physical splice maps every node of the body onto the call-site token, after
+    /// which nothing can say which file a node came from.
+    ///
+    /// `args` are positional against the entry's SURVIVING parameters — an entry is a
+    /// `TDecl.Let` of lambdas, and a parameter that resolution fused into the body is not
+    /// one of them, so the count agrees by construction rather than by a stored arity.
+    | InlineCall of spec: SpecializationId * args: EqArray<TExprG<'ty, 'tok, 'id>> * ty: 'ty * tok: 'tok
 
 /// One arm of a `Match` / `TryWith`. `'pat`/`'e` abstract over how the arm's pattern and
 /// its guard/body expressions are carried, exactly as `'body` does for a type

@@ -175,6 +175,7 @@ module TastUnpool =
             let sink', segments' = ExprPayload.format widenTok p.Sink p.Segments nextE
             TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
         | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
+        | ExprPayload.InlineCall spec -> TExprG.InlineCall(spec, EqArray.ofArray es, ty, tok)
         | ExprPayload.StaticOptimization clauseConstraints ->
             let clauses' =
                 clauseConstraints
@@ -363,6 +364,19 @@ module TastUnpool =
             )
             |> EqArray.ofArray
 
+        // Likewise the specialization table, in SLOT ORDER — the `SpecializationId`s the
+        // rebuilt tree carries index this array, so the drain must not reorder or compact
+        // it, even for an entry no surviving call site names.
+        let specializations =
+            pools.Specializations
+            |> Array.map (fun s ->
+                {
+                    TSpecializationG.Key = s.Key
+                    Decl = fromDecl s.Decl
+                }
+            )
+            |> EqArray.ofArray
+
         // Reconstructing the side-table maps here (rather than retaining the source
         // file's) is what makes the round-trip prove the key remap, not just the decl
         // trees. The keyed binder tables go through the shared `binderKeyedMap` and the two
@@ -383,6 +397,7 @@ module TastUnpool =
             FunVerdicts = pools.FunVerdicts |> Array.map (fun (id, v) -> lambdaKeyOf id, v) |> Map.ofArray
             GenericFnSchemes = binderKeyedMap readmittedBinder pools.GenericFnSchemes
             InlineBodies = inlineBodies
+            Specializations = specializations
             Accessibility = pools.Residue.Accessibility
             // No `BindingValReprs`: the DU does not carry one. It is a PROJECTION of the
             // lambda spine, so `toPools` re-derives it off the columns rather than the DU

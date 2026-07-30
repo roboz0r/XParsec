@@ -24,6 +24,21 @@ module TastLower =
     /// (`StaticParamG`, generic over `'ty`/`'pat`); this is the pooled instantiation.
     type StaticParam = TastAccessor.StaticParam
 
+    /// The fault an emit router raises on a `TExpr.InlineCall`. The node is an EDGE into the
+    /// file's specialization table, so a backend that has not expanded the table has no body
+    /// to emit — and there is nothing to report to a user, because no source spells the
+    /// node: reaching an emitter means the expansion was skipped, not that the source was
+    /// wrong.
+    ///
+    /// Sited once, in the one module all three codegen projects already read, because the
+    /// routers would otherwise each state the invariant in their own words and drift.
+    let inlineCallUnexpanded (spec: SpecializationId) : 'a =
+        let (SpecializationId i) = spec
+
+        failwithf
+            "Emit: an InlineCall on specialization %d reached the emitter — the specialization table is expanded before emission, so this node should not exist here"
+            i
+
     /// Resolve a nominal receiver type to its `(SymbolKey, type-args)` pair
     /// (was a projected string name). The
     /// project-local emitted-type tables key by this `SymbolKey` directly; the

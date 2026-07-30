@@ -47,6 +47,37 @@ type TInlineValueG<'ty, 'tok, 'id> =
         Body: TInlineBodyG<'ty, 'tok, 'id>
     }
 
+/// WHICH resolved specialization: the template's own identity (the `TInlineValueG.Key` its
+/// home unit interns it under) plus the type arguments a call site ground it at, in the
+/// template's typar order.
+///
+/// The key is what makes the table a SET: two call sites that ground one template the same
+/// way name one entry, so a body is stored once however many times it is called.
+type SpecializationKeyG<'ty> =
+    {
+        Template: SymbolKey
+        TypeArgs: EqArray<'ty>
+    }
+
+/// One entry of a unit's RESOLVED-SPECIALIZATION table (`TastFileG.Specializations`),
+/// addressed by the `SpecializationId` a `TExprG.InlineCall` carries.
+///
+/// `Decl` is always a `TDecl.Let` of lambdas — the template's body with its type arguments
+/// substituted, its static-opt clauses selected and its trait calls dispatched. That is
+/// everything RESOLUTION decides; where the body is finally placed is not decided here,
+/// which is why the entry's nodes stay anchored where the body was written.
+///
+/// Entries reference entries — a body may itself contain an `InlineCall` — so the table is
+/// a DAG and a consumer that flattens it walks rather than substituting once.
+///
+/// No `ParamAttrs`, unlike `TInlineBodyG`: those gate a call-by-name splicing decision
+/// (`[<CallAtMostOnce>]`) that has already been made by the time an entry exists.
+type TSpecializationG<'ty, 'tok, 'id> =
+    {
+        Key: SpecializationKeyG<'ty>
+        Decl: TDeclG<'ty, 'tok, 'id>
+    }
+
 /// What a unit's `(# … #)` binding records about one intrinsic: the target
 /// representation string, and whether the binding was `class`-tagged
 /// (`(# class "System.Attribute" #)`) and so may be inherited.
@@ -149,6 +180,15 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// EMPTY pre-freeze: the SemType tree carries the templates in `Decls` and the
         /// unexpanded snapshots on the `PassContext`.
         InlineBodies: EqArray<TInlineValueG<'ty, 'tok, 'id>>
+        /// The unit's RESOLVED-SPECIALIZATION table: one entry per distinct
+        /// (template, type-arguments) grounding this file's call sites reached, addressed by
+        /// the `SpecializationId` an `InlineCall` carries.
+        ///
+        /// A SECOND root array beside `InlineBodies`, on a different axis: `InlineBodies`
+        /// PUBLISHES unresolved templates for other units to resolve against their own
+        /// operand types, while this holds bodies already resolved against THIS file's, and
+        /// is consumed by the backends rather than exported.
+        Specializations: EqArray<TSpecializationG<'ty, 'tok, 'id>>
         /// Declared accessibility of each top-level EXPORTED entity (type / module
         /// value / inline value), keyed by its `SymbolKey`. Stored HONESTLY (not
         /// pre-thresholded): the file→file projection applies internal-or-better, the
@@ -195,6 +235,8 @@ type TBaseCtorCall = TBaseCtorCallG<SemType, NodeKey, TExpr>
 type TAbstractMethod = TAbstractMethodG<SemType>
 type TInlineBody = TInlineBodyG<SemType, SyntaxToken, NodeKey>
 type TInlineValue = TInlineValueG<SemType, SyntaxToken, NodeKey>
+type SpecializationKey = SpecializationKeyG<SemType>
+type TSpecialization = TSpecializationG<SemType, SyntaxToken, NodeKey>
 type TastFile = TastFileG<SemType, SyntaxToken, NodeKey>
 
 [<RequireQualifiedAccess>]
@@ -249,6 +291,7 @@ module TastFileG =
         && a.FunVerdicts = b.FunVerdicts
         && a.GenericFnSchemes = b.GenericFnSchemes
         && a.InlineBodies = b.InlineBodies
+        && a.Specializations = b.Specializations
         && dictEqual a.Accessibility b.Accessibility
         && a.BindingTyparArities = b.BindingTyparArities
 
@@ -283,6 +326,8 @@ module Frozen =
     type TAbstractMethod = TAbstractMethodG<FrozenType>
     type TInlineBody = TInlineBodyG<FrozenType, SyntaxToken, NodeKey>
     type TInlineValue = TInlineValueG<FrozenType, SyntaxToken, NodeKey>
+    type SpecializationKey = SpecializationKeyG<FrozenType>
+    type TSpecialization = TSpecializationG<FrozenType, SyntaxToken, NodeKey>
     type TastFile = TastFileG<FrozenType, SyntaxToken, NodeKey>
     type ForInEnumerator = ForInEnumeratorG<FrozenType>
     // The TREE instantiation of the compiled-form cluster: `'pat` is the frozen pattern

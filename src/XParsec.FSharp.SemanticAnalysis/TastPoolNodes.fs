@@ -100,6 +100,7 @@ type ExprShape =
     | Downcast
     | TypeTest
     | TraitCall
+    | InlineCall
 
 /// The post-freeze shape tag of a pattern node — one case per `TPatG` case (mirrors
 /// `ExprShape`'s relationship to `TExprG`, `PatPayload.shape` included).
@@ -376,6 +377,11 @@ type ExprPayload =
             Receiver: FrozenType
             MemberName: string
         |}
+    /// The specialization-table slot this call names; the args are the child expressions.
+    /// The ENTRY is a root of its own (`FrozenPools.Specializations`) and is deliberately
+    /// not a child edge — several call sites share one entry, so making it a child would
+    /// turn the DAG into a tree by duplication.
+    | InlineCall of spec: SpecializationId
 
 [<RequireQualifiedAccess>]
 module ExprPayload =
@@ -426,6 +432,7 @@ module ExprPayload =
         | ExprPayload.Downcast -> ExprShape.Downcast
         | ExprPayload.TypeTest _ -> ExprShape.TypeTest
         | ExprPayload.TraitCall _ -> ExprShape.TraitCall
+        | ExprPayload.InlineCall _ -> ExprShape.InlineCall
 
     // ── re-nesting the flat child columns ───────────────────────────────────
     //

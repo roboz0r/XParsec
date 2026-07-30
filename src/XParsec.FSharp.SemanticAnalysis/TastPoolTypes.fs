@@ -26,8 +26,9 @@ open XParsec.FSharp.Parser
 //
 // EVERY tree the file bears is in those columns, not just the emittable decls: a `Type`
 // decl's member bodies are named by id inside its declaration shape (`PooledTypeDecl`) and
-// the inline vocabulary has its own root array (`InlineTemplates`). `FrozenFileResidue`
-// correspondingly holds NO tree either.
+// the inline vocabulary has its own root array (`InlineTemplates`), as does the resolved
+// specialization table (`Specializations`). `FrozenFileResidue` correspondingly holds NO
+// tree either.
 //
 // The cross-references that named a definition by content key during analysis —
 // `Var.binding` and six of the seven side tables — name it by `BinderId` here. (The
@@ -209,6 +210,18 @@ type PooledInlineValue =
         ParamAttrs: ParamAttrs[]
     }
 
+/// One entry of the pooled RESOLVED-SPECIALIZATION table: the grounding it was resolved at,
+/// with its declaration named by pool id — the pooled face of `TSpecializationG`, which is
+/// where the entry's own doc lives.
+///
+/// The `Key` rides across the pooling unchanged: it is a `SymbolKey` plus frozen types,
+/// neither of which the columns address, exactly as a payload's embedded types do.
+type PooledSpecialization =
+    {
+        Key: Frozen.SpecializationKey
+        Decl: DeclPoolId
+    }
+
 /// Everything of a `Frozen.TastFile` that has NO pooled form — the file MINUS its trees (the
 /// columns) and MINUS the seven side tables (the dense `BinderId`/`ExprPoolId` associations
 /// and the two per-binder `BinderColumn`s).
@@ -321,6 +334,15 @@ type FrozenPools =
         /// emittable decl and must not be walked as one — and it is a genuinely distinct
         /// tree from the emitted function of the same name (see `PooledInlineValue`).
         InlineTemplates: PooledInlineValue[]
+        /// The resolved-specialization table's roots: one per entry, indexed by the
+        /// `SpecializationId` an `ExprPayload.InlineCall` carries — a THIRD root array,
+        /// beside `Roots` and `InlineTemplates`, for the same reason the second one exists:
+        /// an entry is not an emittable decl and must not be walked as one.
+        ///
+        /// The array is a DAG's node list, and an entry's body may name a LATER slot, so a
+        /// consumer resolves an id against the whole array rather than assuming a
+        /// definition-before-use order.
+        Specializations: PooledSpecialization[]
         /// The binder pool: two parallel dense columns indexed by `BinderId`, their own
         /// arrays disjoint from the `Pat*` columns. A binder has NO stored identity beside
         /// its slot — the slot IS the identity, a drained tree names its binders by
@@ -402,6 +424,7 @@ module FrozenPools =
             DeclPayloads = [||]
             Roots = [||]
             InlineTemplates = [||]
+            Specializations = [||]
             BinderNames = [||]
             BinderToks = [||]
             Residue =

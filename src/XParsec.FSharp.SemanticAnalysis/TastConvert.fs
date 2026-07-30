@@ -150,6 +150,9 @@ module TastConvert =
         | TExprG.Downcast(src, ty, tok) -> TExprG.Downcast(pe src, f ty, tk tok)
         | TExprG.TraitCall(recv, n, args, ty, tok) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty, tk tok)
         | TExprG.TypeTest(src, testTy, ty, tok) -> TExprG.TypeTest(pe src, f testTy, f ty, tk tok)
+        // The `spec` index is domain-free: the table it indexes is remapped whole alongside
+        // the tree (`file`), so the slot a call names is the same slot after the map.
+        | TExprG.InlineCall(spec, args, ty, tok) -> TExprG.InlineCall(spec, EqArray.map pe args, f ty, tk tok)
 
     and arm
         (f: 'a -> 'b)
@@ -436,13 +439,31 @@ module TastConvert =
             Body = inlineBody f fTok iv.Body
         }
 
-    /// The whole-file rebuild: `Decls` and `InlineBodies` mapped through `f`, the
-    /// non-`'ty` snapshot fields (`Diagnostics` / `IntrinsicReprKeys` /
+    /// A specialization-table entry. Its KEY's type arguments map too — they are the
+    /// grounding the entry was resolved at, so they must land in the same domain as the
+    /// body, or the two would name one specialization by two type languages.
+    let specialization
+        (f: 'a -> 'b)
+        (fTok: 'ta -> 'tb)
+        (s: TSpecializationG<'a, 'ta, 'id>)
+        : TSpecializationG<'b, 'tb, 'id> =
+        {
+            Key =
+                {
+                    Template = s.Key.Template
+                    TypeArgs = EqArray.map f s.Key.TypeArgs
+                }
+            Decl = decl f fTok s.Decl
+        }
+
+    /// The whole-file rebuild: `Decls`, `InlineBodies` and `Specializations` mapped through
+    /// `f`, the non-`'ty` snapshot fields (`Diagnostics` / `IntrinsicReprKeys` /
     /// `ModuleMembers` / `ClosureReprs`) carried over.
     let file (f: 'a -> 'b) (fTok: 'ta -> 'tb) (tf: TastFileG<'a, 'ta, 'id>) : TastFileG<'b, 'tb, 'id> =
         {
             Decls = EqArray.map (decl f fTok) tf.Decls
             InlineBodies = EqArray.map (inlineValue f fTok) tf.InlineBodies
+            Specializations = EqArray.map (specialization f fTok) tf.Specializations
             Diagnostics = tf.Diagnostics
             IntrinsicReprKeys = tf.IntrinsicReprKeys
             ModuleMembers = tf.ModuleMembers

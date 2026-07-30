@@ -598,6 +598,12 @@ module EmitJs =
             | FormatSinkG.ToString -> arg
             | other -> failwithf "EmitJs: unsupported format sink %A" other
 
+        // Not "unsupported" but IMPOSSIBLE here: the specialization table is expanded before
+        // emission, so the edge is gone by the time the walker runs. An arm of its own, ahead
+        // of the catch-all, so the fault names the invariant rather than the node — and the
+        // same one the CLR router raises.
+        | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
+
         | _ -> failwithf "EmitJs: unsupported expression %A" e
 
     /// Build one `match` arm's statements: when the pattern matches (and the guard,

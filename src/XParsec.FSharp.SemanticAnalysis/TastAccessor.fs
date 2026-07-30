@@ -571,6 +571,20 @@ module TastAccessor =
     let exprStaticMethodCallKey (e: ExprId) : SymbolKey =
         expect "TastAccessor.exprStaticMethodCallKey: not a StaticMethodCall node" (|EStaticMethodCall|_|) e
 
+    /// An `InlineCall` node → the specialization-table slot it names.
+    [<return: Struct>]
+    let private (|EInlineCall|_|) (e: ExprId) : SpecializationId voption =
+        match payload e with
+        | ExprPayload.InlineCall spec -> ValueSome spec
+        | _ -> ValueNone
+
+    /// The specialization slot an `InlineCall` node names — an index into the pools'
+    /// `Specializations` root array, NOT into any column this handle reads. Its `args` are
+    /// the node's `exprChildren`. Guard with `exprKind` = `ExprShape.InlineCall` first;
+    /// `failwith` on any other shape.
+    let exprInlineCallSpec (e: ExprId) : SpecializationId =
+        expect "TastAccessor.exprInlineCallSpec: not an InlineCall node" (|EInlineCall|_|) e
+
     /// The children of the arms, re-nested — `ExprPayload.arms`, the walk shared with the
     /// pool drain, driven off this node's child columns. `lead` is how many leading expr
     /// children belong to the node itself rather than an arm (`Match`'s scrutinee /

@@ -399,6 +399,20 @@ module TastPools =
                 }
             )
 
+        // The specialization table, pooled as its own roots for the same reason. Pooled in
+        // SLOT ORDER, which is what keeps the `SpecializationId`s the tree already carries
+        // valid against the array — the ids name positions in this array, not in the pool
+        // the decls land in.
+        let specializations =
+            file.Specializations
+            |> EqArray.toArray
+            |> Array.map (fun s ->
+                {
+                    Key = s.Key
+                    Decl = poolDecl sink s.Decl
+                }
+            )
+
         // THE lookup: the dense id the enumeration above interned a key under. Written
         // once because both faults below ARE this lookup missing; what differs is only
         // what a miss means, and that is what each of them says.
@@ -525,6 +539,7 @@ module TastPools =
                 DeclPayloads = declPayloads.ToArray()
                 Roots = roots
                 InlineTemplates = inlineTemplates
+                Specializations = specializations
                 BinderNames = binderNames.ToArray()
                 BinderToks = binderToks.ToArray()
                 Residue =

@@ -139,6 +139,11 @@ module EmitExpr =
         | ExprShape.Range
         | ExprShape.TraitCall -> failwithf "Emit: unsupported expression: %A" e
 
+        // Not "unsupported" but IMPOSSIBLE here: the specialization table is expanded before
+        // emission, so the edge is gone by the time the router runs. Shared with the JS
+        // backend so the two say one thing.
+        | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
+
     /// Emit an expression as a statement: evaluate it and discard any value.
     let buildStatement (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         buildExpr env b e

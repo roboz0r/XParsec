@@ -41,6 +41,49 @@ let private frozenFiles: (string * FrozenPools) list =
 let private survivesRoundTrip (f: FrozenPools) : bool =
     TastFileG.structurallyEqual (TastUnpool.ofPools f) (TastUnpool.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f)))
 
+/// A pools value bearing a specialization entry AND an `InlineCall` edge naming it. No
+/// corpus program reaches either — nothing places a deferred body yet — so the two carriers
+/// are grafted onto a real frozen file, leaving every other column exactly as the freeze
+/// built it. The entry is keyed by a template the file genuinely publishes and its body IS
+/// that template's decl, which is the entry shape: a `let` of lambdas.
+let private withSpecialization () : FrozenPools =
+    // A NESTED module: a top-level `let inline` has no home module and so no exportable
+    // identity, and publishes nothing (`Freeze.toFrozenFile`).
+    let pools =
+        frozenOfJs "module M\n\nmodule N =\n    let inline f x = x + 1\n\nlet y = N.f 2\n"
+
+    let template =
+        match pools.InlineTemplates with
+        | [| t |] -> t
+        | ts -> failtestf "expected exactly one published template, got %d" ts.Length
+
+    // `InlineCall` draws its args from the expr child column and owns no pattern, so a slot
+    // with neither can stand in for a nullary one without disturbing the columns around it.
+    let leaf =
+        [ 0 .. pools.ExprPayloads.Length - 1 ]
+        |> List.find (fun i ->
+            ChildColumn.count pools.ExprChildren i = 0
+            && ChildColumn.count pools.ExprPatChildren i = 0
+        )
+
+    let payloads = Array.copy pools.ExprPayloads
+    payloads.[leaf] <- ExprPayload.InlineCall(SpecializationId 0)
+
+    { pools with
+        ExprPayloads = payloads
+        Specializations =
+            [|
+                {
+                    Key =
+                        {
+                            Template = template.Key
+                            TypeArgs = EqArray.ofList [ FTConst(RuntimeNames.intKey, EqArray.empty) ]
+                        }
+                    Decl = template.Decl
+                }
+            |]
+    }
+
 [<Tests>]
 let tests =
     testList
@@ -138,4 +181,20 @@ let tests =
                         (survivesRoundTrip (frozenOfJs src))
                         (name + " did not survive flatten/thaw structurally")
                 }
+
+            // The specialization root array and the `InlineCall` payload are the one part of
+            // the wire the corpus above leaves at zero, so it would pass with either missing
+            // from the writer entirely. Assert on the decoded carriers themselves, not only
+            // on the drained tree: an entry the writer skipped and the reader defaulted to
+            // empty is invisible to a tree comparison that has no edge pointing into it.
+            test "a specialization entry and the InlineCall naming it survive flatten/thaw" {
+                let grafted = withSpecialization ()
+                let rt = FrozenCodec.thaw (FrozenCodec.flatten grafted)
+
+                Expect.equal rt.Specializations grafted.Specializations "the specialization table survived the wire"
+
+                Expect.sequenceEqual rt.ExprPayloads grafted.ExprPayloads "every expr payload survived the wire"
+
+                Expect.isTrue (survivesRoundTrip grafted) "the grafted file survived flatten/thaw structurally"
+            }
         ]
