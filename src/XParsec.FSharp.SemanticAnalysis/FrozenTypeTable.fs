@@ -71,6 +71,13 @@ type SymbolId = | SymbolId of int
 [<Struct>]
 type TypeId = | TypeId of int
 
+/// A row of the unit's origin table — a producer file a specialization entry's anchors index
+/// (`TSpecializationG.Origin`). Interned for the reason everything else here is: a realistic
+/// program drains many entries from ONE producer, and the identity of that file is four
+/// strings.
+[<Struct>]
+type OriginId = | OriginId of int
+
 /// What holds a module, in row form: the `ModuleHolder` cases over row ids. The CASE is on
 /// the row and not recovered by reading the target, so a decode cannot mistake a module row
 /// for a namespace row.
@@ -172,6 +179,17 @@ type TypeRow =
     | LocalTypar of scheme: SchemeId * index: int
     | Unknown of name: StrId
 
+/// An `OriginFile` row. Every field is a string in the heap, `ContentHex` included: the hash
+/// is the file's identity as the blob carries it (`InputHash.ofHex` re-admits it), and two
+/// entries drained from one producer name the same text and so the same hex.
+type OriginRow =
+    {
+        BucketName: StrId
+        Relative: StrId
+        Absolute: StrId
+        ContentHex: StrId
+    }
+
 /// The unit's tables as STORED — the whole of what the codec writes and reads back, and the
 /// whole of what a `FrozenTypeTable` is built from. Each array is in MINT order, so a row's
 /// children are rows of a table already at least this far built; nothing here is sorted or
@@ -194,6 +212,7 @@ type FrozenTypeRows =
         Members: ImmutableArray<MemberKeyRow>
         Symbols: ImmutableArray<SymbolRow>
         Types: ImmutableArray<TypeRow>
+        Origins: ImmutableArray<OriginRow>
     }
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -210,10 +229,11 @@ module FrozenTypeRows =
             Members = ImmutableArray.Empty
             Symbols = ImmutableArray.Empty
             Types = ImmutableArray.Empty
+            Origins = ImmutableArray.Empty
         }
 
 /// One hash-consed table under construction: the rows in mint order, plus the index that
-/// makes a repeat of a row answer with the id its first occurrence took. Eight of these are
+/// makes a repeat of a row answer with the id its first occurrence took. Nine of these are
 /// the whole of the builder's state, so "intern" means the same thing in every table rather
 /// than being restated per domain.
 ///
@@ -294,8 +314,20 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     let members = RowTable<MemberKeyRow, MemberKeyId>(MemberKeyId, rows.Members)
     let symbols = RowTable<SymbolRow, SymbolId>(SymbolId, rows.Symbols)
     let types = RowTable<TypeRow, TypeId>(TypeId, rows.Types)
+    let origins = RowTable<OriginRow, OriginId>(OriginId, rows.Origins)
 
     let str (s: string) = strings.Intern s
+
+    // Not part of the key/type recursive group below: an origin names a FILE, and nothing in
+    // the type domain reaches one (nor the reverse).
+    let originFile (f: OriginFile) =
+        origins.Intern
+            {
+                BucketName = str f.Path.BucketName
+                Relative = str f.Path.Relative
+                Absolute = str f.Path.Absolute
+                ContentHex = str f.Content.Hex
+            }
 
     let namespaceKey (ns: NamespaceKey) =
         namespaces.Intern(EqArray.map str ns.Path)
@@ -414,6 +446,9 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     /// The id `m` interns to in this unit's module table — see `InternTypeKey`.
     member _.InternModule(m: ModuleKey) : ModuleId = moduleKey m
 
+    /// The id `f` interns to in this unit's origin table — see `InternTypeKey`.
+    member _.InternOrigin(f: OriginFile) : OriginId = originFile f
+
     /// A builder for a unit that has interned nothing yet.
     new() = FrozenTypeTableBuilder(FrozenTypeRows.empty)
 
@@ -432,6 +467,7 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             Members = members.ToImmutable()
             Symbols = symbols.ToImmutable()
             Types = types.ToImmutable()
+            Origins = origins.ToImmutable()
         }
 
 /// A unit's interned type and key tables, READ SIDE: it resolves an id back to the very
@@ -450,8 +486,27 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
     let memberCache: MemberKey[] = Array.zeroCreate rows.Members.Length
     let symbolCache: SymbolKey[] = Array.zeroCreate rows.Symbols.Length
     let typeCache: FrozenType[] = Array.zeroCreate rows.Types.Length
+    let originCache: OriginFile[] = Array.zeroCreate rows.Origins.Length
 
     let str (StrId i) = rows.Strings.[i]
+
+    let originFile (OriginId i) : OriginFile =
+        Materialise.get
+            originCache
+            i
+            (fun () ->
+                let row = rows.Origins.[i]
+
+                {
+                    Path =
+                        {
+                            BucketName = str row.BucketName
+                            Relative = str row.Relative
+                            Absolute = str row.Absolute
+                        }
+                    Content = InputHash.ofHex (str row.ContentHex)
+                }
+            )
 
     let namespaceKey (NamespaceId i) =
         Materialise.get
@@ -595,12 +650,12 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
     /// live table is reading through costs nothing and risks nothing.
     member _.Rows: FrozenTypeRows = rows
 
-    /// Resolve an id to the value it names — one operation, four id types, the ID's TYPE
-    /// choosing the table. That is what the eight distinct id types buy on the read side:
-    /// a ninth table adds a row type and an overload, not a ninth method name to learn, and
-    /// `t.[id]` cannot reach the wrong table because no id indexes two of them.
+    /// Resolve an id to the value it names — one operation, five id types, the ID's TYPE
+    /// choosing the table. That is what the distinct id types buy on the read side: a further
+    /// table adds a row type and an overload, not another method name to learn, and `t.[id]`
+    /// cannot reach the wrong table because no id indexes two of them.
     ///
-    /// The inverses of `FrozenTypeTableBuilder`'s four `Intern*` entry points, in the same
+    /// The inverses of `FrozenTypeTableBuilder`'s five `Intern*` entry points, in the same
     /// order. THE read is the first: `TastPoolBuilder.exprTy`/`patTy` resolve the `ty`
     /// columns through it, so a consumer meets a `FrozenType` and never a row.
     member _.Item
@@ -614,6 +669,9 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
 
     member _.Item
         with get (id: ModuleId): ModuleKey = moduleKey id
+
+    member _.Item
+        with get (id: OriginId): OriginFile = originFile id
 
     static member OfRows(rows: FrozenTypeRows) : FrozenTypeTable = FrozenTypeTable(rows)
 

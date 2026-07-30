@@ -11,6 +11,7 @@
     <Compile Include="TsManifestProvider.fs" />
     <Compile Include="JsAst.fs" />
     <Compile Include="JsPrint.fs" />
+    <Compile Include="JsMapSources.fs" />
     <Compile Include="JsRuntime.fs" />
     <Compile Include="JsEmitHelpers.fs" />
     <Compile Include="JsFlatFns.fs" />

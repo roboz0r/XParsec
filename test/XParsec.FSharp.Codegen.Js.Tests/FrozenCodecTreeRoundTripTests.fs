@@ -111,6 +111,30 @@ let private withSpecialization () : FrozenPools =
             |]
     }
 
+/// The same graft with a SECOND entry naming the same producer file — one template grounded
+/// two ways, which is what a program that reaches a package's inline vocabulary looks like.
+/// The two entries differ only in the grounding, so the origin is the one thing they share.
+let private withSharedOrigin () : FrozenPools =
+    let pools = withSpecialization ()
+
+    let first =
+        match pools.Specializations with
+        | [| s |] -> s
+        | ss -> failtestf "expected the one grafted entry, got %d" ss.Length
+
+    { pools with
+        Specializations =
+            [|
+                first
+                { first with
+                    Key =
+                        { first.Key with
+                            TypeArgs = EqArray.ofList [ FTConst(RuntimeNames.boolKey, EqArray.empty) ]
+                        }
+                }
+            |]
+    }
+
 [<Tests>]
 let tests =
     testList
@@ -224,5 +248,24 @@ let tests =
                 Expect.sequenceEqual rt.ExprPayloads grafted.ExprPayloads "every expr payload survived the wire"
 
                 Expect.isTrue (survivesRoundTrip grafted) "the grafted file survived flatten/thaw structurally"
+            }
+
+            // The origin is a REF into a table of its own, and one entry exercises the ref but
+            // not the interning: what a realistic program has is many groundings of one
+            // producer's templates, and the four strings that identify that producer are then
+            // written once per FILE. Asserted on the decoded row array, which is where the
+            // sharing is observable — two entries carrying equal `OriginFile` values would
+            // decode identically either way.
+            test "two entries drained from ONE producer file share a single origin row" {
+                let grafted = withSharedOrigin ()
+                let rt = FrozenCodec.thaw (FrozenCodec.flatten grafted)
+
+                Expect.equal (rt.Specializations.Length) 2 "both entries survived the wire"
+                Expect.equal rt.Specializations grafted.Specializations "…each with the origin it was written with"
+
+                Expect.equal
+                    (rt.Types.Rows.Origins.Length)
+                    1
+                    "the producer file occupies ONE row, not one per entry that names it"
             }
         ]

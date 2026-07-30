@@ -4,6 +4,7 @@ open System.Collections.Generic
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // The EMIT-time placement of the resolved-specialization graph: what the shared expansion
@@ -46,15 +47,16 @@ let private opened (input: string) : PoolBuilder * TastAccessor.DeclId list =
     let pool = TastPoolBuilder.openOver (frozenOf input)
     pool, TastAccessor.roots pool |> List.ofArray
 
-/// Which entry each ENTRY-OWN node belongs to, computed independently of the expansion: the
-/// walk of each entry's body, stopping AT a `CallerExpr` because everything under one was
-/// written by the caller and is a node of the frame outside, not of this entry.
+/// Where each ENTRY-OWN node was written, computed independently of the expansion: the walk of
+/// each entry's body, stopping AT a `CallerExpr` because everything under one was written by
+/// the caller and is a node of the frame outside, not of this entry.
 ///
 /// This is the expansion's frame chain, derived a second way — a push that never happened
 /// leaves a copied node with no owner here, and a pop that never happened leaves one whose
-/// owner is the caller's frame rather than the entry's.
-let private entryOwners (pool: PoolBuilder) : Dictionary<TastAccessor.ExprId, OriginFile> =
-    let owners = Dictionary<TastAccessor.ExprId, OriginFile>()
+/// owner is the caller's frame rather than the entry's. Keyed by the ENTRY's node, so a copy is
+/// looked up through the authorship chain that reaches it.
+let private entryOwners (pool: PoolBuilder) : Dictionary<TastAccessor.ExprId, InlineExpand.NodeOrigin> =
+    let owners = Dictionary<TastAccessor.ExprId, InlineExpand.NodeOrigin>()
 
     for i in 0 .. TastPoolBuilder.specializationCount pool - 1 do
         let entry = TastAccessor.specialization pool (SpecializationId i)
@@ -63,7 +65,11 @@ let private entryOwners (pool: PoolBuilder) : Dictionary<TastAccessor.ExprId, Or
             match TastAccessor.exprKind e with
             | ExprShape.CallerExpr -> ()
             | _ ->
-                owners.[e] <- entry.Origin
+                owners.[e] <-
+                    {
+                        File = entry.Origin
+                        At = ForeignAnchor.ofAnchor (TastAccessor.exprTok e)
+                    }
 
                 for c in TastAccessor.exprChildren e do
                     walk c
@@ -160,28 +166,82 @@ let tests =
                     "the expansion actually recorded provenance, or what follows is vacuous"
 
                 for KeyValue(node, origin) in expansion.Origins do
-                    let source = InlineExpand.frozenNode expansion node
-
-                    match owners.TryGetValue source with
-                    | true, file ->
-                        Expect.equal origin.File file "a copied node is attributed to the entry it was written in"
-
+                    match InlineExpand.Derivation.tryFind expansion.Derived owners node with
+                    | ValueSome written ->
                         Expect.equal
-                            origin.At
-                            (ForeignAnchor.ofAnchor (TastAccessor.exprTok source))
-                            "…at the position it was written at, in that file's own index space"
-                    | false, _ -> failtest "a copied node belongs to no entry — a frame was never pushed"
+                            origin
+                            written
+                            "a copied node is attributed to the entry it was written in, at the position it was \
+                             written at, in that file's own index space"
+                    | ValueNone -> failtest "a copied node belongs to no entry — a frame was never pushed"
 
                 // The nesting itself: `not`'s body is reached only through `(|>)`'s, so two
                 // frames were live at once and both are represented in what was recorded.
                 let reached =
                     [
-                        for KeyValue(node, _) in expansion.Origins -> owners.[InlineExpand.frozenNode expansion node]
+                        for KeyValue(node, _) in expansion.Origins ->
+                            match InlineExpand.Derivation.tryFind expansion.Derived owners node with
+                            | ValueSome written -> written.File
+                            | ValueNone -> failtest "a copied node belongs to no entry"
                     ]
 
                 Expect.isGreaterThan (reached |> List.distinct |> List.length) 0 "at least one producer file is named"
 
                 Expect.isGreaterThan (expansion.Origins.Count) 1 "more than one node came out of the table"
+            }
+
+            test "a node re-authored REPEATEDLY still names the file it was copied from" {
+                // The chain, which is the whole reason provenance is resolved along one rather
+                // than copied at each re-authorship. `1 + 2` beta-reduces `(+)`'s body to a
+                // `let` chain of two pure bindings, and collapsing them (`reduceInlinableLet`,
+                // what every `buildExpr` site does) re-authors the operator node ONCE PER
+                // COLLAPSE — so the node the origin is filed against is two links away, and a
+                // reader that followed one link would fall back to the CALL SITE's anchor:
+                // in range, plausible, and the wrong file.
+                let pool, decls = opened "let a = 1 + 2\n"
+                let expansion = InlineExpand.expand pool decls
+
+                let derivation = InlineExpand.Derivation.create ()
+                InlineExpand.Derivation.absorb derivation expansion.Derived
+
+                let letBody (what: string) (e: TastAccessor.ExprId) =
+                    match TastAccessor.exprKind e with
+                    | ExprShape.Let -> (TastAccessor.exprLet e).Body
+                    | other ->
+                        failtestf "the %s of the expanded body is a %A, not the `let` beta reduction left" what other
+
+                let body =
+                    match
+                        expansion.Decls
+                        |> List.filter (fun d -> TastAccessor.declKind d = DeclShape.Let)
+                    with
+                    | [ d ] -> (TastAccessor.declLet d).Value
+                    | ds -> failtestf "expected one `let` declaration, got %d" (List.length ds)
+
+                // The operator node as the EXPANSION left it: under both binder `let`s, and the
+                // node the producer origin is filed against.
+                let copied = body |> letBody "outer" |> letBody "inner"
+
+                let expected =
+                    match expansion.Origins.TryGetValue copied with
+                    | true, origin -> origin
+                    | _ -> failtest "the operator node came out of the table, or the chain below tests nothing"
+
+                let collapse (e: TastAccessor.ExprId) =
+                    match JsEmitHelpers.reduceInlinableLet derivation e with
+                    | Some reduced -> reduced
+                    | None -> failtest "the beta-reduced binding is a pure `let` the emitter collapses"
+
+                let once = collapse body
+                let twice = collapse once
+
+                Expect.notEqual twice once "the second collapse re-authored the node a second time"
+                Expect.notEqual twice copied "…and neither re-authorship left the node it was given"
+
+                Expect.equal
+                    (InlineExpand.Derivation.tryFind derivation expansion.Origins twice)
+                    (ValueSome expected)
+                    "the twice-derived node resolves to the origin filed against the node it descends from"
             }
 
             test "two call sites at one grounding get their OWN binders" {

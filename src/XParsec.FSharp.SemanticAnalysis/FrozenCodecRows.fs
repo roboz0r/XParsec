@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 /// The unit's interned type / key TABLES on the wire: the ROW form of `FrozenType` and the
 /// `SymbolKey`/`TypeKey` cluster it interlocks with, with every child already replaced by a
 /// row id. `FrozenTypeTable` is where the row layout is specified and justified — the
-/// per-unit id discipline, and why the rows are eight arrays rather than one flat key space;
+/// per-unit id discipline, and why the rows are nine arrays rather than one flat key space;
 /// this file only puts them on the wire.
 ///
 /// This is the ONLY place in the codec where a type's structure is spelled out. Everywhere
@@ -22,8 +22,8 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 ///
 /// Each reader sits directly under the writer it must mirror, so the byte-tag discipline is
 /// readable side by side rather than checked across a file — the same rule the rest of the
-/// codec keeps, and the reason `writeTypeRows`/`readTypeRows` below are eight one-liners
-/// each rather than eight inlined lambdas apiece.
+/// codec keeps, and the reason `writeTypeRows`/`readTypeRows` below are nine one-liners
+/// each rather than nine inlined lambdas apiece.
 module FrozenCodecRows =
 
     // ── row ids ────────────────────────────────────────────────────────────
@@ -61,6 +61,11 @@ module FrozenCodecRows =
     /// because `FrozenCodec` writes the columns themselves.
     let writeTypeId (w: FrozenWriter) (TypeId i) = w.Write i
     let readTypeId (r: FrozenReader) : TypeId = TypeId(r.ReadInt32())
+
+    /// A row of the unit's origin table. Public because a specialization entry writes the
+    /// producer file its anchors index as one (`FrozenCodecTypes.writeOriginRef`).
+    let writeOriginId (w: FrozenWriter) (OriginId i) = w.Write i
+    let readOriginId (r: FrozenReader) : OriginId = OriginId(r.ReadInt32())
 
     let private writeTypeIds (w: FrozenWriter) (xs: EqArray<TypeId>) = writeEqArrayWith w writeTypeId xs
 
@@ -335,7 +340,26 @@ module FrozenCodecRows =
         | 14uy -> TypeRow.Unknown(readStrId r)
         | b -> failwithf "FrozenCodec: unknown TypeRow tag %d" b
 
-    // ── the eight arrays ───────────────────────────────────────────────────
+    let private writeOriginRow (w: FrozenWriter) (row: OriginRow) =
+        writeStrId w row.BucketName
+        writeStrId w row.Relative
+        writeStrId w row.Absolute
+        writeStrId w row.ContentHex
+
+    let private readOriginRow (r: FrozenReader) : OriginRow =
+        let bucketName = readStrId r
+        let relative = readStrId r
+        let absolute = readStrId r
+        let contentHex = readStrId r
+
+        {
+            BucketName = bucketName
+            Relative = relative
+            Absolute = absolute
+            ContentHex = contentHex
+        }
+
+    // ── the nine arrays ────────────────────────────────────────────────────
 
     /// The whole of the unit's type/key tables, in `FrozenTypeRows` declaration order — the
     /// order that is also MINT order, so a row's children are rows of a table already at
@@ -349,6 +373,7 @@ module FrozenCodecRows =
         writeImmutableWith w writeMemberKeyRow rows.Members
         writeImmutableWith w writeSymbolRow rows.Symbols
         writeImmutableWith w writeTypeRow rows.Types
+        writeImmutableWith w writeOriginRow rows.Origins
 
     let readTypeRows (r: FrozenReader) : FrozenTypeRows =
         let strings = readImmutableWith r (fun r -> r.ReadString())
@@ -359,6 +384,7 @@ module FrozenCodecRows =
         let members = readImmutableWith r readMemberKeyRow
         let symbols = readImmutableWith r readSymbolRow
         let types = readImmutableWith r readTypeRow
+        let origins = readImmutableWith r readOriginRow
 
         {
             Strings = strings
@@ -369,4 +395,5 @@ module FrozenCodecRows =
             Members = members
             Symbols = symbols
             Types = types
+            Origins = origins
         }

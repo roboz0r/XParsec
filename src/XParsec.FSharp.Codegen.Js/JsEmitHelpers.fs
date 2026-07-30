@@ -4,6 +4,7 @@ open System.Globalization
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 /// Leaf helpers for the walker — no `WalkCtx`, no back-calls into expression
 /// emission. Covers identifier naming, literal formatting, pure-`let` substitution,
@@ -202,13 +203,14 @@ module JsEmitHelpers =
     /// Replace every `Var k` in `e` with `value`. Used only for a pure `value`, so
     /// duplicating it across multiple uses is semantics-preserving.
     ///
-    /// `rekeyed from into` fires for every node the substitution RE-AUTHORS — `mapChildren`
-    /// mints a fresh row as soon as a child moved, and every ancestor of a substituted `Var`
-    /// therefore becomes a new node. A caller keeping facts KEYED BY NODE (which producer file
-    /// an inlined node was written in) must carry them across, or the splice loses them
-    /// silently: the derived node simply looks like one nothing was ever recorded about.
+    /// Every node the substitution RE-AUTHORS is recorded in `derivation` — `mapChildren` mints
+    /// a fresh row as soon as a child moved, so every ancestor of a substituted `Var` becomes a
+    /// new node. A fact KEYED BY NODE (which producer file an inlined node was written in) would
+    /// otherwise be lost silently: the derived node simply looks like one nothing was ever
+    /// recorded about. The table, not a `WalkCtx`, is what crosses this seam — the helpers here
+    /// know nothing of the walk.
     let rec substVar
-        (rekeyed: TastAccessor.ExprId -> TastAccessor.ExprId -> unit)
+        (derivation: InlineExpand.Derivation)
         (k: BinderId)
         (value: TastAccessor.ExprId)
         (e: TastAccessor.ExprId)
@@ -216,11 +218,8 @@ module JsEmitHelpers =
         match TastAccessor.exprKind e with
         | ExprShape.Var when TastAccessor.exprVarBinding e = k -> value
         | _ ->
-            let result = TastAccessor.mapChildren (substVar rekeyed k value) e
-
-            if result <> e then
-                rekeyed e result
-
+            let result = TastAccessor.mapChildren (substVar derivation k value) e
+            InlineExpand.Derivation.authored derivation e result
             result
 
     /// Is the binder `k` ever assigned (`k <- …`) within `e`? A `let mutable` whose
@@ -264,12 +263,9 @@ module JsEmitHelpers =
     /// `valueReadsAssignedIn`). Every `buildExpr`/`buildStatements`/`buildTailBody` site
     /// that collapses a pure `let` matches through here so the guard lives in one place.
     ///
-    /// `rekeyed` is `substVar`'s: every `buildExpr` site reaches this through
-    /// `EmitJsContext.(|InlinableLet|_|)`, which supplies the walk's own bookkeeping.
-    let reduceInlinableLet
-        (rekeyed: TastAccessor.ExprId -> TastAccessor.ExprId -> unit)
-        (e: TastAccessor.ExprId)
-        : TastAccessor.ExprId option =
+    /// `derivation` is `substVar`'s: every `buildExpr` site reaches this through
+    /// `EmitJsContext.(|InlinableLet|_|)`, which supplies the walk's own table.
+    let reduceInlinableLet (derivation: InlineExpand.Derivation) (e: TastAccessor.ExprId) : TastAccessor.ExprId option =
         match TastAccessor.exprKind e with
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
@@ -281,7 +277,7 @@ module JsEmitHelpers =
                     && not (isAssignedIn k l.Body)
                     && not (valueReadsAssignedIn l.Body l.Value)
                 then
-                    Some(substVar rekeyed k l.Value l.Body)
+                    Some(substVar derivation k l.Value l.Body)
                 else
                     None
             | _ -> None

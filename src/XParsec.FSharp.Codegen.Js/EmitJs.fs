@@ -4,6 +4,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open JsEmitHelpers
+open JsMapSources
 open EmitJsCapabilities
 open EmitJsTypes
 open EmitJsContext
@@ -1027,14 +1028,16 @@ module EmitJs =
 
         let decls = expansion.Decls
 
-        // Where each spliced node was WRITTEN, for the map. Seeded into the walk's own table
-        // rather than read straight off the expansion, because the walk adds to it: the
-        // `InlinableLet` splice re-authors nodes and carries their origins onto the copies.
+        // Where each spliced node was WRITTEN, for the map, plus the authorship chain those
+        // origins are keyed along — the walk keeps deriving nodes (the `InlinableLet` splice),
+        // so it takes over the expansion's relation rather than reading a finished one.
         let reached = System.Collections.Generic.HashSet<OriginPath>()
 
         for KeyValue(node, origin) in expansion.Origins do
             ctx0.NodeOrigins.[node] <- origin
             reached.Add origin.File.Path |> ignore
+
+        InlineExpand.Derivation.absorb ctx0.Derivation expansion.Derived
 
         // The producer files this program actually reached get a slot in the map's `sources[]`.
         // Publication walks the RETENTION (`OriginSources.toList`, which yields in `OriginPath`

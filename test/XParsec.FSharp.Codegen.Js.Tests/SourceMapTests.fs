@@ -36,7 +36,7 @@ let private compileMapped (name: string) (input: string) : JsArtifact =
             Source = Some(jsSource (name + ".fsx") input)
         }
 
-    Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs input)
+    Codegen.compileWith jsContract.Value project (frozenOfJs input)
 
 /// One decoded `mappings` segment. Decoded and not merely counted: the source index, line and
 /// column are the whole claim, and a map that published the right `sources[]` while encoding
@@ -281,6 +281,39 @@ let tests =
                      |> List.map (fun s -> s.SrcLine, s.SrcCol))
                     [ 0, input.IndexOf "1"; 0, input.IndexOf "2" ]
                     "the two literals map back to where the caller wrote them"
+            }
+
+            test "an inlined MEMBER body maps to the producer too, not to the indexing site" {
+                // The member half of the same claim. `a.[1]` is `'T[]`'s `get_Item`, harvested off
+                // `array-index-body.js.fs` rather than published as a `let inline`, and a body
+                // served without its producer file would be relocated onto this call site — where
+                // its `ldelem` would be attributed to the line that merely INDEXES the array.
+                let input = "let read (a: int[]) (i: int) : int = a.[i]\n"
+                let m = decodeMap (compileMapped "Idx" input)
+
+                Expect.contains
+                    m.Sources
+                    "Vesper.Core/array-index-body.js.fs"
+                    "the file the member was written in is published beside the caller's"
+
+                let fromMember =
+                    m.Segments
+                    |> List.filter (fun s -> m.Sources.[s.SrcIndex] = "Vesper.Core/array-index-body.js.fs")
+
+                Expect.isNonEmpty fromMember "the emitted index expression comes from the member body"
+
+                for seg in fromMember do
+                    Expect.stringContains
+                        (lineOf m.Contents.[seg.SrcIndex] seg.SrcLine)
+                        "ldelem.any"
+                        "…on the member's own intrinsic line"
+
+                // The receiver and the index were written HERE and stay here — a map that
+                // relabelled the whole expansion onto the producer would pass the check above.
+                Expect.contains
+                    (attributions m |> List.map snd)
+                    "Idx.fsx"
+                    "the array and the index still resolve against the file that names them"
             }
 
             test "a fused argument POPS back to the consuming file" {

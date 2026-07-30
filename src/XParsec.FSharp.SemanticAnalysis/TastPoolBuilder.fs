@@ -406,14 +406,14 @@ module TastPoolBuilder =
     let copyPatFresh (b: PoolBuilder) (id: PatPoolId) (edit: PatRow -> PatRow) : PatPoolId =
         appendPat b (edit (patRow b id))
 
-    /// The resolved-specialization entry a `SpecializationId` names, bounds-checked. The
-    /// entries are the BASE pool's — an overlay derives nodes, never table entries — so an
-    /// id past the array is a minting bug rather than a graph shape, and every walk of the
-    /// table faults on it identically instead of inventing its own message.
     /// How many resolved-specialization entries the table holds — the bound every
     /// `SpecializationId` an edge carries is inside.
     let specializationCount (b: PoolBuilder) : int = b.Base.Specializations.Length
 
+    /// The resolved-specialization entry a `SpecializationId` names, bounds-checked. The
+    /// entries are the BASE pool's — an overlay derives nodes, never table entries — so an
+    /// id past the array is a minting bug rather than a graph shape, and every walk of the
+    /// table faults on it identically instead of inventing its own message.
     let specialization (b: PoolBuilder) (spec: SpecializationId) : PooledSpecialization =
         let (SpecializationId i) = spec
 

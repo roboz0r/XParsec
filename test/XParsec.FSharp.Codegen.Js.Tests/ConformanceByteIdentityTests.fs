@@ -19,7 +19,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 let private goldensDir = Path.Combine(__SOURCE_DIRECTORY__, "goldens")
 
 /// The exact source `runJs` would materialise, minus the Node run: the conformance JS
-/// backend compiles through `compileWith jsProvider jsManifests` under the assembly
+/// backend compiles through `compileWith jsContract` under the assembly
 /// name `conformance-<program>`, so this mirrors that project and strips the trailing
 /// `//# sourceMappingURL` line (as `emitJs` does).
 let private emitConformanceJs (name: string) (src: string) : string = emitFrozenJs name src (frozenOfJs src)

@@ -388,7 +388,7 @@ module Elaborate =
     /// verbatim — the `TyVar → TyTypar` cut is deferred to `freezeTypars`. Shared
     /// by the union / class member surfacers (they differ only in `selfTy`'s
     /// `TyUnion` vs `TyClass` head). `MethodTypeParams` rides `'ty` and is cut by
-    /// `freezeMember` alongside the body; here we only READ each entry's root
+    /// `freezeTypars` alongside the body; here we only READ each entry's root
     /// (`TyVar root`) to key the `env` marker `TyTypar(Method, i)` on it.
     let private elaborateMember (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TyVarId * SemType) list =
         let methodMarkers =
@@ -420,111 +420,6 @@ module Elaborate =
                 env.AddRange methodMarkers
                 m
 
-    /// freezeTypars (member): apply the typar cut `f` (= `remapDeclTypars env`) to
-    /// every `SemType` embedded in a member — the deferred half of the old
-    /// `remapMemberTypes`. `MethodTypeParams` rides `'ty` like every other field, so
-    /// `f` flips each entry's `TyVar root` to `TyTypar(Method, i)` — the same cut the
-    /// body's occurrences get — keying the `GenericParam` rows on the marker, not a cell.
-    let private freezeMember (f: SemType -> SemType) (m: TTypeMember) : TTypeMember =
-        { m with
-            ThisTy = f m.ThisTy
-            Params = m.Params |> EqArray.map (fun (k, ty) -> k, f ty)
-            Body = mapExprTypes f m.Body
-            ReturnTy = f m.ReturnTy
-            MethodTypeParams = m.MethodTypeParams |> EqArray.map (fun (n, ty) -> n, f ty)
-        }
-
-    /// freezeTypars (type kind): push `f` through every `SemType` a type
-    /// declaration's body carries — case / record fields, ctor params, member
-    /// bodies, base type, interface impls, static / secondary ctors.
-    let private freezeKind (f: SemType -> SemType) (k: TTypeKind) : TTypeKind =
-        let field (fld: TRecordField) = { fld with Type = f fld.Type }
-
-        match k with
-        | TTypeKind.Interface methods ->
-            TTypeKind.Interface(methods |> EqArray.map (fun am -> { am with Signature = f am.Signature }))
-        | TTypeKind.Union(cases, members, interfaces) ->
-            let cases =
-                cases
-                |> EqArray.map (fun c ->
-                    { c with
-                        Fields = c.Fields |> EqArray.map (fun (n, ty) -> n, f ty)
-                    }
-                )
-
-            TTypeKind.Union(
-                cases,
-                members |> EqArray.map (freezeMember f),
-                interfaces
-                |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
-            )
-        | TTypeKind.Record(fields, members, interfaces, valueKind) ->
-            TTypeKind.Record(
-                fields |> EqArray.map field,
-                members |> EqArray.map (freezeMember f),
-                interfaces
-                |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f)),
-                valueKind
-            )
-        // Enum cases carry no `SemType` (the value is a resolved literal, not a
-        // typed term), so the typar remap is a no-op.
-        | TTypeKind.Enum cases -> TTypeKind.Enum cases
-        | TTypeKind.Class c ->
-            let preambleEntry (entry: TPreambleEntry) =
-                match entry with
-                | TPreambleEntry.Let l ->
-                    TPreambleEntry.Let
-                        { l with
-                            Type = f l.Type
-                            Init = mapExprTypes f l.Init
-                        }
-                | TPreambleEntry.Do e -> TPreambleEntry.Do(mapExprTypes f e)
-
-            let ctorLet (cl: TCtorLet) =
-                { cl with
-                    Type = f cl.Type
-                    Init = mapExprTypes f cl.Init
-                }
-
-            let secondary (sc: TSecondaryCtor) =
-                { sc with
-                    Params = sc.Params |> EqArray.map (fun (k, ty) -> k, f ty)
-                    Lets = sc.Lets |> EqArray.map ctorLet
-                    PrimaryArgs = sc.PrimaryArgs |> EqArray.map (mapExprTypes f)
-                    FieldInits =
-                        sc.FieldInits
-                        |> EqArray.map (fun fi ->
-                            { fi with
-                                Init = mapExprTypes f fi.Init
-                            }
-                        )
-                }
-
-            let baseCtor (bc: TBaseCtorCall) =
-                { bc with
-                    CtorParams = bc.CtorParams |> EqArray.map (fun (k, ty) -> k, f ty)
-                    Args = bc.Args |> EqArray.map (mapExprTypes f)
-                }
-
-            TTypeKind.Class
-                {
-                    Fields = c.Fields |> EqArray.map field
-                    CtorParams = c.CtorParams |> EqArray.map field
-                    Members = c.Members |> EqArray.map (freezeMember f)
-                    BaseType = c.BaseType |> ValueOption.map f
-                    Interfaces =
-                        c.Interfaces
-                        |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
-                    IsSealed = c.IsSealed
-                    StaticPreamble = c.StaticPreamble |> EqArray.map preambleEntry
-                    InstancePreamble = c.InstancePreamble |> EqArray.map preambleEntry
-                    ThisKey = c.ThisKey
-                    SecondaryCtors = c.SecondaryCtors |> EqArray.map secondary
-                    BaseCtorCall = c.BaseCtorCall |> ValueOption.map baseCtor
-                    ValueKind = c.ValueKind
-                    HasPrimaryCtor = c.HasPrimaryCtor
-                }
-
     /// The deferred typar cut. Walk every `SemType` in a
     /// decl through `remapDeclTypars env`, rewriting the decl's open `TyVar` typars
     /// to their `TyTypar(axis, index)` nodes. `env` is the decl's own quantified
@@ -532,6 +427,14 @@ module Elaborate =
     /// `remapDeclTypars` zonks as it recurses, so an empty `env` is a pure
     /// zonk-rebuild — exactly the old monomorphic `remapDeclTypars []` path every
     /// surfacer applied inline.
+    ///
+    /// A type declaration's slots are NOT enumerated here: `TastWalk.mapTypeDecl` carries
+    /// the cut through the declaration shape's single enumeration, which is how the cut
+    /// reaches a member signature, a preamble initialiser and a secondary ctor's chain args
+    /// alike — including `MethodTypeParams`, which rides `'ty` like every other slot, so `f`
+    /// flips each entry's `TyVar root` to `TyTypar(Method, i)` and the `GenericParam` rows key
+    /// on the marker rather than on a cell. A binding's own pattern and value are the term
+    /// axis and stay here; the shape rebuild has no pattern slot to give them.
     let private freezeTypars (store: TypeStore) (env: (TyVarId * SemType) list) (d: TDecl) : TDecl =
         let f = remapDeclTypars store env
 
@@ -546,7 +449,7 @@ module Elaborate =
 
             TDecl.Let(binding, mapExprTypes f value, isInline, f ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(mapExprTypes f e, f ty)
-        | TDecl.Type td -> TDecl.Type { td with Kind = freezeKind f td.Kind }
+        | TDecl.Type td -> TDecl.Type(TastWalk.mapTypeDecl f (mapExprTypes f) td)
 
     /// Classify an object-model body as an interface — every element an abstract
     /// method signature, no base type, no `let`/`do` preamble — and build its
@@ -946,7 +849,7 @@ module Elaborate =
                 (declKey: NodeKey voption)
                 : EqArray<string * SemType> =
                 // Materialize the canonical carrier into the tree as the typars' own
-                // types (`TyVar root`), so `freezeMember` / `TastConvert` flip them to
+                // types (`TyVar root`), so `freezeTypars` / `TastConvert` flip them to
                 // `TyTypar(Method, i)` → `FTTypar(Method, i)` exactly like every other
                 // embedded type — the tree field holds no union-find carrier.
                 let ofRoots (g: GeneralizedTypars) : EqArray<string * SemType> =

@@ -118,6 +118,98 @@ module Probe =
             (Some Target.Js)
             (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
 
+/// A synthetic producer whose recursion closes on a MEMBER, which is the one head whose
+/// RECEIVER is not a spine argument: the reduction PREPENDS it, so the entry's parameters are
+/// peeled from `this :: args` while the application it was reached through carries only `args`.
+/// A back edge taking the application's spine would therefore name the entry with one argument
+/// too few — a miscompile no non-recursive member call can expose, because every other edge is
+/// minted from the survivors of the very peel it belongs to.
+///
+/// `'T[]`'s `get_Item` is OVERRIDDEN rather than a fresh type declared: a member inline body is
+/// harvested only off a `(# … #)`-rooted member (`SymbolProviders.harvestMemberBody`), and such
+/// a body cannot name its own type's member — within its declaring unit that call is not
+/// external at all. Reaching the member through `bounce`, whose own unit sees the array type as
+/// a foreign one, is what makes the reference keyed. Bodies are keyed and a later manifest wins,
+/// so appending this package replaces the real body for `[]`.get_Item.
+let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =
+    lazy
+        let dir = tmpDir "Cycle.Member"
+
+        let write (name: string) (text: string) =
+            System.IO.File.WriteAllText(System.IO.Path.Combine(dir, name), text)
+
+        write
+            "manifest.toml"
+            """[core]
+name = "Cycle.Member"
+namespace = "CycleMember"
+description = "A member inline body that reaches itself, for the back edge's arity."
+files = ["bounce.fsi"]
+impl = []
+inline-bodies = ["bounce.fs", "array-cycle.js.fs"]
+inline-bodies-js = ["bounce.fs", "array-cycle.js.fs"]
+"""
+
+        write
+            "bounce.fsi"
+            """namespace CycleMember
+
+[<AutoOpen>]
+module Bounce =
+    val inline bounce: a: 'a[] -> i: int -> 'a
+"""
+
+        // The array type is FOREIGN here, so `a.[i]` is a keyed member reference — the same
+        // `MemberKey` the body below is harvested under.
+        write
+            "bounce.fs"
+            """namespace CycleMember
+
+[<AutoOpen>]
+module Bounce =
+    let inline bounce (a: 'a[]) (i: int) : 'a = a.[i]
+"""
+
+        write
+            "array-cycle.js.fs"
+            """namespace global
+
+#nowarn "42"
+
+open CycleMember
+
+type 'T ``[]`` =
+    (# "!0[]" #)
+
+    with
+
+        member this.get_Item(index: int) : 'T = (# "ldelem.any !0" type ('T) this (bounce this index) : 'T #)
+
+    end
+"""
+
+        JsNativeSymbols.buildJsNativeContractFor
+            (Some Target.Js)
+            (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
+
+/// Every `InlineCall` edge in `e`, as the slot it names and the number of arguments it carries.
+let private edgeArities (e: TExpr) : (SpecializationId * int) list =
+    let acc = ResizeArray<SpecializationId * int>()
+
+    TastWalk.iterExpr
+        { TastWalk.identityIter with
+            VisitExpr =
+                fun _ n ->
+                    match n with
+                    | TExpr.InlineCall(spec, args, _, _) -> acc.Add(spec, args.Length)
+                    | _ -> ()
+
+                    true
+        }
+        e
+
+    List.ofSeq acc
+
 /// The entries resolved from the template `name` names — `op_Addition`, `op_Multiply`, … —
 /// picked out of a table that also holds every other inline the source happened to reach.
 let private entriesFor (name: string) (table: TSpecialization[]) : TSpecialization list =
@@ -300,6 +392,88 @@ let tests =
                     "the entry really did fuse call-site material, or this exercises the shareable path again"
             }
 
+            test "a recursion that closes on a MEMBER answers the call without losing its receiver" {
+                // The one head whose receiver is not a spine argument. `a.[1]` expands
+                // `get_Item`, whose reduction peels `this :: [index]`; its body reaches the same
+                // member through `bounce`, and THAT call is answered rather than expanded.
+                //
+                // A harvested member body is served with its producer file
+                // (`SymbolProviders.collectInlineBodies` anchors both halves of what it drains),
+                // so the member reduction is OUTLINED: it holds a table slot, and the call that
+                // reaches it while it is in flight becomes a back edge rather than an
+                // un-expandable call left as written.
+                let expanded, ds =
+                    expandedWith recursiveMemberProducer.Value "let a = [| 1; 2; 3 |]\nlet x = a.[1]\n"
+
+                Expect.equal
+                    (cyclicInlines ds)
+                    [ "get_Item", [ "bounce" ] ]
+                    "the recursion closes on the MEMBER, reached through the value template that indexes it"
+
+                let table = expanded.Specializations
+
+                let allEdges =
+                    [
+                        for e in table do
+                            yield! edgeArities (entryValue e)
+                        for (d, _) in expanded.Decls do
+                            match d with
+                            | TDecl.Let(_, value, _, _) -> yield! edgeArities value
+                            | TDecl.Expression(x, _) -> yield! edgeArities x
+                            | TDecl.Type _ -> ()
+                    ]
+
+                Expect.isNonEmpty allEdges "the run produced edges at all, or what follows is vacuous"
+
+                // THE invariant, over every edge the run produced, whichever site minted it: an
+                // `InlineCall`'s arguments are positional against the entry's abstracted
+                // parameters, so a disagreement is a call of the wrong arity — silent here, and
+                // first observable in a backend.
+                for (SpecializationId i, argCount) in allEdges do
+                    Expect.equal
+                        argCount
+                        (abstractedParams (entryValue table.[i]))
+                        "an edge carries exactly the arguments the entry it names abstracts"
+
+                // …and that invariant is only a claim about the member path if the member path
+                // produced an entry at all. The one slot per template, by name.
+                let slotOf (name: string) : int =
+                    match
+                        [
+                            for i in 0 .. table.Length - 1 do
+                                if SymbolKeyOps.intrinsicName table.[i].Key.Template = name then
+                                    yield i
+                        ]
+                    with
+                    | [ i ] -> i
+                    | other -> failtestf "expected exactly one `%s` entry; got %d" name (List.length other)
+
+                let memberSlot = slotOf "get_Item"
+                let bounceSlot = slotOf "bounce"
+
+                Expect.equal
+                    table.[memberSlot].Origin.Path.Relative
+                    "array-cycle.js.fs"
+                    "the member entry is anchored in the file the member was WRITTEN in, not the consuming one"
+
+                // THE case: the back edge is minted inside `bounce`'s entry, where the source
+                // spells `a.[i]` — one explicit argument. It carries TWO, because the peel it was
+                // minted from prepended the receiver. An edge taking the application's own spine
+                // would name this two-parameter entry with one argument, and nothing before the
+                // backend would notice.
+                match
+                    edgeArities (entryValue table.[bounceSlot])
+                    |> List.filter (fun (SpecializationId i, _) -> i = memberSlot)
+                with
+                | [ (_, argCount) ] ->
+                    Expect.equal
+                        argCount
+                        2
+                        "the back edge carries `this` ahead of the index — the receiver the application never held in its spine"
+                | other ->
+                    failtestf "`bounce`'s body closes the loop with exactly one back edge; got %d" (List.length other)
+            }
+
             test "two call sites at the SAME grounding share one entry" {
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 30 + 40\n"
 
@@ -341,7 +515,7 @@ let tests =
                     | [ e ] -> e
                     | other -> failtestf "expected exactly one `(+)` entry, got %d" (List.length other)
 
-                let origins = JsNativeSymbols.jsNativeInlineOriginsFor (Some Target.Js) jsManifests
+                let origins = jsContract.Value.Origins
 
                 let indices = positions entry |> tokenIndices
                 Expect.isNonEmpty indices "the entry actually carries positions"
@@ -432,7 +606,7 @@ let tests =
                     | other -> failtestf "expected exactly one `(&&)` entry, got %d" (List.length other)
 
                 let value = entryValue entry
-                let origins = JsNativeSymbols.jsNativeInlineOriginsFor (Some Target.Js) jsManifests
+                let origins = jsContract.Value.Origins
 
                 let markedIndices = callerMarked value |> List.collect exprPositions |> tokenIndices
 
@@ -588,7 +762,7 @@ let tests =
                 let input = "let b = true\nlet a = b |> not\n"
                 let expanded = expandedFor input
                 let lexed, _ = parseFile input
-                let origins = JsNativeSymbols.jsNativeInlineOriginsFor (Some Target.Js) jsManifests
+                let origins = jsContract.Value.Origins
 
                 let entry =
                     match entriesFor "op_PipeRight" expanded.Specializations with

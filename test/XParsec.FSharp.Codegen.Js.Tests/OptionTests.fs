@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 let private generated: Lazy<string> =
     lazy
         compileLibrary
-            coreDepsJsProvider.Value
+            coreDepsJsContract.Value
             "Vesper.Option"
             "option.fs"
             (IO.File.ReadAllText(srcFile "Vesper.Option" "option.fs"))

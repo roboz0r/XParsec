@@ -2,6 +2,10 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 open XParsec.FSharp.Parser
+// `Unification.zonk` and `shown`: the pre-freeze type questions below are asked THROUGH
+// union-find, which is the substrate this side of the freeze and not a pass's private state.
+open XParsec.FSharp.SemanticAnalysis.Passes
+open XParsec.FSharp.SemanticAnalysis.Passes.UnificationEngineCore
 
 // `let inline` expansion helper. The pre-freeze `Passes.InlineExpansion` pass
 // invokes it once per call site, between `Elaborate.elaborate` and the
@@ -637,6 +641,270 @@ module Inline =
                 if containsCallerExpr (entryValue entries (SpecializationId i)) && counts.[i] <> 1 then
                     yield SpecializationId i, counts.[i]
         ]
+
+    // ————————————————————————————————————————————————————————————————————————
+    // The expansion pass's own domain operations: whole-`SemType` / `TExpr` questions
+    // with no dependence on the walk that asks them, and so no reason to live inside it.
+
+    /// Replace every `Var k` in `body` with `replacement`. Used for a parameter
+    /// the declaration marked `[<CallAtMostOnce>]` — `Elaborate` already validated
+    /// that `k` occurs at most once and not under a lambda or loop, so this
+    /// substitutes 0-or-1 times (the argument is then evaluated at most once, on
+    /// demand) and cannot capture (`replacement` is the call-site argument, whose
+    /// free vars are disjoint from the freshly-minted inline-body binders). This is
+    /// what makes the library `&&`/`||` (`if e1 then e2 else false`, `e2` marked)
+    /// short-circuit without the operator being known to the compiler.
+    let internal substituteVar (k: NodeKey) (replacement: TExpr) (body: TExpr) : TExpr =
+        let m =
+            { TastWalk.identityMapper with
+                OverrideExpr =
+                    fun _ e ->
+                        match e with
+                        | TExpr.Var(vk, _, _) when vk = k -> ValueSome replacement
+                        | _ -> ValueNone
+            }
+
+        TastWalk.mapExpr m body
+
+    /// The number of leading `fun x -> …` abstractions with a simple-named
+    /// parameter — the arity at which a lambda argument is *fully applied*. Only
+    /// `NamedSimple` binders count: a destructuring lambda parameter (`fun (a, b)
+    /// -> …`) is left at the abstraction below it, so a use that tries to
+    /// saturate past it never matches the arity and the closure is kept (it would
+    /// otherwise trip `betaReduce`'s destructuring guard).
+    let rec internal lambdaArity (e: TExpr) : int =
+        match e with
+        | TExpr.Lambda(TPat.NamedSimple _, body, _, _) -> 1 + lambdaArity body
+        | _ -> 0
+
+    /// Rewrite what a curried lambda COMPUTES, leaving its abstractions in place. The lambda
+    /// spine has to survive the rewrite because `betaReduce` matches on it, and its
+    /// binders are consumed against arguments belonging to whatever body the lambda is spliced
+    /// into — so a rewrite about the lambda's own origin applies below them, not around them.
+    let rec internal underLambdas (f: TExpr -> TExpr) (e: TExpr) : TExpr =
+        match e with
+        | TExpr.Lambda(param, body, ty, tok) -> TExpr.Lambda(param, underLambdas f body, ty, tok)
+        | _ -> f e
+
+    /// Of the lambda-valued inline parameters in `candidates` (key → its bound
+    /// lambda), the ones that are NOT eligible for inline-first elimination —
+    /// i.e. a parameter with at least one use that is not a *fully saturated*
+    /// application head. A saturated head (`f a b` where `f`'s lambda has arity 2)
+    /// beta-reduces away and the closure vanishes; any other use — a bare `Var`
+    /// (the lambda is stored or passed onward), a partial application, or an
+    /// over-application — forces the parameter to survive as a real closure.
+    /// The inline-first soundness condition: only a
+    /// fully-applied [<InlineIfLambda>]-style parameter is guaranteed to vanish.
+    ///
+    /// The walk mirrors the expansion walker's `App` rule exactly: collect the
+    /// WHOLE spine at each `App` and never let `TastWalk`'s default recursion
+    /// descend into a sub-`App` (which would mis-measure a partial spine as the
+    /// arity), recursing only into the spine's head (when not a candidate) and
+    /// its arguments.
+    let internal nonInlinableLambdaParams (candidates: Dictionary<NodeKey, TExpr>) (core: TExpr) : HashSet<NodeKey> =
+        let bad = HashSet<NodeKey>()
+
+        let it =
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun iter e ->
+                        match e with
+                        | TExpr.App _ ->
+                            let head, args = TastWalk.collectSpine [] e
+
+                            (match head with
+                             | TExpr.Var(k, _, _) when candidates.ContainsKey k ->
+                                 if List.length args <> lambdaArity candidates.[k] then
+                                     bad.Add k |> ignore
+                             | _ -> TastWalk.iterExpr iter head)
+
+                            for (a, _, _) in args do
+                                TastWalk.iterExpr iter a
+
+                            false
+                        | TExpr.Var(k, _, _) when candidates.ContainsKey k ->
+                            // A bare reference: the lambda is stored / passed on,
+                            // so it cannot be inlined away.
+                            bad.Add k |> ignore
+                            false
+                        | _ -> true
+            }
+
+        TastWalk.iterExpr it core
+        bad
+
+    /// Arrow-spine views of a `SemType`, the two things this pass asks of a curried
+    /// function type: which domains it has, and what it returns after `n` of them are
+    /// applied. Each step zonks — pre-freeze a `TyFun` is often reachable only through
+    /// a union-find Link, so a raw match would see a `TyVar` and report arity 0. A
+    /// spine shorter than `n` is not an error here: both callers cap `n` at a count
+    /// this very module measured, and `deriveInlineTypeArgs` is deliberately tolerant
+    /// of a declared type it cannot fully peel.
+    ///
+    /// The `FrozenType` twin is `TastLower.peelArrows` — deliberately separate: that
+    /// side has no union-find to chase.
+    [<RequireQualifiedAccess>]
+    module internal Arrows =
+
+        /// The number of `->` in the spine.
+        let rec count (store: TypeStore) (t: SemType) : int =
+            match Unification.zonk store t with
+            | TyFun(_, r) -> 1 + count store r
+            | _ -> 0
+
+        /// The first `n` domain types, left to right.
+        let rec domains (store: TypeStore) (n: int) (t: SemType) : SemType list =
+            if n <= 0 then
+                []
+            else
+                match Unification.zonk store t with
+                | TyFun(a, b) -> a :: domains store (n - 1) b
+                | _ -> []
+
+        /// What the spine returns once `n` arguments have been applied.
+        let rec resultAfter (store: TypeStore) (n: int) (t: SemType) : SemType =
+            let t = Unification.zonk store t
+
+            if n <= 0 then
+                t
+            else
+                match t with
+                | TyFun(_, b) -> resultAfter store (n - 1) b
+                | _ -> t
+
+    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic. The
+    /// `SemType` sibling of `FrozenTypeBridge.ftIsGround` (this one zonks; the frozen
+    /// one has no vars to zonk). Used to rank competing candidates for one typar in
+    /// `deriveInlineTypeArgs` — a ground candidate beats an abstract one.
+    let rec internal isGroundType (store: TypeStore) (t: SemType) : bool =
+        match Unification.zonk store t with
+        | TyVar _
+        | TyUnknown _
+        | TyTypar _ -> false
+        | t -> SemType.forallChildren (isGroundType store) t
+
+    /// Recover an inline binding's type arguments at a call site by matching its
+    /// declared parameter (and return) types — carrying the quantified typars —
+    /// against the actual spine-arg types. Tolerant: a typar the params don't pin is
+    /// left as its own `TyVar`, which selects no `when ^T : Type` clause and so falls
+    /// to the body's base. Returned in `quantifiedTypars` order. A verbatim port of
+    /// `EmitLower.deriveInlineTypeArgs` (`zonk` → `Unification.zonk`,
+    /// `typeOfExpr` → `TastWalk.exprTy`).
+    let internal deriveInlineTypeArgs
+        (store: TypeStore)
+        (declTy: SemType)
+        (spineArgs: (TExpr * SemType * SyntaxToken) list)
+        : SemType[] =
+        let typars = quantifiedTypars store declTy
+
+        if typars.Length = 0 then
+            [||]
+        else
+            let roots = typars |> Array.map (UnionFind.find store)
+            let result = Array.create roots.Length ValueNone
+
+            let rec go (defT: SemType) (actT: SemType) =
+                match Unification.zonk store defT, Unification.zonk store actT with
+                | TyVar tv, act ->
+                    let r = UnionFind.find store tv
+
+                    match roots |> Array.tryFindIndex (fun x -> x = r) with
+                    | Some i ->
+                        match result.[i] with
+                        | ValueNone -> result.[i] <- ValueSome act
+                        // A later position mapping to the SAME typar can upgrade a
+                        // non-ground candidate to a ground one — so a still-abstract
+                        // operand cannot starve a static-opt clause that a concrete
+                        // SIBLING position would have selected. This only arises where
+                        // one typar spans several positions: the HOMOGENEOUS operators
+                        // (`(=) : ^T -> ^T -> bool`, `(<)`, `hash`) map both operands to
+                        // one slot. The arithmetic family does not — its three typars get
+                        // three independent slots, which is exactly what lets a
+                        // heterogeneous operand pair keep its distinct types.
+                        // Keeping the first ground match is intentional: a genuinely
+                        // generic `let f a b = a = b` never sees a ground candidate, so
+                        // the typar stays abstract and the body falls to its base.
+                        | ValueSome prev when not (isGroundType store prev) && isGroundType store act ->
+                            result.[i] <- ValueSome act
+                        | ValueSome _ -> ()
+                    | None -> ()
+                | TyFun(a1, r1), TyFun(a2, r2) ->
+                    go a1 a2
+                    go r1 r2
+                // A generic intrinsic carries its args structurally — notably the
+                // array `'T[]` = `TyConst("[]", ['T])`, whose element typar is only
+                // reachable by descending here (the `GetArray`/`GetArrayLength`
+                // inline bodies pin `'T` solely through their `'T[]` parameter). The
+                // codegen twin `EmitLower.matchInstantiation` has the same arm.
+                | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyTuple xs, TyTuple ys when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyRecord(_, xs), TyRecord(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyUnion(_, xs), TyUnion(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | TyClass(_, xs), TyClass(_, ys) when xs.Length = ys.Length ->
+                    for i in 0 .. xs.Length - 1 do
+                        go xs.[i] ys.[i]
+                | _ -> ()
+
+            let rec pairGo ps acts =
+                match ps, acts with
+                | p :: ps', a :: acts' ->
+                    go p a
+                    pairGo ps' acts'
+                | _ -> ()
+
+            let nArgs = List.length spineArgs
+
+            pairGo (Arrows.domains store nArgs declTy) [ for (a, _, _) in spineArgs -> TastWalk.exprTy a ]
+
+            // Pair the result position too: `failwith`'s only typar `'T` sits in
+            // the *return* (`string -> 'T`), so the param walk leaves it unbound.
+            // The last spine arg's recorded type is the whole application's result
+            // (`collectSpine` pairs each arg with its `App` node's result), so
+            // unifying it against `declTy`'s return position grounds the result
+            // typars.
+            if nArgs > 0 then
+                let declRetTy = Arrows.resultAfter store nArgs declTy
+                let _, actualRetTy, _ = spineArgs |> List.last
+                go declRetTy actualRetTy
+
+            Array.mapi
+                (fun i v ->
+                    match v with
+                    | ValueSome t -> t
+                    | ValueNone -> TyVar roots.[i].Id
+                )
+                result
+
+    /// The verdict for a trait call the expansion could not dispatch. An operator is named
+    /// as the user WROTE it (`+`), never by the member it compiled to (`op_Addition`) —
+    /// `OperatorNames.sourceSymbol` inverts the lexer's own table, so the spelling cannot
+    /// drift from the name. A member outside that table is not an operator at all (a
+    /// user-written `(^T: (member GetAwaiter: …) x)`), and the verdict says so.
+    let internal unsupportedTrait (store: TypeStore) (u: UnresolvedTrait) : Kind =
+        let receiver = shown store u.Receiver
+
+        match OperatorNames.sourceSymbol u.MemberName with
+        | ValueSome symbol -> Kind.TraitNotSupported(receiver, MemberNoun.Operator, symbol)
+        | ValueNone -> Kind.TraitNotSupported(receiver, MemberNoun.Member, u.MemberName)
+
+    /// How a diagnostic spells a SERVED template: as the user WROTE it wherever the name is an
+    /// operator (`|>`, never `op_PipeRight`). The same inversion an unresolvable trait's verdict
+    /// makes, for the same reason — a spelling the source never contains cannot be looked for
+    /// in it.
+    let servedName (key: SymbolKey) : string =
+        let (DisplayName name) = SymbolKeyOps.simpleName key
+
+        match OperatorNames.sourceSymbol name with
+        | ValueSome symbol -> symbol
+        | ValueNone -> name
 
     /// The open method signature of an external symbol: its full curried
     /// monotype with the method-owned typars resolved to self-describing

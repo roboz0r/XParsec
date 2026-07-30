@@ -79,9 +79,19 @@ let jsManifests: string list =
         srcManifest "Vesper.List"
     ]
 
-/// The JS-target provider (BCL-free; resolves exceptions through Vesper.Exceptions).
-let jsProvider: Lazy<IExternalSymbolProvider> =
-    lazy JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) jsManifests
+/// The JS-target contract for `jsManifests` (BCL-free; resolves exceptions through
+/// Vesper.Exceptions) — the provider a program is analysed against, the producer files its
+/// served inline bodies are anchored in, and the manifest set backing its runtime imports.
+///
+/// ONE value, and every helper below draws from it rather than composing its own: a compile
+/// handed a provider from one manifest set and an anchor domain from another emits a source map
+/// that attributes producer code to a consuming line, in range and wrong.
+let jsContract: Lazy<SymbolProviders.Contract> =
+    lazy JsNativeSymbols.jsNativeContractFor (Some Target.Js) jsManifests
+
+/// `jsContract`'s provider, for the front-end helpers — analysis resolves symbols and reads no
+/// position. A PROJECTION of the contract, never a second build.
+let jsProvider: Lazy<IExternalSymbolProvider> = lazy jsContract.Value.Provider
 
 /// Front-end a program to its frozen `FrozenPools`. Fails on any error diagnostic.
 /// Resolves through the real JS-native contract stack (`jsProvider`) — the
@@ -139,9 +149,7 @@ let emitFrozenJs (name: string) (src: string) (frozen: FrozenPools) : string =
             Source = Some(jsSource (name + ".fsx") src)
         }
 
-    let source =
-        Codegen.compileWith jsProvider.Value jsManifests project frozen
-        |> Codegen.toSource
+    let source = Codegen.compileWith jsContract.Value project frozen |> Codegen.toSource
 
     let idx = source.IndexOf "//# sourceMappingURL"
     if idx >= 0 then source.Substring(0, idx) else source
@@ -154,7 +162,7 @@ let emitJs (input: string) : string =
         }
 
     let src =
-        Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs input)
+        Codegen.compileWith jsContract.Value project (frozenOfJs input)
         |> Codegen.toSource
 
     let idx = src.IndexOf "//# sourceMappingURL"
@@ -169,18 +177,16 @@ let emitJsLibrary (input: string) : string =
         }
 
     let src =
-        Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs input)
+        Codegen.compileWith jsContract.Value project (frozenOfJs input)
         |> Codegen.toSource
 
     let idx = src.IndexOf "//# sourceMappingURL"
     if idx >= 0 then src.Substring(0, idx) else src
 
-/// Deps-only JS provider for compiling a package impl (own contract absent to avoid collision).
-let coreDepsJsProvider: Lazy<IExternalSymbolProvider> =
-    lazy
-        JsNativeSymbols.buildJsNativeContractFor
-            (Some Target.Js)
-            [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
+/// Deps-only JS contract for compiling a package impl (the package's own contract is absent, to
+/// avoid colliding with the in-file types the impl declares).
+let coreDepsJsContract: Lazy<SymbolProviders.Contract> =
+    lazy JsNativeSymbols.jsNativeContractFor (Some Target.Js) [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
 
 /// Front-end + freeze a JS-target package impl. The provider carries only the package's
 /// dependencies — the impl's own in-file types are the resolution authority.
@@ -198,8 +204,10 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPoo
 /// Compile a package impl in library mode to runtime-module source text (strips
 /// sourceMappingURL). `sourceFile` is the Vesper source basename (`list.js.fs`),
 /// recorded both in the source map and in the emitted `// Generated from …` header.
+/// The impl is analysed against the same contract it is emitted through, so a body spliced
+/// out of a dependency resolves against the file it was written in.
 let compileLibrary
-    (provider: IExternalSymbolProvider)
+    (contract: SymbolProviders.Contract)
     (moduleName: string)
     (sourceFile: string)
     (input: string)
@@ -212,7 +220,7 @@ let compileLibrary
         }
 
     let src =
-        Codegen.compileWith provider [] project (frozenImplJs provider input)
+        Codegen.compileWith contract project (frozenImplJs contract.Provider input)
         |> Codegen.toSource
 
     let idx = src.IndexOf "//# sourceMappingURL"
@@ -242,7 +250,7 @@ let runJs (name: string) (input: string) : (int * string) option =
             Source = Some(jsSource (name + ".fsx") input)
         }
 
-    Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs input)
+    Codegen.compileWith jsContract.Value project (frozenOfJs input)
     |> Codegen.materialise
 
     runNode jsPath
@@ -323,10 +331,12 @@ let private jsWalkCtx
             ValueSome
                 {
                     Lexed = lexed
-                    Lines = EmitJsContext.LineIndex.build input
-                    // These callers assert on emitted TEXT, not on positions, and pass no
-                    // manifest set — so nothing is retained and every node keeps the
-                    // call-site position, exactly as a single-source build gives it.
+                    Lines = JsMapSources.LineIndex.build input
+                    // These callers assert on emitted TEXT, not on positions, and hold a bare
+                    // provider rather than the contract it was projected from — so no anchor
+                    // domain is available and every node keeps the call-site position, exactly
+                    // as a single-source build gives it. THE configuration `locOf`'s
+                    // unretained-producer arm exists for.
                     Origins = OriginSources.empty
                 }
         | Result.Error _ -> ValueNone

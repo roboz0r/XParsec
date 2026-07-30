@@ -18,8 +18,8 @@
     <Compile Include="SemanticScalars.fs" />
     <Compile Include="SemanticInfo.fs" />
     <!-- Immediately after the domain it interns: the frozen types and keys in ROW form,
-         which the pool columns address by id and the codec stores. It reads `SemanticInfo`
-         and the scalars, nothing else. -->
+         which the pool columns address by id and the codec stores. It reads `SemanticInfo`,
+         the scalars, and `Anchor`'s `OriginFile` (a table of its own), nothing else. -->
     <Compile Include="FrozenTypeTable.fs" />
     <Compile Include="SemTypeWalks.fs" />
     <Compile Include="TypeStore.fs" />
@@ -128,6 +128,7 @@
     <Compile Include="Elaborate\Apply.fs" />
     <Compile Include="Elaborate\Printf.fs" />
     <Compile Include="ElaborateExpr.fs" />
+    <Compile Include="Passes\InlineSpecTable.fs" />
     <Compile Include="Passes\InlineExpansion.fs" />
     <Compile Include="Elaborate.fs" />
     <Compile Include="Passes\RefCellPromotion.fs" />

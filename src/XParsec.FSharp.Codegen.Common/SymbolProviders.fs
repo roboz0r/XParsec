@@ -64,6 +64,10 @@ module SymbolProviders =
         match TastAccessor.exprKind m.Body with
         | ExprShape.ILIntrinsic ->
             let pool = m.Body.Pool
+            // EVERY node minted below takes this one anchor, so the wrapper adds no position
+            // the body did not already have: the finished tree's anchor domain is exactly the
+            // member body's own file, and nothing here can index a second one. That is what
+            // lets the collection stamp ONE origin over the whole harvested declaration.
             let bodyTok = TastAccessor.exprTok m.Body
 
             let curried =
@@ -108,13 +112,48 @@ module SymbolProviders =
             // entry is `ParamAttrs.Default`.
             let paramAttrs = Array.create curried.Length ParamAttrs.Default
 
-            // Unanchored HERE: the caller is what knows which producer file this member's
-            // pool was built from, and stamps it on. A hand-built fixture that never had one
-            // keeps `ValueNone` and is spliced rather than outlined.
+            // Unanchored HERE: this function is handed a member, not a file, so it cannot
+            // name the domain its anchors index — `KeyedInlineBody.anchoredIn` does, at the
+            // collection that opened the pool. A hand-built fixture harvested directly (no
+            // producer file behind it) keeps `ValueNone` and is spliced rather than outlined.
             Some(InlineBody.unanchored (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
         | _ -> None
 
-    /// A unit's published inline vocabulary, read off its FROZEN tree.
+    /// A published body under the identity it is served by. The `Wire.TInlineValue` shape,
+    /// except that the body carries the producer file its anchors index — which is the whole
+    /// reason this collection retains the parse at all.
+    ///
+    /// Its representation is PRIVATE and `KeyedInlineBody.anchoredIn` is the only way to build
+    /// one, because the anchor domain is not a property of the KIND of body: a value template
+    /// and a harvested member body drained off one pool were written in one file, and a
+    /// collection that stamps the origin on one list and not another publishes indices the
+    /// consumer cannot read — silently, since an unanchored body is merely spliced onto its
+    /// call site rather than rejected. A record literal would let a list differ; requiring the
+    /// origin at the sole construction site means it cannot.
+    type KeyedInlineBody =
+        private
+            {
+                Key: SymbolKey
+                Body: InlineBody
+            }
+
+    [<RequireQualifiedAccess>]
+    module KeyedInlineBody =
+
+        /// Publish `body` under `key`, in the producer file its `ForeignAnchor`s index.
+        let anchoredIn (origin: OriginSource) (key: SymbolKey) (body: InlineBody) : KeyedInlineBody =
+            {
+                Key = key
+                Body = { body with Origin = ValueSome origin }
+            }
+
+    /// A unit's published inline vocabulary, read off its FROZEN tree: its value templates and
+    /// its harvested member bodies.
+    ///
+    /// `tast` is the frozen form of `origin`, so every anchor in every body drained below is an
+    /// index into THAT file's `Lexed`. Taking the origin as an argument is what makes the
+    /// pairing a fact of the call rather than something a caller has to remember to do
+    /// afterwards, when the parse it would need is already out of scope.
     ///
     /// The value half is a straight drain of the pool's own template roots: `Freeze`
     /// already minted each template's `SymbolKey` from its declaring module chain and
@@ -127,19 +166,10 @@ module SymbolProviders =
     /// in hand with no re-derivation. A name-lookup round-trip (`TryLookupMember`) would
     /// collapse a same-name overload set to a single best-by-arity pick and lose every
     /// sibling body — the second harvested body would overwrite the first under one key
-    /// and neither of the others would ever get a body. Because `MemberKey` is now a total
+    /// and neither of the others would ever get a body. Because `MemberKey` is a total
     /// overload identity there is no rendered `argSig` for producer and use site to
     /// disagree on; the key `m` mints here is the same one an external entry / use site
     /// mints from the same frozen signature by construction.
-    /// A published body under the identity it is served by. The `Wire.TInlineValue` shape,
-    /// except that the body carries the producer file its anchors index — which is the whole
-    /// reason this collection retains the parse at all.
-    type KeyedInlineBody = { Key: SymbolKey; Body: InlineBody }
-
-    /// `tast` is the frozen form of `origin`, so every anchor in every body drained below is an
-    /// index into THAT file's `Lexed`. Taking the origin as an argument is what makes the
-    /// pairing a fact of the call rather than something a caller has to remember to do
-    /// afterwards, when the parse it would need is already out of scope.
     let private collectInlineBodies
         (origin: OriginSource)
         (tast: FrozenPools)
@@ -149,17 +179,17 @@ module SymbolProviders =
         // discarded with this call: what leaves is the drained DU template, never an id.
         let pool = TastPoolBuilder.openOver tast
 
-        let anchoredIn (body: InlineBody) : InlineBody = { body with Origin = ValueSome origin }
+        // Every body this function publishes, whichever list it lands in, is drained off THIS
+        // pool — which is `tast`, which is `origin` frozen. So the domain is a fact of the
+        // call, fixed once here rather than restated per comprehension.
+        let published = KeyedInlineBody.anchoredIn origin
 
         // The published VALUE templates, drained off their own pool roots — the wire form
         // is DU-typed because a pool id means nothing in the consuming unit's pool.
         let values =
             [
                 for iv in tast.InlineTemplates ->
-                    {
-                        Key = iv.Key
-                        Body = anchoredIn (InlineBody.unanchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs)
-                    }
+                    published iv.Key (InlineBody.unanchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs)
             ]
 
         let members =
@@ -190,7 +220,7 @@ module SymbolProviders =
                                         m.MethodTypeParams.Length
                                         kind
 
-                                yield { Key = key; Body = body }
+                                yield published key body
                             | None -> ()
                     | _ -> ()
             ]
@@ -284,14 +314,25 @@ module SymbolProviders =
         }
 
 
-    /// One manifest set's composed contract: the provider stack a compile resolves against,
-    /// the collected bodies by simple name, and the producer sources their anchors index.
+    /// One manifest set's composed contract: the manifest set itself, the provider stack a
+    /// compile resolves against, the collected bodies by simple name, and the producer sources
+    /// their anchors index.
     ///
-    /// A record and not a tuple because the third member arrived and the positions stopped
-    /// being memorable; `Origins` in particular is the half a caller is most likely to forget
-    /// exists, and a name is what stops it being dropped on the floor a second time.
+    /// A record and not a tuple because the members stopped being memorable by position;
+    /// `Origins` in particular is the half a caller is most likely to forget exists, and a name
+    /// is what stops it being dropped on the floor a second time.
+    ///
+    /// The whole VALUE is what a backend takes, never a pair of members chosen at a call site:
+    /// a provider from one manifest set beside an anchor domain from another resolves a served
+    /// body's position against a file that was never retained, and the wrong answer is in range
+    /// (see `OriginFile`). Travelling as one value is what makes that unrepresentable.
     type Contract =
         {
+            /// The normalised manifest paths this contract was built from — the set whose
+            /// per-target runtime ASSETS (`ReferencedProject.runtimeModules`) back the imports
+            /// of a program compiled against it. Held so the assets and the symbols a program
+            /// resolves cannot be drawn from two different manifest sets.
+            ManifestPaths: string list
             Provider: IExternalSymbolProvider
             /// Simple name → body. NOT a provider channel (the provider folds a body onto the
             /// entry that owns its key); the introspection seam tests assert against.
@@ -302,6 +343,20 @@ module SymbolProviders =
             /// contains.
             Origins: OriginSources
         }
+
+    module Contract =
+
+        /// The contract of the EMPTY manifest set: no package resolves, no body is served, and
+        /// so nothing is anchored anywhere but the compiling file. The value a compile of a
+        /// program that references no external symbol takes — a real contract rather than an
+        /// absent one, so no consumer has to carry a "there is no contract" arm.
+        let empty: Contract =
+            {
+                ManifestPaths = []
+                Provider = ExternalSymbolProviders.nullProvider
+                BodiesByName = Map.empty
+                Origins = OriginSources.empty
+            }
 
     /// Cache keyed by normalised manifest set + target + metadata tag. Each set is
     /// parsed, analysed, and composed once.
@@ -362,6 +417,10 @@ module SymbolProviders =
                              )
 
                          {
+                             // The NORMALISED list — the very one the cache key was taken from,
+                             // so the set a consumer resolves runtime assets against is the set
+                             // this contract's symbols were collected from.
+                             ManifestPaths = normalised
                              Provider = served
                              BodiesByName = byName
                              Origins = collected.Origins

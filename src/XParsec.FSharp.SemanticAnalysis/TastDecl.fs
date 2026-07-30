@@ -378,7 +378,7 @@ and TTypeMemberG<'ty, 'id, 'body> =
         /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
         /// (`"'C"`, for the `GenericParam` row) with the typar's *own* type: a
         /// `TyVar root` at build time, flipped — like every other embedded type — by
-        /// `freezeMember` / `TastConvert.file` to `TyTypar(Method, i)` then
+        /// `Elaborate.freezeTypars` / `TastConvert.file` to `TyTypar(Method, i)` then
         /// `FTTypar(Method, i)`, exactly as the declaring type's typars ride the
         /// `Declaring` axis; codegen's encoder resolves both axes by index
         /// (`!!i` / `!i`) with no ambient window. This list feeds the `GenericParam`

@@ -24,9 +24,9 @@ module FrozenCodecTypes =
 
     // ── a REFERENCE into the unit's tables ──────────────────────────────────
     //
-    // How every OTHER module writes a type or a key: as the id of its row. The whole codec
-    // below and in `FrozenCodecDecls` / `FrozenCodec` goes through these four pairs, so a
-    // type embedded in a payload costs exactly what a `ty` column entry costs.
+    // How every OTHER module writes a type, a key or a producer file: as the id of its row.
+    // The whole codec below and in `FrozenCodecDecls` / `FrozenCodec` goes through these
+    // pairs, so a type embedded in a payload costs exactly what a `ty` column entry costs.
     //
     // The write side INTERNS where the read side resolves, and that asymmetry is the point:
     // the `ty` columns were interned at freeze, but a payload can carry a type they never
@@ -34,10 +34,10 @@ module FrozenCodecTypes =
     // interning it here is what appends it to the unit's tables. `FrozenCodec.writePools`
     // therefore emits the tables AFTER the body it interned them from.
     //
-    // The tables ride the SINK (`FrozenWriter.Types`) and not a parameter, so these four
-    // pairs have the shape of every other element codec and the generic containers take
-    // them as-is — and a writer cannot emit into one stream while interning into another
-    // unit's tables.
+    // The tables ride the SINK (`FrozenWriter.Types`) and not a parameter, so these pairs
+    // have the shape of every other element codec and the generic containers take them
+    // as-is — and a writer cannot emit into one stream while interning into another unit's
+    // tables.
 
     let writeTypeRef (w: FrozenWriter) (t: FrozenType) = writeTypeId w (w.Types.Intern t)
 
@@ -52,6 +52,20 @@ module FrozenCodecTypes =
         writeTypeKeyId w (w.Types.InternTypeKey k)
 
     let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
+
+    /// The file a set of FOREIGN anchors index (`TSpecializationG.Origin`) — the case
+    /// `writeAnchor` does not cover. Those anchors index a file that is NOT the one the blob
+    /// is keyed by, so the identity of that file, and a hash of the contents the indices were
+    /// taken against, have to be in the blob: they are the only thing a later build can check
+    /// its re-read of that file against.
+    ///
+    /// A REFERENCE like the three above, and for the same reason: a program's entries drain
+    /// from a handful of producer files, so the four strings that identify one go out once per
+    /// FILE rather than once per entry.
+    let writeOriginRef (w: FrozenWriter) (f: OriginFile) =
+        writeOriginId w (w.Types.InternOrigin f)
+
+    let readOriginRef (r: FrozenReader) : OriginFile = r.Types.[readOriginId r]
 
     // ── the `SymbolKey`-keyed container ─────────────────────────────────────
     //

@@ -17,7 +17,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 let private generated: Lazy<string> =
     lazy
         compileLibrary
-            coreDepsJsProvider.Value
+            coreDepsJsContract.Value
             "Vesper.Printf"
             "structural-printer.js.fs"
             (IO.File.ReadAllText(srcFile "Vesper.Printf" "structural-printer.js.fs"))

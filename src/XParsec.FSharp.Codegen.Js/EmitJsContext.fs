@@ -6,52 +6,13 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open JsEmitHelpers
+open JsMapSources
 open EmitJsTypes
 
-/// The `buildExpr`-free foundation the JS emitters share: the ambient `WalkCtx`, its
-/// source-map line index, the name/type resolution helpers, and `compileMatchPattern`
-/// (which never recurses into expression emission). `EmitJs`, `EmitJsFormat`, and
-/// `EmitJsMembers` all open this module.
+/// The `buildExpr`-free foundation the JS emitters share: the ambient `WalkCtx`, the
+/// name/type resolution helpers, and `compileMatchPattern` (which never recurses into
+/// expression emission). `EmitJs`, `EmitJsFormat`, and `EmitJsMembers` all open this module.
 module EmitJsContext =
-
-    /// Maps a source char offset to 0-based (line, column) — V3 source-map
-    /// coordinates. `Starts.[n]` is the char offset at which line `n` begins.
-    /// Columns count UTF-16 code units, as V3 maps require.
-    type LineIndex = { Starts: int[]; Length: int }
-
-    module LineIndex =
-        let build (source: string) : LineIndex =
-            let starts = ResizeArray<int>()
-            starts.Add 0
-
-            for i in 0 .. source.Length - 1 do
-                if source.[i] = '\n' then
-                    starts.Add(i + 1)
-
-            {
-                Starts = starts.ToArray()
-                Length = source.Length
-            }
-
-        /// Resolve a char offset within the text of `source` — an index into the map's
-        /// `sources[]` — to a `JsLoc`. Clamps past-end offsets to the last line.
-        let resolve (idx: LineIndex) (source: int) (offset: int) : JsLoc =
-            let offset = max 0 (min offset idx.Length)
-            let starts = idx.Starts
-            // Binary search for the greatest line start <= offset.
-            let mutable lo = 0
-            let mutable hi = starts.Length - 1
-
-            while lo < hi do
-                let mid = (lo + hi + 1) / 2
-
-                if starts.[mid] <= offset then lo <- mid else hi <- mid - 1
-
-            {
-                Source = source
-                Line = lo
-                Column = offset - starts.[lo]
-            }
 
     /// What a node's anchor is resolved through, on the way to a source-map position: the
     /// token table the anchor indexes, and the line starts of the text that table was lexed
@@ -75,78 +36,6 @@ module EmitJsContext =
     /// anchor to resolve against.
     type Resolver = Resolution voption
 
-    /// A producer file this emission attributed at least one node to: its slot in the finished
-    /// `sources[]`, what the map publishes for it, and the line starts that turn a token offset
-    /// in that text into V3 coordinates.
-    type ProducerSource =
-        {
-            Slot: int
-            Published: JsMapSource
-            Lines: LineIndex
-        }
-
-    /// The producer files ONE emission reached, in publication order.
-    ///
-    /// Mutable and shared with the driver for the same reason `WalkCtx.Pool` is: WHICH producers
-    /// a program reaches is settled by splicing the specialization graph, which happens inside
-    /// `EmitJs.buildProgram`, while the map that must publish them is built by whoever called it.
-    ///
-    /// Index 0 of the finished `sources[]` is the CONSUMING file and is not held here, so the
-    /// first `publish` takes slot 1 — which is why a build that reaches no retained producer
-    /// publishes exactly the single-element array it always did.
-    type MapSources =
-        private
-            {
-                Ordered: ResizeArray<ProducerSource>
-                ByPath: Dictionary<OriginPath, ProducerSource>
-            }
-
-    module MapSources =
-
-        let create () : MapSources =
-            {
-                Ordered = ResizeArray()
-                ByPath = Dictionary()
-            }
-
-        /// Give `src` the next slot. THE mutator, so `Ordered`'s position and `Slot` cannot
-        /// come apart — a mapping whose source index disagreed with the array would resolve
-        /// into the wrong file's text and still decode cleanly.
-        ///
-        /// The published PATH is `<package>/<relative>`. Not `Absolute`: a build-machine path
-        /// leaks the layout of the machine that compiled and resolves nowhere in a browser.
-        /// Not the bare `Relative` either: two packages may each publish an `ops.fs`, and a
-        /// `sources[]` with two identical names is unusable. The package-qualified form is
-        /// unique across the manifest set, machine-independent, and the shape a bundler's
-        /// `sourceRoot` (or a debugger's path mapping) is built to prefix.
-        let publish (src: OriginSource) (m: MapSources) : unit =
-            let entry =
-                {
-                    Slot = m.Ordered.Count + 1
-                    Published =
-                        {
-                            Path = src.File.Path.BucketName + "/" + src.File.Path.Relative
-                            Content = src.Input
-                        }
-                    Lines = LineIndex.build src.Input
-                }
-
-            m.Ordered.Add entry
-            m.ByPath.[src.File.Path] <- entry
-
-        /// The slot `file` was published at, or `ValueNone` when it was not published — a file
-        /// the emission reached but the compilation never retained. Its nodes then keep the
-        /// call-site position, which is the answer a single-source map has always given them.
-        let tryFind (file: OriginPath) (m: MapSources) : ProducerSource voption =
-            match m.ByPath.TryGetValue file with
-            | true, entry -> ValueSome entry
-            | _ -> ValueNone
-
-        /// The producers as the map publishes them, in slot order — appended AFTER the
-        /// consuming file, which owns index 0.
-        let published (m: MapSources) : JsMapSource list =
-            [ for entry in m.Ordered -> entry.Published ]
-
     /// The walker's ambient context.
     type WalkCtx =
         {
@@ -156,11 +45,16 @@ module EmitJsContext =
             /// A node absent from it is the compiling unit's own and reads against `Resolver`.
             /// Empty until `buildProgram` splices the graph, which is what discovers them.
             ///
-            /// Grows DURING the walk, and must: the emitter re-authors nodes of its own
-            /// (`InlinableLet`), and a derived node carries no provenance unless the site that
-            /// derived it says so. No new FILE can appear that way — a derived node inherits an
-            /// existing node's origin — so the published `sources[]` is settled before emission.
+            /// Read through `Derivation`, never by a bare lookup: the walk re-authors nodes of
+            /// its own (`InlinableLet`) and a derived node is not a key here. No new FILE can
+            /// appear that way — a derived node resolves to an existing node's origin — so the
+            /// published `sources[]` is settled before emission.
             NodeOrigins: Dictionary<TastAccessor.ExprId, InlineExpand.NodeOrigin>
+            /// Every node the expansion or this walk AUTHORED → the node it was authored from,
+            /// which is what makes `NodeOrigins` (and every other node-keyed table) readable on
+            /// a re-authored node. Seeded by `buildProgram` from the expansion's own and grown
+            /// by the `InlinableLet` splice.
+            Derivation: InlineExpand.Derivation
             /// The producer files this emission published, filled by `buildProgram` and read
             /// back by the driver building the map. Shared mutable state, like `Pool`.
             MapSources: MapSources
@@ -244,6 +138,7 @@ module EmitJsContext =
             {
                 Resolver = resolver
                 NodeOrigins = Dictionary()
+                Derivation = InlineExpand.Derivation.create ()
                 MapSources = MapSources.create ()
                 Pool = pool
                 Records = Dictionary()
@@ -269,6 +164,11 @@ module EmitJsContext =
     /// (`InlineExpand.expand`), so its own anchor reads against the consuming file and would
     /// silently attribute the producer's code to the caller's line; the producer position rides
     /// beside it in `NodeOrigins` and is what the map publishes whenever that file was retained.
+    ///
+    /// The origin is resolved along the node's AUTHORSHIP CHAIN (`Derivation`), so a node this
+    /// walk derived from a spliced one — the operator node of an inlined body, re-authored by
+    /// the pure-`let` substitution — still names the producer instead of falling back to the
+    /// call site's anchor, which is in range, plausible, and the wrong file.
     let locOf (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsLoc voption =
         match ctx.Resolver with
         | ValueNone -> ValueNone
@@ -278,9 +178,22 @@ module EmitJsContext =
                 | ValueSome i -> ValueSome(LineIndex.resolve r.Lines 0 r.Lexed.Tokens.[i].StartIndex)
                 | ValueNone -> ValueNone
 
-            match ctx.NodeOrigins.TryGetValue e with
-            | true, origin ->
+            match InlineExpand.Derivation.tryFind ctx.Derivation ctx.NodeOrigins e with
+            | ValueSome origin ->
                 match MapSources.tryFind origin.File.Path ctx.MapSources with
+                // The producer file was never RETAINED, so there is no text its anchor could be
+                // read against and the node keeps the call-site position a single-source map
+                // gives it.
+                //
+                // Unreachable under `Codegen.compileWith`, where `Resolver.Origins` and the
+                // provider are halves of ONE contract: an entry exists only where a served body
+                // carried an `OriginFile` (`InlineExpansion` splices a body without one on the
+                // spot), that file is in the same collection's retention, and `buildProgram`
+                // publishes every retained file the expansion reached. The configuration that
+                // DOES reach here is a `WalkCtx` built directly with `Origins =
+                // OriginSources.empty` over a provider that serves outlined bodies — the
+                // emit-TEXT test contexts, which assert on the generated source and read no
+                // position.
                 | ValueNone -> consuming ()
                 | ValueSome producer ->
                     // Faults on a producer file edited since the tree was anchored against it —
@@ -293,23 +206,15 @@ module EmitJsContext =
                     // A node no source spells keeps no position rather than borrowing the call
                     // site's, which would put producer code on a caller line.
                     | TokenIndex.Virtual -> ValueNone
-            | _ -> consuming ()
+            | ValueNone -> consuming ()
 
-    /// `JsEmitHelpers.reduceInlinableLet` with the walk's provenance carried across the splice:
-    /// a node the substitution re-authors inherits the origin of the node it was authored from.
+    /// `JsEmitHelpers.reduceInlinableLet` against the walk's own derivation, so every node the
+    /// substitution re-authors is a link on the chain `locOf` resolves an origin along.
     ///
-    /// Not optional bookkeeping. The splice re-authors every ancestor of a substituted `Var`,
-    /// and an inlined body's operator node is exactly such an ancestor — without this it loses
-    /// its producer file and falls back to the CALL SITE's anchor, which is in range, plausible,
-    /// and names the wrong file.
+    /// Not optional bookkeeping: the splice re-authors every ancestor of a substituted `Var`,
+    /// and an inlined body's operator node is exactly such an ancestor.
     let (|InlinableLet|_|) (ctx: WalkCtx) (e: TastAccessor.ExprId) : TastAccessor.ExprId option =
-        JsEmitHelpers.reduceInlinableLet
-            (fun from into ->
-                match ctx.NodeOrigins.TryGetValue from with
-                | true, origin -> ctx.NodeOrigins.[into] <- origin
-                | _ -> ()
-            )
-            e
+        JsEmitHelpers.reduceInlinableLet ctx.Derivation e
 
     // ---- Records -------------------------------------------------------------
 

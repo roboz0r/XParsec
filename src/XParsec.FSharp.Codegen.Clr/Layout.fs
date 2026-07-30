@@ -56,8 +56,9 @@ module internal Layout =
         //
         // Read on the EXPANDED tree, so a lambda the expansion re-authored — every lambda with
         // an inline call anywhere beneath it, since re-pointing a child mints a new row — is
-        // followed back to the frozen node the table was filed against. Without that the
-        // verdict is silently absent and a value-struct closure emits as an ordinary heap one.
+        // followed back down its authorship chain to the frozen node the table was filed
+        // against. Without that the verdict is silently absent and a value-struct closure emits
+        // as an ordinary heap one.
         let funVerdicts =
             let frozen =
                 pools.FunVerdicts
@@ -66,10 +67,8 @@ module internal Layout =
 
             let d = Dictionary<TastAccessor.ExprId, FunVerdict>(frozen)
 
-            for KeyValue(node, _) in expansion.Derived do
-                match frozen.TryGetValue(InlineExpand.frozenNode expansion node) with
-                | true, v -> d.[node] <- v
-                | _ -> ()
+            for (node, v) in InlineExpand.Derivation.resolveAll expansion.Derived frozen do
+                d.[node] <- v
 
             d :> IReadOnlyDictionary<_, _>
 

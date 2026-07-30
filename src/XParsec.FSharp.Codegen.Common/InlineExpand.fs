@@ -29,6 +29,77 @@ module InlineExpand =
     [<Struct>]
     type NodeOrigin = { File: OriginFile; At: ForeignAnchor }
 
+    /// Every node a REWRITE authored → the node it was authored from. A node is re-authored
+    /// whenever a descendant of it moved, so splicing a body deep inside a lambda gives that
+    /// lambda a new id — and any table keyed by NODE (`FrozenPools.FunVerdicts`, the producer
+    /// file a copied node was written in) then misses it, silently dropping a fact the emitter
+    /// needs rather than faulting.
+    ///
+    /// ONE relation for every rewrite that re-authors a node, so a consumer carrying node-keyed
+    /// facts across a splice reads one table however many rewrites ran: the expansion below
+    /// fills it, and an emitter that derives further nodes of its own (the JS backend's
+    /// pure-`let` substitution) keeps filling the same one.
+    ///
+    /// Read through `tryFind` — never by a direct lookup, which would see only the nodes the
+    /// LAST rewrite authored.
+    type Derivation =
+        private
+            {
+                Links: Dictionary<TastAccessor.ExprId, TastAccessor.ExprId>
+            }
+
+    module Derivation =
+
+        let create () : Derivation = { Links = Dictionary() }
+
+        /// Record that `result` was authored from `source`, and nothing when the rewrite
+        /// returned the very node it was given (a row copy preserves the id when nothing moved,
+        /// and a node that IS the one a table was keyed against needs no link back to itself).
+        let authored (d: Derivation) (source: TastAccessor.ExprId) (result: TastAccessor.ExprId) : unit =
+            if result <> source then
+                d.Links.[result] <- source
+
+        /// Continue `source`'s relation in `into` — what an emitter takes over from the
+        /// expansion whose output it walks, so the chain a node's facts hang off spans both.
+        let absorb (into: Derivation) (source: Derivation) : unit =
+            for KeyValue(result, from) in source.Links do
+                into.Links.[result] <- from
+
+        /// The fact `table` holds for the NEAREST node on `e`'s authorship chain — `e`'s own
+        /// when the rewrites left it alone. THE reading of a derivation, and the only one: the
+        /// chain can be several links long (a lambda inside a lambda, both re-authored; a
+        /// substitution over material an expansion already copied), so a consumer that followed
+        /// one link would still miss, and one that followed the chain to its END would walk past
+        /// the copy the fact was filed against.
+        ///
+        /// Terminates because a link always points from a node MINTED by a rewrite to the older
+        /// node it was authored from, so the chain strictly descends.
+        let rec tryFind
+            (d: Derivation)
+            (table: IReadOnlyDictionary<TastAccessor.ExprId, 'a>)
+            (e: TastAccessor.ExprId)
+            : 'a voption =
+            match table.TryGetValue e with
+            | true, v -> ValueSome v
+            | _ ->
+                match d.Links.TryGetValue e with
+                | true, from -> tryFind d table from
+                | _ -> ValueNone
+
+        /// Every derived node paired with the fact its chain lands on — the EAGER reading, for
+        /// a consumer that must hand on a node-keyed table rather than resolve one node at a
+        /// time. A node whose chain reaches no fact is absent, exactly as `tryFind` says.
+        let resolveAll
+            (d: Derivation)
+            (table: IReadOnlyDictionary<TastAccessor.ExprId, 'a>)
+            : (TastAccessor.ExprId * 'a) seq =
+            seq {
+                for KeyValue(node, _) in d.Links do
+                    match tryFind d table node with
+                    | ValueSome v -> node, v
+                    | ValueNone -> ()
+            }
+
     /// What one expansion produced: the trees with no edges left, and where the nodes that
     /// came out of the table were written.
     type Expansion =
@@ -41,24 +112,14 @@ module InlineExpand =
             /// and its position there. A node absent from this is the compiling unit's own:
             /// the frame chain's bottom names no producer, so absence is the answer rather
             /// than a missing entry.
+            ///
+            /// Keyed at the copy, which is a node the expansion AUTHORED — so a consumer reads
+            /// it through `Derived`, never by a bare lookup.
             Origins: IReadOnlyDictionary<TastAccessor.ExprId, NodeOrigin>
-            /// Every node this expansion AUTHORED → the node it was authored FROM. A node is
-            /// re-authored whenever a descendant of it moved, so splicing a body deep inside a
-            /// lambda gives that lambda a new id — and a table of the FROZEN pools keyed by
-            /// node (`FrozenPools.FunVerdicts`) then misses it, silently dropping a fact the
-            /// emitter needs rather than faulting. Read through `frozenNode`, which follows the
-            /// chain back to the node the pools hold.
-            Derived: IReadOnlyDictionary<TastAccessor.ExprId, TastAccessor.ExprId>
+            /// Every node this expansion authored → the node it was authored from
+            /// (`Derivation`).
+            Derived: Derivation
         }
-
-    /// The node of the FROZEN pools an expanded node was authored from — itself, when the
-    /// expansion left it alone. THE reading of `Derived`: the chain can be several links long
-    /// (a lambda inside a lambda, both re-authored), and a consumer that followed one link
-    /// would find a node the pools do not hold either.
-    let rec frozenNode (expansion: Expansion) (e: TastAccessor.ExprId) : TastAccessor.ExprId =
-        match expansion.Derived.TryGetValue e with
-        | true, from -> frozenNode expansion from
-        | _ -> e
 
     /// One frame of the chain a descent through the graph maintains: which entry was entered,
     /// and the file its nodes are anchored in. Descending an `InlineCall` PUSHES one;
@@ -127,15 +188,10 @@ module InlineExpand =
     /// the loop instead of exhausting the stack.
     let expand (pool: PoolBuilder) (decls: TastAccessor.DeclId list) : Expansion =
         let origins = Dictionary<TastAccessor.ExprId, NodeOrigin>()
-        let derived = Dictionary<TastAccessor.ExprId, TastAccessor.ExprId>()
+        let derived = Derivation.create ()
 
-        // Record the authorship of a node this walk produced, and nothing when the walk
-        // returned the very node it was given (a row copy preserves the id when nothing moved,
-        // and a node that IS the frozen one needs no link back to itself).
         let authored (source: TastAccessor.ExprId) (result: TastAccessor.ExprId) : TastAccessor.ExprId =
-            if result <> source then
-                derived.[result] <- source
-
+            Derivation.authored derived source result
             result
 
         // The copy's own binder for `b`, minting one on first sight. A `Var` reference resolves

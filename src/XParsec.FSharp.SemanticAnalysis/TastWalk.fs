@@ -25,6 +25,11 @@ open XParsec.FSharp.Parser
 // catch-all. ResolvedTypes (and the rest) used to enumerate every case
 // individually to keep this guarantee — the walker preserves it by being the
 // one place that match happens.
+//
+// The TERM shapes are enumerated here; the DECLARATION shape is not, and must not be.
+// `mapTypeDecl` is this domain's declaration rebuild and delegates to
+// `TastConvert.typeDecl`, so a pass that rewrites a declaration's expressions or types
+// enumerates the declaration's slots through the same match the pools and the freeze do.
 
 [<RequireQualifiedAccess>]
 module TastWalk =
@@ -204,31 +209,6 @@ module TastWalk =
             | ValueSome ifaceArgs' -> CallVia.Interface ifaceArgs'
         | CallVia.Self
         | CallVia.Base -> v
-
-    /// Map the `'ty` payloads of a `for … in` enumerator descriptor — the enumerator
-    /// type and (rung-3 constrained-typar source) the seq/enumerator interface
-    /// instantiation args. Mirrors `TastConvert.forInEnumerator`, duplicated here
-    /// because `TastWalk` precedes `TastConvert` in compile order (the same posture as
-    /// `mapVia`). The `SymbolKey` payloads carry no `'ty`, so they pass through.
-    let mapForInEnumerator (f: SemType -> SemType) (en: ForInEnumerator) : ForInEnumerator =
-        let mapGetEnum ge =
-            match ge with
-            | ForInGetEnumG.External k -> ForInGetEnumG.External k
-            | ForInGetEnumG.Local -> ForInGetEnumG.Local
-            | ForInGetEnumG.ConstrainedInterface(iface, args) ->
-                ForInGetEnumG.ConstrainedInterface(iface, EqArray.map f args)
-
-        let mapMembers mem =
-            match mem with
-            | ForInEnumMembersG.External(mn, cur) -> ForInEnumMembersG.External(mn, cur)
-            | ForInEnumMembersG.Local -> ForInEnumMembersG.Local
-            | ForInEnumMembersG.ConstrainedInterface(iface, args) ->
-                ForInEnumMembersG.ConstrainedInterface(iface, EqArray.map f args)
-
-        match en with
-        | ForInEnumeratorG.Interface -> ForInEnumeratorG.Interface
-        | ForInEnumeratorG.Pattern(enumTy, ge, mem, isVal, disp) ->
-            ForInEnumeratorG.Pattern(f enumTy, mapGetEnum ge, mapMembers mem, isVal, disp)
 
     let rec mapPat (m: Mapper) (p: TPat) : TPat =
         match m.OverridePat m p with
@@ -426,8 +406,12 @@ module TastWalk =
             // instantiation args. They reference the enclosing function's typars, so a
             // declaring-typar remap (`freezeTypars`) must reach them too (the same
             // `mapVia` precedent for `CallVia.Interface`), else they leak as un-ground
-            // `TyVar`s → `?free-typar` at the freeze cut.
-            | TExpr.ForIn(p, src, b, en, ty, tok) -> TExpr.ForIn(pp p, pe src, pe b, mapForInEnumerator f en, f ty, tok)
+            // `TyVar`s → `?free-typar` at the freeze cut. Mapped by `TastConvert`'s own
+            // descriptor rebuild, at this domain's diagonal: the descriptor's payloads are
+            // types and keys, so there is nothing here a same-domain rewrite would do
+            // differently, and one enumeration of its cases is enough.
+            | TExpr.ForIn(p, src, b, en, ty, tok) ->
+                TExpr.ForIn(pp p, pe src, pe b, TastConvert.forInEnumerator f en, f ty, tok)
             | TExpr.Match(sc, arms, ty, tok) ->
                 let sc' = pe sc
                 let ty' = f ty
@@ -767,6 +751,32 @@ module TastWalk =
                     Guard = guard'
                     Body = body'
                 }
+
+    /// Rebuild a type declaration in place, mapping its two axes: every embedded `SemType`
+    /// through `fTy`, and every expression BODY through `fExpr`.
+    ///
+    /// The declaration SHAPE is enumerated in exactly one place — `TastConvert.typeDecl` —
+    /// and this is that rebuild at the pre-freeze diagonal (`Tok = id`, and
+    /// `Id = BinderKey.identity`, which re-admits each key slot to the identity space it is
+    /// already in). So "which expressions does a declaration carry?" has ONE answer for the
+    /// tree-shaped domain, the same one the pools and the freeze answer with: member bodies
+    /// including the per-interface member lists, both class preambles (`let` initialisers and
+    /// `do` bodies), each secondary ctor's `let` initialisers / chain args / field inits, and
+    /// the base-ctor call's args. A slot added to `TTypeKindG` is then an incomplete record or
+    /// match in that one place, rather than a slot silently missed by however many
+    /// hand-written walks of this shape a pass happened to grow.
+    ///
+    /// `fTy` at `id` is a pure body rewrite and `fExpr` at `id` a pure type rewrite; neither
+    /// gets to decide for itself which slots exist.
+    let mapTypeDecl (fTy: SemType -> SemType) (fExpr: TExpr -> TExpr) (td: TTypeDecl) : TTypeDecl =
+        TastConvert.typeDecl
+            {
+                Ty = fTy
+                Tok = id
+                Id = BinderKey.identity
+                Body = fExpr
+            }
+            td
 
     /// Visit-only hooks. Returning `false` from a `VisitX` skips default child
     /// recursion (the override walked the children it wanted, or wants to skip

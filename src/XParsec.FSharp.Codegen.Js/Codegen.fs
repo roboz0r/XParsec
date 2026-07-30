@@ -80,40 +80,42 @@ module Codegen =
         | None -> project.ModuleName + ".mjs"
 
     /// Frozen TAST → in-memory JS artifact. When `Source` is `Some`, a V3 source map
-    /// is produced. `provider` resolves external union/record shapes; pass
-    /// `ExternalSymbolProviders.nullProvider` for a program that touches none. `manifestPaths`
-    /// is the package set whose `runtime-js` assets back the program's runtime imports.
+    /// is produced.
+    ///
+    /// ONE contract, never a provider beside a manifest set: `contract.Provider` resolves
+    /// external union/record shapes AND served the inline bodies whose nodes the tree carries,
+    /// and `contract.Origins` is the domain those nodes' positions index. Handed separately
+    /// they can disagree, and the disagreement is invisible — a producer file missing from the
+    /// domain is not a fault but a fall back to the CALL SITE's position, which is in range,
+    /// plausible, and names the wrong file. `SymbolProviders.Contract.empty` compiles a program
+    /// that touches no package: nothing retained, single-source map.
+    ///
     /// A `Default`-shaped TS export (mitt's factory) lowers to a default import with no
     /// extra wiring here: the fact rides the resolved symbol (`ExternalSymbol.ImportForm`,
     /// stamped by the TS-manifest provider) and is read at the `JsImports.addRef` site.
-    let compileWith
-        (provider: IExternalSymbolProvider)
-        (manifestPaths: string list)
-        (project: JsProjectInfo)
-        (tast: FrozenPools)
-        : JsArtifact =
-        // Resolve `runtime-js` assets from the manifest set; only the referenced subset
-        // is materialised. `"js"` is the JS backend's target suffix.
+    let compileWith (contract: SymbolProviders.Contract) (project: JsProjectInfo) (tast: FrozenPools) : JsArtifact =
+        // Resolve `runtime-js` assets from the CONTRACT's manifest set; only the referenced
+        // subset is materialised. `"js"` is the JS backend's target suffix.
         let runtimeAssets =
-            ReferencedProject.runtimeModules "js" manifestPaths
+            ReferencedProject.runtimeModules "js" contract.ManifestPaths
             |> Map.map (fun _ (fileName, source) -> { FileName = fileName; Source = source })
 
         // A node's anchor is an index into the file's token table, so a map needs the table
         // as well as the line starts. Both come from `project.Source` — the table is the
         // front end's own, the one the anchors were numbered against.
         //
-        // The producer files come off the SAME cached contract the manifest set's inline
-        // bodies were drained from, so a body an entry serves and the file its anchors index
-        // cannot come from two different reads. A caller that names no manifests retains
-        // nothing and gets the single-source map it always got.
+        // The producer files are the contract's own — the collection whose bodies the provider
+        // below serves — so a body an entry serves and the file its anchors index are the same
+        // read by construction. An empty contract retains nothing and gets the single-source
+        // map a one-file program always got.
         let resolver: EmitJsContext.Resolver =
             match project.Source with
             | Some src ->
                 ValueSome
                     {
                         Lexed = src.Lexed
-                        Lines = EmitJsContext.LineIndex.build src.Content
-                        Origins = JsNativeSymbols.jsNativeInlineOriginsFor (Some Target.Js) manifestPaths
+                        Lines = JsMapSources.LineIndex.build src.Content
+                        Origins = contract.Origins
                     }
             | None -> ValueNone
 
@@ -127,7 +129,7 @@ module Codegen =
             EmitJsContext.WalkCtx.create
                 resolver
                 pool
-                provider
+                contract.Provider
                 (JsImports.create runtimeAssets)
                 (match project.Kind with
                  | Library -> true
@@ -165,7 +167,7 @@ module Codegen =
                         Content = src.Content
                     }
 
-                let sources = consuming :: EmitJsContext.MapSources.published ctx.MapSources
+                let sources = consuming :: JsMapSources.MapSources.published ctx.MapSources
 
                 JsSourceMap.build jsFile sources mappings
             )
@@ -184,10 +186,10 @@ module Codegen =
             RuntimeModules = runtimeModules
         }
 
-    /// `compileWith` with the null provider and empty manifest set — for a program
-    /// that references no external union/record and imports no package runtime.
+    /// `compileWith` over the empty contract — for a program that references no external
+    /// union/record and imports no package runtime: nothing retained, single-source map.
     let compile (project: JsProjectInfo) (tast: FrozenPools) : JsArtifact =
-        compileWith ExternalSymbolProviders.nullProvider [] project tast
+        compileWith SymbolProviders.Contract.empty project tast
 
     let toSource (artifact: JsArtifact) : string = artifact.Source
     let toSourceMap (artifact: JsArtifact) : string option = artifact.Map
