@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value input lexed file
+    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
 
 let private diagnostics (tast: TastFile) =
     tast.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq

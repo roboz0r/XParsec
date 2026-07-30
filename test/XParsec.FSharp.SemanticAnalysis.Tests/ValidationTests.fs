@@ -6,7 +6,10 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    let ctx, _ = Pipeline.analyseSemWithContext realProvider.Value input lexed file
+
+    let ctx, _ =
+        Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
+
     ctx
 
 let private hasMessage (ctx: PassContext) (fragment: string) =

@@ -91,7 +91,7 @@ let private coreOnly =
 
 let private analyseCoreOnly (input: string) : TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSem coreOnly.Value input lexed file
+    Pipeline.analyseSem coreOnly.Value (Hashing.originSourceOfText input lexed) file
 
 [<Tests>]
 let tests =

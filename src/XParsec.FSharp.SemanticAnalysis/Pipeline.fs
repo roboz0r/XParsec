@@ -127,11 +127,10 @@ module Pipeline =
         (selfHostList: bool)
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
-        let ctx = PassContext(provider, input, lexed)
+        let ctx = PassContext(provider, source)
         ctx.AssemblyName <- assemblyName
         // A self-host (BCL-only) package build has no FSharp.Core, so an unpinned
         // `[]`/`::` must default to the Vesper cons-list (`resolveListLiterals`).
@@ -200,11 +199,10 @@ module Pipeline =
     let analyseSemWithContextFor
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
-        analyseSemWithContextForCore false assemblyName provider input lexed file
+        analyseSemWithContextForCore false assemblyName provider source file
 
     /// The production entry: every pass **plus the final `SemType → FrozenType`
     /// freeze**. The SemanticAnalysis assembly's output is
@@ -213,11 +211,10 @@ module Pipeline =
     let analyseWithContextFor
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * FrozenPools =
-        let ctx, tast = analyseSemWithContextFor assemblyName provider input lexed file
+        let ctx, tast = analyseSemWithContextFor assemblyName provider source file
         ctx, Freeze.run ctx tast
 
     /// `analyseSemWithContextFor` with no home assembly — the front-end-only entry
@@ -225,30 +222,27 @@ module Pipeline =
     /// with `asm = Some ""`, self-consistent within the one compilation.
     let analyseSemWithContext
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
-        analyseSemWithContextFor "" provider input lexed file
+        analyseSemWithContextFor "" provider source file
 
     /// `analyseWithContextFor` with no home assembly.
     let analyseWithContext
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * FrozenPools =
-        analyseWithContextFor "" provider input lexed file
+        analyseWithContextFor "" provider source file
 
     /// The `SemType` (pre-freeze) production entry, discarding the `PassContext`.
     let analyseSemFor
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : TastFile =
-        let _, tast = analyseSemWithContextFor assemblyName provider input lexed file
+        let _, tast = analyseSemWithContextFor assemblyName provider source file
         tast
 
     /// The production entry: like `analyseWithContextFor` but discards the
@@ -256,28 +250,25 @@ module Pipeline =
     let analyseFor
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : FrozenPools =
-        let _, tast = analyseWithContextFor assemblyName provider input lexed file
+        let _, tast = analyseWithContextFor assemblyName provider source file
         tast
 
     let analyseSem
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : TastFile =
-        analyseSemFor "" provider input lexed file
+        analyseSemFor "" provider source file
 
     let analyse
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : FrozenPools =
-        analyseFor "" provider input lexed file
+        analyseFor "" provider source file
 
     /// The self-host **`SemType`** (pre-freeze) entry — like `analyseSem` but a
     /// bare-program list literal/pattern defaults to the Vesper cons-list, not
@@ -287,11 +278,10 @@ module Pipeline =
     /// before freezing.
     let analyseSemForSelfHost
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : TastFile =
-        let _, tast = analyseSemWithContextForCore true "" provider input lexed file
+        let _, tast = analyseSemWithContextForCore true "" provider source file
         tast
 
     /// `analyseSemForSelfHost`, keeping the `PassContext`. A caller that inspects the
@@ -300,11 +290,10 @@ module Pipeline =
     /// `ctx.Bindings.Scheme`.
     let analyseSemForSelfHostWithContext
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * TastFile =
-        analyseSemWithContextForCore true "" provider input lexed file
+        analyseSemWithContextForCore true "" provider source file
 
     /// The self-host production entry: like `analyseFor` but a bare-program list
     /// literal/pattern defaults to the Vesper cons-list, not FSharp.Core's `list`,
@@ -314,11 +303,9 @@ module Pipeline =
     let analyseForSelfHost
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
-        (input: string)
-        (lexed: Lexed)
+        (source: OriginSource)
         (file: ImplementationFile<SyntaxToken>)
         : FrozenPools =
-        let ctx, tast =
-            analyseSemWithContextForCore true assemblyName provider input lexed file
+        let ctx, tast = analyseSemWithContextForCore true assemblyName provider source file
 
         Freeze.run ctx tast

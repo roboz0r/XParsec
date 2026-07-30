@@ -41,7 +41,10 @@ let tests =
                 Expect.isTrue (Map.containsKey "hash" inlines) "hash inline body loaded from ops-platform.fs"
 
                 let lexed, file = parseFile "let v = hash 5"
-                let tast = Pipeline.analyseSem provider "let v = hash 5" lexed file
+
+                let tast =
+                    Pipeline.analyseSem provider (Hashing.originSourceOfText "let v = hash 5" lexed) file
+
                 Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "no errors"
 
                 // The decl carries the EDGE and the operand; the resolved body is the entry

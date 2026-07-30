@@ -302,7 +302,9 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 /// leaves an `App` head instead, which reaches no `Const`, so this cannot pass by accident.
 let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
     let lexed, file = parseFile src
-    let tast = TastUnpool.ofPools (Pipeline.analyse provider src lexed file)
+
+    let tast =
+        TastUnpool.ofPools (Pipeline.analyse provider (Hashing.originSourceOfText src lexed) file)
 
     Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) (sprintf "no errors for:\n%s" src)
 

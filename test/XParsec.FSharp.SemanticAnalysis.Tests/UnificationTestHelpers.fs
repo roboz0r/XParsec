@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyseParsed (input: string) (lexed, file) =
-    let ctx = PassContext(realProvider.Value, input, lexed)
+    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText input lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
@@ -168,7 +168,7 @@ let freezeDecls (input: string) : Pooled.TastFile =
     let lexed, file = parseFile input
     // The freeze yields pools; these assertions read the decl tree, which `ofPools`
     // re-authors.
-    TastUnpool.ofPools (Pipeline.analyse realProvider.Value input lexed file)
+    TastUnpool.ofPools (Pipeline.analyse realProvider.Value (Hashing.originSourceOfText input lexed) file)
 
 // The frozen type of the (sole) top-level `let f` binding.
 let frozenLetTy (file: Pooled.TastFile) : FrozenType =

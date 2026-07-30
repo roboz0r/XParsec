@@ -180,7 +180,7 @@ let testAsm = "TestAsm"
 /// flattens, and the signature projection reads. Raises on lex/parse failure.
 let freezeFor (src: string) : FrozenPools =
     let lexed, file = parseFile src
-    Pipeline.analyseFor testAsm realProvider.Value src lexed file
+    Pipeline.analyseFor testAsm realProvider.Value (Hashing.originSourceOfText src lexed) file
 
 /// The pools under test, with the DU they encode. The freeze yields POOLS; `ofPools`
 /// re-authors the tree they carry, and `rePool` then re-derives every column from THAT
@@ -203,7 +203,7 @@ let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool 
 /// pair to take a test through inference as well.)
 let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassContext * ImplementationFile<SyntaxToken> =
     let lexed, file = parseFile input
-    let ctx = PassContext(provider, input, lexed)
+    let ctx = PassContext(provider, Hashing.originSourceOfText input lexed)
     Passes.Desugar.run ctx file
     Passes.NameResolution.run ctx file
     ctx, file

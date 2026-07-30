@@ -98,7 +98,9 @@ let jsProvider: Lazy<IExternalSymbolProvider> = lazy jsContract.Value.Provider
 /// superset that replaced the value-only `MockBuiltins` fixture.
 let frozenOf (input: string) : FrozenPools =
     let lexed, file = parseFile input
-    let ctx, tast = Pipeline.analyseSemWithContext jsProvider.Value input lexed file
+
+    let ctx, tast =
+        Pipeline.analyseSemWithContext jsProvider.Value (Hashing.originSourceOfText input lexed) file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -117,7 +119,7 @@ let frozenOfJs (input: string) : FrozenPools =
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemForSelfHostWithContext jsProvider.Value input lexed file
+        Pipeline.analyseSemForSelfHostWithContext jsProvider.Value (Hashing.originSourceOfText input lexed) file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -192,7 +194,9 @@ let coreDepsJsContract: Lazy<SymbolProviders.Contract> =
 /// dependencies — the impl's own in-file types are the resolution authority.
 let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPools =
     let lexed, file = parseFile input
-    let ctx, tast = Pipeline.analyseSemForSelfHostWithContext provider input lexed file
+
+    let ctx, tast =
+        Pipeline.analyseSemForSelfHostWithContext provider (Hashing.originSourceOfText input lexed) file
 
     let errors = tast.Diagnostics |> Diagnostic.errors
 
@@ -321,7 +325,10 @@ let contractTs (manifest: Schema.PackageManifest) : SymbolProviders.Contract = c
 /// diagnostics — the shared body of the per-package `analyse`/`analyseErrors` wrappers.
 let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic list =
     let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost provider input lexed file
+
+    let tast =
+        Pipeline.analyseSemForSelfHost provider (Hashing.originSourceOfText input lexed) file
+
     tast.Diagnostics |> Diagnostic.errors
 
 /// The newline-joined messages of `ds` (for `stringContains` assertions on the set of

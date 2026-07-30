@@ -23,6 +23,15 @@ module VesperLibManifest =
             Absolute: string
         }
 
+    /// A manifest file as an ANCHOR DOMAIN. Field-for-field: `OriginPath` is declared beside
+    /// the index it gives meaning to, long before this reader, and the two agree by shape.
+    let originPath (file: LibFile) : OriginPath =
+        {
+            BucketName = file.BucketName
+            Relative = file.Relative
+            Absolute = file.Absolute
+        }
+
     /// The lexer's token table and source text are retained so subsequent
     /// passes can extract identifier text off a `SyntaxToken`.
     type ParsedFile =
@@ -33,11 +42,11 @@ module VesperLibManifest =
             Ast: FSharpAst<SyntaxToken>
         }
 
-    /// Force-load the parser's `ObjectConstruction` ref so attribute
-    /// parsing succeeds even when the only entry points hit are
-    /// signature-file parsers. The init lives behind a `do` at the head
-    /// of `ImplementationFile.pNamedModule`, which a pure-signature path
-    /// may never touch.
+    // Force-load the parser's `ObjectConstruction` ref so attribute
+    // parsing succeeds even when the only entry points hit are
+    // signature-file parsers. The init lives behind a `do` at the head
+    // of `ImplementationFile.pNamedModule`, which a pure-signature path
+    // may never touch.
     do ObjectConstruction.init ()
 
     /// Parse one `.fsi` file via XParsec.FSharp's signature-file parser, or `.fs`

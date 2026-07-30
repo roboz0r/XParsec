@@ -105,7 +105,9 @@ let private producerDll: Lazy<string> =
 
          let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
          let lexed, file = parseFile producerFs
-         let tast = Pipeline.analyseFor project.AssemblyName provider producerFs lexed file
+
+         let tast =
+             Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText producerFs lexed) file
 
          let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
@@ -134,7 +136,9 @@ let private runConsumer (expected: string list) (src: string) : unit =
         }
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+
+    let tast =
+        Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText src lexed) file
 
     let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 

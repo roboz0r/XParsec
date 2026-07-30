@@ -407,7 +407,9 @@ let structTests =
 
                 let project = ProjectInfo.library "StructXPkgConsumer"
                 let lexed, file = parseFile src
-                let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+
+                let tast =
+                    Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText src lexed) file
 
                 let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 

@@ -19,7 +19,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value input lexed file
+    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
 
 /// The `key` field of the first `TExpr.External` named `name` anywhere in the
 /// program's lowered decls (`None` if no such head survives). Asserts the program

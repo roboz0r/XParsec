@@ -280,7 +280,9 @@ module SymbolProviders =
                         // ONE retention, and it is also what every body drained below records
                         // as its anchor domain — so the retained file and the file an entry
                         // names cannot come apart.
-                        let origin = Hashing.originSource parsed
+                        let origin =
+                            Hashing.originSource (VesperLibManifest.originPath parsed.File) parsed.Input parsed.Lexed
+
                         origins <- OriginSources.add origin origins
 
                         let implFile =
@@ -299,8 +301,7 @@ module SymbolProviders =
                             // consumer. `manifest.Name` is the home assembly the keys are
                             // rooted at, the same one `ReferencedProject.wrap` stamps onto
                             // the package's symbols, so the two agree by construction.
-                            let _, tast =
-                                Pipeline.analyseWithContextFor manifest.Name provider parsed.Input parsed.Lexed f
+                            let _, tast = Pipeline.analyseWithContextFor manifest.Name provider origin f
 
                             let values, members = collectInlineBodies origin tast
 

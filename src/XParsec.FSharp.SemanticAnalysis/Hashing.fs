@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.IO.Hashing
 open System.Text
+open XParsec.FSharp.Lexer
 
 /// The Merkle spine of the per-file compile cache: a file's key is the hash of its own
 /// source folded with a digest of everything ELSE its compile reads — the compilation
@@ -35,32 +36,37 @@ module Hashing =
     /// strings). UTF-8 so the digest is culture- and platform-independent.
     let hashString (s: string) : InputHash = hashBytes (Encoding.UTF8.GetBytes s)
 
-    /// A parsed producer file retained as an anchor DOMAIN: its identity, its text, its token
-    /// table, and a hash of the exact text the token table was produced from.
-    ///
-    /// THE site that mints an `OriginFile`, so a file's content hash is taken once and taken
-    /// from the very string that was parsed — not from a re-read of the path, which can already
-    /// disagree with what the `Lexed` indexes by the time anyone asks. That is what makes the
-    /// mismatch check at `OriginSources.tokenAt` mean what it says.
-    ///
-    /// Here rather than beside the parse because hashing content is this module's subject, and
-    /// a second way to hash a file is exactly how a cache key and a domain check come to
-    /// disagree about whether a file changed.
-    let originSource (parsed: VesperLibManifest.ParsedFile) : OriginSource =
+    /// THE site that mints an `OriginFile`, so a file's content hash is taken from the very
+    /// string that was parsed — not from a re-read of the path, which can already disagree with
+    /// what the `Lexed` indexes. That is what makes the mismatch check at
+    /// `OriginSources.tokenAt` mean what it says.
+    let originSource (path: OriginPath) (input: string) (lexed: Lexed) : OriginSource =
         {
             File =
                 {
-                    Path =
-                        {
-                            BucketName = parsed.File.BucketName
-                            Relative = parsed.File.Relative
-                            Absolute = parsed.File.Absolute
-                        }
-                    Content = hashString parsed.Input
+                    Path = path
+                    Content = hashString input
                 }
-            Input = parsed.Input
-            Lexed = parsed.Lexed
+            Input = input
+            Lexed = lexed
         }
+
+    /// A compiling unit handed over as TEXT with no file behind it: a script fragment, a
+    /// driver given a string, a test. The content hash stands in for the path, so two
+    /// different texts are two different origins and cannot collide in an `OriginSources`.
+    /// Deriving it from the text also keeps this origin a function of what `fileInputHash`
+    /// already keys on, so it cannot become a cache determinant the key never sees.
+    let originSourceOfText (input: string) (lexed: Lexed) : OriginSource =
+        let content = hashString input
+
+        originSource
+            {
+                BucketName = ""
+                Relative = sprintf "<text:%s>" content.Hex
+                Absolute = ""
+            }
+            input
+            lexed
 
     /// Append a variable-length byte run PREFIXED by its length, so a hash built from a
     /// sequence of such runs is injective in the run boundaries: two different splittings of
@@ -188,10 +194,10 @@ module Hashing =
     /// is a stale hit, and the failure is silent. A new front-end input is a new field, and
     /// the compiler then asks every driver what to put in it.
     ///
-    /// The frontier is `Pipeline.analyseFor homeAssembly provider source lexed file`, whose
-    /// inputs are the source text, the home assembly the minted keys are rooted at, and the
+    /// The frontier is `Pipeline.analyseFor homeAssembly provider origin file`, whose
+    /// inputs are the origin, the home assembly the minted keys are rooted at, and the
     /// provider — itself a function of the reference assemblies, the target suffix, and the
-    /// manifest set. `source` is the one that varies per file and so is not here; the rest
+    /// manifest set. The origin is the one that varies per file and so is not here; the rest
     /// are. Nothing else in a driver's config qualifies: a backend's output config
     /// (`ProjectInfo.References`, `OutputKind`, …) feeds CODEGEN, which re-runs on a hit.
     type CompilationInputs =

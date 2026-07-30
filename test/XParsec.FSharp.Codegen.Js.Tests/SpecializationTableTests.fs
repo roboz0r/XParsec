@@ -30,7 +30,7 @@ let private expandedWith
     (input: string)
     : InlineExpansion.Expanded * Diagnostic list =
     let lexed, file = parseFile input
-    let ctx = PassContext(provider, input, lexed)
+    let ctx = PassContext(provider, Hashing.originSourceOfText input lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file

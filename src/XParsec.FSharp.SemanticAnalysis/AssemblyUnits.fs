@@ -28,23 +28,25 @@ module AssemblyUnits =
     // that type's declaration for why the bare name would otherwise be the parser's.
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
-    /// What a unit's diagnostics resolve AGAINST: its path, its source text, and its own
-    /// token stream. One record rather than three parameters, because `path`/`source` are
-    /// adjacent strings a caller can transpose without the compiler noticing, and the
-    /// result is every diagnostic in the unit silently attributed to the wrong file.
-    type UnitSource =
-        {
-            Path: string
-            Input: string
-            Lexed: Lexed
-        }
+    /// A driver's `(path, source)` pair as an anchor domain. The unit's diagnostics resolve
+    /// against it, and so does every anchor its analysis mints — one value, so a path and a
+    /// text a caller could transpose without the compiler noticing cannot be paired wrongly.
+    let unitSource (assemblyName: string) (path: string) (input: string) (lexed: Lexed) : OriginSource =
+        Hashing.originSource
+            {
+                BucketName = assemblyName
+                Relative = path
+                Absolute = path
+            }
+            input
+            lexed
 
     /// One successfully analysed unit of a multi-file assembly: what its diagnostics
     /// resolve against, the frozen tree, and the provider view later files resolve its
     /// exports through.
     type FrozenUnit =
         {
-            Source: UnitSource
+            Source: OriginSource
             /// What RECOVERY reported while parsing this unit. Analysis runs regardless —
             /// a recovered tree is still a tree — so these ride alongside the analysis
             /// residue rather than short-circuiting the unit.
@@ -81,7 +83,7 @@ module AssemblyUnits =
     /// `Pipeline.analyseForSelfHost` (a BCL-only self-host package) both have this exact
     /// shape, so a multi-file assembly can be driven through either front end.
     type AnalyseUnit =
-        string -> IExternalSymbolProvider -> string -> Lexed -> ImplementationFile<SyntaxToken> -> FrozenPools
+        string -> IExternalSymbolProvider -> OriginSource -> ImplementationFile<SyntaxToken> -> FrozenPools
 
     /// Analyse a multi-file assembly in manifest order through a chosen front end. Each
     /// file resolves the ones BEFORE it — the prior file views composed nearest-first,
@@ -117,7 +119,8 @@ module AssemblyUnits =
                 let composed =
                     ExternalSymbolProviders.composite ((List.rev priorViews) @ [ external ])
 
-                let frozen = analyse assemblyName composed source parsed.Lexed parsed.File
+                let origin = unitSource assemblyName path source parsed.Lexed
+                let frozen = analyse assemblyName composed origin parsed.File
                 let view = FrozenSignature.toProvider assemblyName frozen
 
                 // Push this file's view so LATER files can resolve its exports. It rides
@@ -127,12 +130,7 @@ module AssemblyUnits =
                 results.Add(
                     Ok
                         {
-                            Source =
-                                {
-                                    Path = path
-                                    Input = source
-                                    Lexed = parsed.Lexed
-                                }
+                            Source = origin
                             ParseDiagnostics = parsed.Diagnostics
                             Frozen = frozen
                             View = view
@@ -185,7 +183,7 @@ module AssemblyUnits =
     /// head. Token indices are per-unit, so this is only ever called with a diagnostic and
     /// the unit it was produced in — bare diagnostics are never flattened across units and
     /// resolved later.
-    let anchorDiagnostics (unit: UnitSource) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+    let anchorDiagnostics (unit: OriginSource) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
         let lexed = unit.Lexed
         let source = unit.Input
         let lineIndex = XParsec.LineIndex.OfString source
@@ -210,7 +208,7 @@ module AssemblyUnits =
                     | Site.After t -> lineIndex.GetLineCol(gapAfter t)
 
                 {
-                    Path = unit.Path
+                    Path = unit.File.Path.Relative
                     Diagnostic = d
                     Line = line
                     Col = col
@@ -221,14 +219,9 @@ module AssemblyUnits =
     /// came AFTER lexing, and at the file head when there is no stream to anchor against.
     let failureDiagnostics (e: UnitError) : AnchoredDiagnostic list =
         match e.Failure.Lexed with
-        | ValueSome lexed ->
-            anchorDiagnostics
-                {
-                    Path = e.Path
-                    Input = e.Input
-                    Lexed = lexed
-                }
-                e.Failure.Diagnostics
+        // No unit was analysed, so no assembly claims this file; the domain exists only to
+        // resolve the positions the parser's own diagnostics carry.
+        | ValueSome lexed -> anchorDiagnostics (unitSource "" e.Path e.Input lexed) e.Failure.Diagnostics
         | ValueNone -> unpositionedDiagnostics e.Path e.Failure.Diagnostics
 
     /// Every analysed unit's diagnostics, each anchored to ITS OWN unit (path + source).

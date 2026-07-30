@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value input lexed file
+    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
 
 /// `Inline.inlineExpand`'s trait-call resolution point needs a `PassContext` to mint a
 /// dispatched operator's total key. These direct-expansion tests are all primitive-`int`
@@ -19,7 +19,7 @@ let private analyse (input: string) =
 /// local type or provider member is consulted.
 let private ctx0: PassContext =
     let lexed, _ = parseFile "module M"
-    PassContext(realProvider.Value, "module M", lexed)
+    PassContext(realProvider.Value, Hashing.originSourceOfText "module M" lexed)
 
 let private firstDecl (input: string) : TDecl =
     let tast = analyse input
@@ -56,7 +56,9 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     // The vocabulary is a pool root array; `declTree` drains a template to the DU form the
     // cross-unit wire (and `InlineThaw.body`) speaks — the very path a provider serves it
     // through.
-    let pools = Pipeline.analyse realProvider.Value input lexed file
+    let pools =
+        Pipeline.analyse realProvider.Value (Hashing.originSourceOfText input lexed) file
+
     let pool = TastPoolBuilder.openOver pools
 
     match List.ofArray pools.InlineTemplates with
@@ -81,24 +83,20 @@ let private producerSrc =
 let private editedProducerSrc =
     "namespace Ns\n\nmodule M =\n    let inline twice x = x + x\n    let inline sq x = x * x\n"
 
-/// A producer file retained the way a real collection retains one (`Hashing.originSource`, off
-/// the very text that was parsed) — which is what makes its hash the one an entry's `OriginFile`
-/// is checked against.
+/// A producer file retained the way a real collection retains one: hashed off the very text
+/// that was parsed, which is what makes its hash the one an entry's `OriginFile` is checked
+/// against.
 let private retainedSource (input: string) : OriginSource =
-    let lexed, file = parseFile input
+    let lexed, _ = parseFile input
 
     Hashing.originSource
         {
-            File =
-                {
-                    BucketName = "Producer"
-                    Relative = "sq.fs"
-                    Absolute = "/producer/sq.fs"
-                }
-            Input = input
-            Lexed = lexed
-            Ast = FSharpAst.ImplementationFile file
+            BucketName = "Producer"
+            Relative = "sq.fs"
+            Absolute = "/producer/sq.fs"
         }
+        input
+        lexed
 
 /// Every position a decl carries, in `TastConvert`'s own traversal order — the total walk of
 /// the position axis, so a body and its thaw are directly comparable node for node.
@@ -127,7 +125,10 @@ let private tokenIndices (toks: SyntaxToken list) : int list =
 /// The producer's sole published template, drained to the wire form a provider serves.
 let private publishedTemplate () : Wire.TDecl =
     let lexed, file = parseFile producerSrc
-    let pools = Pipeline.analyse realProvider.Value producerSrc lexed file
+
+    let pools =
+        Pipeline.analyse realProvider.Value (Hashing.originSourceOfText producerSrc lexed) file
+
     let pool = TastPoolBuilder.openOver pools
 
     match List.ofArray pools.InlineTemplates with
@@ -518,9 +519,13 @@ let tests =
                     "namespace Ns\n\nmodule M =\n    let k = 3\n    let inline addK x = x + k\n"
 
                 let lexed, file = parseFile input
-                let sem = Pipeline.analyseSem realProvider.Value input lexed file
 
-                let pools = Pipeline.analyse realProvider.Value input lexed file
+                let sem =
+                    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
+
+                let pools =
+                    Pipeline.analyse realProvider.Value (Hashing.originSourceOfText input lexed) file
+
                 let pool = TastPoolBuilder.openOver pools
 
                 // `k` is the module's first decl; its published identity is the one its
@@ -581,8 +586,13 @@ let tests =
                 // identity to name.
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
                 let lexed, file = parseFile input
-                let sem = Pipeline.analyseSem realProvider.Value input lexed file
-                let _, pools = Pipeline.analyseWithContext realProvider.Value input lexed file
+
+                let sem =
+                    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
+
+                let _, pools =
+                    Pipeline.analyseWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
+
                 let frozen = TastUnpool.ofPools pools
 
                 Expect.isEmpty frozen.Diagnostics "no diagnostics — nothing is refused"
@@ -638,7 +648,10 @@ let tests =
                 // nothing for the sibling rewrite to bake in.
                 let input = "module M =\n    let (a, b) = (1, 2)\n    let inline addA x = x + a\n"
                 let lexed, file = parseFile input
-                let _, pools = Pipeline.analyseWithContext realProvider.Value input lexed file
+
+                let _, pools =
+                    Pipeline.analyseWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
+
                 let frozen = TastUnpool.ofPools pools
 
                 Expect.isEmpty (EqArray.toList frozen.InlineBodies) "the un-splice-able template is not published"

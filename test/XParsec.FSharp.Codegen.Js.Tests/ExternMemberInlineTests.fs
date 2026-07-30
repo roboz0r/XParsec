@@ -415,7 +415,9 @@ let tests =
                      \x20   end\n"
 
                 let lexed, file = TestHelpers.parseFile input
-                let tast = Pipeline.analyse TestHelpers.jsProvider.Value input lexed file
+
+                let tast =
+                    Pipeline.analyse TestHelpers.jsProvider.Value (Hashing.originSourceOfText input lexed) file
 
                 let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 

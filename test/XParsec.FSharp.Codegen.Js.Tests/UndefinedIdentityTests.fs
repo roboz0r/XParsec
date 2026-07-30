@@ -108,7 +108,10 @@ let private prelude = "let e : Id = makeId()"
 let private analyse (body: string) : Diagnostic list =
     let input = prelude + "\n" + body + "\n"
     let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost idProvider input lexed file
+
+    let tast =
+        Pipeline.analyseSemForSelfHost idProvider (Hashing.originSourceOfText input lexed) file
+
     tast.Diagnostics |> Diagnostic.errors
 
 [<Tests>]

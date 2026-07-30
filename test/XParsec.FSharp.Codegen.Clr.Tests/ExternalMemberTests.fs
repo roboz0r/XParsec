@@ -20,13 +20,13 @@ let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 /// (SemType) `TastFile`.
 let private analyseWith (provider: IExternalSymbolProvider) (input: string) : TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSem provider input lexed file
+    Pipeline.analyseSem provider (Hashing.originSourceOfText input lexed) file
 
 /// `analyseWith`, keeping the `PassContext` so a test can read a live `TyVar`'s
 /// resolved type off the per-file `TypeStore` (`Unification.zonk ctx.Store …`).
 let private analyseWithCtx (provider: IExternalSymbolProvider) (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSemWithContext provider input lexed file
+    Pipeline.analyseSemWithContext provider (Hashing.originSourceOfText input lexed) file
 
 let private errors (tast: TastFile) : Diagnostic list = tast.Diagnostics |> Diagnostic.errors
 

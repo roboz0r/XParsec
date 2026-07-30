@@ -460,7 +460,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
 /// resolves them identically.
 let private frozenOf (src: string) : FrozenPools =
     let lexed, file = parseFile src
-    Pipeline.analyseForSelfHost "M" realProvider.Value src lexed file
+    Pipeline.analyseForSelfHost "M" realProvider.Value (Hashing.originSourceOfText src lexed) file
 
 /// `val f: 'a -> 'b -> 'b` — the `.fsi` appearance-order scheme (`'a` = index 0).
 let private fScheme: FrozenType =

@@ -59,7 +59,12 @@ let tests =
                 let lexed, file = parseFile input
 
                 let ctx, _ =
-                    Pipeline.analyseSemWithContextForCore true "" jsProvider.Value input lexed file
+                    Pipeline.analyseSemWithContextForCore
+                        true
+                        ""
+                        jsProvider.Value
+                        (Hashing.originSourceOfText input lexed)
+                        file
 
                 let getItemAccesses =
                     [

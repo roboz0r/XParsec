@@ -34,7 +34,12 @@ let tests =
                 let analysisProvider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
                 let lexed, file = parseFile src
 
-                let tast = Pipeline.analyseForSelfHost "Vesper.List" analysisProvider src lexed file
+                let tast =
+                    Pipeline.analyseForSelfHost
+                        "Vesper.List"
+                        analysisProvider
+                        (Hashing.originSourceOfText src lexed)
+                        file
 
                 Expect.isEmpty tast.Residue.Diagnostics "list.fs analyses cleanly"
 
@@ -73,7 +78,11 @@ let tests =
                 let lexed, file = parseFile src
 
                 let tast =
-                    Pipeline.analyseForSelfHost "Vesper.Printf" analysisProvider src lexed file
+                    Pipeline.analyseForSelfHost
+                        "Vesper.Printf"
+                        analysisProvider
+                        (Hashing.originSourceOfText src lexed)
+                        file
 
                 let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors
 

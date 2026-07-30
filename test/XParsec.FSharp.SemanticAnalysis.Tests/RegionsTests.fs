@@ -7,7 +7,10 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    let ctx, _ = Pipeline.analyseSemWithContext realProvider.Value input lexed file
+
+    let ctx, _ =
+        Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
+
     ctx, file
 
 /// Find the headPat NodeKey of a module-level binding by name.

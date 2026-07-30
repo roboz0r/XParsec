@@ -73,7 +73,11 @@ module ClrDriver =
                 ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences None inputs.Manifests
 
             let tast =
-                Pipeline.analyseFor inputs.Project.AssemblyName provider source parsed.Lexed parsed.File
+                Pipeline.analyseFor
+                    inputs.Project.AssemblyName
+                    provider
+                    (Hashing.originSourceOfText source parsed.Lexed)
+                    parsed.File
 
             match blockingErrors tast with
             | [] -> Ok(Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project tast)
@@ -148,7 +152,11 @@ module ClrDriver =
                 | Error diagnostics -> Error diagnostics
                 | Ok parsed ->
                     let tast =
-                        Pipeline.analyseFor inputs.Project.AssemblyName provider source parsed.Lexed parsed.File
+                        Pipeline.analyseFor
+                            inputs.Project.AssemblyName
+                            provider
+                            (Hashing.originSourceOfText source parsed.Lexed)
+                            parsed.File
 
                     match blockingErrors tast with
                     | [] -> Ok tast

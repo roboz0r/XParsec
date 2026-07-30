@@ -64,9 +64,9 @@ let hit (family: string) (key: string) =
 /// Wrap an `AnalyseUnit` so each per-file front-end call (POST-parse) accumulates into
 /// `family` — the parse cost is excluded, isolating SA.
 let timed (family: string) (analyse: AssemblyUnits.AnalyseUnit) : AssemblyUnits.AnalyseUnit =
-    fun asmName provider input lexed file ->
+    fun asmName provider source file ->
         let sw = Stopwatch.StartNew()
-        let r = analyse asmName provider input lexed file
+        let r = analyse asmName provider source file
         sw.Stop()
         bump stageMs family 0.0 (fun v -> v + sw.Elapsed.TotalMilliseconds)
         bump stageUnits family 0 (fun v -> v + 1)

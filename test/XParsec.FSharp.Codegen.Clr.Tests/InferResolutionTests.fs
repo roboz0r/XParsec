@@ -24,7 +24,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 let private errorsOf (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider src lexed file
+    let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText src lexed) file
     tast.Diagnostics |> Diagnostic.errors
 
 /// Assert a synthetic program produces no error-severity diagnostics.
@@ -38,7 +38,7 @@ let private clean (label: string) (src: string) : unit =
 let private lastLetTy (src: string) : SemType =
     let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider src lexed file
+    let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText src lexed) file
 
     tast.Decls
     |> EqArray.toList

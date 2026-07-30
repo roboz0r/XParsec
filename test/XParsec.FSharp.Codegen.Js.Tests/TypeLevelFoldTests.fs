@@ -187,7 +187,10 @@ let private prelude =
 let private analyse (body: string) : Diagnostic list =
     let input = prelude + "\n" + body + "\n"
     let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost busProvider input lexed file
+
+    let tast =
+        Pipeline.analyseSemForSelfHost busProvider (Hashing.originSourceOfText input lexed) file
+
     tast.Diagnostics |> Diagnostic.errors
 
 let private errorText (ds: Diagnostic list) : string =

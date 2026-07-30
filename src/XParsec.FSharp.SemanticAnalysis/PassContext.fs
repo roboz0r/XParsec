@@ -546,7 +546,7 @@ type CoreAccessIntrinsics =
 /// concern: `Types` (project type registry), `Bindings` (per-binder side
 /// tables), `Resolution` (name-resolution scopes).
 [<Sealed>]
-type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed) =
+type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     // Memoise the external-symbol lookups for this file's analysis. The provider handed in
     // is the accumulated stack (prior-file views ahead of the referenced-contract leaf);
     // one file re-asks the same `TryLookupType`/member queries many times, and each
@@ -634,8 +634,10 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
                  SetIndex = one "SetIndex"
              }) with get
 
-    member val Input = input
-    member val Lexed = lexed
+    member val Input = source.Input
+    member val Lexed = source.Lexed
+    member val Origin = source.File
+
     /// The simple name of the assembly this compilation unit emits into. NOT part of any
     /// `SymbolKey` — nominal identity is the containment chain, so a locally-minted key
     /// and a consumer's cross-package reference to the same type are equal without either
@@ -960,8 +962,8 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// textually below the module it collides with.
     member _.ModuleNaming: ModuleNaming =
         {
-            Lexed = lexed
-            Input = input
+            Lexed = source.Lexed
+            Input = source.Input
             IsNominalTypeName = TypeRegistry.isNominalTypeName types
         }
 

@@ -123,7 +123,10 @@ let private returnOf (name: string) : FrozenType =
 
 let private analyse (input: string) : Diagnostic list =
     let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost boxProvider input lexed file
+
+    let tast =
+        Pipeline.analyseSemForSelfHost boxProvider (Hashing.originSourceOfText input lexed) file
+
     tast.Diagnostics |> Diagnostic.errors
 
 [<Tests>]

@@ -605,7 +605,9 @@ let interfaceImplTests =
             let capabilityFaceErrors (src: string) =
                 let provider = ClrSymbolProviders.buildContract defaultManifests
                 let lexed, file = parseFile src
-                let _, tast = Pipeline.analyseSemWithContext provider src lexed file
+
+                let _, tast =
+                    Pipeline.analyseSemWithContext provider (Hashing.originSourceOfText src lexed) file
 
                 tast.Diagnostics |> Diagnostic.errors
 
