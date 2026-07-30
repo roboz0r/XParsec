@@ -335,7 +335,7 @@ let tests =
                     [ "selfLoop", [] ]
                     "the verdict comes off the TABLE, and names the template the entry resolved"
 
-                match Inline.findCycle expanded.Specializations with
+                match InlineSpecTable.findCycle expanded.Specializations with
                 | ValueSome cycle ->
                     Expect.equal
                         (List.length cycle)
@@ -348,7 +348,7 @@ let tests =
                     (expanded.Decls
                      |> List.collect (fun (d, _) ->
                          match d with
-                         | TDecl.Let(_, value, _, _) -> Inline.edges value
+                         | TDecl.Let(_, value, _, _) -> InlineSpecTable.edges value
                          | _ -> []
                      ))
                     "the declarations keep their edges, since nothing may walk a cyclic table"
@@ -364,13 +364,13 @@ let tests =
                 Expect.equal (cyclicInlines ds) [ "fusedLoop", [] ] "the fused path reaches the same verdict"
 
                 Expect.isTrue
-                    (ValueOption.isSome (Inline.findCycle expanded.Specializations))
+                    (ValueOption.isSome (InlineSpecTable.findCycle expanded.Specializations))
                     "…because its expansion terminated into a table rather than into the stack"
 
                 Expect.isNonEmpty
                     (expanded.Specializations
                      |> Array.toList
-                     |> List.filter (entryValue >> Inline.containsCallerExpr))
+                     |> List.filter (entryValue >> InlineSpecTable.containsCallerExpr))
                     "the entry really did fuse call-site material, or this exercises the shareable path again"
             }
 
@@ -690,8 +690,8 @@ let tests =
                     [
                         for (d, _) in expanded.Decls do
                             match d with
-                            | TDecl.Let(_, value, _, _) -> yield! Inline.edges value
-                            | TDecl.Expression(e, _) -> yield! Inline.edges e
+                            | TDecl.Let(_, value, _, _) -> yield! InlineSpecTable.edges value
+                            | TDecl.Expression(e, _) -> yield! InlineSpecTable.edges e
                             | TDecl.Type _ -> ()
                     ]
 
@@ -725,11 +725,11 @@ let tests =
                     TExpr.InlineCall(spec, EqArray.empty, TastWalk.exprTy (entryValue entry), SyntaxToken.nowhere)
 
                 Expect.isEmpty
-                    (Inline.miscountedFusedEntries [ edge ] expanded.Specializations)
+                    (InlineSpecTable.miscountedFusedEntries [ edge ] expanded.Specializations)
                     "one edge to a fused entry is exactly what the invariant asks for"
 
                 Expect.equal
-                    (Inline.miscountedFusedEntries [ edge; edge ] expanded.Specializations)
+                    (InlineSpecTable.miscountedFusedEntries [ edge; edge ] expanded.Specializations)
                     [ spec, 2 ]
                     "…and a second one convicts it, naming the entry and the count"
             }
@@ -757,7 +757,7 @@ let tests =
 
                 // The entry-references-entry leg of the DAG, which no other fixture reaches: `(|>)`
                 // outlines an application whose head has an entry of its own.
-                Expect.isNonEmpty (Inline.edges (entryValue entry)) "the entry's body names another entry"
+                Expect.isNonEmpty (InlineSpecTable.edges (entryValue entry)) "the entry's body names another entry"
 
                 let ownToks = unmarkedPositions (entryValue entry)
 

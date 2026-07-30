@@ -179,7 +179,8 @@ module InlineExpansion =
             Site: SyntaxToken
             /// The table slot this expansion reserved, once it has one. A re-entrant call becomes
             /// a back EDGE to it, which is what leaves the table finite and CYCLIC — a thing
-            /// `Inline.findCycle` can reject — instead of minting entries until the stack goes.
+            /// `InlineSpecTable.findCycle` can reject — instead of minting entries until the
+            /// stack goes.
             ///
             /// `ValueNone` for a SPLICED reduction: it has no entry, so there is nothing for an
             /// edge to name and the recursive call is left unexpanded instead.
@@ -788,10 +789,10 @@ module InlineExpansion =
             // table slot. One that did can represent its own recursion: the call is a back EDGE
             // into the entry being built, carrying `Spine` — the same list that expansion peeled
             // its parameters from, so the edge and the entry agree on arity by construction — so
-            // the table comes out finite and cyclic and `Inline.findCycle` rejects it ONCE,
-            // naming every binding on the cycle, where a report from here would name only the arc
-            // this particular call closed. One that did not (a SPLICED reduction has no entry)
-            // has nothing for an edge to name, so the call is left as written by its own
+            // the table comes out finite and cyclic and `InlineSpecTable.findCycle` rejects it
+            // ONCE, naming every binding on the cycle, where a report from here would name only
+            // the arc this particular call closed. One that did not (a SPLICED reduction has no
+            // entry) has nothing for an edge to name, so the call is left as written by its own
             // `Rebuild` and the verdict is reported here instead.
             //
             // Inside `run` because naming a frame needs `localName`, and the table it reports a

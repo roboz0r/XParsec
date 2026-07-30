@@ -127,8 +127,8 @@ module InlineExpand =
     /// material a fusion spliced in from one frame out.
     ///
     /// `Spec` is not decoration: an entry already on the stack is a cycle, and this is where
-    /// the acyclicity `Inline.findCycle` checks on the finished table is re-asserted at the
-    /// point where a violation would otherwise substitute bodies into bodies forever.
+    /// the acyclicity `InlineSpecTable.findCycle` checks on the finished table is re-asserted
+    /// at the point where a violation would otherwise substitute bodies into bodies forever.
     [<Struct>]
     type private Frame =
         {
@@ -182,10 +182,10 @@ module InlineExpand =
     /// Total on the graph and idempotent on its output — decls with no edges come back as the
     /// very decls that went in.
     ///
-    /// PRECONDITION: the table is ACYCLIC. `Inline.findCycle` checks that on the finished
-    /// table and the pass reports `Kind.CyclicInline` rather than emitting, so reaching here
-    /// with a cycle is a compiler bug; the frame stack convicts it at the entry that closes
-    /// the loop instead of exhausting the stack.
+    /// PRECONDITION: the table is ACYCLIC. `InlineSpecTable.findCycle` checks that on the
+    /// finished table and the pass reports `Kind.CyclicInline` rather than emitting, so
+    /// reaching here with a cycle is a compiler bug; the frame stack convicts it at the entry
+    /// that closes the loop instead of exhausting the stack.
     let expand (pool: PoolBuilder) (decls: TastAccessor.DeclId list) : Expansion =
         let origins = Dictionary<TastAccessor.ExprId, NodeOrigin>()
         let derived = Derivation.create ()
@@ -252,8 +252,8 @@ module InlineExpand =
                 // value-struct verdict) still recognise it.
                 //
                 // Sound only because an entry that marks anything has exactly ONE call edge
-                // (`Inline.miscountedFusedEntries`): the material appears once however the
-                // graph is walked, so there is no second expansion for it to alias.
+                // (`InlineSpecTable.miscountedFusedEntries`): the material appears once however
+                // the graph is walked, so there is no second expansion for it to alias.
                 match frames with
                 | _ :: outer -> go outer InPlace (TastAccessor.exprChild e 0)
                 | [] ->
@@ -311,7 +311,7 @@ module InlineExpand =
                 let (SpecializationId i) = spec
 
                 failwithf
-                    "InlineExpand: specialization %d (%A) reaches itself — the table is acyclic by `Inline.findCycle`, checked before anything walks it"
+                    "InlineExpand: specialization %d (%A) reaches itself — the table is acyclic by `InlineSpecTable.findCycle`, checked before anything walks it"
                     i
                     entry.Key.Template
             | None -> ()

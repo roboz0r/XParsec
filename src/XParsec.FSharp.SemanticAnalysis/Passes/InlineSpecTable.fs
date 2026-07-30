@@ -16,7 +16,7 @@ open XParsec.FSharp.SemanticAnalysis
 // is a position and a sink for an id and nothing else, so no operation here can come to depend
 // on how the pass represents its expansion chain. The pass supplies that (`InlineExpansion`'s
 // `reserving`) and gets nothing back but the slot.
-module internal InlineSpecTable =
+module InlineSpecTable =
 
     /// What becomes of ONE curried parameter of an inline body at ONE call site. The three
     /// FUSED dispositions all put call-site material INSIDE the body, which is what makes a
@@ -132,6 +132,146 @@ module internal InlineSpecTable =
             Build: unit -> Reduced
         }
 
+    // ————————————————————————————————————————————————————————————————————————
+    // Queries over a FINISHED `TSpecialization[]` — the graph invariants `SpecTable.finish`
+    // discharges, stated on the table they are invariants of. Above the table because the
+    // lifecycle calls them, not the other way round.
+
+    /// Does the tree mark any caller-anchored material?
+    ///
+    /// The question a SHAREABLE entry must answer `false`. A `CallerExpr` pops ONE frame, and
+    /// "the frame out" names a single file only while the entry has a single call edge —
+    /// which is precisely what sharing gives up. So this is not a diagnostic aid but the
+    /// condition under which the node is well-defined at all.
+    let containsCallerExpr (e: TExpr) : bool =
+        let mutable found = false
+
+        TastWalk.iterExpr
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun _ n ->
+                        match n with
+                        | TExpr.CallerExpr _ -> found <- true
+                        | _ -> ()
+
+                        // Existence, not enumeration: once the answer is settled there is
+                        // nothing left below to learn, so the descent stops. That makes this
+                        // a PRUNING walk, and so not a `TastWalk.chooseExpr`.
+                        not found
+            }
+            e
+
+        found
+
+    /// The entry's abstraction, or a fault naming the entry that broke the invariant. An entry
+    /// is ALWAYS a `TDecl.Let` of lambdas (`TSpecializationG.Decl`); everything below reads it
+    /// through here so the invariant is asserted in one place.
+    let private specializationValue (spec: SpecializationId) (entry: TSpecialization) : TExpr =
+        match entry.Decl with
+        | TDecl.Let(_, value, _, _) -> value
+        | other ->
+            let (SpecializationId i) = spec
+            failwithf "InlineSpecTable: specialization %d is not a `TDecl.Let`: %A" i other
+
+    /// Every specialization `e` NAMES, in walk order and with repeats — the graph's EDGE
+    /// relation, read off a tree rather than stored. One reading, so the acyclicity check and
+    /// the call-edge count below cannot disagree about what an edge is.
+    let edges (e: TExpr) : SpecializationId list =
+        e
+        |> TastWalk.chooseExpr (fun n ->
+            match n with
+            | TExpr.InlineCall(spec, _, _, _) -> ValueSome spec
+            | _ -> ValueNone
+        )
+
+    /// The slot an id names, bounds-checked. An out-of-range id is a MINTING bug and not a
+    /// graph shape, so every walk of the table faults on it identically rather than each one
+    /// inventing its own message.
+    let private checkedSlot (entries: TSpecialization[]) (SpecializationId i) : int =
+        if i < 0 || i >= entries.Length then
+            failwithf "InlineSpecTable: specialization %d is out of range (%d entries)" i entries.Length
+
+        i
+
+    /// An entry's abstraction, reached by id — `specializationValue` with the bounds check the
+    /// id needs anyway.
+    let private entryValue (entries: TSpecialization[]) (spec: SpecializationId) : TExpr =
+        specializationValue spec entries.[checkedSlot entries spec]
+
+    /// The first cycle in the specialization graph, as the entries ON it in call order (so a
+    /// direct self-reference is a one-element list). `ValueNone` ⇒ the table is the DAG the
+    /// design says it is.
+    ///
+    /// THE precondition of the emit-time expansion (`Codegen.Common.InlineExpand.expand`), and
+    /// it has to be checked on the TABLE rather than during the walk that consumes it: an entry
+    /// that reaches itself is a finite, inspectable thing here and an unbounded recursion once
+    /// anything starts substituting bodies into bodies. A cyclic table is a program error (a
+    /// recursive `let inline` has no expansion), so the caller reports `Kind.CyclicInline` and
+    /// nothing walks the graph.
+    let findCycle (entries: TSpecialization[]) : SpecializationId list voption =
+        // Unvisited / on the current DFS path / finished. The middle state is the whole test:
+        // an edge back into the current path is a cycle, where an edge into a FINISHED entry is
+        // ordinary sharing — the table is a DAG, so a diamond is legal and must not be reported.
+        let unvisited, onPath, finished = 0, 1, 2
+        let state = Array.create entries.Length unvisited
+        let path = ResizeArray<int>()
+        let mutable found = ValueNone
+
+        let rec visit (i: int) =
+            state.[i] <- onPath
+            path.Add i
+
+            for spec in edges (entryValue entries (SpecializationId i)) do
+                if ValueOption.isNone found then
+                    let j = checkedSlot entries spec
+
+                    if state.[j] = onPath then
+                        let start = path.IndexOf j
+                        found <- ValueSome [ for k in start .. path.Count - 1 -> SpecializationId path.[k] ]
+                    elif state.[j] = unvisited then
+                        visit j
+
+            path.RemoveAt(path.Count - 1)
+            state.[i] <- finished
+
+        for i in 0 .. entries.Length - 1 do
+            if ValueOption.isNone found && state.[i] = unvisited then
+                visit i
+
+        found
+
+    /// Entries that FUSED call-site material yet are named by other than exactly ONE edge,
+    /// paired with the edge count that convicts them. Empty ⇒ the table is sound.
+    ///
+    /// This is what LICENSES `TExprG.CallerExpr`. The node pops ONE frame, and "the frame out"
+    /// names a single file only while the entry it sits in has a single call edge — so an
+    /// entry that fused material and is reached twice does not merely look wrong, it makes its
+    /// own marks undefined. `mintEntry` asserts the narrow half at the moment an entry is built
+    /// (a SHAREABLE entry marks nothing); this is the half that needs the finished graph,
+    /// because an edge count is a fact about the whole table and not about one reduction.
+    ///
+    /// `roots` are the trees OUTSIDE the table — the file's own declarations — whose edges
+    /// count exactly as an entry's do.
+    let miscountedFusedEntries (roots: TExpr seq) (entries: TSpecialization[]) : (SpecializationId * int) list =
+        let counts = Array.zeroCreate<int> entries.Length
+
+        let count (e: TExpr) =
+            for spec in edges e do
+                let i = checkedSlot entries spec
+                counts.[i] <- counts.[i] + 1
+
+        for r in roots do
+            count r
+
+        for i in 0 .. entries.Length - 1 do
+            count (entryValue entries (SpecializationId i))
+
+        [
+            for i in 0 .. entries.Length - 1 do
+                if containsCallerExpr (entryValue entries (SpecializationId i)) && counts.[i] <> 1 then
+                    yield SpecializationId i, counts.[i]
+        ]
+
     /// The resolved-specialization table one run of the pass builds, and the whole of its
     /// lifecycle: reserve a slot before the body that fills it is built, intern an entry for
     /// reuse only once it IS built, and assert on the finished graph.
@@ -209,7 +349,7 @@ module internal InlineSpecTable =
         /// The slot is reserved, and ANNOUNCED, BEFORE `Build` runs. That ordering is what a
         /// template whose resolution reaches itself meets: it finds a reserved id it can name
         /// and terminates into a back edge, leaving a CYCLIC table — a finite thing
-        /// `Inline.findCycle` rejects — where building first would recurse until the stack
+        /// `findCycle` rejects — where building first would recurse until the stack
         /// goes. It reaches EVERY outlined reduction, fused ones included: reserving only for
         /// the shareable ones would leave the recursion that cannot be shared diverging.
         let private mintEntry (o: Outlining) (t: SpecTable) : SpecializationId * InlineParam list =
@@ -245,7 +385,7 @@ module internal InlineSpecTable =
             // entry — so this is the check that a fusion bug shows up as a fault here
             // instead of as a body silently shared across sites with one site's material
             // baked into it.
-            if o.Shareable && Inline.containsCallerExpr value then
+            if o.Shareable && containsCallerExpr value then
                 failwithf
                     "InlineExpansion: specialization %d is shareable but marks caller material — a closed reduction fused nothing, so this entry's parameters were mis-classified"
                     slot
@@ -310,7 +450,7 @@ module internal InlineSpecTable =
             // precondition of the emit-time expansion, discharged here because a cycle is a
             // finite, inspectable thing on the finished table and an unbounded recursion once
             // anything starts substituting.
-            match Inline.findCycle table with
+            match findCycle table with
             | ValueSome cycle ->
                 let slots = [ for SpecializationId i in cycle -> i ]
 
@@ -327,7 +467,7 @@ module internal InlineSpecTable =
                 // `mintEntry` asserts the narrow half as each entry is built; this is the count
                 // over the finished graph, and it is what turns a fusion bug into a fault here
                 // rather than a body silently shared across sites with one site's material in it.
-                match Inline.miscountedFusedEntries declExprs table with
+                match miscountedFusedEntries declExprs table with
                 | [] -> ()
                 | bad ->
                     failwithf
