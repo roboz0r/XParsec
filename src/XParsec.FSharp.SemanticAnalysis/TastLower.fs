@@ -39,6 +39,20 @@ module TastLower =
             "Emit: an InlineCall on specialization %d reached the emitter — the specialization table is expanded before emission, so this node should not exist here"
             i
 
+    /// The fault an emit router raises on a `TExpr.TraitCall`. An SRTP constraint has no
+    /// compiled signature on ANY target, so this is not a per-backend feature gap:
+    /// `Inline.inlineExpand` either grounds the call to a `StaticMethodCall` or hands back
+    /// an `UnresolvedTrait` its caller reports, and `lower` drops an `inline` body that
+    /// still carries one as template-only. Reaching an emitter means the node was never
+    /// grounded, not that the source was wrong — the user already has the diagnostic if
+    /// the source was at fault.
+    ///
+    /// Sited beside `inlineCallUnexpanded`, and for the same reason: both routers raise it.
+    let traitCallUnresolved (memberName: string) : 'a =
+        failwithf
+            "Emit: a TraitCall to '%s' reached the emitter — inline expansion grounds every trait call it can and reports the rest, so this node should not exist here"
+            memberName
+
     /// Resolve a nominal receiver type to its `(SymbolKey, type-args)` pair
     /// (was a projected string name). The
     /// project-local emitted-type tables key by this `SymbolKey` directly; the

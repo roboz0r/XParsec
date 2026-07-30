@@ -753,6 +753,20 @@ module TastAccessor =
     let exprTypeTestTestTy (e: ExprId) : FrozenType =
         expect "TastAccessor.exprTypeTestTestTy: not a TypeTest node" (|ETypeTest|_|) e
 
+    /// A `TraitCall` node → the compiled member name it dispatches on.
+    [<return: Struct>]
+    let private (|ETraitCallMemberName|_|) (e: ExprId) : string voption =
+        match payload e with
+        | ExprPayload.TraitCall p -> ValueSome p.MemberName
+        | _ -> ValueNone
+
+    /// The compiled member name an SRTP `TraitCall` names (`op_Addition`) — the part of
+    /// the node that names the constraint in a fault (the receiver is a `FrozenType`, the
+    /// operands are the `exprChildren`). Guard with `exprKind` = `ExprShape.TraitCall`
+    /// first; `failwith` on any other shape.
+    let exprTraitCallMemberName (e: ExprId) : string =
+        expect "TastAccessor.exprTraitCallMemberName: not a TraitCall node" (|ETraitCallMemberName|_|) e
+
     /// A `StaticOptimization` node → its fallback (dynamic) default expression — the
     /// branch F# selects when no type-specialized clause's constraints hold, and the LAST
     /// of the node's `exprChildren` (the clause bodies precede it). It is also the only

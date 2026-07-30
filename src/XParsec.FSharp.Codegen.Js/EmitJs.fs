@@ -8,8 +8,11 @@ open EmitJsCapabilities
 open EmitJsTypes
 open EmitJsContext
 
-/// The `TAST → JsAst` walker. Every un-handled node is an explicit `failwithf`,
-/// so an unsupported arm fails loudly rather than dropping silently.
+/// The `TAST → JsAst` walker. Its top-level dispatch is TOTAL over `ExprShape` with no
+/// `_` fallthrough, so a node kind added to the TAST breaks THIS build (as it already does
+/// on CLR) instead of being absorbed as a runtime "unsupported expression"; an
+/// un-implemented shape is an explicit `failwithf` arm, failing loudly rather than
+/// dropping silently.
 ///
 /// Durable conventions:
 ///   * Functions are **curried unary arrows** — `Lambda` → nested `(a) => (b) => …`,
@@ -598,13 +601,27 @@ module EmitJs =
             | FormatSinkG.ToString -> arg
             | other -> failwithf "EmitJs: unsupported format sink %A" other
 
-        // Not "unsupported" but IMPOSSIBLE here: the specialization table is expanded before
-        // emission, so the edge is gone by the time the walker runs. An arm of its own, ahead
-        // of the catch-all, so the fault names the invariant rather than the node — and the
-        // same one the CLR router raises.
-        | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
+        // Not yet emitted by the JS backend — legitimate F# the walker has no lowering for,
+        // not unknown nodes. `TryWith` is the plainest: JS has `try`/`catch` and `TryFinally`
+        // already shows the IIFE shape, so what is missing is the catch-side arm matching.
+        // `TypeTest` (`e :? T`) is the expression face of the gap `compileMatchPattern`
+        // already refuses as `PatShape.TypeTestAs` — this backend gives values no runtime
+        // nominal identity to test. A value-position `Range` was reported at Elaborate
+        // (`RangeNotFirstClassValue`; the counted for-in lowering, which mints `ForTo`, is its
+        // only supported use), so it arrives here only on an already-diagnosed path. One
+        // message for the four: what the arms distinguish is "not on this target" from the
+        // "cannot be here" below, not one node from another.
+        | ExprShape.Null
+        | ExprShape.Range
+        | ExprShape.TryWith
+        | ExprShape.TypeTest -> failwithf "EmitJs: unsupported expression %A" e
 
-        | _ -> failwithf "EmitJs: unsupported expression %A" e
+        // Not "unsupported" but IMPOSSIBLE here: the specialization table is expanded, and
+        // trait calls are grounded, before emission — so neither edge survives to the time
+        // the walker runs. Arms of their own so the fault names the invariant rather than the
+        // node, and the same ones the CLR router raises.
+        | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
+        | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)
 
     /// Build one `match` arm's statements: when the pattern matches (and the guard,
     /// if any, passes) the arm `return`s its body. An always-matching arm
