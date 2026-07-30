@@ -951,6 +951,31 @@ module TastWalk =
             arm.Guard |> ValueOption.iter (iterExpr it)
             iterExpr it arm.Body
 
+    /// Every value `f` yields over `e`'s nodes, in walk order and with repeats — the
+    /// collecting reading of `iterExpr`, for a caller that wants a list rather than a side
+    /// effect. `f` is asked at EVERY node, so a `ValueNone` selects nothing and hides
+    /// nothing: the descent below it is the default one either way.
+    ///
+    /// That is exactly what a caller which must PRUNE cannot say. Stopping the walk AT a
+    /// node rather than merely declining to select it is a fact about where the walk ends,
+    /// not about what it yields, so such a caller still writes its own `Iter`.
+    let chooseExpr (f: TExpr -> 'a voption) (e: TExpr) : 'a list =
+        let acc = ResizeArray<'a>()
+
+        iterExpr
+            { identityIter with
+                VisitExpr =
+                    fun _ n ->
+                        match f n with
+                        | ValueSome x -> acc.Add x
+                        | ValueNone -> ()
+
+                        true
+            }
+            e
+
+        List.ofSeq acc
+
     /// Every binder a set of declarations introduces, anywhere in their trees: the
     /// pattern binders (`BinderKey.ofPat`) plus the `ForTo` loop variables
     /// (`BinderKey.ofExpr`), which have no pattern node. A `Type` decl contributes none —

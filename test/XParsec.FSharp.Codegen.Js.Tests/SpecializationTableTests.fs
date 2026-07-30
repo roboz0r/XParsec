@@ -194,21 +194,12 @@ type 'T ``[]`` =
 
 /// Every `InlineCall` edge in `e`, as the slot it names and the number of arguments it carries.
 let private edgeArities (e: TExpr) : (SpecializationId * int) list =
-    let acc = ResizeArray<SpecializationId * int>()
-
-    TastWalk.iterExpr
-        { TastWalk.identityIter with
-            VisitExpr =
-                fun _ n ->
-                    match n with
-                    | TExpr.InlineCall(spec, args, _, _) -> acc.Add(spec, args.Length)
-                    | _ -> ()
-
-                    true
-        }
-        e
-
-    List.ofSeq acc
+    e
+    |> TastWalk.chooseExpr (fun n ->
+        match n with
+        | TExpr.InlineCall(spec, args, _, _) -> ValueSome(spec, args.Length)
+        | _ -> ValueNone
+    )
 
 /// The entries resolved from the template `name` names — `op_Addition`, `op_Multiply`, … —
 /// picked out of a table that also holds every other inline the source happened to reach.
@@ -269,21 +260,12 @@ let rec private abstractedParams (value: TExpr) : int =
 
 /// Every subtree a `CallerExpr` marks as written one frame OUT from the entry it sits in.
 let private callerMarked (value: TExpr) : TExpr list =
-    let acc = ResizeArray<TExpr>()
-
-    TastWalk.iterExpr
-        { TastWalk.identityIter with
-            VisitExpr =
-                fun _ e ->
-                    match e with
-                    | TExpr.CallerExpr(body, _, _) -> acc.Add body
-                    | _ -> ()
-
-                    true
-        }
-        value
-
-    List.ofSeq acc
+    value
+    |> TastWalk.chooseExpr (fun e ->
+        match e with
+        | TExpr.CallerExpr(body, _, _) -> ValueSome body
+        | _ -> ValueNone
+    )
 
 /// The positions of the entry's OWN expression nodes — everything a caller mark does not
 /// cover. Stops AT a mark rather than skipping the node, so a nested mark inside a marked

@@ -499,6 +499,9 @@ module Inline =
                         | TExpr.CallerExpr _ -> found <- true
                         | _ -> ()
 
+                        // Existence, not enumeration: once the answer is settled there is
+                        // nothing left below to learn, so the descent stops. That makes this
+                        // a PRUNING walk, and so not a `TastWalk.chooseExpr`.
                         not found
             }
             e
@@ -538,21 +541,12 @@ module Inline =
     /// relation, read off a tree rather than stored. One reading, so the acyclicity check and
     /// the call-edge count below cannot disagree about what an edge is.
     let edges (e: TExpr) : SpecializationId list =
-        let acc = ResizeArray<SpecializationId>()
-
-        TastWalk.iterExpr
-            { TastWalk.identityIter with
-                VisitExpr =
-                    fun _ n ->
-                        match n with
-                        | TExpr.InlineCall(spec, _, _, _) -> acc.Add spec
-                        | _ -> ()
-
-                        true
-            }
-            e
-
-        List.ofSeq acc
+        e
+        |> TastWalk.chooseExpr (fun n ->
+            match n with
+            | TExpr.InlineCall(spec, _, _, _) -> ValueSome spec
+            | _ -> ValueNone
+        )
 
     /// The slot an id names, bounds-checked. An out-of-range id is a MINTING bug and not a
     /// graph shape, so every walk of the table faults on it identically rather than each one
