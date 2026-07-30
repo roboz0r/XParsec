@@ -173,9 +173,17 @@ is native and `PassContext` is in hand; the `TraitNotSupported` diagnostic
    `InlineCall` rather than an `App`.
 
 4. **Cycle detection + closure assertion.** The DAG needs an explicit acyclicity check with
-   a real diagnostic. I found no recursion guard in `InlineExpansion.fs` — confirm none
-   exists elsewhere; today a self-referential inline appears to recurse until the stack
-   goes. Add the closure assertion from the shape section alongside it.
+   a real diagnostic. Confirmed 2026-07-29: no recursion guard exists anywhere, and there is
+   no cyclic-inline diagnostic at all. Add the closure assertion from the shape section
+   alongside it.
+
+   State after the interning landed: `mintEntry` reserves the slot BEFORE building the body,
+   so a template reaching itself at the same grounding emits `InlineCall(self)` — the table
+   comes out finite and cyclic, i.e. inspectable, instead of recursing forever. Two gaps this
+   step must close: `Inline.flatten` has NO cycle guard, so a cyclic table now diverges in the
+   flattener rather than the expander; and the reservation only covers SHAREABLE entries — a
+   fused reduction is deliberately not interned, so a recursive fused inline still diverges at
+   expansion exactly as before. Reject the cycle on the table, before anything walks it.
 
 5. **Backend flattening in `Codegen.Common`.** A shared recursive graph expansion that
    splices entries at emit, maintaining the frame stack as it descends. Both backends
@@ -202,3 +210,36 @@ is native and `PassContext` is in hand; the `TraitNotSupported` diagnostic
    This is the end-to-end proof and the reason it is in scope: an inlined `g` body landing
    on `g`'s own line in a browser debugger is a test that cannot be faked by a
    representation that merely looks right.
+
+   **A FUSED entry is mixed-provenance — resolve this before trusting a source map.** Found
+   2026-07-29 while interning. An entry's `Origin` names the producer, but the material a
+   fusion splices in — an inline-first lambda argument, a `[<CallAtMostOnce>]` argument — is
+   written in the CONSUMING file and keeps consumer anchors. Nothing in the type catches it:
+   pre-freeze both are plain `SyntaxToken`, post-freeze both are bare `Anchor` ints under one
+   `OriginFile`. Harmless while the pass flattens onto the call site; step 6 would attribute
+   those nodes to the producer file and point a debugger at an unrelated line.
+
+   Note this is the one place the "`OriginFile` belongs on the entry, not on the node" premise
+   is genuinely too coarse — a fused entry has TWO origins by construction. Options are: don't
+   outline fused reductions at all (the shape section rejects this, but a fused entry has
+   exactly one call edge, so outlining buys nothing there); or give the entry a way to say
+   which subtrees are consumer-origin. Decide it deliberately rather than by default.
+
+## Where this stands (2026-07-29)
+
+Steps 1-3 are landed (`b62d4f99`, `5809ed93`, `3aadd68e`). Two carried gaps beyond the fused
+-entry finding above:
+
+- **Same-unit `let inline` still splices.** Only FOREIGN bodies become entries.
+  `TSpecializationG.Origin` is a mandatory `OriginFile` and none is constructible for the unit
+  being compiled (no path, no bucket), and a top-level `let inline` has no `SymbolKey` at all
+  (`Freeze.publishable` refuses to publish it). So the worked trace's `f` still collapses onto
+  the call site; only `g` keeps its own anchors. The file attribution a source map needs is
+  still CORRECT for a local inline — its definition site is in the same file — so what is lost
+  is line precision, not the headline result. Making locals entries needs `Origin` to become a
+  DU and locals to be keyed by something other than `SymbolKey`.
+- **The entry-references-entry leg of the DAG is unexercised.** Flattening supports and
+  handles it, but no fixture produces an entry whose body carries another edge (`ops-platform`
+  bodies are raw `(# … #)` intrinsics that call nothing out; `<>`, `<=`, `&&`, `hash`, `=`,
+  `|>`, `ignore`, string `+` and a piped local function were all probed). Since nesting is the
+  whole point of the frame chain, step 5 should not rely on it being right by inspection.
