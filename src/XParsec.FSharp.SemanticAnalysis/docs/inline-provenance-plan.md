@@ -218,10 +218,22 @@ is native and `PassContext` is in hand; the `TraitNotSupported` diagnostic
    `1 - 2 - 3` would convict itself. `Inline.miscountedFusedEntries` is the closure assertion's
    graph-wide half — an entry that marks caller material must be named by exactly one edge.
 
-6. **Backend flattening in `Codegen.Common`.** A shared recursive graph expansion that
-   splices entries at emit, maintaining the frame stack as it descends. Both backends
-   consume it: JS is the branch's target, and CLR's handling is the trivial always-splice
-   but has to stay green.
+6. **Backend flattening in `Codegen.Common`.** LANDED as `Codegen.Common/InlineExpand.fs`, a
+   pooled `FrozenPools`-domain expansion both backends call at their one decl-root read
+   (`EmitJs.buildProgram`, `Layout.buildUnit`). `Inline.flatten` is gone; the pass publishes
+   its table onto the frozen file (`Elaborate` was discarding it) and the decls keep their
+   edges.
+
+   Three things that were not anticipated and are now load-bearing:
+   - **Caller material is NOT copied.** A `CallerExpr` pops the frame AND switches the walk
+     back to in-place: the marked subtree is the consuming unit's own, its node identity is
+     what a node-keyed frozen table (`FunVerdicts`) recognises it by, and the one-call-edge
+     assertion is what makes that safe.
+   - **`Expansion.Derived`** re-keys such a table across a rewrite: re-pointing a child mints
+     a new row, so every lambda with an edge anywhere beneath it gets a new id.
+   - **The copy is still MOVED onto the call site**, with `(OriginFile, ForeignAnchor)`
+     recorded beside it (`Expansion.Origins`). The anchor COLUMN stays consuming-domain, so
+     `JsSourceMap` keeps working; step 7 reads the side table instead.
 
    The pre-freeze eta rationale (`InlineExpansion.fs:405-411`) claims CLR lowering never
    walks member bodies. VERIFIED 2026-07-29 and safe to rely on: `EmitLower.fs:28` forwards

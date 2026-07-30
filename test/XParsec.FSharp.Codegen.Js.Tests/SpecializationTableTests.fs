@@ -523,33 +523,29 @@ let tests =
                     "flattening collapses the frame stack, so a marker that outlived it would claim a distinction the tree no longer draws"
             }
 
-            test "the table is what the decls were flattened FROM — no edge survives the pass" {
+            test "the edges SURVIVE the pass — placement is the backends' to do" {
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 1.5 * 2.5\n"
 
                 Expect.isNonEmpty
                     (List.ofArray expanded.Specializations)
                     "the fixture actually reaches cross-package inline bodies"
 
-                let mutable edges = 0
+                let edges =
+                    [
+                        for (d, _) in expanded.Decls do
+                            match d with
+                            | TDecl.Let(_, value, _, _) -> yield! Inline.edges value
+                            | TDecl.Expression(e, _) -> yield! Inline.edges e
+                            | TDecl.Type _ -> ()
+                    ]
 
-                let it =
-                    { TastWalk.identityIter with
-                        VisitExpr =
-                            fun _ e ->
-                                match e with
-                                | TExpr.InlineCall _ -> edges <- edges + 1
-                                | _ -> ()
+                // One per outlined call site, and each names a slot of the table that came
+                // back with them: a decl carrying an edge into nothing is what publishing the
+                // two apart would produce.
+                Expect.equal (List.length edges) 2 "both operator call sites left an edge"
 
-                                true
-                    }
-
-                for (d, _) in expanded.Decls do
-                    match d with
-                    | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
-                    | TDecl.Expression(e, _) -> TastWalk.iterExpr it e
-                    | TDecl.Type _ -> ()
-
-                Expect.equal edges 0 "every edge was spliced back, so the pass's output is what it always was"
+                for SpecializationId i in edges do
+                    Expect.isLessThan i expanded.Specializations.Length "the edge names a slot the table has"
             }
 
             test "a fused entry named by TWO edges is what the closure assertion convicts" {

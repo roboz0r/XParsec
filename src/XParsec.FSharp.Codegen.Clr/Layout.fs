@@ -5,6 +5,7 @@ open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 module internal Layout =
 
@@ -29,7 +30,15 @@ module internal Layout =
         // id the canonical pool already handed out keeps naming the same node, which is
         // what lets the derived nodes be minted mid-emit rather than in one batch.
         let pool = TastPoolBuilder.openOver pools
-        let decls = TastAccessor.roots pool |> List.ofArray
+
+        // The specialization graph is spliced HERE, before any node-keyed table is built off
+        // the decls: `Emit.lower` drops `type` decls, so an edge inside a member body is
+        // invisible to it and must be reached through the declaration shape, which
+        // `InlineExpand.expand` does. `Origins` is unread on this target — the CLR publishes
+        // no source map — but it costs the walk nothing to record and is the same product the
+        // JS backend consumes.
+        let expansion = InlineExpand.expand pool (TastAccessor.roots pool |> List.ofArray)
+        let decls = expansion.Decls
 
         // The binder-keyed side tables this lowering consumes, indexed at the dense id the
         // columns already address a binder by. Nothing is undone on the way in: a
@@ -44,10 +53,25 @@ module internal Layout =
         // rather than a key recomputed from its token. Keyed by the NODE (id + the pool
         // that issued it), not the bare id: two units' pools both number from 0, so a bare
         // id would not miss across units — it would silently name a different node.
+        //
+        // Read on the EXPANDED tree, so a lambda the expansion re-authored — every lambda with
+        // an inline call anywhere beneath it, since re-pointing a child mints a new row — is
+        // followed back to the frozen node the table was filed against. Without that the
+        // verdict is silently absent and a value-struct closure emits as an ordinary heap one.
         let funVerdicts =
-            pools.FunVerdicts
-            |> Array.map (fun (id, v) -> ({ Pool = pool; Id = id }: TastAccessor.ExprId), v)
-            |> DenseTable.index
+            let frozen =
+                pools.FunVerdicts
+                |> Array.map (fun (id, v) -> ({ Pool = pool; Id = id }: TastAccessor.ExprId), v)
+                |> DenseTable.index
+
+            let d = Dictionary<TastAccessor.ExprId, FunVerdict>(frozen)
+
+            for KeyValue(node, _) in expansion.Derived do
+                match frozen.TryGetValue(InlineExpand.frozenNode expansion node) with
+                | true, v -> d.[node] <- v
+                | _ -> ()
+
+            d :> IReadOnlyDictionary<_, _>
 
         let lowered0 = Emit.lower decls
         // The anonymous "Program" holder's key — a module of that name in the global

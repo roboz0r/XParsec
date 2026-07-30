@@ -2096,12 +2096,31 @@ module Elaborate =
                     ctx.InlineTemplates.[k] <- freezeTypars ctx.Store env d
                 | _ -> ()
 
-            // `.Decls` only: the pass flattens the specialization table back into them before
-            // returning, so nothing here has an edge to resolve. Publishing the table onto the
-            // frozen file is what would let the BACKENDS flatten instead, and nothing consumes
-            // it there yet.
-            (InlineExpansion.run ctx elaborated).Decls
-            |> List.map (fun (d, env) -> freezeTypars ctx.Store env d)
+            let expanded = InlineExpansion.run ctx elaborated
+
+            // The typar cut over the table's entries, under the union of every decl's env.
+            // A union is unambiguous and not a compromise: an env keys on the ROOT `TyVarId`
+            // a decl generalized, and no two decls generalize one root — so an entry whose
+            // grounding mentions a consuming binding's typar is remapped by that binding's
+            // marker and by no other. An entry ground to nominals meets no key at all.
+            //
+            // Entries are cut here and not in the pass because the cut is `Elaborate`'s own
+            // boundary: what leaves this function is `TyTypar`-shaped in every tree it
+            // carries, and an entry is one of them.
+            let env = expanded.Decls |> List.collect snd
+
+            let specializations =
+                expanded.Specializations
+                |> Array.map (fun (e: TSpecialization) ->
+                    { e with
+                        Decl = freezeTypars ctx.Store env e.Decl
+                    }
+                )
+
+            let decls =
+                expanded.Decls |> List.map (fun (d, env) -> freezeTypars ctx.Store env d)
+
+            decls, specializations
 
         // Elaborate assumes well-typed input: it asserts its invariants with `failwith`
         // (it never diagnoses). Under an already-diagnosed type error — malformed
@@ -2114,12 +2133,12 @@ module Elaborate =
         // `failwith` on well-formed input still surfaces loudly as the compiler bug it is.
         let hasErrors = ctx.Diagnostics |> Seq.exists Diagnostic.isError
 
-        let decls =
+        let decls, specializations =
             if hasErrors then
                 try
                     elaborateDecls ()
                 with _ ->
-                    []
+                    [], [||]
             else
                 elaborateDecls ()
 
@@ -2131,10 +2150,11 @@ module Elaborate =
             // domains, which is where the same-unit splice (`Passes.InlineExpansion`)
             // reads it and where both backends emit it as an ordinary module function.
             InlineBodies = EqArray.empty
-            // No entry is minted here, and none exists yet: `InlineExpansion.run` above
-            // resolves a call by SPLICING the resolved body into the consuming tree, so
-            // there is no `InlineCall` edge to name a slot from.
-            Specializations = EqArray.empty
+            // The resolved-specialization table `InlineExpansion.run` built, in slot order —
+            // the `SpecializationId`s the decls' edges carry index THIS array. It has to
+            // travel with the decls that name it: an edge whose entry did not survive the
+            // freeze names nothing, and placement is deferred to emission.
+            Specializations = EqArray.ofArray specializations
             Diagnostics = List.ofSeq ctx.Diagnostics
             // Snapshot so the backend can key the emitted IL type off the representation
             // string without the PassContext. The KEY-addressed table, not its by-name

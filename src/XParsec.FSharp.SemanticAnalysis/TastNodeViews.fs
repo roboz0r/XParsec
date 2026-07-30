@@ -46,6 +46,17 @@ module TastNodeViews =
     type SecondaryCtor = TSecondaryCtorG<FrozenType, BinderId, ExprId>
     type BaseCtorCall = TBaseCtorCallG<FrozenType, BinderId, ExprId>
 
+    /// One resolved-specialization table entry with its declaration resolved to a handle —
+    /// the pooled `PooledSpecialization` as a consumer of the TREE reads it. `Origin` rides
+    /// across unchanged: it is a file identity, which no column addresses, and it is what
+    /// says which file the anchors inside `Decl` are indices into.
+    type Specialization =
+        {
+            Key: Frozen.SpecializationKey
+            Origin: OriginFile
+            Decl: DeclId
+        }
+
     /// The compiled-form cluster with its tuple-group / destructuring patterns held as
     /// handles — the `'pat` instantiation every consumer reads, whether the pats came
     /// from a file's own pool (`peelValRepr` off the frozen lambda spine) or from the

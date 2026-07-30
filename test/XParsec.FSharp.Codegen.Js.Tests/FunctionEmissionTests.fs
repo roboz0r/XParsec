@@ -44,7 +44,7 @@ let tests =
             test "a partial application wraps the flat function in a curried adapter" {
                 Expect.equal
                     (emitJs "let add x y = x + y\nlet add5 = add 5")
-                    "const add = (x, y) => (((x) + (y)) | 0);\nconst add5 = ((_c6) => (_c7) => add(_c6, _c7))(5);\n"
+                    "const add = (x, y) => (((x) + (y)) | 0);\nconst add5 = ((_c9) => (_c10) => add(_c9, _c10))(5);\n"
                     "under-applied module function adapts to the source-shaped currying"
             }
 

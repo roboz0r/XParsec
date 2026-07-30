@@ -30,8 +30,11 @@ open UnificationEngineCore
 // templates (whose positions are already this file's). The table is a DAG: an entry's own
 // body carries edges.
 //
-// Nothing downstream of this pass expands the table yet, so `run` flattens it back into the
-// decls before returning (`Inline.flatten`) and hands the table out beside them.
+// The edges SURVIVE the pass, and the freeze: placing the bodies is the backends' shared
+// `Codegen.Common.InlineExpand.expand`, which splices them as it emits and keeps a frame
+// chain naming the file each spliced node was written in. That is what deferral is for — a
+// body flattened here has one anchor domain (the call site's) and nothing to say where it
+// came from. What this pass owns is RESOLUTION, and what it hands out is the table.
 //
 // Scope: EVERY module-level decl (`TDecl.Let` — `inline` or not — and
 // `TDecl.Expression`) AND every expression a `TDecl.Type` carries (member
@@ -513,15 +516,14 @@ module InlineExpansion =
 
     /// What one run of the pass produced.
     ///
-    /// `Decls` are FLATTENED — every edge the walk minted has been spliced back — because
-    /// nothing downstream of this pass expands the table yet. `Specializations` is the table
-    /// those edges named, kept because it is the pass's real product: the flattening is a
-    /// consumer of it, not the thing that replaces it.
+    /// `Decls` CARRY EDGES — a `TExpr.InlineCall` per outlined call site — and
+    /// `Specializations` is the table those edges name. Placement is deferred to emission
+    /// (`Codegen.Common.InlineExpand.expand`), which is what lets an entry's nodes keep the
+    /// anchors they were written at instead of collapsing onto their call sites.
     ///
-    /// The one exception is a CYCLIC table, which the pass rejects with a diagnostic and leaves
-    /// unflattened: splicing bodies into bodies is exactly what a cycle makes non-terminating.
-    /// The decls then still carry edges, which is safe only because the verdict is an error and
-    /// no emitter runs behind one.
+    /// A CYCLIC table is rejected with a diagnostic and nothing walks it: substituting bodies
+    /// into bodies is exactly what a cycle makes non-terminating. That is safe because the
+    /// verdict is an error and no emitter runs behind one.
     type Expanded =
         {
             Decls: (TDecl * (TyVarId * SemType) list) list
@@ -1721,8 +1723,11 @@ module InlineExpansion =
 
             // REJECT the cycle on the table, before anything walks it. A recursive `let inline`
             // is a fact about the user's source — the expansion it asks for does not exist — so
-            // it is a diagnostic naming every binding on the cycle, and the graph is left
-            // unflattened: splicing bodies into bodies is exactly what would not terminate.
+            // it is a diagnostic naming every binding on the cycle, and nothing expands the
+            // graph: splicing bodies into bodies is exactly what would not terminate. THE
+            // precondition of the emit-time expansion, discharged here because a cycle is a
+            // finite, inspectable thing on the finished table and an unbounded recursion once
+            // anything starts substituting.
             match Inline.findCycle table with
             | ValueSome cycle ->
                 let slots = [ for SpecializationId i in cycle -> i ]
@@ -1750,15 +1755,7 @@ module InlineExpansion =
                         "InlineExpansion: %A fused caller material yet are named by that many call edges — a marked entry pops one frame, which names a single file only while it has exactly one caller"
                         [ for (SpecializationId i, count) in bad -> table.[i].Key.Template, count ]
 
-                // Flatten the graph the walk just built, so what leaves this pass is what left it
-                // before the table existed. The table is the pass's product; nothing downstream of
-                // here expands it yet, and both emit routers fault on an edge that reaches them.
-                //
-                // Only the DECLS are flattened — an entry keeps its own edges, which is what makes
-                // the table a DAG rather than N copies of one body.
                 {
-                    Decls =
-                        expanded
-                        |> List.map (fun (d, env) -> mapDeclExprs (Inline.flatten mint table) d, env)
+                    Decls = expanded
                     Specializations = table
                 }

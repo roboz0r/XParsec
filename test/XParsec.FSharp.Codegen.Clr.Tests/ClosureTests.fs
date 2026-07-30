@@ -278,7 +278,9 @@ let tests =
                             | _ -> None
                         )
 
-                    match addBinding with
+                    // Through the edge: the eta reification mints an `InlineCall` naming the
+                    // resolved `(+)` entry, whose abstraction IS the two-lambda closure.
+                    match addBinding |> Option.map (throughEdge tast) with
                     | Some(TExpr.Lambda(_, TExpr.Lambda(_, body, _, _), _, _)) ->
                         let ownOpCallArities = ResizeArray<int>()
 
@@ -294,7 +296,9 @@ let tests =
                                         true
                             }
 
-                        TastWalk.iterExpr it body
+                        // Through the edges: the entry's body names `(+)`'s own resolved
+                        // entry, which is where the `op_Addition` call ends up.
+                        iterThroughEdges it tast body
 
                         Expect.equal
                             (List.ofSeq ownOpCallArities)

@@ -62,10 +62,10 @@ let private opcodesOf (src: string) : string list =
                     true
         }
 
-    for d in tast.Decls do
-        match d with
-        | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
-        | _ -> ()
+    // The entries as well as the decls: a resolved operator body is no longer spliced into
+    // the consuming tree, so the clause the operand selected sits in the specialization
+    // table with an edge in its place.
+    iterFileExprs it tast
 
     List.ofSeq acc
 

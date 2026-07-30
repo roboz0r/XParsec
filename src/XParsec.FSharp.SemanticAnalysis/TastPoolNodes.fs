@@ -444,6 +444,71 @@ module ExprPayload =
         | ExprPayload.InlineCall _ -> ExprShape.InlineCall
         | ExprPayload.CallerExpr -> ExprShape.CallerExpr
 
+    /// Map every `Anchor` an expression payload EMBEDS — the loop variable's own identifier
+    /// token, and each format hole's. A node's own anchor is the `ExprToks` column and is
+    /// mapped there, so this is the residue a column-level MOVE of a subtree (copying an
+    /// inline entry's body onto its call site) would otherwise leave pointing into the file
+    /// the subtree came from. Exhaustive with no catch-all, so a case that grows a position
+    /// field fails to compile here — which is the point, since a stale anchor resolves in
+    /// range against the wrong file rather than faulting.
+    let mapToks (f: Anchor -> Anchor) (p: ExprPayload) : ExprPayload =
+        let seg (s: FormatSegShape) : FormatSegShape =
+            let spec (h: Pooled.HoleSpec) : Pooled.HoleSpec = { h with Tok = f h.Tok }
+
+            match s with
+            | FormatSegShape.Lit _ -> s
+            | FormatSegShape.Hole h -> FormatSegShape.Hole(spec h)
+            | FormatSegShape.DynHole(hasWidth, hasPrecision, h) ->
+                FormatSegShape.DynHole(hasWidth, hasPrecision, spec h)
+            | FormatSegShape.CallbackHole h -> FormatSegShape.CallbackHole(spec h)
+
+        match p with
+        | ExprPayload.ForTo ft -> ExprPayload.ForTo {| ft with IdentTok = f ft.IdentTok |}
+        | ExprPayload.Format fm ->
+            ExprPayload.Format
+                {| fm with
+                    Segments = fm.Segments |> Array.map seg
+                |}
+        | ExprPayload.Const _
+        | ExprPayload.Var
+        | ExprPayload.External _
+        | ExprPayload.Lambda
+        | ExprPayload.App
+        | ExprPayload.Let
+        | ExprPayload.Use _
+        | ExprPayload.IfThenElse
+        | ExprPayload.Tuple
+        | ExprPayload.Sequential
+        | ExprPayload.While
+        | ExprPayload.ForIn _
+        | ExprPayload.Match _
+        | ExprPayload.TryWith _
+        | ExprPayload.TryFinally
+        | ExprPayload.Assignment
+        | ExprPayload.Null
+        | ExprPayload.Range _
+        | ExprPayload.RecordCons _
+        | ExprPayload.RecordClone _
+        | ExprPayload.FieldGet _
+        | ExprPayload.FieldSet _
+        | ExprPayload.UnionCons _
+        | ExprPayload.New _
+        | ExprPayload.MethodCall _
+        | ExprPayload.PropertyGet _
+        | ExprPayload.StaticMethodCall _
+        | ExprPayload.StaticPropertyGet _
+        | ExprPayload.StaticFieldGet _
+        | ExprPayload.StaticFieldSet _
+        | ExprPayload.ExternalMember _
+        | ExprPayload.ILIntrinsic _
+        | ExprPayload.StaticOptimization _
+        | ExprPayload.Upcast
+        | ExprPayload.Downcast
+        | ExprPayload.TypeTest _
+        | ExprPayload.TraitCall _
+        | ExprPayload.InlineCall _
+        | ExprPayload.CallerExpr -> p
+
     // ── re-nesting the flat child columns ───────────────────────────────────
     //
     // A composite carrier — an arm, a format sink, a format segment — has no node

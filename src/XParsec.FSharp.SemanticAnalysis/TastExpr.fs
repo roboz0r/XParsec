@@ -520,8 +520,9 @@ type TExprG<'ty, 'tok, 'id> =
     /// That is what licenses the node rather than a property it happens to have, and
     /// `Passes.InlineExpansion` checks it on every entry it interns.
     ///
-    /// SEMANTICALLY TRANSPARENT: it evaluates to its body and nothing else, and `Inline.flatten`
-    /// unwraps it. It is not a way to defer an argument — the fusion it marks already IS the
+    /// SEMANTICALLY TRANSPARENT: it evaluates to its body and nothing else, and the emit-time
+    /// expansion unwraps it once the frame it popped back to is the frame its parent sits in.
+    /// It is not a way to defer an argument — the fusion it marks already IS the
     /// deferral, which is why a fused argument cannot instead ride on the edge's eager `args`
     /// (`&&` must not evaluate `b` unless `a` is true).
     ///

@@ -6,25 +6,31 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// A frozen file's anchor columns index THAT file's `Lexed`, and nothing else.
+// A frozen file's OWN TREES are anchored in THAT file's `Lexed`, and nothing else.
 //
 // The way that stops being true is inline expansion: a body compiled from a library file
-// is spliced into a consumer's tree, and an anchor carried across from it names a position
-// in the wrong file — a number still in range, so it resolves to some OTHER token rather
-// than faulting. `Inline.spliceAt` is what closes it, by moving every spliced node onto
-// the call site; these snippets are one per way a body reaches a consuming tree, and the
-// check is the dereference itself, which is the only thing an index can be wrong at.
+// reaches a consumer's tree, and an anchor carried across from it names a position in the
+// wrong file — a number still in range, so it resolves to some OTHER token rather than
+// faulting. Two mechanisms close it, and this is the half that has to hold of the file's own
+// declarations: a body with no retained producer file is MOVED onto the call site
+// (`Inline.thawBody`), as are same-unit templates.
 //
-// A library file is LONGER than any of these snippets, so an anchor that survived the
-// splice lands past this file's tokens — which is what makes the in-range test discriminate
+// The specialization TABLE is the other half and is deliberately NOT checked here. An entry
+// keeps the anchors its body was written at, in the file its `OriginFile` names — that is the
+// whole point of deferring placement — so its columns are a different index space and are
+// asserted against their producer in `SpecializationTableTests`. The decls' own nodes,
+// including the `InlineCall` edges and the arguments riding them, are this file's.
+//
+// A library file is LONGER than any of these snippets, so an anchor that leaked out of an
+// entry lands past this file's tokens — which is what makes the in-range test discriminate
 // rather than merely assert.
 
-/// Every anchor a frozen file carries, resolved against the file's OWN token stream. An
-/// anchor that came from somewhere else indexes past the end, or lands on a token whose
-/// text belongs to nothing this file's tree could have been anchored on.
+/// Every anchor the file's own declarations carry, resolved against the file's OWN token
+/// stream. An anchor that came from somewhere else indexes past the end, or lands on a token
+/// whose text belongs to nothing this file's tree could have been anchored on.
 let private checkAnchors (what: string) (input: string) =
     let lexed, _ = parseFile input
-    let pools = frozenOf input
+    let pool = TastPoolBuilder.openOver (frozenOf input)
 
     let check (where: string) (stored: Anchor) =
         match stored.Index with
@@ -40,14 +46,40 @@ let private checkAnchors (what: string) (input: string) =
                 Token.EOF
                 (sprintf "%s: %s anchor %d names this file's EOF, so it is no node's position" what where (int i))
 
-    for t in pools.ExprToks do
-        check "expr" t
+    let rec checkPat (p: TastAccessor.PatId) =
+        check "pat" (TastAccessor.patTok p)
 
-    for t in pools.PatToks do
-        check "pat" t
+        match TastAccessor.patBinder p with
+        | ValueSome b -> check "binder" (TastPoolBuilder.binderTok pool b)
+        | ValueNone -> ()
 
-    for t in pools.BinderToks do
-        check "binder" t
+        for k in TastAccessor.patChildren p do
+            checkPat k
+
+    let rec checkExpr (e: TastAccessor.ExprId) =
+        check "expr" (TastAccessor.exprTok e)
+
+        for p in TastAccessor.exprPatChildren e do
+            checkPat p
+
+        for c in TastAccessor.exprChildren e do
+            checkExpr c
+
+    for d in TastAccessor.roots pool do
+        // Every expression a declaration carries, MEMBER BODIES included — the coverage the
+        // declaration shape defines rather than one a walk here could drift from.
+        TastAccessor.mapDeclBodies
+            (fun e ->
+                checkExpr e
+                e
+            )
+            d
+        |> ignore
+
+        match TastAccessor.declKind d with
+        | DeclShape.Let -> checkPat (TastAccessor.declLet d).Binding
+        | DeclShape.Expression
+        | DeclShape.Type -> ()
 
 [<Tests>]
 let tests =

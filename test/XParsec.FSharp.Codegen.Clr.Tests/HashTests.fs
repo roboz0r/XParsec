@@ -44,30 +44,41 @@ let tests =
                 let tast = Pipeline.analyseSem provider "let v = hash 5" lexed file
                 Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "no errors"
 
+                // The decl carries the EDGE and the operand; the resolved body is the entry
+                // it names, abstracted over that operand. Both halves are asserted, because
+                // the operand riding the edge (rather than being fused into the body) is
+                // what makes the entry shareable across call sites at this grounding.
                 match EqArray.toList tast.Decls with
                 | [ TDecl.Let(TPat.NamedSimple _,
-                              TExpr.Let(_,
-                                        TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
-                                        TExpr.App(TExpr.ExternalMember(ValueSome(TExpr.ExternalMember(ValueNone,
-                                                                                                      _,
-                                                                                                      "Default",
-                                                                                                      MemberStorage.Property,
-                                                                                                      _,
-                                                                                                      _)),
-                                                                       _,
-                                                                       "GetHashCode",
-                                                                       MemberStorage.Method,
-                                                                       _,
-                                                                       _),
-                                                  TExpr.Var _,
-                                                  _,
-                                                  _),
-                                        _,
-                                        _),
+                              TExpr.InlineCall(spec,
+                                               EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _) ],
+                                               _,
+                                               _),
                               false,
-                              _) ] -> ()
-                | other ->
-                    failtestf "expected `hash 5` to lower to EqualityComparer<int>.Default.GetHashCode, got %A" other
+                              _) ] ->
+                    match specializationValue tast spec with
+                    | TExpr.Lambda(_,
+                                   TExpr.App(TExpr.ExternalMember(ValueSome(TExpr.ExternalMember(ValueNone,
+                                                                                                 _,
+                                                                                                 "Default",
+                                                                                                 MemberStorage.Property,
+                                                                                                 _,
+                                                                                                 _)),
+                                                                  _,
+                                                                  "GetHashCode",
+                                                                  MemberStorage.Method,
+                                                                  _,
+                                                                  _),
+                                             TExpr.Var _,
+                                             _,
+                                             _),
+                                   _,
+                                   _) -> ()
+                    | other ->
+                        failtestf
+                            "expected `hash`'s entry to be EqualityComparer<int>.Default.GetHashCode over its parameter, got %A"
+                            other
+                | other -> failtestf "expected `hash 5` to lower to an edge into the `hash` entry, got %A" other
             }
 
             test "`hash n` for an int is the identity (Int32.GetHashCode returns the value)" {

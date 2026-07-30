@@ -232,7 +232,7 @@ let tests =
                         // same name — stays injective.
                         {
                             Type = "Program"
-                            Fields = [ "p$13"; "c$14"; "s$15"; "t$16"; "n$23" ]
+                            Fields = [ "p$7"; "c$8"; "s$9"; "t$10"; "n$11" ]
                             Methods = [ "Main" ]
                         }
                     ]

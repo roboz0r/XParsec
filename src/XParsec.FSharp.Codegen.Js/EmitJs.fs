@@ -1018,7 +1018,15 @@ module EmitJs =
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
     /// and `type` decls drop out, leaving module values and effectful expressions.
     let buildProgram (ctx0: WalkCtx) : JsProgram =
-        let decls = TastAccessor.roots ctx0.Pool |> List.ofArray
+        // The specialization graph is spliced HERE, before anything reads a decl: the type
+        // collection below walks member bodies and `TastLower.lower` walks nothing else, so
+        // an edge left standing in a member body would reach the emit router with no body to
+        // emit. `expansion.Origins` is where the entry material came from — what a
+        // multi-source map publishes.
+        let expansion =
+            InlineExpand.expand ctx0.Pool (TastAccessor.roots ctx0.Pool |> List.ofArray)
+
+        let decls = expansion.Decls
 
         let collected = collectTypes ctx0.Capabilities ctx0.ExportTopLevel decls
 

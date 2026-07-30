@@ -13,4 +13,4 @@ console.log(a.Y);
 console.log(($Vesper_StructuralRuntime_structuralEquals(a, b) ? "true" : "false"));
 console.log(($Vesper_StructuralRuntime_structuralEquals(a, c) ? "true" : "false"));
 const d = new P(10, a.Y);
-console.log(((_s9) => ((_s8) => (((_s9) + (_s8)) | 0))(d.Y))(d.X));
+console.log(((_s14) => ((_s15) => (((_s14) + (_s15)) | 0))(d.Y))(d.X));

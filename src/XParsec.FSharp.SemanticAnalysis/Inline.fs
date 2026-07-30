@@ -568,11 +568,12 @@ module Inline =
     /// direct self-reference is a one-element list). `ValueNone` ⇒ the table is the DAG the
     /// design says it is.
     ///
-    /// THE precondition of `flatten`, and it has to be checked on the TABLE rather than during
-    /// the walk that consumes it: an entry that reaches itself is a finite, inspectable thing
-    /// here and an unbounded recursion once anything starts substituting bodies into bodies.
-    /// A cyclic table is a program error (a recursive `let inline` has no expansion), so the
-    /// caller reports `Kind.CyclicInline` and expands nothing.
+    /// THE precondition of the emit-time expansion (`Codegen.Common.InlineExpand.expand`), and
+    /// it has to be checked on the TABLE rather than during the walk that consumes it: an entry
+    /// that reaches itself is a finite, inspectable thing here and an unbounded recursion once
+    /// anything starts substituting bodies into bodies. A cyclic table is a program error (a
+    /// recursive `let inline` has no expansion), so the caller reports `Kind.CyclicInline` and
+    /// nothing walks the graph.
     let findCycle (entries: TSpecialization[]) : SpecializationId list voption =
         // Unvisited / on the current DFS path / finished. The middle state is the whole test:
         // an edge back into the current path is a cycle, where an edge into a FINISHED entry is
@@ -636,52 +637,6 @@ module Inline =
                 if containsCallerExpr (entryValue entries (SpecializationId i)) && counts.[i] <> 1 then
                     yield SpecializationId i, counts.[i]
         ]
-
-    /// Splice a resolved-specialization GRAPH back into a tree: every `TExpr.InlineCall` is
-    /// replaced by the entry it names, applied to the edge's own arguments, descending into
-    /// the entry's own edges as it goes, and every `TExpr.CallerExpr` inside one is unwrapped.
-    /// Total on the graph and idempotent on its output — a tree with no edges left comes back
-    /// unchanged.
-    ///
-    /// The entry's body is MOVED onto the call site (`spliceAt`) rather than copied where it
-    /// stands, and that is forced rather than chosen: an `Anchor` is an index into ONE file's
-    /// tokens, so a node that now lives in the consuming file's tree must be readable against
-    /// that file. What the graph keeps — and what a physical expansion could not — is the
-    /// body's own positions ON THE ENTRY, beside the `OriginFile` that says which file they
-    /// index; a consumer that wants a producer position reads it there rather than off this
-    /// spliced copy.
-    ///
-    /// `mint` is the caller's binder freshener. Two edges into one entry each take their own
-    /// copy, so their binders — and the codegen local slots those become — must not alias.
-    ///
-    /// PRECONDITION: `entries` is ACYCLIC. This substitutes bodies into bodies, so an entry
-    /// that (transitively) names itself makes it diverge — which is why the caller rejects the
-    /// cycle on the table (`findCycle`) before reaching here. Deferral is what makes that
-    /// possible at all: the recursion exists as a finite, inspectable table, where the physical
-    /// expansion this replaces could only meet it as an exhausted stack.
-    let flatten (mint: unit -> NodeKey) (entries: TSpecialization[]) (e: TExpr) : TExpr =
-        let rec expand (n: TExpr) : TExpr voption =
-            match n with
-            | TExpr.InlineCall(spec, args, _, tok) ->
-                let body = go (spliceAt mint tok (entryValue entries spec))
-                ValueSome(betaReduce body [ for a in args -> go a, TastWalk.exprTy a, tok ])
-            // Flattening COLLAPSES the frame stack — `spliceAt` moves the entry's every node
-            // onto the call site, so the frame a `CallerExpr` popped back to is the frame its
-            // parent now sits in and the marker has nothing left to say. Unwrapped rather
-            // than kept, because a node that claims a distinction the tree no longer draws is
-            // worse than no node: it is transparent to semantics by construction, so dropping
-            // it changes evaluation order not at all.
-            | TExpr.CallerExpr(body, _, _) -> ValueSome(go body)
-            | _ -> ValueNone
-
-        and go (x: TExpr) : TExpr =
-            TastWalk.mapExpr
-                { TastWalk.identityMapper with
-                    OverrideExpr = fun _ n -> expand n
-                }
-                x
-
-        go e
 
     /// The open method signature of an external symbol: its full curried
     /// monotype with the method-owned typars resolved to self-describing

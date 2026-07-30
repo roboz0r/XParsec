@@ -391,6 +391,37 @@ module TastPoolBuilder =
         let row' = edit row
         if DeclRow.same row' row then id else appendDecl b row'
 
+    // The same row copies WITHOUT the unchanged-row shortcut. A rewrite wants the shortcut —
+    // it is what keeps a cached id naming the same node. A COPY does not: an inline entry's
+    // body is copied once per call site precisely so the two copies are different nodes, and
+    // a node whose row happens to be unchanged (a constant already anchored where the copy
+    // moves it) would otherwise collapse the two back onto one id — and with it the binders
+    // the copies were freshened to keep apart.
+
+    /// Append a FRESH copy of expr row `id` with `edit` applied, however little moved.
+    let copyExprFresh (b: PoolBuilder) (id: ExprPoolId) (edit: ExprRow -> ExprRow) : ExprPoolId =
+        appendExpr b (edit (exprRow b id))
+
+    /// The pattern twin of `copyExprFresh`.
+    let copyPatFresh (b: PoolBuilder) (id: PatPoolId) (edit: PatRow -> PatRow) : PatPoolId =
+        appendPat b (edit (patRow b id))
+
+    /// The resolved-specialization entry a `SpecializationId` names, bounds-checked. The
+    /// entries are the BASE pool's — an overlay derives nodes, never table entries — so an
+    /// id past the array is a minting bug rather than a graph shape, and every walk of the
+    /// table faults on it identically instead of inventing its own message.
+    /// How many resolved-specialization entries the table holds — the bound every
+    /// `SpecializationId` an edge carries is inside.
+    let specializationCount (b: PoolBuilder) : int = b.Base.Specializations.Length
+
+    let specialization (b: PoolBuilder) (spec: SpecializationId) : PooledSpecialization =
+        let (SpecializationId i) = spec
+
+        if i < 0 || i >= b.Base.Specializations.Length then
+            failwithf "TastPoolBuilder: specialization %d is out of range (%d entries)" i b.Base.Specializations.Length
+
+        b.Base.Specializations.[i]
+
     /// Copy the pattern subtree at `id` into `dest`, mapping every type it carries through
     /// `fTy` — the node types (the `PatTys` column) and the types a payload embeds
     /// (`PatPayload.mapTys`). The COLUMN-level retype: a row copy per node with `Ty`

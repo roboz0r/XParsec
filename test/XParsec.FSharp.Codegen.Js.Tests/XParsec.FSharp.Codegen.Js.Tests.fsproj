@@ -13,6 +13,7 @@
     <Compile Include="SourceMapTests.fs" />
     <Compile Include="OpsPlatformJsTests.fs" />
     <Compile Include="SpecializationTableTests.fs" />
+    <Compile Include="InlineExpandTests.fs" />
     <Compile Include="AnchorFileLocalityTests.fs" />
     <Compile Include="BinderNamingTests.fs" />
     <Compile Include="PrimitiveExprTests.fs" />

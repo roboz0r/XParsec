@@ -45,11 +45,67 @@ let (|TyClass|_|) (t: SemType) =
 /// (`| [ TDecl.Let _ ] -> …`, `| [ x; y ] -> …`) verbatim across the flip.
 let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 
-/// A frozen file's declarations as pool handles — what `Layout.buildUnit` opens before
-/// anything else, so a test that drives a lowering / discovery pass directly starts from
-/// the same representation the backend does.
+/// A frozen file's declarations as pool handles, with the specialization graph spliced —
+/// what `Layout.buildUnit` opens and expands before anything else, so a test that drives a
+/// lowering / discovery pass directly starts from the same representation the backend does.
+/// Placement is deferred to emission, so an inline body a test looks for is behind an edge
+/// until this runs.
 let pooledDecls (frozen: FrozenPools) : TastAccessor.DeclId list =
-    TastAccessor.roots (TastPoolBuilder.openOver frozen) |> List.ofArray
+    let pool = TastPoolBuilder.openOver frozen
+    (InlineExpand.expand pool (TastAccessor.roots pool |> List.ofArray)).Decls
+
+/// The abstraction of the specialization entry `spec` names, in the file's own table. An
+/// entry is always a `TDecl.Let` of lambdas, and the edge's arguments are positional against
+/// its surviving parameters.
+let specializationValue (tast: TastFile) (spec: SpecializationId) : TExpr =
+    let (SpecializationId i) = spec
+
+    match tast.Specializations.[i].Decl with
+    | TDecl.Let(_, value, _, _) -> value
+    | other -> failwithf "a specialization entry is a `TDecl.Let` of lambdas; got %A" other
+
+/// Read THROUGH an `InlineCall` edge to the body it names — the identity on anything else.
+/// A resolved inline body is no longer spliced into the consuming tree: the pass leaves an
+/// edge and the body sits in the table, so a shape assertion about "what the operator
+/// lowered to" follows the edge to find it.
+let rec throughEdge (tast: TastFile) (e: TExpr) : TExpr =
+    match e with
+    | TExpr.InlineCall(spec, _, _, _) -> throughEdge tast (specializationValue tast spec)
+    | _ -> e
+
+/// Run `it` over `e` and over the entry any edge inside `e` names, transitively — the walk
+/// a shape assertion about "what this body lowered to" needs, an entry's own body being free
+/// to name a further entry.
+let rec iterThroughEdges (it: TastWalk.Iter) (tast: TastFile) (e: TExpr) : unit =
+    TastWalk.iterExpr
+        { it with
+            VisitExpr =
+                fun m n ->
+                    let descend = it.VisitExpr m n
+
+                    match n with
+                    | TExpr.InlineCall(spec, _, _, _) -> iterThroughEdges it tast (specializationValue tast spec)
+                    | _ -> ()
+
+                    descend
+        }
+        e
+
+/// Run `it` over every expression the analysed file carries — its declarations AND the
+/// entries its edges name. What a walk of `Decls` alone used to cover, now that placement
+/// is deferred and a resolved body is an entry rather than a splice.
+let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
+    let ofDecl (d: TDecl) =
+        match d with
+        | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
+        | TDecl.Expression(e, _) -> TastWalk.iterExpr it e
+        | TDecl.Type _ -> ()
+
+    for d in tast.Decls do
+        ofDecl d
+
+    for entry in tast.Specializations do
+        ofDecl entry.Decl
 
 /// Lex + parse a source string; script fragments wrap as `AnonymousModule`. Through
 /// `Pipeline.parseUnrecovered`, the same gate the driver compiles behind, so a source that

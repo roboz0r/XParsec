@@ -120,6 +120,7 @@ module TastAccessor =
     type FormatView = TastNodeViews.FormatView
     type EnumCasePatView = TastNodeViews.EnumCasePatView
     type DeclLetView = TastNodeViews.DeclLetView
+    type Specialization = TastNodeViews.Specialization
 
     /// A sibling id in the same pool. Every child edge resolves through this, so the
     /// pool propagates down a walk without any consumer naming it.
@@ -998,6 +999,19 @@ module TastAccessor =
     let roots (pool: PoolBuilder) : DeclId[] =
         TastPoolBuilder.roots pool |> Array.map (fun id -> { Pool = pool; Id = id })
 
+    /// The resolved-specialization entry an `InlineCall`'s `SpecializationId` names, its
+    /// declaration as a handle. A SEPARATE root array, so this is reached from the pool and
+    /// not from a node: several call sites share one entry, which is exactly why the edge
+    /// carries an id rather than a child.
+    let specialization (pool: PoolBuilder) (spec: SpecializationId) : Specialization =
+        let entry = TastPoolBuilder.specialization pool spec
+
+        {
+            Key = entry.Key
+            Origin = entry.Origin
+            Decl = { Pool = pool; Id = entry.Decl }
+        }
+
     // ── generic traversal ───────────────────────────────────────────────────
     //
     // The single structural recursion every rewrite / discovery pass shares. In
@@ -1127,6 +1141,11 @@ module TastAccessor =
     let mintLambda (param: PatId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr body.Pool ty tok [| body.Id |] [| param.Id |] ExprPayload.Lambda
 
+    /// `let binding = value in body`, typed with the body's type — the shape a beta
+    /// reduction lowers an application of a lambda to.
+    let mintLet (binding: PatId) (value: ExprId) (body: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
+        mintExpr body.Pool ty tok [| value.Id; body.Id |] [| binding.Id |] ExprPayload.Let
+
     /// `receiver.Key args` — an instance call on a project-local member.
     let mintMethodCall
         (receiver: ExprId)
@@ -1213,9 +1232,50 @@ module TastAccessor =
 
     /// Re-author a decl with a different value / body expression — the decl analogue of
     /// `mapChildren`, returning the decl itself when the expression did not move.
+    ///
+    /// Reaches the `DeclExprChildren` COLUMN only, which a `type` decl surfaces none of, so
+    /// this is the identity on one. A rewrite that must reach member bodies wants
+    /// `mapDeclBodies`.
     let mapDeclExpr (f: ExprId -> ExprId) (d: DeclId) : DeclId =
         let kids =
             TastPoolBuilder.declExprChildren d.Pool d.Id
             |> Array.map (fun c -> (f (at d c)).Id)
 
         at d (TastPoolBuilder.copyDeclWith d.Pool d.Id (fun row -> { row with ExprChildren = kids }))
+
+    /// Apply `f` to EVERY expression a declaration carries — a `Let`'s value, an
+    /// `Expression`'s body, and, for a `type` declaration, its member bodies, its class
+    /// preambles, its secondary ctors' lets / primary args / field inits and its base-ctor
+    /// call's arguments.
+    ///
+    /// The distinction from `mapDeclExpr` is the whole reason this exists: a `type` decl's
+    /// bodies are named by id INSIDE the payload rather than in the child column, so a
+    /// rewrite hung off the column alone silently misses every member body — and passes,
+    /// because the decls it did reach are the ones its tests look at. `TastConvert.typeDecl`
+    /// enumerates the slots, so the coverage is the declaration SHAPE's and cannot drift
+    /// from a hand-written traversal's.
+    let mapDeclBodies (f: ExprId -> ExprId) (d: DeclId) : DeclId =
+        match declPayload d with
+        | DeclPayload.Type td ->
+            let td' =
+                TastConvert.typeDecl
+                    {
+                        Ty = id
+                        Tok = id
+                        Id = BinderKey.identity
+                        Body = fun (b: ExprPoolId) -> (f (at d b)).Id
+                    }
+                    td
+
+            at
+                d
+                (TastPoolBuilder.copyDeclWith
+                    d.Pool
+                    d.Id
+                    (fun row ->
+                        { row with
+                            Payload = DeclPayload.Type td'
+                        }
+                    ))
+        | DeclPayload.Let _
+        | DeclPayload.Expression _ -> mapDeclExpr f d
