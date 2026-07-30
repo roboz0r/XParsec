@@ -17,7 +17,7 @@ open InlineSpecTable
 // into a callee — so each piece reads against the single reduction it describes rather than
 // against the thousand-line closure that drives them all. What is deliberately ABSENT is the
 // walk: which node is a call site, which chain it was written under, and where the result goes
-// are `Passes.InlineExpansion`'s, and nothing here can observe them. The `ExpansionFrame` /
+// belong to the walk, and nothing here can observe them. The `ExpansionFrame` /
 // `InFlight` chain is here even so, because what a frame IS — a template identity plus the
 // table slot its expansion reserved — is a fact about one reduction; only the THREADING of the
 // chain belongs to the walk.
@@ -29,11 +29,11 @@ open InlineSpecTable
 //
 // WHERE that body ends up is decided once, at that same thaw, and `Placement` is the decision.
 // A body whose provider RETAINED the producer file becomes an entry of the file's
-// resolved-specialization table, keeping the positions it was written at
-// (`Inline.thawBodyAtOrigin`), and the call site gets a `TExpr.InlineCall` edge naming it — so
+// resolved-specialization table, keeping the positions it was written at, and the call site
+// gets a `TExpr.InlineCall` edge naming it — so
 // a body called from N sites is one entry and N edges, each with its own provenance. A body
-// served without a retained file has no anchor domain an entry could name, so it is MOVED onto
-// the call site (`Inline.thawBody`) and physically spliced, as are same-unit templates (whose
+// served without a retained file has no anchor domain an entry could name, so the thaw MOVES it
+// onto the call site and it is physically spliced, as are same-unit templates (whose
 // positions are already this file's).
 //
 // It also owns the compiler's ONE eta-reification (`etaReify`): an `External` of function type
@@ -44,16 +44,14 @@ open InlineSpecTable
 //
 // The inline-first soundness condition (beta-reduction half) is `classifyApplication`'s: a
 // lambda argument bound to an inline parameter and fully applied inside the body is eliminated
-// — its closure never exists (`classifyApplication` + `Inline.nonInlinableLambdaParams`, and
-// the `lambdaEnv` splice the walk performs on the result). A lambda that is stored or partially
-// applied survives as a real closure, exactly as before. The byref-like-capture half (reject /
-// ref-struct closures for a SURVIVING closure that holds a `Span`/`ref struct`) is deferred —
-// see the TODO in `classifyApplication`; it needs a byref-like predicate that does not exist
-// yet.
+// — its closure never exists, the classification marking it and the walk splicing it away at
+// each use. A lambda that is stored or partially
+// applied survives as a real closure. The byref-like-capture half (reject / ref-struct closures
+// for a SURVIVING closure that holds a `Span`/`ref struct`) is deferred — see the TODO in
+// `classifyApplication`; it needs a byref-like predicate that does not exist yet.
 //
 // `internal` and not `private`: this is the pass's own vocabulary and no consumer outside the
-// assembly has business with it, but `InlineExpansion` is a sibling module now and has to be
-// able to name it.
+// assembly has business with it, but `InlineExpansion` names it from another module.
 module InlineReduction =
 
     /// Where a reduction's body will LIVE — which is the whole of what decides whether the
@@ -93,7 +91,7 @@ module InlineReduction =
         /// invariant is checkable where one that skips `Var`s and constants is not.
         let fuse (placement: Placement) (arg: TExpr) : TExpr =
             match placement with
-            | Placement.Outlined _ -> Inline.callerExpr arg
+            | Placement.Outlined _ -> TastWalk.callerExpr arg
             | Placement.Spliced -> arg
 
     /// The peel of a resolved inline body against one call site's spine, with each parameter's
@@ -132,8 +130,8 @@ module InlineReduction =
     /// grounding every time round), so keying on the grounding would let exactly the divergence
     /// this exists to stop straight through.
     ///
-    /// Two cases because a SAME-UNIT template has no `SymbolKey` at all — `Freeze.publishable`
-    /// refuses to publish a top-level `let inline` — so its binder is the only identity it has.
+    /// Two cases because a SAME-UNIT template has no `SymbolKey` at all — the freeze refuses to
+    /// publish a top-level `let inline` — so its binder is the only identity it has.
     [<RequireQualifiedAccess>]
     type internal TemplateId =
         | Local of binder: NodeKey
@@ -195,7 +193,8 @@ module InlineReduction =
         /// The chain this reduction's own BODY is walked under, innermost first.
         let frames (f: InFlight) : ExpansionFrame list = f.Own :: f.Caller
 
-        /// The outermost frame — see `Recursion.Site` for why that is the one a verdict reads.
+        /// The outermost frame, whose `Site` is the only position a verdict about this
+        /// expansion can carry: every deeper site is a node of a producer's body.
         let outermost (f: InFlight) : ExpansionFrame =
             match f.Caller with
             | [] -> f.Own
@@ -323,7 +322,7 @@ module InlineReduction =
     /// that typar — and pollutes the caller's frozen TAST as a `ResolvedTypes` "unresolved
     /// TyVar".
     ///
-    /// `Inline.freshen` is applied but `Inline.relocate` is NOT: renaming binders is required
+    /// Binders are freshened but the body is NOT relocated: renaming binders is required
     /// of every expansion (two of one template must not share a codegen local slot), where
     /// MOVING the body is a decision about placement that the two callers make differently — a
     /// physical splice must relocate onto the call site to satisfy the `Anchor` invariant, an
@@ -358,7 +357,7 @@ module InlineReduction =
     /// in a consuming tree takes the call site's — which is also the only file identity
     /// available here: a local template is written in the file being compiled, which has no
     /// `OriginFile` to name (it is not a producer any provider retained), so it has no entry to
-    /// sit behind and is spliced exactly as before.
+    /// sit behind and can only be spliced.
     let internal expandLocalAt
         (ctx: PassContext)
         (mint: unit -> NodeKey)
@@ -409,8 +408,8 @@ module InlineReduction =
                     | TDecl.Let(_, value, _, _) -> Inline.lambdaArity value
                     | _ -> 0
 
-                min (Inline.Arrows.count ctx.Store refTy) bodyArity
-            | ValueNone -> Inline.Arrows.count ctx.Store refTy
+                min (SemTypeQuery.Arrows.count ctx.Store refTy) bodyArity
+            | ValueNone -> SemTypeQuery.Arrows.count ctx.Store refTy
 
         match arity with
         | 0 -> ValueNone
@@ -418,14 +417,14 @@ module InlineReduction =
             // Fresh binders come from the pass's own `mint`, so an eta site can never alias the
             // binders of the body about to be spliced into it.
             let binders =
-                Inline.Arrows.domains ctx.Store arity refTy
+                SemTypeQuery.Arrows.domains ctx.Store arity refTy
                 |> List.mapi (fun i pty -> mint (), pty, i)
 
             let appBody =
                 binders
                 |> List.fold
                     (fun acc (k, pty, i) ->
-                        let resTy = Inline.Arrows.resultAfter ctx.Store (i + 1) refTy
+                        let resTy = SemTypeQuery.Arrows.resultAfter ctx.Store (i + 1) refTy
                         TExpr.App(acc, TExpr.Var(k, pty, tok), resTy, tok)
                     )
                     (TExpr.External(name, keyOpt, refTy, tok))
@@ -435,7 +434,7 @@ module InlineReduction =
                 let lamTy = TyFun(pty, innerTy)
                 TExpr.Lambda(TPat.NamedSimple(k, pty, tok), innerBody, lamTy, tok), lamTy
             )
-            <| (appBody, Inline.Arrows.resultAfter ctx.Store arity refTy)
+            <| (appBody, SemTypeQuery.Arrows.resultAfter ctx.Store arity refTy)
             |> fst
             |> ValueSome
 
@@ -504,13 +503,13 @@ module InlineReduction =
         // `let func = ignore in func arg`, leaving `ignore` a bare external
         // value codegen cannot eta-expand ("no call recipe for external …").
         //
-        // Recognised through `Inline.unmarked`: an argument an OUTER fusion already
+        // Recognised THROUGH any caller mark: an argument an OUTER fusion already
         // marked is still the bare external value this rule is about, and re-marking
         // it here is right rather than redundant — two frames out is two pops.
         let externalValParams =
             bindings
             |> List.choose (fun p ->
-                match Inline.unmarked p.Arg with
+                match TastWalk.unmarked p.Arg with
                 | TExpr.External _ -> Some(p.Key, Placement.fuse placement p.Arg)
                 | _ -> None
             )
@@ -595,10 +594,9 @@ module InlineReduction =
     /// never by a name lookup whose best-by-arity collapse could serve a sibling overload's
     /// body).
     ///
-    /// Every splice-eligible head is key-stamped upstream: value refs by NameResolution
-    /// (`ExternalValue`), operator / synthesised-intrinsic heads by `Elaborate`
-    /// (`Resolution.IntrinsicKey`), intra-body sibling refs by `Freeze`'s publish rewrite, and a
-    /// member call by its resolved `MemberKey`. Operators are NOT an exception — a primitive
+    /// Every splice-eligible head is key-stamped upstream: value refs by name resolution,
+    /// operator / synthesised-intrinsic heads by elaboration, intra-body sibling refs by the
+    /// freeze's publish rewrite, and a member call by its resolved `MemberKey`. Operators are NOT an exception — a primitive
     /// `1 + 2` head is keyed and DOES reach `ops-platform.fs`'s `(+)`. A `key = ValueNone` head
     /// carries no inline body by construction (`Array.ofList` / ctor-as-value, handled by
     /// codegen recipes / eta-expansion), so `ValueNone` is a genuine "no body", never a missed
@@ -630,8 +628,8 @@ module InlineReduction =
                     match ib.Origin with
                     | ValueSome src ->
                         let sources = SpecTable.retainOrigin src specs
-                        Inline.thawBodyAtOrigin ctx.Store sources src.File ib.Decl, ValueSome src.File
-                    | ValueNone -> Inline.thawBody ctx.Store at ib.Decl, ValueNone
+                        InlineThaw.bodyAtOrigin ctx.Store sources src.File ib.Decl, ValueSome src.File
+                    | ValueNone -> InlineThaw.body ctx.Store at ib.Decl, ValueNone
 
                 {
                     Key = key

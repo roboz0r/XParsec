@@ -24,7 +24,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // 3. The body-local typar residue keeps its IDENTITY across freeze: each un-quantified
 //    root is attributed to the local scheme that BINDS it and freezes to
-//    `FTLocalTypar(scheme, index)`; `Inline.thawBody` mints one fresh cell per
+//    `FTLocalTypar(scheme, index)`; `InlineThaw.body` mints one fresh cell per
 //    `(scheme, index)` pair.
 //
 // 4. That identity is BODY-RELATIVE and survives two units minting the same `SchemeId` —
@@ -125,7 +125,7 @@ let private freezePools (src: string) : FrozenPools =
 /// inline vocabulary, which is what `ofPools` re-authors.
 let private freeze (src: string) : Pooled.TastFile = TastUnpool.ofPools (freezePools src)
 
-/// The call site a thaw lands its body on. `Inline.thawBody` takes one because a spliced body
+/// The call site a thaw lands its body on. `InlineThaw.body` takes one because a spliced body
 /// has to sit in the CONSUMING file, and a `Wire.TDecl`'s anchors index the producer's tokens.
 /// What these tests assert about a thawed body is its type CELLS and never where it sits,
 /// so one fixed real token stands for every splice.
@@ -138,7 +138,7 @@ let private siteTok: SyntaxToken =
     }
 
 /// The frozen `let` decl of a single-binding program, drained the way a provider serves a
-/// body (`declTree`) — the form `Inline.thawBody` takes.
+/// body (`declTree`) — the form `InlineThaw.body` takes.
 let private frozenLetDecl (src: string) : Wire.TDecl =
     let pools = freezePools src
     let pool = TastPoolBuilder.openOver pools
@@ -453,12 +453,12 @@ let tests =
                     "f's own type carries no local-typar residue — that is exactly why mkMethodQuantEnv cannot map it"
 
                 // One decl-scoped thaw: one fresh cell per distinct leaf, shared across every
-                // occurrence of it. `thawBody` mints on all three axes, so the expected count
+                // occurrence of it. `InlineThaw.body` mints on all three axes, so the expected count
                 // is every leaf the frozen decl names — not just the local ones.
                 let store = TypeStore()
 
                 let cells =
-                    Inline.thawBody store siteTok fDecl
+                    InlineThaw.body store siteTok fDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells
@@ -521,7 +521,7 @@ let tests =
                 // after the handle collapse — two units' cells are distinguishable only within a
                 // single id space. So route the consumer's own inference AND both thaws through
                 // ONE store: a leaf-keyed conflation would then surface as a REUSED (colliding)
-                // id rather than hide behind separate object identities. Each `thawBody` still
+                // id rather than hide behind separate object identities. Each `InlineThaw.body` still
                 // builds its OWN decl-scoped cache (design constraint: one cache per thawed decl),
                 // so the two same-keyed thaws must still mint independent cells in that one store.
                 let ctx, tast = analyseWithCtx consumer
@@ -536,13 +536,13 @@ let tests =
                     |> distinctCells
 
                 let pCells =
-                    Inline.thawBody store siteTok pDecl
+                    InlineThaw.body store siteTok pDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells
 
                 let cCells =
-                    Inline.thawBody store siteTok cDecl
+                    InlineThaw.body store siteTok cDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells

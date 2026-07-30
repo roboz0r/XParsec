@@ -487,7 +487,7 @@ module FrozenSignature =
         // SITE's operand types). But it is a tree over the SAME source binder, which is
         // what lets the two meet here rather than as two passes over one dictionary where
         // the later write happened to win. What ships is the DU drain of the root:
-        // `InlineBody` is the cross-unit wire (`Inline.thawBody` splices it in another
+        // `InlineBody` is the cross-unit wire (`InlineThaw.body` splices it in another
         // unit), and a pool id is meaningless outside the file that issued it.
         let inlineBodyOf =
             let d = Dictionary<BinderId, InlineBody>(frozen.InlineTemplates.Length)

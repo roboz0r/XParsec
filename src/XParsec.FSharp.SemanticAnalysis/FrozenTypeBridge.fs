@@ -254,7 +254,7 @@ module FrozenTypeBridge =
     /// `true` when the type is fully ground: no open typar on either axis, no
     /// body-local free typar, and no `FTUnknown` (a leaked inference metavar the
     /// front end never resolved). The `FrozenType` sibling of
-    /// `Passes.InlineExpansion`'s `SemType` `isGroundType`.
+    /// the `SemType` twin `SemTypeQuery.isGround`.
     let rec ftIsGround (t: FrozenType) : bool =
         match t with
         | FTTypar _

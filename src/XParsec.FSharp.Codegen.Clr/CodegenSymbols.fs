@@ -8,9 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// inline bodies — it sees only the type/member shapes (whose `FrozenType` templates it
 /// reads) and the open signature of a module-level function. This is the "dual view over
 /// one provider": the same backing `IExternalSymbolProvider`, projected to the narrow
-/// emission surface. The open-signature projection runs `Inline.openMethodSignature`
-/// (which lives past `ExternalSymbols` in the compile order, hence the adapter lands here
-/// rather than in the front-end module) and freezes its `TyVar`-free result.
+/// emission surface. The open-signature projection freezes its `TyVar`-free result.
 module CodegenSymbols =
 
     /// Reconcile the bare-vs-arity-suffixed registration split a key can land under: a
@@ -113,7 +111,7 @@ module CodegenSymbols =
                     if sym.Origin.Home = Origin.Unstamped then
                         ValueNone
                     else
-                        let os = Inline.openMethodSignature sym
+                        let os = OpenSignature.ofSymbol sym
 
                         ValueSome
                             {

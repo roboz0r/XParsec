@@ -92,12 +92,12 @@ type ImportForm =
 /// but the `Lexed` they index, so they arrive marked (`ForeignAnchor`) rather than blanked, and
 /// a consumer must either name the producer file it reads them against
 /// (`OriginSources.tokenAt`, which is also where the file's content hash is checked) or move
-/// the body onto a position of its own (`Inline.thawBody`). WHICH of the two is available is
+/// the body onto a position of its own (`InlineThaw.body`). WHICH of the two is available is
 /// `Origin` below.
 ///
 /// `FrozenType`, not `SemType` — a `SemType.TyVar` is a mutable `UnionFind` cell, and
 /// an oracle that hands one out lets a consumer's inference reach back and mutate a
-/// producer's. The consumer THAWS the body at the splice (`Inline.thawBody`), minting
+/// producer's. The consumer THAWS the body at the splice (`InlineThaw.body`), minting
 /// its own cells by construction; that thaw is the one immutable→mutable transition,
 /// and it sits on the consumer's side of the seam. Do NOT re-widen this to `SemType`
 /// to make a splice site convenient — thaw is the seam.
@@ -117,7 +117,7 @@ type InlineBody =
         /// `ValueNone` for a provider that retains none — a same-assembly prior-file view
         /// (`FrozenSignature.toProvider`) reconstructs its bodies off a frozen unit and never
         /// held the parse. Such a body has exactly ONE reading available, the relocating
-        /// `Inline.thawBody`, so it can be spliced but never left behind an edge.
+        /// `InlineThaw.body`, so it can be spliced but never left behind an edge.
         Origin: OriginSource voption
     }
 
@@ -1095,8 +1095,7 @@ type IExternalSymbolProvider =
 /// boundary sees it: the curried
 /// `param -> … -> return` template with the function's own typars baked as
 /// `FTTypar(Method, i)`, plus the home `Origin` the call's `MemberRef` parent is
-/// minted against and the method-typar count for the `MethodSpec`. The immutable-
-/// data replacement for codegen reaching `ExternalSymbol` + `Inline.openMethodSignature`:
+/// minted against and the method-typar count for the `MethodSpec`. Immutable data:
 /// `Signature` is `FrozenType`, so the codegen side never touches a `SemType` or the
 /// symbol's mutable `Instantiate` closure.
 type CodegenOpenSignature =
@@ -1172,8 +1171,7 @@ type ICodegenSymbols =
     abstract TryRebaseCapabilityMember: key: SymbolKey -> SymbolKey voption
     /// The open `FrozenType` signature of a module-level function by its value key, or
     /// `ValueNone` for an unknown symbol or one with no home assembly (a project-local
-    /// symbol the provider never sees — the caller falls back to its hard error). The
-    /// data-form replacement for `Inline.openMethodSignature` at the codegen boundary.
+    /// symbol the provider never sees — the caller falls back to its hard error).
     abstract TryLookupOpenSignature: key: SymbolKey -> CodegenOpenSignature voption
     /// The forward intrinsic axis `{ canon -> platform-repr }` (see
     /// `IExternalSymbolProvider.IntrinsicForwardRepr`): codegen resolves a primitive

@@ -4,7 +4,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // `.ty` field through `f` and every POSITION through `fTok`, producing a tree at different
 // type parameters. This is the engine behind the genuine freeze
 // (`Freeze.run = TastConvert.file toFrozen id`), behind the thaw that lands a wire body on
-// its call site (`Inline.thawBody`), and behind the RELOCATION a splice performs
+// its call site (`InlineThaw.body`), and behind the RELOCATION a splice performs
 // (`Inline.spliceAt`, which is this at `f = id`).
 //
 // Distinct from `TastWalk`, whose `Mapper` is same-`'ty`, same-`'tok` (it rewrites a tree in

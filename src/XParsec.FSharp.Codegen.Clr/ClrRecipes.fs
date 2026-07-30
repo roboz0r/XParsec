@@ -317,10 +317,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// top-level binding is held by a namespace, not a module, so a pair could not spell it and the
     /// probe below would miss the very function the producer registered.
     ///
-    /// The open method signature is reconstructed by the symbol layer's `Inline.openMethodSignature`
-    /// accessor: it instantiates the symbol and hands back a curried monotype whose method-own typars
-    /// are already self-describing `FTTypar(Method, i)` nodes,
-    /// so codegen never authors a `TyVar`. The keystone `encodeType` arm maps those to `!!i`, matching
+    /// The open method signature is reconstructed by the symbol layer: a curried monotype whose
+    /// method-own typars are already self-describing `FTTypar(Method, i)` nodes, so codegen never
+    /// authors a `TyVar`. The keystone `encodeType` arm maps those to `!!i`, matching
     /// the producer's emitted signature; the use-site type arguments are then recovered by structurally
     /// matching that open type against `fnTy` (`recoverOpenTypars`, method axis). A monomorphic method
     /// needs no `MethodSpec`. `ValueNone` ⇒ the symbol is unknown to the provider, or carries no home

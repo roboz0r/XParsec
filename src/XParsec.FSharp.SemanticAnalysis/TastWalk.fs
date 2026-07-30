@@ -122,6 +122,26 @@ module TastWalk =
         | TExprG.CallerExpr(tok = tok)
         | TExprG.TypeTest(tok = tok) -> tok
 
+    /// Mark `body` as CALLER material: an expression written at the call site that a reduction
+    /// FUSED into a specialization entry, and so anchored one frame out from the entry's own
+    /// `OriginFile`.
+    ///
+    /// THE constructor of the node — its `ty`/`tok` ARE its body's by definition, so routing
+    /// every mint through here is what keeps them from being filled in twice and disagreeing.
+    let callerExpr (body: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
+        TExprG.CallerExpr(body, exprTy body, exprTok body)
+
+    /// The node under any caller marks — `CallerExpr` is semantically transparent, so a SHAPE
+    /// test (is this an `External`? an application head?) must read through it or a rewrite
+    /// would stop recognising the very material an earlier fusion marked.
+    ///
+    /// Recursive because marks NEST: an argument two frames out from the entry it now sits in
+    /// pops twice, and both layers are equally transparent to a shape test.
+    let rec unmarked (e: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
+        match e with
+        | TExprG.CallerExpr(body, _, _) -> unmarked body
+        | _ -> e
+
     let patTy (p: TPatG<'ty, 'tok, 'id>) : 'ty =
         match p with
         | TPatG.NamedSimple(ty = ty)

@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 
 /// The resolved-specialization GRAPH, spliced back into the trees at EMIT.
 ///
-/// `Passes.InlineExpansion` resolves an inline call — type arguments ground, static-opt
+/// The pre-freeze pass resolves an inline call — type arguments ground, static-opt
 /// clauses selected, trait calls dispatched — and leaves a `TExprG.InlineCall` EDGE into the
 /// file's specialization table rather than the body itself. That is what lets an entry's
 /// nodes keep the anchors they were WRITTEN at, beside the `OriginFile` saying which file
@@ -18,8 +18,9 @@ open XParsec.FSharp.SemanticAnalysis
 module InlineExpand =
 
     /// WHERE a node of an expanded tree was written: the producer file, and the node's own
-    /// index into THAT file's tokens. Exactly the pair `OriginSources.tokenAt` consumes, and
-    /// a `ForeignAnchor` rather than an `Anchor` because that is what the integer is — an
+    /// index into THAT file's tokens — exactly the pair needed to read a token back out of a
+    /// producer's retained `Lexed`. A `ForeignAnchor` rather than an `Anchor` because that is
+    /// what the integer is — an
     /// index read against another file, which resolves in range against the consuming file
     /// and lands on an unrelated token.
     ///

@@ -561,7 +561,7 @@ module TastPoolBuilder =
     /// file and not the consumer's. Nothing here blanks or rebases them, and nothing should —
     /// they are the only record of where the body was written, and the marking is what forces
     /// a consumer to say which file it is reading them against (`OriginSources.tokenAt`) or to
-    /// give the body a position of its own (`Inline.thawBody`).
+    /// give the body a position of its own (`InlineThaw.body`).
     let declTree (b: PoolBuilder) (at: DeclPoolId) : Wire.TDecl =
         let rename (binder: BinderId) : NodeKey =
             match b.DrainedBinderKeys.TryGetValue binder with

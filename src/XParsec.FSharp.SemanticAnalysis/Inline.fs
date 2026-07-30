@@ -3,31 +3,23 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 open XParsec.FSharp
 open XParsec.FSharp.Parser
-// `Unification.zonk` and `shown`: the pre-freeze type questions below are asked THROUGH
-// union-find, which is the substrate this side of the freeze and not a pass's private state.
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Passes.UnificationEngineCore
 
-// `let inline` expansion helper. The pre-freeze `Passes.InlineExpansion` pass
-// invokes it once per call site, between `Elaborate.elaborate` and the
-// `freezeTypars` cut, where `zonk` / union-find are still native. It stays in
-// this module (rather than the pass) because `openMethodSignature` below shares it
-// and `Codegen` no longer references the inline machinery at all.
+// Expanding one `inline` template at one call site: substituting the caller's types through
+// the body, selecting its `StaticOptimization` clauses, dispatching its `TraitCall`s, and the
+// tree surgery a splice needs (`freshen` / `relocate` / `betaReduce`).
 //
-// The cross-unit inline-body channel rides the resolved entry itself
-// (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`, reached by key), and
-// what it carries is FROZEN — `Frozen.TDecl`, cell-free. `thawBody` below is the one
-// place that turns it back into a `SemType` tree, minting the consumer's OWN cells.
+// Pre-freeze, so `zonk` and union-find are still native: every type question below is asked
+// THROUGH union-find, which is the substrate this side of the freeze and not a pass's
+// private state.
 //
-// So by the time `inlineExpand` runs, an inline binding's typars are free `TyVar`
-// roots either way: a SAME-unit template still holds the roots its generalised scheme
-// quantified (the pre-freeze pass sees it directly), and a CROSS-unit one holds the
-// roots `thawBody` just minted. `inlineExpand` substitutes those roots to the caller's
-// concrete types; `spliceAt` does the NodeKey renaming so independent call sites don't
-// alias each other's bound names (and thus codegen local slots), and moves the copy onto
-// the call site's token so it names a position in the file it lands in. The caller still
-// owns argument (beta) reduction of the resulting lambda against the actual arguments —
-// it needs the call-site args the caller holds.
+// By the time `inlineExpand` runs an inline binding's typars are free `TyVar` roots either
+// way: a SAME-unit template still holds the roots its generalised scheme quantified, and a
+// CROSS-unit one holds the roots the thaw just minted. `inlineExpand` substitutes those
+// roots to the caller's concrete types; `spliceAt` renames binders so independent call sites
+// do not alias each other's codegen local slots, and moves the copy onto the call site's
+// token. Argument (beta) reduction stays with the caller, which is what holds the spine.
 
 module Inline =
 
@@ -39,8 +31,8 @@ module Inline =
     /// Reported as data, not as a message: the expander runs off the type-erased
     /// `TastWalk.Mapper` surface with no `PassContext`, and it runs BEFORE `spliceAt`
     /// moves the body onto the call site, so the tokens it can see still address the
-    /// library file — the caller (`Passes.InlineExpansion`) owns both the wording and the
-    /// call-site key the diagnostic must be anchored at.
+    /// library file — the caller owns both the wording and the call-site key the diagnostic
+    /// must be anchored at.
     /// Every expansion path returns these, so none can splice a body while quietly
     /// leaving an unresolvable trait call in it — neither backend has a `TraitCall` arm.
     type UnresolvedTrait =
@@ -48,90 +40,6 @@ module Inline =
             Receiver: SemType
             MemberName: string
         }
-
-    /// A typar leaf of a FROZEN template, across all three axes — the key of the
-    /// thaw's freshener cache. One cache, one key type: a `Declaring 0` and a
-    /// `Method 0` are different typars and must not collide, and an `FTLocalTypar`
-    /// is identified by the `(scheme, index)` PAIR, never the index alone.
-    [<RequireQualifiedAccess>]
-    type private TyparLeaf =
-        | Declaring of declIndex: int
-        | Method of methodIndex: int
-        | Local of scheme: SchemeId * localIndex: int
-
-    /// THE immutable→mutable transition: realise a frozen inline body in the CONSUMER's
-    /// `SemType` domain, minting one fresh `TyVar` cell per distinct typar leaf.
-    ///
-    /// This is the seam the whole frozen inline-body channel rests on. The provider hands
-    /// out `FrozenType` — cell-free, so nothing a consumer does can reach back into a
-    /// producer's inference state. The cells the splice then unifies against are minted
-    /// HERE, by the consumer, out of leaves that name nothing but positions in the
-    /// template. So `substType` / `freshen` / SRTP resolution run unchanged: they key on
-    /// `TyVar` roots, and after this the roots exist and are this unit's.
-    ///
-    /// ONE cache for the WHOLE decl, shared across all three axes — not one per node. Two
-    /// occurrences of one typar must land on ONE cell, or the body's internal type links
-    /// (a parameter's type and the use of that parameter) come apart.
-    ///
-    /// It consults no ambient unit state: a leaf is interpreted against the body carrying
-    /// it and nothing else. That is what makes an `FTLocalTypar`'s body-relative
-    /// `SchemeId` safe across units — it addresses nothing outside the body it arrived
-    /// with, so there is nothing here that could resolve it against this unit.
-    ///
-    /// It is also where the body's POSITIONS are decided, and that is a choice the caller
-    /// makes, not a fact about the wire. A `Wire.TDecl` arrives carrying the producer's real
-    /// token indices, marked `ForeignAnchor` because they index the producer's `Lexed` and not
-    /// this unit's. `readAt` is what turns each of them into a position in the consumer's
-    /// domain, and the two answers are the two thaws below: `thawBody` DISCARDS them for the
-    /// call site, which is what a physical splice needs (a spliced node lands in this file's
-    /// tree, where a producer's index would name an unrelated token of this file);
-    /// `thawBodyAtOrigin` KEEPS them, which is what a body that stays behind an edge needs.
-    ///
-    /// Private, so a caller cannot invent a third reading: the `'tok` axes are distinct types,
-    /// and the only two total ways across them are the two exported below.
-    let private thawWith (store: TypeStore) (readAt: ForeignAnchor -> SyntaxToken) (decl: Wire.TDecl) : TDecl =
-        let cache = Dictionary<TyparLeaf, SemType>()
-
-        let mint (leaf: TyparLeaf) : SemType =
-            match cache.TryGetValue leaf with
-            | true, v -> v
-            | _ ->
-                let v = TyVar(store.NewTypeVar())
-                cache.[leaf] <- v
-                v
-
-        TastConvert.decl
-            (FrozenTypeBridge.instantiateWith
-                (fun i -> mint (TyparLeaf.Declaring i))
-                (fun j -> mint (TyparLeaf.Method j))
-                (fun scheme k -> mint (TyparLeaf.Local(scheme, k))))
-            readAt
-            decl
-
-    /// Realise a wire body AT A CALL SITE: every node takes `at`, the position an inlined body
-    /// means once it has been physically spliced — what a diagnostic, a trace or a source map
-    /// wants of a node that now lives in the consuming file. Taking the site as an ARGUMENT is
-    /// what makes "every node of a file anchors in that file" hold by construction for a
-    /// splice: there is no way to get a spliceable `TExpr` out of the wire without saying where
-    /// it lands.
-    ///
-    /// The cost is that the producer's own positions are gone, and with them any way to tell a
-    /// node written in the consuming file from one that came from the body — which is what
-    /// `thawBodyAtOrigin` exists to keep.
-    let thawBody (store: TypeStore) (at: SyntaxToken) (decl: Wire.TDecl) : TDecl =
-        thawWith store (fun (_: ForeignAnchor) -> at) decl
-
-    /// Realise a wire body WHERE IT WAS WRITTEN: every node keeps the producer's own token,
-    /// read out of that file's retained `Lexed`.
-    ///
-    /// For a body that is NOT physically spliced — one that stays a declaration of its own,
-    /// reached by an edge — so its nodes are never mixed into the consuming file's tree and its
-    /// indices never have to mean anything against this unit's tokens. `origin` is checked
-    /// against the retained source's content hash on every node, so a producer edited since the
-    /// body was built faults here rather than silently re-attributing the whole body to
-    /// whatever now sits at those indices.
-    let thawBodyAtOrigin (store: TypeStore) (sources: OriginSources) (origin: OriginFile) (decl: Wire.TDecl) : TDecl =
-        thawWith store (OriginSources.tokenAt sources origin) decl
 
     /// A module-level `let` value whose body is EXACTLY one intrinsic expression with
     /// NO operands (`let undefined : undefined = (# "undefined" : undefined #)`).
@@ -163,10 +71,9 @@ module Inline =
     /// (Link set to its carrier) is *not* a typar; like `generalise` we skip
     /// it by following the Link rather than collecting the root.
     ///
-    /// Keying by `TyVar` root is correct for a THAWED body too, and stays correct:
-    /// `thawBody` re-mints a fresh `TyVar` cell per frozen typar leaf BEFORE the
-    /// splice, so by the time this runs the template's typars are roots again — this
-    /// unit's roots. It never sees a `TyTypar`.
+    /// Keying by `TyVar` root is correct for a THAWED body too: the thaw re-mints a fresh
+    /// `TyVar` cell per frozen typar leaf BEFORE the splice, so by the time this runs the
+    /// template's typars are roots again — this unit's roots. It never sees a `TyTypar`.
     let quantifiedTypars (store: TypeStore) (declTy: SemType) : TyVarId[] =
         let acc = ResizeArray<TyVarId>()
         let seen = HashSet<TyVarId>()
@@ -175,7 +82,7 @@ module Inline =
 
     /// Substitute typar roots present in `subst`. A template's free typar is a
     /// `TyVar` root with no Link (the producer's, pre-freeze; a freshly minted one
-    /// of this unit's, post-`thawBody`); chase to the union-find root and swap.
+    /// of this unit's, post-thaw); chase to the union-find root and swap.
     /// Roots absent from `subst` stay abstract.
     let rec private substType (store: TypeStore) (subst: Dictionary<TyVarId, SemType>) (t: SemType) : SemType =
         match t with
@@ -200,7 +107,7 @@ module Inline =
     /// there are no aliases left to canonicalise: an intrinsic ABBREVIATION (`type single =
     /// float32`, `type int32 = int` — every prim-types alias whose right-hand side is not
     /// itself a `(# … #)` binding) is registered in `AbbreviationTypes` and expanded eagerly
-    /// by `Translate.resolveBareTypeName`. Both the operand's type and the clause's required
+    /// during name resolution. Both the operand's type and the clause's required
     /// type pass through it, so both sides arrive here already canonical, and a name compare
     /// would only be a lossy `=` that drops the identity's declaring namespace.
     let rec private staticOptTypesMatch (store: TypeStore) (a: SemType) (b: SemType) : bool =
@@ -296,10 +203,9 @@ module Inline =
         // rather than mint a call: the receiver does not pin to a host at all (an
         // unpinned `^T`), OR it pins to host `k` but `k` carries
         // no such member — the honest "type does not support this operator" verdict, which
-        // the total-key mint surfaces (the former placeholder minted a key for the absent
-        // member and failed opaquely downstream). The result type is `sub ty` (`^T3`), NOT
-        // the receiver's — a heterogeneous operator (`Vec2 * float -> Vec2`) returns
-        // neither operand's type.
+        // the total-key mint surfaces. The result type is `sub ty` (`^T3`), NOT the
+        // receiver's — a heterogeneous operator (`Vec2 * float -> Vec2`) returns neither
+        // operand's type.
         let resolveTraitCall
             (m: TastWalk.Mapper)
             (recvTy: SemType)
@@ -367,9 +273,9 @@ module Inline =
     /// The substituting walk runs even when there is nothing to substitute (a
     /// monomorphic binding, or a bare reference with no spine to derive typars from):
     /// it is what resolves `StaticOptimization` and `TraitCall` nodes, and NEITHER
-    /// backend can emit those. Short-circuiting an empty substitution — the shape this
-    /// once had — let both node kinds ride an un-substituted body straight through to
-    /// codegen's `failwithf` catch-all.
+    /// backend can emit those. Short-circuiting an empty substitution would let both node
+    /// kinds ride an un-substituted body straight through to codegen's `failwithf`
+    /// catch-all.
     let inlineExpand (ctx: PassContext) (decl: TDecl) (typeArgs: SemType[]) : TExpr * UnresolvedTrait list =
         match decl with
         | TDecl.Let(_, value, _, declTy) ->
@@ -465,35 +371,15 @@ module Inline =
 
     /// Prepare an inline BODY for the call site at `at`: fresh binders, and every node moved
     /// onto the call site's own token. THE entry point for putting a same-unit template into
-    /// a consuming tree; a body off the WIRE lands through `thawBody`, which relocates it as
-    /// it realises it.
+    /// a consuming tree. A body off the WIRE never comes through here — the thaw that realises
+    /// it relocates it in the same step.
     let spliceAt (mint: unit -> NodeKey) (at: SyntaxToken) (body: TExpr) : TExpr = freshen mint body |> relocate at
-
-    /// Mark `body` as CALLER material: an expression written at the call site that a reduction
-    /// FUSED into a specialization entry, and so anchored one frame out from the entry's own
-    /// `OriginFile` (`TExprG.CallerExpr`).
-    ///
-    /// THE constructor of the node — its `ty`/`tok` ARE its body's by definition, so routing
-    /// every mint through here is what keeps them from being filled in twice and disagreeing.
-    let callerExpr (body: TExpr) : TExpr =
-        TExpr.CallerExpr(body, TastWalk.exprTy body, TastWalk.exprTok body)
-
-    /// The node under any caller marks — `CallerExpr` is semantically transparent, so a SHAPE
-    /// test (is this an `External`? an application head?) must read through it or a rewrite
-    /// would stop recognising the very material an earlier fusion marked.
-    ///
-    /// Recursive because marks NEST: an argument two frames out from the entry it now sits in
-    /// pops twice, and both layers are equally transparent to a shape test.
-    let rec unmarked (e: TExpr) : TExpr =
-        match e with
-        | TExpr.CallerExpr(body, _, _) -> unmarked body
-        | _ -> e
 
     /// Beta-reduce a curried lambda against its spine args, lowering each application to a
     /// `TExpr.Let`. The lambda count must be at least the
     /// spine-arg count; a leftover lambda is a partial application and is returned as it
     /// stands. The `SemType` of each spine element is the applying `App` node's RESULT type,
-    /// carried only because that is the shape `TastWalk.collectSpine` yields — the reduction
+    /// carried only because that is the shape a collected spine comes in — the reduction
     /// reads the argument and the position it was applied at.
     ///
     /// Anchoring: the synthesised `Let` sits at the application node it lowers, and the binder
@@ -507,10 +393,6 @@ module Inline =
         | TExpr.Lambda(param, _, _, _), _ ->
             failwithf "Inline.betaReduce: inline parameter destructuring is out of scope: %A" param
         | _, _ :: _ -> failwith "Inline.betaReduce: over-application of an inline function"
-
-    // ————————————————————————————————————————————————————————————————————————
-    // The expansion pass's own domain operations: whole-`SemType` / `TExpr` questions
-    // with no dependence on the walk that asks them, and so no reason to live inside it.
 
     /// Replace every `Var k` in `body` with `replacement`. Used for a parameter
     /// the declaration marked `[<CallAtMostOnce>]` — `Elaborate` already validated
@@ -599,63 +481,11 @@ module Inline =
         TastWalk.iterExpr it core
         bad
 
-    /// Arrow-spine views of a `SemType`, the two things this pass asks of a curried
-    /// function type: which domains it has, and what it returns after `n` of them are
-    /// applied. Each step zonks — pre-freeze a `TyFun` is often reachable only through
-    /// a union-find Link, so a raw match would see a `TyVar` and report arity 0. A
-    /// spine shorter than `n` is not an error here: both callers cap `n` at a count
-    /// this very module measured, and `deriveInlineTypeArgs` is deliberately tolerant
-    /// of a declared type it cannot fully peel.
-    ///
-    /// The `FrozenType` twin is `TastLower.peelArrows` — deliberately separate: that
-    /// side has no union-find to chase.
-    [<RequireQualifiedAccess>]
-    module internal Arrows =
-
-        /// The number of `->` in the spine.
-        let rec count (store: TypeStore) (t: SemType) : int =
-            match Unification.zonk store t with
-            | TyFun(_, r) -> 1 + count store r
-            | _ -> 0
-
-        /// The first `n` domain types, left to right.
-        let rec domains (store: TypeStore) (n: int) (t: SemType) : SemType list =
-            if n <= 0 then
-                []
-            else
-                match Unification.zonk store t with
-                | TyFun(a, b) -> a :: domains store (n - 1) b
-                | _ -> []
-
-        /// What the spine returns once `n` arguments have been applied.
-        let rec resultAfter (store: TypeStore) (n: int) (t: SemType) : SemType =
-            let t = Unification.zonk store t
-
-            if n <= 0 then
-                t
-            else
-                match t with
-                | TyFun(_, b) -> resultAfter store (n - 1) b
-                | _ -> t
-
-    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic. The
-    /// `SemType` sibling of `FrozenTypeBridge.ftIsGround` (this one zonks; the frozen
-    /// one has no vars to zonk). Used to rank competing candidates for one typar in
-    /// `deriveInlineTypeArgs` — a ground candidate beats an abstract one.
-    let rec internal isGroundType (store: TypeStore) (t: SemType) : bool =
-        match Unification.zonk store t with
-        | TyVar _
-        | TyUnknown _
-        | TyTypar _ -> false
-        | t -> SemType.forallChildren (isGroundType store) t
-
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter (and return) types — carrying the quantified typars —
     /// against the actual spine-arg types. Tolerant: a typar the params don't pin is
     /// left as its own `TyVar`, which selects no `when ^T : Type` clause and so falls
-    /// to the body's base. Returned in `quantifiedTypars` order. A verbatim port of
-    /// `EmitLower.deriveInlineTypeArgs` (`zonk` → `Unification.zonk`,
-    /// `typeOfExpr` → `TastWalk.exprTy`).
+    /// to the body's base. Returned in `quantifiedTypars` order.
     let internal deriveInlineTypeArgs
         (store: TypeStore)
         (declTy: SemType)
@@ -690,7 +520,7 @@ module Inline =
                         // Keeping the first ground match is intentional: a genuinely
                         // generic `let f a b = a = b` never sees a ground candidate, so
                         // the typar stays abstract and the body falls to its base.
-                        | ValueSome prev when not (isGroundType store prev) && isGroundType store act ->
+                        | ValueSome prev when not (SemTypeQuery.isGround store prev) && SemTypeQuery.isGround store act ->
                             result.[i] <- ValueSome act
                         | ValueSome _ -> ()
                     | None -> ()
@@ -700,8 +530,7 @@ module Inline =
                 // A generic intrinsic carries its args structurally — notably the
                 // array `'T[]` = `TyConst("[]", ['T])`, whose element typar is only
                 // reachable by descending here (the `GetArray`/`GetArrayLength`
-                // inline bodies pin `'T` solely through their `'T[]` parameter). The
-                // codegen twin `EmitLower.matchInstantiation` has the same arm.
+                // inline bodies pin `'T` solely through their `'T[]` parameter).
                 | TyConst(_, xs), TyConst(_, ys) when xs.Length = ys.Length ->
                     for i in 0 .. xs.Length - 1 do
                         go xs.[i] ys.[i]
@@ -728,7 +557,7 @@ module Inline =
 
             let nArgs = List.length spineArgs
 
-            pairGo (Arrows.domains store nArgs declTy) [ for (a, _, _) in spineArgs -> TastWalk.exprTy a ]
+            pairGo (SemTypeQuery.Arrows.domains store nArgs declTy) [ for (a, _, _) in spineArgs -> TastWalk.exprTy a ]
 
             // Pair the result position too: `failwith`'s only typar `'T` sits in
             // the *return* (`string -> 'T`), so the param walk leaves it unbound.
@@ -737,7 +566,7 @@ module Inline =
             // unifying it against `declTy`'s return position grounds the result
             // typars.
             if nArgs > 0 then
-                let declRetTy = Arrows.resultAfter store nArgs declTy
+                let declRetTy = SemTypeQuery.Arrows.resultAfter store nArgs declTy
                 let _, actualRetTy, _ = spineArgs |> List.last
                 go declRetTy actualRetTy
 
@@ -750,8 +579,8 @@ module Inline =
                 result
 
     /// The verdict for a trait call the expansion could not dispatch. An operator is named
-    /// as the user WROTE it (`+`), never by the member it compiled to (`op_Addition`) —
-    /// `OperatorNames.sourceSymbol` inverts the lexer's own table, so the spelling cannot
+    /// as the user WROTE it (`+`), never by the member it compiled to (`op_Addition`) — the
+    /// spelling is recovered by inverting the lexer's own table, so it cannot
     /// drift from the name. A member outside that table is not an operator at all (a
     /// user-written `(^T: (member GetAwaiter: …) x)`), and the verdict says so.
     let internal unsupportedTrait (store: TypeStore) (u: UnresolvedTrait) : Kind =
@@ -771,85 +600,3 @@ module Inline =
         match OperatorData.sourceSpelling name with
         | ValueSome symbol -> symbol
         | ValueNone -> name
-
-    /// The open method signature of an external symbol: its full curried
-    /// monotype with the method-owned typars resolved to self-describing
-    /// `TyTypar(Method, i)` nodes (`MethodTyparArity` of them). This is the
-    /// strictly-smaller precursor of the planned `instantiate :
-    /// ExternalSignature -> level -> SemType` seam: it lets
-    /// `ClrRecipes.emitExternalCall` reconstruct an
-    /// external call's signature without ever authoring a `TyVar`. The fresh
-    /// `TyVar`s `Instantiate` mints are transient and never escape this
-    /// function — the returned `Signature` is `TyVar`-free.
-    type OpenMethodSignature =
-        {
-            /// Curried `param -> … -> return` frozen template with method typars as
-            /// `FTTypar(Method, i)`: the codegen-facing open signature is immutable
-            /// `FrozenType` data, not a `SemType`.
-            Signature: FrozenType
-            /// Count of distinct method typars — the `MethodSpec` generic-parameter
-            /// count. INCLUDES phantom typars present only in `Coercion` bounds (the
-            /// enumerator `'E` in `'S :> IStructSeq<'T,'E>`), recovered by the
-            /// dependent-typar pass so the count matches the producer's emitted IL.
-            MethodTyparArity: int
-            /// The symbol's `when 'a :> <ty>` bounds, frozen over the method-typar
-            /// axis (`FTTypar(Method, i)` leaves) in the SAME `FrozenConstraint` shape
-            /// the project-local `EmitCall` phantom-typar solve consumes — so the
-            /// external solve is head-agnostic. Empty for a symbol with
-            /// no subtype bounds.
-            Constraints: FrozenConstraint list
-        }
-
-    /// Project a free function's contract `Scheme` onto the method axis: its own
-    /// typars are baked `FTTypar(Declaring, i)`, with `i` the contract's CANONICAL
-    /// order — explicit `<'T>` first in declaration order, then inferred typars by
-    /// first appearance (`VesperLib`'s `registerExplicitTypars` then the finalize
-    /// walk). That is EXACTLY the order the producer's static-method emit assigns
-    /// its `!!i` slots (`Elaborate.mkMethodQuantEnv` ▸ `GeneralizedTypars.canonical`).
-    /// So map each `Declaring i ↦ Method i` POSITIONALLY, preserving that order —
-    /// do NOT re-derive it by first-appearance over the monotype. The old appearance
-    /// walk silently dropped an explicit `<'b,'a>`'s declared order, so a call to
-    /// `Set.fold<'T,'State>` (whose declared order differs from appearance) emitted
-    /// a `MethodSpec` permuted from the callee's emitted `GenericParam` order — a
-    /// `MissingMethodException` at JIT. `MethodTyparArity` is the scheme's own typar
-    /// count. A free function's scheme carries no `Method`-axis typars, but the
-    /// freshener maps that branch identically for totality.
-    let openMethodSignature (sym: ExternalSymbol) : OpenMethodSignature =
-        let openSig =
-            FrozenTypeBridge.instantiateWith
-                (fun i -> TyTypar(TyparAxis.Method, i))
-                (fun j -> TyTypar(TyparAxis.Method, j))
-                (FrozenTypeBridge.localTyparInTemplate "Inline.openMethodSignature")
-                sym.Scheme
-
-        // The scheme's `Coercion` bounds, re-expressed over the method-typar axis in the
-        // SAME `FrozenConstraint` shape `EmitCall`'s project-local solve consumes — so the
-        // external phantom-typar solve is head-agnostic. `typarIndex` is the CONSTRAINED
-        // typar's method index (the `'S` receiver `EmitCall` reads); `target` (e.g.
-        // `IStructSeq<'T,'E>`) carries the phantom typars to recover. A phantom (the
-        // enumerator `'E`) is a declaring typar of the scheme that appears only inside a
-        // `Coercion` target, never in a parameter/result — so it carries no `Signature`
-        // position, but IS counted in `TyparArity` (hence `MethodTyparArity`) and gets its
-        // method slot. Mapped POSITIONALLY (`Declaring i ↦ Method i`), matching
-        // `Signature`'s declared-order projection — NOT re-derived by first-appearance.
-        let constraints =
-            [
-                for c in sym.Constraints do
-                    match c with
-                    | ExternalConstraint.Coercion(i, target) ->
-                        let openTarget =
-                            FrozenTypeBridge.instantiateWith
-                                (fun k -> TyTypar(TyparAxis.Method, k))
-                                (fun k -> TyTypar(TyparAxis.Method, k))
-                                (FrozenTypeBridge.localTyparInTemplate "Inline.openMethodSignature")
-                                target
-
-                        FrozenConstraint.Coercion(i, toFrozen openTarget)
-                    | _ -> ()
-            ]
-
-        {
-            Signature = toFrozen openSig
-            MethodTyparArity = sym.TyparArity
-            Constraints = constraints
-        }

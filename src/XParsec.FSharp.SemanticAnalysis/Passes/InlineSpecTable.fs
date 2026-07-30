@@ -4,7 +4,7 @@ open System.Collections.Generic
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-// The resolved-specialization table `Passes.InlineExpansion` builds, and the vocabulary of ONE
+// The resolved-specialization table the expansion pass builds, and the vocabulary of ONE
 // reduction as the table consumes it.
 //
 // A file of its own because the table has a lifecycle — reserve a slot, build into it, intern
@@ -112,8 +112,9 @@ module InlineSpecTable =
         {
             Reservation: Reservation
             Grounding: Grounding
-            /// May a LATER site at the same grounding name this same entry? See
-            /// `SpecTable.tryReuse` for the two conditions behind it.
+            /// May a LATER site at the same grounding name this same entry? False when the
+            /// reduction fused any call-site material, or when its type arguments are not
+            /// ground — either way the entry belongs to this site rather than the template.
             Shareable: bool
             /// The producer file the entry's nodes stay anchored in. Taken off the placement
             /// that made the reduction outlined, so it cannot be paired with a spliced one.
@@ -132,10 +133,8 @@ module InlineSpecTable =
             Build: unit -> Reduced
         }
 
-    // ————————————————————————————————————————————————————————————————————————
-    // Queries over a FINISHED `TSpecialization[]` — the graph invariants `SpecTable.finish`
-    // discharges, stated on the table they are invariants of. Above the table because the
-    // lifecycle calls them, not the other way round.
+    // Queries over a FINISHED `TSpecialization[]` — the graph invariants the finish step
+    // discharges.
 
     /// Does the tree mark any caller-anchored material?
     ///
@@ -156,7 +155,7 @@ module InlineSpecTable =
 
                         // Existence, not enumeration: once the answer is settled there is
                         // nothing left below to learn, so the descent stops. That makes this
-                        // a PRUNING walk, and so not a `TastWalk.chooseExpr`.
+                        // a PRUNING walk, and so not a plain collect.
                         not found
             }
             e
@@ -202,7 +201,7 @@ module InlineSpecTable =
     /// direct self-reference is a one-element list). `ValueNone` ⇒ the table is the DAG the
     /// design says it is.
     ///
-    /// THE precondition of the emit-time expansion (`Codegen.Common.InlineExpand.expand`), and
+    /// THE precondition of the emit-time expansion, and
     /// it has to be checked on the TABLE rather than during the walk that consumes it: an entry
     /// that reaches itself is a finite, inspectable thing here and an unbounded recursion once
     /// anything starts substituting bodies into bodies. A cyclic table is a program error (a
@@ -282,7 +281,7 @@ module InlineSpecTable =
     type SpecTable =
         {
             Entries: ResizeArray<PendingEntry>
-            /// The entries a later call site may REUSE — see `SpecTable.tryReuse`.
+            /// The entries a later call site may REUSE, keyed by the grounding they agree on.
             Interned: Dictionary<Grounding, SpecializationId>
             /// Producer files a served body arrived with, retained for the whole run so that an
             /// entry's foreign anchors stay readable.
@@ -395,8 +394,8 @@ module InlineSpecTable =
                     {
                         Key = o.Grounding.Key
                         Origin = o.Origin
-                        // The binder is unread — `Inline.inlineExpand` and the flattener both
-                        // match `TDecl.Let(_, value, _, _)` — so it is minted rather than
+                        // The binder is unread — every consumer matches
+                        // `TDecl.Let(_, value, _, _)` — so it is minted rather than
                         // taken from anything, exactly as a harvested member body's is.
                         Decl =
                             TDecl.Let(TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value), value, true, declTy)

@@ -720,11 +720,11 @@ module VesperLibTypeTranslate =
         // collector assigns Declaring indices in the SAME first-left-to-right-
         // appearance order the producer's `Elaborate.mkMethodQuantEnv` ▸
         // `GeneralizedTypars.canonical` uses (`TyFun` domain before range). A
-        // free-function's `Scheme` index is then the canonical ABI typar order, which
-        // `Inline.openMethodSignature` maps positionally onto the method axis. The
-        // earlier return-first walk interned a return-only typar (`Set.map`'s `'U` in
-        // `-> Set<'U>`) ahead of an argument typar, permuting the order and breaking
-        // that match. Explicit `<'T>` typars are seeded ahead of this walk regardless.
+        // free-function's `Scheme` index is then the canonical ABI typar order, which the
+        // consumer maps positionally onto the method axis. Interning the return type first
+        // would put a return-only typar (`Set.map`'s `'U` in `-> Set<'U>`) ahead of an
+        // argument typar, permuting the order and breaking that match. Explicit `<'T>`
+        // typars are seeded ahead of this walk regardless.
         let mutable err = None
         let argFs = ResizeArray<FrozenType>(args.Length)
 

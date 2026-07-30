@@ -17,7 +17,7 @@ several files still carry the old name.
 | 2  | `NameResolution`   | `Binding` table    | CST, `Desugared`     | Open-decls, shadowing, qualified lookups; registers types + members. |
 | 3  | `Unification`      | `TypeVar` table    | CST, `Desugared`, `Binding` | Algorithm J + Rémy's levels. Deferred SRTP / IWSAM resolution iterates *inside* this pass. |
 | 4  | `Validation`       | (diagnostics only) | all prior            | Read-only. Exhaustiveness, value restriction, mutability. |
-| 5  | `Elaborate`        | `TastFileG<SemType>` | CST + all tables   | The tree projection: expands `inline` call sites, quantifies open typars. Side tables are discardable after this. Still `SemType`. |
+| 5  | `Elaborate`        | `TastFileG<SemType>` | CST + all tables   | The tree projection; quantifies open typars. Runs `Passes.InlineExpansion` internally (`Elaborate.fs`), which resolves `inline` call sites and builds the specialization table. Side tables are discardable after this. Still `SemType`. |
 | 6  | `Regions`          | `Escape` table     | the elaborated tree  | Inequality-only escape analysis. Runs **post-inline** — inlining both removes and exposes closures, so the graph must be built over the closures codegen actually emits. |
 | 7  | `RefCellPromotion` | (rewrites the tree) | `Escape`, `Binding` | Promotes a `let mutable` captured by an escaping closure to a heap `Vesper.Ref<'T>` cell. |
 | 8  | `ResolvedTypes`    | (diagnostics only) | the tree             | Guard: a leaked `TyVar` surfaces as a per-decl diagnostic here rather than a hard error in `Freeze`. |
@@ -55,14 +55,20 @@ This is the only place a downstream pass "depends on" a flag set earlier.
 It's not an optimisation; it's part of unification's correctness. See
 [architecture.md](architecture.md#where-inline-lives).
 
-At the codegen boundary, `inline` also drives per-call-site body expansion.
-`TDecl.Let` carries an `Inline` marker, the binding's body is retained in
-the TAST, and an `inlineExpand` helper substitutes the caller's resolved
-types into the body at each use site. This is the codegen-side companion
-to the unification correctness above — without retained bodies, `inline`
-bindings would lose the chance to dispatch through the constrained
+Per-call-site body expansion is `Passes.InlineExpansion`, run from inside
+`Elaborate.run` — *not* at the codegen boundary. `TDecl.Let` carries an `Inline`
+marker, the binding's body is retained in the TAST, and `Inline.inlineExpand`
+substitutes the caller's resolved types into the body at each use site. This is
+the companion to the unification correctness above — without retained bodies,
+`inline` bindings would lose the chance to dispatch through the constrained
 generic typars that the Fun-style function representation relies on
 ([function-representation-plan](function-representation-plan.md)).
+
+What the pass *leaves* is a tree carrying `TExpr.InlineCall` edges plus the
+specialization table those edges name. Placing the bodies is deferred to emission
+(`Codegen.Common.InlineExpand.expand`), so an entry's nodes keep the anchors they
+were written at rather than collapsing onto their call sites. `Regions` (step 6)
+therefore sees an edge as an opaque call.
 
 ## Validation diagnostics
 

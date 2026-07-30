@@ -740,10 +740,10 @@ module EmitClosures =
     /// `FTTypar(Method, i)` encoder maps these to `!!i` directly (no ambient window).
     /// A closure walked from this fn's body inherits the count on its `Closure.Typars`.
     ///
-    /// This is the PRODUCER arity; it MUST STAY IN LOCKSTEP with the CONSUMER's
-    /// (`Inline.openMethodSignature`' dependent-typar fixpoint) — the same method,
-    /// built here then consumed across a package boundary, has to agree on its arity or
-    /// the consumer's `MethodSpec` arg count mismatches this emitted IL. Nothing
+    /// This is the PRODUCER arity; it MUST STAY IN LOCKSTEP with the CONSUMER's dependent-typar
+    /// fixpoint — the same method, built here then consumed across a package boundary, has to
+    /// agree on its arity or the consumer's `MethodSpec` arg count mismatches this emitted IL.
+    /// Nothing
     /// structural ties the two (this sweeps the frozen `TExpr` body; the consumer folds
     /// `SemType` bounds), so the graduation test guards divergence end to end.
     let staticFnTypars (fn: StaticFn) : int =

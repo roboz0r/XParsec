@@ -148,7 +148,7 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
         | [] -> failwith "expected a parse that needed recovery; nothing was reported"
         | _ -> parsed.Lexed, parsed.File
 
-/// The call site a test lands a WIRE inline body on. `Inline.thawBody` takes one because a
+/// The call site a test lands a WIRE inline body on. `InlineThaw.body` takes one because a
 /// SPLICED body has to sit in the consuming file, and a wire tree's anchors index the
 /// producer's tokens. Where a thawed body sits is asserted only by the tests that are about
 /// exactly that, so elsewhere the consuming file's first token stands for the splice.

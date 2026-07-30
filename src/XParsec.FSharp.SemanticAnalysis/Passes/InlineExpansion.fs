@@ -9,20 +9,18 @@ open InlineSpecTable
 // One reduction: what a served body is, where it will live, and how a spine resolves against it.
 open InlineReduction
 
-// The pre-freeze inline-expansion pass. Runs
-// between `Elaborate.elaborate` and `Elaborate.freezeTypars`, on the still
-// `TyVar`-carrying `TExpr` tree, where `zonk` / union-find are native. It
-// relocates module-level `let inline` expansion out of codegen
-// (`EmitLower.lowerWith`'s inline branches): a saturated use of a local
-// `let inline` — or of a cross-unit `val inline` whose body the provider serves on the
-// resolved entry (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`) — is
-// expanded + beta-reduced + static-opt resolved here, so the frozen module decls
-// reaching codegen carry no inline call heads and no `StaticOptimization` nodes.
+// The pre-freeze inline-expansion pass. Runs after elaboration and before the typar freeze,
+// on the still `TyVar`-carrying `TExpr` tree, where `zonk` /
+// union-find are native. A saturated use of a local `let inline` — or of a cross-unit
+// `val inline` whose body the provider serves on the resolved entry
+// (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`) — is expanded + beta-reduced +
+// static-opt resolved here, so the frozen module decls reaching codegen carry no inline call
+// heads and no `StaticOptimization` nodes.
 //
 // What the walk LEAVES is a tree carrying edges — a `TExpr.InlineCall` per outlined call site
 // — and the table those edges name, which is a DAG: an entry's own body carries edges. The
 // edges SURVIVE the pass, and the freeze: placing the bodies is the backends' shared
-// `Codegen.Common.InlineExpand.expand`, which splices them as it emits and keeps a frame
+// emit-time expansion, which splices them as it emits and keeps a frame
 // chain naming the file each spliced node was written in. That is what deferral is for — a
 // body flattened here has one anchor domain (the call site's) and nothing to say where it
 // came from. What this pass owns is RESOLUTION, and what it hands out is the table.
@@ -40,7 +38,7 @@ open InlineReduction
 // module function, and codegen's input invariant (no inline call heads, no
 // `StaticOptimization`, no `External` used as a value) has to hold of that function
 // like any other. The walked form is therefore the EMITTED one and NOT the published
-// template: `Elaborate.run` snapshots the unwalked body into `ctx.InlineTemplates`
+// template: the unwalked body is snapshotted into `ctx.InlineTemplates`
 // first, because a template's static-opt clauses and trait calls must resolve against
 // a CALL SITE's operand types, not against the nothing that is ground at its
 // definition.
@@ -48,17 +46,11 @@ open InlineReduction
 module InlineExpansion =
 
     /// Apply `f` to every expression a declaration carries: a module binding's value, a `do`
-    /// expression, and — through `TastWalk.mapTypeDecl`, at the type axis `id` — everything a
+    /// expression, and — through the type-declaration mapper, at the type axis `id` — everything a
     /// type declaration holds. That covers member bodies, the class preambles (`[static] let`
     /// initialisers and `[static] do` bodies), secondary-ctor `let`s + chain args, and the
     /// `inherit Base(args)` arguments, and it covers them because the DECLARATION SHAPE says
-    /// so, not because a traversal here remembered to. This relocates codegen's
-    /// `EmitLower.spliceExternalInlinesInExpr` splice (`NominalEmit`'s three sites) out of
-    /// emission. The expansion walk also covers local inlines a member body might call — a
-    /// superset of the external-only codegen splice — but a local-inline reference in a member
-    /// body would otherwise dangle (codegen drops local inline templates), so this only ever
-    /// turns a would-be error into a correct expansion; existing green corpora carry none, so
-    /// output is byte-identical.
+    /// so, not because a traversal here remembered to.
     ///
     /// Parameterised over `f` because the pass makes TWO passes over this same coverage — the
     /// expansion walk, then the collection of the roots the finished table is checked against —
@@ -72,8 +64,8 @@ module InlineExpansion =
     /// What one run of the pass produced.
     ///
     /// `Decls` CARRY EDGES — a `TExpr.InlineCall` per outlined call site — and
-    /// `Specializations` is the table those edges name. Placement is deferred to emission
-    /// (`Codegen.Common.InlineExpand.expand`), which is what lets an entry's nodes keep the
+    /// `Specializations` is the table those edges name. Placement is deferred to emission,
+    /// which is what lets an entry's nodes keep the
     /// anchors they were written at instead of collapsing onto their call sites.
     ///
     /// A CYCLIC table is rejected with a diagnostic and nothing walks it: substituting bodies
@@ -91,8 +83,8 @@ module InlineExpansion =
     /// `TyVar`-carrying decls paired with their freeze envs). The cross-unit inline-body
     /// channel is `provider` itself — the body rides the resolved entry, reached by the
     /// key the use-site node carries; a front-end-only provider serves none and every
-    /// lookup returns `ValueNone`, so the walk is an identity rebuild — which
-    /// `Elaborate.freezeTypars` does to every decl immediately after regardless, so there
+    /// lookup returns `ValueNone`, so the walk is an identity rebuild — which the typar
+    /// freeze does to every decl immediately after regardless, so there
     /// is no node-identity to preserve by skipping it.
     let run (ctx: PassContext) (decls: (TDecl * (TyVarId * SemType) list) list) : Expanded =
 
@@ -104,8 +96,7 @@ module InlineExpansion =
             | true, a -> a
             | _ -> [||]
 
-        // Local module-level `let inline` bindings, keyed by binder NodeKey — the
-        // same map codegen's `lowerWith` used to build (now retired). A `Var(k)`
+        // Local module-level `let inline` bindings, keyed by binder NodeKey. A `Var(k)`
         // use of one of these is a local inline call site.
         //
         // Off the INPUT decls, so a splice always takes the TEMPLATE — the body as
@@ -119,11 +110,10 @@ module InlineExpansion =
             | TDecl.Let(TPat.NamedSimple(b, _, _), _, true, _) -> localInlines.[b] <- d
             | _ -> ()
 
-        // The cast-based "provider carries no inlines" fast-path is retired: every
-        // provider now implements the channel, and the cross-package path (no local
-        // inlines, bodies served by the contract stack) must still walk, so the
-        // signal that gated the skip is gone. Only the degenerate empty-file case
-        // short-circuits; freezeTypars rebuilds every tree next anyway.
+        // Only the degenerate empty-file case short-circuits. There is no "this provider
+        // carries no inlines" fast path to take: every provider implements the channel, and a
+        // file with no local inlines still reaches bodies served by the contract stack.
+        // Skipping would save nothing anyway — `freezeTypars` rebuilds every tree next.
         if List.isEmpty decls then
             {
                 Decls = decls
@@ -260,7 +250,7 @@ module InlineExpansion =
                 let fusedLambdas =
                     peeled.Params |> List.filter (fun p -> p.Disposition = Disposition.FuseLambda)
 
-                // Marked UNDER its own binders, not around the whole lambda. `Inline.betaReduce`
+                // Marked UNDER its own binders, not around the whole lambda. Beta-reduction
                 // consumes those binders against arguments taken from the BODY the lambda is
                 // spliced into, so the `Let`s that replace them belong to that body's file;
                 // only what the lambda computes was written at the call site. (The binder
@@ -347,7 +337,7 @@ module InlineExpansion =
                                 }
                             Shareable =
                                 Peeled.isClosed peeled
-                                && resolved.TypeArgs |> Array.forall (Inline.isGroundType ctx.Store)
+                                && resolved.TypeArgs |> Array.forall (SemTypeQuery.isGround ctx.Store)
                             Origin = origin
                             EdgeTok = call.Tok
                             EdgeTy = call.Ty
@@ -386,7 +376,7 @@ module InlineExpansion =
                                 // nothing and its edge carries no arguments.
                                 Arity = 0
                             }
-                        Shareable = Inline.isGroundType ctx.Store refTy
+                        Shareable = SemTypeQuery.isGround ctx.Store refTy
                         Origin = origin
                         EdgeTok = tok
                         EdgeTy = refTy
@@ -403,10 +393,7 @@ module InlineExpansion =
             // child recursion stays in the same material and so on the same chain, which is
             // exactly what re-using `m` says.
             //
-            // This is the sole inline expander —
-            // it took over `EmitLower.lowerExpr`'s (retired) inline branches
-            // verbatim, minus eta-reification (an `External` function VALUE is
-            // still left as a leaf for codegen). Crucially the `App` arm is
+            // This is the sole inline expander. Crucially the `App` arm is
             // ALWAYS handled explicitly (never falls through to `TastWalk`'s
             // default child recursion): collect the whole spine, keep an
             // `External` call head verbatim, and recurse only into the ARGS
@@ -434,7 +421,7 @@ module InlineExpansion =
                                 // to the catch-all as a bare external no backend can call. The
                                 // mark is consumed with the node — the rewrite replaces the head
                                 // itself, so there is no subtree left for it to cover.
-                                let head = Inline.unmarked markedHead
+                                let head = TastWalk.unmarked markedHead
 
                                 // A rewrite inherits the position of the node it REPLACES, never
                                 // one of that node's children. What an expansion stands in for is
@@ -525,8 +512,8 @@ module InlineExpansion =
                                 // copy of its bound lambda, beta-reduced against the
                                 // call args, and walk it (nested inline heads /
                                 // further lambda params resolve in the recursion).
-                                // `Inline.nonInlinableLambdaParams` guaranteed every use is
-                                // saturated, so `betaReduce` consumes exactly the
+                                // Classification only marks a parameter fusable when every
+                                // use is saturated, so beta-reduction consumes exactly the
                                 // lambda's arity — no surviving closure.
                                 //
                                 // `freshen`, not `spliceAt`: what is copied is the CALL
@@ -737,7 +724,7 @@ module InlineExpansion =
 
             let expanded = decls |> List.map (fun (d, env) -> mapDeclExprs walkExpr d, env)
 
-            // The roots `SpecTable.finish` counts edges from — collected through `mapDeclExprs`
+            // The roots the finished table counts edges from — collected through `mapDeclExprs`
             // so "which expressions does a declaration carry?" is answered ONCE for the whole
             // pass; a hand-written second traversal is how one of them comes to miss a slot.
             let declExprs = ResizeArray<TExpr>()

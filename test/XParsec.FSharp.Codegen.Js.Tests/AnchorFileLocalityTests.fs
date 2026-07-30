@@ -13,7 +13,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // wrong file — a number still in range, so it resolves to some OTHER token rather than
 // faulting. Two mechanisms close it, and this is the half that has to hold of the file's own
 // declarations: a body with no retained producer file is MOVED onto the call site
-// (`Inline.thawBody`), as are same-unit templates.
+// (`InlineThaw.body`), as are same-unit templates.
 //
 // The specialization TABLE is the other half and is deliberately NOT checked here. An entry
 // keeps the anchors its body was written at, in the file its `OriginFile` names — that is the

@@ -171,7 +171,7 @@ module Pooled =
 /// being read against the consumer's `Lexed`, where it lands on an unrelated token instead of
 /// faulting. Reading one requires an `OriginFile` (`OriginSources.tokenAt`), which is why a
 /// consumer either names the producer file the body came from or relocates the body onto a
-/// position of its own (`Inline.thawBody`).
+/// position of its own (`InlineThaw.body`).
 module Wire =
     type TPat = TPatG<FrozenType, ForeignAnchor, NodeKey>
     type TExpr = TExprG<FrozenType, ForeignAnchor, NodeKey>

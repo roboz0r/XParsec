@@ -54,7 +54,7 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
     // The vocabulary is a pool root array; `declTree` drains a template to the DU form the
-    // cross-unit wire (and `Inline.thawBody`) speaks — the very path a provider serves it
+    // cross-unit wire (and `InlineThaw.body`) speaks — the very path a provider serves it
     // through.
     let pools = Pipeline.analyse realProvider.Value input lexed file
     let pool = TastPoolBuilder.openOver pools
@@ -62,14 +62,14 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     match List.ofArray pools.InlineTemplates with
     // Thaw into `ctx0.Store` — the SAME arena `Inline.inlineExpand ctx0` and
     // `Inline.quantifiedTypars` read the thawed roots' dense ids against.
-    | [ v ] -> ctx0.Store, Inline.thawBody ctx0.Store (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
+    | [ v ] -> ctx0.Store, InlineThaw.body ctx0.Store (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
 // ── the anchor domain a wire body carries ──────────────────────────────────────────────
 //
 // A drained body keeps the PRODUCER's token indices. Which file they index is not in them,
-// so a consumer either moves the body onto a position of its own (`Inline.thawBody`) or names
-// the producer file and reads them there (`Inline.thawBodyAtOrigin`). The second is only sound
+// so a consumer either moves the body onto a position of its own (`InlineThaw.body`) or names
+// the producer file and reads them there (`InlineThaw.bodyAtOrigin`). The second is only sound
 // while that file still holds the text the indices were taken against — every index stays in
 // range across an edit, so nothing downstream could notice the difference.
 
@@ -145,7 +145,7 @@ let tests =
                 let sources = OriginSources.ofSeq [ source ]
 
                 let atOrigin =
-                    Inline.thawBodyAtOrigin (TypeStore()) sources source.File body
+                    InlineThaw.bodyAtOrigin (TypeStore()) sources source.File body
                     |> positions
                     |> tokenIndices
 
@@ -168,7 +168,7 @@ let tests =
                 let lexed, _ = parseFile "let site = ()"
 
                 let collapsed =
-                    Inline.thawBody (TypeStore()) (spliceSite lexed) (publishedTemplate ())
+                    InlineThaw.body (TypeStore()) (spliceSite lexed) (publishedTemplate ())
                     |> positions
                     |> tokenIndices
                     |> List.distinct
@@ -199,7 +199,7 @@ let tests =
                 // bare `throws` would call the guard proven by any of them.
                 Expect.throwsC
                     (fun () ->
-                        Inline.thawBodyAtOrigin (TypeStore()) (OriginSources.ofSeq [ onDisk ]) anchoredAgainst body
+                        InlineThaw.bodyAtOrigin (TypeStore()) (OriginSources.ofSeq [ onDisk ]) anchoredAgainst body
                         |> ignore
                     )
                     (fun e ->
@@ -216,7 +216,7 @@ let tests =
 
                 Expect.throwsC
                     (fun () ->
-                        Inline.thawBodyAtOrigin (TypeStore()) OriginSources.empty anchoredAgainst body
+                        InlineThaw.bodyAtOrigin (TypeStore()) OriginSources.empty anchoredAgainst body
                         |> ignore
                     )
                     (fun e ->
@@ -544,7 +544,7 @@ let tests =
 
                 let body =
                     match List.ofArray pools.InlineTemplates with
-                    | [ v ] -> Inline.thawBody (TypeStore()) (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
+                    | [ v ] -> InlineThaw.body (TypeStore()) (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 let refs = ResizeArray<string * SymbolKey>()
@@ -622,7 +622,7 @@ let tests =
 
                 let body =
                     match List.ofArray pools.InlineTemplates with
-                    | [ v ] -> Inline.thawBody (TypeStore()) (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
+                    | [ v ] -> InlineThaw.body (TypeStore()) (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 match body with

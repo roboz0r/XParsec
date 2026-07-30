@@ -526,7 +526,7 @@ type TExprG<'ty, 'tok, 'id> =
     /// deferral, which is why a fused argument cannot instead ride on the edge's eager `args`
     /// (`&&` must not evaluate `b` unless `a` is true).
     ///
-    /// `ty` and `tok` are its BODY's, always (`Inline.callerExpr` is the only constructor).
+    /// `ty` and `tok` are its BODY's, always (`TastWalk.callerExpr` is the only constructor).
     /// The pop applies at this node, so its position reads in the caller's domain exactly as
     /// its body's does, and there is no position of its own to get wrong.
     | CallerExpr of body: TExprG<'ty, 'tok, 'id> * ty: 'ty * tok: 'tok
