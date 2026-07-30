@@ -214,11 +214,14 @@ type PooledInlineValue =
 /// with its declaration named by pool id — the pooled face of `TSpecializationG`, which is
 /// where the entry's own doc lives.
 ///
-/// The `Key` rides across the pooling unchanged: it is a `SymbolKey` plus frozen types,
-/// neither of which the columns address, exactly as a payload's embedded types do.
+/// `Key` and `Origin` ride across the pooling unchanged: a `SymbolKey`, frozen types and a
+/// file identity, none of which the columns address, exactly as a payload's embedded types do.
+/// `Origin` in particular MUST survive the pools and the wire — the entry's anchors are
+/// indices into that file and are unreadable without it.
 type PooledSpecialization =
     {
         Key: Frozen.SpecializationKey
+        Origin: OriginFile
         Decl: DeclPoolId
     }
 

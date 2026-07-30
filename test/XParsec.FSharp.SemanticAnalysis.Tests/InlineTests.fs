@@ -2,6 +2,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.InlineTests
 
 open Expecto
 open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
@@ -64,11 +65,168 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     | [ v ] -> ctx0.Store, Inline.thawBody ctx0.Store (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
+// ── the anchor domain a wire body carries ──────────────────────────────────────────────
+//
+// A drained body keeps the PRODUCER's token indices. Which file they index is not in them,
+// so a consumer either moves the body onto a position of its own (`Inline.thawBody`) or names
+// the producer file and reads them there (`Inline.thawBodyAtOrigin`). The second is only sound
+// while that file still holds the text the indices were taken against — every index stays in
+// range across an edit, so nothing downstream could notice the difference.
+
+let private producerSrc =
+    "namespace Ns\n\nmodule M =\n    let inline sq x = x * x\n"
+
+/// The same producer, edited. Same binding, same shape, DIFFERENT tokens — so a body anchored
+/// against the original still dereferences cleanly here and lands on the wrong ones.
+let private editedProducerSrc =
+    "namespace Ns\n\nmodule M =\n    let inline twice x = x + x\n    let inline sq x = x * x\n"
+
+/// A producer file retained the way a real collection retains one (`Hashing.originSource`, off
+/// the very text that was parsed) — which is what makes its hash the one an entry's `OriginFile`
+/// is checked against.
+let private retainedSource (input: string) : OriginSource =
+    let lexed, file = parseFile input
+
+    Hashing.originSource
+        {
+            File =
+                {
+                    BucketName = "Producer"
+                    Relative = "sq.fs"
+                    Absolute = "/producer/sq.fs"
+                }
+            Input = input
+            Lexed = lexed
+            Ast = FSharpAst.ImplementationFile file
+        }
+
+/// Every position a decl carries, in `TastConvert`'s own traversal order — the total walk of
+/// the position axis, so a body and its thaw are directly comparable node for node.
+let private positions (d: TDeclG<'ty, 'tok, 'id>) : 'tok list =
+    let acc = ResizeArray<'tok>()
+
+    TastConvert.decl
+        id
+        (fun t ->
+            acc.Add t
+            t
+        )
+        d
+    |> ignore
+
+    List.ofSeq acc
+
+let private tokenIndices (toks: SyntaxToken list) : int list =
+    toks
+    |> List.map (fun t ->
+        match t.Index with
+        | TokenIndex.Regular i -> int i
+        | TokenIndex.Virtual -> -1
+    )
+
+/// The producer's sole published template, drained to the wire form a provider serves.
+let private publishedTemplate () : Wire.TDecl =
+    let lexed, file = parseFile producerSrc
+    let pools = Pipeline.analyse realProvider.Value producerSrc lexed file
+    let pool = TastPoolBuilder.openOver pools
+
+    match List.ofArray pools.InlineTemplates with
+    | [ v ] -> TastPoolBuilder.declTree pool v.Decl
+    | other -> failwithf "expected exactly one published template, got %d" (List.length other)
+
 [<Tests>]
 let tests =
     testList
         "Inline"
         [
+            test "a wire body thawed at its origin keeps every token it was written at" {
+                let body = publishedTemplate ()
+                let source = retainedSource producerSrc
+                let sources = OriginSources.ofSeq [ source ]
+
+                let atOrigin =
+                    Inline.thawBodyAtOrigin (TypeStore()) sources source.File body
+                    |> positions
+                    |> tokenIndices
+
+                let written =
+                    positions body |> List.map (fun (ForeignAnchor a) -> Anchor.toStored a)
+
+                Expect.isNonEmpty written "the fixture body actually carries positions"
+
+                Expect.isGreaterThan
+                    (written |> List.filter (fun i -> i >= 0) |> List.distinct |> List.length)
+                    1
+                    "…and more than one of them, or a collapse onto a single token would be indistinguishable from preserving them"
+
+                Expect.equal atOrigin written "every node resolves to the exact token index it carries"
+            }
+
+            test "a wire body thawed at a call site collapses onto that one token" {
+                // The other reading of the same body, asserted alongside so the two are visibly
+                // a CHOICE the caller makes and not a property of the wire.
+                let lexed, _ = parseFile "let site = ()"
+
+                let collapsed =
+                    Inline.thawBody (TypeStore()) (spliceSite lexed) (publishedTemplate ())
+                    |> positions
+                    |> tokenIndices
+                    |> List.distinct
+
+                Expect.equal collapsed [ 0 ] "a spliced body sits at its call site and nowhere else"
+            }
+
+            test "a producer edited since the body was anchored FAULTS rather than re-attributing it" {
+                let body = publishedTemplate ()
+                // What the entry recorded, against what the same path now holds. Both parse, both
+                // hold the binding, and every recorded index is still in range against the edited
+                // file — so the hash is the only thing that can tell them apart.
+                let anchoredAgainst = (retainedSource producerSrc).File
+                let onDisk = retainedSource editedProducerSrc
+
+                Expect.equal
+                    anchoredAgainst.Path
+                    onDisk.File.Path
+                    "the fixture is the SAME file — a differing path would fault for the wrong reason"
+
+                Expect.notEqual
+                    anchoredAgainst.Content
+                    onDisk.File.Content
+                    "…at different contents, which is the whole of the difference"
+
+                // The MESSAGE is asserted, not merely that something threw: every other way this
+                // could throw (a missing file, an out-of-range index) is a different bug, and a
+                // bare `throws` would call the guard proven by any of them.
+                Expect.throwsC
+                    (fun () ->
+                        Inline.thawBodyAtOrigin (TypeStore()) (OriginSources.ofSeq [ onDisk ]) anchoredAgainst body
+                        |> ignore
+                    )
+                    (fun e ->
+                        Expect.stringContains
+                            e.Message
+                            "has changed since the tree anchored in it was built"
+                            "reading anchors against a changed producer is a hard failure, and says so"
+                    )
+            }
+
+            test "a producer that was never retained FAULTS rather than yielding positionless nodes" {
+                let body = publishedTemplate ()
+                let anchoredAgainst = (retainedSource producerSrc).File
+
+                Expect.throwsC
+                    (fun () ->
+                        Inline.thawBodyAtOrigin (TypeStore()) OriginSources.empty anchoredAgainst body
+                        |> ignore
+                    )
+                    (fun e ->
+                        Expect.stringContains
+                            e.Message
+                            "no retained source for"
+                            "a body whose origin file is not in hand has no readable positions at all"
+                    )
+            }
+
             test "`let inline` sets isInline on the TDecl.Let" {
                 match firstDecl "let inline succ x = x + 1" with
                 | TDecl.Let(_, _, true, _) -> ()

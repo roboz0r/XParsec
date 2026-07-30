@@ -372,6 +372,7 @@ module TastUnpool =
             |> Array.map (fun s ->
                 {
                     TSpecializationG.Key = s.Key
+                    Origin = s.Origin
                     Decl = fromDecl s.Decl
                 }
             )

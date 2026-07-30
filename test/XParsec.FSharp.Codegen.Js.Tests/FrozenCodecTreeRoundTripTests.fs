@@ -79,6 +79,20 @@ let private withSpecialization () : FrozenPools =
                             Template = template.Key
                             TypeArgs = EqArray.ofList [ FTConst(RuntimeNames.intKey, EqArray.empty) ]
                         }
+                    // The origin names a file OTHER than the one the blob is keyed by, so
+                    // nothing about it is recoverable from the key and every field of it has to
+                    // survive the wire — which is what the assertion on the decoded table
+                    // checks. A synthetic identity suffices: no anchor is resolved here.
+                    Origin =
+                        {
+                            Path =
+                                {
+                                    BucketName = "Lib"
+                                    Relative = "n.fs"
+                                    Absolute = "/lib/n.fs"
+                                }
+                            Content = Hashing.hashString "module N\n\nlet inline f x = x + 1\n"
+                        }
                     Decl = template.Decl
                 }
             |]

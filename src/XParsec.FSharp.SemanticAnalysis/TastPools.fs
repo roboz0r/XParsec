@@ -409,6 +409,7 @@ module TastPools =
             |> Array.map (fun s ->
                 {
                     Key = s.Key
+                    Origin = s.Origin
                     Decl = poolDecl sink s.Decl
                 }
             )

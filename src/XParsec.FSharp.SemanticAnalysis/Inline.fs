@@ -73,13 +73,18 @@ module Inline =
     /// `SchemeId` safe across units — it addresses nothing outside the body it arrived
     /// with, so there is nothing here that could resolve it against this unit.
     ///
-    /// It is also where the body ACQUIRES A POSITION. A `Wire.TDecl` sits `Anchor.nowhere`
-    /// throughout — an anchor indexes the producer's tokens, which this unit does not have —
-    /// so `at`, the call site, is the position every node takes. That is the position an
-    /// inlined body means anyway: what a diagnostic, a trace or a source map wants. Taking
-    /// it as an ARGUMENT is what makes "every node of a file anchors in that file" hold by
-    /// construction: there is no way to get a `TExpr` out of the wire without saying where.
-    let thawBody (store: TypeStore) (at: SyntaxToken) (decl: Wire.TDecl) : TDecl =
+    /// It is also where the body's POSITIONS are decided, and that is a choice the caller
+    /// makes, not a fact about the wire. A `Wire.TDecl` arrives carrying the producer's real
+    /// token indices, marked `ForeignAnchor` because they index the producer's `Lexed` and not
+    /// this unit's. `readAt` is what turns each of them into a position in the consumer's
+    /// domain, and the two answers are the two thaws below: `thawBody` DISCARDS them for the
+    /// call site, which is what a physical splice needs (a spliced node lands in this file's
+    /// tree, where a producer's index would name an unrelated token of this file);
+    /// `thawBodyAtOrigin` KEEPS them, which is what a body that stays behind an edge needs.
+    ///
+    /// Private, so a caller cannot invent a third reading: the `'tok` axes are distinct types,
+    /// and the only two total ways across them are the two exported below.
+    let private thawWith (store: TypeStore) (readAt: ForeignAnchor -> SyntaxToken) (decl: Wire.TDecl) : TDecl =
         let cache = Dictionary<TyparLeaf, SemType>()
 
         let mint (leaf: TyparLeaf) : SemType =
@@ -95,8 +100,33 @@ module Inline =
                 (fun i -> mint (TyparLeaf.Declaring i))
                 (fun j -> mint (TyparLeaf.Method j))
                 (fun scheme k -> mint (TyparLeaf.Local(scheme, k))))
-            (fun (_: Anchor) -> at)
+            readAt
             decl
+
+    /// Realise a wire body AT A CALL SITE: every node takes `at`, the position an inlined body
+    /// means once it has been physically spliced — what a diagnostic, a trace or a source map
+    /// wants of a node that now lives in the consuming file. Taking the site as an ARGUMENT is
+    /// what makes "every node of a file anchors in that file" hold by construction for a
+    /// splice: there is no way to get a spliceable `TExpr` out of the wire without saying where
+    /// it lands.
+    ///
+    /// The cost is that the producer's own positions are gone, and with them any way to tell a
+    /// node written in the consuming file from one that came from the body — which is what
+    /// `thawBodyAtOrigin` exists to keep.
+    let thawBody (store: TypeStore) (at: SyntaxToken) (decl: Wire.TDecl) : TDecl =
+        thawWith store (fun (_: ForeignAnchor) -> at) decl
+
+    /// Realise a wire body WHERE IT WAS WRITTEN: every node keeps the producer's own token,
+    /// read out of that file's retained `Lexed`.
+    ///
+    /// For a body that is NOT physically spliced — one that stays a declaration of its own,
+    /// reached by an edge — so its nodes are never mixed into the consuming file's tree and its
+    /// indices never have to mean anything against this unit's tokens. `origin` is checked
+    /// against the retained source's content hash on every node, so a producer edited since the
+    /// body was built faults here rather than silently re-attributing the whole body to
+    /// whatever now sits at those indices.
+    let thawBodyAtOrigin (store: TypeStore) (sources: OriginSources) (origin: OriginFile) (decl: Wire.TDecl) : TDecl =
+        thawWith store (OriginSources.tokenAt sources origin) decl
 
     /// A module-level `let` value whose body is EXACTLY one intrinsic expression with
     /// NO operands (`let undefined : undefined = (# "undefined" : undefined #)`).

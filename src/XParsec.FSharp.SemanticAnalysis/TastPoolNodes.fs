@@ -161,17 +161,22 @@ module Pooled =
 /// producer's identity spaces.
 ///
 /// Not the producer's `BinderId`s: a slot means nothing outside the pool that issued it, so
-/// the drain re-mints a `NodeKey` per binder. And not the producer's positions: the consumer
-/// holds no `Lexed` for that file, so every node arrives `Anchor.nowhere`. That is the whole
-/// of what distinguishes this from `Pooled`, and it is why `Inline.thawBody` must be told
-/// where the body lands — a wire tree cannot become a `TExpr` without being given a
-/// position, so a splice that failed to relocate is not a thing one can write.
+/// the drain re-mints a `NodeKey` per binder.
+///
+/// The positions ARE the producer's, and arrive intact — the drain widens `Anchor` to
+/// `ForeignAnchor` and changes nothing else. That marking is the whole of what distinguishes
+/// this from `Pooled` on the position axis, and it is not decoration: the two hold the same
+/// integers and only the DOMAIN differs, so nothing but the type stops a producer's index from
+/// being read against the consumer's `Lexed`, where it lands on an unrelated token instead of
+/// faulting. Reading one requires an `OriginFile` (`OriginSources.tokenAt`), which is why a
+/// consumer either names the producer file the body came from or relocates the body onto a
+/// position of its own (`Inline.thawBody`).
 module Wire =
-    type TPat = TPatG<FrozenType, Anchor, NodeKey>
-    type TExpr = TExprG<FrozenType, Anchor, NodeKey>
-    type TDecl = TDeclG<FrozenType, Anchor, NodeKey>
-    type TInlineBody = TInlineBodyG<FrozenType, Anchor, NodeKey>
-    type TInlineValue = TInlineValueG<FrozenType, Anchor, NodeKey>
+    type TPat = TPatG<FrozenType, ForeignAnchor, NodeKey>
+    type TExpr = TExprG<FrozenType, ForeignAnchor, NodeKey>
+    type TDecl = TDeclG<FrozenType, ForeignAnchor, NodeKey>
+    type TInlineBody = TInlineBodyG<FrozenType, ForeignAnchor, NodeKey>
+    type TInlineValue = TInlineValueG<FrozenType, ForeignAnchor, NodeKey>
 
 /// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
 /// by pool id instead of carrying the tree, and whose seven pattern-less BINDER slots name

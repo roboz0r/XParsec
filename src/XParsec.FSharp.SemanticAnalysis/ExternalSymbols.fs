@@ -87,9 +87,13 @@ type ImportForm =
 /// between a binder and its references, which a counter-minted key gives — and, being
 /// counter-minted, it names no position anything could try to resolve it against.
 ///
-/// Nor does the body itself sit anywhere: an anchor indexes the PRODUCER's tokens, which
-/// the consumer does not have, so every node arrives `Anchor.nowhere` and `Inline.thawBody`
-/// must be told where the splice lands.
+/// Its POSITIONS, by contrast, are handed over as-is: every node still carries the index of
+/// the token that spells it in the PRODUCER's file. What the consumer lacks is not the indices
+/// but the `Lexed` they index, so they arrive marked (`ForeignAnchor`) rather than blanked, and
+/// a consumer must either name the producer file it reads them against
+/// (`OriginSources.tokenAt`, which is also where the file's content hash is checked) or move
+/// the body onto a position of its own (`Inline.thawBody`). This entry names no file, so a
+/// splice reached through it takes the second route.
 ///
 /// `FrozenType`, not `SemType` — a `SemType.TyVar` is a mutable `UnionFind` cell, and
 /// an oracle that hands one out lets a consumer's inference reach back and mutate a

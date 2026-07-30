@@ -149,9 +149,9 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
         | _ -> parsed.Lexed, parsed.File
 
 /// The call site a test lands a WIRE inline body on. `Inline.thawBody` takes one because a
-/// wire tree carries no positions of its own — an anchor indexes the producer's tokens —
-/// and none of these tests asserts on where a thawed body sits, so the consuming file's
-/// first token stands for the splice.
+/// SPLICED body has to sit in the consuming file, and a wire tree's anchors index the
+/// producer's tokens. Where a thawed body sits is asserted only by the tests that are about
+/// exactly that, so elsewhere the consuming file's first token stands for the splice.
 let spliceSite (lexed: Lexed) : SyntaxToken =
     {
         PositionedToken = lexed.Tokens.[0<token>]

@@ -487,7 +487,12 @@ module TastPoolBuilder =
     let rec private patTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: PatPoolId) : Wire.TPat =
         let row = patRow b at
 
-        TastUnpool.substitutePat rename row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree rename b))
+        TastUnpool.substitutePat
+            rename
+            row.Ty
+            (ForeignAnchor.ofAnchor row.Tok)
+            row.Payload
+            (row.Children |> Array.map (patTree rename b))
 
     /// The DU subtree an expression id denotes — see `patTree`. Reached through `declTree`:
     /// the cross-unit wire carries whole declarations, never a bare expression.
@@ -496,9 +501,9 @@ module TastPoolBuilder =
 
         TastUnpool.substituteExpr
             rename
-            id
+            ForeignAnchor.ofAnchor
             row.Ty
-            row.Tok
+            (ForeignAnchor.ofAnchor row.Tok)
             row.VarBinder
             row.Payload
             (row.Children |> Array.map (exprTree rename b))
@@ -520,9 +525,12 @@ module TastPoolBuilder =
     /// that is harmless: a drained body is renamed again by `Inline.spliceAt` against the
     /// CONSUMING unit's counter before it lands, so no two of them ever meet unfreshened.
     ///
-    /// Its anchors are nothing, and that is the type: a `Wire.TDecl` sits `Anchor.nowhere`
-    /// throughout, so `Inline.thawBody` cannot produce a `TExpr` from one without being told
-    /// where the body lands.
+    /// Its anchors are the PRODUCER's, passed through unchanged and merely re-typed: the drain
+    /// widens each `Anchor` to a `ForeignAnchor`, which says the integers index THIS pool's
+    /// file and not the consumer's. Nothing here blanks or rebases them, and nothing should —
+    /// they are the only record of where the body was written, and the marking is what forces
+    /// a consumer to say which file it is reading them against (`OriginSources.tokenAt`) or to
+    /// give the body a position of its own (`Inline.thawBody`).
     let declTree (b: PoolBuilder) (at: DeclPoolId) : Wire.TDecl =
         let rename (binder: BinderId) : NodeKey =
             match b.DrainedBinderKeys.TryGetValue binder with
@@ -537,7 +545,7 @@ module TastPoolBuilder =
 
         TastUnpool.substituteDecl
             rename
-            id
+            ForeignAnchor.ofAnchor
             (exprTree rename b)
             row.Payload
             (row.ExprChildren |> Array.map (exprTree rename b))

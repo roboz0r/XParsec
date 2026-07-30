@@ -35,6 +35,33 @@ module Hashing =
     /// strings). UTF-8 so the digest is culture- and platform-independent.
     let hashString (s: string) : InputHash = hashBytes (Encoding.UTF8.GetBytes s)
 
+    /// A parsed producer file retained as an anchor DOMAIN: its identity, its text, its token
+    /// table, and a hash of the exact text the token table was produced from.
+    ///
+    /// THE site that mints an `OriginFile`, so a file's content hash is taken once and taken
+    /// from the very string that was parsed — not from a re-read of the path, which can already
+    /// disagree with what the `Lexed` indexes by the time anyone asks. That is what makes the
+    /// mismatch check at `OriginSources.tokenAt` mean what it says.
+    ///
+    /// Here rather than beside the parse because hashing content is this module's subject, and
+    /// a second way to hash a file is exactly how a cache key and a domain check come to
+    /// disagree about whether a file changed.
+    let originSource (parsed: VesperLibManifest.ParsedFile) : OriginSource =
+        {
+            File =
+                {
+                    Path =
+                        {
+                            BucketName = parsed.File.BucketName
+                            Relative = parsed.File.Relative
+                            Absolute = parsed.File.Absolute
+                        }
+                    Content = hashString parsed.Input
+                }
+            Input = parsed.Input
+            Lexed = parsed.Lexed
+        }
+
     /// Append a variable-length byte run PREFIXED by its length, so a hash built from a
     /// sequence of such runs is injective in the run boundaries: two different splittings of
     /// the same concatenated bytes (`"Ab"+"c"` vs `"A"+"bc"`, or one file vs two whose bytes

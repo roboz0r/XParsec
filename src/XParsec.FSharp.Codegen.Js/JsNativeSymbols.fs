@@ -237,8 +237,7 @@ module JsNativeSymbols =
     /// The JS-native contract provider. `"jsnative"` keeps the contract-cache entry
     /// distinct from the `"bcl"` one.
     let buildJsNativeContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
-        SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths
-        |> fst
+        (SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths).Provider
 
     /// The raw cross-package inline-body map for the JS-native contract — introspection
     /// seam for the `OpsPlatformJs` tests (shares the `"jsnative"` cache entry with
@@ -246,5 +245,11 @@ module JsNativeSymbols =
     /// `ClrSymbolProviders.contractInlineBodiesFor`. JS-target only: the JS-native leaf
     /// resolves no BCL types, so it cannot build the CLR (`target = None`) collection.
     let jsNativeInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
-        SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths
-        |> snd
+        (SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths).BodiesByName
+
+    /// The producer files the JS-native contract's inline bodies were drained from, retained so
+    /// their anchors stay readable — the same cached collection the two above project. A body's
+    /// positions are indices into one of these files and are unreadable without it
+    /// (`OriginSources.tokenAt`).
+    let jsNativeInlineOriginsFor (target: string option) (manifestPaths: string list) : OriginSources =
+        (SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths).Origins

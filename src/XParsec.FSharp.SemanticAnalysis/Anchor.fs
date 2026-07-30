@@ -8,8 +8,10 @@ open XParsec.FSharp.Parser
 /// text, span and line the struct carried are all recoverable from the index against that
 /// `Lexed`, at a quarter of the width on the columns that dominate a frozen file.
 ///
-/// An index is a position IN ONE FILE and means nothing against another's tokens, which is
-/// why a tree leaving its pool (`Wire.TDecl`) sits `nowhere` throughout.
+/// An index is a position IN ONE FILE and means nothing against another's tokens. A tree that
+/// LEAVES its pool keeps the producer's real indices — nothing blanks them — so which file
+/// they index has to travel separately: `ForeignAnchor` below is that tree's position axis,
+/// and an `OriginFile` is the only thing that says what its integers are indices into.
 [<Struct>]
 type Anchor =
     private
@@ -55,3 +57,136 @@ module Anchor =
 
     let ofStored (raw: int) : Anchor =
         if raw < 0 then nowhere else { Raw = raw * 1<token> }
+
+/// An `Anchor` read against ANOTHER FILE's tokens — the position axis of a tree that has left
+/// the pool that issued it (`Wire.TDecl`, drained by `TastPoolBuilder.declTree`).
+///
+/// Its own type because the DOMAIN is the whole of the difference, and the domain is invisible
+/// in the integer: dereferenced against the consumer's `Lexed` a producer's index does not
+/// fault, it lands on some unrelated token that happens to sit at that position. A wrong answer
+/// in range is the one error a later pass cannot detect, so the distinction is carried by the
+/// type instead of by assertion — an `Anchor` column cannot be filled from a wire node by an
+/// `id` widening, and the only way back to a position is `OriginSources.tokenAt`, which cannot
+/// be called without naming the file the indices belong to.
+[<Struct>]
+type ForeignAnchor = | ForeignAnchor of Anchor
+
+[<RequireQualifiedAccess>]
+module ForeignAnchor =
+
+    /// The drain's widening: a pooled anchor as seen from OUTSIDE the pool that issued it. THE
+    /// constructor, so a tree crossing a unit boundary is marked as carrying the producer's
+    /// index space by construction rather than by the drain remembering to say so.
+    let ofAnchor (a: Anchor) : ForeignAnchor = ForeignAnchor a
+
+/// WHICH FILE a set of `ForeignAnchor`s index — identity only, with no claim about the file's
+/// contents. `LibFile`-shaped (`VesperLibManifest.LibFile`), that being what resolves a
+/// package's `inline-bodies` entry to a path, but declared here beside the index it gives
+/// meaning to and so reachable long before the manifest reader is.
+///
+/// A FILE and not a unit: a unit has many files, and an anchor indexes exactly one of them.
+type OriginPath =
+    {
+        /// The declaring package.
+        BucketName: string
+        /// Path relative to the package directory, as the manifest names it (`"math/z.fs"`).
+        Relative: string
+        Absolute: string
+    }
+
+/// A producer file a `ForeignAnchor` may be resolved against: which file, plus a hash of the
+/// exact text whose `Lexed` those indices address.
+///
+/// The hash is the load-bearing half, not bookkeeping. An anchor is an integer index into a
+/// file the consumer RE-READS on a later build, and the tree carrying it is cached to disk
+/// (`FrozenCache`); a producer edited between the two builds leaves every index still in range
+/// and pointing at a DIFFERENT token — wrong source maps, wrong diagnostics, and no error.
+/// `Hashing.dependencySignatureHash` folds every referenced package's sources into the
+/// compilation digest, so the cache key does move today — but that is two subsystems agreeing
+/// by coincidence rather than a checked invariant, and it says nothing about a tree reached by
+/// any other route. So the claim is recorded here and enforced where it is relied upon, as a
+/// hard failure (`OriginSources.tokenAt`).
+type OriginFile =
+    {
+        Path: OriginPath
+        /// `Hashing.hashString` of the file's text — the same hash vocabulary the compile cache
+        /// keys on, so there is ONE notion of "this file's contents" rather than two that can
+        /// drift apart. Minted at `Hashing.originSource`, the sole site that takes it.
+        Content: InputHash
+    }
+
+/// A producer file RETAINED past the parse that produced it, so that anchors of a tree drained
+/// from it stay readable. `Input` rides with the `Lexed` because a token carries offsets into
+/// the text and not the text itself, and the text is what a multi-source map publishes.
+type OriginSource =
+    {
+        File: OriginFile
+        Input: string
+        Lexed: Lexed
+    }
+
+/// Every producer file whose anchors a compilation may have to resolve.
+///
+/// Keyed by PATH rather than by the whole `OriginFile`, so a file retained at DIFFERENT
+/// contents is found and faults instead of missing — a miss and a mismatch are different
+/// failures and only one of them means "this file was never collected".
+type OriginSources =
+    private
+        {
+            ByPath: Map<OriginPath, OriginSource>
+        }
+
+[<RequireQualifiedAccess>]
+module OriginSources =
+
+    let empty: OriginSources = { ByPath = Map.empty }
+
+    /// Retain one parsed producer file. A later retention of the same path replaces: within one
+    /// compilation a file is read once, so two entries for a path are the same read.
+    let add (src: OriginSource) (sources: OriginSources) : OriginSources =
+        {
+            ByPath = Map.add src.File.Path src sources.ByPath
+        }
+
+    let ofSeq (srcs: OriginSource seq) : OriginSources =
+        Seq.fold (fun acc src -> add src acc) empty srcs
+
+    /// Everything retained, in path order. The enumeration a consumer that must PUBLISH the
+    /// producer text — a multi-source map's `sourcesContent` — reads, which is why it yields
+    /// whole sources and not just their identities.
+    let toList (sources: OriginSources) : OriginSource list =
+        [ for KeyValue(_, src) in sources.ByPath -> src ]
+
+    /// THE reading of a foreign anchor: the token `at` names in `file`, taken from that file's
+    /// retained `Lexed`.
+    ///
+    /// Faults on a file never retained, and — the case the hash exists for — on one whose
+    /// retained contents disagree with the contents the tree was anchored against. Both are
+    /// silent misattribution otherwise: the index is in range either way, so this is the last
+    /// point at which a wrong answer is still distinguishable from a right one.
+    let tokenAt (sources: OriginSources) (file: OriginFile) (ForeignAnchor a) : SyntaxToken =
+        match a.Index with
+        // A node no source spells stays unspelled. Inventing a position would put the node on
+        // a token it was never written at, which is the misattribution this guards against.
+        | ValueNone -> SyntaxToken.nowhere
+        | ValueSome i ->
+            match Map.tryFind file.Path sources.ByPath with
+            | None ->
+                failwithf
+                    "OriginSources: no retained source for %s (package %s), so a tree anchored in it has no readable positions"
+                    file.Path.Relative
+                    file.Path.BucketName
+            | Some src when src.File.Content <> file.Content ->
+                failwithf
+                    "OriginSources: %s (package %s) has changed since the tree anchored in it was built (anchored against %s, retained %s) — every one of its anchors now names a different token"
+                    file.Path.Relative
+                    file.Path.BucketName
+                    file.Content.Hex
+                    src.File.Content.Hex
+            | Some src when int i >= src.Lexed.Tokens.Length ->
+                failwithf
+                    "OriginSources: anchor %d is past the end of %s (%d tokens)"
+                    (int i)
+                    file.Path.Relative
+                    src.Lexed.Tokens.Length
+            | Some src -> SyntaxToken.syntaxToken src.Lexed.Tokens.[i] (int i)

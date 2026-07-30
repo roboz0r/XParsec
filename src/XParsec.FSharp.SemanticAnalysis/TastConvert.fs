@@ -453,6 +453,9 @@ module TastConvert =
                     Template = s.Key.Template
                     TypeArgs = EqArray.map f s.Key.TypeArgs
                 }
+            // NOT mapped by `fTok`: the origin names which file the anchors index, and a change
+            // of the position REPRESENTATION does not move the body to another file.
+            Origin = s.Origin
             Decl = decl f fTok s.Decl
         }
 

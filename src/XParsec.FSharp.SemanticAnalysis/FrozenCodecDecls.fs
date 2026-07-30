@@ -532,17 +532,21 @@ module FrozenCodecDecls =
             ParamAttrs = paramAttrs
         }
 
-    /// A resolved-specialization entry: the grounding it is keyed by, then its declaration
-    /// named by pool id like any other root. The key's type arguments go through
-    /// `writeTypeRef` and so are INTERNED here — the `ty` columns never carried them.
+    /// A resolved-specialization entry: the grounding it is keyed by, the file its anchors
+    /// index, then its declaration named by pool id like any other root. The key's type
+    /// arguments go through `writeTypeRef` and so are INTERNED here — the `ty` columns never
+    /// carried them. The origin is written whole (`writeOriginFile`): it names a file OTHER
+    /// than the one the blob is keyed by, so nothing about it is recoverable from the key.
     and writeSpecialization (w: FrozenWriter) (s: PooledSpecialization) =
         writeSymbolRef w s.Key.Template
         writeEqArrayWith w writeTypeRef s.Key.TypeArgs
+        writeOriginFile w s.Origin
         writeDeclPoolId w s.Decl
 
     and readSpecialization (r: FrozenReader) : PooledSpecialization =
         let template = readSymbolRef r
         let typeArgs = EqArray.ofArray (readArrayWith r readTypeRef)
+        let origin = readOriginFile r
         let decl = readDeclPoolId r
 
         {
@@ -551,6 +555,7 @@ module FrozenCodecDecls =
                     Template = template
                     TypeArgs = typeArgs
                 }
+            Origin = origin
             Decl = decl
         }
 

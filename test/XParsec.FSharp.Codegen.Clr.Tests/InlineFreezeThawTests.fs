@@ -110,7 +110,9 @@ let private distinctCells (tvs: TyVarId list) : TyVarId list =
 /// leaf, shared across every occurrence of that leaf. Deriving the count from the
 /// frozen tree rather than hard-coding it is what keeps the assertion EXACT: a broken
 /// cache mints MORE cells than there are leaves, which a `>=` bound would not catch.
-let private distinctLeafCount (d: TDeclG<FrozenType, Anchor, 'id>) : int =
+// Position-axis agnostic: leaves are a fact about the TYPES, so a pooled decl and a wire one
+// (whose anchors are the producer's, `ForeignAnchor`) answer the same number.
+let private distinctLeafCount (d: TDeclG<FrozenType, 'tok, 'id>) : int =
     collectTys d |> List.collect typarLeavesIn |> List.distinct |> List.length
 
 /// The frozen unit of a source — the pools the freeze yields.
@@ -123,8 +125,8 @@ let private freezePools (src: string) : FrozenPools =
 /// inline vocabulary, which is what `ofPools` re-authors.
 let private freeze (src: string) : Pooled.TastFile = TastUnpool.ofPools (freezePools src)
 
-/// The call site a thaw lands its body on. `Inline.thawBody` takes one because a
-/// `Wire.TDecl` carries no positions of its own — an anchor indexes the PRODUCER's tokens.
+/// The call site a thaw lands its body on. `Inline.thawBody` takes one because a spliced body
+/// has to sit in the CONSUMING file, and a `Wire.TDecl`'s anchors index the producer's tokens.
 /// What these tests assert about a thawed body is its type CELLS and never where it sits,
 /// so one fixed real token stands for every splice.
 let private siteTok: SyntaxToken =

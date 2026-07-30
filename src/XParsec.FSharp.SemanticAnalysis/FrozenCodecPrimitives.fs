@@ -246,6 +246,33 @@ module FrozenCodecPrimitives =
     let writeAnchor (w: FrozenWriter) (a: Anchor) = w.Write(Anchor.toStored a)
     let readAnchor (r: FrozenReader) : Anchor = Anchor.ofStored (r.ReadInt32())
 
+    /// The file a set of FOREIGN anchors index (`TSpecializationG.Origin`) — the case the
+    /// paragraph above does not cover. Those anchors index a file that is NOT the one the blob
+    /// is keyed by, so the identity of that file, and a hash of the contents the indices were
+    /// taken against, have to be in the blob: they are the only thing a later build can check
+    /// its re-read of that file against.
+    let writeOriginFile (w: FrozenWriter) (f: OriginFile) =
+        w.Write f.Path.BucketName
+        w.Write f.Path.Relative
+        w.Write f.Path.Absolute
+        w.Write f.Content.Hex
+
+    let readOriginFile (r: FrozenReader) : OriginFile =
+        let bucket = r.ReadString()
+        let relative = r.ReadString()
+        let absolute = r.ReadString()
+        let hex = r.ReadString()
+
+        {
+            Path =
+                {
+                    BucketName = bucket
+                    Relative = relative
+                    Absolute = absolute
+                }
+            Content = InputHash.ofHex hex
+        }
+
     let writeTyparAxis (w: FrozenWriter) (a: TyparAxis) =
         match a with
         | TyparAxis.Declaring -> w.Write 0uy

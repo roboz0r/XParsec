@@ -150,4 +150,38 @@ let tests =
                     (RuntimeNames.primitiveKey "uint64", "bigint")
                     "uint64 -> bigint on JS"
             }
+
+            // The bodies above carry the PRODUCER's token indices, so the collection has to
+            // hand back the files those indices are read against — this is what makes an
+            // `ops-platform.js.fs` position recoverable at all. Assert the retention against
+            // the disk it claims to describe: a hash taken from something other than the text
+            // that was parsed would turn every later resolution into a spurious hard failure.
+            test "the collection retains the producer files its bodies are anchored in" {
+                let origins =
+                    JsNativeSymbols.jsNativeInlineOriginsFor (Some Target.Js) [ vesperCoreManifest ]
+                    |> OriginSources.toList
+
+                Expect.isNonEmpty origins "the JS `inline-bodies` files are retained, not dropped after the parse"
+
+                Expect.isTrue
+                    (origins |> List.exists (fun s -> s.File.Path.Relative.Contains "ops-platform"))
+                    "…including the one the arithmetic bodies above come from"
+
+                for s in origins do
+                    let f = s.File
+
+                    Expect.isTrue (System.IO.File.Exists f.Path.Absolute) (sprintf "%s exists on disk" f.Path.Relative)
+
+                    // `parseFileFull` normalises line endings before lexing, so the retained
+                    // text — the string the token offsets index, and the string a source map
+                    // would publish — is the normalised one, and the hash is of exactly it.
+                    let onDisk = (System.IO.File.ReadAllText f.Path.Absolute).Replace("\r\n", "\n")
+
+                    Expect.equal s.Input onDisk (sprintf "%s's retained text is the file's text" f.Path.Relative)
+
+                    Expect.equal
+                        f.Content
+                        (Hashing.hashString onDisk)
+                        (sprintf "%s's retained hash is the hash of the text that was parsed" f.Path.Relative)
+            }
         ]

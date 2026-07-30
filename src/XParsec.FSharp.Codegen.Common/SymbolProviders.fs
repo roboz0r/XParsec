@@ -189,17 +189,37 @@ module SymbolProviders =
 
         values, members
 
+    /// One pass over a manifest set's `inline-bodies`: the templates it publishes, and the
+    /// producer FILES they were drained from, retained.
+    ///
+    /// The sources are not a by-product. A drained body carries the producer's own token
+    /// indices (`ForeignAnchor`), so without the `Lexed` they index the body has no readable
+    /// positions at all — the collection and the retention are one fact and are returned as
+    /// one. `Input` comes with them because a token holds an offset into the text, not the
+    /// text.
+    type CollectedInlineBodies =
+        {
+            Values: Wire.TInlineValue list
+            Members: Wire.TInlineValue list
+            Origins: OriginSources
+        }
+
     /// Load cross-package inline bodies from manifests' `impl` files. Type-checked
     /// and frozen once against `provider`. Emitted in manifest/decl order so a later
     /// body wins a clash downstream (`Map.ofList` / `byKey.[k] <-`).
     /// `target` selects per-target `inline-bodies-<t>` overrides.
+    ///
+    /// Every file that PARSES is retained, including one whose AST yields no publishable
+    /// templates: what makes a file an anchor domain is that it was parsed, not that this pass
+    /// happened to harvest something out of it.
     let inlineBodies
         (target: string option)
         (provider: IExternalSymbolProvider)
         (manifestPaths: string list)
-        : Wire.TInlineValue list * Wire.TInlineValue list =
+        : CollectedInlineBodies =
         let acc = ResizeArray<Wire.TInlineValue>()
         let memberAcc = ResizeArray<Wire.TInlineValue>()
+        let mutable origins = OriginSources.empty
 
         for manifestPath in manifestPaths do
             match ReferencedProject.loadManifest manifestPath with
@@ -219,6 +239,8 @@ module SymbolProviders =
                     match VesperLib.parseFileFull file with
                     | Result.Error _ -> ()
                     | Result.Ok parsed ->
+                        origins <- OriginSources.add (Hashing.originSource parsed) origins
+
                         let implFile =
                             match parsed.Ast with
                             | FSharpAst.ImplementationFile f -> Some f
@@ -243,27 +265,45 @@ module SymbolProviders =
                             acc.AddRange values
                             memberAcc.AddRange members
 
-        List.ofSeq acc, List.ofSeq memberAcc
+        {
+            Values = List.ofSeq acc
+            Members = List.ofSeq memberAcc
+            Origins = origins
+        }
 
+
+    /// One manifest set's composed contract: the provider stack a compile resolves against,
+    /// the collected bodies by simple name, and the producer sources their anchors index.
+    ///
+    /// A record and not a tuple because the third member arrived and the positions stopped
+    /// being memorable; `Origins` in particular is the half a caller is most likely to forget
+    /// exists, and a name is what stops it being dropped on the floor a second time.
+    type Contract =
+        {
+            Provider: IExternalSymbolProvider
+            /// Simple name → body. NOT a provider channel (the provider folds a body onto the
+            /// entry that owns its key); the introspection seam tests assert against.
+            BodiesByName: Map<string, InlineBody>
+            /// The producer files the collected bodies were drained from, retained so their
+            /// anchors stay readable. Cached WITH the provider: they are the same collection,
+            /// and re-parsing to recover them would give a second answer for what each file
+            /// contains.
+            Origins: OriginSources
+        }
 
     /// Cache keyed by normalised manifest set + target + metadata tag. Each set is
     /// parsed, analysed, and composed once.
     let private contractCache =
-        System.Collections.Concurrent.ConcurrentDictionary<
-            string,
-            Lazy<IExternalSymbolProvider * Map<string, InlineBody>>
-         >(
-            System.StringComparer.Ordinal
-        )
+        System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Contract>>(System.StringComparer.Ordinal)
 
-    /// Build and cache the provider stack + inline bodies for a manifest set.
-    /// The raw `Map` is exposed via `contractInlineBodies` for tests.
+    /// Build and cache the provider stack + inline bodies + producer sources for a manifest
+    /// set. `BodiesByName` is exposed via `contractInlineBodies` for tests.
     let private buildContractCached
         (cacheTag: string)
         (metaTail: MetaTailFactory)
         (target: string option)
         (manifestPaths: string list)
-        : IExternalSymbolProvider * Map<string, InlineBody> =
+        : Contract =
         let normalised = manifestPaths |> List.map Path.GetFullPath
         // The target AND the metadata-layer tag are part of the cache identity: the JS
         // and CLR collections of the same set freeze different `inline-bodies`, and a
@@ -281,15 +321,11 @@ module SymbolProviders =
                          let provider =
                              ReferencedProject.composeOrdered metaTail target ordered transitiveDeps
 
-                         let values, memberInlines = inlineBodies target provider ordered
+                         let collected = inlineBodies target provider ordered
 
-                         // A simple-name → body map — NOT a provider channel (the provider
-                         // folds a body onto the entry that owns its key); it is the
-                         // introspection seam `contractInlineBodies` returns so tests can
-                         // assert a manifest set collected the bodies it should. A later
-                         // body wins a clash (list is in manifest/decl order).
+                         // A later body wins a clash (the list is in manifest/decl order).
                          let byName =
-                             (Map.empty, values)
+                             (Map.empty, collected.Values)
                              ||> List.fold (fun m v -> Map.add (SymbolKeyOps.intrinsicName v.Key) v.Body m)
 
                          let byKey =
@@ -299,10 +335,10 @@ module SymbolProviders =
                          // VALUE by the key its home unit minted at freeze, a MEMBER by the
                          // key the provider resolved at collection. Nothing here re-derives
                          // an identity from a spelling.
-                         for v in values do
+                         for v in collected.Values do
                              byKey.[v.Key] <- v.Body
 
-                         for mb in memberInlines do
+                         for mb in collected.Members do
                              byKey.[mb.Key] <- mb.Body
 
                          let served =
@@ -313,21 +349,25 @@ module SymbolProviders =
                                  | _ -> ValueNone
                              )
 
-                         served, byName)
+                         {
+                             Provider = served
+                             BodiesByName = byName
+                             Origins = collected.Origins
+                         })
             )
             .Value
 
-    /// Cached provider stack + raw inline-body map for a manifest set, over a
-    /// caller-supplied layer-2 leaf FACTORY. The seam every backend's convenience
-    /// layer wraps with its concrete leaf (`ClrSymbolProviders` injects BCL metadata,
-    /// the JS backend its JS-native tail). `cacheTag` keeps each backend's collection
-    /// of the same manifest set distinct in `contractCache`.
+    /// Cached contract for a manifest set, over a caller-supplied layer-2 leaf FACTORY.
+    /// The seam every backend's convenience layer wraps with its concrete leaf
+    /// (`ClrSymbolProviders` injects BCL metadata, the JS backend its JS-native tail).
+    /// `cacheTag` keeps each backend's collection of the same manifest set distinct in
+    /// `contractCache`.
     let buildContractWith
         (cacheTag: string)
         (metaTail: MetaTailFactory)
         (target: string option)
         (manifestPaths: string list)
-        : IExternalSymbolProvider * Map<string, InlineBody> =
+        : Contract =
         buildContractCached cacheTag metaTail target manifestPaths
 
     /// `buildContractWith` with a backend-injected, reverse-map-independent layer-2
@@ -339,4 +379,4 @@ module SymbolProviders =
         (target: string option)
         (manifestPaths: string list)
         : IExternalSymbolProvider =
-        buildContractCached cacheTag (fun _ -> metaTail) target manifestPaths |> fst
+        (buildContractCached cacheTag (fun _ -> metaTail) target manifestPaths).Provider

@@ -67,23 +67,23 @@ module ClrSymbolProviders =
 
     /// Provider stack for a manifest set (BCL leaf), including cross-package inline bodies.
     let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
-        SymbolProviders.buildContractWith "bcl" bclMetaTail None manifestPaths |> fst
+        (SymbolProviders.buildContractWith "bcl" bclMetaTail None manifestPaths).Provider
 
     /// `buildContract` for a specific target (`Some "js"` selects `inline-bodies-js`
     /// overrides). `None` is identical to `buildContract`.
     let buildContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
-        SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths |> fst
+        (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).Provider
 
     /// Raw cross-package inline bodies by source name — introspection seam for tests.
     /// Production code reads a body off the resolved entry that owns its key
     /// (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`); a simple name is not a
     /// resolution channel.
     let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
-        SymbolProviders.buildContractWith "bcl" bclMetaTail None manifestPaths |> snd
+        (SymbolProviders.buildContractWith "bcl" bclMetaTail None manifestPaths).BodiesByName
 
     /// `contractInlineBodies` for a specific target — introspection seam for target tests.
     let contractInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
-        SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths |> snd
+        (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).BodiesByName
 
     /// `buildContractFor` over an EXPLICIT reference set (a per-compilation BCL
     /// surface — a TFM ref pack + `<Reference>`s — not the host TPA). The path set is
@@ -94,11 +94,11 @@ module ClrSymbolProviders =
         (target: string option)
         (manifestPaths: string list)
         : IExternalSymbolProvider =
-        SymbolProviders.buildContractWith (refsCacheTag dllPaths) (bclMetaTailWith dllPaths) target manifestPaths
-        |> fst
+        (SymbolProviders.buildContractWith (refsCacheTag dllPaths) (bclMetaTailWith dllPaths) target manifestPaths)
+            .Provider
 
     /// The inline-body half of the SAME cached `buildContractWith` call
-    /// `buildContractWithRefs` takes `fst` of: a driver needs the provider AND the
+    /// `buildContractWithRefs` takes the provider of: a driver needs the provider AND the
     /// bodies for one `(refs, target, manifests)`, and the shared cache tag means the
     /// second call hits the built entry rather than rebuilding.
     let contractInlineBodiesWithRefs
@@ -106,5 +106,5 @@ module ClrSymbolProviders =
         (target: string option)
         (manifestPaths: string list)
         : Map<string, InlineBody> =
-        SymbolProviders.buildContractWith (refsCacheTag dllPaths) (bclMetaTailWith dllPaths) target manifestPaths
-        |> snd
+        (SymbolProviders.buildContractWith (refsCacheTag dllPaths) (bclMetaTailWith dllPaths) target manifestPaths)
+            .BodiesByName
