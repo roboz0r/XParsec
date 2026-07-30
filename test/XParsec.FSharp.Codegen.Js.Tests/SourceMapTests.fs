@@ -20,6 +20,144 @@ let private compileWithMap (input: string) (outputPath: string option) : JsArtif
 
     Codegen.compile project (frozenOf input)
 
+// ─── Multi-source maps ───────────────────────────────────────────────────
+//
+// A body served by another package is spliced onto the call site at emit
+// (`InlineExpand.expand`), but the nodes it splices were WRITTEN in the producer's file and
+// keep their index into that file's tokens. The map publishes those files beside the
+// consuming one so an inlined frame resolves to the producer's own line — the property the
+// whole deferred-placement representation exists to make true.
+
+/// Compile through the real JS contract stack, so the manifest set's producer files are
+/// retained and a served body's positions are readable.
+let private compileMapped (name: string) (input: string) : JsArtifact =
+    let project =
+        { JsProjectInfo.defaults name with
+            Source = Some(jsSource (name + ".fsx") input)
+        }
+
+    Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs input)
+
+/// One decoded `mappings` segment. Decoded and not merely counted: the source index, line and
+/// column are the whole claim, and a map that published the right `sources[]` while encoding
+/// every segment against index 0 would look correct from the outside.
+type private Segment =
+    {
+        GenLine: int
+        GenCol: int
+        SrcIndex: int
+        SrcLine: int
+        SrcCol: int
+    }
+
+[<Literal>]
+let private b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+/// Decode a V3 `mappings` field. An independent reader of the wire format — it shares no code
+/// with the encoder, so an encoder that agreed with itself about a wrong convention would not
+/// pass here.
+let private decodeMappings (mappings: string) : Segment list =
+    let digit (c: char) =
+        match b64.IndexOf c with
+        | -1 -> failtestf "`%c` is not a base64 VLQ digit" c
+        | i -> i
+
+    // The VLQ numbers of one segment: 5-bit groups little-endian, bit 6 continues, and the
+    // sign rides the least-significant bit of the assembled value.
+    let numbers (seg: string) : int list =
+        let out = ResizeArray<int>()
+        let mutable acc = 0
+        let mutable shift = 0
+
+        for c in seg do
+            let d = digit c
+            acc <- acc ||| ((d &&& 0x1F) <<< shift)
+
+            if d &&& 0x20 <> 0 then
+                shift <- shift + 5
+            else
+                let magnitude = acc >>> 1
+                out.Add(if acc &&& 1 = 1 then -magnitude else magnitude)
+                acc <- 0
+                shift <- 0
+
+        List.ofSeq out
+
+    let out = ResizeArray<Segment>()
+    // Generated column resets each line; the other three run across line boundaries.
+    let mutable srcIndex = 0
+    let mutable srcLine = 0
+    let mutable srcCol = 0
+
+    mappings.Split ';'
+    |> Array.iteri (fun genLine group ->
+        let mutable genCol = 0
+
+        for seg in group.Split ',' do
+            match seg with
+            | "" -> ()
+            | seg ->
+                match numbers seg with
+                | [ dGenCol; dSrcIndex; dSrcLine; dSrcCol ] ->
+                    genCol <- genCol + dGenCol
+                    srcIndex <- srcIndex + dSrcIndex
+                    srcLine <- srcLine + dSrcLine
+                    srcCol <- srcCol + dSrcCol
+
+                    out.Add
+                        {
+                            GenLine = genLine
+                            GenCol = genCol
+                            SrcIndex = srcIndex
+                            SrcLine = srcLine
+                            SrcCol = srcCol
+                        }
+                | other -> failtestf "a segment carries %d fields, not the four this map emits" (List.length other)
+    )
+
+    List.ofSeq out
+
+/// The map's `sources[]` / `sourcesContent[]` and its decoded segments — the three things
+/// every assertion below reads together, since a source index means nothing apart from the
+/// array it indexes.
+type private DecodedMap =
+    {
+        Sources: string[]
+        Contents: string[]
+        Segments: Segment list
+    }
+
+let private decodeMap (artifact: JsArtifact) : DecodedMap =
+    match Codegen.toSourceMap artifact with
+    | None -> failtest "expected a source map"
+    | Some json ->
+        use doc = JsonDocument.Parse json
+        let root = doc.RootElement
+
+        let strings (name: string) =
+            [| for e in root.GetProperty(name).EnumerateArray() -> e.GetString() |]
+
+        {
+            Sources = strings "sources"
+            Contents = strings "sourcesContent"
+            Segments = decodeMappings (root.GetProperty("mappings").GetString())
+        }
+
+/// The 0-based `line` of `text`, as a V3 source line names it.
+let private lineOf (text: string) (line: int) : string =
+    let lines = text.Replace("\r\n", "\n").Split '\n'
+
+    if line < lines.Length then
+        lines.[line]
+    else
+        failtestf "line %d is past the end of a %d-line source" line lines.Length
+
+/// Every source index a mapping actually resolves against, paired with the file it names.
+let private attributions (m: DecodedMap) : (int * string) list =
+    m.Segments
+    |> List.map (fun s -> s.SrcIndex, m.Sources.[s.SrcIndex])
+    |> List.distinct
+
 [<Tests>]
 let tests =
     testList
@@ -87,5 +225,121 @@ let tests =
                 | Some(exitCode, output) ->
                     Expect.equal exitCode 0 (sprintf "node exits 0 (output: %s)" output)
                     Expect.equal (output.Replace("\r", "").Trim()) "hi" "Node prints hi"
+            }
+
+            test "a build that reaches no producer emits the single-source document verbatim" {
+                // The gate on the multi-source axis being ADDITIVE. Spelled as the whole
+                // document and not as a property of it: `sources`/`sourcesContent` became
+                // arrays and every segment grew a source-index field, and the only way to say
+                // that costs a one-file build nothing is to pin the bytes.
+                Expect.equal
+                    (Codegen.toSourceMap (compileWithMap "printfn \"hi\"" None))
+                    (Some(
+                        "{\"version\":3,\"file\":\"Hi.mjs\",\"sourceRoot\":\"\","
+                        + "\"sources\":[\"hi.fsx\"],\"sourcesContent\":[\"printfn \\\"hi\\\"\"],"
+                        + "\"names\":[],\"mappings\":\"AAAA\"}"
+                    ))
+                    "one source, one content, and a source-index delta of 0 in the one segment"
+            }
+
+            test "an inlined body maps to the PRODUCER's own file and line" {
+                // The end-to-end claim. `(+)` at `int` is served by Vesper.Core and spliced onto
+                // this call site, but the node that becomes the `+` was written in
+                // `ops-platform.js.fs` — so a debugger stepping into it must land there, in that
+                // file's text, on the line that spells the intrinsic.
+                let input = "let a = 1 + 2\n"
+                let m = decodeMap (compileMapped "Add" input)
+
+                Expect.equal
+                    m.Sources
+                    [| "Add.fsx"; "Vesper.Core/ops-platform.js.fs" |]
+                    "the consuming file keeps index 0; the producer is published after it"
+
+                match m.Segments |> List.filter (fun s -> s.SrcIndex = 1) with
+                | [ seg ] ->
+                    let line = lineOf m.Contents.[seg.SrcIndex] seg.SrcLine
+
+                    // Asserted against the CONTENT the map itself embeds, not against a line
+                    // number: what must be true is that the coordinates land on the intrinsic,
+                    // and editing `ops-platform.js.fs` may legitimately move which line that is.
+                    Expect.stringContains
+                        line
+                        "($0 + $1) | 0"
+                        "the producer line is the `int` static-optimization clause"
+
+                    Expect.stringStarts
+                        (line.Substring seg.SrcCol)
+                        "(#"
+                        "…and the column is the intrinsic's own token, not the head of the line"
+                | other -> failtestf "exactly one emitted node is the producer's `(# … #)`; got %d" (List.length other)
+
+                // The operands were written HERE and stay here — a map that simply relabelled
+                // every segment onto the producer would pass the assertion above.
+                Expect.equal
+                    (m.Segments
+                     |> List.filter (fun s -> s.SrcIndex = 0)
+                     |> List.map (fun s -> s.SrcLine, s.SrcCol))
+                    [ 0, input.IndexOf "1"; 0, input.IndexOf "2" ]
+                    "the two literals map back to where the caller wrote them"
+            }
+
+            test "a fused argument POPS back to the consuming file" {
+                // `a && b` outlines as `if a then ⟨b⟩ else false`: the conditional is
+                // `ops-std.fs`'s, `b` is the caller's, and the `CallerExpr` mark is the only
+                // thing that tells them apart inside one entry. If the pop did not survive to
+                // the map, the caller's own `false` would be attributed to a Vesper source line.
+                let input = "let a = true && false\n"
+                let m = decodeMap (compileMapped "And" input)
+
+                Expect.equal
+                    m.Sources
+                    [| "And.fsx"; "Vesper.Core/ops-std.fs" |]
+                    "the entry's file is published beside the caller's"
+
+                for seg in m.Segments |> List.filter (fun s -> s.SrcIndex = 1) do
+                    Expect.stringContains
+                        (lineOf m.Contents.[seg.SrcIndex] seg.SrcLine)
+                        "if e1 then e2 else false"
+                        "every producer-attributed node sits on the line the entry was written on"
+
+                Expect.contains
+                    (m.Segments
+                     |> List.filter (fun s -> s.SrcIndex = 0)
+                     |> List.map (fun s -> s.SrcLine, s.SrcCol))
+                    (0, input.IndexOf "false")
+                    "the `[<CallAtMostOnce>]` operand maps to the caller's `false`, in the caller's file"
+            }
+
+            test "a NESTED frame is attributed to its own file, not to the entry that reached it" {
+                // `b |> not` is the entry-references-entry leg: `(|>)`'s body (in `ops-std.fs`)
+                // carries the edge that names `not`'s entry (in `ops-platform.js.fs`). The `!`
+                // the program emits comes from `not`, so it must name `not`'s file — an
+                // implementation that attributed a whole expansion to its OUTERMOST entry would
+                // say `ops-std.fs` here and still look entirely plausible.
+                let input = "let b = true\nlet a = b |> not\n"
+                let m = decodeMap (compileMapped "Pipe" input)
+
+                Expect.equal
+                    m.Sources
+                    [| "Pipe.fsx"; "Vesper.Core/ops-platform.js.fs"; "Vesper.Core/ops-std.fs" |]
+                    "both entries' files are published, in the retention's path order"
+
+                match m.Segments |> List.filter (fun s -> s.SrcIndex > 0) with
+                | [ seg ] ->
+                    Expect.equal
+                        m.Sources.[seg.SrcIndex]
+                        "Vesper.Core/ops-platform.js.fs"
+                        "the inner frame names the file `not` was written in"
+
+                    Expect.stringContains
+                        (lineOf m.Contents.[seg.SrcIndex] seg.SrcLine)
+                        "let inline not"
+                        "…on `not`'s own definition line"
+                | other -> failtestf "one emitted node comes from a producer; got %d" (List.length other)
+
+                Expect.equal
+                    (attributions m |> List.map snd |> List.sort)
+                    [ "Pipe.fsx"; "Vesper.Core/ops-platform.js.fs" ]
+                    "and the operand `b` still resolves against the file that wrote it"
             }
         ]

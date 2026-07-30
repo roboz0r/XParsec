@@ -1,9 +1,20 @@
 namespace XParsec.FSharp.Codegen.Js
 
-/// A 0-based source position — V3 source-map coordinates (`Line`, then `Column`
-/// counted in UTF-16 code units).
+/// A 0-based source position — V3 source-map coordinates: WHICH of the map's `sources[]`
+/// the position is in, then `Line`, then `Column` counted in UTF-16 code units.
+///
+/// `Source` is not bookkeeping for a map that happens to publish one file. A node copied out
+/// of an inline specialization was written in the PRODUCER's file, so a position that named
+/// only a line would name that line of whichever file the reader assumed — an answer that is
+/// in range, plausible, and wrong.
 [<Struct>]
-type JsLoc = { Line: int; Column: int }
+type JsLoc = { Source: int; Line: int; Column: int }
+
+/// One entry of a V3 map's parallel `sources[]` / `sourcesContent[]` arrays: the name a
+/// debugger is given for a file, and the text embedded for it. The two travel together
+/// because the arrays are index-aligned and a map that pairs them wrongly resolves every
+/// position into the wrong text.
+type JsMapSource = { Path: string; Content: string }
 
 /// One case of an emitted union. `ClassName` is the emitted subclass name
 /// (`<Union>_<Case>`); `Tag` is the declaration-order integer the base-class `tag`

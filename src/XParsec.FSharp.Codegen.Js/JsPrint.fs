@@ -36,12 +36,14 @@ module internal JsEscape =
 /// is carried by `Nest`; source mappings fall out of `Mark` during the render pass.
 module JsPrint =
 
-    /// One generated→source correspondence. `Src*` are 0-based source coordinates;
-    /// the source index is implicitly 0 (the single input file).
+    /// One generated→source correspondence. `Src*` are 0-based source coordinates, read
+    /// against the map's `sources[SrcIndex]` — never against "the" source, since an inlined
+    /// body's line belongs to the file that body was written in.
     type Mapping =
         {
             GenLine: int
             GenCol: int
+            SrcIndex: int
             SrcLine: int
             SrcCol: int
         }
@@ -394,6 +396,7 @@ module JsPrint =
                     {
                         GenLine = line
                         GenCol = col
+                        SrcIndex = loc.Source
                         SrcLine = loc.Line
                         SrcCol = loc.Column
                     }
@@ -443,10 +446,12 @@ module JsSourceMap =
     /// `maps` is already in ascending generated order.
     let private encodeMappings (maps: JsPrint.Mapping list) : string =
         let sb = StringBuilder()
-        // Generated column resets each line; source line/column deltas are cumulative.
-        // Source index is always 0 (single source file — delta never changes).
+        // Generated column resets each line; the source index, line and column are cumulative
+        // deltas that run across line boundaries. A map with one source therefore encodes the
+        // same bytes it did before there could be more than one: every source-index delta is 0.
         let mutable curLine = 0
         let mutable prevGenCol = 0
+        let mutable prevSrcIndex = 0
         let mutable prevSrcLine = 0
         let mutable prevSrcCol = 0
         let mutable firstOnLine = true
@@ -462,27 +467,34 @@ module JsSourceMap =
                 sb.Append ',' |> ignore
 
             sb.Append(encodeVlq (m.GenCol - prevGenCol)) |> ignore
-            sb.Append(encodeVlq 0) |> ignore
+            sb.Append(encodeVlq (m.SrcIndex - prevSrcIndex)) |> ignore
             sb.Append(encodeVlq (m.SrcLine - prevSrcLine)) |> ignore
             sb.Append(encodeVlq (m.SrcCol - prevSrcCol)) |> ignore
 
             prevGenCol <- m.GenCol
+            prevSrcIndex <- m.SrcIndex
             prevSrcLine <- m.SrcLine
             prevSrcCol <- m.SrcCol
             firstOnLine <- false
 
         sb.ToString()
 
-    /// Build the V3 JSON document mapping generated `file` back to a single
-    /// source (`sourcePath`, content `sourceContent`).
-    let build (file: string) (sourcePath: string) (sourceContent: string) (maps: JsPrint.Mapping list) : string =
+    /// Build the V3 JSON document mapping generated `file` back to `sources`, whose ORDER is
+    /// the index space every mapping's `SrcIndex` names — so the caller that assigned those
+    /// indices is the caller that must pass the list in that order.
+    let build (file: string) (sources: JsMapSource list) (maps: JsPrint.Mapping list) : string =
+        let jsonArray (quoted: JsMapSource -> string) =
+            sources |> List.map quoted |> String.concat ","
+
         let sb = StringBuilder()
         sb.Append "{\"version\":3" |> ignore
         sb.AppendFormat(",\"file\":{0}", JsEscape.quoted file) |> ignore
         sb.Append ",\"sourceRoot\":\"\"" |> ignore
-        sb.AppendFormat(",\"sources\":[{0}]", JsEscape.quoted sourcePath) |> ignore
 
-        sb.AppendFormat(",\"sourcesContent\":[{0}]", JsEscape.quoted sourceContent)
+        sb.AppendFormat(",\"sources\":[{0}]", jsonArray (fun s -> JsEscape.quoted s.Path))
+        |> ignore
+
+        sb.AppendFormat(",\"sourcesContent\":[{0}]", jsonArray (fun s -> JsEscape.quoted s.Content))
         |> ignore
 
         sb.Append ",\"names\":[]" |> ignore

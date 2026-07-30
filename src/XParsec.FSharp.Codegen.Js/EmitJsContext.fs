@@ -33,8 +33,9 @@ module EmitJsContext =
                 Length = source.Length
             }
 
-        /// Resolve a char offset to a `JsLoc`. Clamps past-end offsets to the last line.
-        let resolve (idx: LineIndex) (offset: int) : JsLoc =
+        /// Resolve a char offset within the text of `source` — an index into the map's
+        /// `sources[]` — to a `JsLoc`. Clamps past-end offsets to the last line.
+        let resolve (idx: LineIndex) (source: int) (offset: int) : JsLoc =
             let offset = max 0 (min offset idx.Length)
             let starts = idx.Starts
             // Binary search for the greatest line start <= offset.
@@ -47,6 +48,7 @@ module EmitJsContext =
                 if starts.[mid] <= offset then lo <- mid else hi <- mid - 1
 
             {
+                Source = source
                 Line = lo
                 Column = offset - starts.[lo]
             }
@@ -55,16 +57,113 @@ module EmitJsContext =
     /// token table the anchor indexes, and the line starts of the text that table was lexed
     /// from. Both or neither — an anchor is an INDEX, so it names a character offset only
     /// alongside the `Lexed` that numbered it, and a line only alongside the text.
-    type Resolution = { Lexed: Lexed; Lines: LineIndex }
+    ///
+    /// The `Lexed`/`Lines` pair is the CONSUMING file's, published at source index 0. `Origins`
+    /// is every producer file the compilation retained past its parse, which is what makes a
+    /// node copied out of an inline specialization resolvable at all: its own anchor was moved
+    /// onto the call site, and its producer position is an index into one of these.
+    /// `OriginSources.empty` is the single-source configuration — nothing was retained, so
+    /// every node keeps the call-site position a one-file map has always given it.
+    type Resolution =
+        {
+            Lexed: Lexed
+            Lines: LineIndex
+            Origins: OriginSources
+        }
 
     /// `ValueNone` disables maps: no source text was supplied, so there is nothing for an
     /// anchor to resolve against.
     type Resolver = Resolution voption
 
+    /// A producer file this emission attributed at least one node to: its slot in the finished
+    /// `sources[]`, what the map publishes for it, and the line starts that turn a token offset
+    /// in that text into V3 coordinates.
+    type ProducerSource =
+        {
+            Slot: int
+            Published: JsMapSource
+            Lines: LineIndex
+        }
+
+    /// The producer files ONE emission reached, in publication order.
+    ///
+    /// Mutable and shared with the driver for the same reason `WalkCtx.Pool` is: WHICH producers
+    /// a program reaches is settled by splicing the specialization graph, which happens inside
+    /// `EmitJs.buildProgram`, while the map that must publish them is built by whoever called it.
+    ///
+    /// Index 0 of the finished `sources[]` is the CONSUMING file and is not held here, so the
+    /// first `publish` takes slot 1 — which is why a build that reaches no retained producer
+    /// publishes exactly the single-element array it always did.
+    type MapSources =
+        private
+            {
+                Ordered: ResizeArray<ProducerSource>
+                ByPath: Dictionary<OriginPath, ProducerSource>
+            }
+
+    module MapSources =
+
+        let create () : MapSources =
+            {
+                Ordered = ResizeArray()
+                ByPath = Dictionary()
+            }
+
+        /// Give `src` the next slot. THE mutator, so `Ordered`'s position and `Slot` cannot
+        /// come apart — a mapping whose source index disagreed with the array would resolve
+        /// into the wrong file's text and still decode cleanly.
+        ///
+        /// The published PATH is `<package>/<relative>`. Not `Absolute`: a build-machine path
+        /// leaks the layout of the machine that compiled and resolves nowhere in a browser.
+        /// Not the bare `Relative` either: two packages may each publish an `ops.fs`, and a
+        /// `sources[]` with two identical names is unusable. The package-qualified form is
+        /// unique across the manifest set, machine-independent, and the shape a bundler's
+        /// `sourceRoot` (or a debugger's path mapping) is built to prefix.
+        let publish (src: OriginSource) (m: MapSources) : unit =
+            let entry =
+                {
+                    Slot = m.Ordered.Count + 1
+                    Published =
+                        {
+                            Path = src.File.Path.BucketName + "/" + src.File.Path.Relative
+                            Content = src.Input
+                        }
+                    Lines = LineIndex.build src.Input
+                }
+
+            m.Ordered.Add entry
+            m.ByPath.[src.File.Path] <- entry
+
+        /// The slot `file` was published at, or `ValueNone` when it was not published — a file
+        /// the emission reached but the compilation never retained. Its nodes then keep the
+        /// call-site position, which is the answer a single-source map has always given them.
+        let tryFind (file: OriginPath) (m: MapSources) : ProducerSource voption =
+            match m.ByPath.TryGetValue file with
+            | true, entry -> ValueSome entry
+            | _ -> ValueNone
+
+        /// The producers as the map publishes them, in slot order — appended AFTER the
+        /// consuming file, which owns index 0.
+        let published (m: MapSources) : JsMapSource list =
+            [ for entry in m.Ordered -> entry.Published ]
+
     /// The walker's ambient context.
     type WalkCtx =
         {
             Resolver: Resolver
+            /// Every node COPIED out of an inline specialization → the producer file it was
+            /// written in and its index into THAT file's tokens (`InlineExpand.Expansion`).
+            /// A node absent from it is the compiling unit's own and reads against `Resolver`.
+            /// Empty until `buildProgram` splices the graph, which is what discovers them.
+            ///
+            /// Grows DURING the walk, and must: the emitter re-authors nodes of its own
+            /// (`InlinableLet`), and a derived node carries no provenance unless the site that
+            /// derived it says so. No new FILE can appear that way — a derived node inherits an
+            /// existing node's origin — so the published `sources[]` is settled before emission.
+            NodeOrigins: Dictionary<TastAccessor.ExprId, InlineExpand.NodeOrigin>
+            /// The producer files this emission published, filled by `buildProgram` and read
+            /// back by the driver building the map. Shared mutable state, like `Pool`.
+            MapSources: MapSources
             /// The file's node pool, with this emission's append-only overlay. Every node
             /// the walker reads resolves through it, and the nodes the walker DERIVES (an
             /// `InlinableLet` splice) are appended to it mid-walk. It is also where a
@@ -144,6 +243,8 @@ module EmitJsContext =
             : WalkCtx =
             {
                 Resolver = resolver
+                NodeOrigins = Dictionary()
+                MapSources = MapSources.create ()
                 Pool = pool
                 Records = Dictionary()
                 Unions = Dictionary()
@@ -158,14 +259,57 @@ module EmitJsContext =
                 Capabilities = ExternalSymbols.resolveCapabilities provider
             }
 
-    /// Where a node's anchor lands in the ORIGINAL source, for the map. Two ways to have no
+    /// Where a node lands in the source it was WRITTEN in, for the map. Two ways to have no
     /// answer, and both are honest: no source text was supplied at all, or the node sits at
-    /// no source position (a node this emission derived). The anchor is an index into the
-    /// token table, and the token is what carries the character offset the line index wants.
-    let locOf (ctx: WalkCtx) (anchor: Anchor) : JsLoc voption =
-        match ctx.Resolver, anchor.Index with
-        | ValueSome r, ValueSome i -> ValueSome(LineIndex.resolve r.Lines r.Lexed.Tokens.[i].StartIndex)
-        | _ -> ValueNone
+    /// no source position (a node this emission derived). The anchor is an index into a token
+    /// table, and the token is what carries the character offset the line index wants.
+    ///
+    /// Takes the NODE rather than its anchor, because the anchor alone cannot say which file
+    /// it indexes. A node copied out of a specialization entry was MOVED onto the call site
+    /// (`InlineExpand.expand`), so its own anchor reads against the consuming file and would
+    /// silently attribute the producer's code to the caller's line; the producer position rides
+    /// beside it in `NodeOrigins` and is what the map publishes whenever that file was retained.
+    let locOf (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsLoc voption =
+        match ctx.Resolver with
+        | ValueNone -> ValueNone
+        | ValueSome r ->
+            let consuming () =
+                match (TastAccessor.exprTok e).Index with
+                | ValueSome i -> ValueSome(LineIndex.resolve r.Lines 0 r.Lexed.Tokens.[i].StartIndex)
+                | ValueNone -> ValueNone
+
+            match ctx.NodeOrigins.TryGetValue e with
+            | true, origin ->
+                match MapSources.tryFind origin.File.Path ctx.MapSources with
+                | ValueNone -> consuming ()
+                | ValueSome producer ->
+                    // Faults on a producer file edited since the tree was anchored against it —
+                    // the one failure that would otherwise publish a well-formed position in the
+                    // wrong text (`OriginSources.tokenAt`).
+                    let tok = OriginSources.tokenAt r.Origins origin.File origin.At
+
+                    match tok.Index with
+                    | TokenIndex.Regular _ -> ValueSome(LineIndex.resolve producer.Lines producer.Slot tok.StartIndex)
+                    // A node no source spells keeps no position rather than borrowing the call
+                    // site's, which would put producer code on a caller line.
+                    | TokenIndex.Virtual -> ValueNone
+            | _ -> consuming ()
+
+    /// `JsEmitHelpers.reduceInlinableLet` with the walk's provenance carried across the splice:
+    /// a node the substitution re-authors inherits the origin of the node it was authored from.
+    ///
+    /// Not optional bookkeeping. The splice re-authors every ancestor of a substituted `Var`,
+    /// and an inlined body's operator node is exactly such an ancestor — without this it loses
+    /// its producer file and falls back to the CALL SITE's anchor, which is in range, plausible,
+    /// and names the wrong file.
+    let (|InlinableLet|_|) (ctx: WalkCtx) (e: TastAccessor.ExprId) : TastAccessor.ExprId option =
+        JsEmitHelpers.reduceInlinableLet
+            (fun from into ->
+                match ctx.NodeOrigins.TryGetValue from with
+                | true, origin -> ctx.NodeOrigins.[into] <- origin
+                | _ -> ()
+            )
+            e
 
     // ---- Records -------------------------------------------------------------
 

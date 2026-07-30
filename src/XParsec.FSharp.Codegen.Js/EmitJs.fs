@@ -44,7 +44,7 @@ module EmitJs =
     // ---- The walker ----------------------------------------------------------
 
     let rec buildExpr (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsExpr =
-        let loc = locOf ctx (TastAccessor.exprTok e)
+        let loc = locOf ctx e
 
         match TastAccessor.exprKind e with
         | ExprShape.Const -> constExpr (TastAccessor.exprConstValue e) loc
@@ -95,7 +95,7 @@ module EmitJs =
             // templates). A *mutable* binder (assigned in the body) is excluded — it must
             // stay a real binding so its writes land; it falls to the IIFE arm, where the
             // arrow parameter is the (reassignable) mutable cell.
-            | InlinableLet reduced -> buildExpr ctx reduced
+            | InlinableLet ctx reduced -> buildExpr ctx reduced
             | _ ->
                 let l = TastAccessor.exprLet e
 
@@ -154,8 +154,7 @@ module EmitJs =
                 // below is written ONCE for both kinds: a flat call exactly when the spine
                 // is at least the group count. Anything else keeps the curried fallback.
                 let flatHead: (JsExpr * TastAccessor.ArgGroup list) voption =
-                    let identAt name =
-                        JsExpr.Identifier(name, locOf ctx (TastAccessor.exprTok head))
+                    let identAt name = JsExpr.Identifier(name, locOf ctx head)
 
                     match TastAccessor.exprKind head with
                     | ExprShape.Var ->
@@ -676,7 +675,7 @@ module EmitJs =
     /// arrow's param in scope at the innermost body, which is what lets the trampoline
     /// write them back and `continue`.
     and emitFunction (ctx: WalkCtx) (selfKey: BinderId voption) (lam: TastAccessor.ExprId) : JsExpr =
-        let loc = locOf ctx (TastAccessor.exprTok lam)
+        let loc = locOf ctx lam
         let names, body = peelArrow ctx.Pool lam
         nestUnaryArrows loc names (trampolineOrExpr ctx selfKey (List.length names) names body)
 
@@ -696,7 +695,7 @@ module EmitJs =
         let recur = buildTailBody ctx selfKey paramNames
 
         match e with
-        | InlinableLet reduced -> recur reduced
+        | InlinableLet ctx reduced -> recur reduced
         | TailSelfCall selfKey arity args ->
             // `_tc<i>` temporaries: evaluate every new argument before any write-back,
             // so a self-call arg that mentions a parameter reads its pre-iteration
@@ -800,7 +799,7 @@ module EmitJs =
         match e with
         // Pure, immutable binder: substitute away so synthetic operand lets don't
         // surface as `const`s. A mutable binder is excluded (see `buildExpr`).
-        | InlinableLet reduced -> buildStatements ctx reduced
+        | InlinableLet ctx reduced -> buildStatements ctx reduced
         | _ ->
             match TastAccessor.exprKind e with
             | ExprShape.Sequential ->
@@ -1028,6 +1027,30 @@ module EmitJs =
 
         let decls = expansion.Decls
 
+        // Where each spliced node was WRITTEN, for the map. Seeded into the walk's own table
+        // rather than read straight off the expansion, because the walk adds to it: the
+        // `InlinableLet` splice re-authors nodes and carries their origins onto the copies.
+        let reached = System.Collections.Generic.HashSet<OriginPath>()
+
+        for KeyValue(node, origin) in expansion.Origins do
+            ctx0.NodeOrigins.[node] <- origin
+            reached.Add origin.File.Path |> ignore
+
+        // The producer files this program actually reached get a slot in the map's `sources[]`.
+        // Publication walks the RETENTION (`OriginSources.toList`, which yields in `OriginPath`
+        // order) and keeps the ones the expansion named, rather than walking the expansion in
+        // whatever order its dictionary enumerates: the array is then a function of the input,
+        // and two builds of one program publish the same map.
+        //
+        // A file the expansion named but that was never retained is simply not published — its
+        // nodes keep the call-site position, which is what a single-source map gave them.
+        match ctx0.Resolver with
+        | ValueNone -> ()
+        | ValueSome r ->
+            for src in OriginSources.toList r.Origins do
+                if reached.Contains src.File.Path then
+                    MapSources.publish src ctx0.MapSources
+
         let collected = collectTypes ctx0.Capabilities ctx0.ExportTopLevel decls
 
         let lowered = TastLower.lower decls
@@ -1144,7 +1167,7 @@ module EmitJs =
                             // routes through `emitBound` (closures stay curried).
                             let init =
                                 match ctx.CompiledFns.TryGetValue k with
-                                | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx (TastAccessor.exprTok value))
+                                | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx value)
                                 | _ -> emitBound ctx k value
 
                             topLevelBinding ctx (reassignedAtTop k) (binderNameOf ctx.Pool k) init

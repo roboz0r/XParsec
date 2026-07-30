@@ -324,6 +324,10 @@ let private jsWalkCtx
                 {
                     Lexed = lexed
                     Lines = EmitJsContext.LineIndex.build input
+                    // These callers assert on emitted TEXT, not on positions, and pass no
+                    // manifest set — so nothing is retained and every node keeps the
+                    // call-site position, exactly as a single-source build gives it.
+                    Origins = OriginSources.empty
                 }
         | Result.Error _ -> ValueNone
 

@@ -201,10 +201,27 @@ module JsEmitHelpers =
 
     /// Replace every `Var k` in `e` with `value`. Used only for a pure `value`, so
     /// duplicating it across multiple uses is semantics-preserving.
-    let rec substVar (k: BinderId) (value: TastAccessor.ExprId) (e: TastAccessor.ExprId) : TastAccessor.ExprId =
+    ///
+    /// `rekeyed from into` fires for every node the substitution RE-AUTHORS — `mapChildren`
+    /// mints a fresh row as soon as a child moved, and every ancestor of a substituted `Var`
+    /// therefore becomes a new node. A caller keeping facts KEYED BY NODE (which producer file
+    /// an inlined node was written in) must carry them across, or the splice loses them
+    /// silently: the derived node simply looks like one nothing was ever recorded about.
+    let rec substVar
+        (rekeyed: TastAccessor.ExprId -> TastAccessor.ExprId -> unit)
+        (k: BinderId)
+        (value: TastAccessor.ExprId)
+        (e: TastAccessor.ExprId)
+        : TastAccessor.ExprId =
         match TastAccessor.exprKind e with
         | ExprShape.Var when TastAccessor.exprVarBinding e = k -> value
-        | _ -> TastAccessor.mapChildren (substVar k value) e
+        | _ ->
+            let result = TastAccessor.mapChildren (substVar rekeyed k value) e
+
+            if result <> e then
+                rekeyed e result
+
+            result
 
     /// Is the binder `k` ever assigned (`k <- …`) within `e`? A `let mutable` whose
     /// cell stays a stack local surfaces as a `Let` binder plus `Assignment(Var k, …)`
@@ -246,7 +263,13 @@ module JsEmitHelpers =
     /// read a var the body later mutates (F#'s bind-point snapshot — see
     /// `valueReadsAssignedIn`). Every `buildExpr`/`buildStatements`/`buildTailBody` site
     /// that collapses a pure `let` matches through here so the guard lives in one place.
-    let (|InlinableLet|_|) (e: TastAccessor.ExprId) : TastAccessor.ExprId option =
+    ///
+    /// `rekeyed` is `substVar`'s: every `buildExpr` site reaches this through
+    /// `EmitJsContext.(|InlinableLet|_|)`, which supplies the walk's own bookkeeping.
+    let reduceInlinableLet
+        (rekeyed: TastAccessor.ExprId -> TastAccessor.ExprId -> unit)
+        (e: TastAccessor.ExprId)
+        : TastAccessor.ExprId option =
         match TastAccessor.exprKind e with
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
@@ -258,7 +281,7 @@ module JsEmitHelpers =
                     && not (isAssignedIn k l.Body)
                     && not (valueReadsAssignedIn l.Body l.Value)
                 then
-                    Some(substVar k l.Value l.Body)
+                    Some(substVar rekeyed k l.Value l.Body)
                 else
                     None
             | _ -> None

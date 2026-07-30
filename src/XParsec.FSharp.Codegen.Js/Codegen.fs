@@ -2,6 +2,7 @@ namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 /// The input source as the map needs it: its text, its tokens, and the file name to record
 /// for it. Its presence is what turns on source-map emission, so the three travel as one
@@ -100,6 +101,11 @@ module Codegen =
         // A node's anchor is an index into the file's token table, so a map needs the table
         // as well as the line starts. Both come from `project.Source` — the table is the
         // front end's own, the one the anchors were numbered against.
+        //
+        // The producer files come off the SAME cached contract the manifest set's inline
+        // bodies were drained from, so a body an entry serves and the file its anchors index
+        // cannot come from two different reads. A caller that names no manifests retains
+        // nothing and gets the single-source map it always got.
         let resolver: EmitJsContext.Resolver =
             match project.Source with
             | Some src ->
@@ -107,6 +113,7 @@ module Codegen =
                     {
                         Lexed = src.Lexed
                         Lines = EmitJsContext.LineIndex.build src.Content
+                        Origins = JsNativeSymbols.jsNativeInlineOriginsFor (Some Target.Js) manifestPaths
                     }
             | None -> ValueNone
 
@@ -146,9 +153,22 @@ module Codegen =
 
         let body = header + result.Source
 
+        // The consuming file is index 0 and the producers `buildProgram` published follow, in
+        // the slot order it assigned them — the same order every mapping's `SrcIndex` was
+        // resolved against.
         let map =
             project.Source
-            |> Option.map (fun src -> JsSourceMap.build jsFile src.Path src.Content mappings)
+            |> Option.map (fun src ->
+                let consuming: JsMapSource =
+                    {
+                        Path = src.Path
+                        Content = src.Content
+                    }
+
+                let sources = consuming :: EmitJsContext.MapSources.published ctx.MapSources
+
+                JsSourceMap.build jsFile sources mappings
+            )
 
         {
             Source =
