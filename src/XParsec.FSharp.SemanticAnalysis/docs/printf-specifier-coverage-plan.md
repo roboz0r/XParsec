@@ -20,7 +20,7 @@ native `TExpr.Format` a syntactic literal does).
 surface (`EncodeFSharpFunc`/`FSharpFunc`2`, `encodeFormatParam`, `EPrintfModule`, `FSharp.Core.Unit`,
 the `isCanonicalPrintfn` cluster). One gap the plan hadn't scoped surfaced and was closed: an **E1
 format-literal alias binding** (`let fmt : Format<…> = "%d"`) froze to a `New PrintfFormat` that was
-silently riding `emitPrintfFormatCtor` (an FSharp.Core `PrintfFormat`4` — the Vesper face is
+silently riding `emitPrintfFormatCtor` (an FSharp.Core `PrintfFormat`4` — the Vesper spelling is
 contract-only, no `.fs`). Since every *use* of such an alias const-propagates the literal
 (`PrintfFormatLiterals`) and the self-host contract has *no cold runtime for a format value*
 (`Infer.fs`), the binding is dead: it is now **elided** at freeze (module-level in `Elaborate`,
@@ -138,8 +138,8 @@ genuinely-dynamic case.
 - **JS writer-family `%a` via a `TextWriter` shim.** The gate diagnoses writer/builder `%a` on JS only
   because `ctx.Provider.TryLookupType` surfaces no `System.IO.TextWriter` there. A platform
   `.js.fs`/`.fsi` shim (a `TextWriter`-compatible class + a `StringWriter` + a `Console.Out`
-  equivalent), registered via the dual-face `Class` mechanism
-  (`ExternalSymbols.resolveCapabilities`, canonical `System.IO.TextWriter` ↔ platform face), flips
+  equivalent), registered via the two-name `Class` mechanism
+  (`ExternalSymbols.resolveCapabilities`, canonical `System.IO.TextWriter` ↔ platform name), flips
   that capability with **zero** gate/`SemanticAnalysis` changes; the CLR capture-first emit
   transliterates onto the JS `StringWriter`. Keeping the surface type `System.IO.TextWriter` is what
   makes `fprintf (w: TextWriter) "%a" …` source-identical on both targets. Wrinkles: the shim's

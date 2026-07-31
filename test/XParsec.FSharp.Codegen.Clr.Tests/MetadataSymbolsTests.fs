@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 
 // The metadata leaf canonicalizes BCL primitives (`System.Int32 → int`) through the
-// extracted `{ platform → [canon] }` reverse map — the reverse face of Vesper.Core's
+// extracted `{ platform → [canon] }` reverse map — the reverse view of Vesper.Core's
 // `type int = (# "System.Int32" #)`. Seed the test leaf with the REAL extracted map
 // (not a static table) so `String.Length`/`List.get_Item` present `int`, etc.
 let private reverseCanon =
@@ -16,7 +16,7 @@ let private provider =
 
 let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
-// The resolver's by-name type face answers the identity WITH the shape; these tests are
+// The resolver's by-name type view answers the identity WITH the shape; these tests are
 // about what the metadata scrape MODELS, so they read the shape half. The identity half
 // has its own test below.
 let private typeShape (name: string) =
@@ -237,10 +237,10 @@ let tests =
             // Bare IL has no module chains, so this leaf's name IS its identity — which is
             // why it can answer the identity at all rather than leave a use site to re-cut
             // one from the spelling. The two directions must invert each other: the key the
-            // by-name face reports must be the key whose `qualifiedName` rendering is the
+            // by-name view reports must be the key whose `qualifiedName` rendering is the
             // name that was asked for, ARITY INCLUDED (`EqualityComparer`1` is arity 1, not
             // an arity-0 type whose name happens to end in a backtick).
-            test "the by-name face answers the identity its own name index round-trips to" {
+            test "the by-name view answers the identity its own name index round-trips to" {
                 match provider.TryLookupType eqComparer with
                 | ValueSome(struct (key, _)) ->
                     Expect.equal (SymbolKeyOps.typeMetaName key) eqComparer "key renders back to the name asked for"
@@ -249,7 +249,7 @@ let tests =
                     Expect.equal
                         (provider.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf)
                         (provider.TryLookupType(SymbolKey.Type key))
-                        "the by-name and by-key faces answer the same type"
+                        "the by-name and by-key views answer the same type"
                 | ValueNone -> failtestf "expected %s to resolve" eqComparer
             }
 

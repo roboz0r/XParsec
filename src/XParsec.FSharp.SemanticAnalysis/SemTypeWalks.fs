@@ -2,8 +2,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 /// The variance a `FrozenType` position carries, threaded by `FrozenType.mapVariant`:
 /// COVARIANT (a value read / result), CONTRAVARIANT (a parameter), INVARIANT (a
-/// generic type ARGUMENT — a slot that admits both reads and writes, so neither the
-/// covariant nor the contravariant face alone is sound for it). A general type-system
+/// generic type ARGUMENT — a slot that admits both reads and writes, so neither
+/// covariance nor contravariance alone is sound for it). A general type-system
 /// concept, not a backend one — the walk names no concrete type; a caller's leaf owns
 /// any policy.
 [<RequireQualifiedAccess>]

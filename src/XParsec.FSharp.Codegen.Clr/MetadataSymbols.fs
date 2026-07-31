@@ -26,7 +26,7 @@ module private MetadataMapping =
 
     /// `reverseCanon` is the dynamically-extracted `{ platform-repr → [canon] }` map
     /// (`System.Int32 → [int]`), folded from the layer-1 providers' `IntrinsicReverseCanon`
-    /// — the reverse face of `type int = (# "System.Int32" #)`. It is what lets a BCL
+    /// — the reverse direction of `type int = (# "System.Int32" #)`. It is what lets a BCL
     /// member's `System.Int32` parameter present as a Vesper `int` so semantic analysis
     /// can call it (`int` and `System.Int32` are otherwise distinct, never-unifying
     /// types). NOT a static table: a BCL type absent from the map is a real class. On CLR
@@ -80,11 +80,10 @@ module private MetadataMapping =
             // roots' canon identities are now class-shaped (`IntrinsicClass` carries
             // base + `.ctor`s), so ctor / `new` / subtype resolution keys on the canon
             // directly — no unify-time string reconciliation. No `IsInterface` partition
-            // is needed: `reverseCanon` carries ONLY intrinsic (`TyConst`) canons — the
-            // `TyparCapture` reverse fold deliberately omits capability interfaces (they
-            // resolve to `TyClass` and reconcile via `CapabilityIdentity`/the face, not
-            // this map) — so a BCL interface simply misses the lookup and falls through to
-            // the general `FTClass` arm below.
+            // is needed: `reverseCanon` carries ONLY intrinsic (`TyConst`) canons — capability
+            // interfaces are deliberately omitted (they resolve to `TyClass` and reconcile via
+            // `CapabilityIdentity`, not this map) — so a BCL interface misses the lookup and
+            // falls through to the general `FTClass` arm below.
             | fullName when reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not) ->
                 Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))
             | fullName -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOf fullName 0, EqArray.empty))
@@ -716,8 +715,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         | arr -> ValueSome arr.[0]
 
     // The metadata provider is string-keyed internally (its caches address the BCL
-    // compiled name); the store face projects the resolved key to that name via
-    // `SymbolKeyOps.qualifiedName`.
+    // compiled name); the store view projects the resolved key to that name.
     member private _.LookupTypeByName(name: string) =
         match typeCache.TryGetValue name with
         | true, v -> v

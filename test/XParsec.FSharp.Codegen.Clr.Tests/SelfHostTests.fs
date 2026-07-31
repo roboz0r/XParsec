@@ -364,8 +364,8 @@ let tests =
             // reconciliation, so a plain BCL consumer — this test host, holding nothing but
             // `System.Collections` — can iterate a Vesper type it knows nothing about. That
             // round-trip is the whole point of co-slot synthesis; without it the type does
-            // not even load. Enumeration goes through the NON-GENERIC face on purpose: that
-            // is the face made entirely of synthesised members.
+            // not even load. Enumeration goes through the NON-GENERIC interface on purpose:
+            // that interface is made entirely of synthesised members.
             test "a BCL consumer iterates Vesper.List through the synthesised IEnumerable co-slots" {
                 let listAsm = Assembly.LoadFrom vesperListDll.Value
                 let listTy = listAsm.GetType "Vesper.Collections.List`1"
@@ -380,12 +380,12 @@ let tests =
                 // [1; 2; 3], built through the union's own factories.
                 let xs = cons 1 (cons 2 (cons 3 (empty ())))
 
-                // The generic face: `IEnumerable<int>` — its `GetEnumerator` is the AUTHORED
+                // The generic interface: `IEnumerable<int>` — its `GetEnumerator` is the AUTHORED
                 // capability member, bound to the BCL slot implicitly by name + signature.
                 let generic = xs :?> System.Collections.Generic.IEnumerable<int>
                 Expect.sequenceEqual generic [ 1; 2; 3 ] "IEnumerable<int> yields the elements in order"
 
-                // The non-generic face: every member here is a co-slot the author never
+                // The non-generic interface: every member here is a co-slot the author never
                 // wrote. `IEnumerable.GetEnumerator` forwards to the capability's; the
                 // `object Current` boxes the capability's `'T`.
                 let nonGeneric = xs :?> System.Collections.IEnumerable

@@ -75,7 +75,7 @@ module FrozenCodecTypes =
     // inputs, not the blob), so emit order is free and read rebuilds an unordered map.
 
     /// The two `IReadOnlyDictionary<SymbolKey,_>` fields — rebuilt on read as a
-    /// concrete `Dictionary` exposed through the read-only face, exactly how
+    /// concrete `Dictionary` exposed through the read-only view, exactly how
     /// `Elaborate` constructs `IntrinsicReprKeys` / `Accessibility`.
     let writeSymbolDict
         (w: FrozenWriter)

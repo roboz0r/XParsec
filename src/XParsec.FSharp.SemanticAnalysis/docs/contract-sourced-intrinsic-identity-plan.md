@@ -110,7 +110,7 @@ Findings from the 2026-07-07 quality review of the landed milestone, all accepte
    already-frozen `FrozenBaseType` + the frozen `.ctor`s from `TypeMembers`), not a patch
    inside the base/ctor loops — a contract type with a base but no ctors (or vice versa)
    enters only one loop. Bonus: this makes the Extern arm's two branches symmetric (both stay
-   faced/plain `Class` until finalize).
+   repr-carrying/plain `Class` until finalize).
 6. **Minor**: delete `IntrinsicSet.BigInt`/`.Undefined` (guaranteed loud-fail until their
    contracts land); extract `IntrinsicSet`/`IntrinsicResolve` from `SideTables.fs` (decouple
    `IntrinsicResolve` to take the `IntrinsicKeys` dictionary, not `PassContextTypes`); retire
@@ -230,7 +230,7 @@ The original five residue bullets were unpacked: two landed, three became their 
 
 **Stage 5a — `prim-types-bigint` contract — LANDED 2026-07-08 (SA 772 / Clr 1253 / Js 348 / Vesper 51).**
 Authored `prim-types-bigint.fsi` (`type bigint = extern`), `.fs` (`(# "System.Numerics.BigInteger" #)`
-canon+CLR repr) and `.js.fs` (`(# "bigint" #)` JS platform face); wired the `.fsi`/`.fs` into
+canon+CLR repr) and `.js.fs` (`(# "bigint" #)` JS platform name); wired the `.fsi`/`.fs` into
 `manifest.toml` `files`/`impl` (the `.js.fs` is auto-discovered by the `<base>.<target>.fs` sibling
 convention — `ReferencedProject.targetOverrideFs` — so it needs NO manifest entry, matching
 `prim-types-float.js.fs`). Added `IntrinsicSet.BigInt`, migrated the `InferLiterals` `NumBigInteger*`
@@ -358,7 +358,7 @@ to its own plan. `bigint` the TYPE stays the Stage-5a `prim-types` intrinsic; th
   radius was scouted:
 
   *Decisions.* (a) Apply to ALL THREE anchors (they share the `extern with abstract member` form
-  and are all faced `Class`es today) — migrating one would keep `CapabilityFace` alive and defeat
+  and are all repr-carrying `Class`es today) — migrating one would keep `CapabilityFace` alive and defeat
   the payoff; all or none. (b) Share ONE `IntrinsicIdentity` record between `Intrinsic` and the
   planned `IntrinsicInterface`, accepting the `Platform = None` POLARITY (scalar `None` =
   unrepresentable, gate rejects; interface `None` = backend-anchored on JS, normal) — SAFE because
@@ -367,18 +367,18 @@ to its own plan. `bigint` the TYPE stays the Stage-5a `prim-types` intrinsic; th
   sited-comment concern, not a live hazard (the only future risk is a generic helper over
   `IntrinsicIdentity` that reads `Platform` — none exist).
 
-  *Piece 1 — the (c) drift closure — LANDED 2026-07-08 on the EXISTING faced-`Class`
+  *Piece 1 — the (c) drift closure — LANDED 2026-07-08 on the EXISTING repr-carrying `Class`
   representation, NO DU case.* The two `IsInterface` partition tests
   (`MetadataSymbols.tryBuildType`, `UnificationTranslate.externalClassTy`) were redundant the
   moment the DEAD interface entries left the reverse-canon map. Scouted: `IntrinsicReverseCanon`
   has exactly three readers — `MetadataSymbols` (guarded out by `not t.IsInterface`),
   `NumberCovariance` (`number` token only), the composition fold (pure aggregation) — so
   `System.IDisposable → disposable` was dead weight (capability matching reconciles via
-  `CapabilityIdentity`/the face, not the reverse map). Dropping the `TyparCapture` reverse fold's
+  `CapabilityIdentity`, not the reverse map). Dropping the `TyparCapture` reverse fold's
   `Class { CapabilityFace = ValueSome }` arm removes those entries; with no interface canon in the
   map, both guards are provably no-ops (an interface name just misses the lookup → `FTClass`/
-  `TyClass` either way) and were deleted. The "change both or drift" coupling is GONE; the faced
-  `Class`, `ClrEnv.externalClassRef`, and `resolveAnchor` are untouched.
+  `TyClass` either way) and were deleted. The "change both or drift" coupling is GONE; the
+  repr-carrying `Class`, `ClrEnv.externalClassRef`, and `resolveAnchor` are untouched.
 
   *Piece 2 — the `IntrinsicInterface` DU-case representation cleanup — LANDED 2026-07-08
   (SA 776 / Clr 1253 / Js 348 / Vesper 51).* Added `ExternalTypeShape.IntrinsicInterface of {
@@ -389,7 +389,7 @@ to its own plan. `bigint` the TYPE stays the Stage-5a `prim-types` intrinsic; th
     A capability interface's VALUE resolution key is `externalTypeKey Origin` (asm-qualified
     `Vesper.Core`), NOT the asm-blind `Id.Canon` — resolving to `Id.Canon` would change the key's
     asm and break exact-`=` subtype compares. Carrying `Origin` keeps the `TyClass` identity
-    byte-identical to the faced `Class` it replaces; `Id.Canon` is the reconciliation face only.
+    byte-identical to the repr-carrying `Class` it replaces; `Id.Canon` is the reconciliation key only.
     `Origin` is stamped by `ExternalSymbols.stack`'s `stampType` (new `IntrinsicInterface` arm),
     exactly as a `Class`'s is.
   - **Produced at FINALIZE, not extraction** (mirrors `PendingIntrinsicClasses` for `obj`/`exn`).
@@ -402,7 +402,7 @@ to its own plan. `bigint` the TYPE stays the Stage-5a `prim-types` intrinsic; th
     (`widget`, `member Poke` — synthetic-only, no real contract uses it) is NOT an interface and
     STAYS a member-bearing `Class` (resolving to `TyClass`, members via `TryLookupMember`). Missing
     this split is what the `widget` test caught.
-  - **CLR-only.** On JS no `.fs` binds the repr, so a capability stays a plain single-faced
+  - **CLR-only.** On JS no `.fs` binds the repr, so a capability stays a plain canon-only
     interface `Class` (the `resolveAnchor`/`PlatformTypes` JS arms match `Class`, the CLR arms match
     `IntrinsicInterface`). This is now the CLR/JS asymmetry the tests assert.
   Reachable structural consumers handled (the blast-radius finding held — non-exhaustive `| _ ->`

@@ -7,11 +7,11 @@ open XParsec.FSharp.Parser
 /// `PassContext`: the contract extractor runs UPSTREAM of every pass and has no
 /// `PassContext` to offer, yet it must name a module's holder type exactly as the local
 /// key mint does. Narrowing the rule's inputs to this record is what lets one
-/// implementation serve both faces.
+/// implementation serve both readers.
 ///
 ///   * `Lexed` / `Input` — the source text the module's attributes are read out of.
 ///   * `IsNominalTypeName` — does THIS file declare a record / union / class
-///     by that short name? A live predicate, not a snapshot: each face answers it from
+///     by that short name? A live predicate, not a snapshot: each reader answers it from
 ///     its own name table.
 [<NoEquality; NoComparison>]
 type ModuleNaming =
@@ -91,9 +91,9 @@ module ModuleRules =
         holderScopes r c |> List.last |> snd
 
     /// A containment chain read as a TYPE's holder. THE sole producer of
-    /// `TypeHolder.InModule`: both faces that know about modules — local registration and
+    /// `TypeHolder.InModule`: both readers that know about modules — local registration and
     /// the `.fsi` contract extractor — build the chain as a `ModuleHolder` and come here,
-    /// so a type declared in a module gets one holder, not one per face.
+    /// so a type declared in a module gets one holder, not one per reader.
     let typeHolderOf (h: ModuleHolder) : TypeHolder =
         match h with
         | ModuleHolder.InNamespace ns -> TypeHolder.InNamespace ns

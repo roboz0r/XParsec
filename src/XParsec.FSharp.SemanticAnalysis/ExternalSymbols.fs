@@ -669,13 +669,13 @@ type ExternalClassShape =
 /// shared payload of `ExternalTypeShape.Intrinsic`, so consumers of "any intrinsic
 /// canon" read one record rather than re-matching per kind. (A capability
 /// `IntrinsicInterface` does NOT share it — its `Platform` is always present, so it
-/// carries a non-optional `string` face rather than this record's `option`.)
+/// carries a non-optional `string` rather than this record's `option`.)
 ///
-/// **Two faces** (a single repr string used to do two unrelated jobs at once):
+/// **Two names** (a single repr string used to do two unrelated jobs at once):
 /// - `Canon` — the platform-INVARIANT nominal-identity key: the qualified
 ///   **`.fsi` name** the type was declared under (`Vesper.int`, `Vesper.exn`),
 ///   i.e. the front-end identity itself, NOT a BCL name. `subsumes`' `canonKey`
-///   uses THIS face; it is distinct per nominal type so `int` ≠ `float`, and it
+///   uses THIS key; it is distinct per nominal type so `int` ≠ `float`, and it
 ///   is the SAME regardless of which backend is compiling — a JS build never
 ///   needs to know what the BCL calls `int`.
 /// - `Platform` — the per-target runtime/codegen repr: the platform's *name*
@@ -683,7 +683,7 @@ type ExternalClassShape =
 ///   `type x = (# "<repr>" #)` (`Some "System.Int32"` on CLR, `Some "number"`/
 ///   `Some "Error"` on JS). Codegen emission + the `exnReprOf`/`tryRuntimeType`
 ///   runtime axis, and the intrinsic-receiver member probe
-///   (`tryExternalReceiver`), read THIS face. Many-to-one and directional — it
+///   (`tryExternalReceiver`), read THIS name. Many-to-one and directional — it
 ///   must never drive unification. **`None` on a NULLARY intrinsic means the
 ///   type is a known scalar primitive but has NO representation on the
 ///   compiling target** — e.g. `decimal`/`nativeint` on JS, which ship no
@@ -763,17 +763,17 @@ type IntrinsicShape =
 /// identity, so it earns its own case beside `Intrinsic` (an interface is excluded
 /// from the forward-repr extraction and the unrepresentability gate, and it resolves to
 /// `TyClass` not `TyConst`). Minted ONLY on a target whose `.fs` binds the platform
-/// repr (CLR); on JS a capability surfaces as a plain single-faced interface `Class`.
+/// repr (CLR); on JS a capability surfaces as a plain canon-only interface `Class`.
 ///
 /// Carries its own identity fields rather than a shared `IntrinsicIdentity`: unlike a
 /// scalar `Intrinsic` (whose `Platform` is an `option` — `None` = unrepresentable, the
 /// gate's reject signal), a capability interface is minted ONLY when its `.fs` binds
-/// the repr, so its `Platform` face is always present — a non-optional `string` that
+/// the repr, so its `Platform` name is always present — a non-optional `string` that
 /// keeps the `Some`-unwraps at `resolveAnchor` / `externalClassRef` / `ClrExternalMembers`
 /// total and removes the two-polarity hazard of sharing the scalar's optional field.
 ///
 /// - `Canon` — the platform-INVARIANT `.fsi` short-name identity (`Vesper.disposable`):
-///   the reconciliation / capability-matching face (`resolveAnchor`'s `CanonKey`) and the
+///   the reconciliation / capability-matching key (`resolveAnchor`'s `CanonKey`) and the
 ///   pre-split namespace `stampType` homes the `Origin` on. NOT the value-resolution key.
 /// - `Platform` — the `.fs` `(# … #)` BCL repr (`"System.IDisposable"`), driving CLR
 ///   reconciliation + the `ClrEnv` InterfaceImpl redirect.
@@ -784,7 +784,7 @@ type IntrinsicShape =
 /// - `Origin` — the manifest home (assembly + namespace), stamped by
 ///   `ExternalSymbolProviders.stack`'s `stampType` exactly as a `Class`'s is. The VALUE
 ///   resolution key uses THIS (`externalTypeKey Origin`) for its namespace; `Canon` is the
-///   reconciliation/capability-matching face only.
+///   reconciliation/capability-matching key only.
 type IntrinsicInterfaceShape =
     {
         /// A `TypeKey` — a capability is a nominal INTERFACE type; no other kind can name
@@ -855,9 +855,9 @@ type ExternalTypeShape =
     /// the optional class surface all ride `IntrinsicShape` (lifted out like
     /// `ExternalClassShape`, so the DU header stays narrow and the identity axis
     /// is ONE pattern regardless of heritability — see the record's docs for the
-    /// canon/platform two-faces story).
+    /// canon/platform split).
     ///
-    /// The two faces **diverge on every target** (CLR: `int`/`Some "System.Int32"`):
+    /// The two names **diverge on every target** (CLR: `int`/`Some "System.Int32"`):
     /// `Canon` is `.fsi`-defined, `Platform` is `.fs`-defined. An incoming
     /// BCL/native runtime name on the metadata seam (e.g. `System.Exception`
     /// surfaced by a metadata `inherit` chain) is reconciled back to its `Canon`
@@ -872,7 +872,7 @@ type ExternalTypeShape =
     /// interface differs on identity (resolves to `TyClass`, not a `TyConst` value),
     /// is excluded from the forward-repr extraction + the unrepresentability gate, and
     /// carries a member surface + `Origin`. See `IntrinsicInterfaceShape`. CLR-only
-    /// (a JS capability is a plain single-faced interface `Class`).
+    /// (a JS capability is a plain canon-only interface `Class`).
     | IntrinsicInterface of shape: IntrinsicInterfaceShape
     /// A nominal type whose *name + arity* the extractor registered but whose
     /// body shape it does not (yet) model: an enum / delegate / type-extension
@@ -892,7 +892,7 @@ type ExternalTypeShape =
     /// genuinely *unresolved* name, which never registers and bakes `TyUnknown`.
     | Opaque of arity: int
 
-    /// The shape's syntactic arity — the guard every resolution face applies so a
+    /// The shape's syntactic arity — the guard every resolution path applies so a
     /// generic type referenced at the wrong arity isn't mistaken for this type
     /// (and the abbrev/record builders get a right-length arg array).
     member this.TyparArity: int =
@@ -906,13 +906,13 @@ type ExternalTypeShape =
         | Abbrev(arity = a)
         | Opaque(arity = a) -> a
 
-/// The **resolver face** of the external-symbol contract: *spelling → identity*
+/// The **resolver view** of the external-symbol contract: *spelling → identity*
 /// (`string → identity`). Opens-aware — this is where a source spelling is turned
 /// into a resolved symbol/type/case. String-keyed is CORRECT here: it is the one
 /// layer (with the contract extractor) that owns `string × OpenScope → SymbolKey`
 /// resolution. Every pass downstream of NameResolution speaks the key-addressed
 /// `IExternalSymbolStore` instead. The oracle doctrine and thread-safety contract
-/// on `IExternalSymbolProvider` govern this face too.
+/// on `IExternalSymbolProvider` govern this view too.
 type IExternalSymbolResolver =
     /// `name` is the compiled name ("op_Addition", not "(+)").
     abstract TryLookup: name: string -> ExternalSymbol voption
@@ -953,7 +953,7 @@ type IExternalSymbolResolver =
     /// surface, which rides `TryLookupType` via `ExternalTypeShape.Intrinsic`.
     abstract AmbientOpenPrefixes: string list
 
-/// The **store face** of the external-symbol contract: *identity → payload*
+/// The **store view** of the external-symbol contract: *identity → payload*
 /// (`SymbolKey → payload`). What Unification, Elaborate, InlineExpansion, and codegen
 /// speak once identity is already resolved — no consumer re-derives identity from a
 /// spelling here. Type / index / member / symbol lookups are addressed by the resolved
@@ -966,7 +966,7 @@ type IExternalSymbolResolver =
 /// nominal identity, so a key minted from a bare compiled-name string
 /// (`SymbolKeyOps.qualifiedTypeKey`) answers exactly the entries a fully resolved one
 /// does. Two same-named types in different assemblies are therefore indistinguishable
-/// to the store face (the CS0433 sweep in `ReferencedProject.fs` exists to make that
+/// to the store view (the CS0433 sweep in `ReferencedProject.fs` exists to make that
 /// collision impossible upstream rather than to resolve it here).
 type IExternalSymbolStore =
     /// Look up a `type` declaration's body by the resolved `SymbolKey` a consumer
@@ -1030,7 +1030,7 @@ type IExternalSymbolStore =
     abstract TryLookupByKey: key: SymbolKey -> ExternalSymbol voption
 
     /// The reverse intrinsic axis `{ platform-repr -> [canon] }`, so the unifier can
-    /// reconcile an incoming BCL/native *runtime* name (the `platform` face, e.g.
+    /// reconcile an incoming BCL/native *runtime* name (the `platform` name, e.g.
     /// `"System.Exception"` surfaced by a metadata `inherit` chain on CLR) back to the
     /// short front-end identity (`canon`, the `.fsi` name, e.g. `"exn"`). ONE-TO-MANY:
     /// a single platform repr can be the target of several canons — on JS `int`,
@@ -1062,13 +1062,13 @@ type IExternalSymbolStore =
     /// metadata / JS-native / test providers return `Map.empty`.
     abstract IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
 
-/// A mechanical metadata / contract ORACLE combining both faces: the resolver
+/// A mechanical metadata / contract ORACLE combining both views: the resolver
 /// (spelling → identity) and the store (identity → payload). Every backing object
 /// (VesperLib contract, metadata, JS-native, TS-manifest, test fakes) implements
-/// THIS combined interface — one object, both duties — so the two faces are always
+/// THIS combined interface — one object, both duties — so the two views are always
 /// free upcasts of the same object (`p :> IExternalSymbolStore`), no forwarding.
 ///
-/// **The oracle doctrine (both faces, every channel):** the contract carries **no
+/// **The oracle doctrine (both views, every channel):** the contract carries **no
 /// capability predicates** — no `IsDisposable` / `IsEquatable` here, and there must
 /// never be. "Is this type disposable?" is a language-semantics judgment the passes
 /// derive from the raw facts (`FrozenInterfaces`, `Members`) against the resolved
@@ -1076,7 +1076,7 @@ type IExternalSymbolStore =
 /// the metadata layer. The provider's *data* may grow; its *interface* stays a dumb
 /// oracle — the absence of those members IS the constraint, do not add them.
 ///
-/// **Thread-safety (both faces, every channel):** every lookup — value, type, case,
+/// **Thread-safety (both views, every channel):** every lookup — value, type, case,
 /// member, index-signature, by-key symbol, and the intrinsic axes — must be safe to
 /// call concurrently from multiple threads. Implementations that cache lazily must
 /// guard their internal mutation. Per-file pipelines run independent `PassContext`s
@@ -1156,13 +1156,12 @@ type ICodegenSymbols =
     /// taken (these have no same-arity ambiguity). Not overload disambiguation; one member out,
     /// never an array.
     abstract TryLookupCtor: declKey: SymbolKey * chosen: SymbolKey voption * arity: int -> ExternalMember voption
-    /// Rebase a member call resolved against a capability face onto its true base
-    /// declarer, when the member is inherited (`enumerator.MoveNext` is declared on the
-    /// non-generic base `IEnumerator`, not the `IEnumerator`1` platform face it was
-    /// called on — a face-parented member-ref would `MissingMethodException`). Walks the
-    /// platform face's metadata hierarchy internally and returns the rebased member key.
-    /// `ValueNone` when `key` is not a capability member, is declared on the face itself,
-    /// or has no base member to rebase onto (decline rather than mint a wrong ref).
+    /// Rebase a member call resolved against a capability's platform interface onto its
+    /// true base declarer when the member is inherited: `enumerator.MoveNext` is declared
+    /// on the non-generic `IEnumerator`, not the `IEnumerator`1` it was called on, and a
+    /// member-ref parented on the derived interface would `MissingMethodException`.
+    /// `ValueNone` when `key` names no capability member, is declared on that interface
+    /// itself, or has no base to rebase onto — declining beats minting a wrong ref.
     abstract TryRebaseCapabilityMember: key: SymbolKey -> SymbolKey voption
     /// The open `FrozenType` signature of a module-level function by its value key, or
     /// `ValueNone` for an unknown symbol or one with no home assembly (a project-local
@@ -1210,7 +1209,7 @@ module ExternalSymbols =
 
     /// Select the ONE entry of a by-NAME overload set whose identity is `key` — how a
     /// store whose member index is name-keyed answers `TryLookupMemberByKey`. Spelled
-    /// once, here, so no consumer of the store face ever re-implements "find my overload"
+    /// once, here, so no consumer of the store view ever re-implements "find my overload"
     /// over `TryLookupMembers` (a consumer holds an identity and must be answered under
     /// it, not handed a candidate set to sift).
     let memberByKey (key: MemberKey) (candidates: ExternalMember[]) : ExternalMember voption =
@@ -1248,7 +1247,7 @@ module ExternalSymbols =
     /// Whether an external shape is an interface: an interface-flagged `Class` (a metadata
     /// / `.d.ts` interface, or a JS capability) or a CLR capability `IntrinsicInterface`. A
     /// capability is an interface on BOTH targets — only the shape differs (the CLR one
-    /// additionally carries the BCL reconciliation face); this predicate erases that shape
+    /// additionally carries the BCL reconciliation name); this predicate erases that shape
     /// split so a consumer asks "is this an interface?" in one place.
     let isInterfaceShape (shape: ExternalTypeShape) : bool =
         match shape with
@@ -1332,7 +1331,7 @@ module ExternalSymbols =
     /// surfaces a resolve-on-use diagnostic or treats it as a non-match.
     ///
     /// All five are dedicated `extern interface` anchors (`capabilities.fsi`) — see
-    /// `resolveAnchor` for the dual/single-faced cases. The key is minted with arity 0
+    /// `resolveAnchor` for the one- and two-name cases. The key is minted with arity 0
     /// because the fqn ALREADY carries the metadata backtick-arity suffix (`arityName` is
     /// a no-op on it): the arity is in the key, which is what lets `CapabilityIdentity`
     /// recognise by `=`. `seq`/`enumerator` live in `Vesper.Core` (not
@@ -1346,31 +1345,24 @@ module ExternalSymbols =
                 RuntimeNames.CapabilityIdentity.CanonKey = ValueNone
             }
 
-        // Mint a capability's identity from its anchor. On CLR a capability surfaces as a
-        // dual-faced `IntrinsicInterface`: its PLATFORM face (`System.IDisposable`) is `Key`
-        // — what a metadata or BCL-spelled impl freezes to — and the canonical face is
-        // `CanonKey` — what `interface disposable` freezes to; both spellings then dispatch.
-        // On JS a capability surfaces as a single-faced interface `Class` (no `(# … #)` repr).
-        // The canonical key is always present; the BCL face is added ON JS iff the caller
-        // supplies its BCL spelling AND the `capabilities-compat.js.fsi` shim CONFIRMS that
-        // spelling abbreviates to this very canonical (`shimConfirms`). This gives the JS
-        // iteration capabilities the same dual face the CLR `IntrinsicInterface` carries, so an
-        // external TS pack that spells its interface with the BCL name (`System.Collections
-        // .Generic.IEnumerable`1`) reconciles to the canonical `seq` through the already-landed
-        // `capabilityCanonKey` fold — exactly as on CLR. The BCL spelling is not invented here:
-        // it is the reconciliation constant (the same string the CLR `.fs` repr declares) and is
-        // only trusted when the shim's own abbreviation verifies the mapping. The `Intrinsic`
-        // arm covers any build whose anchor is still a bare `extern`.
+        // Mint a capability's identity from its anchor. On CLR a capability is an
+        // `IntrinsicInterface` carrying both names: `Key` is the platform/BCL name
+        // (`System.IDisposable`) a metadata or BCL-spelled impl freezes to, `CanonKey` the
+        // canonical one `interface disposable` freezes to; both spellings then dispatch.
+        // On JS it is a plain `Class` with only the canonical name, and the BCL name is added
+        // iff the caller supplies it AND the `capabilities-compat.js.fsi` shim confirms that
+        // spelling abbreviates to this canonical. That gives JS the same two names CLR gets,
+        // so a TS pack spelling `IEnumerable`1` still reconciles to `seq`.
         //
-        // NOTE: the provider exposes no reverse-abbreviation index, so the canonical→BCL
-        // direction cannot be derived from the shim alone — the BCL face is supplied as
-        // `bclFace` and VERIFIED (never blindly trusted) against the shim's forward abbreviation.
+        // The provider exposes no reverse-abbreviation index, so canon→BCL cannot be derived:
+        // `bclName` is supplied and VERIFIED, never trusted. The `Intrinsic` arm covers a
+        // build whose anchor is still a bare `extern`.
         let shimConfirms (bcl: string) (lookup: string) : bool =
             match provider.TryLookupType bcl |> typeShapeOf with
             | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(head, _))) -> SymbolKeyOps.typeMetaName head = lookup
             | _ -> false
 
-        let resolveAnchor (lookup: string) (bclFace: string voption) : RuntimeNames.CapabilityIdentity voption =
+        let resolveAnchor (lookup: string) (bclName: string voption) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup |> typeShapeOf with
             | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
                 ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf fqn 0))
@@ -1383,11 +1375,11 @@ module ExternalSymbols =
             | ValueSome(ExternalTypeShape.Class _) ->
                 let canonKey = SymbolKeyOps.qualifiedTypeKeyOf lookup 0
 
-                match bclFace with
+                match bclName with
                 | ValueSome bcl when shimConfirms bcl lookup ->
-                    // JS: dual-face this single-faced anchor with its shim-confirmed BCL face,
-                    // mirroring the CLR `IntrinsicInterface` polarity (`Key` = BCL platform face,
-                    // `CanonKey` = canonical). `capabilityCanonKey` then folds either spelling → canon.
+                    // JS: pair this canon-only anchor with its shim-confirmed BCL name, mirroring
+                    // the CLR polarity (`Key` = platform, `CanonKey` = canonical), so
+                    // `capabilityCanonKey` folds either spelling → canon.
                     ValueSome
                         {
                             RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf bcl 0
@@ -1397,14 +1389,14 @@ module ExternalSymbols =
             | _ -> ValueNone
 
         {
-            // The iteration capabilities carry their BCL reconciliation face so an external TS
-            // pack's BCL-spelled `IEnumerable`1`/`IEnumerator`1` reconciles to `seq`/`enumerator`
-            // on JS (shim-verified; a no-op on CLR, where the dual face comes from the `.fs` repr).
+            // The iteration capabilities carry a BCL reconciliation name so a TS pack's
+            // BCL-spelled `IEnumerable`1`/`IEnumerator`1` reconciles to `seq`/`enumerator` on JS
+            // (shim-verified; a no-op on CLR, where both names come from the `.fs` repr).
             Enumerable = resolveAnchor "Vesper.Collections.seq`1" (ValueSome "System.Collections.Generic.IEnumerable`1")
             Enumerator =
                 resolveAnchor "Vesper.Collections.enumerator`1" (ValueSome "System.Collections.Generic.IEnumerator`1")
-            // The leaf capabilities' JS `use`/eq/comp paths fold BCL spellings to the canonical at
-            // freeze time via the shim, so they need no extra reconciliation face here (single-faced on JS).
+            // The leaf capabilities' JS `use`/eq/comp paths fold BCL spellings to the canonical
+            // at freeze time via the shim, so they need no reconciliation name here.
             Disposable = resolveAnchor "Vesper.disposable" ValueNone
             Equatable = resolveAnchor "Vesper.equatable`1" ValueNone
             Comparable = resolveAnchor "Vesper.comparable`1" ValueNone

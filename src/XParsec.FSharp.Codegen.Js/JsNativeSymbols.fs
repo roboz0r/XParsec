@@ -208,8 +208,8 @@ module JsNativeSymbols =
         | Some(ExternalTypeShape.Class shape) -> shape.Members |> Array.filter (fun m -> m.Name = memberName)
         | _ -> [||]
 
-    /// The layer-2 provider for JS-native runtime types — a by-name leaf;
-    /// `ofNamedLeaf` derives the store face, so the two faces cannot drift.
+    /// The layer-2 provider for JS-native runtime types — a by-name leaf; the store view is
+    /// derived from it, so the two lookups cannot drift.
     let provider: IExternalSymbolProvider =
         ExternalSymbolProviders.ofNamedLeaf
             { ExternalSymbolProviders.NamedLeaf.empty with

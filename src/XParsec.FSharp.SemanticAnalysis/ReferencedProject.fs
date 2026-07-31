@@ -581,8 +581,8 @@ module ReferencedProject =
     /// duplicate sweep reads. `DeclaredTypeNames` are the qualified compiled names of the
     /// NOMINAL types this package OWNS (Class/Record/Union/Enum — the shapes that mint a
     /// lookup key and would silently first-hit-shadow a peer package's same-named type).
-    /// Intrinsics and capability faces share one canon across packages by design, and so
-    /// are deliberately excluded — a shared canon there is not a collision.
+    /// Intrinsics and capability interfaces share one canon across packages by design, and
+    /// so are deliberately excluded — a shared canon there is not a collision.
     type BuiltPackage =
         {
             Provider: IExternalSymbolProvider
@@ -615,18 +615,18 @@ module ReferencedProject =
             // is the only place the repr lives (the `.fsi` commits `type exn =
             // extern`, no repr) — moved here from the codegen-layer extraction.
             //
-            // Two repr faces:
+            // Two repr tables:
             //  - the BASE `.fs` ⇒ `IntrinsicBaseReprs`: the primitive *marker* (its
             //    presence is what publishes the `extern` as an `Intrinsic`, not a
             //    `Class`) and, on CLR, the platform repr itself.
             //  - the per-target `<base>.<target>.fs` override ⇒ `IntrinsicReprs`: the
-            //    `platform` face for THIS target (`prim-types-int.js.fs` ⇒ `number`).
+            //    `platform` name for THIS target (`prim-types-int.js.fs` ⇒ `number`).
             //    On CLR there is no override, so the base repr also feeds `IntrinsicReprs`.
             // A primitive the target OMITS (`decimal` ships no `.js.fs`) is in
             // `IntrinsicBaseReprs` but NOT `IntrinsicReprs`, so it stays an `Intrinsic`
             // with `platform = None` rather than falling back to a BCL repr that has no
-            // JS runtime. The `canon` face is the `.fsi` name itself (set at the `extern`
-            // arm), so the override never moves the unifier's identity key.
+            // JS runtime. `canon` is the `.fsi` name itself (set at the `extern` arm), so
+            // the override never moves the unifier's identity key.
             let extractCompanion (dest: System.Collections.Generic.Dictionary<string, string>) (abs: string) =
                 let fsFile: VesperLib.LibFile =
                     {
@@ -652,7 +652,7 @@ module ReferencedProject =
                     | Some overrideAbs -> extractCompanion ctx.IntrinsicReprs overrideAbs
                     | None ->
                         // Base target (CLR), or no per-target companion: the base repr
-                        // IS the platform face. Reuse the just-extracted base marker
+                        // IS the platform name. Reuse the just-extracted base marker
                         // rather than re-parsing the file.
                         ()
 
@@ -661,7 +661,7 @@ module ReferencedProject =
             // so no base `.fs`). Such a type has no base/override split: its single
             // `<base>.<t>.fs` companion is BOTH the marker (→ `IntrinsicBaseReprs`, so the
             // `extern` publishes as an `Intrinsic` not an opaque `Class`) AND the JS
-            // platform face (→ `IntrinsicReprs`). `File.Exists` skips a shim `.fsi` with
+            // platform name (→ `IntrinsicReprs`). `File.Exists` skips a shim `.fsi` with
             // no `.fs` companion (`capabilities-compat.js.fsi`, `ops-platform-runtime.js.fsi`).
             for rel in resolveExtraFiles target manifest do
                 let companionAbs = baseFs dir rel
@@ -671,7 +671,7 @@ module ReferencedProject =
                     extractCompanion ctx.IntrinsicReprs companionAbs
 
             // CLR (and any target whose primitive has no override): the base repr is the
-            // platform face. Seed `IntrinsicReprs` from the base markers WITHOUT a
+            // platform name. Seed `IntrinsicReprs` from the base markers WITHOUT a
             // second parse; a real per-target override (extracted above) already shadows
             // its entry, so this only fills the gaps.
             match target with

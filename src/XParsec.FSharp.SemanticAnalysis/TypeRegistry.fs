@@ -170,7 +170,7 @@ type PassContextTypes =
         /// carries and false-match any same-named type). Written with `IntrinsicReprTypes`
         /// at the one registration site, so the two cannot disagree. Carries the
         /// `class`-tag verdict alongside the repr (`IntrinsicReprInfo.Heritable`) — the
-        /// frozen face `TastFile.IntrinsicReprKeys` is a straight copy of this table.
+        /// frozen `TastFile.IntrinsicReprKeys` is a straight copy of this table.
         IntrinsicReprKeys: Dictionary<SymbolKey, IntrinsicReprInfo>
         /// The name → qualified `SymbolKey` index for this file's own intrinsics,
         /// populated at registration from the declaring `namespace` (`Vesper`). The
@@ -312,7 +312,7 @@ module PassContextTypes =
 /// carries in its `Name`) is part of the key by construction: `Choice<'T1,'T2>` and
 /// `Choice<'T1,'T2,'T3>` are distinct keys, and so are same-named types in different
 /// places. A *name* therefore addresses a CANDIDATE SET (`RecordNames` / `UnionNames` /
-/// `ClassNames`), never an entry — the three lookup faces below are the only ways in:
+/// `ClassNames`), never an entry — the three lookups below are the only ways in:
 ///   * by `SymbolKey` (`tryRecordByKey` / …) — exact, the identity a consumer already holds;
 ///   * by `(name, arity)` (`tryRecordArity` / `tryUnion` / `tryClassArity`) — exact;
 ///   * by BARE name (`tryRecord` / `tryUnionBare` / `tryClass`) — resolves only when the
@@ -328,12 +328,12 @@ module PassContextTypes =
 /// THE by-name / by-key split. A NAME does not identify a type on its own — it identifies
 /// one only as seen FROM somewhere, and "somewhere" is a `UseSite`: the offset the name is
 /// written at (F# declaration scoping is file-ordered) together with the module chain that
-/// encloses it (a bare name resolves innermost-outward). Every by-name face below therefore
+/// encloses it (a bare name resolves innermost-outward). Every by-name lookup below therefore
 /// takes one, and answers against the claims visible there (`TypeIdentity.VisibleFrom`); a
 /// caller with nowhere to speak from passes `UseSite.unbounded` and gets the whole-file
-/// view. The `…ByKey` faces take none, and must not: a `SymbolKey` already names a resolved
+/// view. The `…ByKey` lookups take none, and must not: a `SymbolKey` already names a resolved
 /// type, so there is no scoping question left to ask. Requiring a use site of exactly the
-/// by-name faces is what makes an unscoped by-name read impossible to write by accident.
+/// by-name lookups is what makes an unscoped by-name read impossible to write by accident.
 module TypeRegistry =
 
     /// The contract-sourced identity key for a locally-declared intrinsic (`int`,
@@ -380,7 +380,7 @@ module TypeRegistry =
     // F# builds the name environment by descending the module tree and ADDING, in source
     // order, each declaration and each `open`; the last thing added wins. `claimRank` is
     // that ordering, `BindingRank` is its value, and MAX is the resolution rule. Every
-    // by-name face below is a `max claimRank` over a candidate set — there is no second
+    // by-name lookup below is a `max claimRank` over a candidate set — there is no second
     // statement of precedence anywhere.
 
     /// The scope this file declares under the dotted SOURCE `path`, as a path is WRITTEN
@@ -557,8 +557,8 @@ module TypeRegistry =
                 best
 
     /// The claim on `written` that WINS at `useSite` among those `admit`s — the max-rank
-    /// candidate. THE resolution primitive: every by-name face is this with a different
-    /// `admit`, so no face can invent a precedence of its own, and a qualified name is not a
+    /// candidate. THE resolution primitive: every by-name lookup is this with a different
+    /// `admit`, so none can invent a precedence of its own, and a qualified name is not a
     /// second resolver but the same one reading from the scope its path names.
     let private tryWinner
         (types: PassContextTypes)
@@ -600,7 +600,7 @@ module TypeRegistry =
     ///
     /// With `tryKeyOfArglessName` it is the funnel EVERY kind index (record / union / class /
     /// abbrev) resolves a name through, which is why the use site enters here rather than
-    /// at each kind's face: one place decides what a name can see.
+    /// at each kind's index: one place decides what a name can see.
     let private tryKeyOfArity
         (types: PassContextTypes)
         (index: Dictionary<string, ResizeArray<TypeKey>>)
@@ -967,13 +967,13 @@ module TypeRegistry =
                 | false, _ -> ValueNone
 
     /// The union / record / inline intrinsic-abbrev host a DECLARATION names — the
-    /// key-addressed face of `tryNonClassMemberHost`, for the passes that are walking the
+    /// key-addressed twin of `tryNonClassMemberHost`, for the passes that are walking the
     /// declaration itself rather than a reference to it. A declaration knows exactly which
     /// type it is, and two sibling modules may each declare `T`, so it must not re-find
     /// itself by name.
     ///
     /// The nominal kinds answer by KEY. An intrinsic binding answers by NAME, and can only:
-    /// it is a primitive declared at namespace level and spelled bare at every face
+    /// it is a primitive declared at namespace level and spelled bare at every use
     /// (`IntrinsicReprTypes` / `IntrinsicKeys` / `IntrinsicAbbrevHost` are all bare-name
     /// tables, because a primitive's name is its identity).
     let tryNonClassMemberHostByKey
@@ -993,7 +993,7 @@ module TypeRegistry =
 
     /// The declaring union of a registered case — IDENTITY NAVIGATION, not a name lookup:
     /// the case carries its union's `TypeKey` (stamped from the union's own claim at
-    /// registration), so this is a key-addressed read like every other `…ByKey` face and
+    /// registration), so this is a key-addressed read like every other `…ByKey` lookup and
     /// takes no use site. There is no scoping question here: a caller holding a case got it
     /// from a scoped read, so its union is visible by construction, and re-resolving the
     /// union's NAME could only ever disagree with the case in hand.
@@ -1006,7 +1006,7 @@ module TypeRegistry =
     // A field name / case name is not a TYPE name, so it holds no claim of its own and
     // cannot go through the key funnel. It is scoped by its OWNER's claim instead — the
     // record that declares the field, the union that declares the case — which is exactly
-    // as file-ordered as the owner is. The three faces below are the ONLY reads of
+    // as file-ordered as the owner is. The three lookups below are the ONLY reads of
     // `FieldIndex` / `CtorIndex`: a raw dictionary read has no signature to demand a
     // position, so leaving one in place would leave a by-name read that is unscoped by
     // construction, which is the hole the by-name/by-key split exists to close.

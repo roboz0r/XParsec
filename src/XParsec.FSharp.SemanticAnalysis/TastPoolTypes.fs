@@ -211,7 +211,7 @@ type PooledInlineValue =
     }
 
 /// One entry of the pooled RESOLVED-SPECIALIZATION table: the grounding it was resolved at,
-/// with its declaration named by pool id — the pooled face of `TSpecializationG`, which is
+/// with its declaration named by pool id — the pooled form of `TSpecializationG`, which is
 /// where the entry's own doc lives.
 ///
 /// `Key` and `Origin` ride across the pooling unchanged: a `SymbolKey`, frozen types and a

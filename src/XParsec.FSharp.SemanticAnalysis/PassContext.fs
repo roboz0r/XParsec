@@ -129,10 +129,10 @@ module PassContextBindings =
 ///
 /// **The resolve-once contract.** NameResolution is the single layer that turns a
 /// written spelling into an identity: it resolves each one exactly once, opens-aware
-/// (the `OpenScope.tryResolve` / `tryQualify` reach onto the resolver face), and
+/// (the `OpenScope.tryResolve` / `tryQualify` reach onto the resolver view), and
 /// stamps the resulting identity into whichever table below names that node class.
 /// Consumer passes (Unification, Elaborate) READ those stamps by node key and never
-/// re-resolve a spelling — holding only the key-addressed `ctx.Provider` store face,
+/// re-resolve a spelling — holding only the key-addressed `ctx.Provider` store view,
 /// they cannot. A few tables instead carry a *type-directed* verdict reachable only
 /// once the node is typed, and so are written by Unification
 /// (`ExternalOptionalFill`, `TyparInterfaceCall`, `IntrinsicKey`,
@@ -284,7 +284,7 @@ type PassContextResolution =
         /// that for Elaborate): instantiation needs the polymorphic `Scheme` /
         /// `TyparArity` / `Constraints`, and this table is written where the SPELLING is
         /// resolved — the one place that owns `string × OpenScope → symbol`. Caching the
-        /// resolved symbol there is what keeps every later pass off the resolver face; it
+        /// resolved symbol there is what keeps every later pass off the resolver view; it
         /// is not a claim that no key-addressed form exists (`TryLookupByKey` is one).
         /// The value/operator companion to `ExternalUnionCaseStamp` (cases).
         /// Absent ⇒ the spelling is not an external symbol; the consumer falls to its
@@ -395,7 +395,7 @@ type PassContextResolution =
         /// on read. Absent ⇒ the head is project-local, a bare typar, or an unreachable
         /// name — Translate takes its local-registry / opaque / `TyVar` paths. (The
         /// `float<m>` measure carrier is synthesized during inference with no `Type`
-        /// node to stamp, and keeps the one sanctioned resolver-face reach.)
+        /// node to stamp, and keeps the one sanctioned resolver-view reach.)
         ResolvedTypeHead: SideTable<TypeKey>
         /// A static-access receiver's resolved external CLASS key — the writer
         /// guarantees the Class shape, so readers dispatch with no shape re-query.
@@ -523,7 +523,7 @@ type ListLiteral =
 /// (`PassContext.CoreAccess`) rather than re-run per node. `ValueNone` = the name is
 /// not in scope (no Vesper.Core referenced), which each reader turns into an
 /// "intrinsic not in scope" diagnostic. Resolving here — not at each use site —
-/// keeps `PassContext.Provider` a pure key-addressed `IExternalSymbolStore` face.
+/// keeps `PassContext.Provider` a pure key-addressed `IExternalSymbolStore` view.
 type CoreAccessIntrinsics =
     {
         GetArrayLength: ExternalSymbol voption
@@ -577,19 +577,19 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     // provider-fallback by `subsumes.canonKey`, `translateType`, and codegen.
     let types = PassContextTypes.empty ()
 
-    /// The **store face** (`SymbolKey → payload`) of the external-symbol contract —
-    /// the default face every downstream pass (Unification, Elaborate, InlineExpansion,
+    /// The **store view** (`SymbolKey → payload`) of the external-symbol contract —
+    /// the default view every downstream pass (Unification, Elaborate, InlineExpansion,
     /// codegen) speaks once identity is already resolved. Narrowed from the full
     /// `IExternalSymbolProvider` on purpose: a consumer pass CANNOT reach a spelling
-    /// lookup through `ctx.Provider` because the resolver face isn't on it. A genuine
+    /// lookup through `ctx.Provider` because the resolver view isn't on it. A genuine
     /// `string → identity` reach lives on `ctx.Resolver` and is sanctioned only for the
     /// named readers documented there. A free upcast of the same backing object.
     member _.Provider: IExternalSymbolStore = provider
 
-    /// The **resolver face** (`string → identity`) of the external-symbol contract.
+    /// The **resolver view** (`string → identity`) of the external-symbol contract.
     /// Deliberately the ONLY string-lookup handle reachable from a `PassContext`, kept
     /// narrow and greppable so the resolve-once boundary stays enforced by exposure:
-    /// a pass holding only the store-face `Provider` CANNOT resolve a spelling. Its
+    /// a pass holding only the store-view `Provider` CANNOT resolve a spelling. Its
     /// sanctioned readers — pinned by `ResolverAllowlistTests` in the SA test suite —
     /// are each a genuine `string → identity` reach that survives by construction
     /// (not a `SymbolKey` round-trip):
@@ -601,7 +601,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     ///   - codegen's cross-package inline-body key interning (`SymbolProviders`) — a
     ///     by-name value lookup pending its own by-key conversion.
     /// Any NEW consumer-pass string resolution is a boundary violation: speak the
-    /// key-addressed `Provider` store face instead. A free upcast of the same object.
+    /// key-addressed `Provider` store view instead. A free upcast of the same object.
     member _.Resolver: IExternalSymbolResolver = provider
 
     /// The four language-capability identities, resolved once here THROUGH THE
@@ -1058,7 +1058,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// A written type name read off the syntax that spells it: the LAST segment is the type's
     /// short name, everything before it the dotted SOURCE path of the scope qualifying it
     /// (empty for a single-segment head). THE one place a long ident is split that way, so
-    /// every face that resolves a written type name — the head classifier, the type
+    /// every path that resolves a written type name — the head classifier, the type
     /// translator, the ctor heads — splits it identically.
     member this.WrittenTypeNameOf(li: LongIdent<SyntaxToken>) : WrittenTypeName =
         let idents = li.Idents

@@ -13,7 +13,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // (`Resolution.ExternalUnionRecordQualifier`). Unification's
 // `tryQualifiedExternalMemberMiss` READS that stamp (presence) to raise "Type 'Q'
 // has no value or member 'm'" for an unresolved tail, instead of re-resolving the
-// qualifier through the resolver-face `TryLookupType(string)` at inference time. A
+// qualifier through the resolver-view `TryLookupType(string)` at inference time. A
 // CLASS qualifier is NOT stamped: its unmodelled-static silence stays a fresh TyVar.
 
 /// A provider that knows a union `Tests.Colour` and a record `Tests.Widget` (whose

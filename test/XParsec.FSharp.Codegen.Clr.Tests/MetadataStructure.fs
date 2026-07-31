@@ -5,7 +5,7 @@
 /// It is its own module rather than more of `TestHelpers` because it is an
 /// assertion library, not a fixture: `TestHelpers` builds and runs things, these
 /// functions only look and complain. It sits after `TestHelpers` in compile order
-/// and reuses its `openPe`, so both faces of the emitted PE (reflection, raw
+/// and reuses its `openPe`, so both views of the emitted PE (reflection, raw
 /// metadata) stay one `open` apart for a test.
 ///
 /// WHY IT EXISTS. `Layout.deriveHandles` predicts every metadata handle from a
@@ -318,7 +318,7 @@ let assertWellFormedMetadata (label: string) (md: MetadataReader) : unit =
     assertPreOrderContiguity label md
 
 /// Every `TypeDef` row of an emitted PE, with the rows its ranges claim — the
-/// diagnosis face (and how a caller writes an `ExpectedType` pin in the first place).
+/// diagnosis view (and how a caller writes an `ExpectedType` pin in the first place).
 let emittedTypes (bytes: byte[]) : EmittedType list =
     use pe = openPe bytes
     readTypes (pe.GetMetadataReader())

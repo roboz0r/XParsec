@@ -200,7 +200,7 @@ module internal UnificationInferCtor =
         // `declTypeKey` is the constructed type's identity, resolved upstream (a
         // NameResolution `ResolvedType` stamp for a ctor-sugar head, or the already-
         // resolved receiver `TyClass`/`TyConst` key for `new T(…)`). The `.ctor`
-        // catalogue is a key-addressed store-face lookup, not a spelling re-scan.
+        // catalogue is a key-addressed store-view lookup, not a spelling re-scan.
         let ctors = ctx.Provider.TryLookupMembers(declTypeKey, ".ctor")
         let name = SymbolKeyOps.qualifiedName declTypeKey
 
@@ -279,7 +279,7 @@ module internal UnificationInferCtor =
             // only when the head does not resolve as a local), so reading the stamp
             // inherently excludes locals — the old head-binding guard. Confirm the
             // resolved type is a Class (ctor-sugar constructs a class only) via the
-            // key-addressed store face; a non-class head declines to the caller's
+            // key-addressed store view; a non-class head declines to the caller's
             // fallback rather than erroring.
             match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr fn) with
             | ValueSome declTypeKey ->
@@ -344,7 +344,7 @@ module internal UnificationInferCtor =
                 // NameResolution's TypeApp visit resolved receiver+arity together and
                 // stamped the head's `ResolvedType` (any shape, exact arity — an
                 // abbreviation stamps its OWN key). `tryExternalTypeOfKey` fetches the
-                // shape on the store face and expands an abbreviation to its underlying
+                // shape on the store view and expands an abbreviation to its underlying
                 // class (`ResizeArray<int>` → `TyClass(System.Collections.Generic.List`1,
                 // [int])`), so construction proceeds by the resolved class key.
                 match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr headExpr) with

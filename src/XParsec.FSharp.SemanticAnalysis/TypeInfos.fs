@@ -210,7 +210,7 @@ type ClassInterfaceImplInfo
 /// `TyRecord(Key, args)`, so the `this`-type seeding inside an impl body is exact.
 type IInterfaceImplHost =
     /// The nominal identity widened for the kind-blind sinks (the external-symbol store
-    /// face, a diagnostic's `qualifiedName`).
+    /// view, a diagnostic's `qualifiedName`).
     abstract member Key: SymbolKey
     /// The SAME identity as a `TypeKey` — what the `SemType`/`FrozenType` nominal cases
     /// carry, and what the declaring slot of a `MemberKey` / a `TypeHolder` demands. A

@@ -205,7 +205,7 @@ type internal MethodKey =
     /// The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`).
     | FmtFormat of SymbolKey
     /// A synthesised capability co-slot (`CoSlot`) — the BCL members a capability's
-    /// platform face inherits but its member surface never declared.
+    /// platform interface inherits but its member surface never declared.
     | CapCoSlot of SymbolKey * CoSlot
     | ClosureCtor of closure: string
     | ClosureInvoke of closure: string

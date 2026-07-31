@@ -528,9 +528,9 @@ head's `NodeKey`. Consequences that fall out rather than being engineered:
   construction. (`PrintfTests.fs:431`'s shadowing test then passes for the structural
   reason instead of the guarded one.)
 - The recogniser must accept **either** package's key — `Vesper.Printf.fprintf` (self-host)
-  or the FSharp.Core port's, for a stack that still references it. A two-faced identity,
+  or the FSharp.Core port's, for a stack that still references it. A two-key identity,
   modelled exactly as `RuntimeNames.isPrintfFormatKey` already models `PrintfFormat`'s two
-  faces (`RuntimeNames.fs:343-348`). This is the one place the "one key" story does not
+  keys (`RuntimeNames.fs:343-348`). This is the one place the "one key" story does not
   hold, and it should not pretend to.
 
 **5. The `%a` capability gate stops being a special case — it becomes one clause of the
@@ -630,8 +630,8 @@ cannot be authored that way.
 
 The expressible shape is the one the repo already uses everywhere else: **a capability-style
 `interface` plus concrete implementors** (interfaces *are* supported and are how `disposable`
-/ `enumerable` work). The CLR face stays the abstract BCL class; the JS face is an interface.
-Nothing in the design requires the two faces to share a *kind* — the provider binds the sink
+/ `enumerable` work). On CLR it stays the abstract BCL class; on JS it is an interface.
+Nothing in the design requires the two bindings to share a *kind* — the provider binds the sink
 per target, and (per question 1) the printf lowering only ever calls `Write(string)` on the
 receiver. `ScratchSink`'s `new StringWriter()` becomes a concrete JS class implementing that
 interface, with the parameterless `ToString` the `%a` capture-first residue block already
@@ -655,7 +655,7 @@ and it is the wrong one. The protocol:
   `TextWriter__Dispose(w)` — a different call shape entirely.
 
 So the `.fsi` must say **`interface disposable`**, and the `[Symbol.dispose]()` method comes
-out for free. `disposable`'s CLR face is `System.IDisposable`, so the same declaration disposes
+out for free. `disposable`'s CLR platform interface is `System.IDisposable`, so the same declaration disposes
 correctly on both targets.
 
 **Who authors it: Vesper F#, not raw `.js`.** The repo's two precedents both compile Vesper F#
@@ -677,7 +677,7 @@ the same backend, under the same tests, beside `structural-printer.js.fs`.
 
 **Recommendation: `src/Vesper.Printf/textwriter.js.fs`**, wired as `impl-js` and compiled to a
 committed `.mjs` like `Vesper.List` — *not* a hand-written `runtime/TextWriter.js`. Its contract
-face declares an **interface** (not an abstract class), **one non-overloaded `Write : string ->
+declares an **interface** (not an abstract class), **one non-overloaded `Write : string ->
 unit`** plus `Flush`, and **`interface disposable`**; the concrete implementors are a
 stdout/stderr writer (bottoming out in the `$N` template intrinsic) and the `StringWriter`
 scratch (a buffer plus `ToString`).

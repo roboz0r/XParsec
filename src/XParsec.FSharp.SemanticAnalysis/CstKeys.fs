@@ -278,7 +278,7 @@ module CstKeys =
 
     /// A written external *type head* decomposed ONCE: its site (anchor key + the head
     /// token that spells it), the head long-ident, and its syntactic type-arg arity. Both
-    /// faces of the resolve-once boundary go through `ofTypeHead` — NameResolution stamps
+    /// sides of the resolve-once boundary go through `ofTypeHead` — NameResolution stamps
     /// `ResolvedTypeHead` on `Site.Key`, `Translate` reads that same key — so the write and
     /// read keys agree by construction rather than by two hand-spelled
     /// `NodeKey.ofToken … TypeNamed` derivations kept in sync by comment.
@@ -291,7 +291,7 @@ module CstKeys =
             /// The head's long-ident — its segments name the type, its first token is
             /// the anchor.
             LongIdent: LongIdent<SyntaxToken>
-            /// Syntactic type-arg count, the arity both faces resolve at: `NamedType`
+            /// Syntactic type-arg count, the arity both sides resolve at: `NamedType`
             /// ⇒ 0, `GenericType` ⇒ arg count, `SuffixedType` ⇒ 1 (postfix `'T list`).
             TyparArity: int
         }

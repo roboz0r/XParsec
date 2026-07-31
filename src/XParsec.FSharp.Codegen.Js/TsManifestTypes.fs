@@ -111,7 +111,7 @@ module internal TsManifestTranslate =
     type TypeIdentity = { Key: TypeKey; IsInterface: bool }
 
     /// THE LAW — the ONE spelling site of a declared type's identity. `(name, arity)` pairs
-    /// are DISTINCT nominal types, so both faces of the identity are minted HERE from the
+    /// are DISTINCT nominal types, so both keys of the identity are minted HERE from the
     /// declared arity and cannot drift:
     ///   * the MAP key — the dotted qualified COMPILED name, arity-suffixed
     ///     (`` Emitter`1 ``, `SymbolKeyOps.arityName`), which is the exact string the front

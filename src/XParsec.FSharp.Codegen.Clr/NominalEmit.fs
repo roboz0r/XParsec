@@ -1073,12 +1073,12 @@ module internal NominalEmit =
             )
 
         // The synthesised capability co-slots (`CoSlot`): the BCL members a capability's
-        // platform face INHERITS but its member surface never declared, so no author ever
+        // platform interface INHERITS but its member surface never declared, so no author
         // wrote them and the CLR would refuse to load the type. Only the non-generic slots
-        // need synthesis — the face's own generic slots are already bound implicitly by the
-        // authored members' name + signature. Derived from the same interfaces, by the same
-        // pure function, that `Layout` reserved the rows from, so a reserved row can never
-        // go un-prepared.
+        // need synthesis — the interface's own generic slots are already bound implicitly by
+        // the authored members' name + signature. Derived from the same interfaces, by the
+        // same pure function, that reserved the rows, so a reserved row can never go
+        // un-prepared.
         let coSlots =
             CapabilityCoSlots.required asm.Symbols [ for (ifaceTy, _) in userInterfaces -> ifaceTy ]
 

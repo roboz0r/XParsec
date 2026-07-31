@@ -604,22 +604,21 @@ let tests =
             }
 
             test
-                "dual-faced capability interface: extern interface with abstract member + (# … #) repr → Class carrying platform face, NOT a reverse-canon entry" {
+                "two-name capability interface: extern interface with abstract member + (# … #) repr → IntrinsicInterface carrying the platform name, NOT a reverse-canon entry" {
                 // A capability anchor whose `.fsi` declares an interface member surface AND
                 // whose `.fs` binds a platform type (`type disposable = (# "System.IDisposable"
-                // #)`) must extract to ONE dual-faced shape: a `Class{IsInterface=true}` with
-                // the member surface PLUS a `CapabilityFace` carrying `(canon, platform)`, so
-                // it reconciles to its BCL spelling. UNLIKE `exn === System.Exception`, the
-                // reconciliation rides the `CapabilityFace` / `CapabilityIdentity` — NOT the
-                // reverse-canon map: a capability interface resolves to a `TyClass` constraint,
-                // so a reverse entry would be dead weight (its only reader, `MetadataSymbols`,
-                // canonicalizes to `TyConst` and guards interfaces out). This is the CLR
-                // build's shape; on JS the `.fs` omits the repr, so `CapabilityFace` is
-                // `ValueNone` and the canonical identity stands (see the compat-shim path).
+                // #)`) must extract to ONE two-name shape: an `IntrinsicInterface` carrying the
+                // member surface plus `{ Canon; Platform }`, so it reconciles to its BCL
+                // spelling. UNLIKE `exn === System.Exception`, reconciliation rides that
+                // identity — NOT the reverse-canon map: a capability interface resolves to a
+                // `TyClass` constraint, so a reverse entry would be dead weight (its only reader
+                // canonicalizes to `TyConst` and guards interfaces out). This is the CLR build's
+                // shape; on JS the `.fs` omits the repr and the canonical identity stands alone
+                // (see the compat-shim path).
                 // (Synthetic: the `(# … #)` repr is seeded directly into the repr dicts,
                 // mirroring the CLR build where the base `.fs` repr seeds both
                 // `IntrinsicBaseReprs` — the primitive marker that makes `isIntrinsic` true —
-                // and `IntrinsicReprs`, the platform face.)
+                // and `IntrinsicReprs`, the platform name.)
                 let ctx = VesperLib.ExtractCtx.empty ()
                 ctx.IntrinsicBaseReprs.["disposable"] <- "System.IDisposable"
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
@@ -654,20 +653,20 @@ let tests =
                     Expect.equal
                         iface.Platform
                         "System.IDisposable"
-                        "IntrinsicInterface platform face is the `.fs` repr"
+                        "IntrinsicInterface platform name is the `.fs` repr"
                 | other -> failtestf "expected an IntrinsicInterface shape for disposable; got %A" other
 
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
-                // The member surface survived alongside the platform face.
+                // The member surface survived alongside the platform name.
                 match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "Dispose") with
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "Dispose member surface was dropped from the IntrinsicInterface"
 
                 // A capability interface is deliberately ABSENT from the reverse-canon map —
-                // reconciliation flows through the `CapabilityFace` above, not this map (the
-                // entry would be dead weight, and keeping it would force an `IsInterface` guard
-                // back into the reverse-map readers).
+                // reconciliation flows through the identity above, not this map (the entry would
+                // be dead weight, and keeping it would force an `IsInterface` guard back into
+                // the reverse-map readers).
                 match provider.IntrinsicReverseCanon.TryFind "System.IDisposable" with
                 | None -> ()
                 | Some canons -> failtestf "capability interface must NOT enter the reverse-canon map; found %A" canons
@@ -726,11 +725,11 @@ let tests =
                 | ValueNone -> failtest "concrete member surface `M` was dropped when the Intrinsic shape was restored"
             }
 
-            // The cross-face equality the contract's key mint exists to buy. `T` is declared
-            // inside `module M` in `namespace Test.A`, so the identity a consumer's local
-            // containment would mint for it is an `InModule` chain — and the contract's store
-            // must answer THAT key, not a separately-spelled string. The store's index is the
-            // key's own rendering, so the two agree by construction rather than by coincidence.
+            // The equality the contract's key mint exists to buy. `T` is declared inside
+            // `module M` in `namespace Test.A`, so the identity a consumer's local containment
+            // mints is an `InModule` chain — and the contract's store must answer THAT key, not
+            // a separately-spelled string. The store's index is the key's own rendering, so the
+            // two agree by construction rather than by coincidence.
             test "a module-held contract type answers the KEY a module containment mints" {
                 let ctx =
                     extractFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"

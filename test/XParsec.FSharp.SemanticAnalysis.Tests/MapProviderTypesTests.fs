@@ -54,8 +54,8 @@ let private markerCase: ExternalCaseShape =
 /// class (member params/return, an interface arg, a base type), a record field, a
 /// union case + interface, an `Abbrev` body (the deliberate non-surface), a lone
 /// member, and a reverse union case.
-// The type/member lookups are string-keyed internally; the store face projects the
-// resolved key to its qualified name and shares these helpers with the resolver face.
+// The type/member lookups are string-keyed internally; the store view projects the
+// resolved key to its qualified name and shares these helpers with the resolver view.
 let private typeByName (name: string) : ExternalTypeShape voption =
     match name with
     | "Cls" ->

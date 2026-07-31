@@ -202,7 +202,7 @@ module UnificationInfer =
         // `Dispose()`, which can't be reached through a boxed interface slot.
         | ValueNone ->
             // `declKey` is the binder's already-resolved external type identity, so the
-            // own-`Dispose` fallback is a key-addressed store-face lookup.
+            // own-`Dispose` fallback is a key-addressed store-view lookup.
             match ctx.Provider.TryLookupMember(SymbolKey.Type declKey, "Dispose") with
             | ValueSome m when not m.IsStatic && not m.IsValueMember ->
                 ValueSome(Disposal.ViaOwnMember(SymbolKey.Member m.Key))

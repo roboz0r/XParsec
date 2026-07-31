@@ -210,7 +210,7 @@ Not blocked by the above, and each stands on its own.
 
 - **JS: narrow the provider handle.** `JsFlatFns.fs:52` and `externalValueRef`
   (`EmitJsContext.fs:349-352`) round-trip a key back to a string
-  (`SymbolKeyOps.qualifiedName`) to reach the resolver face. Read the store by key, then
+  (`SymbolKeyOps.qualifiedName`) to reach the resolver view. Read the store by key, then
   narrow `WalkCtx.Provider` (`EmitJsContext.fs:84`, currently the broad
   `IExternalSymbolProvider`) to `IExternalSymbolStore` — which makes the resolver reach
   *structurally impossible* in JS codegen, as `PassContext.Provider` did for the front end.

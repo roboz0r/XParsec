@@ -214,7 +214,7 @@ let tests =
             // the stored wire form (`flatten` is `TastPools.toPools` then the column
             // writers): each once threw out of `toPools` — a file containing one could not
             // be cached at all — so a regression here is a hard failure, not a diff.
-            // `TastPoolsTests` covers the full shape matrix; this is the serialization face.
+            // `TastPoolsTests` covers the full shape matrix; this covers serialization.
             for name, src in
                 [
                     "module-level tuple destructuring", "let p = (1, 2)\nlet (a, b) = p\nlet s = a + b\n"

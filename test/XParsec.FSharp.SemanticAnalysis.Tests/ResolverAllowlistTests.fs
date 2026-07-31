@@ -3,10 +3,10 @@ module XParsec.FSharp.SemanticAnalysis.Tests.ResolverAllowlistTests
 open System.IO
 open Expecto
 
-// `PassContext.Resolver` — the narrow spelling→identity face — has an
+// `PassContext.Resolver` — the narrow spelling→identity view — has an
 // enumerated reader set. The other half of the resolve-once boundary is
-// compiler-enforced (`ctx.Provider` is the store face and cannot resolve a
-// spelling); the resolver face, however, must stay a reachable `ctx` member
+// compiler-enforced (`ctx.Provider` is the store view and cannot resolve a
+// spelling); the resolver view, however, must stay a reachable `ctx` member
 // (Translate's by-name hatch needs it deep in Unification with only `ctx` in
 // hand), so nothing STRUCTURAL stops a new consumer-pass string lookup. This
 // test enforces that half: a new `ctx.Resolver` reader inside the
@@ -62,7 +62,7 @@ let tests =
                 Expect.isEmpty
                     unsanctioned
                     "new `ctx.Resolver` reader(s) outside the sanctioned set — a consumer pass \
-                     must read the store face (`ctx.Provider`); if this reach is genuinely a \
+                     must read the store view (`ctx.Provider`); if this reach is genuinely a \
                      spelling with no stampable node, add it here with its justification"
 
                 Expect.isEmpty stale "sanctioned reader(s) no longer read ctx.Resolver — prune the allowlist"

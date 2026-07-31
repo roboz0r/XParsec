@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // external TYPE identity (opens-aware, longest-type-prefix) ONCE and stamps its
 // `SymbolKey` in `Resolution.ResolvedType`, keyed by the head expr's `NodeKey`.
 // Unification's `tryExternalTypeReceiver` / `splitExternalClassPrefix` /
-// `tryInferExternalCtorApp` READ that stamp and do a key-addressed store-face
+// `tryInferExternalCtorApp` READ that stamp and do a key-addressed store-view
 // member/ctor lookup instead of re-running `OpenScope.tryQualify` + a string
 // provider lookup at inference time. A MISSED stamp is a resolution failure (the
 // consumer no longer re-resolves), so these tests assert the stamp is present at
@@ -21,7 +21,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// A provider that knows two external classes in namespace `Tests` (auto-opened via
 /// `AmbientOpenPrefixes`, as the real prelude opens the package namespace): a
 /// non-generic `Tests.Widget` and a generic `Tests.Box`1`. `ofNamedLeaf` derives the
-/// store face, so the consumers that confirm a stamped key's shape by key
+/// store view, so the consumers that confirm a stamped key's shape by key
 /// (`inferNew`'s Class check) resolve against the same table.
 let private provider: IExternalSymbolProvider =
     ExternalSymbolProviders.ofNamedLeaf

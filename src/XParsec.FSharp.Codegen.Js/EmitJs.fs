@@ -604,7 +604,7 @@ module EmitJs =
         // Not yet emitted by the JS backend — legitimate F# the walker has no lowering for,
         // not unknown nodes. `TryWith` is the plainest: JS has `try`/`catch` and `TryFinally`
         // already shows the IIFE shape, so what is missing is the catch-side arm matching.
-        // `TypeTest` (`e :? T`) is the expression face of the gap `compileMatchPattern`
+        // `TypeTest` (`e :? T`) is the expression form of the gap `compileMatchPattern`
         // already refuses as `PatShape.TypeTestAs` — this backend gives values no runtime
         // nominal identity to test.
         | ExprShape.Null

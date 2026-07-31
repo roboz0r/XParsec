@@ -3,7 +3,7 @@ namespace Vesper
 /// <summary>Unsafe FFI escape hatches. Deliberately NOT <c>[&lt;AutoOpen&gt;]</c>:
 /// reaching in takes an explicit <c>open Vesper.Unsafe</c> (or a qualified
 /// <c>Unsafe.retype</c>), so the unchecked cast is never ambiently in scope — the
-/// <c>open</c> is the marker. The disciplined <c>dynamic</c>/<c>?</c> face
+/// <c>open</c> is the marker. The disciplined <c>dynamic</c>/<c>?</c> surface
 /// (auto-opened below) is the common path; drop to <c>Unsafe</c> only for raw
 /// interop.</summary>
 module Unsafe =

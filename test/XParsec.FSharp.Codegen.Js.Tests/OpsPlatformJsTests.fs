@@ -99,7 +99,7 @@ let tests =
             }
 
             test "JS numeric reprs: canon identities stay distinct while both platform-project to `number`" {
-                // `int` and `float` must keep distinct canon faces; a shared repr would conflate %d/%f
+                // `int` and `float` must keep distinct canon keys; a shared repr would conflate %d/%f
                 // and integer division.
                 let js =
                     JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
@@ -117,20 +117,20 @@ let tests =
                 let intCanon, intPlat = facesOf "Vesper.int"
                 let floatCanon, floatPlat = facesOf "Vesper.float"
 
-                // Identity axis — the canon faces ARE the `.fsi` names, platform-
+                // Identity axis — the canon keys ARE the `.fsi` names, platform-
                 // INVARIANT (a JS build never sees a BCL name) and distinct, so the
                 // unifier never conflates `int` with `float`.
                 Expect.equal intCanon (RuntimeNames.intKey) "int canon identity is the `.fsi` name"
                 Expect.equal floatCanon (RuntimeNames.floatKey) "float canon identity is the `.fsi` name"
                 Expect.notEqual intCanon floatCanon "int and float MUST keep distinct canon identities"
 
-                Expect.equal intPlat "number" "int platform face repoints to JS `number`"
-                Expect.equal floatPlat "number" "float platform face repoints to JS `number`"
+                Expect.equal intPlat "number" "int platform name repoints to JS `number`"
+                Expect.equal floatPlat "number" "float platform name repoints to JS `number`"
 
                 Expect.notEqual
                     (SymbolKeyOps.intrinsicName intCanon)
                     intPlat
-                    "the two faces genuinely diverge on JS (identity ≠ runtime repr)"
+                    "the two names genuinely diverge on JS (identity ≠ runtime repr)"
             }
 
             test "JS target: unit -> undefined, int64/uint64 -> bigint (canon = `.fsi` name)" {

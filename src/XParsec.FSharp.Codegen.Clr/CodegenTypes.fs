@@ -4,10 +4,10 @@ open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
 
 /// A method the CLR demands but the *capability* contract never declared, so no author
-/// ever wrote it. A capability's platform face drags in a wider BCL interface hierarchy
+/// ever wrote it. A capability's platform interface drags in a wider BCL hierarchy
 /// than the capability's own member surface: `interface seq<'T>` declares only
-/// `GetEnumerator`, but its face `IEnumerable`1` inherits the non-generic `IEnumerable`,
-/// and `enumerator`'s face `IEnumerator`1` inherits `IEnumerator`'s `object Current` and
+/// `GetEnumerator`, but `IEnumerable`1` inherits the non-generic `IEnumerable`,
+/// and `enumerator`'s `IEnumerator`1` inherits `IEnumerator`'s `object Current` and
 /// `Reset`. The CLR requires EVERY method in a declared interface's transitive closure to
 /// be implemented, so the backend synthesises these as forwarding shims — without them the
 /// type does not load (`TypeLoadException: … does not have an implementation`), and a C#
@@ -16,7 +16,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// This is the concrete meaning of "each backend lowers the abstract protocol to its
 /// platform idiom". The BCL knowledge lives HERE, in the CLR backend (as it already does
 /// in `EmitLoops`' `for … in` slots), never in the platform-agnostic capability contract.
-/// The *generic* face slots need no synthesis: the authored members already bind to them
+/// The *generic* interface's slots need no synthesis: the authored members already bind to them
 /// implicitly by name + signature (which is also why `MoveNext`, whose signature is
 /// identical on the non-generic `IEnumerator`, needs no shim).
 [<RequireQualifiedAccess>]
@@ -34,15 +34,15 @@ type internal CoSlot =
 
 /// Which co-slots a nominal must synthesise, derived from the capability interfaces it
 /// implements. A capability is recognised STRUCTURALLY — an `IntrinsicInterface` shape and
-/// the platform face it reconciles to — never by a canonical `Vesper.Collections.seq`
+/// the platform interface it reconciles to — never by a canonical `Vesper.Collections.seq`
 /// string literal, so this stays keyed off resolution rather than a hardcoded contract name.
 module internal CapabilityCoSlots =
 
-    /// The BCL faces whose inherited members outrun their capability's member surface.
-    /// Every other capability face (`System.IDisposable`, `IEquatable`1`, `IComparable`1`)
+    /// The BCL interfaces whose inherited members outrun their capability's member surface.
+    /// Every other capability's (`System.IDisposable`, `IEquatable`1`, `IComparable`1`)
     /// is a single-method interface with no bases — hence no co-slots, and hence why this
     /// synthesis is new with the iteration cluster.
-    let private ofPlatformFace (platform: string) : CoSlot list =
+    let private ofPlatformInterface (platform: string) : CoSlot list =
         match platform with
         | "System.Collections.Generic.IEnumerable`1" -> [ CoSlot.EnumerableGetEnumerator ]
         | "System.Collections.Generic.IEnumerator`1" -> [ CoSlot.EnumeratorCurrent; CoSlot.EnumeratorReset ]
@@ -61,7 +61,7 @@ module internal CapabilityCoSlots =
                 | FTClass(key, _) ->
                     match CodegenSymbols.lookupTypeByKey symbols (SymbolKey.Type key) with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
-                        for slot in ofPlatformFace platform -> iface, slot
+                        for slot in ofPlatformInterface platform -> iface, slot
                     | _ -> ()
                 | _ -> ()
         ]

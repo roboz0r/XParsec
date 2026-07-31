@@ -159,11 +159,11 @@ type TypeHolder =
 /// count (`` List`1+Enumerator ``), which is the CLR rule.
 ///
 /// CAUTION for type-identity comparisons in the unifier: structural `=` on two
-/// `TypeKey`s does NOT reconcile a language capability's two nominal faces (its BCL
+/// `TypeKey`s does NOT reconcile a language capability's two nominal keys (its BCL
 /// platform key vs. its canonical key — e.g. `IEnumerable`1` vs. `Vesper.Collections.seq`).
 /// When comparing nominal heads for "same type" at a unify / subsume / overload seam, go
 /// through `UnificationEngineCore.sameNominalKey` (or `capabilityCanonKey`), never a bare
-/// `=`, or a capability spelled as its BCL face will read as a distinct type.
+/// `=`, or a capability spelled as its BCL interface will read as a distinct type.
 and TypeKey =
     {
         Holder: TypeHolder

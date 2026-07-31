@@ -200,7 +200,7 @@ module SymbolKeyOps =
 
     /// The full metadata/reflection name of a type — the string
     /// `MetadataSymbols.resolveTypeLocked` hands to `asm.GetType`, and the key every
-    /// provider store face is addressed by. `Ns.Outer`2+Inner` for a nested type.
+    /// provider store view is addressed by. `Ns.Outer`2+Inner` for a nested type.
     /// THE renderer; there is exactly one.
     let typeMetaName (t: TypeKey) : string =
         let ns = typeNs t

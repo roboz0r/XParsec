@@ -90,7 +90,7 @@ let tests =
             }
 
             test "a type with no JS representation (decimal) is rejected as a semantic diagnostic" {
-                // `decimal` has no `.js.fs` companion, so its `platform` face is `None` and
+                // `decimal` has no `.js.fs` companion, so its `platform` name is `None` and
                 // `PlatformTypes` flags it as a per-decl error (not a failwith in the emitter).
                 let msg =
                     try

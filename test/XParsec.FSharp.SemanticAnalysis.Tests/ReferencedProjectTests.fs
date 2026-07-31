@@ -84,7 +84,7 @@ let private builtProvider =
 
 /// The same `Vesper.Core` contract built for the JS target — no `.js.fs` capability
 /// reprs, plus the `files-js` compat shim (`capabilities-compat.js.fsi`) appended. The
-/// fixture for the single-faced-capability + BCL-compat-shim assertions.
+/// fixture for the canon-only-capability + BCL-compat-shim assertions.
 let private builtProviderJs =
     lazy
         (match ReferencedProject.buildProviderWith (Some "js") (fun _ -> ValueNone) [] vesperCoreManifest with
@@ -136,7 +136,7 @@ let tests =
                     Expect.equal
                         platform
                         "System.Int32"
-                        "int's platform face is its prim-types-min `.fs` CLI representation"
+                        "int's platform name is its prim-types-min `.fs` CLI representation"
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
 
@@ -181,24 +181,18 @@ let tests =
                 Expect.equal ctx.Intrinsics.String BuiltinTypes.tyString "string"
             }
 
-            test "the language-capability anchors resolve as dual-faced IntrinsicInterfaces carrying their CLR repr" {
-                // On a CLR-target build `capabilities.fsi` declares
-                // `disposable`/`equatable`/`comparable` as `extern with abstract member …`,
-                // paired with their `capabilities.fs` `(# "<BCL interface>" #)` reprs. Each
-                // surfaces as ONE dual-faced `IntrinsicInterface`: the member surface plus an
-                // `Id { Canon; Platform }` — `Canon` is the identity of the `.fsi`-declared type,
-                // `Platform` is the CLR interface name. The generic ones (`equatable`/`comparable`)
-                // carry the metadata backtick-arity suffix in the lookup name (`Vesper.equatable`1`),
-                // in the `Canon` KEY (the arity is part of a nominal identity, so the canon a
-                // contract publishes equals the key a use site stamps — no arity-blind matcher
-                // stands between them), and in the `Platform` repr (``System.IEquatable`1``) —
-                // exactly the string a metadata interface name reconciles against for
-                // `disposable === System.IDisposable`.
-                // UNLIKE `exn`, reconciliation rides the `Id` platform face / `CapabilityIdentity`,
-                // NOT a reverse-canon entry (asserted absent below). Iteration is anchored the
-                // same way — the `seq` / `enumerator` cluster (`Vesper.Collections`), whose canon
-                // face carries the SUB-namespace (`Vesper.Collections`, not the manifest's
-                // `Vesper`) so its origin-homed value key matches `resolveCapabilities`' `CanonKey`.
+            test "the language-capability anchors resolve as two-name IntrinsicInterfaces carrying their CLR repr" {
+                // Each capability (`extern with abstract member …` in `capabilities.fsi`, paired
+                // with a `capabilities.fs` `(# "<BCL interface>" #)` repr) surfaces as ONE
+                // two-name `IntrinsicInterface`: the member surface plus `Id { Canon; Platform }`.
+                // The generic ones carry the backtick-arity suffix in the lookup name, in the
+                // `Canon` KEY — arity is part of a nominal identity, so the canon a contract
+                // publishes equals the key a use site stamps — and in the `Platform` repr, the
+                // exact string a metadata interface name reconciles against.
+                // UNLIKE `exn`, reconciliation rides the `Id` platform name, NOT a reverse-canon
+                // entry (asserted absent below). The `seq` / `enumerator` cluster's canon carries
+                // the SUB-namespace (`Vesper.Collections`, not the manifest's `Vesper`), so its
+                // origin-homed value key matches the resolved `CanonKey`.
                 let provider, _ = builtProvider.Value
 
                 let expectCapability (lookup: string) (canonKey: SymbolKey) (platformExpected: string) =
@@ -212,10 +206,10 @@ let tests =
                         Expect.equal
                             iface.Platform
                             platformExpected
-                            (sprintf "%s platform face is its `.fs` CLR repr" lookup)
+                            (sprintf "%s platform name is its `.fs` CLR repr" lookup)
 
                         // A capability interface is deliberately ABSENT from the reverse-canon
-                        // map — reconciliation rides the platform face above, not this map (a
+                        // map — reconciliation rides the platform name above, not this map (a
                         // `TyClass`-resolving interface would be dead weight there, and keeping it
                         // would force an `IsInterface` guard back into the reverse-map readers).
                         match Map.tryFind platformExpected provider.IntrinsicReverseCanon with
@@ -258,28 +252,27 @@ let tests =
                 | other -> failtestf "expected enumerator as IntrinsicInterface, got %A" other
             }
 
-            test "JS build: capabilities are single-faced canonical; BCL spellings resolve through the compat shim" {
+            test "JS build: capabilities are canon-only; BCL spellings resolve through the compat shim" {
                 // The JS-target build omits the `.js.fs` capability reprs and appends the
                 // `capabilities-compat.js.fsi` shim (manifest `files-js`). So each capability
-                // surfaces SINGLE-faced — the canonical `Vesper.disposable` interface `Class`
-                // with `CapabilityFace = ValueNone` (no BCL type to reconcile to) — and the BCL
-                // spelling resolves through the shim as an ABBREVIATION to that canonical, NOT a
-                // fabricated `Class`. This is the JS half of the CLR/JS asymmetry: the contract
-                // names no BCL type; the BCL spelling is quarantined to the optional shim.
+                // surfaces CANON-ONLY — the `Vesper.disposable` interface `Class`, with no BCL
+                // type to reconcile to — and the BCL spelling resolves through the shim as an
+                // ABBREVIATION to that canonical, NOT a fabricated `Class`. The JS half of the
+                // CLR/JS asymmetry: the contract names no BCL type; the BCL spelling is
+                // quarantined to the optional shim.
                 let provider, _ = builtProviderJs.Value
 
-                let expectSingleFaced (lookup: string) =
-                    // On JS a capability surfaces as a plain single-faced interface `Class` (no
-                    // `(# … #)` repr binds a platform face), NOT the CLR `IntrinsicInterface` — so
-                    // it is canonical-only, with no reconciliation face.
+                let expectCanonOnly (lookup: string) =
+                    // No `(# … #)` repr binds a platform name here, so a capability is a plain
+                    // interface `Class`, not the CLR `IntrinsicInterface`.
                     match provider.TryLookupType lookup |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Class shape) ->
-                        Expect.isTrue shape.IsInterface (sprintf "%s is a single-faced interface Class on JS" lookup)
-                    | other -> failtestf "expected %s as a single-faced Class on JS, got %A" lookup other
+                        Expect.isTrue shape.IsInterface (sprintf "%s is a canon-only interface Class on JS" lookup)
+                    | other -> failtestf "expected %s as a canon-only Class on JS, got %A" lookup other
 
-                expectSingleFaced "Vesper.disposable"
-                expectSingleFaced "Vesper.equatable`1"
-                expectSingleFaced "Vesper.comparable`1"
+                expectCanonOnly "Vesper.disposable"
+                expectCanonOnly "Vesper.equatable`1"
+                expectCanonOnly "Vesper.comparable`1"
 
                 // The BCL spelling resolves through the compat shim — an Abbrev whose head is
                 // the canonical capability — so `interface System.IDisposable` records the
@@ -298,19 +291,18 @@ let tests =
                 expectShimAbbrev "System.IComparable`1" "Vesper.comparable`1"
             }
 
-            test "JS build: the iteration capabilities resolve DUAL-faced; the leaves stay single-faced" {
-                // `resolveCapabilities` gives the JS iteration capabilities the same dual face the
-                // CLR `IntrinsicInterface` carries — `Key` = the shim-confirmed BCL spelling,
-                // `CanonKey` = the canonical `Vesper.Collections.*` — so a BCL-spelled
-                // `IEnumerable`1`/`IEnumerator`1` (e.g. from an external TS pack) folds to
-                // `seq`/`enumerator` through `capabilityCanonKey`, exactly as on CLR. The leaf
-                // capabilities take no BCL face here (their BCL spellings fold to canonical at
-                // freeze via the compat shim), so they stay single-faced. This pins the
-                // `shimConfirms` verification the other JS test does not exercise.
+            test "JS build: the iteration capabilities carry BOTH names; the leaves stay canon-only" {
+                // The JS iteration capabilities carry both names, as the CLR `IntrinsicInterface`
+                // does — `Key` = the shim-confirmed BCL spelling, `CanonKey` = the canonical
+                // `Vesper.Collections.*` — so a BCL-spelled `IEnumerable`1`/`IEnumerator`1` (e.g.
+                // from an external TS pack) folds to `seq`/`enumerator` exactly as on CLR. The
+                // leaf capabilities take no BCL name here (their BCL spellings fold to canonical
+                // at freeze via the compat shim), so they stay canon-only. This pins the
+                // shim-confirmation the other JS test does not exercise.
                 let provider, _ = builtProviderJs.Value
                 let caps = ExternalSymbols.resolveCapabilities provider
 
-                let expectDualFaced
+                let expectBothNames
                     (name: string)
                     (cap: RuntimeNames.CapabilityIdentity voption)
                     (bcl: string)
@@ -318,30 +310,33 @@ let tests =
                     =
                     match cap with
                     | ValueSome id ->
-                        Expect.isTrue (id.CanonKey.IsSome) (sprintf "%s is dual-faced on JS (CanonKey present)" name)
-                        Expect.isTrue (id.MatchesName bcl) (sprintf "%s matches its BCL face %s" name bcl)
-                        Expect.isTrue (id.MatchesName canon) (sprintf "%s matches its canonical face %s" name canon)
+                        Expect.isTrue
+                            (id.CanonKey.IsSome)
+                            (sprintf "%s carries both names on JS (CanonKey present)" name)
+
+                        Expect.isTrue (id.MatchesName bcl) (sprintf "%s matches its BCL name %s" name bcl)
+                        Expect.isTrue (id.MatchesName canon) (sprintf "%s matches its canonical key %s" name canon)
                     | ValueNone -> failtestf "%s resolved to ValueNone on JS" name
 
-                expectDualFaced
+                expectBothNames
                     "Enumerable"
                     caps.Enumerable
                     "System.Collections.Generic.IEnumerable`1"
                     "Vesper.Collections.seq`1"
 
-                expectDualFaced
+                expectBothNames
                     "Enumerator"
                     caps.Enumerator
                     "System.Collections.Generic.IEnumerator`1"
                     "Vesper.Collections.enumerator`1"
 
-                // A leaf capability is single-faced on JS: `CanonKey` absent, and its BCL spelling
-                // is NOT a face here (it folds to canonical through the shim, not this identity).
+                // A leaf capability is canon-only on JS: `CanonKey` absent, and its BCL spelling
+                // is NOT a name here (it folds to canonical through the shim, not this identity).
                 match caps.Disposable with
                 | ValueSome id ->
-                    Expect.equal id.CanonKey ValueNone "disposable is single-faced on JS (no reconciliation face)"
-                    Expect.isTrue (id.MatchesName "Vesper.disposable") "disposable matches its canonical face"
-                    Expect.isFalse (id.MatchesName "System.IDisposable") "disposable's BCL spelling is not a face here"
+                    Expect.equal id.CanonKey ValueNone "disposable is canon-only on JS (no BCL name to reconcile)"
+                    Expect.isTrue (id.MatchesName "Vesper.disposable") "disposable matches its canonical key"
+                    Expect.isFalse (id.MatchesName "System.IDisposable") "disposable's BCL spelling is not a name here"
                 | ValueNone -> failtest "disposable resolved to ValueNone on JS"
             }
 

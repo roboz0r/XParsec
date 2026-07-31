@@ -39,9 +39,9 @@ module CodegenSymbols =
 
     let ofProvider (provider: IExternalSymbolProvider) : ICodegenSymbols =
         // The store's own key-addressed type-shape probe (`ExternalTypeShape voption`
-        // directly, unlike the resolver face's `struct (TypeKey * shape)`), reconciled the
-        // same way `lookupTypeByKey` reconciles the codegen face — so the capability rebase
-        // below resolves an `IntrinsicInterface` face under either registration convention.
+        // directly, unlike the resolver view's `struct (TypeKey * shape)`), reconciled over
+        // the bare-vs-arity-suffixed split so the capability rebase below resolves an
+        // `IntrinsicInterface` under either registration convention.
         let storeShape (k: SymbolKey) : ExternalTypeShape voption = provider.TryLookupType k
 
         { new ICodegenSymbols with
@@ -70,15 +70,14 @@ module CodegenSymbols =
                         | Some m -> ValueSome m
                         | None -> ValueNone
 
-            // A member resolved against a capability face (`enumerator<'T>.MoveNext`)
-            // reconciles to a BCL platform face (`IEnumerator`1`); but the member's TRUE
-            // declaring type may be a *base* of that face (`MoveNext` on the non-generic
-            // `IEnumerator`), so a face-parented member-ref faults at runtime. Re-resolve
-            // on the platform face's metadata hierarchy — whose `TryLookupMembers` reports
-            // each member's real declaring type — and rebase onto the base member of the
-            // requested `kind`. `ValueNone` when the declaring type is not a capability
-            // interface, the member is declared on the face itself (no rebase), or no base
-            // member of that `kind` exists (decline rather than mint a wrong ref).
+            // A member resolved against a capability (`enumerator<'T>.MoveNext`) reconciles
+            // to a BCL platform interface (`IEnumerator`1`), but the member's TRUE declaring
+            // type may be a *base* of it (`MoveNext` on the non-generic `IEnumerator`), so a
+            // member-ref parented on that interface faults at runtime. Re-resolve on the
+            // platform interface's metadata hierarchy — which reports each member's real
+            // declaring type — and rebase onto the base member of the requested `kind`.
+            // `ValueNone` when the declaring type is not a capability interface, the member
+            // is declared on that interface itself, or no base member of that `kind` exists.
             member _.TryRebaseCapabilityMember key =
                 match key with
                 | SymbolKey.Member {

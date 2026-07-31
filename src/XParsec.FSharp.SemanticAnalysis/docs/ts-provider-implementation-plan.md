@@ -347,11 +347,11 @@ member-resolution + one member-inline-splice path. Keeps [[feedback_dynamic_intr
 fences "a concrete member surface on an intrinsic primitive" as a DURABLE rejection ("the `(# … #)`
 repr is for structurally inert leaves"); the decision overrules that — a concrete member surface is a
 wanted general capability. The admitted-exception arm right above it (`:1334-1353`) already shows the
-mechanism: a dual-faced `type X = extern with …` registers as a `Class` (which HAS member slots) via
+mechanism: a `type X = extern with …` registers as a `Class` (which HAS member slots) via
 `extractBodiedClassLike` AND attaches the `(# … #)` repr as a `CapabilityFace`, so the canonical
 primitive identity survives for codegen / `subsumes`. The concrete-member case takes the SAME path
-(register Class + face) instead of `registerIntrinsic ()` + diagnostic. (`ExternalTypeShape.Intrinsic`
-carries no member slots — the dual-faced Class is precisely how the capability arm already solved that.)
+(register Class + repr) instead of `registerIntrinsic ()` + diagnostic. (`ExternalTypeShape.Intrinsic`
+carries no member slots — the Class-plus-repr shape is precisely how the capability arm already solved that.)
 
 **Member inlining REUSES function inlining (user steer; the load-bearing mechanism).** A concrete
 accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline function
@@ -395,7 +395,7 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
      `this`-first `TTypeMember` model already matches F#'s member-`Val` + `tcaug_adhoc` attachment — no
      new representation to copy.
    - **2b — consumer capture + member-keyed harvest/store.** Consumer side: lift the
-     `VesperLib.fs:1354-1374` invariant, routing a concrete-member intrinsic through the dual-faced
+     `VesperLib.fs:1354-1374` invariant, routing a concrete-member intrinsic through the
      Class + `CapabilityFace` arm (so `TryLookupMember` resolves + mints the finalized member `Key`).
      Impl side: `collectInlineBodies` (`SymbolProviders.fs`) gains a `TDecl.Type` → Class-member arm
      (`harvestMemberBody`) minting the `this`-first inline `TDecl.Let`; `buildContractCached` stores it
@@ -445,7 +445,7 @@ members on intrinsics) is reusable platform-binding surface well beyond indexers
 
 **Sequencing + isolation (isolation-first):**
 1. The GENERAL primitive FIRST — a minimal `extern` type with ONE concrete `(# … #)`-bodied member
-   (NOT an indexer): assert parse → capture (dual-faced Class + face) → member-inline-splice → emit.
+   (NOT an indexer): assert parse → capture (Class + repr) → member-inline-splice → emit.
    Proves the primitive independent of indexer sugar.
 2. THEN array/string `get_Item`/`set_Item`/`Length` (migrated bodies) — array index/length + string
    index tests and `IndexSignatureTests` must stay emit-BYTE-IDENTICAL (pure re-plumbing).

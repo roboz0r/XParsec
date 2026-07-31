@@ -560,12 +560,11 @@ module VesperLib =
             | _ -> ()
 
         // Capability interfaces (`disposable`/`equatable`/`comparable`): republish ONCE as an
-        // `IntrinsicInterface`, now that the member surface is populated (the interface
-        // member-copy loop above copied the deferred members into `shape.Members`). Recorded at
-        // the `TypeSignature.Extern` arm (`PendingCapabilityInterfaces`) because intrinsic-ness
-        // + interface-ness is decided there. `Origin` stays `Empty`; `ExternalSymbolProviders.stack`'s
-        // `stampType` stamps the manifest home later (its `IntrinsicInterface` arm), exactly as
-        // for the faced `Class` this replaces. The reconciliation face is `Id.Platform`.
+        // `IntrinsicInterface`, now that the member surface is populated. Recorded at the
+        // `TypeSignature.Extern` arm (`PendingCapabilityInterfaces`) because intrinsic-ness +
+        // interface-ness is decided there. `Origin` stays `Empty`; the provider stack stamps the
+        // manifest home later, exactly as for the two-key `Class` this replaces. The
+        // reconciliation key is `Id.Platform`.
         for KeyValue(compiled, struct (canon, platform)) in ctx.PendingCapabilityInterfaces do
             match ctx.TypeShapes.TryGetValue compiled with
             | true, ExternalTypeShape.Class shape ->
@@ -800,7 +799,7 @@ module VesperLib =
                     ctx.Types.[short] <- (arity, compiled)
 
                 // The identity, indexed by its own rendering — the one route a name has back
-                // to a key, and the one the store's key-addressed face is built from.
+                // to a key, and the one the store's key-addressed lookup is built from.
                 ctx.TypeKeys.[compiled] <- key
                 ValueSome(struct (compiled, arity))
 
@@ -1368,11 +1367,11 @@ module VesperLib =
                 let short = shortNameOfTypeName lexed input typeName
                 let isIntrinsic = ctx.IntrinsicBaseReprs.ContainsKey short
 
-                // `short` (the `.fsi` name) is the platform-invariant `canon` face;
+                // `short` (the `.fsi` name) is the platform-invariant `canon` key;
                 // intrinsic-ness is decided by the BASE `.fs` companion
                 // (`IntrinsicBaseReprs`), so a target that omits a primitive's repr still
-                // publishes it as an `Intrinsic` with `platform = None`. The `platform`
-                // face is the compiling target's `(# … #)` repr (`IntrinsicReprs`).
+                // publishes it as an `Intrinsic` with `platform = None`. The `platform` name
+                // is the compiling target's `(# … #)` repr (`IntrinsicReprs`).
                 // `arity` rides along (the structural constructors `'T []`/`byref` are
                 // intrinsics of arity ≥ 1); `PlatformTypes` treats `platform = None` as
                 // fatal only when `arity = 0`.
@@ -1416,7 +1415,7 @@ module VesperLib =
                     // surface is complete at extraction — the heritable primitive's base/`.ctor`s
                     // are still CSTs, and the capability interface's members aren't copied into
                     // the shape until the finalize member loop. A target whose `.fs` omits the
-                    // repr (JS) records nothing, so the capability stays the plain single-faced
+                    // repr (JS) records nothing, so the capability stays the plain canon-only
                     // interface `Class` `extractBodiedClassLike` registered. A non-intrinsic
                     // `extern` stays a plain Class.
                     if isIntrinsic then
@@ -1448,7 +1447,7 @@ module VesperLib =
                                 | ExternKind.Class _ -> ctx.PendingIntrinsicClasses.[compiled] <- canon
                                 // `extern interface with …` (`disposable`/`equatable`/`comparable`):
                                 // republishes to an `IntrinsicInterface` (a `TyClass` constraint
-                                // reconciling to its BCL spelling via the platform face).
+                                // reconciling to its BCL spelling via the platform name).
                                 | ExternKind.Interface _ -> ctx.PendingCapabilityInterfaces.[compiled] <- canon
                             | _ -> ()
                 | _ ->
@@ -1548,10 +1547,10 @@ module VesperLib =
         List.ofSeq (Seq.rev acc)
 
     /// The short name of a type signature that declares a real NOMINAL type — the thing a
-    /// `module` of the same name collides with. Kind-for-kind the local face's
+    /// `module` of the same name collides with. Kind-for-kind the local path's
     /// `noteNominalTypeNames`: an abbreviation, an `extern`, an enum, a delegate, a bare
     /// `interface … end` and a type extension are NOT nominal there, so they must not be
-    /// here either, or the two faces would suffix one module's holder class and not the
+    /// here either, or the two paths would suffix one module's holder class and not the
     /// other's.
     let private nominalTypeSigName (lexed: Lexed) (input: string) (ts: TypeSignature<SyntaxToken>) : string voption =
         let named (tn: TypeName<SyntaxToken>) =
@@ -1576,7 +1575,7 @@ module VesperLib =
     /// Sweep a signature file's whole element tree for its nominal type names. Runs BEFORE
     /// extraction, because the `…Module` suffix rule reads the answer when it mints a
     /// module's holder name and a `module Foo` may be written above the `type Foo` it
-    /// collides with. The scope is the FILE, matching the local face.
+    /// collides with. The scope is the FILE, matching the local path.
     let rec private noteNominalTypeSigNames
         (lexed: Lexed)
         (input: string)
@@ -1748,7 +1747,7 @@ module VesperLib =
         match parsed.Ast with
         | FSharpAst.SignatureFile sf ->
             // The file's nominal type names, swept before the first module holder is named:
-            // this face's `IsNominalTypeName`, and the half of the `…Module` suffix rule an
+            // this path's `IsNominalTypeName`, and the half of the `…Module` suffix rule an
             // attribute cannot state.
             let nominals = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
 
@@ -1821,9 +1820,9 @@ module VesperLib =
     /// extern` deliberately omits the repr, so the identity lives only here. Run
     /// BEFORE the `.fsi` extraction so the `extern` arm of `extractTypeSig` can
     /// publish `ExternalTypeShape.Intrinsic`. The caller extracts the per-target
-    /// `<base>.<target>.fs` ⇒ `IntrinsicReprs` (the `platform` face); the `canon`
-    /// face is the `.fsi` name itself, so a target override repoints codegen WITHOUT
-    /// moving the unifier's identity key.
+    /// `<base>.<target>.fs` ⇒ `IntrinsicReprs` (the `platform` name); `canon` is the
+    /// `.fsi` name itself, so a target override repoints codegen WITHOUT moving the
+    /// unifier's identity key.
     ///
     /// A direct CST scrape — NOT `Pipeline.analyse` — because (a) all we need is
     /// the `type <name> = (# "<repr>" #)` shape, and (b) the prim-types `.fs`

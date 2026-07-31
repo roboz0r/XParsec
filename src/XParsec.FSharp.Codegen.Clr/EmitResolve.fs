@@ -252,13 +252,13 @@ module EmitResolve =
         (memberTy: FrozenType)
         : EntityHandle =
         // A capability member (`enumerator<'T>.MoveNext()`) is keyed by its canonical
-        // capability, which reconciles to a BCL platform face — but a member's true
-        // declaring type may be a BASE of that face (`MoveNext` lives on the non-generic
+        // capability, which reconciles to a BCL platform interface — but a member's true
+        // declaring type may be a BASE of that interface (`MoveNext` lives on the non-generic
         // `System.Collections.IEnumerator`, not on `IEnumerator`1`). Rebasing the key onto
         // that base BEFORE the receiver-shape routing makes its declaring key differ from
         // the receiver key, so the recover path below mints the ref against the base — the
-        // same declaring types `for … in` lowers through (`EmitLoops`). A no-op for every
-        // non-capability member and for capability members declared on the face itself.
+        // same declaring types `for … in` lowers through. A no-op for every non-capability
+        // member and for capability members declared on that interface itself.
         let key =
             match env.Provider.TryCapabilityBaseMemberKey key with
             | ValueSome baseKey -> baseKey

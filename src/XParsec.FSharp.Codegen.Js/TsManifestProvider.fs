@@ -133,10 +133,9 @@ module TsManifestProvider =
             Some(sym.Name, sym)
         | _ -> None
 
-    /// Build the manifest's resolved state (every map/guard, EAGERLY — the same
-    /// work the former provider class's ctor did) and serve it as a by-name leaf.
-    /// `ExternalSymbolProviders.ofNamedLeaf` derives the store face from these functions,
-    /// so the two `TryLookupType` faces cannot drift apart.
+    /// Build the manifest's resolved state (every map/guard, EAGERLY) and serve it as a
+    /// by-name leaf. The store view is derived from these functions, so the two
+    /// `TryLookupType` entry points cannot drift apart.
     let private manifestLeaf (man: Schema.PackageManifest) : ExternalSymbolProviders.NamedLeaf =
         let pkg = man.Package
         // Flat single-file package: the module specifier IS the package name. A

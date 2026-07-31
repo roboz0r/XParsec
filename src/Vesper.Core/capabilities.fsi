@@ -30,7 +30,7 @@ namespace Vesper.Collections
 // Both keep the `Vesper.Collections` namespace, so the resolver lookup and every bare
 // `seq<'T>` reference are unchanged from when `seq` was the `IEnumerable<'T>` abbreviation.
 //
-// These are the FIRST capabilities whose BCL face is WIDER than the member surface below:
+// These are the FIRST capabilities whose BCL interface is WIDER than the member surface:
 // `IEnumerable` / `IEnumerator` drag in the non-generic bases, `object Current`, and
 // `Reset`. The author writes only the pull protocol (`GetEnumerator` / `MoveNext` /
 // `Current`); the CLR backend synthesizes the BCL co-slots as forwarding shims during

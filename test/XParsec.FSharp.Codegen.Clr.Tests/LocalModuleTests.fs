@@ -118,7 +118,7 @@ let tests =
 // The type's key says a module holds it (`TypeHolder.InModule`), the renderer spells that
 // `N.MModule+T`, and the emitter writes exactly that: a `TypeDef` with an empty namespace
 // column and a `NestedClass` row into the module's compiled holder class. These pin the
-// two faces MEETING — the name the key renders is the name the runtime binds.
+// key and emitter MEETING — the name the key renders is the name the runtime binds.
 
 /// `namespace N` + `module M` (whose name collides with `type M`, so its holder takes the
 /// `Module` suffix) + a `type T` the module holds. `M` holds ONLY types — no `let` — so

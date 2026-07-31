@@ -451,8 +451,8 @@ module PrintfSpec =
     /// against the annotation's `Printer` slot, pinning any `StringFormat<_>` wildcard
     /// printer from the specifiers. Returns the printer ALONE (not a whole
     /// `PrintfFormat`) so the caller can keep the annotation's own resolved format
-    /// type — the two faces (`Vesper.Printf` vs `FSharp.Core`) never have to
-    /// reconcile. `ValueNone` only if a specifier is untypeable (none is today).
+    /// type — the two `PrintfFormat` types (`Vesper.Printf` vs `FSharp.Core`) never
+    /// have to reconcile. `ValueNone` only if a specifier is untypeable (none is today).
     /// Synthesises a bare `Family` carrying just those three slots so the identical
     /// `argTypes`/`printerType` path is reused verbatim.
     let printerFromSlots

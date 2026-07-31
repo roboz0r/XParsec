@@ -12,7 +12,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // external `ExternalTypeShape.Enum` declaring `C1`, and the enum's nominal `SymbolKey`
 // is stamped under the head's `NodeKey` (`Resolution.ExternalEnumCaseStamp`).
 // Unification's `InferIdentExpr` / `InferPat` enum arms READ that stamp and type the node
-// `TyEnum key`, instead of re-recognising the spelling through the resolver-face
+// `TyEnum key`, instead of re-recognising the spelling through the resolver-view
 // `TryLookupType(string)`. These tests assert the stamp is present at a representative
 // expression and pattern site, absent for an unknown case, and gated on the enum's
 // namespace being open (short-name type resolution is opens-sensitive).

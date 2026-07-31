@@ -188,7 +188,7 @@ module VesperLibTyparCapture =
         /// metadata name — the key minted at `registerTypeDecl` off the containment the
         /// walker descended, and the ONE place a name gets back to a key. The shape tables
         /// below are addressed by that canonical name (`SymbolKeyOps.typeMetaName key`,
-        /// which is injective), so this is what lifts them to the key-addressed store face
+        /// which is injective), so this is what lifts them to the key-addressed store view
         /// `toProvider` publishes.
         ///
         /// The name is a RENDERING of the key, never a route back to one: nothing re-cuts a
@@ -241,20 +241,19 @@ module VesperLibTyparCapture =
         /// `.fs` companion (`prim-types-int.js.fs` ⇒ `"int" -> "number"` on JS; the base
         /// `.fs` itself on CLR, where it IS the platform repr). Populated BEFORE `.fsi`
         /// extraction so the `extern` arm of `extractTypeSig` can publish the `platform`
-        /// face of an `ExternalTypeShape.Intrinsic(short, arity, platform)`. A primitive
+        /// name of an `ExternalTypeShape.Intrinsic(short, arity, platform)`. A primitive
         /// ABSENT here on a non-base target (e.g. `decimal` on JS — no `.js.fs`) still
         /// publishes as an `Intrinsic` (gated on `IntrinsicBaseReprs` below) but with
         /// `platform = None` ("no representation on this target" — fatal only for a nullary
         /// scalar; a generic constructor like `'T []` is representable structurally). Empty
-        /// for callers with no `.fs`
-        /// companions (e.g. `VesperLib.buildProvider` over the signature-only FSharp.Core
-        /// port), so every extern stays a `Class` exactly as before.
+        /// for callers with no `.fs` companions (a signature-only FSharp.Core port), so
+        /// every extern stays a `Class`.
         member val IntrinsicReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
         /// Primitive *marker* index: *short* type name -> its BASE `.fs` `(# … #)` repr,
         /// extracted from the base companion regardless of target. The presence of a
         /// base repr is what makes an `extern` a primitive (publishes as `Intrinsic`,
         /// not an opaque `Class`); the per-target `IntrinsicReprs` then supplies the
-        /// `platform` face (or `None` when this target ships no companion for it). Kept
+        /// `platform` name (or `None` when this target ships no companion for it). Kept
         /// SEPARATE from `IntrinsicReprs` so a target that omits a primitive does not
         /// demote it to a `Class` and lose its `canon` identity in the unifier.
         member val IntrinsicBaseReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
@@ -277,7 +276,7 @@ module VesperLibTyparCapture =
         /// extraction) because the interface's member surface is not populated in the shape
         /// until the finalize member-copy loop runs; the republish reads the frozen `Class`
         /// shape's members + origin (`VesperLib.finalizeDeferred`). CLR-only — a JS build binds
-        /// no repr, so a capability stays a plain single-faced interface `Class`.
+        /// no repr, so a capability stays a plain canon-only interface `Class`.
         member val PendingCapabilityInterfaces =
             Dictionary<string, struct (TypeKey * string)>(StringComparer.Ordinal) with get
 
@@ -342,8 +341,8 @@ module VesperLibTyparCapture =
 
         /// NAME RESOLUTION: the identity a written type name denotes in this package, or
         /// `ValueNone` for a name it declares no type under. THE by-name entry point — every
-        /// face that must accept a name (the extraction-time resolver, the published
-        /// provider's resolver face) comes here, and what it gets back is a key.
+        /// path that must accept a name (the extraction-time resolver, the published
+        /// provider's resolver view) comes here, and what it gets back is a key.
         ///
         /// Two spellings reach it, and neither is re-cut into an identity:
         ///   * the canonical metadata name (what `typeMetaName` renders, what a probe built
@@ -440,7 +439,7 @@ module VesperLibTyparCapture =
             // possible reverse consumer is `MetadataSymbols.tryBuildType` — which must NOT
             // canonicalize an interface to an `FTConst` and would guard it out. A BCL
             // `System.IDisposable` reconciles to the canonical `disposable` through
-            // `CapabilityIdentity` / the `IntrinsicInterface` platform face, NOT this map; an
+            // `CapabilityIdentity` / the `IntrinsicInterface` platform name, NOT this map; an
             // entry here would be dead weight AND force an `IsInterface` guard back into the
             // reverse-map readers (the "change both or drift" seam this omission retires).
             let intrinsicReverse =
@@ -470,8 +469,8 @@ module VesperLibTyparCapture =
             // can't drift. Codegen reads it to resolve a primitive canon (`int`) to its
             // `.fs` repr (`System.Int32`) — the single source of a primitive's repr.
             // Only `Intrinsic` (scalar/structural primitives) carry a codegen repr;
-            // capability `Class` faces are reconciliation-only (reverse) and are encoded
-            // as classes, so they are NOT included here. The `platform <> canon` guard
+            // capability platform interfaces are reconciliation-only (reverse) and are
+            // encoded as classes, so they are NOT included here. The `platform <> canon` guard
             // mirrors `intrinsicReverse`: a degenerate self-map (a primitive with no
             // distinct `.fs` repr) is no codegen repr at all, so it must stay absent here
             // too — included, it would route the canon into the value-type encoder
@@ -486,8 +485,7 @@ module VesperLibTyparCapture =
                     match kv.Value with
                     // Every intrinsic carries a codegen repr — a heritable primitive
                     // (`obj`/`exn`) IS emitted as a value/type ref
-                    // (`System.Object`/`System.Exception`), unlike a capability
-                    // interface face.
+                    // (`System.Object`/`System.Exception`), unlike a capability interface.
                     | ExternalTypeShape.Intrinsic {
                                                       Id = {
                                                                Canon = canon
@@ -519,7 +517,7 @@ module VesperLibTyparCapture =
 
             // The written name resolves into a key (`tryTypeKey` — the canonical rendering,
             // or the source's dotted containment); `ofKeyIndexes` derives the by-name shape
-            // face from it and the key index, so one index answers both ways in and a
+            // lookup from it and the key index, so one index answers both ways in and a
             // spelling can no longer be an identity of its own.
             let typeKeyOfName (name: string) : TypeKey voption = tryTypeKey ctx name
 

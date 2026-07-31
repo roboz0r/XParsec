@@ -402,17 +402,17 @@ module UnificationEngineCore =
 
         go 0 a b []
 
-    /// Fold a capability interface's two nominal faces — its BCL platform face
-    /// (`System.Collections.Generic.IEnumerable\`1`) and its canonical face
+    /// Fold a capability interface's two nominal keys — its BCL platform key
+    /// (`System.Collections.Generic.IEnumerable\`1`) and its canonical key
     /// (`Vesper.Collections.seq`) — to the single canonical identity; a non-capability key
     /// is returned unchanged, so this is a strict generalisation of raw key `=`.
     ///
     /// Unlike the `exn === System.Exception` intrinsic (folded once at RESOLUTION via the
     /// reverse-canon map, so no raw BCL key reaches this walk), a capability is DELIBERATELY
     /// absent from that map — a `TyClass`-resolving interface there would force `IsInterface`
-    /// guards into the reverse-map readers — so both faces reach the unify / subsume /
+    /// guards into the reverse-map readers — so both keys reach the unify / subsume /
     /// overload seams un-normalized and this is the one place that reconciles them, driven by
-    /// the resolved `CapabilityIds` (`Matches` — key equality against either face), never a
+    /// the resolved `CapabilityIds` (`Matches` — key equality against either name), never a
     /// hardcoded string.
     ///
     /// Not memoized: every caller gates behind a raw `=` first, so this runs only on a
@@ -421,7 +421,7 @@ module UnificationEngineCore =
     let capabilityCanonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
         let caps = ctx.CapabilityIds
 
-        // First matching capability's canonical face; `key` if none matches. A de-dented
+        // First matching capability's canonical key; `key` if none matches. A de-dented
         // match chain, not a closure/array scan, to keep the mismatch path allocation-free.
         let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : SymbolKey voption =
             match cap with
@@ -448,7 +448,7 @@ module UnificationEngineCore =
                         | ValueSome k -> k
                         | ValueNone -> key
 
-    /// Do two nominal keys denote the same type, reconciling a capability's two faces?
+    /// Do two nominal keys denote the same type, reconciling a capability's two names?
     /// Applied ONLY at the key-EQUALITY seams (`unify` / `subsumes` / overload filter /
     /// `tryUpcastWitness`), never inside `canonKey` / `subtypeNominalOf`: those drive the
     /// base/interface-chain LOOKUPS, and rewriting a BCL platform key there would erase the
@@ -459,13 +459,12 @@ module UnificationEngineCore =
 
     // Canonical nominal IDENTITY for subtype comparison: the type's platform-INVARIANT
     // front-end `SymbolKey` — the `.fsi` identity (`Vesper.int`, `Vesper.exn`), NOT a BCL
-    // name. A primitive intrinsic binding (`type exn = (# "System.Exception" #)`,
-    // prim-types-exn.fs) stays a *non-transparent* `TyConst exnKey` (Translate.fs); the
-    // `exn === System.Exception` reconciliation does NOT live here — it happens once, at
-    // resolution (`MetadataSymbols.tryBuildType` maps every non-interface `reverseCanon`
-    // hit — sealed leaf or unsealed root — to its canon identity at surfacing time), so no
-    // raw BCL key reaches this walk to reconcile. This keeps a JS build free of BCL names —
-    // the base `.fs` repr only ever marks primitive-ness on JS, never the `platform` face.
+    // name. A primitive intrinsic binding (`type exn = (# "System.Exception" #)`) stays a
+    // *non-transparent* `TyConst exnKey`; the `exn === System.Exception` reconciliation does
+    // NOT live here — it happens once, at resolution, where every non-interface
+    // `reverseCanon` hit surfaces as its canon identity, so no raw BCL key reaches this walk.
+    // This keeps a JS build free of BCL names — the base `.fs` repr only ever marks
+    // primitive-ness on JS, never the `platform` name.
     //
     // A **currency-only** map (`SymbolKey -> SymbolKey`): the reverse tier is gone, so a
     // key only ever routes FORWARD to an already-published intrinsic canon, else returns
@@ -496,19 +495,17 @@ module UnificationEngineCore =
             ctx.IntrinsicCanonCache.[key] <- canon
             canon
 
-    /// The **platform** face of an intrinsic: the runtime/BCL repr its `(# "…" #)`
-    /// binding records (`"string"` ⇒ `"System.String"` on CLR, `prim-types-*.fs`).
-    /// Keyed by the intrinsic's already-resolved canon `SymbolKey` — the
-    /// opens-discharged identity the receiver `TyConst` carries — so BOTH halves of the
-    /// forward axis answer by key and no name is ever projected back out of one: the
-    /// self-compiling file's own intrinsics from `IntrinsicReprKeys`, a referenced
-    /// package's from the store's `IntrinsicForwardRepr`. Returns the key's identity name
-    /// for a non-intrinsic key (a project-local / already-qualified name passes through)
-    /// or an intrinsic with no repr on the compiling target (`decimal` on JS, absent from
-    /// the forward map). Lets the dot-access resolvers (`resolveFieldStep`, the external
-    /// instance-method probe) route an intrinsic *receiver*'s instance members through the
-    /// provider keyed on the platform type name — distinct from `canonKey`'s identity axis
-    /// (which stays on the `.fsi` `SymbolKey`).
+    /// The **platform** name of an intrinsic: the runtime/BCL repr its `(# "…" #)` binding
+    /// records (`"string"` ⇒ `"System.String"` on CLR). Keyed by the intrinsic's
+    /// already-resolved canon `SymbolKey` — the opens-discharged identity the receiver
+    /// `TyConst` carries — so BOTH halves of the forward axis answer by key and no name is
+    /// ever projected back out of one: the self-compiling file's own intrinsics from
+    /// `IntrinsicReprKeys`, a referenced package's from the store's `IntrinsicForwardRepr`.
+    /// Returns the key's identity name for a non-intrinsic key (a project-local /
+    /// already-qualified name passes through) or for an intrinsic with no repr on the
+    /// compiling target (`decimal` on JS). Lets the dot-access resolvers route an intrinsic
+    /// *receiver*'s instance members through the provider keyed on the platform type name —
+    /// distinct from `canonKey`'s identity axis, which stays on the `.fsi` `SymbolKey`.
     let intrinsicPlatformName (ctx: PassContext) (key: SymbolKey) : string =
         match ctx.Types.IntrinsicReprKeys.TryGetValue key with
         | true, repr -> repr.Platform
@@ -613,9 +610,9 @@ module UnificationEngineCore =
             | ValueSome parentTy -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) parentTy)
             | ValueNone -> ValueNone
         | ValueNone ->
-            // `key` is already a resolved identity; the store face answers by key (an
+            // `key` is already a resolved identity; the store view answers by key (an
             // open-scope funnel over its qualified name would be a no-op, since the name is
-            // already fully qualified), normalising a capability's platform face internally.
+            // already fully qualified), normalising a capability's platform key internally.
             match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
@@ -660,7 +657,7 @@ module UnificationEngineCore =
                     | ValueNone -> ()
             ]
         | ValueNone ->
-            // `key` is a resolved identity; the store face answers by key directly (its
+            // `key` is a resolved identity; the store view answers by key directly (its
             // qualified name is already fully qualified, so no open-scope probe applies).
             match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Class shape) ->
@@ -698,12 +695,12 @@ module UnificationEngineCore =
         // (not a bare `(key, args)` pair) lets each level recompute its own
         // `nominalKeyOf`, so the local base / interface-impl lookups resolve per-arity.
         // `seen` is keyed on the canon `SymbolKey`; the base / interface-impl lookups take
-        // that same canon key `s` and address the store face by it.
+        // that same canon key `s` and address the store view by it.
         let rec walk (seen: HashSet<SymbolKey>) (cur: SemType) : EqArray<SemType> voption =
             match subtypeNominalOf ctx cur with
             | ValueNone -> ValueNone
             | ValueSome(struct (s, sa)) ->
-                // `sameNominalKey` reconciles a capability's two faces at the MATCH only
+                // `sameNominalKey` reconciles a capability's two names at the MATCH only
                 // (e.g. a `seq` source reaching an `IEnumerable\`1` target); the base /
                 // interface walk below still keys off the RAW `s`, so a BCL platform type's
                 // own bases stay reachable.

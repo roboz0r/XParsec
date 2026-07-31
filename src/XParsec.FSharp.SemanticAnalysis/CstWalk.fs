@@ -99,7 +99,7 @@ module OpenScope =
     ///
     /// UNCACHED, on purpose: a per-`PassContext` memo keyed by
     /// `(OpenScope identity, name)` — file-lifetime — would cover the ENTIRE
-    /// spelling-lookup seam now that the resolver face is the only string surface.
+    /// spelling-lookup seam now that the resolver view is the only string surface.
     /// That is precisely why it should wait: land it against a MEASURED hot path, not
     /// on principle. Resolution already happens once per written name (NameResolution
     /// stamps; consumers read keys), so the memo's remaining win is repeated spellings

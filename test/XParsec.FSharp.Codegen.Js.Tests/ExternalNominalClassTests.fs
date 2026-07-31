@@ -152,9 +152,9 @@ let tests =
 
             test "manifest interface return freezes to FTClass with the identity-equation key" {
                 // The frozen `FTClass` key must be servable by the provider's store
-                // face, and its `qualifiedName` must equal the manifest's map key —
+                // view, and its `qualifiedName` must equal the manifest's map key —
                 // the producer-side invariant the provider build (and the store
-                // face's internal name projection) rely on. Prove it by reading the
+                // view's internal name projection) rely on. Prove it by reading the
                 // key back and confirming the key-addressed member lookup hits.
                 match returnOf "makeBox" with
                 | FTClass(key, args) ->

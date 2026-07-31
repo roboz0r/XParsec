@@ -319,7 +319,7 @@ module internal UnificationInferApp =
                             // The sink slot names (`System.IO.TextWriter`,
                             // `System.Text.StringBuilder`, `System.IO.StringWriter`) are
                             // FIXED and fully qualified, so the declaring type resolves by
-                            // KEY on the store face — no opens-aware resolver call. The
+                            // KEY on the store view — no opens-aware resolver call. The
                             // minted `TyClass` key matches a real sink argument's
                             // (`Console.Out`) exactly: the qualified name IS the identity.
                             match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
@@ -340,8 +340,8 @@ module internal UnificationInferApp =
                         // fmt …`). Recover that literal and drive the SAME classify /
                         // typing / marker path a direct literal takes — the gate builds
                         // its own `PrintfFormat` shape and never consults the binding's
-                        // (Vesper-faced) type, so there is no cold fallback needed and
-                        // no face conflict. `formatRecovered` gates the 4a *partial*
+                        // Vesper-side type, so no cold fallback is needed and the two
+                        // names cannot clash. `formatRecovered` gates the 4a *partial*
                         // marker off (its heap-closure synthesis reads a literal at the
                         // format slot, which a bound `Ident` is not).
                         let recoveredFormat = ctx.TryRecoverFormatLiteral args.[idx]

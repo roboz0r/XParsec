@@ -375,7 +375,7 @@ module NameResolutionScope =
             p
 
     /// `stampPatCasesWith` under the plain stamping visitor — the body / value-position
-    /// face, where an unresolved head is not an error.
+    /// form, where an unresolved head is not an error.
     let stampPatCases (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
         stampPatCasesWith ctx (stampTypeIter ctx) p
 
@@ -416,7 +416,7 @@ module NameResolutionScope =
 
         s
 
-    /// Resolve an operator/value spelling through the opens-aware resolver face and,
+    /// Resolve an operator/value spelling through the opens-aware resolver view and,
     /// on a hit, stamp the full `ExternalSymbol` so Unification instantiates its
     /// scheme by key (`ExternalSymbolStamp`) rather than re-resolving from the
     /// spelling. A miss leaves the node unstamped — the same signal the old

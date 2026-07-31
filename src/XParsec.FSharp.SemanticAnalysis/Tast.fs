@@ -120,7 +120,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// abbrev → its target representation string (`Vesper.int` → `"System.Int32"`).
         /// The backend keys the emitted IL type off the *representation string* (so a
         /// platform author retargets a primitive by editing one `.fs` line), and asks for
-        /// it with the KEY the `FTConst` node carries — the frozen face of
+        /// it with the KEY the `FTConst` node carries — the frozen form of
         /// `TypeRegistry.IntrinsicReprKeys`, and the local half of the same forward
         /// `{ canon -> platform repr }` axis the provider's `IntrinsicForwardRepr` serves
         /// for the dependency closure. Keyed by identity, never by declared name: a name
@@ -128,7 +128,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// name would otherwise pick up its repr.
         ///
         /// A HASH map, not an F# `Map`: a `SymbolKey` is an identity, so it is equatable
-        /// but deliberately not ordered. Same face the provider's `IntrinsicForwardRepr`
+        /// but deliberately not ordered. Same form the provider's `IntrinsicForwardRepr`
         /// presents, so the backend's two halves of the axis read alike.
         IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>
         /// A module-level binding's binder → its named-holder placement
@@ -174,7 +174,7 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         ///
         /// Published by `Freeze`, ADDITIVELY: the binding also stays in `Decls` and is
         /// emitted as an ordinary module function, because F# gives an `inline` binding
-        /// both faces and a use that cannot be spliced must have something to call.
+        /// both forms and a use that cannot be spliced must have something to call.
         ///
         /// The entry is a DIFFERENT TREE from the decl of the same name, not a copy of
         /// it. `Passes.InlineExpansion` walks the emitted form, resolving its

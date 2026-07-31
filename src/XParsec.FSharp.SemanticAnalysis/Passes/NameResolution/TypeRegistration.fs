@@ -485,7 +485,7 @@ module NameResolutionTypeRegistration =
                     //
                     // NAMESPACE-only (not the containment): an intrinsic is a primitive binding
                     // declared at namespace level (`namespace Vesper` + `type int = (# … #)`);
-                    // a module-held one has no contract face to agree with.
+                    // a module-held one has no contract key to agree with.
                     if kind = TypeDeclKind.IntrinsicRepr then
                         ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKeyArity c.Namespace name arity
 

@@ -24,7 +24,7 @@ callable representation instead of the current bare-`defaultof` +
     dedicated `impl` `module Unchecked` file — materialises through the
     existing `collectGenericModuleValues` path with zero core-pass changes
     (cost: every use is a real `call`, no splice); or
-  - **(b)** keep it inline and synthesise the compiled method face in the
+  - **(b)** keep it inline and synthesise the compiled method form in the
     **backend** from the inline body, leaving `Elaborate`/`Freeze` untouched.
 
   Sites #4–#7 below describe the discarded front-end approach and are kept

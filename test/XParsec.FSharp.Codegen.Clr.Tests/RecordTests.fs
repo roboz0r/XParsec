@@ -496,7 +496,7 @@ let interfaceImplTests =
             }
 
             // A GENERIC record implementing the iteration CAPABILITY (`interface seq<'T>`,
-            // never the BCL `IEnumerable`). The BCL co-slots the platform face inherits but
+            // never the BCL `IEnumerable`). The BCL co-slots the platform interface inherits but
             // the capability's member surface never declares — non-generic
             // `IEnumerable.GetEnumerator`, `object IEnumerator.get_Current`, `IEnumerator.Reset` —
             // are synthesised by the backend. A generic type's shim forwards to the AUTHORED
@@ -504,7 +504,7 @@ let interfaceImplTests =
             // record needs `RecordMember.Member` (the union/class arms already had it).
             //
             // Enumeration below goes through the NON-GENERIC `System.Collections.IEnumerable`
-            // face on purpose: that face is made ENTIRELY of synthesised co-slots, so a BCL
+            // on purpose: it is made ENTIRELY of synthesised co-slots, so a BCL
             // consumer holding nothing but `System.Collections` walks a Vesper record it knows
             // nothing about. Without the co-slots the type would not even load.
             test
@@ -557,7 +557,7 @@ let interfaceImplTests =
                     "the manual enumerator walk sums the record's elements"
 
                 // The BCL-consumer side: reflect the record, build `Bag<int>` through its
-                // record ctor, and walk it through the non-generic face.
+                // record ctor, and walk it through the non-generic interface.
                 let asm = loadAssembly bytes
                 let bagTy = (asm.GetType "Bag`1").MakeGenericType typeof<int>
                 let bag = Activator.CreateInstance(bagTy, [| box [| 1; 2; 3 |] |])
@@ -579,17 +579,17 @@ let interfaceImplTests =
                     "the non-generic IEnumerator co-slots yield the boxed elements"
 
                 // The pull protocol has no rewind, so the synthesised `Reset` throws rather
-                // than pretending to work — it exists only because the face demands the slot.
+                // than pretending to work — it exists only because the interface demands the slot.
                 Expect.throwsT<NotSupportedException> (fun () -> e.Reset()) "the synthesised Reset co-slot throws"
             }
 
-            // The capability IS its platform face, so a type cannot author both: the backend
-            // publishes `IEnumerable<'T>` (and the non-generic `IEnumerable` co-slots) for
-            // `interface seq<'T>`, and a hand-written face would emit the same interface and
-            // the same slot twice — a `TypeLoadException` at the consumer, if the front end
-            // let it through. Both spellings of the face are rejected: the capability's own,
-            // and the one it only INHERITS.
-            let faceCollisionSrc (face: string) (getEnumerator: string) =
+            // The capability IS its platform interface, so a type cannot author both: the
+            // backend publishes `IEnumerable<'T>` (and the non-generic `IEnumerable` co-slots)
+            // for `interface seq<'T>`, and a hand-written one would emit the same interface and
+            // the same slot twice — a `TypeLoadException` at the consumer, if the front end let
+            // it through. Both spellings are rejected: the capability's own, and the one it
+            // only INHERITS.
+            let collisionSrc (iface: string) (getEnumerator: string) =
                 String.concat
                     "\n"
                     [
@@ -598,11 +598,11 @@ let interfaceImplTests =
                         "    { Items: 'T[] }"
                         "    interface seq<'T> with"
                         "        member this.GetEnumerator() : enumerator<'T> = failwith \"x\""
-                        sprintf "    interface %s with" face
+                        sprintf "    interface %s with" iface
                         sprintf "        member this.GetEnumerator() : %s = failwith \"x\"" getEnumerator
                     ]
 
-            let capabilityFaceErrors (src: string) =
+            let capabilityCollisionErrors (src: string) =
                 let provider = ClrSymbolProviders.buildContract defaultManifests
                 let lexed, file = parseFile src
 
@@ -611,33 +611,33 @@ let interfaceImplTests =
 
                 tast.Diagnostics |> Diagnostic.errors
 
-            test "implementing the seq capability and its generic BCL face is a diagnostic" {
+            test "implementing the seq capability and its generic BCL interface is a diagnostic" {
                 let errors =
-                    capabilityFaceErrors (
-                        faceCollisionSrc
+                    capabilityCollisionErrors (
+                        collisionSrc
                             "System.Collections.Generic.IEnumerable<'T>"
                             "System.Collections.Generic.IEnumerator<'T>"
                     )
 
-                Expect.isNonEmpty errors "the capability's own platform face collides"
+                Expect.isNonEmpty errors "the capability's own platform interface collides"
 
                 Expect.isTrue
                     (errors
-                     |> List.exists (fun d -> d.Message.Contains "platform face of capability"))
+                     |> List.exists (fun d -> d.Message.Contains "platform interface of capability"))
                     (sprintf "the diagnostic names the capability collision (%A)" errors)
             }
 
             test "implementing the seq capability and the non-generic IEnumerable is a diagnostic" {
                 let errors =
-                    capabilityFaceErrors (
-                        faceCollisionSrc "System.Collections.IEnumerable" "System.Collections.IEnumerator"
+                    capabilityCollisionErrors (
+                        collisionSrc "System.Collections.IEnumerable" "System.Collections.IEnumerator"
                     )
 
-                Expect.isNonEmpty errors "a face the capability only INHERITS collides too"
+                Expect.isNonEmpty errors "an interface the capability only INHERITS collides too"
 
                 Expect.isTrue
                     (errors
-                     |> List.exists (fun d -> d.Message.Contains "platform face of capability"))
+                     |> List.exists (fun d -> d.Message.Contains "platform interface of capability"))
                     (sprintf "the diagnostic names the capability collision (%A)" errors)
             }
         ]

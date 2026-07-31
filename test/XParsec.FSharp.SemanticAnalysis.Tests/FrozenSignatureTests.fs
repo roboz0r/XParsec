@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // The frozen-implementation-file → `IExternalSymbolProvider` projection: file N's
 // inferred signature as a provider view, so file N+1 resolves N's exports by name
-// with no DLL emitted. Asserts against the provider INTERFACE (both faces), never
+// with no DLL emitted. Asserts against the provider INTERFACE (both views), never
 // the projector's internal tables; identities are read out of the frozen file (the
 // projection's INPUT) and the provider is asked to answer them.
 
@@ -153,7 +153,7 @@ let tests =
                     "Nope resolves"
             }
 
-            test "augmentation members project on the store face" {
+            test "augmentation members project on the store view" {
                 let origin, frozen = freezeWithOrigin projectionSrc
                 let store = FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolStore
                 let widgetKey = SymbolKey.Type(typeKeyOf frozen "Widget")
@@ -176,7 +176,7 @@ let tests =
                 match store.TryLookupByKey answerKey with
                 | ValueSome s ->
                     Expect.equal s.TyparArity 0 "answer is monomorphic"
-                    // The resolver face answers the SAME entry by rendered name.
+                    // The resolver view answers the SAME entry by rendered name.
                     Expect.isSome
                         (resolver.TryLookup(SymbolKeyOps.qualifiedName answerKey)
                          |> function
@@ -341,7 +341,7 @@ module M =
             // --- reverse record-field index (`TryRecordsWithField`) ---------------------
             //
             // The record analogue of the union-case index: a `field-name -> [records]`
-            // MULTIMAP. Asserts the resolver face only, against each candidate's identity
+            // MULTIMAP. Asserts the resolver view only, against each candidate's identity
             // (`TypeKey` / `TyparArity` / `FieldNames`), never object identity.
 
             test "TryRecordsWithField indexes each record under every field name" {

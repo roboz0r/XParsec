@@ -50,7 +50,7 @@ let private nowhereSource: OriginSource =
 /// registers. Returns the provider and the resolved shape key.
 let private widgetContractOf (members: string) : IExternalSymbolProvider * string =
     let ctx = VesperLib.ExtractCtx.empty ()
-    // The BASE repr marks `widget` intrinsic; the platform repr is its `.fs` face.
+    // The BASE repr marks `widget` intrinsic; the platform repr is its `.fs` name.
     ctx.IntrinsicBaseReprs.["widget"] <- "object"
     ctx.IntrinsicReprs.["widget"] <- "object"
 

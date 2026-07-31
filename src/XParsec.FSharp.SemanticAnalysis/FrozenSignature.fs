@@ -80,7 +80,7 @@ module FrozenSignature =
 
         // Type channels are addressed by the IDENTITY the front end minted (a module-
         // held type's `InModule` key is a chain no source name spells), with a by-name
-        // index rendered from it for the resolver face — exactly the extractor's shape.
+        // index rendered from it for the resolver view — exactly the extractor's shape.
         let shapesByKey = Dictionary<SymbolKey, ExternalTypeShape>()
         let membersByKey = Dictionary<SymbolKey, ResizeArray<ExternalMember>>()
         let typesByName = Dictionary<string, TypeKey>(System.StringComparer.Ordinal)
@@ -582,11 +582,11 @@ module FrozenSignature =
             | _ -> ()
 
         // --- intrinsic axes -----------------------------------------------------------
-        // The FORWARD `{ canon -> platform-repr }` axis is the repr face of this file's own
-        // `IntrinsicReprKeys` (identity-keyed, the frozen face); heritability rides the
-        // published `Class` surface above, not this axis. The REVERSE
-        // `{ platform-repr -> [canon] }` is its inversion; a degenerate self-map (a
-        // primitive with no distinct `.fs` repr) is skipped, mirroring the extractor.
+        // The FORWARD `{ canon -> platform-repr }` axis is just this file's own frozen,
+        // identity-keyed `IntrinsicReprKeys` in repr form; heritability rides the published
+        // `Class` surface above, not this axis. The REVERSE `{ platform-repr -> [canon] }` is
+        // its inversion; a degenerate self-map (a primitive with no distinct `.fs` repr) is
+        // skipped, mirroring the extractor.
         let intrinsicForward =
             let d = Dictionary<SymbolKey, string>(frozen.Residue.IntrinsicReprKeys.Count)
 
@@ -614,10 +614,10 @@ module FrozenSignature =
         // rendering (`Test.A.M+T` for a module-held type); `tryDottedModuleHeld` adds the
         // fallback for the spelling that is NOT that rendering — the DOTTED source form
         // (`Test.A.M.T`), resolved through the declared module holders. It is this leaf's
-        // ONE name->key seam: `ofKeyIndexes` derives the whole by-name type face from it,
-        // so a use site stamps the producer's own key rather than a flattened re-cut —
-        // which is why the store face reads the key-addressed index directly (no re-cut key
-        // ever arrives).
+        // ONE name->key seam: `ofKeyIndexes` derives the whole by-name type lookup from it,
+        // so a use site stamps the producer's own key rather than a flattened re-cut — which
+        // is why the store view reads the key-addressed index directly (no re-cut key ever
+        // arrives).
         let resolveNameToKey (name: string) : TypeKey voption =
             let exact (probe: string) =
                 match typesByName.TryGetValue probe with

@@ -736,23 +736,20 @@ module Unification =
                     unify ctx mInfo.DeclSite.Tok (stripReferenceNull ctx.Store mInfo.Type) expectedTy
                 | ValueNone -> ()
 
-    /// A CAPABILITY (`seq<'T>`, `enumerator<'T>`, `disposable`) is not implemented
-    /// alongside its platform face — it IS that face. The backend publishes the face for the
+    /// A CAPABILITY (`seq<'T>`, `enumerator<'T>`, `disposable`) is not implemented alongside
+    /// its platform interface — it IS that interface. The backend publishes it for the
     /// capability (`interface seq<'T>` yields `IEnumerable<'T>`, and with it the non-generic
-    /// `IEnumerable` whose members the capability never declared and the backend therefore
-    /// synthesises), so authoring a face the capability already publishes emits the same
-    /// interface and the same method slot twice — metadata the runtime rejects at load with a
-    /// `TypeLoadException` no diagnostic preceded. Reject it here instead, where the author
-    /// can fix it.
+    /// `IEnumerable` the capability never declared and the backend therefore synthesises), so
+    /// authoring an interface the capability already publishes emits the same slot twice —
+    /// metadata the runtime rejects at load with a `TypeLoadException` no diagnostic preceded.
     ///
-    /// The rule is DERIVED, not enumerated: a capability's forbidden set is its `Platform`
-    /// face plus every interface that face inherits, read off the provider. Implementing
-    /// another CAPABILITY whose face is in that set stays legal, and is in fact required —
-    /// `IEnumerator<'T>` inherits `IDisposable`, and `enumerator`'s `Dispose` is exactly the
-    /// separate `disposable` capability an author must implement. Only the BCL *spelling* of
-    /// such a face is the error, and the fix is always to write the capability instead.
-    let private checkCapabilityFaceCollisions (ctx: PassContext) (info: IInterfaceImplHost) : unit =
-        // Faces compare on the bare (arity-suffix-stripped) compiled name: the metadata layer
+    /// The rule is DERIVED, not enumerated: the forbidden set is a capability's `Platform`
+    /// plus everything it inherits, read off the provider. Implementing another CAPABILITY
+    /// from that set stays legal and is often required — `IEnumerator<'T>` inherits
+    /// `IDisposable`, and `enumerator`'s `Dispose` IS the separate `disposable` capability.
+    /// Only the BCL *spelling* is the error; the fix is to write the capability instead.
+    let private checkCapabilityInterfaceCollisions (ctx: PassContext) (info: IInterfaceImplHost) : unit =
+        // Names compare on the bare (arity-suffix-stripped) compiled name: the metadata layer
         // keys `IEnumerable`1`, the contract layer `IEnumerable`, and `SymbolKeyOps.bareName`
         // is where that reconciliation already lives.
         let resolvedImpls =
@@ -763,13 +760,11 @@ module Unification =
                     | _ -> ()
             ]
 
-        // The transitive interface closure of a platform face. On the metadata layer
-        // `FrozenInterfaces` is already transitive (it is reflection's `GetInterfaces`); the
-        // walk is what makes a contract-layer provider, which records only direct bases, agree.
-        // A face arrives as a compiled NAME (`IntrinsicInterfaceShape.Platform`,
-        // `ExternalClassShape.FrozenInterfaces`); it is minted straight back to a key, so the
-        // probe stays on the key-addressed store face — no spelling resolution is needed
-        // (`qualifiedTypeKey` is the same mint `ClrEnv`'s face redirect uses).
+        // The transitive interface closure of a capability's platform interface. On the
+        // metadata layer `FrozenInterfaces` is already transitive (reflection's
+        // `GetInterfaces`); the walk is what makes a contract-layer provider, which records
+        // only direct bases, agree. Names arrive compiled and are minted straight back to
+        // keys, so the probe stays on the key-addressed store view.
         let rec closeOver (seen: Set<string>) (name: string) : Set<string> =
             let bare = SymbolKeyOps.bareName name
 
@@ -784,7 +779,7 @@ module Unification =
                     ||> Array.fold (fun acc (baseName, _) -> closeOver acc baseName)
                 | _ -> seen
 
-        let capabilityFaces =
+        let capabilityInterfaces =
             [
                 for (_, key, shape) in resolvedImpls do
                     match shape with
@@ -793,23 +788,23 @@ module Unification =
                     | _ -> ()
             ]
 
-        if not (List.isEmpty capabilityFaces) then
+        if not (List.isEmpty capabilityInterfaces) then
             for (impl, key, shape) in resolvedImpls do
                 match shape with
                 // Another capability: legal, and the only way to implement an inherited
-                // capability face (`enumerator` + `disposable`).
+                // capability (`enumerator` + `disposable`).
                 | ValueSome(ExternalTypeShape.IntrinsicInterface _) -> ()
                 | _ ->
                     let qual = SymbolKeyOps.typeMetaName key
                     let bare = SymbolKeyOps.bareName qual
 
-                    for (capability, faces) in capabilityFaces do
-                        if Set.contains bare faces then
+                    for (capability, published) in capabilityInterfaces do
+                        if Set.contains bare published then
                             ctx.Report(
                                 impl.DeclSite.Tok,
                                 Kind.Message(
                                     sprintf
-                                        "'%s' is part of the platform face of capability '%s', which this type already implements — the backend publishes that face, and everything it inherits, for the capability. Remove this interface implementation."
+                                        "'%s' is part of the platform interface of capability '%s', which this type already implements — the backend publishes that interface, and everything it inherits, for the capability. Remove this interface implementation."
                                         qual
                                         capability
                                 )
@@ -862,7 +857,7 @@ module Unification =
                     Kind.Message(sprintf "Type '%s' is not an interface" (shown ctx.Store resolved))
                 )
 
-        checkCapabilityFaceCollisions ctx info
+        checkCapabilityInterfaceCollisions ctx info
 
     /// Type-check each `interface IFace with member …` block's member bodies and
     /// conformance-check them against the interface. Member bodies type through

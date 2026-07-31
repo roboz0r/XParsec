@@ -88,7 +88,7 @@ module UnificationEngine =
         /// dot-access whose receiver TyVar resolved to a BCL/contract nominal
         /// (`System.Collections.IEqualityComparer`). The drain resolves the
         /// member through the provider — the deferred mirror of `resolveFieldStep`'s
-        /// external arm — addressed by the resolved type `key` (store face).
+        /// external arm — addressed by the resolved type `key` (store view).
         | ExternalClass of key: SymbolKey * args: EqArray<SemType>
 
     let private resolveDotSource (ctx: PassContext) (linkTarget: SemType) : DotSource =
@@ -327,9 +327,9 @@ module UnificationEngine =
         | TyConst(k1, a1), TyConst(k2, a2) when k1 = k2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
         | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
         | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx tok a1 a2
-        // A capability interface reaches `unify` as EITHER of its two faces (e.g. a BCL
+        // A capability interface reaches `unify` under EITHER of its two names (e.g. a BCL
         // `Enumerable.Take` returns `IEnumerable\`1`, reconciled against a declared `seq`
-        // return): the platform-face key and the canonical-face key differ, so `n1 = n2`
+        // return): the platform key and the canonical key differ, so `n1 = n2`
         // fails though they denote the SAME type. `sameNominalKey` reconciles them — a
         // no-op for every non-capability key (the common `n1 = n2` short-circuits first),
         // which is why capabilities need no entry in the resolution-time reverse-canon map.

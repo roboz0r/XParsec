@@ -230,7 +230,7 @@ module internal UnificationInferLiterals =
     /// `StringFormat<_>` wildcard printer from the specifiers, and diagnosing a printer
     /// that disagrees with an explicit annotation (`StringFormat<int->string>` vs a
     /// `%s` body). Unifying only the printer slot (not a whole synthesised format type)
-    /// sidesteps the two `PrintfFormat` faces: the annotation resolves to
+    /// sidesteps the two `PrintfFormat` names: the annotation resolves to
     /// `Vesper.Printf.PrintfFormat`, the gate synthesises `FSharp.Core`'s. On success
     /// returns `expected` verbatim, so the caller stamps the annotation's OWN resolved
     /// format type onto the literal node — the type a downstream `sprintf fmt` (typed

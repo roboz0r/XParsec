@@ -51,22 +51,18 @@ module internal UnificationTranslate =
     /// The shared tail of every WRITTEN type head no claim of this file holds and no
     /// external shape built — the one place that decides what a head naming nothing IS.
     ///
-    /// A STAMP is NameResolution's committed verdict that the spelling DOES name a type of
-    /// the external universe; reaching here with one means the store served a shape with no
-    /// kind an annotation can take (an `ExternalTypeShape.Opaque` residue — a body-less
-    /// external type). The name is defined and only its structure is missing, so the head
-    /// keeps `residue`, the caller's best-effort identity, and the user is not blamed for a
-    /// name they got right.
+    /// A STAMP is NameResolution's committed verdict that the spelling DOES name an external
+    /// type, so reaching here with one means the store served a body-less `Opaque` residue:
+    /// the name is defined and only its structure is missing, so the head keeps `residue`, the
+    /// caller's best-effort identity, and the user is not blamed for a name they got right.
     ///
-    /// UNSTAMPED, nothing resolved the head at all — not a scope of this file, not the
-    /// target's view of the world — so it is NOT A TYPE. Recovering with a free `TyVar` (which
-    /// unifies with everything) or an opaque nominal (which unifies with itself) would let ANY
-    /// spelling type-check silently, and the mistake would surface as unencodable output far
-    /// from the annotation that caused it. `TyUnknown` is the identity the contract extractor
-    /// already bakes for a name it cannot resolve, so the two faces agree on what an
-    /// unresolved name means. `ctx.UndefinedType` is the shared home of the verdict — the head
-    /// classifier reaches a bare head first and says the same thing, and a head both reach is
-    /// blamed once.
+    /// UNSTAMPED, nothing resolved the head at all, so it is NOT A TYPE. A free `TyVar`
+    /// (unifies with everything) or an opaque nominal (unifies with itself) would let ANY
+    /// spelling type-check silently, surfacing as unencodable output far from the annotation
+    /// that caused it. `TyUnknown` is the identity the contract extractor bakes for a name it
+    /// cannot resolve, so both sides agree on what an unresolved name means.
+    /// `ctx.UndefinedType` is the shared home of the verdict — the head classifier says the
+    /// same thing about a bare head, so a head both reach is blamed once.
     let private unresolvedHeadTy (ctx: PassContext) (head: NodeSite) (name: string) (residue: SemType) : SemType =
         if ctx.Resolution.ResolvedTypeHead.ContainsKey head.Key then
             residue
@@ -149,29 +145,21 @@ module internal UnificationTranslate =
         | true, (canon :: _) -> TyConst(canon, args)
         | _ -> TyClass(key, args)
 
-    /// DEBUG-only witness for a DOTTED written head that neither the store face nor the
-    /// project-local claim answered. It guards the premise `unresolvedHeadTy` rests on: that
-    /// a head reaching it WITHOUT a stamp names nothing the target can resolve, so the user
-    /// may be told the type is not defined. A defect in the resolve-once boundary breaks that
-    /// premise in one direction or the other, and each is a lie told at a distance:
+    /// DEBUG-only witness for a DOTTED written head that neither the store view nor the
+    /// project-local claim answered. It guards the premise the undefined-head verdict rests
+    /// on: a head reaching it WITHOUT a stamp names nothing the target can resolve, so the
+    /// user may be told the type is not defined. A defect in the resolve-once boundary breaks
+    /// that premise in one direction or the other, and each is a lie told at a distance:
     ///
     /// - **No stamp at all**, yet the resolver CAN resolve the spelling — the stamping walk
-    ///   failed to reach this syntax position. The read side has no by-name fallback, so a
-    ///   perfectly good `System.IO.TextWriter` would be blamed on the USER as an undefined
-    ///   type. Fail loudly at the compiler's own defect instead of accusing the source.
+    ///   missed this syntax position. The read side has no by-name fallback, so a perfectly
+    ///   good `System.IO.TextWriter` would be blamed on the USER as an undefined type.
     /// - **Stamped, but the store cannot serve the key** — NameResolution's mint and the
-    ///   store face disagree on identity, so the round-trip the whole boundary rests on is
-    ///   broken for this key. The stamp keeps the head off the undefined verdict, so it
-    ///   silently degrades to a free `TyVar` that unifies with anything — a baffling error
-    ///   (or wrong codegen) far from the cause.
+    ///   store view disagree on identity, breaking the round-trip the whole boundary rests
+    ///   on. The stamp keeps the head off the undefined verdict, so it silently degrades to a
+    ///   free `TyVar` that unifies with anything — a baffling error far from the cause.
     ///
-    /// A stamp the store DOES serve but whose shape declines to build a type
-    /// (`ExternalTypeShape.Opaque` — a body-less residue with no kind to resolve an
-    /// annotation to) is NOT a defect: the walk reached the node and the store answered, so
-    /// the name IS defined and the `TyVar` residue is the designed outcome. The witness stays
-    /// silent.
-    ///
-    /// The probes are resolver-face / store-face reaches sanctioned as diagnostics only:
+    /// The probes are resolver-view / store-view reaches sanctioned as diagnostics only:
     /// their results are never used to resolve, and Release builds compile them out.
     let private assertNoDottedStampGap
         (ctx: PassContext)
@@ -197,7 +185,7 @@ module internal UnificationTranslate =
                 match ctx.Provider.TryLookupType(SymbolKey.Type stamped) with
                 | ValueNone ->
                     failwithf
-                        "External identity round-trip broken: dotted type head '%s' (arity %d) is stamped %s, but the store face cannot serve that key — NameResolution's mint and the store disagree"
+                        "External identity round-trip broken: dotted type head '%s' (arity %d) is stamped %s, but the store view cannot serve that key — NameResolution's mint and the store disagree"
                         name
                         arity
                         (SymbolKeyOps.typeMetaName stamped)
@@ -262,15 +250,13 @@ module internal UnificationTranslate =
             ctx.MarkInferenceHole tv
             TyVar tv
         | Type.NamedType li when li.Idents.Length = 1 ->
-            // Bare single-segment name. A STAMP on this head is NameResolution's committed
-            // verdict that it is external (`classifyTypeHead` stamps only a head no local
-            // claim held where it was written), so it OUTRANKS the registry: a head above a
-            // same-named local declaration keeps resolving to the external type once that
-            // declaration registers, which is F#'s file-order shadowing rule. Unstamped ⇒
-            // local (or nothing), and the registry cascade + opaque fallback answers — the
-            // same cascade the measure carrier below shares through `resolveBareTypeName`.
-            // The head key comes from `CstKeys.ofTypeHead`, the SAME derivation
-            // NameResolution stamped with, so the two faces agree by construction.
+            // Bare single-segment name. A STAMP is NameResolution's committed verdict that the
+            // head is external (only a head no local claim held where it was written gets one),
+            // so it OUTRANKS the registry: a head above a same-named local declaration keeps
+            // resolving to the external type once that declaration registers — F#'s file-order
+            // shadowing rule. Unstamped ⇒ local (or nothing), and the registry cascade + opaque
+            // fallback answers. The head key is derived the SAME way NameResolution stamped it,
+            // so the two sides agree by construction.
             let head = CstKeys.typeHeadSite t
 
             match tryResolveExternalTypeStamped ctx head.Key EqArray.empty with
@@ -319,13 +305,10 @@ module internal UnificationTranslate =
                 let mt = translateMeasure ctx carrierTok m
                 let tv = freshTyVar ctx
                 // Resolve the carrier (`float`) BY NAME rather than fabricating a
-                // `Type.NamedType li` node and re-entering `translateType`: the carrier
-                // is SYNTHESIZED here, so NameResolution never walked it and no stamp
-                // exists — a store-face read would miss it. This is the ONLY by-name
-                // reach left in Unification: the one head with no `Type` node to carry
-                // a stamp. Every WRITTEN annotation is stamped upstream and reads the
-                // store face through `tryResolveExternalTypeStamped`, which has no
-                // by-name fallback.
+                // `Type.NamedType` node: the carrier is SYNTHESIZED here, so NameResolution
+                // never walked it and no stamp exists — a store-view read would miss it.
+                // This is the ONLY by-name reach left in Unification; every WRITTEN
+                // annotation is stamped upstream and reads the store view.
                 ctx.Store.SetLink(
                     UnionFind.find ctx.Store tv,
                     ValueSome(
@@ -474,18 +457,17 @@ module internal UnificationTranslate =
         | TypeDeclKind.Class -> ValueSome(TyClass(key, args))
 
     /// Resolve a bare (single-segment, arity-0) type NAME to its `SemType`: the type
-    /// CLAIMING `(name, 0)` if one exists (`resolveClaimedType`), else the lenient
-    /// by-name tail — a GENERIC local type named without its arguments back-fills fresh
-    /// TyVars (`r : Box` pins them from `r`'s usage) — else `resolveExternal`, then the
-    /// `undefined` intrinsic and finally `unresolvedHeadTy`, the shared undefined-head
-    /// verdict. `resolveExternal` is the pluggable external tail: a
-    /// WRITTEN annotation (`Type.NamedType` arm) passes the STAMPED store-face read
-    /// (`tryResolveExternalTypeStamped`), whereas a SYNTHESIZED carrier (the `float<m>`
-    /// measure arm) — which NameResolution never walked and so never stamped — passes the
-    /// by-name resolver. Sharing the cascade keeps the two faces resolving a bare name
-    /// identically apart from that one external seam, and lets the measure arm resolve its
-    /// carrier WITHOUT fabricating a phantom `Type.NamedType` node that a store-face read
-    /// would miss.
+    /// CLAIMING `(name, 0)` if one exists, else the lenient by-name tail — a GENERIC local
+    /// type named without its arguments back-fills fresh TyVars (`r : Box` pins them from
+    /// `r`'s usage) — else `resolveExternal`, then the `undefined` intrinsic and finally the
+    /// shared undefined-head verdict.
+    ///
+    /// `resolveExternal` is the pluggable external tail: a WRITTEN annotation passes the
+    /// STAMPED store-view read, whereas a SYNTHESIZED carrier (the `float<m>` measure arm,
+    /// which NameResolution never walked and so never stamped) passes the by-name resolver.
+    /// Sharing the cascade keeps the two paths resolving a bare name identically apart from
+    /// that one external seam, and lets the measure arm resolve its carrier WITHOUT
+    /// fabricating a phantom `Type.NamedType` node that a store-view read would miss.
     and private resolveBareTypeName
         (ctx: PassContext)
         (nameTok: SyntaxToken)
@@ -631,8 +613,8 @@ module internal UnificationTranslate =
             | ValueNone -> unresolvedHeadTy ctx head name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
 
     /// Build the annotation `SemType` from a resolved external shape addressed by the
-    /// RESOLVED identity key `symKey`. Shared by both resolution faces (the stamped
-    /// store-face read and the by-name resolver read), so the identity a written type
+    /// RESOLVED identity key `symKey`. Shared by both resolution paths (the stamped
+    /// store-view read and the by-name resolver read), so the identity a written type
     /// annotation resolves to is minted in exactly one place. `None` for an `Opaque`
     /// residue, which has no kind a type annotation can take.
     ///
@@ -648,18 +630,16 @@ module internal UnificationTranslate =
         (translatedArgs: EqArray<SemType>)
         : SemType option =
         match shape with
-        // A referenced intrinsic — scalar (`exn = (# "System.Exception" #)`)
-        // or heritable class: NON-transparent, its NOMINAL IDENTITY is the
-        // shape's canon `TyConst` (`Vesper.int`, `Vesper.exn`) regardless of
-        // the optional base/ctor surface. Preserving the `TyConst` keeps
-        // intrinsic member routing intact — `obj.ToString` / `exn.Message`
-        // resolve through the PLATFORM type (`IntrinsicBclMember`), which is
-        // per-target and which the contract deliberately does NOT name
-        // (ToString is CLR-only); member resolution thus MERGES the contract
-        // ctors with the platform type's members. A faced capability `Class`
-        // (`disposable`) is an INTERFACE, a constraint not a value type, so
-        // it stays a `TyClass` below. (The canon is read OFF the shape — the
-        // resolved identity, not a by-name re-mint.)
+        // A referenced intrinsic — scalar (`exn = (# "System.Exception" #)`) or
+        // heritable class: NON-transparent, its NOMINAL IDENTITY is the shape's
+        // canon `TyConst` (`Vesper.int`, `Vesper.exn`) regardless of the optional
+        // base/ctor surface. Preserving the `TyConst` keeps intrinsic member routing
+        // intact — `obj.ToString` / `exn.Message` resolve through the per-target
+        // PLATFORM type the contract deliberately does NOT name (ToString is
+        // CLR-only), so member resolution MERGES the contract ctors with the platform
+        // type's members. A two-key capability `Class` (`disposable`) is an INTERFACE,
+        // a constraint not a value type, so it stays a `TyClass` below. (The canon is
+        // read OFF the shape — the resolved identity, not a by-name re-mint.)
         | ExternalTypeShape.Intrinsic s -> Some(TyConst(SymbolKey.Type s.Id.Canon, translatedArgs))
         // A source-written platform repr with an extracted non-interface
         // canon (`System.Exception` → `exn`, `System.Object` → `obj`,
@@ -698,7 +678,7 @@ module internal UnificationTranslate =
         | ExternalTypeShape.Opaque _ -> None
 
     /// Fetch + build from an already-resolved external type identity: the
-    /// key-addressed store-face read shared by every consumer holding a
+    /// key-addressed store-view read shared by every consumer holding a
     /// NameResolution-minted `SymbolKey` (the stamped annotation path, the by-name
     /// hatch, and the generic-ctor stamp read), so the `SemType` a resolved head
     /// yields is minted in exactly one place. `buildExternalTy` mints the nominal on
@@ -716,22 +696,20 @@ module internal UnificationTranslate =
             | None -> ValueNone
         | _ -> ValueNone
 
-    /// The store-face read of a written external type head. NameResolution resolved
-    /// this head's spelling (opens-aware, at its syntactic arity) and stamped its
-    /// `SymbolKey` into `ResolvedTypeHead` keyed by the `Type` node's `NodeKey`;
-    /// `tryExternalTypeOfKey` fetches the shape through the key-addressed store face.
+    /// The store-view read of a written external type head. NameResolution resolved this
+    /// head's spelling (opens-aware, at its syntactic arity) and stamped its `SymbolKey` into
+    /// `ResolvedTypeHead` keyed by the `Type` node's `NodeKey`; the shape is then fetched
+    /// through the key-addressed store view.
     ///
-    /// This has **no by-name fallback** — every written-annotation head is stamped
-    /// upstream, so the annotation path is purely store-face and never reaches
-    /// `ctx.Resolver`. An ABSENT stamp is not an external type: NameResolution walks
-    /// every written head (`CstWalk.iterType` over field / member-sig / param /
-    /// return / cast / type-test / `new` / `inherit` / type-app positions, the
-    /// ILIntrinsic-body result annotation, and a type header's typar-definition
-    /// constraints), so a node it left unstamped is project-local, a bare typar, or
-    /// unresolvable — exactly the cases `translateType`'s caller resolves as a local
-    /// shape / `TyVar` / opaque `TyConst`. The one by-name reach that remains
-    /// (`tryResolveExternalType`) is for a head with NO `Type` node to carry a
-    /// stamp: the `float<m>` measure carrier synthesized during inference.
+    /// This has **no by-name fallback** — every written-annotation head is stamped upstream,
+    /// so the annotation path is purely store-view and never reaches `ctx.Resolver`. An ABSENT
+    /// stamp is not an external type: NameResolution walks every written head (field,
+    /// member-sig, param, return, cast, type-test, `new`, `inherit`, type-app, the
+    /// ILIntrinsic-body result annotation, and a type header's typar constraints), so a node
+    /// it left unstamped is project-local, a bare typar, or unresolvable — exactly the cases
+    /// the caller resolves as a local shape / `TyVar` / opaque `TyConst`. The one by-name
+    /// reach that remains is for a head with NO `Type` node to carry a stamp: the `float<m>`
+    /// measure carrier synthesized during inference.
     and private tryResolveExternalTypeStamped
         (ctx: PassContext)
         (nodeKey: NodeKey)
@@ -747,7 +725,7 @@ module internal UnificationTranslate =
     /// Spelling → key goes through NameResolution's own engine
     /// (`tryResolveExternalTypeKey` — the one home for opens-aware external-type
     /// resolution, so the hatch cannot drift from what the stamper would have
-    /// stamped), then the identity builds through the same store-face read the
+    /// stamped), then the identity builds through the same store-view read the
     /// stamped path uses.
     and private tryResolveExternalType
         (ctx: PassContext)

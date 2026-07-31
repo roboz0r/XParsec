@@ -184,7 +184,7 @@ referenced set would resolve as a silent first-hit shadow — the loser's type m
 with a correct key but unreachable by lookup — so composition refuses it outright, a
 CS0433-equivalent naming both homes. Any second sighting is a collision: one
 package never declares a key twice, so a repeat is either two peers sharing
-namespace + name or two copies of one package. Intrinsics and capability faces are
+namespace + name or two copies of one package. Intrinsics and capability canons are
 excluded by design (every package's `int` is *the* `int`; a shared canon there is
 not a collision).
 
@@ -246,20 +246,20 @@ Three distinct companion patterns coexist, and the distinction is load-bearing:
 **Intrinsic reprs are extracted from the `.fs` before the `.fsi` is walked**
 (`buildProviderWith`, `ReferencedProject.fs:531-580`), because the `.fs` is the
 only place the repr lives — the `.fsi` commits `type exn = extern` and no repr.
-There are two faces:
+There are two sources:
 
 - the **base** `.fs` ⇒ `IntrinsicBaseReprs`: the primitive *marker*. Its presence
   is what publishes the `extern` as an `ExternalTypeShape.Intrinsic` rather than an
   opaque `Class`, and on CLR it is also the platform repr.
-- the per-target `<base>.<target>.fs` ⇒ `IntrinsicReprs`: the platform face for
+- the per-target `<base>.<target>.fs` ⇒ `IntrinsicReprs`: the platform name for
   *this* target (`prim-types-int.js.fs` ⇒ `number`).
 
 A primitive the target omits — `decimal` ships no `.js.fs` — is in the base map but
-not the target map, so it stays an `Intrinsic` with no platform face rather than
-silently falling back to a BCL repr that has no JS runtime. The `canon` face is the
+not the target map, so it stays an `Intrinsic` with no platform name rather than
+silently falling back to a BCL repr that has no JS runtime. The `canon` key is the
 `.fsi` name itself, so an override never moves the unifier's identity key. A
 target-only intrinsic (`undefined`, `dynamic`) has no base/override split at all:
-its single `.js.fs` is both marker and platform face.
+its single `.js.fs` is both marker and platform name.
 
 ## Resolving the graph
 

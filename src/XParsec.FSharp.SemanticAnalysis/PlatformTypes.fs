@@ -33,9 +33,9 @@ module PlatformTypes =
 
     /// `true` when `key` resolves to a NULLARY primitive the provider declares has
     /// no representation on the compiling target. A generic intrinsic (`'T []`) is
-    /// representable structurally regardless of its own `platform` face, so it is
+    /// representable structurally regardless of its own `platform` name, so it is
     /// never flagged here (its args are judged by the caller's recursion). Answered by
-    /// the receiver's own resolved `SymbolKey` on the store face: the caller holds the
+    /// the receiver's own resolved `SymbolKey` on the store view: the caller holds the
     /// key, and a canon intrinsic key carries its namespace, so no ambient-prelude
     /// re-resolution of a short name is needed.
     ///

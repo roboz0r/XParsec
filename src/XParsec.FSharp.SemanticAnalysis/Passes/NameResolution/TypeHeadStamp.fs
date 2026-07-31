@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis
 // spelling→identity engine; the `tryResolve*Key` family are its shape-filtered
 // instantiations, and the `stamp*` helpers walk each declared-signature /
 // annotation position and record the resolved key in `ResolvedTypeHead` so
-// Unification's `Translate` reads the key-addressed store face instead of
+// Unification's `Translate` reads the key-addressed store view instead of
 // re-resolving the spelling. Split out of `NameResolutionScope` (which owns
 // value/ident resolution) because it is a self-contained module keyed on the same
 // `CstKeys.ofTypeHead` derivation the read side uses.
@@ -163,7 +163,7 @@ module NameResolutionTypeHeadStamp =
     /// reachable external enum named `headName` declares `caseName`. NameResolution — the
     /// resolve-once layer — recognises the case HERE and stamps the key
     /// (`ExternalEnumCaseStamp`); Unification's `InferIdentExpr` / `InferPat` enum arms READ
-    /// the stamp rather than re-recognising the spelling through the resolver face.
+    /// the stamp rather than re-recognising the spelling through the resolver view.
     let tryExternalEnumCaseKey (ctx: PassContext) (headName: string) (caseName: string) : TypeKey voption =
         tryPickExternalType
             ctx
@@ -197,7 +197,7 @@ module NameResolutionTypeHeadStamp =
 
     /// Classify ONE written type head and, when it is external, stamp its `SymbolKey` into
     /// `ResolvedTypeHead` so `Translate` fetches the shape through the key-addressed store
-    /// face instead of re-resolving the spelling. Each head is decomposed ONCE through
+    /// view instead of re-resolving the spelling. Each head is decomposed ONCE through
     /// `CstKeys.ofTypeHead` (key + long-ident + syntactic arity) — the SAME derivation the
     /// read side keys on, so write and read agree by construction.
     ///
@@ -231,7 +231,7 @@ module NameResolutionTypeHeadStamp =
     /// reachable from a `Type`. `iterType`'s recursion reaches every nested head (generic
     /// args, function/tuple members, `when`-constraint types), so a single call over a
     /// top-level annotation covers the whole tree — mirroring `translateType`'s own
-    /// recursion, so the two faces agree node-for-node.
+    /// recursion, so the two walks agree node-for-node.
     ///
     /// A local / bare-typar / unknown head stays unstamped; `translateType` then takes its
     /// local-registry / opaque / `TyVar` paths. An abbrev head stamps its OWN key (the
@@ -261,7 +261,7 @@ module NameResolutionTypeHeadStamp =
     /// constraints (`type M<'F when 'F :> Fun<'T,'U>>`) hang off `TypeName`, reached
     /// by neither the field/member/param stampers nor `iterType` — so a coercion bound
     /// there (`Fun<'T,'U>`) must be stamped here for the constraint-resolution phase to
-    /// read the store face rather than re-resolve the spelling (without it a
+    /// read the store view rather than re-resolve the spelling (without it a
     /// struct-function typar keeps a bare-typar `.Invoke` that codegen cannot lower).
     let stampTyparConstraints (ctx: PassContext) (cs: TyparConstraints<SyntaxToken>) : unit =
         CstWalk.iterTypeConstraints (stampTypeIter ctx) cs

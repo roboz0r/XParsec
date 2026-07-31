@@ -10,17 +10,17 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // type-annotation HEAD (opens-aware, at its syntactic arity) and stamps its
 // `SymbolKey` in `Resolution.ResolvedTypeHead`, keyed by the `Type` node's
 // `NodeKey` (`CstKeys.ofTypeHead`). `Translate.tryResolveExternalTypeStamped`
-// reads that stamp and fetches the shape through the key-addressed store face
+// reads that stamp and fetches the shape through the key-addressed store view
 // instead of re-resolving the spelling. These tests assert the stamp is present
 // at representative type-annotation positions, that the reusable
 // `CstWalk.iterType` recursion reaches nested generic-argument heads, and — end
-// to end — that the stamped key round-trips through the store face during
+// to end — that the stamped key round-trips through the store view during
 // inference. A project-local / unknown head is left unstamped (Translate takes
 // its local-registry / opaque paths).
 
 /// A provider knowing a non-generic `Tests.Widget` and a generic `Tests.Box`1`,
 /// both auto-opened via `AmbientOpenPrefixes` (as the real prelude opens the
-/// package namespace). `ofNamedLeaf` derives the store face from the same by-name
+/// package namespace). `ofNamedLeaf` derives the store view from the same by-name
 /// table, so it resolves the SAME keys the resolver mints by construction — the
 /// round-trip the stamp read relies on.
 let private provider: IExternalSymbolProvider =
@@ -210,7 +210,7 @@ let tests =
         "ResolvedTypeHeadStamp"
         [
             // A binding return-type annotation naming an external class: the head is
-            // resolved once here and stamped, so `translateType` reads the store face.
+            // resolved once here and stamped, so `translateType` reads the store view.
             test "return-type annotation head is stamped" {
                 let ctx, file = analyse "let f (x: Widget) : Widget = x"
                 let t = returnTypeOf (firstBinding file)
@@ -262,14 +262,14 @@ let tests =
                 | None -> failtest "expected a typed parameter annotation"
             }
 
-            // End-to-end: the stamped key round-trips through the store face during
+            // End-to-end: the stamped key round-trips through the store view during
             // inference. This must assert the annotation's resulting IDENTITY, not merely
             // that it type-checks free of diagnostics: `Widget` is a name the provider
-            // serves, so it is the ROUND-TRIP — stamp minted, store face served — that the
+            // serves, so it is the ROUND-TRIP — stamp minted, store view served — that the
             // identity witnesses, and a diagnostics-only assertion would witness only that
             // the head was not diagnosed as undefined. Pinning `TyClass(externalTypeKey …)`
             // is what excludes it.
-            test "stamped heads resolve through the store face during inference" {
+            test "stamped heads resolve through the store view during inference" {
                 let ctx, file = analyse "let f (x: Widget) : Widget = x"
                 Unification.run ctx file
 

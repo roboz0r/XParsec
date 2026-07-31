@@ -259,7 +259,7 @@ let tests =
                     expectClean "type A = { x: int }\nlet f (a: A) = a.x\ntype B = { y: A }\nlet g (b: B) = f b.y"
                 }
 
-            // The shadowing rule, through a module `let` — the third face of the same
+            // The shadowing rule, through a module `let` — the third site of the same
             // mechanism (record field, member signature, module let). The head was classified
             // where it was written, with nothing yet claiming `exn`, so it stamped external
             // and stays bound there once the local `exn` registers. Pinned against the SAME

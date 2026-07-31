@@ -417,7 +417,7 @@ let localTypeContainment =
 
             // `ModuleKey.Name` carries the COMPILED holder name — the static class the module
             // compiles to — which is what a `ModuleKey` means at every other mint (the
-            // contract face bakes the suffix in at mint time too). The rule has ONE
+            // contract view bakes the suffix in at mint time too). The rule has ONE
             // implementation (`moduleHolderName`), so the key and the emitted holder cannot
             // disagree about which class holds what.
             test "the module's key carries its COMPILED holder name (…Module on a type collision)" {

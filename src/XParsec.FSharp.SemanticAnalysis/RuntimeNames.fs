@@ -84,15 +84,15 @@ module RuntimeNames =
 
     /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>` (arity 4) —
     /// the type a format literal freezes to (`PrintfSpec.printfFormatName`). The FSharp.Core
-    /// face of the format *type*.
+    /// spelling of the format *type*.
     let printfFormatKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity "Microsoft.FSharp.Core" "PrintfFormat" 4
 
-    /// The `Vesper` face of `PrintfFormat` at arity 4. Source-level format annotations
+    /// The `Vesper` spelling of `PrintfFormat` at arity 4. Source-level format annotations
     /// (`Printf.StringFormat<_>` / `TextWriterFormat<_>`) resolve through the
     /// provider to THIS key, not the `Microsoft.FSharp.Core` one the format-literal
     /// machinery synthesises (`printfFormatName`). `isPrintfFormatKey` recognises both
-    /// faces so a bound/ascribed format is seen as a `PrintfFormat` at every seam.
+    /// keys so a bound/ascribed format is seen as a `PrintfFormat` at every seam.
     let vesperPrintfFormatKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity "Vesper" "PrintfFormat" 4
 
@@ -240,13 +240,13 @@ module RuntimeNames =
     // caller checks the project-local table first, then falls to these.)
 
     /// One resolved capability identity, recognised by KEY EQUALITY against EITHER of up
-    /// to two faces so both spellings an interface impl can take dispatch:
-    ///   * `Key` — the PLATFORM / BCL face (`System.IDisposable`): what a metadata or
+    /// to two names so both spellings an interface impl can take dispatch:
+    ///   * `Key` — the PLATFORM / BCL name (`System.IDisposable`): what a metadata or
     ///     BCL-spelled impl freezes to.
-    ///   * `CanonKey` — the BCL-FREE canonical face (`Vesper.disposable`): what a
+    ///   * `CanonKey` — the BCL-FREE canonical name (`Vesper.disposable`): what a
     ///     canonically-authored `interface disposable` freezes to.
-    /// `CanonKey` is `ValueNone` for a single-faced anchor — `seq`/enumerable, and every
-    /// capability on JS, where `Key` IS the canonical face and a BCL-spelled impl is
+    /// `CanonKey` is `ValueNone` for a canon-only anchor — `seq`/enumerable, and every
+    /// capability on JS, where `Key` IS the canonical name and a BCL-spelled impl is
     /// folded to it by the `capabilities-compat.js.fsi` shim before it freezes.
     type CapabilityIdentity =
         {
@@ -254,12 +254,12 @@ module RuntimeNames =
             CanonKey: TypeKey voption
         }
 
-        /// The platform face as a `SymbolKey` — for the key-kind-blind consumers (a
+        /// The platform key as a `SymbolKey` — for the key-kind-blind consumers (a
         /// diagnostic's `qualifiedName`, a provider lookup that serves every key kind).
         member this.SymKey: SymbolKey = SymbolKey.Type this.Key
 
-        /// Key EQUALITY against EITHER face. Both faces and every key that reaches here
-        /// carry their arity as an int field no mint can omit (the platform face parsed
+        /// Key EQUALITY against EITHER name. Both keys and every key that reaches here
+        /// carry their arity as an int field no mint can omit (the platform one parsed
         /// from the BCL metadata name, the canonical from the contract's compiled name),
         /// so identity is `=` and nothing is stripped.
         member this.Matches(k: TypeKey) : bool =
@@ -430,19 +430,15 @@ module RuntimeNames =
     /// namespace by construction: there is NO name-set classification (the former
     /// front-end shadow set is gone), the caller guarantees `name` denotes a primitive.
     /// The `name` is taken VERBATIM, at ARITY 0. Every caller but the structural
-    /// constructors names an arity-0 scalar (`int`, an `IntWidth`, a literal's base type, an
-    /// enum's underlying type); a CONTRACT-declared generic intrinsic (`seq`, arity 1)
-    /// carries its arity like any other nominal and is minted from the contract instead
+    /// constructors names an arity-0 scalar; a CONTRACT-declared generic intrinsic (`seq`,
+    /// arity 1) carries its arity like any other nominal and is minted from the contract
     /// (`TypeRegistry.intrinsicKeyOf` / `SymbolKeyOps.intrinsicCanonKey`), never here.
-    /// The structural constructors (`arrayKey`/`byrefKey`) are the exception: they name no
-    /// contract face — the array's contract spelling is the backtick-escaped `` ``[]`` ``
-    /// (`arrayContractName`), a different string — so their producers and recognisers meet
-    /// only on these constants and never through a metadata name. They are therefore held
-    /// at arity 0 like every other key minted here: their element typar rides the `TyConst`
-    /// args, they are never rendered to (or parsed from) a `` `N `` metadata name, and their
-    /// escaped contract face cannot carry an arity either — so agreeing on 0 is what keeps
-    /// the two faces from drifting. Their identity name is the one
-    /// `isStructuralConstructorName` reads.
+    ///
+    /// `arrayKey`/`byrefKey` are the exception: the array's contract spelling is the
+    /// backtick-escaped `` ``[]`` ``, a different string, so producers and recognisers meet
+    /// only on these constants. Both spellings are held at arity 0 — the escaped one cannot
+    /// carry an arity, and the element typar rides the `TyConst` args — which is what keeps
+    /// them from drifting.
     /// Prefer the cached `*Key` constants; this by-name form is for the
     /// runtime-primitive-name sites that can't name a fixed constant.
     let primitiveKey (name: string) : SymbolKey =

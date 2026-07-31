@@ -507,10 +507,9 @@ type internal ClrEnv
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
             // A canonically-authored capability interface (`interface disposable`) has no
-            // emitted type of its own — re-resolve through its platform face so the
-            // InterfaceImpl row binds the real BCL interface (`System.IDisposable`). Analogous
-            // to `exn → System.Exception`; the platform shape is a plain `Class`, so the
-            // recursion terminates after one hop.
+            // emitted type of its own — re-resolve through its platform interface so the
+            // InterfaceImpl row binds the real BCL interface (`System.IDisposable`). The
+            // platform shape is a plain `Class`, so the recursion terminates after one hop.
             externalClassRef (SymbolKeyOps.qualifiedTypeKey platform 0)
         | _ ->
 

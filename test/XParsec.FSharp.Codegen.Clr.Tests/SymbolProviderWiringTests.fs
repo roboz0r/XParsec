@@ -68,7 +68,7 @@ let tests =
                     Expect.equal
                         platform
                         "System.Int32"
-                        "int's platform face is its prim-types-min `.fs` CLI representation"
+                        "int's platform name is its prim-types-min `.fs` CLI representation"
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape from the manifest layer, got %A" other
 
                 // Operators now resolve from the contract — but only under their

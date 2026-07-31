@@ -272,7 +272,7 @@ module internal UnificationInferResolve =
             // spelling reach with no stampable node: a bare `{ X = … }` field set has no
             // written record identity to resolve in NameResolution — the verdict IS the
             // field-set intersection computed here at inference. So it reads the resolver
-            // face (allowlisted in `ResolverAllowlistTests`), the sibling of the
+            // view (allowlisted in `ResolverAllowlistTests`), the sibling of the
             // `TryLookupUnionCase` bare reverse index NameResolution reads. On the bare
             // path those provider records are scope/RQA-gated (`admitsBareExternalRecord`).
             let providerRecords =
@@ -450,7 +450,7 @@ module internal UnificationInferResolve =
     /// NameResolution — the resolve-once layer — classified the qualifier
     /// (opens-aware) and stamped its key in `ExternalUnionRecordQualifier`; this
     /// reads that stamp by node key instead of re-resolving the qualifier through
-    /// the resolver-face `TryLookupType(string)` at inference time. The qualifier
+    /// the resolver-view `TryLookupType(string)` at inference time. The qualifier
     /// in the message is the stamp's RESOLVED identity (`Vesper.Option`), not the
     /// re-joined written spelling — the diagnostic names the type the reference
     /// actually hit; the member name is the written last segment.
