@@ -586,6 +586,33 @@ module TastAccessor =
     let exprInlineCallSpec (e: ExprId) : SpecializationId =
         expect "TastAccessor.exprInlineCallSpec: not an InlineCall node" (|EInlineCall|_|) e
 
+    /// An `InlineCall` node → the file its own anchor and its arguments' are indices into.
+    [<return: Struct>]
+    let private (|EInlineCallOrigin|_|) (e: ExprId) : OriginFile voption =
+        match payload e with
+        | ExprPayload.InlineCall p -> ValueSome p.Origin
+        | _ -> ValueNone
+
+    /// The file an `InlineCall` node's own anchor — and its arguments', they being CALLER
+    /// material — is read against. NOT the entry's: the body the edge names is a root of its
+    /// own and states its domain on `PooledSpecialization.Origin`.
+    let exprInlineCallOrigin (e: ExprId) : OriginFile =
+        expect "TastAccessor.exprInlineCallOrigin: not an InlineCall node" (|EInlineCallOrigin|_|) e
+
+    /// A `CallerExpr` node → the file everything under it is anchored in.
+    [<return: Struct>]
+    let private (|ECallerExprOrigin|_|) (e: ExprId) : OriginFile voption =
+        match payload e with
+        | ExprPayload.CallerExpr origin -> ValueSome origin
+        | _ -> ValueNone
+
+    /// The file the subtree under a `CallerExpr` is anchored in. The node marks material that
+    /// was written at a CALL SITE and moved into an entry's body, so its domain is the call
+    /// site's file and not the entry's — which is the whole of what the node carries beside
+    /// its single child.
+    let exprCallerExprOrigin (e: ExprId) : OriginFile =
+        expect "TastAccessor.exprCallerExprOrigin: not a CallerExpr node" (|ECallerExprOrigin|_|) e
+
     /// The children of the arms, re-nested — `ExprPayload.arms`, the walk shared with the
     /// pool drain, driven off this node's child columns. `lead` is how many leading expr
     /// children belong to the node itself rather than an arm (`Match`'s scrutinee /

@@ -354,6 +354,35 @@ let tests =
                 test name { checkProgram src }
         ]
 
+// WHICH FILE the anchor columns index is a column-set-wide fact, so no walk of the tree can
+// check it and the round-trip gate above would pass with it dropped or replaced. It is also
+// the only thing that can tell this unit's own material from a producer's once the front end
+// is out of reach (`InlineExpand`), and it must be the identity the analysis ran under: one
+// rebuilt downstream from a path is a different value that compares unequal, which reads as
+// "every node of this file is foreign".
+[<Tests>]
+let unitOriginTests =
+    testList
+        "TastPools states which file the anchors index"
+        [
+            test "the freeze stamps the origin it was analysed under" {
+                let origin, frozen = freezeWithOrigin "let a = 1\n"
+
+                Expect.equal frozen.Origin origin.File "the pools name the file the anchors were taken from"
+            }
+
+            test "re-pooling a drained tree keeps it" {
+                // The drain carries no origin — the tree has no field for one — so the fill
+                // has only the pool it came out of to take it from.
+                let origin, frozen = freezeWithOrigin "let a = 1\n"
+
+                Expect.equal
+                    (TastPools.rePool frozen (TastUnpool.ofPools frozen)).Origin
+                    origin.File
+                    "the re-fill kept the file, rather than defaulting to nobody's"
+            }
+        ]
+
 [<Tests>]
 let binderAnchorTests =
     testList

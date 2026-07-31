@@ -240,13 +240,16 @@ module TastPools =
     /// `NodeKey`, a file drained back out of the columns by `BinderId`, and the columns are
     /// the same columns either way.
     ///
-    /// Two things differ between the directions, and both are arguments. `spellingOf` is how
+    /// Three things differ between the directions, and all are arguments. `spellingOf` is how
     /// the two binder columns are filled — the one fact neither the identity nor the walk
     /// carries: the producer's record for a source-shaped tree, the pool it came out of for
     /// a drained one. `anchor` is how the tree's spelling of a position becomes the stored
     /// one — a checked narrowing from a `SyntaxToken`, or nothing at all for a tree already
-    /// in the stored form. See `toPools` and `rePool`.
+    /// in the stored form. `origin` is the file the stored anchors index, which likewise comes
+    /// from the compilation on one side and from the drained pool on the other. See `toPools`
+    /// and `rePool`.
     let private fill
+        (origin: OriginFile)
         (spellingOf: BinderKeyG<'id> -> BinderSpelling)
         (anchor: 'tok -> Anchor)
         (file: TastFileG<FrozenType, 'tok, 'id>)
@@ -522,6 +525,7 @@ module TastPools =
         // correctness weight.
         let pools =
             {
+                Origin = origin
                 // Snapshotted AFTER every walk above, so the tables hold every type the
                 // columns name. Nothing below interns.
                 Types = FrozenTypeTable.OfRows typeTable.Rows
@@ -574,17 +578,19 @@ module TastPools =
     ///
     /// It is also where the file's tokens become indices, and `Anchor.ofToken` is what makes
     /// "a frozen node anchors on a real token of its own file" a fact of the CONVERSION
-    /// rather than an assertion some later reader might not make.
-    let toPools (spellings: BinderKey -> BinderSpelling) (file: Frozen.TastFile) : FrozenPools =
-        fill spellings Anchor.ofToken file
+    /// rather than an assertion some later reader might not make. `origin` is the file those
+    /// indices are taken against — the same identity the anchored tokens came out of.
+    let toPools (origin: OriginFile) (spellings: BinderKey -> BinderSpelling) (file: Frozen.TastFile) : FrozenPools =
+        fill origin spellings Anchor.ofToken file
 
     /// Pool a tree DRAINED from `pools` (`TastUnpool.ofPools`) — the fill direction of the
     /// round-trip, which is what makes `ofPools` checkable at all: the columns are
     /// tree-sufficient exactly when re-pooling their own drain reproduces them.
     ///
-    /// No producer is in reach on this side, so the spelling comes back off the pool the
-    /// tree was drained out of — where the producers' answer was written down. The node
-    /// anchors need no narrowing at all: a drained tree already carries the stored one.
+    /// No producer is in reach on this side, so the spelling — and the file the drained
+    /// anchors index — come back off the pool the tree was drained out of, where both were
+    /// written down. The node anchors need no narrowing at all: a drained tree already
+    /// carries the stored one.
     let rePool (pools: FrozenPools) (file: Pooled.TastFile) : FrozenPools =
         let spellingOf (b: BinderKeyG<BinderId>) =
             let (BinderId i) = BinderKey.identity b
@@ -594,4 +600,4 @@ module TastPools =
                 At = pools.BinderToks.[i]
             }
 
-        fill spellingOf id file
+        fill pools.Origin spellingOf id file

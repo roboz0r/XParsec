@@ -44,9 +44,10 @@ module EmitJsContext =
     type WalkCtx =
         {
             Resolver: Resolver
-            /// Every node COPIED out of an inline specialization → the producer file it was
-            /// written in and its index into THAT file's tokens (`InlineExpand.Expansion`).
-            /// A node absent from it is the compiling unit's own and reads against `Resolver`.
+            /// Every node the expansion left anchored in a file OTHER than the one being
+            /// compiled → that file and its index into THAT file's tokens
+            /// (`InlineExpand.Expansion`). A node absent from it is the compiling unit's own
+            /// and reads against `Resolver`.
             /// Empty until `buildProgram` splices the graph, which is what discovers them.
             ///
             /// Read through `Derivation`, never by a bare lookup: the walk re-authors nodes of

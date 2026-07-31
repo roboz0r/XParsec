@@ -115,6 +115,26 @@ type OriginFile =
         Content: InputHash
     }
 
+[<RequireQualifiedAccess>]
+module OriginFile =
+
+    /// The identity of a pool that is NOBODY's file — `FrozenPools.empty`, whose overlay bears
+    /// nodes minted from an `.fsi` contract or re-axised by a provider and indexing into no
+    /// source at all. Every such node anchors `Anchor.nowhere`, which `OriginSources.tokenAt`
+    /// answers before it consults the retention, so this never has to name a retained source.
+    ///
+    /// Distinguishable from every real origin, which names a path: no file is spelled `""`.
+    let nowhere: OriginFile =
+        {
+            Path =
+                {
+                    BucketName = ""
+                    Relative = ""
+                    Absolute = ""
+                }
+            Content = InputHash.ofBytes [||]
+        }
+
 /// A producer file RETAINED past the parse that produced it, so that anchors of a tree drained
 /// from it stay readable. `Input` rides with the `Lexed` because a token carries offsets into
 /// the text and not the text itself, and the text is what a multi-source map publishes.

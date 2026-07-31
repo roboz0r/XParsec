@@ -406,6 +406,11 @@ module TastPoolBuilder =
     let copyPatFresh (b: PoolBuilder) (id: PatPoolId) (edit: PatRow -> PatRow) : PatPoolId =
         appendPat b (edit (patRow b id))
 
+    /// The file this pool's `Anchor`s index (`FrozenPools.Origin`) — the base's, an overlay
+    /// deriving nodes onto the very file it was opened over. What a consumer holding a stated
+    /// domain compares against to learn whether it is this unit's own or a producer's.
+    let origin (b: PoolBuilder) : OriginFile = b.Base.Origin
+
     /// How many resolved-specialization entries the table holds — the bound every
     /// `SpecializationId` an edge carries is inside.
     let specializationCount (b: PoolBuilder) : int = b.Base.Specializations.Length

@@ -12,9 +12,9 @@ open XParsec.FSharp.SemanticAnalysis
 /// those indices belong to. Placing the body is what is left, and it is this.
 ///
 /// Shared, and necessarily so: both backends need the same beta reduction, the same binder
-/// freshening and the same frame chain, and two copies of that is two chances for a call
-/// site's locals to alias. Nothing here is target-shaped — `TastAccessor` handles,
-/// `FrozenType` and `Anchor` only, the same family `TastLower` already shares.
+/// freshening and the same reading of which file each node's anchors index, and two copies of
+/// that is two chances for a call site's locals to alias. Nothing here is target-shaped —
+/// `TastAccessor` handles, `FrozenType` and `Anchor` only, the family `TastLower` shares.
 module InlineExpand =
 
     /// WHERE a node of an expanded tree was written: the producer file, and the node's own
@@ -24,9 +24,10 @@ module InlineExpand =
     /// index read against another file, which resolves in range against the consuming file
     /// and lands on an unrelated token.
     ///
-    /// It is recorded ALONGSIDE the node rather than on it: the copy is moved onto the call
-    /// site (see `expand`), so the node's own anchor column stays in the consuming file's
-    /// domain and every existing reader of it keeps working.
+    /// It is recorded ALONGSIDE the node rather than on it because a copy is moved onto the
+    /// call site (see `expand`), which leaves the anchor COLUMN in the consuming file's domain
+    /// for every existing reader of it while the position the node was written at survives
+    /// here.
     [<Struct>]
     type NodeOrigin = { File: OriginFile; At: ForeignAnchor }
 
@@ -109,33 +110,34 @@ module InlineExpand =
             /// is the very declaration that came in — the row copies preserve an id when
             /// nothing changed, so a file that reaches no inline body appends nothing.
             Decls: TastAccessor.DeclId list
-            /// Every node COPIED out of a specialization entry → the file it was written in
-            /// and its position there. A node absent from this is the compiling unit's own:
-            /// the frame chain's bottom names no producer, so absence is the answer rather
-            /// than a missing entry.
+            /// Every node whose anchor indexes a file OTHER than the one being compiled → that
+            /// file and its position in it. A node absent from this is the compiling unit's
+            /// own, so absence is the answer rather than a missing entry.
             ///
-            /// Keyed at the copy, which is a node the expansion AUTHORED — so a consumer reads
-            /// it through `Derived`, never by a bare lookup.
+            /// Mostly nodes COPIED out of a specialization entry, which a consumer must
+            /// therefore read through `Derived` rather than by a bare lookup — but not only:
+            /// material a `CallerExpr` marks is left in place and keeps the anchors of the file
+            /// it was written in, which is a producer's whenever the call site it came from was
+            /// itself inside an entry.
             Origins: IReadOnlyDictionary<TastAccessor.ExprId, NodeOrigin>
             /// Every node this expansion authored → the node it was authored from
             /// (`Derivation`).
             Derived: Derivation
         }
 
-    /// One frame of the chain a descent through the graph maintains: which entry was entered,
-    /// and the file its nodes are anchored in. Descending an `InlineCall` PUSHES one;
-    /// descending a `CallerExpr` POPS back to the caller's, that node being the marker for
-    /// material a fusion spliced in from one frame out.
+    /// WHICH FILE the material being walked is anchored in, as the walk needs to know it: a
+    /// producer's, or the consuming unit's own. Both are `OriginFile`s and the walk is TOLD
+    /// which by the node it descends through — `Consuming` is not a missing answer but the
+    /// answer compared for once, at the point a domain is entered, rather than at every node
+    /// a copy is filed from.
     ///
-    /// `Spec` is not decoration: an entry already on the stack is a cycle, and this is where
-    /// the acyclicity `InlineSpecTable.findCycle` checks on the finished table is re-asserted
-    /// at the point where a violation would otherwise substitute bodies into bodies forever.
+    /// The distinction is what `Expansion.Origins` records: a node already in the consuming
+    /// unit's index space is read against the tree it sits in, which is what every consumer of
+    /// an `Anchor` does by default, so filing it would say nothing.
     [<Struct>]
-    type private Frame =
-        {
-            Spec: SpecializationId
-            Origin: OriginFile
-        }
+    type private Domain =
+        | Consuming
+        | Producer of OriginFile
 
     /// The state of ONE entry-body copy. Per copy and not per expansion: an entry reached
     /// from inside another entry's body takes its own, so the two copies' binders cannot
@@ -154,12 +156,12 @@ module InlineExpand =
             Binders: Dictionary<BinderId, BinderId>
         }
 
-    /// Whether the node being read is the consuming unit's own or an entry's.
-    ///
-    /// The distinction is the whole of the walk: the unit's own nodes are rewritten IN PLACE
-    /// (an untouched subtree keeps the very id the emitter's node-keyed tables were built
-    /// from), where an entry's are COPIED, because two call sites of one entry must not share
-    /// a binder — and so must not share a node.
+    /// Whether the node being read is rewritten IN PLACE or COPIED — which is a question about
+    /// SHARING, not about which file the node was written in (`Domain`): an entry's body is
+    /// copied because two call sites of one entry must not share a binder and so must not
+    /// share a node, where everything else keeps the very id the emitter's node-keyed tables
+    /// were built from. Material a `CallerExpr` marks appears once however the graph is
+    /// walked, so it stays in place whichever file wrote it.
     type private Site =
         | InPlace
         | Copied of Copy
@@ -185,11 +187,20 @@ module InlineExpand =
     ///
     /// PRECONDITION: the table is ACYCLIC. `InlineSpecTable.findCycle` checks that on the
     /// finished table and the pass reports `Kind.CyclicInline` rather than emitting, so
-    /// reaching here with a cycle is a compiler bug; the frame stack convicts it at the entry
-    /// that closes the loop instead of exhausting the stack.
+    /// reaching here with a cycle is a compiler bug; the stack of entered entries convicts it
+    /// at the entry that closes the loop instead of exhausting the call stack.
     let expand (pool: PoolBuilder) (decls: TastAccessor.DeclId list) : Expansion =
         let origins = Dictionary<TastAccessor.ExprId, NodeOrigin>()
         let derived = Derivation.create ()
+
+        // A stated domain, read: the one file whose anchors need no provenance is the file
+        // being compiled, and it is the pool that says which that is. It has to be the very
+        // identity the front end stamped onto the nodes — one rebuilt here from a path would
+        // compare unequal and file the unit's own code as if it were foreign.
+        let compiling = TastPoolBuilder.origin pool
+
+        let domainOf (origin: OriginFile) : Domain =
+            if origin = compiling then Consuming else Producer origin
 
         let authored (source: TastAccessor.ExprId) (result: TastAccessor.ExprId) : TastAccessor.ExprId =
             Derivation.authored derived source result
@@ -208,18 +219,18 @@ module InlineExpand =
             | true, fresh -> fresh
             | _ -> b
 
-        // Where the copy of `source` was written, filed against the frame the node sits in.
-        // The bottom of the stack is the compiling unit, which names no producer file — so
-        // nothing is filed there and absence carries that meaning.
-        let record (frames: Frame list) (source: TastAccessor.ExprId) (copied: TastAccessor.ExprId) =
-            match frames with
-            | frame :: _ ->
-                origins.[copied] <-
+        // Where `source` was written, filed against the node that lands in the tree — the copy
+        // where one was taken, the node itself where it stays put. Nothing is filed for the
+        // consuming unit's own material, and absence carries that meaning.
+        let record (domain: Domain) (source: TastAccessor.ExprId) (landed: TastAccessor.ExprId) =
+            match domain with
+            | Consuming -> ()
+            | Producer file ->
+                origins.[landed] <-
                     {
-                        File = frame.Origin
+                        File = file
                         At = ForeignAnchor.ofAnchor (TastAccessor.exprTok source)
                     }
-            | [] -> ()
 
         let rec copyPat (copy: Copy) (p: TastAccessor.PatId) : TastAccessor.PatId =
             let kids = TastAccessor.patChildren p |> Array.map (fun k -> (copyPat copy k).Id)
@@ -242,30 +253,51 @@ module InlineExpand =
                         )
             }
 
-        let rec go (frames: Frame list) (site: Site) (e: TastAccessor.ExprId) : TastAccessor.ExprId =
+        let rec go
+            (domain: Domain)
+            (entered: SpecializationId list)
+            (site: Site)
+            (e: TastAccessor.ExprId)
+            : TastAccessor.ExprId =
             match TastAccessor.exprKind e with
-            | ExprShape.InlineCall -> expandEdge frames site e
+            | ExprShape.InlineCall -> expandEdge domain entered site e
             | ExprShape.CallerExpr ->
-                // The POP, and the only reading of it. The marked subtree was written by the
-                // caller and MOVED into the entry, so it is not the entry's to copy: it stays
-                // where it is, keeping its own anchors, its own binders and its own node
-                // identity — which is what lets a node-keyed emit table (a lambda's
-                // value-struct verdict) still recognise it.
+                // The marked subtree was written by the caller and MOVED into the entry, so it
+                // is not the entry's to copy: it stays where it is, keeping its own anchors,
+                // its own binders and its own node identity — which is what lets a node-keyed
+                // emit table (a lambda's value-struct verdict) still recognise it.
                 //
                 // Sound only because an entry that marks anything has exactly ONE call edge
                 // (`InlineSpecTable.miscountedFusedEntries`): the material appears once however
                 // the graph is walked, so there is no second expansion for it to alias.
-                match frames with
-                | _ :: outer -> go outer InPlace (TastAccessor.exprChild e 0)
+                //
+                // The node states the caller's domain, which is NOT the consuming unit's
+                // whenever the call site was itself inside an entry. So the anchors it keeps
+                // may be a producer's, and the material is filed as it is walked.
+                let caller = domainOf (TastAccessor.exprCallerExprOrigin e)
+
+                // The entry stack pops with the material: the caller may legitimately reach
+                // the very entry this node sits in — `a && (c && d)` puts a second edge to
+                // one specialization inside the first one's marked subtree — and without the
+                // pop the acyclicity assertion below convicts a legal program.
+                match entered with
+                | _ :: outer -> go caller outer InPlace (TastAccessor.exprChild e 0)
                 | [] ->
                     failwith
-                        "InlineExpand: a CallerExpr outside every entry — the node pops one frame, so one must have been pushed"
+                        "InlineExpand: a CallerExpr outside every entry — the node marks material moved INTO a body, so one must have been entered"
             | _ ->
                 match site with
-                | InPlace -> authored e (TastAccessor.mapChildren (go frames site) e)
-                | Copied copy -> copyNode frames copy e
+                | InPlace ->
+                    record domain e e
+                    authored e (TastAccessor.mapChildren (go domain entered site) e)
+                | Copied copy -> copyNode domain entered copy e
 
-        and copyNode (frames: Frame list) (copy: Copy) (e: TastAccessor.ExprId) : TastAccessor.ExprId =
+        and copyNode
+            (domain: Domain)
+            (entered: SpecializationId list)
+            (copy: Copy)
+            (e: TastAccessor.ExprId)
+            : TastAccessor.ExprId =
             // Patterns first: a binder is bound before any reference to it can be rewritten,
             // and a use is always lexically inside its binder.
             let pats =
@@ -273,7 +305,7 @@ module InlineExpand =
 
             let kids =
                 TastAccessor.exprChildren e
-                |> Array.map (fun c -> (go frames (Copied copy) c).Id)
+                |> Array.map (fun c -> (go domain entered (Copied copy) c).Id)
 
             // The payload's own positions move with the node; the loop variable is a binder the
             // payload carries rather than a pattern, so it freshens here alongside them.
@@ -300,22 +332,36 @@ module InlineExpand =
                             )
                 }
 
-            record frames e copied
+            record domain e copied
             authored e copied
 
-        and expandEdge (frames: Frame list) (site: Site) (e: TastAccessor.ExprId) : TastAccessor.ExprId =
+        and expandEdge
+            (domain: Domain)
+            (entered: SpecializationId list)
+            (site: Site)
+            (e: TastAccessor.ExprId)
+            : TastAccessor.ExprId =
             let spec = TastAccessor.exprInlineCallSpec e
             let entry = TastAccessor.specialization pool spec
 
-            match frames |> List.tryFind (fun f -> f.Spec = spec) with
-            | Some _ ->
-                let (SpecializationId i) = spec
+            // The node states the domain of its own anchor and its arguments'; the descent
+            // derives the same thing from the edges it came through. They agree, or one of
+            // them is wrong and the disagreement is the only warning: an anchor read in the
+            // wrong file's index space resolves in range and names an unrelated token.
+            let stated = domainOf (TastAccessor.exprInlineCallOrigin e)
 
+            if stated <> domain then
                 failwithf
-                    "InlineExpand: specialization %d (%A) reaches itself — the table is acyclic by `InlineSpecTable.findCycle`, checked before anything walks it"
-                    i
+                    "InlineExpand: an edge to specialization %A says its material is anchored in %A, but the descent that reached it was walking %A"
+                    spec
+                    stated
+                    domain
+
+            if List.contains spec entered then
+                failwithf
+                    "InlineExpand: specialization %A (%A) reaches itself — the table is acyclic by `InlineSpecTable.findCycle`, checked before anything walks it"
+                    spec
                     entry.Key.Template
-            | None -> ()
 
             // Where the edge SITS, which is where the body it names is moved to. A copied edge
             // has already been moved onto the enclosing call site, so an inner body collapses
@@ -326,12 +372,16 @@ module InlineExpand =
                 | Copied copy -> copy.At
 
             // The arguments are the CALLER's material: read in the site the edge itself sits
-            // in, never in the entry's.
-            let args = TastAccessor.exprChildren e |> Array.map (go frames site)
+            // in, and in the domain it sits in, never in the entry's.
+            let args = TastAccessor.exprChildren e |> Array.map (go domain entered site)
 
+            // The body is the ENTRY's, and the entry states where it was written — the pop
+            // this replaces could only say "one file out", which names a file at all only
+            // where the entry has exactly one call edge.
             let body =
                 go
-                    ({ Spec = spec; Origin = entry.Origin } :: frames)
+                    (domainOf entry.Origin)
+                    (spec :: entered)
                     (Copied
                         {
                             At = at
@@ -362,7 +412,7 @@ module InlineExpand =
                 | other -> failwithf "InlineExpand: over-application of an inline body, at a %A" other
 
         {
-            Decls = decls |> List.map (TastAccessor.mapDeclBodies (go [] InPlace))
+            Decls = decls |> List.map (TastAccessor.mapDeclBodies (go Consuming [] InPlace))
             Origins = origins
             Derived = derived
         }

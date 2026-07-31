@@ -393,4 +393,4 @@ module Freeze =
             | ValueSome sp -> sp
             | ValueNone -> BinderSpelling.unspelled
 
-        toFrozenFile ctx tast |> TastPools.toPools spellingOf
+        toFrozenFile ctx tast |> TastPools.toPools ctx.Origin spellingOf

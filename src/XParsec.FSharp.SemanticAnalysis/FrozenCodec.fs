@@ -499,6 +499,7 @@ module FrozenCodec =
     /// Every column and side table, in `FrozenPools` declaration order — but NOT the tables
     /// the types in them are ids into, which `writePools` puts in front of this.
     let private writeBody (w: FrozenWriter) (p: FrozenPools) =
+        writeOriginRef w p.Origin
         writeArrayWith w writeTypeId p.ExprTys
         writeArrayWith w writeAnchor p.ExprToks
         writeChildColumn w writeExprPoolId p.ExprChildren
@@ -548,6 +549,7 @@ module FrozenCodec =
         // unit's own before a single column is touched.
         let types = FrozenTypeTable.OfRows(readTypeRows r)
         let r = { r with Types = types }
+        let origin = readOriginRef r
         let exprTys = readArrayWith r readTypeId
         let exprToks = readArrayWith r readAnchor
         let exprChildren = readChildColumn r readExprPoolId
@@ -588,6 +590,7 @@ module FrozenCodec =
         checkSlots "DeclPatChildren" declPayloads.Length declPatChildren
 
         {
+            Origin = origin
             Types = types
             ExprTys = exprTys
             ExprToks = exprToks

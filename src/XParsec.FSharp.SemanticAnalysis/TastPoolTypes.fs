@@ -269,6 +269,18 @@ type FrozenFileResidue =
 [<NoEquality; NoComparison>]
 type FrozenPools =
     {
+        /// WHICH FILE this unit's `Anchor` columns index. Every `Anchor` here — the expr, pat
+        /// and binder token columns — is a position in this file and means nothing against
+        /// another's, so the identity travels with the columns rather than beside them: a pool
+        /// handed one separately can be handed the wrong one, and nothing downstream could
+        /// tell (`OriginSources.tokenAt` faults only for a file it was NAMED against).
+        ///
+        /// It is also the only thing that can say whether a stated domain — an entry's
+        /// `Origin`, a node's — is this unit's own or a producer's, which is a question no
+        /// consumer past the freeze can otherwise answer: the identity is minted before the
+        /// parse (`Hashing.originSource`) and reconstructing it downstream from a path and a
+        /// re-read would be a different value that compares unequal.
+        Origin: OriginFile
         /// The unit's own interned type and key tables — what the `ty` columns index. Every
         /// `TypeId` in this record is a row of THIS table and of no other: the tables are
         /// per unit (see `FrozenTypeTable`), so an id from another unit's pools would name a
@@ -411,6 +423,7 @@ module FrozenPools =
     /// other node.
     let empty: FrozenPools =
         {
+            Origin = OriginFile.nowhere
             Types = FrozenTypeTable.Empty
             ExprTys = [||]
             ExprToks = [||]
