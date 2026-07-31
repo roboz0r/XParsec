@@ -559,7 +559,7 @@ let tests =
                     | TokenIndex.Virtual -> ()
                     | TokenIndex.Regular i ->
                         Expect.equal
-                            (OriginSources.tokenAt origins entry.Origin (ForeignAnchor.ofAnchor (Anchor.ofToken tok)))
+                            (OriginSources.tokenAt origins entry.Origin (Anchor.ofToken tok))
                             tok
                             "an entry node resolves against the file its `OriginFile` names"
 
@@ -654,7 +654,7 @@ let tests =
                     | TokenIndex.Virtual -> ()
                     | TokenIndex.Regular _ ->
                         Expect.equal
-                            (OriginSources.tokenAt origins entry.Origin (ForeignAnchor.ofAnchor (Anchor.ofToken tok)))
+                            (OriginSources.tokenAt origins entry.Origin (Anchor.ofToken tok))
                             tok
                             "an unmarked node resolves against the file the entry's `OriginFile` names"
 
@@ -871,7 +871,7 @@ let tests =
                     | TokenIndex.Virtual -> ()
                     | TokenIndex.Regular _ ->
                         Expect.equal
-                            (OriginSources.tokenAt origins entry.Origin (ForeignAnchor.ofAnchor (Anchor.ofToken tok)))
+                            (OriginSources.tokenAt origins entry.Origin (Anchor.ofToken tok))
                             tok
                             "every unmarked node of the entry — the edge included — reads against its `OriginFile`"
 

@@ -150,8 +150,7 @@ let tests =
                     |> positions
                     |> tokenIndices
 
-                let written =
-                    positions body |> List.map (fun (ForeignAnchor a) -> Anchor.toStored a)
+                let written = positions body |> List.map Anchor.toStored
 
                 Expect.isNonEmpty written "the fixture body actually carries positions"
 

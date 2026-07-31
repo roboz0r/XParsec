@@ -89,7 +89,7 @@ type ImportForm =
 ///
 /// Its POSITIONS, by contrast, are handed over as-is: every node still carries the index of
 /// the token that spells it in the PRODUCER's file. What the consumer lacks is not the indices
-/// but the `Lexed` they index, so they arrive marked (`ForeignAnchor`) rather than blanked, and
+/// but the `Lexed` they index, so they arrive intact rather than blanked, and
 /// a consumer must either name the producer file it reads them against
 /// (`OriginSources.tokenAt`, which is also where the file's content hash is checked) or move
 /// the body onto a position of its own (`InlineThaw.body`). WHICH of the two is available is
@@ -105,8 +105,8 @@ type InlineBody =
     {
         Decl: Wire.TDecl
         ParamAttrs: ParamAttrs[]
-        /// The producer file `Decl`'s `ForeignAnchor`s index, RETAINED — its text and token
-        /// table, not merely its identity.
+        /// The producer file `Decl`'s anchors index, RETAINED — its text and token table, not
+        /// merely its identity.
         ///
         /// Retained rather than named because a served body and the file that gives its
         /// integers a meaning are ONE fact: a provider that hands out the body and drops the

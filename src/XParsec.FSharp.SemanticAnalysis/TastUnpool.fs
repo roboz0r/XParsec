@@ -41,21 +41,19 @@ module TastUnpool =
     /// addressed in (`Frozen.TExpr`). ONE hook, so both the reference edge and the `ForTo`
     /// binder land in the same space rather than each site picking its own way back.
     ///
-    /// `widenTok` is the same arrangement for POSITIONS: `id` for a tree that stays in the
-    /// pool's own space, and the cross-unit wire's widening for one that leaves it
-    /// (`TastPoolBuilder.declTree`). It reaches the two anchors a payload carries — a
-    /// `ForTo`'s loop-variable token and a format hole's — the node's own arriving already
-    /// widened as `tok`.
+    /// POSITIONS take no such hook, and must not: the anchors come out of the columns as they
+    /// went in, whichever space the rebuilt tree lands in. A drain that could re-axis them would
+    /// be a drain that could quietly rebase a producer's indices onto the consuming file — the
+    /// one misattribution that resolves in range and never faults.
     let substituteExpr
         (widenBinder: BinderId -> 'id)
-        (widenTok: Anchor -> 'tok)
         (ty: FrozenType)
-        (tok: 'tok)
+        (tok: Anchor)
         (varBinder: BinderId voption)
         (payload: ExprPayload)
-        (es: TExprG<FrozenType, 'tok, 'id>[])
-        (ps: TPatG<FrozenType, 'tok, 'id>[])
-        : TExprG<FrozenType, 'tok, 'id> =
+        (es: TExprG<FrozenType, Anchor, 'id>[])
+        (ps: TPatG<FrozenType, Anchor, 'id>[])
+        : TExprG<FrozenType, Anchor, 'id> =
         // A decl's own leading children are all its own, so both cursors start at 0; the
         // `Match`/`TryWith` arms below draw from `nextE` only after the node has taken its
         // scrutinee / body from it.
@@ -112,7 +110,7 @@ module TastUnpool =
             let startExpr = nextE ()
             let endExpr = nextE ()
             let body = nextE ()
-            TExprG.ForTo(widenBinder p.Var, widenTok p.IdentTok, startExpr, endExpr, body, ty, tok)
+            TExprG.ForTo(widenBinder p.Var, p.IdentTok, startExpr, endExpr, body, ty, tok)
         | ExprPayload.ForIn enumerator ->
             let pat = nextP ()
             let source = nextE ()
@@ -172,7 +170,7 @@ module TastUnpool =
             let receiver' = if p.HasReceiver then ValueSome(nextE ()) else ValueNone
             TExprG.ExternalMember(receiver', p.Key, p.MemberName, p.Storage, ty, tok)
         | ExprPayload.Format p ->
-            let sink', segments' = ExprPayload.format widenTok p.Sink p.Segments nextE
+            let sink', segments' = ExprPayload.format id p.Sink p.Segments nextE
             TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
         | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
         | ExprPayload.InlineCall p -> TExprG.InlineCall(p.Spec, EqArray.ofArray es, p.Origin, ty, tok)
@@ -203,10 +201,10 @@ module TastUnpool =
     let substitutePat
         (widenBinder: BinderId -> 'id)
         (ty: FrozenType)
-        (tok: 'tok)
+        (tok: Anchor)
         (payload: PatPayload)
-        (ps: TPatG<FrozenType, 'tok, 'id>[])
-        : TPatG<FrozenType, 'tok, 'id> =
+        (ps: TPatG<FrozenType, Anchor, 'id>[])
+        : TPatG<FrozenType, Anchor, 'id> =
         match payload with
         // The binder this pattern introduces, named in the caller's identity space — the
         // pat analogue of `ForTo.var`.
@@ -233,12 +231,11 @@ module TastUnpool =
     /// run at the inverse body and identity mappings.
     let substituteDecl
         (widenBinder: BinderId -> 'id)
-        (widenTok: Anchor -> 'tok)
-        (fromExpr: ExprPoolId -> TExprG<FrozenType, 'tok, 'id>)
+        (fromExpr: ExprPoolId -> TExprG<FrozenType, Anchor, 'id>)
         (payload: DeclPayload)
-        (es: TExprG<FrozenType, 'tok, 'id>[])
-        (ps: TPatG<FrozenType, 'tok, 'id>[])
-        : TDeclG<FrozenType, 'tok, 'id> =
+        (es: TExprG<FrozenType, Anchor, 'id>[])
+        (ps: TPatG<FrozenType, Anchor, 'id>[])
+        : TDeclG<FrozenType, Anchor, 'id> =
         match payload with
         | DeclPayload.Let p -> TDeclG.Let(ps.[0], es.[0], p.IsInline, p.Ty)
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
@@ -247,7 +244,7 @@ module TastUnpool =
                 TastConvert.typeDecl
                     {
                         Ty = id
-                        Tok = widenTok
+                        Tok = id
                         Id = BinderKey.identity >> widenBinder
                         Body = fromExpr
                     }
@@ -324,7 +321,6 @@ module TastUnpool =
             let e =
                 substituteExpr
                     widenBinder
-                    id
                     pools.Types.[pools.ExprTys.[i]]
                     pools.ExprToks.[i]
                     pools.ExprVarBinder.[i]
@@ -338,7 +334,7 @@ module TastUnpool =
         let fromDecl (DeclPoolId i) : TDeclG<FrozenType, Anchor, 'id> =
             let es = ChildColumn.slice pools.DeclExprChildren i |> Array.map fromExpr
             let ps = ChildColumn.slice pools.DeclPatChildren i |> Array.map fromPat
-            let d = substituteDecl widenBinder id fromExpr pools.DeclPayloads.[i] es ps
+            let d = substituteDecl widenBinder fromExpr pools.DeclPayloads.[i] es ps
 
             match d with
             | TDeclG.Type td -> Seq.iter readmit (BinderKey.ofTypeDecl td)

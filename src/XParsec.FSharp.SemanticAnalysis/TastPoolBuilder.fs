@@ -523,12 +523,7 @@ module TastPoolBuilder =
     let rec private patTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: PatPoolId) : Wire.TPat =
         let row = patRow b at
 
-        TastUnpool.substitutePat
-            rename
-            row.Ty
-            (ForeignAnchor.ofAnchor row.Tok)
-            row.Payload
-            (row.Children |> Array.map (patTree rename b))
+        TastUnpool.substitutePat rename row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree rename b))
 
     /// The DU subtree an expression id denotes — see `patTree`. Reached through `declTree`:
     /// the cross-unit wire carries whole declarations, never a bare expression.
@@ -537,9 +532,8 @@ module TastPoolBuilder =
 
         TastUnpool.substituteExpr
             rename
-            ForeignAnchor.ofAnchor
             row.Ty
-            (ForeignAnchor.ofAnchor row.Tok)
+            row.Tok
             row.VarBinder
             row.Payload
             (row.Children |> Array.map (exprTree rename b))
@@ -561,12 +555,11 @@ module TastPoolBuilder =
     /// that is harmless: a drained body is renamed again by `Inline.spliceAt` against the
     /// CONSUMING unit's counter before it lands, so no two of them ever meet unfreshened.
     ///
-    /// Its anchors are the PRODUCER's, passed through unchanged and merely re-typed: the drain
-    /// widens each `Anchor` to a `ForeignAnchor`, which says the integers index THIS pool's
-    /// file and not the consumer's. Nothing here blanks or rebases them, and nothing should —
-    /// they are the only record of where the body was written, and the marking is what forces
-    /// a consumer to say which file it is reading them against (`OriginSources.tokenAt`) or to
-    /// give the body a position of its own (`InlineThaw.body`).
+    /// Its anchors are the PRODUCER's, passed through untouched — the rebuild takes no position
+    /// mapping, so this cannot blank or rebase them, and nothing should: they are the only record
+    /// of where the body was written. What they index is the file `origin` answers, which a
+    /// consumer must name to read one at all (`OriginSources.tokenAt`) unless it gives the body
+    /// a position of its own (`InlineThaw.body`).
     let declTree (b: PoolBuilder) (at: DeclPoolId) : Wire.TDecl =
         let rename (binder: BinderId) : NodeKey =
             match b.DrainedBinderKeys.TryGetValue binder with
@@ -581,7 +574,6 @@ module TastPoolBuilder =
 
         TastUnpool.substituteDecl
             rename
-            ForeignAnchor.ofAnchor
             (exprTree rename b)
             row.Payload
             (row.ExprChildren |> Array.map (exprTree rename b))

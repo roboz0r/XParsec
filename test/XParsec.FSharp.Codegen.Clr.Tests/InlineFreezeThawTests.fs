@@ -111,7 +111,7 @@ let private distinctCells (tvs: TyVarId list) : TyVarId list =
 /// frozen tree rather than hard-coding it is what keeps the assertion EXACT: a broken
 /// cache mints MORE cells than there are leaves, which a `>=` bound would not catch.
 // Position-axis agnostic: leaves are a fact about the TYPES, so a pooled decl and a wire one
-// (whose anchors are the producer's, `ForeignAnchor`) answer the same number.
+// (whose anchors are the producer's) answer the same number.
 let private distinctLeafCount (d: TDeclG<FrozenType, 'tok, 'id>) : int =
     collectTys d |> List.collect typarLeavesIn |> List.distinct |> List.length
 

@@ -68,7 +68,7 @@ let private entryOwners (pool: PoolBuilder) : Dictionary<TastAccessor.ExprId, In
                 owners.[e] <-
                     {
                         File = entry.Origin
-                        At = ForeignAnchor.ofAnchor (TastAccessor.exprTok e)
+                        At = TastAccessor.exprTok e
                     }
 
                 for c in TastAccessor.exprChildren e do

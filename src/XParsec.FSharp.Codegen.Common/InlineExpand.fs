@@ -19,17 +19,14 @@ module InlineExpand =
 
     /// WHERE a node of an expanded tree was written: the producer file, and the node's own
     /// index into THAT file's tokens — exactly the pair needed to read a token back out of a
-    /// producer's retained `Lexed`. A `ForeignAnchor` rather than an `Anchor` because that is
-    /// what the integer is — an
-    /// index read against another file, which resolves in range against the consuming file
-    /// and lands on an unrelated token.
+    /// producer's retained `Lexed`, and neither half means anything without the other.
     ///
     /// It is recorded ALONGSIDE the node rather than on it because a copy is moved onto the
     /// call site (see `expand`), which leaves the anchor COLUMN in the consuming file's domain
     /// for every existing reader of it while the position the node was written at survives
     /// here.
     [<Struct>]
-    type NodeOrigin = { File: OriginFile; At: ForeignAnchor }
+    type NodeOrigin = { File: OriginFile; At: Anchor }
 
     /// Every node a REWRITE authored → the node it was authored from. A node is re-authored
     /// whenever a descendant of it moved, so splicing a body deep inside a lambda gives that
@@ -229,7 +226,7 @@ module InlineExpand =
                 origins.[landed] <-
                     {
                         File = file
-                        At = ForeignAnchor.ofAnchor (TastAccessor.exprTok source)
+                        At = TastAccessor.exprTok source
                     }
 
         let rec copyPat (copy: Copy) (p: TastAccessor.PatId) : TastAccessor.PatId =

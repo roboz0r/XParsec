@@ -164,20 +164,19 @@ module Pooled =
 /// Not the producer's `BinderId`s: a slot means nothing outside the pool that issued it, so
 /// the drain re-mints a `NodeKey` per binder.
 ///
-/// The positions ARE the producer's, and arrive intact — the drain widens `Anchor` to
-/// `ForeignAnchor` and changes nothing else. That marking is the whole of what distinguishes
-/// this from `Pooled` on the position axis, and it is not decoration: the two hold the same
-/// integers and only the DOMAIN differs, so nothing but the type stops a producer's index from
-/// being read against the consumer's `Lexed`, where it lands on an unrelated token instead of
-/// faulting. Reading one requires an `OriginFile` (`OriginSources.tokenAt`), which is why a
-/// consumer either names the producer file the body came from or relocates the body onto a
-/// position of its own (`InlineThaw.body`).
+/// The positions ARE the producer's, and arrive intact: the drain cannot rebase them — it takes
+/// no position mapping — and nothing else blanks them either. So this is `Pooled`'s own position
+/// axis, the same integers against the same file, and what changes at the boundary is only that
+/// the consumer no longer holds the `Lexed` they index. Which file that is travels with the body
+/// (`ExternalSymbols.InlineBody.Origin`) and is required to read one at all
+/// (`OriginSources.tokenAt`), so a consumer either names the producer file the body came from or
+/// relocates the body onto a position of its own (`InlineThaw.body`).
 module Wire =
-    type TPat = TPatG<FrozenType, ForeignAnchor, NodeKey>
-    type TExpr = TExprG<FrozenType, ForeignAnchor, NodeKey>
-    type TDecl = TDeclG<FrozenType, ForeignAnchor, NodeKey>
-    type TInlineBody = TInlineBodyG<FrozenType, ForeignAnchor, NodeKey>
-    type TInlineValue = TInlineValueG<FrozenType, ForeignAnchor, NodeKey>
+    type TPat = TPatG<FrozenType, Anchor, NodeKey>
+    type TExpr = TExprG<FrozenType, Anchor, NodeKey>
+    type TDecl = TDeclG<FrozenType, Anchor, NodeKey>
+    type TInlineBody = TInlineBodyG<FrozenType, Anchor, NodeKey>
+    type TInlineValue = TInlineValueG<FrozenType, Anchor, NodeKey>
 
 /// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
 /// by pool id instead of carrying the tree, and whose seven pattern-less BINDER slots name

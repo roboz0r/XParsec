@@ -36,7 +36,7 @@ module InlineThaw =
     /// about the wire: a `Wire.TDecl` carries the producer's real token indices, which index the
     /// producer's `Lexed` and not this unit's. Private, so a caller cannot invent a third
     /// reading beyond the two exported below.
-    let private thawWith (store: TypeStore) (readAt: ForeignAnchor -> SyntaxToken) (decl: Wire.TDecl) : TDecl =
+    let private thawWith (store: TypeStore) (readAt: Anchor -> SyntaxToken) (decl: Wire.TDecl) : TDecl =
         let cache = Dictionary<TyparLeaf, SemType>()
 
         let mint (leaf: TyparLeaf) : SemType =
@@ -64,7 +64,7 @@ module InlineThaw =
     /// node written in the consuming file from one that came from the body. That is what
     /// `bodyAtOrigin` keeps.
     let body (store: TypeStore) (at: SyntaxToken) (decl: Wire.TDecl) : TDecl =
-        thawWith store (fun (_: ForeignAnchor) -> at) decl
+        thawWith store (fun (_: Anchor) -> at) decl
 
     /// Realise a wire body WHERE IT WAS WRITTEN: every node keeps the producer's own token, read
     /// out of that file's retained `Lexed`.

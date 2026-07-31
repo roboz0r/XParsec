@@ -3,15 +3,10 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// WHERE a node sits: the index of its anchor token in the `Lexed` of the file it belongs
-/// to, or NOWHERE for a node no source spells. An index and not a `SyntaxToken` because the
-/// text, span and line the struct carried are all recoverable from the index against that
-/// `Lexed`, at a quarter of the width on the columns that dominate a frozen file.
+/// The index of its anchor token in the `Lexed` of the file it belongs
+/// to, or NOWHERE for a node no source spells.
 ///
-/// An index is a position IN ONE FILE and means nothing against another's tokens. A tree that
-/// LEAVES its pool keeps the producer's real indices — nothing blanks them — so which file
-/// they index has to travel separately: `ForeignAnchor` below is that tree's position axis,
-/// and an `OriginFile` is the only thing that says what its integers are indices into.
+/// An index is a position IN ONE FILE and means nothing against another's tokens.
 [<Struct>]
 type Anchor =
     private
@@ -58,28 +53,7 @@ module Anchor =
     let ofStored (raw: int) : Anchor =
         if raw < 0 then nowhere else { Raw = raw * 1<token> }
 
-/// An `Anchor` read against ANOTHER FILE's tokens — the position axis of a tree that has left
-/// the pool that issued it (`Wire.TDecl`, drained by `TastPoolBuilder.declTree`).
-///
-/// Its own type because the DOMAIN is the whole of the difference, and the domain is invisible
-/// in the integer: dereferenced against the consumer's `Lexed` a producer's index does not
-/// fault, it lands on some unrelated token that happens to sit at that position. A wrong answer
-/// in range is the one error a later pass cannot detect, so the distinction is carried by the
-/// type instead of by assertion — an `Anchor` column cannot be filled from a wire node by an
-/// `id` widening, and the only way back to a position is `OriginSources.tokenAt`, which cannot
-/// be called without naming the file the indices belong to.
-[<Struct>]
-type ForeignAnchor = | ForeignAnchor of Anchor
-
-[<RequireQualifiedAccess>]
-module ForeignAnchor =
-
-    /// The drain's widening: a pooled anchor as seen from OUTSIDE the pool that issued it. THE
-    /// constructor, so a tree crossing a unit boundary is marked as carrying the producer's
-    /// index space by construction rather than by the drain remembering to say so.
-    let ofAnchor (a: Anchor) : ForeignAnchor = ForeignAnchor a
-
-/// WHICH FILE a set of `ForeignAnchor`s index — identity only, with no claim about the file's
+/// WHICH FILE a set of `Anchor`s index — identity only, with no claim about the file's
 /// contents. `LibFile`-shaped (`VesperLibManifest.LibFile`), that being what resolves a
 /// package's `inline-bodies` entry to a path, but declared here beside the index it gives
 /// meaning to and so reachable long before the manifest reader is.
@@ -94,8 +68,8 @@ type OriginPath =
         Absolute: string
     }
 
-/// A producer file a `ForeignAnchor` may be resolved against: which file, plus a hash of the
-/// exact text whose `Lexed` those indices address.
+/// A producer file an `Anchor` may be resolved against: which file, plus a hash of the exact
+/// text whose `Lexed` those indices address.
 ///
 /// The hash is the load-bearing half, not bookkeeping. An anchor is an integer index into a
 /// file the consumer RE-READS on a later build, and the tree carrying it is cached to disk
@@ -177,15 +151,17 @@ module OriginSources =
     let toList (sources: OriginSources) : OriginSource list =
         [ for KeyValue(_, src) in sources.ByPath -> src ]
 
-    /// THE reading of a foreign anchor: the token `at` names in `file`, taken from that file's
-    /// retained `Lexed`.
+    /// THE reading of an anchor: the token `at` names in `file`, taken from that file's retained
+    /// `Lexed`. Naming the file is not a convenience — it is the whole of what makes the index
+    /// mean anything, so this is where a domain stated on a pool, an entry or a node is finally
+    /// cashed in.
     ///
     /// Faults on a file never retained, and — the case the hash exists for — on one whose
     /// retained contents disagree with the contents the tree was anchored against. Both are
     /// silent misattribution otherwise: the index is in range either way, so this is the last
     /// point at which a wrong answer is still distinguishable from a right one.
-    let tokenAt (sources: OriginSources) (file: OriginFile) (ForeignAnchor a) : SyntaxToken =
-        match a.Index with
+    let tokenAt (sources: OriginSources) (file: OriginFile) (at: Anchor) : SyntaxToken =
+        match at.Index with
         // A node no source spells stays unspelled. Inventing a position would put the node on
         // a token it was never written at, which is the misattribution this guards against.
         | ValueNone -> SyntaxToken.nowhere

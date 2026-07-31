@@ -140,7 +140,7 @@ module SymbolProviders =
     [<RequireQualifiedAccess>]
     module KeyedInlineBody =
 
-        /// Publish `body` under `key`, in the producer file its `ForeignAnchor`s index.
+        /// Publish `body` under `key`, in the producer file its anchors index.
         let anchoredIn (origin: OriginSource) (key: SymbolKey) (body: InlineBody) : KeyedInlineBody =
             {
                 Key = key
@@ -231,7 +231,7 @@ module SymbolProviders =
     /// producer FILES they were drained from, retained.
     ///
     /// The sources are not a by-product. A drained body carries the producer's own token
-    /// indices (`ForeignAnchor`), so without the `Lexed` they index the body has no readable
+    /// indices, so without the `Lexed` they index the body has no readable
     /// positions at all — the collection and the retention are one fact and are returned as
     /// one. `Input` comes with them because a token holds an offset into the text, not the
     /// text.
