@@ -3,7 +3,14 @@ namespace Vesper
 /// <summary>An intrinsic 32-bit signed integer provided by the target.</summary>
 ///
 /// <category>Basic Types</category>
-type int = extern
+type int = extern with
+
+    /// <summary>The witness the overloaded <c>(+)</c> trait constraint dispatches to.
+    /// Declared here, on the type, so the unifier resolves it by ordinary member lookup
+    /// rather than synthesising a candidate from an operator-name table. The body is the
+    /// target's own in the paired <c>.fs</c>: it is spliced at the use site, never
+    /// emitted.</summary>
+    static member (+): x: int * y: int -> int
 
 /// <summary>An intrinsic boolean provided by the target.</summary>
 ///

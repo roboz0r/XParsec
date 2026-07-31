@@ -2,7 +2,11 @@ namespace Vesper
 
 #nowarn "42" // This construct is deprecated: it is only for use in the F# library
 
-type int = (# "System.Int32" #)
+type int =
+    (# "System.Int32" #)
+    with
+        static member (+)(x: int, y: int) : int = (# "add" x y : int #)
+    end
 type bool = (# "System.Boolean" #)
 type unit = (# "System.ValueTuple" #)
 type 'T ``[]`` = (# "!0[]" #)

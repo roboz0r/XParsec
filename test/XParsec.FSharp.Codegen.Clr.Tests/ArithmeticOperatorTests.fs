@@ -263,4 +263,40 @@ let tests =
                             "ignore z"
                         ])
             }
+
+            // `int` declares its own `static member (+)` in `prim-types-min.fsi` — the trait
+            // witness stated on the type instead of synthesised from an operator-name table.
+            // These three pin the seam that makes such a declaration safe to write.
+
+            test "the int intrinsic publishes op_Addition through the real Vesper.Core contract" {
+                let provider = ClrSymbolProviders.buildContract defaultManifests
+
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "Vesper.int" 0, "op_Addition") with
+                | ValueSome m -> Expect.isTrue m.IsStatic "the declared operator witness is static"
+                | ValueNone ->
+                    failtest "Vesper.int declares `static member (+)` but the contract publishes no op_Addition"
+            }
+
+            // Declaring a member must NOT turn the primitive into a nominal: every intrinsic
+            // recogniser, repr lookup and literal-inference path keys on `int` being `TyConst`.
+            // A `TyClass` int would not survive a single arithmetic program.
+            test "declaring a member on int leaves its use-site identity a TyConst intrinsic" {
+                let _, artifact = compileSource "IntStillIntrinsic" "printfn \"%d\" (40 + 2)"
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "int arithmetic still computes"
+            }
+
+            // The witness is a type-level statement, not a runtime method: its body is spliced
+            // at the use site, so no `op_Addition` row may appear in the emitted program.
+            test "the int operator witness is spliced, never emitted as a method row" {
+                let _, artifact = compileSource "IntOpNotEmitted" "printfn \"%d\" (40 + 2)"
+
+                let emitted =
+                    peMethodNames (Codegen.toBytes artifact)
+                    |> List.filter (fun (_, m) -> m = "op_Addition")
+
+                Expect.isEmpty emitted (sprintf "the intrinsic's operator witness must not be emitted (%A)" emitted)
+            }
         ]

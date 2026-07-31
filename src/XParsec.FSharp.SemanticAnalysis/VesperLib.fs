@@ -1434,11 +1434,14 @@ module VesperLib =
                                 ctx.PendingCapabilityInterfaces.[compiled] <-
                                     struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
                             // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound
-                            // member surface on an intrinsic (a general platform-binding
-                            // capability, NOT an interface). Stays the plain member-bearing
-                            // `Class` `extractBodiedClassLike` registered, resolving to `TyClass`
-                            // with its members served through `TryLookupMember`.
-                            | ValueNone -> ()
+                            // member surface on an intrinsic. Re-registers the `Intrinsic`
+                            // shape the bodied-class-like extraction overwrote, so the
+                            // primitive keeps its `TyConst` identity at every use site. Its
+                            // members are already published (they ride their own table, not
+                            // the shape) and stay served through `TryLookupMember`. The
+                            // heritable case is the EXPLICIT `extern class` tag above, so
+                            // nothing untagged needs a class shape.
+                            | ValueNone -> registerIntrinsic ()
                         | _ -> ()
                 | _ ->
                     // No member body. A primitive/capability anchor (`IntrinsicBaseReprs`)

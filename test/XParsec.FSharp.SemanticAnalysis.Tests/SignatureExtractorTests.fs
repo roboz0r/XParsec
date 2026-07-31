@@ -670,14 +670,16 @@ let tests =
                 | Some canons -> failtestf "capability interface must NOT enter the reverse-canon map; found %A" canons
             }
 
-            test "CONCRETE member surface on an intrinsic primitive is admitted as a member-bearing Class" {
+            test "CONCRETE member surface on an intrinsic primitive keeps the Intrinsic shape" {
                 // A CONCRETE (non-interface) member surface over an intrinsic repr is a general
                 // platform-binding capability: the `(# … #)`-bound member's body is served as a
-                // member-keyed inline splice, so the surface registers as a plain member-bearing
-                // `Class` (`IsInterface=false`, members via `TryLookupMember`), resolving to a
-                // `TyClass`. UNLIKE a capability INTERFACE (all-abstract body), which republishes
-                // to an `IntrinsicInterface`, a concrete-member surface is NOT an interface and
-                // stays a `Class`.
+                // member-keyed inline splice. The shape stays `Intrinsic` — a primitive that
+                // declares its operator surface (`int` with `static member (+)`) must keep the
+                // `TyConst` identity every intrinsic recogniser, repr lookup, and literal
+                // inference keys on; publishing it as a `Class` would resolve it `TyClass` and
+                // break all of them. Members ride their own table, not the shape, so both hold
+                // at once. The heritable case is the EXPLICIT `extern class` tag; a capability
+                // INTERFACE (all-abstract body) republishes to an `IntrinsicInterface`.
                 let ctx = VesperLib.ExtractCtx.empty ()
                 // `isIntrinsic` is decided by the BASE repr marker (the primitive's `.fs`).
                 ctx.IntrinsicBaseReprs.["widget"] <- "System.Widget"
@@ -697,13 +699,13 @@ let tests =
                     | Some k -> k
                     | None -> failtestf "widget registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
 
-                // Admitted as a member-bearing `Class` (NOT an interface), NOT rejected or kept a
-                // bare `Intrinsic`. (A capability INTERFACE would instead republish to an
-                // `IntrinsicInterface`; a concrete-member surface is not an interface.)
+                // The identity axis is untouched by the member surface: still the nullary
+                // `Intrinsic` carrying its platform repr, so use sites resolve `TyConst`.
                 match ctx.TypeShapes.[key] with
-                | ExternalTypeShape.Class shape ->
-                    Expect.isFalse shape.IsInterface "a concrete-member surface is not an interface"
-                | other -> failtestf "expected a member-bearing Class for widget; got %A" other
+                | ExternalTypeShape.Intrinsic shape ->
+                    Expect.equal shape.Id.Platform (Some "System.Widget") "the intrinsic keeps its platform repr"
+                    Expect.equal shape.Class ValueNone "an untagged member surface is not a heritable class"
+                | other -> failtestf "expected the Intrinsic shape to survive for widget; got %A" other
 
                 // No rejection diagnostic — the old inert-leaf guardrail is lifted.
                 let rejected =
@@ -712,12 +714,13 @@ let tests =
 
                 Expect.isFalse rejected "the lifted guardrail must NOT emit a rejection diagnostic"
 
-                // The member surface survives on the Class, resolvable via TryLookupMember.
+                // The load-bearing pair: the member is published even though the shape carries no
+                // member slots — it is served from the member table, keyed by the type.
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
                 match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "M") with
                 | ValueSome _ -> ()
-                | ValueNone -> failtest "concrete member surface `M` was dropped from the member-bearing Class"
+                | ValueNone -> failtest "concrete member surface `M` was dropped when the Intrinsic shape was restored"
             }
 
             // The cross-face equality the contract's key mint exists to buy. `T` is declared

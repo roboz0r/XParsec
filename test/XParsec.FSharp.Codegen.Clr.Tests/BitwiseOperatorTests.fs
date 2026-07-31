@@ -108,4 +108,15 @@ let tests =
                 // (3 <<< 1) + (11 &&& 255) + 631 = 6 + 11 + 631 = 648
                 Expect.equal (output.Replace("\r", "").Trim()) "648" "deferred-operand bitwise resolves and computes"
             }
+
+            // PENDING — records a known hole, not a passing contract. Unlike the arithmetic
+            // family, `&&& ||| ^^^ ~~~` carry single-IL bodies with no static-opt clause
+            // list, so nothing downstream narrows the operand set: whatever the trait
+            // synthesis admits reaches the splice. It admits every numeric name, so
+            // `1.0 &&& 2.0` today compiles with NO diagnostic and emits CIL `and` over two
+            // float64s — verified to throw `InvalidProgramException` at run time. Enable
+            // once the bitwise family's operand set is declared on the primitives.
+            ptest "non-integral operands are rejected by the bitwise family" {
+                failsWith "does not support the operator" "let x = 1.0 &&& 2.0\nignore x"
+            }
         ]
