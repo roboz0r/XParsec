@@ -3,25 +3,25 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// The DRAIN direction of the frozen pools: columns back to the DU. Its inverse — the DU
+// The UNPOOL direction of the frozen pools: columns back to the DU. Its inverse — the DU
 // vocabulary, the pooling walk and `toPools` — is `TastPools.fs`, and the wire-shape types
 // are `TastPoolNodes.fs` (one node) and `TastPoolTypes.fs` (the whole file). Split from the
 // fill so the two directions are separately readable and the compiler's dependency edge
 // says which way the data flows: this file reads `TastPools`, never the reverse.
 //
 // Every rebuild here is parameterised by the identity space it lands in, and the columns
-// hold no identity but the slot — so the space a drain lands in is the CALLER's to supply
-// and the drain itself can only produce `BinderId`s. `Pooled.*` is that space, and
-// `ofPools` is the drain at it.
+// hold no identity but the slot — so the space an unpool lands in is the CALLER's to supply
+// and the unpool itself can only produce `BinderId`s. `Pooled.*` is that space, and
+// `ofPools` is the unpool at it.
 //
 // Which exports have production callers, and for narrow reasons:
 //
 //   * `substituteExpr`/`substitutePat`/`substituteDecl` — the NODE-level inverse, driven
-//     by `TastPoolBuilder`'s subtree drain (`declTree`) for the one channel whose far end
+//     by `TastPoolBuilder`'s subtree unpool (`declTree`) for the one channel whose far end
 //     is still DU-typed: a package's inline template crosses the wire as a
 //     `Pooled.TDecl`, a pool id being meaningless outside the pool that issued it.
 //
-// The whole-file drain has NONE, and that is the point of it: it is what makes the
+// The whole-file unpool has NONE, and that is the point of it: it is what makes the
 // columns' tree-sufficiency CHECKABLE.
 
 [<RequireQualifiedAccess>]
@@ -42,8 +42,8 @@ module TastUnpool =
     /// binder land in the same space rather than each site picking its own way back.
     ///
     /// POSITIONS take no such hook, and must not: the anchors come out of the columns as they
-    /// went in, whichever space the rebuilt tree lands in. A drain that could re-axis them would
-    /// be a drain that could quietly rebase a producer's indices onto the consuming file — the
+    /// went in, whichever space the rebuilt tree lands in. An unpool that could re-axis them would
+    /// be an unpool that could quietly rebase a producer's indices onto the consuming file — the
     /// one misattribution that resolves in range and never faults.
     let substituteExpr
         (widenBinder: BinderId -> 'id)
@@ -257,7 +257,7 @@ module TastUnpool =
     let private binderKeyedMap (resolve: BinderId -> 'k) (dense: (BinderId * 'v)[]) : Map<'k, 'v> =
         dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
-    /// The same drain for a per-binder COLUMN (`BinderColumn`): the key the fill consumed is
+    /// The same unpool for a per-binder COLUMN (`BinderColumn`): the key the fill consumed is
     /// re-minted from the slot's own position, which is the only place it can come from now
     /// — a filled slot is an entry, an empty one is no entry, and there is no third state a
     /// stored key could have put the map in.
@@ -276,7 +276,7 @@ module TastUnpool =
     /// verbatim, having no pooled form.
     ///
     /// `widenBinder` decides which identity space the rebuilt file lands in. The columns
-    /// carry no identity but the slot, so the drain can only ever offer a `BinderId`: any
+    /// carry no identity but the slot, so the unpool can only ever offer a `BinderId`: any
     /// OTHER space has to be supplied from outside, by a caller that holds the
     /// correspondence itself. `ofPools` is this at the pool's own space, where the
     /// correspondence is the identity; the round-trip gate is the only other caller, and
@@ -286,7 +286,7 @@ module TastUnpool =
         // The binder column back in the BINDER key space, re-admitted by PROJECTION and
         // never by fiat: as the trees below are rebuilt, each node is asked what it binds
         // with the same `BinderKey` projections `toPools` interned by, and only what they
-        // answer can key a rebuilt side table. So the drain cannot mint a binder identity
+        // answer can key a rebuilt side table. So the unpool cannot mint a binder identity
         // the tree does not bear — the round trip proves the key remap, not just the
         // shapes.
         let readmitted = System.Collections.Generic.Dictionary<'id, BinderKeyG<'id>>()
@@ -362,7 +362,7 @@ module TastUnpool =
             |> EqArray.ofArray
 
         // Likewise the specialization table, in SLOT ORDER — the `SpecializationId`s the
-        // rebuilt tree carries index this array, so the drain must not reorder or compact
+        // rebuilt tree carries index this array, so the unpool must not reorder or compact
         // it, even for an entry no surviving call site names.
         let specializations =
             pools.Specializations
@@ -404,8 +404,8 @@ module TastUnpool =
             BindingTyparArities = binderColumnMap readmittedBinder pools.BindingTyparArities
         }
 
-    /// The whole-file drain, in the pool's OWN identity space: every binder the rebuilt
-    /// tree names, it names by the `BinderId` the columns address it with, so the drain
+    /// The whole-file unpool, in the pool's OWN identity space: every binder the rebuilt
+    /// tree names, it names by the `BinderId` the columns address it with, so the unpool
     /// consults no retained key to speak at all.
     ///
     /// It has NO production caller: the freeze yields pools, every consumer reads pools,

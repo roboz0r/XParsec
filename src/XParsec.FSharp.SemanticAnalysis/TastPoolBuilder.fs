@@ -29,7 +29,7 @@ open XParsec.FSharp.Parser
 // A builder is WRITE-ONLY DOWNWARD: it is opened over a base, appended to during one
 // emission, and dropped. There is no collapse back to a plain `FrozenPools` — nothing
 // stores or ships a derived tree (`Freeze.run` is the only producer of the stored form),
-// so the only way OUT of a builder is `declTree`, the DU drain the cross-file inline
+// so the only way OUT of a builder is `declTree`, the DU unpool the cross-file inline
 // wire needs.
 
 /// An append-only overlay stacked over an immutable base `FrozenPools`. See the file
@@ -60,12 +60,12 @@ type PoolBuilder =
             /// `Anchor.nowhere`. `mintBinder` is its sole appender.
             mutable OvBinderCount: int
             /// The binder key `declTree` hands a DU-typed consumer for each binder of this
-            /// pool, and the counter it mints them from. Per BUILDER, not per drain: two
-            /// drains of one subtree are two views of the same binders, so they must name
+            /// pool, and the counter it mints them from. Per BUILDER, not per unpool: two
+            /// unpools of one subtree are two views of the same binders, so they must name
             /// them alike — see `declTree` for why the builder is also the LARGEST scope
             /// either needs.
-            DrainedBinderKeys: Dictionary<BinderId, NodeKey>
-            mutable DrainCount: int
+            UnpooledBinderKeys: Dictionary<BinderId, NodeKey>
+            mutable UnpoolCount: int
         }
 
 /// A node HANDLE: a dense pool id together with the pool that resolves it. One generic
@@ -103,8 +103,8 @@ module TastPoolBuilder =
             OvPats = ResizeArray()
             OvDecls = ResizeArray()
             OvBinderCount = 0
-            DrainedBinderKeys = Dictionary()
-            DrainCount = 0
+            UnpooledBinderKeys = Dictionary()
+            UnpoolCount = 0
         }
 
     /// A builder over no base at all — for nodes that belong to no frozen tree: an
@@ -435,7 +435,7 @@ module TastPoolBuilder =
     ///
     /// `dest` may be a different pool from `b` — a consumer handing out a DERIVED tree
     /// (`FrozenSignature`'s axis re-map) owns its own pool, since the copy is no node of
-    /// the source file. Without this a retype had to drain the subtree to the DU, map it
+    /// the source file. Without this a retype had to unpool the subtree to the DU, map it
     /// there, and re-pool it, which is a round trip through the representation the pools
     /// replaced.
     let rec copyPatTreeInto
@@ -519,7 +519,7 @@ module TastPoolBuilder =
     /// `copyPatTreeInto`, which stays in the columns, and one reading a node of this file's
     /// tree wants the accessor.
     ///
-    /// `rename` is the drain's binder freshener — see `declTree`.
+    /// `rename` is the unpool's binder freshener — see `declTree`.
     let rec private patTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: PatPoolId) : Wire.TPat =
         let row = patRow b at
 
@@ -544,15 +544,15 @@ module TastPoolBuilder =
     /// Its binders are RE-MINTED, not lent. The columns name a binder by its slot, and a
     /// slot means nothing outside the pool that issued it, so there is no identity here to
     /// hand a DU-typed consumer; what such a consumer needs of one is distinctness within
-    /// the drained subtree plus equality between a binder and the references to it, and a
+    /// the unpooled subtree plus equality between a binder and the references to it, and a
     /// counter-minted key gives both. Naming no position, it also cannot be mistaken for a
     /// key that resolves against some file's tree.
     ///
     /// The counter and the rename map are the BUILDER's, which is the largest scope either
-    /// needs. Two drains that reach one binder must name it alike — they are two views of
+    /// needs. Two unpools that reach one binder must name it alike — they are two views of
     /// the same definition site, and a consumer expanding both has to see that — and a
-    /// builder covers every drain of one pool. Two builders may hand out the same key, and
-    /// that is harmless: a drained body is renamed again by `Inline.freshen` against the
+    /// builder covers every unpool of one pool. Two builders may hand out the same key, and
+    /// that is harmless: an unpooled body is renamed again by `Inline.freshen` against the
     /// CONSUMING file's counter before it lands, so no two of them ever meet unfreshened.
     ///
     /// Its anchors are the PRODUCER's, passed through untouched — the rebuild takes no position
@@ -561,12 +561,12 @@ module TastPoolBuilder =
     /// consumer must name to read one at all (`OriginSources.tokenAt`).
     let declTree (b: PoolBuilder) (at: DeclPoolId) : Wire.TDecl =
         let rename (binder: BinderId) : NodeKey =
-            match b.DrainedBinderKeys.TryGetValue binder with
+            match b.UnpooledBinderKeys.TryGetValue binder with
             | true, k -> k
             | false, _ ->
-                b.DrainCount <- b.DrainCount + 1
-                let k = NodeKey.ofSyntheticCounter b.DrainCount NodeKind.SynthDrainedBinder
-                b.DrainedBinderKeys.[binder] <- k
+                b.UnpoolCount <- b.UnpoolCount + 1
+                let k = NodeKey.ofSyntheticCounter b.UnpoolCount NodeKind.SynthUnpooledBinder
+                b.UnpooledBinderKeys.[binder] <- k
                 k
 
         let row = declRow b at

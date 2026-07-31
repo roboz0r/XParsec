@@ -57,7 +57,7 @@ module SymbolProviders =
     /// Lifted off the FROZEN member, so the published body is `FrozenType` like every
     /// other thing crossing the provider seam. The wrapping lambdas are minted into the
     /// pool the member's body already lives in — the body is spliced BY ID, so nothing is
-    /// copied to wrap it — and the finished declaration is drained back to the DU because
+    /// copied to wrap it — and the finished declaration is unpooled back to the DU because
     /// that is the form the package wire carries (a pool id is meaningless in the
     /// consumer's own pool).
     ///
@@ -127,15 +127,15 @@ module SymbolProviders =
         : KeyedInlineBody list * KeyedInlineBody list =
         // The file's trees as columns, with an append-only overlay for the curried lambda
         // chains `liftMemberBody` wraps each lifted body in. The overlay is
-        // discarded with this call: what leaves is the drained DU template, never an id.
+        // discarded with this call: what leaves is the unpooled DU template, never an id.
         let pool = TastPoolBuilder.openOver tast
 
-        // Every body this function publishes, whichever list it lands in, is drained off THIS
+        // Every body this function publishes, whichever list it lands in, is unpooled off THIS
         // pool — which is `tast`, which is `origin` frozen. So the domain is a fact of the
         // call, fixed once here rather than restated per comprehension.
         let anchored = InlineBody.anchoredIn origin
 
-        // The published VALUE templates, drained off their own pool roots — the wire form
+        // The published VALUE templates, unpooled off their own pool roots — the wire form
         // is DU-typed because a pool id means nothing in the consuming file's pool.
         let values =
             [
@@ -224,7 +224,7 @@ module SymbolProviders =
                     match VesperLib.parseFileFull file with
                     | Result.Error _ -> ()
                     | Result.Ok parsed ->
-                        // ONE retention, and it is also what every body drained below records
+                        // ONE retention, and it is also what every body unpooled below records
                         // as its anchor domain — so the retained file and the file an entry
                         // names cannot come apart.
                         let origin = Hashing.originSource parsed.File.Path parsed.Input parsed.Lexed
@@ -284,7 +284,7 @@ module SymbolProviders =
             /// Simple name → body. NOT a provider channel (the provider folds a body onto the
             /// entry that owns its key); the introspection seam tests assert against.
             BodiesByName: Map<string, InlineBody>
-            /// The producer files the collected bodies were drained from, retained so their
+            /// The producer files the collected bodies were unpooled from, retained so their
             /// anchors stay readable. Cached WITH the provider: they are the same collection,
             /// and re-parsing to recover them would give a second answer for what each file
             /// contains.

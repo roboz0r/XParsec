@@ -7,7 +7,7 @@ open System.Text.RegularExpressions
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The pool columns, the node payloads/rows they carry, and the modules that fill and drain
+// The pool columns, the node payloads/rows they carry, and the modules that fill and unpool
 // them are cited BY NAME throughout the SemanticAnalysis and codegen sources — the layout
 // rationale in `TastPoolTypes.fs`, the ordering coupling in `TastPools.fs`, the layer
 // arithmetic in `TastPoolBuilder.fs`. A citation is prose, so deleting what it names does

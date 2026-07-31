@@ -539,7 +539,7 @@ type ConformanceRoundTripArtifacts =
         Direct: ClrArtifact
         /// Codegen from `thaw (flatten frozen)` (the serialization round-trip).
         ThawRoundTripped: ClrArtifact
-        /// Codegen from `rePool (ofPools frozen)` — the columns drained to the DU and
+        /// Codegen from `rePool (ofPools frozen)` — the columns unpooled to the DU and
         /// re-derived from it, which is what proves the columns are tree-sufficient now
         /// that the freeze emits them directly.
         PoolRoundTripped: ClrArtifact

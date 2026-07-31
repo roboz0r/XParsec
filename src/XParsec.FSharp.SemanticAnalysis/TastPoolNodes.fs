@@ -7,7 +7,7 @@ open XParsec.FSharp.Parser
 // and the row that is its slice across the columns. The FILE those columns belong to —
 // `FrozenPools` and the side-table containers — is `TastPoolTypes.fs`, which reads this
 // file and not the reverse; the logic that fills the columns is `TastPools.fs` and the
-// logic that drains them `TastUnpool.fs`.
+// logic that unpools them `TastUnpool.fs`.
 //
 // Each frozen node is assigned a dense `int` pool id during a traversal of the DU; a
 // node's child *expressions*/*patterns* are then addressable as their pool ids, so "node
@@ -140,11 +140,11 @@ type DeclPoolId = | DeclPoolId of int
 /// The TAST at the POOLED identity: a tree whose binders are named by the dense
 /// `BinderId` the columns already address them by, rather than by the `NodeKey` a
 /// source-shaped tree names them by. `TastUnpool` rebuilds at these aliases, which is what
-/// lets the drain be a genuine interconversion with the columns instead of a view that has
+/// lets the unpool be a genuine interconversion with the columns instead of a view that has
 /// to consult a retained key to speak at all.
 ///
 /// The `'ty` axis is the frozen one and `'tok` is the stored `Anchor`, which is what the
-/// columns hold — so a drained tree names its positions exactly as the columns do and needs
+/// columns hold — so an unpooled tree names its positions exactly as the columns do and needs
 /// no `Lexed` to be rebuilt.
 module Pooled =
     type TPat = TPatG<FrozenType, Anchor, BinderId>
@@ -157,14 +157,14 @@ module Pooled =
     type TInlineValue = TInlineValueG<FrozenType, Anchor, BinderId>
     type TastFile = TastFileG<FrozenType, Anchor, BinderId>
 
-/// The TAST as it CROSSES A UNIT BOUNDARY — a package's inline template, drained from the
+/// The TAST as it CROSSES A UNIT BOUNDARY — a package's inline template, unpooled from the
 /// producer's pools (`TastPoolBuilder.declTree`) for a consumer that shares neither of the
 /// producer's identity spaces.
 ///
 /// Not the producer's `BinderId`s: a slot means nothing outside the pool that issued it, so
-/// the drain re-mints a `NodeKey` per binder.
+/// the unpool re-mints a `NodeKey` per binder.
 ///
-/// The positions ARE the producer's, and arrive intact: the drain cannot rebase them — it takes
+/// The positions ARE the producer's, and arrive intact: the unpool cannot rebase them — it takes
 /// no position mapping — and nothing else blanks them either. So this is `Pooled`'s own position
 /// axis, the same integers against the same file, and what changes at the boundary is only that
 /// the consumer no longer holds the `Lexed` they index. Which file that is travels with the body

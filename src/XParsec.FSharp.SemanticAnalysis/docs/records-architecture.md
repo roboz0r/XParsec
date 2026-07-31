@@ -117,7 +117,7 @@ receiver. A `r.X` whose receiver types to a free TyVar parks a
 `DeferredMemberAccess` (member name, use-site key, result TyVar) under the
 root's representative id in the store's `Pda` table (a `BoundTable`, formerly
 the on-node `TypeVar.PendingDotAccess` slot). When `unify` later links that
-root to a `TyRecord` (or `TyClass`), the live entries drain and each access
+root to a `TyRecord` (or `TyClass`), the live entries discharge and each access
 resolves; anything still pending at end of analysis is a Validation
 diagnostic. Generalised from
 records' original pending-field-access gate to cover class members too —
@@ -198,7 +198,7 @@ both of which carry a `TyRecord` arm) likewise treat records identically.
 `occursAndAdjust`, `substituteWith`, and `unify` (key + arg-vector
 equality) all carry the combined nominal-kind arm. A TyVar–TyVar `union`
 folds the loser's deferred dot-accesses onto the survivor via the store's
-`Pda` join; the `TyVar → TyRecord` link drains them. `checkConstraint` reads
+`Pda` join; the `TyVar → TyRecord` link discharges them. `checkConstraint` reads
 `EqualitySupport` / `ComparisonSupport` and recurses into field types so
 `r1 = r2` / `r1 < r2` diagnose against a `NoEquality` / un-annotated
 record. `translateType` (`Translate.fs`) maps a `Type.NamedType` to

@@ -78,11 +78,11 @@ let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest
             // representation was impossible but the type could be named, so it was
             // degraded + diagnosed rather than aborting the extraction. Spans are
             // relativized against the `.d.ts`'s directory so the manifest is portable.
-            Diagnostics = drainDiagnostics (pathDirname dtsPath) diags
+            Diagnostics = finalizeDiagnostics (pathDirname dtsPath) diags
             // Foreign named references homed at extraction (identity only): a
             // default-lib type → `es2015`, an external package → its specifier, a LOCAL
             // type → no entry. Deduped by bare name; empty stays codec-omitted.
-            Refs = drainRefs refs
+            Refs = finalizeRefs refs
         }
 
 /// The package version stamp (item 18). Preference order:
@@ -184,11 +184,11 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
                 Version = packageVersionOf resolvedModule resolvedFileName
                 Exports = exports
                 // Spans relativized against the package resolve dir for portability.
-                Diagnostics = drainDiagnostics resolveFromDir diags
+                Diagnostics = finalizeDiagnostics resolveFromDir diags
                 // Foreign named references homed at extraction (see `extractFile`): the
                 // package's OWN cross-file types stay LOCAL (relative-resolved, not
                 // external), so only default-lib / external-package refs land here.
-                Refs = drainRefs refs
+                Refs = finalizeRefs refs
             }
     finally
         if existsSync entryPath then
@@ -320,8 +320,8 @@ let private extractGlobalsCore (noLib: bool) (dtsPaths: string list) (packageNam
         // Step 3's concern (this entry must not hardcode it).
         Version = None
         Exports = exports
-        Diagnostics = drainDiagnostics baseDir diags
-        Refs = drainRefs refs
+        Diagnostics = finalizeDiagnostics baseDir diags
+        Refs = finalizeRefs refs
     }
 
 /// Ambient-global entry mode (see the header). The plain fixture form: no `noLib`, the
@@ -436,8 +436,8 @@ let extractAmbientModules (dtsPaths: string list) (packageName: string) : (strin
             // An ambient-module fixture carries no version stamp (like the globals pack).
             Version = None
             Exports = exports
-            Diagnostics = drainDiagnostics baseDir diags
-            Refs = drainRefs refs
+            Diagnostics = finalizeDiagnostics baseDir diags
+            Refs = finalizeRefs refs
         }
     )
 

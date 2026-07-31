@@ -157,7 +157,7 @@ module Validation =
                     )
 
     // A scheme-level "Constraint not resolved" tail check is reserved
-    // for a future revision: with v1's drainConstraints firing at every
+    // for a future revision: with v1's dischargeConstraints firing at every
     // use site, every meaningful unresolved-constraint case already
     // surfaces a diagnostic there. A true tail check would require
     // tracking whether each scheme is ever instantiated and whether

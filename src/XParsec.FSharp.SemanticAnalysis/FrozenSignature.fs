@@ -490,7 +490,7 @@ module FrozenSignature =
         // expansion walk, so its static-opt clauses and trait calls resolve against a CALL
         // SITE's operand types). But it is a tree over the SAME source binder, which is
         // what lets the two meet here rather than as two passes over one dictionary where
-        // the later write happened to win. What ships is the DU drain of the root:
+        // the later write happened to win. What ships is the DU unpool of the root:
         // `InlineBody` is the cross-file wire (`InlineThaw.bodyAtOrigin` realises it in
         // another file), and a pool id is meaningless outside the file that issued it.
         let inlineBodyOf =

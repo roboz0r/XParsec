@@ -2346,7 +2346,7 @@ let coercionTests =
                 // params; `comparer` is pinned to `System.Collections.IEqualityComparer`
                 // only by the conformance unify that runs *after* the body — so
                 // `comparer.Equals(…)` defers as a pending dot-access on a free TyVar.
-                // The drain resolves an external receiver through the provider.
+                // The discharge resolves an external receiver through the provider.
                 let src =
                     String.concat
                         "\n"

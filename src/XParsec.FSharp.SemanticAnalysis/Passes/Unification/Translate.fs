@@ -848,7 +848,7 @@ module internal UnificationTranslate =
     ///
     /// Constraints on the prototype typars are evaluated against the supplied
     /// args here: unlike records / unions, an abbreviation has no
-    /// fresh-instance step that would let `drainConstraints` fire on its own.
+    /// fresh-instance step that would let `dischargeConstraints` fire on its own.
     /// A Defer outcome propagates the constraint to any free TyVar inside the
     /// supplied arg so a later unification re-fires the check.
     and expandAbbreviation

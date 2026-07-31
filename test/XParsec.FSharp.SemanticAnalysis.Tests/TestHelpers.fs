@@ -148,7 +148,7 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
         | [] -> failwith "expected a parse that needed recovery; nothing was reported"
         | _ -> parsed.Lexed, parsed.File
 
-/// Realise a WIRE inline body against the file it was published from. A drained body carries
+/// Realise a WIRE inline body against the file it was published from. An unpooled body carries
 /// the producer's own token indices, so the file is not decoration even for a test that asserts
 /// nothing about positions — it is what makes those indices readable at all.
 let thawPublished (store: TypeStore) (source: OriginSource) (decl: Wire.TDecl) : TDecl =
@@ -190,12 +190,12 @@ let freezeFor (src: string) : FrozenPools = snd (freezeWithOrigin src)
 /// assigned.
 let poolsFor (src: string) : FrozenPools * Pooled.TastFile =
     let frozen = freezeFor src
-    let drained = TastUnpool.ofPools frozen
-    TastPools.rePool frozen drained, drained
+    let unpooled = TastUnpool.ofPools frozen
+    TastPools.rePool frozen unpooled, unpooled
 
-/// The re-fill `poolsFor` runs, for a test that MODIFIES the drained tree before pooling
+/// The re-fill `poolsFor` runs, for a test that MODIFIES the unpooled tree before pooling
 /// it. A `BinderId`-named tree cannot supply its own naming column, so the fill takes it
-/// from the freeze the tree was drained out of — which is what this closes over.
+/// from the freeze the tree was unpooled out of — which is what this closes over.
 let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool (freezeFor src)
 
 /// Parse `input` and run the front-end passes up to NameResolution against

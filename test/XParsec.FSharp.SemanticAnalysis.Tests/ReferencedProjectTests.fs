@@ -140,7 +140,7 @@ let tests =
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
 
-            // KEY AGREEMENT for the SRTP arm's provider route. When a consumer drains an
+            // KEY AGREEMENT for the SRTP arm's provider route. When a consumer discharges an
             // `op_Addition` bound on `int`, it asks the provider under the key its
             // `TyConst` payload carries — `RuntimeNames.intKey` — and nothing else. If the
             // contract published that member under any other key the arm would miss

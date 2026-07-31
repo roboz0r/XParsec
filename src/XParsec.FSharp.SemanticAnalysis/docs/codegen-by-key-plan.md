@@ -32,7 +32,7 @@ is the signal to reconsider — not before.
 The arithmetic bodies are 3-typar (`^T1 -> ^T2 -> ^T3`, faithful to the `.fsi`) but the
 trait call is **left-biased**: `TExpr.TraitCall` carries a single `receiver`, set to the
 left operand's type. So `Vector + int` (nominal left) resolves; `int + Vector` does not —
-it errors in `Engine.drainSrtpBounds` (`Engine.fs:1005`), which fires eagerly on whichever
+it errors in `Engine.dischargeSrtpBounds` (`Engine.fs:1005`), which fires eagerly on whichever
 participant links first and, for a primitive `^T1`, manufactures a homogeneous `t*t -> t`
 candidate that pins `^T2 := int` before the right operand is consulted. **That is a policy
 bug — eager dispatch — not a missing mechanism.**
@@ -66,7 +66,7 @@ implementing the interface is one *source* of that member. (The shapes coincide:
 is the confirmation that the 3-typar signature was worth carrying.)
 
 - **Ground operand — falls out, in scope.** A ground SAIM-implementer reaches the existing
-  `TyClass` arm of `drainSrtpBounds` (`Engine.fs:1028`) and its static `op_Addition` is found
+  `TyClass` arm of `dischargeSrtpBounds` (`Engine.fs:1028`) and its static `op_Addition` is found
   like any other nominal's. Bounded extra work: an *explicit* static interface implementation
   is not a public member, so the lookup must also walk implemented interfaces' static abstract
   members and codegen must emit a **constrained** call (`constrained.` + `call`), not a direct
@@ -194,7 +194,7 @@ let r = f 1.1 2.2
 
 Fix shape: defer the `default` constraints out of per-binding generalisation —
 `applyDefaults` (`InferGeneralize.fs:151-236`), invoked eagerly inside `generalise` at
-`InferGeneralize.fs:300` — to an end-of-scope drain, applied only to typars still
+`InferGeneralize.fs:300` — to an end-of-scope discharge, applied only to typars still
 unconstrained. Emit the FS0064-equivalent warning when a use site narrows an explicitly
 annotated typar.
 

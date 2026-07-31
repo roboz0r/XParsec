@@ -6,7 +6,7 @@ open XParsec.FSharp.Parser
 // WHERE a node's projections LAND: the sink a pooling walk pours rows into, the walk
 // itself, and `toPools` — the whole-file fill that is the last step of the freeze
 // (`Freeze.run`) and its only production caller. What a node projects TO is
-// `TastPoolShapes.fs`, which this file is the sole consumer of; the drain — `substitute*`
+// `TastPoolShapes.fs`, which this file is the sole consumer of; the unpool — `substitute*`
 // and `ofPools`, rebuilding the DU from the columns alone — is `TastUnpool.fs`; the
 // wire-shape types are split by scope, one NODE (`ExprPoolId`/`ExprPayload`/`ExprRow`/…,
 // `TastPoolNodes.fs`) versus the whole FILE (`FrozenPools` and its side-table containers,
@@ -237,16 +237,16 @@ module TastPools =
     /// Pool a tree, assigning each reachable node a dense id and recording its child edges
     /// as ids. Generic in the identity the tree names binders by, because the fill runs in
     /// BOTH directions of the round-trip: a source-shaped file arrives naming them by
-    /// `NodeKey`, a file drained back out of the columns by `BinderId`, and the columns are
+    /// `NodeKey`, a file unpooled back out of the columns by `BinderId`, and the columns are
     /// the same columns either way.
     ///
     /// Three things differ between the directions, and all are arguments. `spellingOf` is how
     /// the two binder columns are filled — the one fact neither the identity nor the walk
     /// carries: the producer's record for a source-shaped tree, the pool it came out of for
-    /// a drained one. `anchor` is how the tree's spelling of a position becomes the stored
+    /// an unpooled one. `anchor` is how the tree's spelling of a position becomes the stored
     /// one — a checked narrowing from a `SyntaxToken`, or nothing at all for a tree already
     /// in the stored form. `origin` is the file the stored anchors index, which likewise comes
-    /// from the compilation on one side and from the drained pool on the other. See `toPools`
+    /// from the compilation on one side and from the originating pool on the other. See `toPools`
     /// and `rePool`.
     let private fill
         (origin: OriginFile)
@@ -583,13 +583,13 @@ module TastPools =
     let toPools (origin: OriginFile) (spellings: BinderKey -> BinderSpelling) (file: Frozen.TastFile) : FrozenPools =
         fill origin spellings Anchor.ofToken file
 
-    /// Pool a tree DRAINED from `pools` (`TastUnpool.ofPools`) — the fill direction of the
+    /// Pool a tree UNPOOLED from `pools` (`TastUnpool.ofPools`) — the fill direction of the
     /// round-trip, which is what makes `ofPools` checkable at all: the columns are
-    /// tree-sufficient exactly when re-pooling their own drain reproduces them.
+    /// tree-sufficient exactly when re-pooling their own unpool reproduces them.
     ///
-    /// No producer is in reach on this side, so the spelling — and the file the drained
-    /// anchors index — come back off the pool the tree was drained out of, where both were
-    /// written down. The node anchors need no narrowing at all: a drained tree already
+    /// No producer is in reach on this side, so the spelling — and the file the unpooled
+    /// anchors index — come back off the pool the tree came out of, where both were
+    /// written down. The node anchors need no narrowing at all: an unpooled tree already
     /// carries the stored one.
     let rePool (pools: FrozenPools) (file: Pooled.TastFile) : FrozenPools =
         let spellingOf (b: BinderKeyG<BinderId>) =

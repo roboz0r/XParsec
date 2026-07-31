@@ -128,7 +128,7 @@ module EmitTypes =
     type PreambleStep =
         /// A `[static] let`: evaluate the initialiser and store it into the backing field.
         | Store of field: EntityHandle * init: TastAccessor.ExprId
-        /// A `[static] do`: run the body for effect (its `unit` result is drained).
+        /// A `[static] do`: run the body for effect (its `unit` result is popped).
         | Run of body: TastAccessor.ExprId
 
     /// A class primary `.ctor`'s base-constructor chain.

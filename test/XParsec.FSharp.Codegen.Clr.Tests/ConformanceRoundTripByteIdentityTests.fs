@@ -15,7 +15,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Two round-trips ride the same gate, sharing one freeze per program:
 //   * `thaw (flatten frozen)` — the frozen-cache serialization round-trip.
 //   * `toPools (ofPools frozen)` — the id-pool round-trip. The freeze yields POOLS, so
-//     this is the composition that exists: drain the columns to the DU, re-derive every
+//     this is the composition that exists: unpool the columns to the DU, re-derive every
 //     column from THAT (`TestHelpers.compileConformanceDirectAndRoundTripped`). It is the
 //     corpus-wide
 //     proof that the pools are interconvertible with the DU over EVERY shape the CLR

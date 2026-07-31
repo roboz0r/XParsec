@@ -531,7 +531,7 @@ lives in [`codegen-js-symbol-provider-plan.md`](codegen-js-symbol-provider-plan.
   Fable command (workflow header).
 - **Degradation / faithful-later (W4):** `TypeMap.fs` (`carriesFaithfullyAsFields`, `isFunctionType`,
   `isPureRecordObject`, the `getIndexInfosOfType` gate); `Diagnostics.fs` (`emitWarning`,
-  `recordForeignRef`/`classifyHome`/`classifyKind`/`refArity`, `drainDiagnostics`); `Schema.fs`
+  `recordForeignRef`/`classifyHome`/`classifyKind`/`refArity`, `finalizeDiagnostics`); `Schema.fs`
   (`DiagCode`, `Export`, `ImportShape`, `RefEntry`, `Param.Optional`/`Rest`).
 - **Provider consumption (W2/W3/W6):** `TsManifestProvider.fs` (`buildContractFor` — the eager
   `Map.ofList` index + the import-form map, `Default` vs `Named`); `TsManifestMembers.fs`

@@ -459,7 +459,7 @@ let tests =
                 // member through `bounce`, and THAT call is answered rather than expanded.
                 //
                 // A lifted member body is served with its producer file
-                // (`SymbolProviders.collectInlineBodies` anchors both halves of what it drains),
+                // (`SymbolProviders.collectInlineBodies` anchors both halves of what it unpools),
                 // so the member reduction is OUTLINED: it holds a table slot, and the call that
                 // reaches it while it is in flight becomes a back edge rather than an
                 // un-expandable call left as written.

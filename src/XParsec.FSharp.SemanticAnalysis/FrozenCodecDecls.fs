@@ -536,7 +536,7 @@ module FrozenCodecDecls =
     /// index, then its declaration named by pool id like any other root. The key's type
     /// arguments go through `writeTypeRef` and so are INTERNED here — the `ty` columns never
     /// carried them; the origin goes through `writeOriginRef` and is interned the same way,
-    /// which is what keeps a producer's four identifying strings out of every entry drained
+    /// which is what keeps a producer's four identifying strings out of every entry drawn
     /// from it.
     and writeSpecialization (w: FrozenWriter) (s: PooledSpecialization) =
         writeSymbolRef w s.Key.Template

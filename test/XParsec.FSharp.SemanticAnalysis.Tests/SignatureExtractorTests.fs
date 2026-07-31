@@ -855,7 +855,7 @@ let tests =
                 // (`FTTypar(Declaring, 0)`), NOT the source spelling `(+)` and not raw
                 // CST. Instantiation realises the templates against the fresh TyVars
                 // and stamps the signature on `SrtpBounds`, which is what
-                // `Unification.drainSrtpBounds` later fires on.
+                // `Unification.dischargeSrtpBounds` later fires on.
                 let ctx =
                     extractFsi
                         "app.fsi"

@@ -257,7 +257,7 @@ module JsNativeSymbols =
     let jsNativeInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
         (jsNativeContractFor target manifestPaths).BodiesByName
 
-    /// The producer files the JS-native contract's inline bodies were drained from, retained so
+    /// The producer files the JS-native contract's inline bodies were unpooled from, retained so
     /// their anchors stay readable — the same cached collection the two above project. The
     /// introspection seam for the RETENTION itself (`OpsPlatformJsTests` checks each retained
     /// file against the disk it claims to describe); a compile never takes this alone, since a

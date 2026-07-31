@@ -255,7 +255,7 @@ let tests =
             // The specialization root array and the `InlineCall`/`CallerExpr` payloads are the
             // one part of the wire the corpus above leaves at zero, so it would pass with any
             // of them missing from the writer entirely. Assert on the decoded carriers
-            // themselves, not only on the drained tree: an entry the writer skipped and the
+            // themselves, not only on the unpooled tree: an entry the writer skipped and the
             // reader defaulted to empty is invisible to a tree comparison that has no edge
             // pointing into it.
             test "a specialization entry, the InlineCall naming it and a CallerExpr survive flatten/thaw" {
@@ -270,7 +270,7 @@ let tests =
             }
 
             // The file's OWN origin is the one field no structural comparison can reach: the
-            // drain yields a tree, the tree has no field for it, so a writer that dropped it
+            // unpool yields a tree, the tree has no field for it, so a writer that dropped it
             // passes every gate above. What it costs is not a decode error but a silent one —
             // the expansion tells this file's material from a producer's by comparing against
             // it, and a file that came back off the wire naming nobody's file calls all of its

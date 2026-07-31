@@ -287,7 +287,7 @@ module UnificationSubsume =
         // codomain must be `Equal` to `targs.[k]` matched WHOLE (it may itself be a
         // further curried function — the printf `n > K` tail — which is NOT peeled).
         // Read-only, not a `unify` — grounding a still-free `Fun`-arg FROM the `TyFun` is
-        // the Engine constraint-drain's job (`peelFunDomains` is shared with it so the
+        // the Engine constraint-discharge's job (`peelFunDomains` is shared with it so the
         // check and the grounding peel the SAME shape). A chain too short to peel `k`
         // domains does not match ⇒ `Unrelated`. The caller records the arity-`k` verdict
         // for the lambda node (`inferApp`), keyed for the value-struct flat-`Invoke`.

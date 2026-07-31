@@ -85,7 +85,7 @@ let tests =
             }
 
             // --- member-chain lookup + `subsumes` ---
-            // `resolveFieldStep` / `drainPendingDotAccess` recurse into the
+            // `resolveFieldStep` / `dischargePendingDotAccess` recurse into the
             // parent's members on a derived-class miss; override declarations on
             // the derived class shadow the inherited member of the same name.
 

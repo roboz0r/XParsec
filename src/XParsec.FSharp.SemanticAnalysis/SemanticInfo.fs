@@ -483,7 +483,7 @@ and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
 /// `SrtpBounds`. `MemberName` is the compiled name (`"op_Addition"`,
 /// `"Zero"`); `ArgTypes` / `ReturnType` are the trait's expected member
 /// signature, instantiated against the fresh TyVars allocated for the
-/// containing val's typar list. `Unification.drainSrtpBounds` fires when
+/// containing val's typar list. `Unification.dischargeSrtpBounds` fires when
 /// any participating TyVar's `Link` is set and dispatches against either
 /// a built-in primitive table (for `TyConst "int"` etc.) or the candidate
 /// type's `ClassTypes` entry (for `TyClass`).
@@ -496,7 +496,7 @@ and MemberSignature =
 
 /// Type-parameter constraint attached to a `TypeVar`. Built from
 /// `Constraint<'T>` CST nodes by `Unification.translateConstraints` and
-/// drained by `Unification.unify` when the TyVar is linked to a concrete
+/// discharged by `Unification.unify` when the TyVar is linked to a concrete
 /// shape. v1 covers the trait-table subset (`equality`, `comparison`, `struct`,
 /// `not struct`, `: null`, `: not null`) plus `Coercion` (`:> T` subtype bounds,
 /// checked via `subsumes`); `MemberTrait`, `DefaultConstructor`, `Enum`,

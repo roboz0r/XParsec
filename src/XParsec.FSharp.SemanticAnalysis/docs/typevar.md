@@ -69,7 +69,7 @@ A few choices worth noting:
 ## Deferred obligations (the on-unified callbacks)
 
 A constraint on a *free* TyVar cannot be checked yet — there is nothing to check
-it against. So it is parked on the variable and **drained when the variable is
+it against. So it is parked on the variable and **discharged when the variable is
 solved**: when `Unification` sets the root's `link`, it walks the obligation
 side-tables and dispatches. A `union` folds the loser's obligations onto the
 survivor via one associative join per family at the store's union seam (replacing

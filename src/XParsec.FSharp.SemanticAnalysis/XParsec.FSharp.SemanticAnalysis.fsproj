@@ -38,7 +38,7 @@
     <Compile Include="TastDecl.fs" />
     <Compile Include="Tast.fs" />
     <!-- Immediately after the shapes it is a functor over, and BEFORE the pools: the
-         pool build/drain reuse its type-declaration and compiled-form traversals rather
+         pool fill/unpool reuse its type-declaration and compiled-form traversals rather
          than hand-rolling a second walk of those shapes. It depends on the shape files
          alone. -->
     <Compile Include="TastConvert.fs" />

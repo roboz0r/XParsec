@@ -9,8 +9,8 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // `FrozenPools` and presents ONE flat id space, and everything a consumer may assume rests
 // on base ids being preserved exactly — through reads and through mints. These tests pin
 // that: a base id reads the base column even after the overlay has grown, every base root
-// still drains to the decl it was pooled from, and an overlay node may name base children
-// and drains into the right tree.
+// still unpools to the decl it was pooled from, and an overlay node may name base children
+// and unpools into the right tree.
 
 /// The value expr of the file's first `Let` decl, as a DU node — a real frozen subtree to
 /// hand a mint site, and (with its root's `DeclExprChildren`) its base pool id.
@@ -80,12 +80,12 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
             (BinderNaming.ofColumn pools.BinderNames.[i] id)
             "base binder naming"
 
-/// Every base root drains to the SAME decl before and after the overlay grows — the
+/// Every base root unpools to the SAME decl before and after the overlay grows — the
 /// end-to-end half of id preservation, through the ONE way out of a builder that production
-/// uses (`declTree`, the cross-file inline wire's drain). An id-space boundary error shows
-/// up as a wrong or missing subtree; the drain is deterministic within a builder (its
-/// re-minted binder keys are the builder's), so the two drains are directly comparable.
-let private drainRoots (b: PoolBuilder) : Wire.TDecl[] =
+/// uses (`declTree`, the cross-file inline wire's unpool). An id-space boundary error shows
+/// up as a wrong or missing subtree; the unpool is deterministic within a builder (its
+/// re-minted binder keys are the builder's), so the two unpools are directly comparable.
+let private unpoolRoots (b: PoolBuilder) : Wire.TDecl[] =
     TastPoolBuilder.roots b |> Array.map (TastPoolBuilder.declTree b)
 
 // Programs spanning the domains the stack has to keep straight: a binder reference across
@@ -108,7 +108,7 @@ let baseIdTests =
                 test name {
                     let pools, frozen = poolsFor src
                     let b = TastPoolBuilder.openOver pools
-                    let before = drainRoots b
+                    let before = unpoolRoots b
 
                     // Grow the overlay: a re-pooled real subtree (which also names binder
                     // references) and a binder the base never held.
@@ -121,7 +121,7 @@ let baseIdTests =
                         "the overlay grew past the base"
 
                     checkBaseIdsResolve pools b
-                    Expect.equal (drainRoots b) before "every base root drains to the same decl it did before"
+                    Expect.equal (unpoolRoots b) before "every base root unpools to the same decl it did before"
                 }
         ]
 
@@ -141,7 +141,7 @@ let appendTests =
                 Expect.isGreaterThanOrEqual i baseCount "the appended root is an overlay id"
 
                 // The binder the DU node introduces — already this pool's own id, the tree
-                // being one drained from it, so the payload is checked against the identity
+                // being one unpooled from it, so the payload is checked against the identity
                 // the NODE carries rather than against the payload itself.
                 let duBinder = BinderKey.ofExpr du |> ValueOption.map BinderKey.identity
 
@@ -291,8 +291,8 @@ let rowCopyTests =
                             }
                         )
 
-                // The oracle: the ORIGINAL root's own drain with the tuple's items reversed.
-                // Taken through `declTree` so both sides speak the identity a drain hands
+                // The oracle: the ORIGINAL root's own unpool with the tuple's items reversed.
+                // Taken through `declTree` so both sides speak the identity an unpool hands
                 // out — within one builder that is stable, so the comparison is exact.
                 let original = TastPoolBuilder.declTree b root
 
@@ -306,7 +306,7 @@ let rowCopyTests =
                         TDeclG.Let(binding, reversed, isInline, declTy)
                     | _ -> failtest "the decl is not a `let` over a Tuple"
 
-                // Drained through `declTree`: the derived decl is a node like any other,
+                // Unpooled through `declTree`: the derived decl is a node like any other,
                 // reached by the id the copy returned. Nothing repoints the root — a
                 // rewrite hands its caller the new id (`TastAccessor.mapDeclExpr`), which
                 // is why the builder has no root-repointing seam.

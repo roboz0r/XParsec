@@ -108,7 +108,7 @@ module OriginFile =
             Content = InputHash.ofBytes [||]
         }
 
-/// A producer file RETAINED past the parse that produced it, so that anchors of a tree drained
+/// A producer file RETAINED past the parse that produced it, so that anchors of a tree unpooled
 /// from it stay readable. `Input` rides with the `Lexed` because a token carries offsets into
 /// the text and not the text itself, and the text is what a multi-source map publishes.
 type OriginSource =

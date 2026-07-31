@@ -613,8 +613,8 @@ module TastAccessor =
     let exprCallerExprOrigin (e: ExprId) : OriginFile =
         expect "TastAccessor.exprCallerExprOrigin: not a CallerExpr node" (|ECallerExprOrigin|_|) e
 
-    /// The children of the arms, re-nested — `ExprPayload.arms`, the walk shared with the
-    /// pool drain, driven off this node's child columns. `lead` is how many leading expr
+    /// The children of the arms, re-nested — `ExprPayload.arms`, the walk shared with
+    /// the unpool, driven off this node's child columns. `lead` is how many leading expr
     /// children belong to the node itself rather than an arm (`Match`'s scrutinee /
     /// `TryWith`'s body).
     let private armsOf (e: ExprId) (guardPresent: bool[]) (lead: int) : Arm[] =
@@ -749,7 +749,7 @@ module TastAccessor =
         expect "TastAccessor.exprUse: not a Use node" (|EUse|_|) e
 
     /// A `Format` node → its `FormatView`, through `ExprPayload.format` — the re-nesting
-    /// shared with the pool drain, driven off this node's child column.
+    /// shared with the unpool, driven off this node's child column.
     [<return: Struct>]
     let private (|EFormat|_|) (e: ExprId) : FormatView voption =
         match payload e with
@@ -955,7 +955,7 @@ module TastAccessor =
     let private (|DType|_|) (d: DeclId) : TypeDecl voption =
         match declPayload d with
         // The seven body slots and the seven key slots are enumerated by `TastConvert` — the
-        // same traversal the pool build and drain run — so nothing here re-derives the
+        // same traversal the pool fill and unpool run — so nothing here re-derives the
         // declaration shape. Only the BODIES move: a key slot already holds the dense id
         // every other pooled reference speaks, so it rides across unchanged.
         | DeclPayload.Type td ->

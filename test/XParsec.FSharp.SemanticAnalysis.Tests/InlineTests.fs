@@ -54,7 +54,7 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
     let source = Hashing.originSourceOfText input lexed
-    // The vocabulary is a pool root array; `declTree` drains a template to the DU form the
+    // The vocabulary is a pool root array; `declTree` unpools a template to the DU form the
     // cross-file wire (and `InlineThaw`) speaks — the very path a provider serves it through.
     let pools = Pipeline.analyse realProvider.Value source file
 
@@ -68,7 +68,7 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
 
 // ── the anchor domain a wire body carries ──────────────────────────────────────────────
 //
-// A drained body keeps the PRODUCER's token indices. Which file they index is not in them, so a
+// An unpooled body keeps the PRODUCER's token indices. Which file they index is not in them, so a
 // consumer names the producer file and reads them there (`InlineThaw.bodyAtOrigin`) — the one
 // reading there is. It is sound only while that file still holds the text the indices were taken
 // against: every index stays in range across an edit, so nothing downstream could notice the
@@ -142,7 +142,7 @@ let private expandedCore (tast: TastFile) (d: TDecl) : string =
         TastShape.prettyExpr (peel args.Length (entryValue tast spec))
     | other -> failwithf "expected a `do` of one inline call; got %A" other
 
-/// The producer's sole published template, drained to the wire form a provider serves.
+/// The producer's sole published template, unpooled to the wire form a provider serves.
 let private publishedTemplate () : Wire.TDecl =
     let lexed, file = parseFile producerSrc
 

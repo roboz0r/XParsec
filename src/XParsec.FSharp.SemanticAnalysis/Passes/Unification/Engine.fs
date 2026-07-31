@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 open UnificationSubsume
 
-/// The MUTATING unifier: `unify`, its on-link drains (deferred dot-accesses,
+/// The MUTATING unifier: `unify`, its on-link discharges (deferred dot-accesses,
 /// typar constraints, SRTP bounds), and the argument / annotation coercion
 /// walkers layered on it. The dependency rule is one-way —
 /// `UnificationEngineCore` <- `UnificationSubsume` <- `UnificationEngine`;
@@ -37,7 +37,7 @@ module UnificationEngine =
                         // `Fun`2`..`Fun`5` share this one qualified name, discriminated
                         // by type-arg count (arity = length - 1, for 2..5 args); anything
                         // else is not a recognised `Fun` slot. `funSlotArityOfArgs` is the
-                        // single source of that rule (shared with `subsumes`/the drain).
+                        // single source of that rule (shared with `subsumes`/the discharge).
                         funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.typeMetaName tk)) targs.Length
                     | _ -> None
                 | _ -> None
@@ -60,7 +60,7 @@ module UnificationEngine =
         | None -> ValueNone
 
     /// The outcome of resolving a TyVar's link target to a dot-access source.
-    /// `NotNominal` — not a record/class/union, nothing to drain.
+    /// `NotNominal` — not a record/class/union, nothing to discharge.
     /// `UnknownType` — named a nominal type the registry doesn't know.
     /// `Resolved` — carries the member-noun used in diagnostics, the
     /// typar→arg substitution, and a name→type lookup over the members.
@@ -79,14 +79,14 @@ module UnificationEngine =
             lookup: (string -> SemType voption)
         /// A project-local class: member lookup walks the inheritance chain, so
         /// it can't be expressed as the single `subst` + `lookup` pair the
-        /// `Resolved` shape carries. The drain defers to `tryClassChainMember`,
+        /// `Resolved` shape carries. The discharge defers to `tryClassChainMember`,
         /// which threads the substitution up the chain per parent. Carries the
         /// class's `TypeKey` (arity included) so the walk keys per-arity; a bare
         /// name is derived only for the not-found diagnostic.
         | ClassChain of key: TypeKey * args: EqArray<SemType>
         /// An *external* class/interface (not in `ctx.Types.Class`): a deferred
         /// dot-access whose receiver TyVar resolved to a BCL/contract nominal
-        /// (`System.Collections.IEqualityComparer`). The drain resolves the
+        /// (`System.Collections.IEqualityComparer`). The discharge resolves the
         /// member through the provider — the deferred mirror of `resolveFieldStep`'s
         /// external arm — addressed by the resolved type `key` (store view).
         | ExternalClass of key: SymbolKey * args: EqArray<SemType>
@@ -137,7 +137,7 @@ module UnificationEngine =
 
     /// `Defer` is the "I don't know yet" answer: the target is still free
     /// (or compound-with-free-args) and a future unification might pin it.
-    /// `drainConstraints` keeps deferred constraints on the TyVar so they
+    /// `dischargeConstraints` keeps deferred constraints on the TyVar so they
     /// re-fire on the next `Link` change.
     type ConstraintOutcome =
         | Satisfied
@@ -174,7 +174,7 @@ module UnificationEngine =
     /// never ground the actual's typar (codegen materialises the box —
     /// `EmitPattern.boxArgIntoObjParam`). The single home of the rule, applied by
     /// `tryCoerceUpcast` (the eager argument / `:>` path) and `unifyArgCoerce` /
-    /// `unifyAppliedSig` (the in-`unify`-group deferred dot-access drain); the two
+    /// `unifyAppliedSig` (the in-`unify`-group deferred dot-access discharge); the two
     /// coercion walkers exist only because they sit either side of `tryCoerceUpcast`
     /// in declaration order, not because the policy differs.
     let absorbsAsObj (store: TypeStore) (expected: SemType) : bool = isObjType (resolveStep store expected)
@@ -404,11 +404,11 @@ module UnificationEngine =
             | ValueSome t, ValueNone
             | ValueNone, ValueSome t ->
                 ctx.Store.SetLink(newRoot, ValueSome t)
-                drainAll ctx tok newRoot t
+                dischargeAll ctx tok newRoot t
             | ValueSome a, ValueSome b ->
                 ctx.Store.SetLink(newRoot, linkA)
                 unify ctx tok a b
-                drainAll ctx tok newRoot a
+                dischargeAll ctx tok newRoot a
         | TyVar tv, other
         | other, TyVar tv ->
             let root = UnionFind.find ctx.Store tv
@@ -433,7 +433,7 @@ module UnificationEngine =
                 | _ -> ()
 
                 ctx.Store.SetLink(root, ValueSome other)
-                drainAll ctx tok root other
+                dischargeAll ctx tok root other
         | _ -> ctx.Report(tok, Kind.Message(sprintf "Type mismatch: %A vs %A" (zonk ctx.Store a) (zonk ctx.Store b)))
 
     /// Unify two same-length type-argument vectors positionally — the shared body
@@ -449,7 +449,7 @@ module UnificationEngine =
     /// at the call), so it must NOT unify — pinning a typar argument (`x : 'T`) to
     /// `obj` would ground the enclosing type's parameter. Tuples walk element-wise
     /// (a tupled BCL call `Equals(obj, obj)`). The in-`unify`-group analogue of
-    /// `unifyArg`'s `obj` rule, usable from the deferred-drain path below (`unifyArg`
+    /// `unifyArg`'s `obj` rule, usable from the deferred-discharge path below (`unifyArg`
     /// itself is defined after this group). `obj` and union-typed parameters are the
     /// two no-pin absorptions here; richer class→interface witness coercion stays in
     /// `unifyArg`/`tryCoerceUpcast` for the eager application path.
@@ -487,7 +487,7 @@ module UnificationEngine =
     /// parameter position goes through `unifyArgCoerce` (so an `obj` parameter
     /// absorbs a typar / value-type argument instead of grounding it); result
     /// positions unify exactly. Used where a *whole* signature is unified against a
-    /// pre-built `TyFun` (the deferred dot-access drain, the overload-commit), unlike
+    /// pre-built `TyFun` (the deferred dot-access discharge, the overload-commit), unlike
     /// `inferApp`'s argument walk which already coerces each argument as it applies it.
     and unifyAppliedSig (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
         match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
@@ -503,17 +503,17 @@ module UnificationEngine =
     /// Fire all three on-link callbacks for a root whose `Link` just resolved
     /// to `t`: deferred dot-accesses, type-parameter constraints, and SRTP
     /// member-trait bounds.
-    and private drainAll (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (t: SemType) : unit =
-        drainPendingDotAccess ctx root t
-        drainConstraints ctx tok root t
-        drainSrtpBounds ctx tok root t
+    and private dischargeAll (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (t: SemType) : unit =
+        dischargePendingDotAccess ctx root t
+        dischargeConstraints ctx tok root t
+        dischargeSrtpBounds ctx tok root t
 
-    and private drainPendingDotAccess (ctx: PassContext) (root: Rep) (linkTarget: SemType) : unit =
+    and private dischargePendingDotAccess (ctx: PassContext) (root: Rep) (linkTarget: SemType) : unit =
         let pending = ctx.Store.Pda.Live root
 
         if not (List.isEmpty pending) then
             // Every resolving branch discharges the whole snapshot up front — so a
-            // reentrant drain (the `unify`s below) sees it gone and the leftover-
+            // reentrant discharge (the `unify`s below) sees it gone and the leftover-
             // unresolved check never re-fires a resolved access. Only NotNominal leaves
             // the accesses parked for a later `Link`. The single home of that discharge.
             let solveAll () =
@@ -643,7 +643,7 @@ module UnificationEngine =
         result
 
     /// Free TyVars return `Defer` so the next `Link` assignment re-fires the
-    /// check via `drainConstraints`; nested compounds recurse compositionally.
+    /// check via `dischargeConstraints`; nested compounds recurse compositionally.
     and checkConstraint (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : ConstraintOutcome =
         // Shared verdict policy for the nominal data types (record / union / class):
         // the stamped equality / comparison verdict overrides the field-walk. A
@@ -703,7 +703,7 @@ module UnificationEngine =
             // `inherit` chains, and reconciles `exn`'s `TyConst` with the metadata
             // `TyClass("System.Exception", _)` via IntrinsicReprTypes — so a thrown
             // `InvalidOperationException` reaches `exn`. Read-only, so it's safe to
-            // run from the drain callback (no undo trace). Past the `TyVar _` guard
+            // run from the discharge callback (no undo trace). Past the `TyVar _` guard
             // above, `Unrelated` is a real violation, not "unknown yet".
             match subsumes ctx t target with
             | SubsumeOutcome.Equal
@@ -808,7 +808,7 @@ module UnificationEngine =
     /// during union-find collapse). For compound `Defer` outcomes, copy the
     /// constraint onto each still-free arg so the next Link on any of them
     /// re-evaluates the rule compositionally.
-    and private drainConstraints (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
+    and private dischargeConstraints (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
         if ctx.Store.Constraints.IsEmpty root then
             ()
         else
@@ -886,7 +886,7 @@ module UnificationEngine =
             ctx.Store.Constraints.Set(root, List.rev remaining)
 
     /// THE one spelling of "this type does not answer that constraint". Both places a
-    /// constraint is checked against a settled type — the drain above and abbreviation
+    /// constraint is checked against a settled type — the discharge above and abbreviation
     /// expansion — report through here, so the two cannot render the same violation
     /// differently.
     and reportConstraintViolation
@@ -967,7 +967,7 @@ module UnificationEngine =
             // numeric primitive, but the `(+)` inline's `when ^T : string` clause
             // makes `string + string` valid (codegen lowers it to
             // `System.String.Concat`). Resolve the
-            // SRTP trait here so a `(+)`-on-string bound drains cleanly instead of
+            // SRTP trait here so a `(+)`-on-string bound discharges cleanly instead of
             // erroring "string has no op_Addition" — the spurious diagnostic that
             // surfaced compiling `structural-printer.fs` (the first library to use
             // string `+`; bare programs emit it too but never gate on diagnostics).
@@ -1003,7 +1003,7 @@ module UnificationEngine =
         let fromHost =
             match ctx.Types.IntrinsicAbbrevHost.TryGetValue(SymbolKeyOps.intrinsicName key) with
             | true, info ->
-                // Empty until `fillHostMembers` types them; a bound draining before
+                // Empty until `fillHostMembers` types them; a bound discharging before
                 // that falls through to the provider and then the synthesis.
                 match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
                 | Some m -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) m.Type)
@@ -1047,21 +1047,21 @@ module UnificationEngine =
     /// `Srtp` table under the representative id; a dispatched bound is recorded in the
     /// `solved` set — since the one `MemberSignature` instance is shared by reference
     /// across every participating typar, solving it through whichever typar links
-    /// first makes the others' drains skip it. A bound that cannot dispatch yet
+    /// first makes the others' discharges skip it. A bound that cannot dispatch yet
     /// (target still a free TyVar, or an unknown class) is left UNSOLVED and grows in
     /// place, so the next `Link` change re-attempts it — no remainder is written back.
     ///
     /// Diagnostics use `tok` — the user's call site, threaded through from
     /// the caller — so "Type X has no static member Y" points there rather
     /// than at the prelude's `(+)` declaration.
-    and private drainSrtpBounds (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
+    and private dischargeSrtpBounds (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
         let bounds = ctx.Store.Srtp.Live root
 
         if List.isEmpty bounds then
             ()
         else
             for b in bounds do
-                // A sibling / reentrant drain (via `unifySrtpAgainst`) may have solved
+                // A sibling / reentrant discharge (via `unifySrtpAgainst`) may have solved
                 // `b` since this snapshot — skip it, as the shared `Resolved` flag used
                 // to.
                 if not (ctx.Store.Srtp.IsSolved b) then

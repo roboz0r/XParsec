@@ -15,7 +15,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // agreeing is the cross-check, not a tautology; the reconstruction follows the id columns
 // into the dense pool arrays, so a mis-wired child edge shows up as a fan-out mismatch.
 
-/// The dense id the pool interned a DU node's own binder under. The drained tree already
+/// The dense id the pool interned a DU node's own binder under. The unpooled tree already
 /// names its binders in the pool's own space, so this is the node's `BinderKey` widened —
 /// derived from the node rather than read off the payload under test, so a payload that
 /// names its binder is checked against an independent answer instead of against itself.
@@ -49,7 +49,7 @@ let rec private checkExpr (pools: FrozenPools) (ExprPoolId i) (du: Pooled.TExpr)
     Array.iter2 (checkPat pools) (ChildColumn.slice pools.ExprPatChildren i) duPatKids
 
 /// A type declaration's body slots in traversal order, gathered by running the SAME
-/// traversal the pool build and drain run (`TastConvert.typeDecl` at a collecting body
+/// traversal the pool fill and unpool run (`TastConvert.typeDecl` at a collecting body
 /// mapping). Reusing it is what keeps this check from drifting away from the set of slots
 /// that are actually pooled — a newly-added body slot appears here for free.
 let private bodySlots (td: TTypeDeclG<FrozenType, Anchor, 'id, 'body>) : 'body[] =
@@ -248,7 +248,7 @@ let private checkProgram (src: string) =
     // The interconversion gate: `ofPools ∘ rePool` reconstructs a structurally-equal file.
     // Both sides speak the pool's own dense identity, so the comparison needs no widening
     // at all — and the ids the re-pool assigns must be the ids the tree already bore, since
-    // the walk that assigns them is the walk that drained it.
+    // the walk that assigns them is the walk that unpooled it.
     //
     // Compared DIRECTLY, DU value against DU value — the serializer is
     // no oracle here, because `FrozenCodec.flatten` itself pools the file, so flattening
@@ -371,8 +371,8 @@ let unitOriginTests =
                 Expect.equal frozen.Origin origin.File "the pools name the file the anchors were taken from"
             }
 
-            test "re-pooling a drained tree keeps it" {
-                // The drain carries no origin — the tree has no field for one — so the fill
+            test "re-pooling an unpooled tree keeps it" {
+                // The unpool carries no origin — the tree has no field for one — so the fill
                 // has only the pool it came out of to take it from.
                 let origin, frozen = freezeWithOrigin "let a = 1\n"
 
@@ -636,7 +636,7 @@ let funVerdictLambdaKeyTests =
 
                 // The inverse folds the rows back onto the one key they came from.
                 let rebuilt = TastUnpool.ofPools pools
-                Expect.equal rebuilt.FunVerdicts.Count 1 "the drain restores the source map's arity"
+                Expect.equal rebuilt.FunVerdicts.Count 1 "the unpool restores the source map's arity"
 
                 Expect.equal
                     (Map.tryFind shared rebuilt.FunVerdicts)
@@ -683,7 +683,7 @@ let private lastBindingDropped () =
     {|
         Binder = binder
         // The fill the injected trees below go through, carrying the naming column of the
-        // freeze they were drained out of.
+        // freeze they were unpooled out of.
         RePool = rePool
         // Kept so the stale entry re-added below is the producer's own value, not a
         // fabricated one — the entry is genuine; only its declaration is gone.

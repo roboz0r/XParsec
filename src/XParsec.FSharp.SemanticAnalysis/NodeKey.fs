@@ -129,13 +129,13 @@ type NodeKind =
     /// sites don't alias each other's bound names. Counter-minted (`ofSyntheticCounter`) — it
     /// names no source position.
     | SynthPreFreezeInline = 1007us
-    /// Binder of a template DRAINED from the pools onto the cross-file wire
+    /// Binder of a template UNPOOLED from the pools onto the cross-file wire
     /// (`TastPoolBuilder.declTree`), whose slot means nothing in the consuming file and so is
     /// re-minted. Counter-minted like `SynthPreFreezeInline`, and a KIND of its own precisely
-    /// because it is: the two counters are independent, so sharing a kind would let a drain's
-    /// nth binder and a freshen's nth binder be one key. They meet — a drained body is
+    /// because it is: the two counters are independent, so sharing a kind would let an unpool's
+    /// nth binder and a freshen's nth binder be one key. They meet — an unpooled body is
     /// freshened at the splice — so that must be unrepresentable rather than merely unlikely.
-    | SynthDrainedBinder = 1008us
+    | SynthUnpooledBinder = 1008us
 
 [<Struct>]
 type NodeKey =

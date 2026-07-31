@@ -405,7 +405,7 @@ module internal UnificationInferRecordAccess =
 
             // The receiver is a generic typar (`'T`) constrained to
             // an interface (`'T :> IFace`). The typar never grounds to a nominal, so
-            // the `PendingDotAccess` drain would never fire (and the binding wouldn't
+            // the `PendingDotAccess` discharge would never fire (and the binding wouldn't
             // generalise); instead resolve the member *now* through the interface the
             // typar is coerced to. The constraint's target zonks to the interface's
             // `TyClass` (a project-local interface is registered in `Types.Class`

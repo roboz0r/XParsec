@@ -37,9 +37,9 @@ type ExternalConstraint =
     /// (the LHS of the trait). `memberName` is the compiled name. The arg /
     /// return types are `FrozenType` templates over the symbol's declaring
     /// typars (`FTTypar(Declaring,i)`); `Instantiate` realises them against the
-    /// fresh-TyVar array via `instantiateDeclaring`. The Unification pass drains
+    /// fresh-TyVar array via `instantiateDeclaring`. The Unification pass discharges
     /// the captured signature when any participating fresh TyVar is linked to a
-    /// concrete shape — see `Unification.drainSrtpBounds`.
+    /// concrete shape — see `Unification.dischargeSrtpBounds`.
     | MemberTrait of typarIndices: EqArray<int> * memberName: string * argTypes: FrozenType[] * returnType: FrozenType
     /// `default ^T : <ty>` — typar defaulting at generalisation. `target` is a
     /// `FrozenType` template over the symbol's declaring typars — usually another
@@ -79,9 +79,9 @@ type ImportForm =
     | Namespace
 
 /// A published inline body as the provider serves it: the producing file's own template,
-/// drained to the wire shape (`Wire.TDecl`) and handed across the boundary VERBATIM.
+/// unpooled to the wire shape (`Wire.TDecl`) and handed across the boundary VERBATIM.
 ///
-/// Its binder keys are MINTED BY THE DRAIN (`TastPoolBuilder.declTree`), not the producer's
+/// Its binder keys are MINTED BY THE UNPOOL (`TastPoolBuilder.declTree`), not the producer's
 /// own: a pooled binder is a slot, and a slot means nothing in the consuming file's pool.
 /// What the wire needs of them is distinctness within this one template plus equality
 /// between a binder and its references, which a counter-minted key gives — and, being
@@ -146,7 +146,7 @@ type ExternalSymbol =
         /// `0` for a monomorphic symbol.
         TyparArity: int
         /// Empty for the overwhelming majority of symbols. `instantiateSymbol`
-        /// applies them to the fresh TyVars it mints; callers don't drain the list
+        /// applies them to the fresh TyVars it mints; callers don't apply the list
         /// separately. Also surfaced for diagnostic introspection.
         Constraints: ExternalConstraint list
         /// Where the symbol lives — the bridge to codegen. `SymbolOrigin.Empty`

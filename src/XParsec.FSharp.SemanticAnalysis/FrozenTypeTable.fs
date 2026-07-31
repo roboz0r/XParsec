@@ -73,7 +73,7 @@ type TypeId = | TypeId of int
 
 /// A row of the file'sorigin table — a producer file a specialization entry's anchors index
 /// (`TSpecializationG.Origin`). Interned for the reason everything else here is: a realistic
-/// program drains many entries from ONE producer, and the identity of that file is four
+/// program draws many entries from ONE producer, and the identity of that file is four
 /// strings.
 [<Struct>]
 type OriginId = | OriginId of int
@@ -181,7 +181,7 @@ type TypeRow =
 
 /// An `OriginFile` row. Every field is a string in the heap, `ContentHex` included: the hash
 /// is the file's identity as the blob carries it (`InputHash.ofHex` re-admits it), and two
-/// entries drained from one producer name the same text and so the same hex.
+/// entries drawn from one producer name the same text and so the same hex.
 type OriginRow =
     {
         BucketName: StrId

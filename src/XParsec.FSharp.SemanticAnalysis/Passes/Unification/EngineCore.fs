@@ -372,7 +372,7 @@ module UnificationEngineCore =
     /// `Some(genericArity - 1)` when `bareName` is the canonical `Fun` family AND the
     /// generic arity is 2..5 (⇒ arity 1..4), else `None`. The ONE predicate every
     /// `TyFun`↔`Fun` recognizer shares (`funSlotArityOf`, `subsumes`, the Engine
-    /// constraint-drain) — keeps the "name-match + 2..5 bound + length - 1" rule
+    /// constraint-discharge) — keeps the "name-match + 2..5 bound + length - 1" rule
     /// single-sourced so the sites cannot disagree on what counts as a `Fun` slot.
     let funSlotArityOfArgs (bareName: string) (genericArity: int) : int option =
         if bareName = funInterfaceQualifiedName && genericArity >= 2 && genericArity <= 5 then
@@ -386,7 +386,7 @@ module UnificationEngineCore =
     /// is returned WHOLE (a further curried `TyFun` — the printf `n > K` tail — is NOT
     /// peeled). `resolveStep` unwraps each codomain before the next `TyFun`. SINGLE
     /// source of the `TyFun`↔`Fun` shape shared by `subsumes` (checks each `Equal`)
-    /// and the Engine constraint-drain (`unify`s each): the two MUST peel identically,
+    /// and the Engine constraint-discharge (`unify`s each): the two MUST peel identically,
     /// else a green-lit coercion grounds to a different shape than was checked.
     /// `k >= 1` at every call site (a validated `Fun` slot is arity ≥ 1).
     let peelFunDomains (store: TypeStore) (k: int) (a: SemType) (b: SemType) : SemType list option =
@@ -812,7 +812,7 @@ module UnificationEngineCore =
 
     /// Walk a `SemType` through TyVar Links to surface a nominal shape
     /// (`TyRecord` / `TyClass` / `TyUnion`) and report which kind it is. The
-    /// arg list rides along so `drainPendingDotAccess` can substitute the
+    /// arg list rides along so `dischargePendingDotAccess` can substitute the
     /// type's typars when resolving deferred field / member accesses.
     let rec tryResolveNominal (store: TypeStore) (t: SemType) : (NominalKind * TypeKey * EqArray<SemType>) voption =
         match t with

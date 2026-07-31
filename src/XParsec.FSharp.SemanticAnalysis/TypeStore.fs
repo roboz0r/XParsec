@@ -82,7 +82,7 @@ type PayloadList<'T>(combine: 'T list -> 'T list -> 'T list) =
 /// A payload family whose items DISCHARGE ONE AT A TIME through a shared reference
 /// identity — SRTP bounds and deferred dot-accesses. Wraps the grow-only
 /// `PayloadList` with a reference-keyed `solved` set: a discharged item is recorded
-/// (never removed), so a drain reads only the `Live` items, never rewrites a
+/// (never removed), so a discharge reads only the `Live` items, never rewrites a
 /// shrinking remainder, and never re-fires an item. Because `solved` keys by
 /// reference, ONE shared item stamped on several participating typars discharges
 /// exactly once, and the marking survives a `union` remap (the item objects are
@@ -230,8 +230,8 @@ type TypeStore() =
 
     /// Type-parameter constraints, keyed by representative — the store home of the
     /// former `TypeVar.Constraints` slot. A `[<Struct>]` `SemanticConstraint` carries
-    /// no reference identity, and `drainConstraints`' compositional `propagateToFreeArgs`
-    /// depends on value independence, so this family keeps its per-drain remainder
+    /// no reference identity, and `dischargeConstraints`' compositional `propagateToFreeArgs`
+    /// depends on value independence, so this family keeps its per-discharge remainder
     /// (rewritten through `Set`, off-node) rather than a reference `solved` set; the
     /// `union` join dedups by `Kind`.
     member val Constraints = PayloadList<SemanticConstraint>(PayloadJoin.constraintsByKind) with get
@@ -239,7 +239,7 @@ type TypeStore() =
     /// Deferred dot-accesses parked on a still-free receiver, keyed by representative
     /// — the store home of the former `TypeVar.PendingDotAccess` slot. Grow-only +
     /// `solved`: an access resolved once the receiver grounds is recorded, so a
-    /// re-drain and the leftover-unresolved check see only the live (unsolved) ones.
+    /// re-discharge and the leftover-unresolved check see only the live (unsolved) ones.
     /// `union` join carries `loser @ winner`.
     member val Pda = BoundTable<DeferredMemberAccess>(fun winner loser -> loser @ winner) with get
 

@@ -4,7 +4,7 @@
 /// CAN still be named) records a `Warning` and DEGRADES to a representable `TypeRef`,
 /// rather than aborting the whole extraction. The accumulator is a plain `ResizeArray`
 /// created once per extraction in `extractFile`/`extractPackage` and threaded — like
-/// `checker` — through the walk (as `MapCtx.Diags`), then drained into the manifest's
+/// `checker` — through the walk (as `MapCtx.Diags`), then finalized into the manifest's
 /// `Diagnostics`. Single-threaded Node, so a shared mutable buffer is safe. FATAL
 /// plumbing failures (not a module, unreadable source, unresolvable specifier) still
 /// THROW: a degraded type is meaningful; a half-loaded program is not.
@@ -35,7 +35,7 @@ type MapCtx =
         Diags: ResizeArray<Schema.Diagnostic>
         /// The foreign-reference accumulator (the `TypeRef`/`AssemblyRef` analog),
         /// filled as `mapType` emits each foreign `Named` and DEDUPED by bare name at
-        /// drain (`drainRefs`). A shared mutable buffer, like `Diags` — single-threaded
+        /// finalize (`finalizeRefs`). A shared mutable buffer, like `Diags` — single-threaded
         /// Node makes it safe; created once per extraction and threaded through the walk.
         Refs: ResizeArray<string * Schema.RefEntry>
         /// Declaring-axis typar scope: the enclosing type's typars for a member,
@@ -152,7 +152,7 @@ let emitWarning
 /// alias is still ONE genuinely-hard type). Collapse by (Code, Symbol, Span) —
 /// distinct spans stay distinct (a real second occurrence). Runs AFTER
 /// relativization so spans are compared in their portable form.
-let drainDiagnostics (baseDir: string) (diags: ResizeArray<Schema.Diagnostic>) : Schema.Diagnostic list =
+let finalizeDiagnostics (baseDir: string) (diags: ResizeArray<Schema.Diagnostic>) : Schema.Diagnostic list =
     let relFile (file: string) =
         let rel = normalizeSlashes (pathRelative baseDir file)
         // An empty/absolute result (different drive) is not portable — use the basename.
@@ -304,9 +304,9 @@ let recordForeignRef (ctx: MapCtx) (name: string) (sym: Ts.Symbol) : unit =
                     }
                 )
 
-/// Drain the accumulated foreign refs into the manifest table: DEDUPE by bare name
+/// Finalize the accumulated foreign refs into the manifest table: DEDUPE by bare name
 /// (the same foreign type referenced N times → ONE entry) keeping FIRST-SEEN order, so
 /// the golden stays deterministic (the walk order is deterministic). A name recurs with
 /// the same identity, so keeping the first occurrence is lossless.
-let drainRefs (refs: ResizeArray<string * Schema.RefEntry>) : (string * Schema.RefEntry) list =
+let finalizeRefs (refs: ResizeArray<string * Schema.RefEntry>) : (string * Schema.RefEntry) list =
     refs |> List.ofSeq |> List.distinctBy fst

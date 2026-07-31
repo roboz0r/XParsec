@@ -139,7 +139,7 @@ let private thawFrom (store: TypeStore) (src: string) (decl: Wire.TDecl) : TDecl
     let source = sourceOf src
     InlineThaw.bodyAtOrigin store (OriginSources.ofSeq [ source ]) source.File decl
 
-/// The frozen `let` decl of a single-binding program, drained the way a provider serves a
+/// The frozen `let` decl of a single-binding program, unpooled the way a provider serves a
 /// body (`declTree`) — the form `InlineThaw.bodyAtOrigin` takes.
 let private frozenLetDecl (src: string) : Wire.TDecl =
     let pools = freezePools src
@@ -244,7 +244,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
     let unitA = Freeze.run ctx tastA
     let pool = TastPoolBuilder.openOver unitA
 
-    // Drained the way a provider serves a template — `declTree`, which re-mints the body's
+    // Unpooled the way a provider serves a template — `declTree`, which re-mints the body's
     // binders into the node space a consuming file's expansion speaks — and anchored in file
     // A's own file, which is what makes the indices those bodies carry readable at B.
     let source = sourceOf unitASource

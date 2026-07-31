@@ -170,7 +170,7 @@ module Emit =
 
         // A `unit`-returning module function emits genuine CLR `void`: the
         // body leaves the `unit`-as-value `System.ValueTuple` on the stack (every
-        // Vesper expression yields a value), so pop it before `ret` — the same drain
+        // Vesper expression yields a value), so pop it before `ret` — the same pop
         // `buildMember` performs for a `void` member. A body that terminates
         // (`raise`/`Throw`) leaves depth 0; any deeper stack is a codegen bug.
         if fn.ReturnsVoid then
@@ -240,7 +240,7 @@ module Emit =
         // instruction `IlIr.analyze` rejects as unbalanced. So the only two valid
         // post-body depths are 1 (pop the residual unit) and 0 (terminated, nothing
         // to pop). Any deeper stack is a codegen bug — fail loudly here rather than
-        // draining it silently into valid-but-wrong IL.
+        // discarding it silently into valid-but-wrong IL.
         if voidReturn then
             match b.Depth with
             | 0 -> ()
@@ -319,7 +319,7 @@ module Emit =
         b.Body
 
     /// Run a preamble `do` body for effect: every Vesper expression yields a value, so
-    /// the `unit` it leaves must be drained before the next step. A body that
+    /// the `unit` it leaves must be popped before the next step. A body that
     /// *terminates* (`raise`) reset the builder's depth to 0 and leaves nothing; any
     /// deeper stack is a codegen bug.
     let private buildForEffect (env: EmitEnv) (b: IlBuilder) (body: TastAccessor.ExprId) : unit =

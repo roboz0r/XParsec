@@ -502,7 +502,7 @@ type DynamicEscapeSite = { Root: TyVarId; Node: NodeSite }
 /// A bare-program list literal left FLEXIBLE by `listLiteralTy` / `consListTy`: the
 /// container `TypeVar` a consumer may drive, its element type, and the literal's own token.
 ///
-/// The token is carried because the drain (`Unification.resolveListLiterals`) runs after
+/// The token is carried because the resolve (`Unification.resolveListLiterals`) runs after
 /// the whole file is walked — it holds no node of its own, so without this a reconciliation
 /// failure would have nowhere to point.
 type ListLiteral =
@@ -891,7 +891,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// Bare-program list literals: each `[…]` whose container type was left
     /// *flexible* (a fresh `TypeVar`, paired with its element type) so a consumer
     /// can drive it — `List.fold`'s `Vesper.Collections.List` parameter flips it to
-    /// the Vesper list, otherwise it defaults to FSharp.Core's `list`. Drained by
+    /// the Vesper list, otherwise it defaults to FSharp.Core's `list`. Resolved by
     /// `Unification.resolveListLiterals` after the walk: a still-free literal links
     /// to the default list, a flipped one has its element reconciled. Programs that
     /// declare their own `list` abbrev never register here (they resolve eagerly).
@@ -920,7 +920,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val private undefinedTypeSites = HashSet<Site>() with get
 
     /// Which cons-list a *bare-program* list literal/pattern (one no consumer
-    /// pinned) defaults to when drained by `Unification.resolveListLiterals`.
+    /// pinned) defaults to when resolved by `Unification.resolveListLiterals`.
     /// `false` (the default) keeps FSharp.Core's `list` — the form a normal
     /// FSharp.Core-referencing program prints/interops with. `true` is set by the
     /// self-host package build (`Pipeline.analyse*ForSelfHost`): a BCL-only package

@@ -82,7 +82,7 @@ stable id**, with ten mutable slots:
 | `Defaults` | `SemType list` (`default ^T`) | yes |
 
 Six of ten are **deferred-constraint payload**, hand-migrated in `EngineCore.migrateBounds`
-(`EngineCore.fs:121`) and hand-drained on link in `drainAll` (`Engine.fs:489`). `find`
+(`EngineCore.fs:121`) and hand-discharged on link in `dischargeAll` (`Engine.fs:489`). `find`
 (`UnionFind.fs:10`) does **full path compression** — a mutating read — and `resolveStep`/
 `zonk` call it transitively, so essentially every dereference mutates. That is the "mutable
 soup": a node that is simultaneously graph structure, solution, measure, four families of
@@ -151,7 +151,7 @@ union. **"Resolved" stops being a shared mutable flag**: a solved bound is recor
 separate `solved` side table rather than flipped in place, which kills the by-reference
 `MemberSignature.Resolved` aliasing (a correctness win in its own right).
 
-⟨OPEN B⟩ `drainConstraints` (`Engine.fs:796/873/890`) today writes back a *remainder*
+⟨OPEN B⟩ `dischargeConstraints` (`Engine.fs:796/873/890`) today writes back a *remainder*
 (removes satisfied constraints). Grow-only sets + a `solved` side table keep merges monotone
 and order-independent; the alternative is to keep consumption. **Lean: grow-only + `solved`
 table.**

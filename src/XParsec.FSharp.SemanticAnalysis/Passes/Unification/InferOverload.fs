@@ -47,7 +47,7 @@ module UnificationInferOverload =
     ///     union-find ROOT identity (`TypeVar` is a sealed class, so `Dictionary`
     ///     uses reference equality; `HashIdentity.Reference` states it).
     /// Local to the trial and DROPPED on failure. `matchTypes` writes only here — never
-    /// `Link`/`union`/`drainAll` — so a failed trial leaves no residue in the shared
+    /// `Link`/`union`/`dischargeAll` — so a failed trial leaves no residue in the shared
     /// union-find (all of `unify`'s mutation is confined to its metavar arms, `Engine.fs`,
     /// reachable only through a `Link` write, which this never performs).
     type private TrialBindings =

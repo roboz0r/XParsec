@@ -5,7 +5,7 @@ open XParsec.FSharp.Parser
 
 // The FILE: `FrozenPools`, the columns every node of `TastPoolNodes.fs` is addressed in,
 // plus the containers its side tables take. The logic that fills the columns lives in
-// `TastPools.fs` and the logic that drains them in `TastUnpool.fs`.
+// `TastPools.fs` and the logic that unpools them in `TastUnpool.fs`.
 //
 // The pools are the working representation, the stored one, AND freeze's output:
 // `TastAccessor` reads these columns and nothing else, `FrozenCodec.flatten`/`thaw`
@@ -106,7 +106,7 @@ module BinderColumn =
 /// `count`/`item` are the read surface, and they index the flat array with no row
 /// materialised: a view that names two children (`App`'s fn/arg, `Let`'s value/body) is two
 /// array reads. `slice` is for the paths that genuinely speak in whole arrays — a row
-/// transpose, a DU drain — and hands back the shared empty array where there are no
+/// transpose, a DU unpool — and hands back the shared empty array where there are no
 /// children, so the common leaf costs nothing there either.
 ///
 /// The representation is PRIVATE, and the two ways in are `ChildColumnBuilder` (which cannot
@@ -360,7 +360,7 @@ type FrozenPools =
         Specializations: PooledSpecialization[]
         /// The binder pool: two parallel dense columns indexed by `BinderId`, their own
         /// arrays disjoint from the `Pat*` columns. A binder has NO stored identity beside
-        /// its slot — the slot IS the identity, a drained tree names its binders by
+        /// its slot — the slot IS the identity, an unpooled tree names its binders by
         /// `BinderId` (`Pooled.*`), and every pooled reference resolves against the id.
         /// What these two carry is what a slot alone cannot answer: how the source SPELLS
         /// the binder, and WHERE. A `NamedSimple` pattern still also appears in the pat

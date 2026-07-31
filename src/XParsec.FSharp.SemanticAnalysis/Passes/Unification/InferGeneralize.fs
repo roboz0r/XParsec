@@ -49,7 +49,7 @@ module internal UnificationInferGeneralize =
         // real generic method slot, and the call site solves it from the bound. The
         // remapping of SURFACE quantified roots (e.g. `'U` in `map`'s
         // `… -> MapSeq<…,'U>` return) is still required so the dependent-typar
-        // inference in `drainConstraints` does not ground the ORIGINAL surface var
+        // inference in `dischargeConstraints` does not ground the ORIGINAL surface var
         // and leave the FRESH return copy un-instantiated → an unresolved TyVar at
         // freeze. Seeding from the FULL `subst` covers both.
         let constraintSubst = Dictionary<TyVarId, SemType>()
@@ -126,7 +126,7 @@ module internal UnificationInferGeneralize =
     /// pins the receiver would only resolve a fresh instantiation, leaving
     /// the original (still-quantified) constraint dangling. Keeping the
     /// binding monomorphic lets the first use site unify directly with the
-    /// pre-instantiation TyVar, which drains the constraint normally.
+    /// pre-instantiation TyVar, which discharges the constraint normally.
     let rec hasPendingDotAccess (store: TypeStore) (t: SemType) : bool =
         match t with
         | TyVar tv ->

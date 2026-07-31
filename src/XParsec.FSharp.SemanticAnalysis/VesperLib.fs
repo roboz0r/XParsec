@@ -1489,7 +1489,7 @@ module VesperLib =
             // `TryLookupMember`, not the shape), but the body's `member` /
             // `static member` sigs ARE extracted so a *consumer* can resolve them —
             // notably the static operators (`op_Addition` / `op_Subtraction`) an
-            // SRTP `+` / `-` on the type dispatches to (`drainSrtpBounds`). Without
+            // SRTP `+` / `-` on the type dispatches to (`dischargeSrtpBounds`). Without
             // this the class's members were silently dropped (only `Union` bodies
             // extracted members), so `s + t` on an imported `Set` left its result
             // typar unresolved.

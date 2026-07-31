@@ -49,7 +49,7 @@ Rewrite the `SemType` / `UnionFind` / `Unification` triad from the current mutab
   integration steps. This doc is the umbrella; it does not restate that detail.
 - **Phase B — solver.** Make the *implicit* constraint solver explicit: elaboration emits a
   constraint set; a solver drains a worklist with **suspension** (never backtracking).
-  Replaces the four ad-hoc pending-payload families + `migrateBounds` + `drainAll` with one
+  Replaces the four ad-hoc pending-payload families + `migrateBounds` + `dischargeAll` with one
   constraint language and one loop.
 
 **A then B.** B on the clean arena is far cheaper than B on today's soup; A is the required
@@ -252,7 +252,7 @@ the arena** (see Progress above); `intern → cache` remain, paused before `cach
 Phase B (only once A's side-tables exist):
 1. Define the constraint DU; make elaboration **emit** it alongside today's inline unify (shadow
    mode — asserted equal, not yet authoritative).
-2. Turn the side-tables into a worklist with explicit wake-up; delete `drainAll`/`migrateBounds`.
+2. Turn the side-tables into a worklist with explicit wake-up; delete `dischargeAll`/`migrateBounds`.
 3. Flip authority to the solver; delete the inline on-link callbacks and `MemberSignature.Resolved`.
 
 ## Risks / open

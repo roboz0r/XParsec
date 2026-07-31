@@ -29,7 +29,7 @@ distinct layers:
 ### Inference layer (unchanged)
 
 `SemType.TyFun(a, b)` stays the structural arrow the unifier sees today.
-Algorithm J keeps working as-is; the SRTP / IWSAM drain sites keep
+Algorithm J keeps working as-is; the SRTP / IWSAM discharge sites keep
 firing as today. No new constraint plumbing in the unifier.
 
 Rationale: making every arrow-introduction a fresh typar with an
