@@ -148,6 +148,10 @@ module InlineExpansion =
             let expandLocalAt = expandLocalAt ctx mint
             let etaReify = etaReify ctx mint
 
+            // The anchor domain of the material walked under a frame chain. The empty chain is
+            // this unit's own decls, which is where every walk starts.
+            let originOf = ExpansionFrame.originOf ctx.Origin
+
             // THE protection against an inline binding that reaches itself. Such a binding cannot be
             // expanded, and the compiler reports instead of substituting
             // until stack overflow.
@@ -174,6 +178,7 @@ module InlineExpansion =
                         TExpr.InlineCall(
                             spec,
                             EqArray.ofList [ for (a, _, _) in call.Spine -> call.Walk a ],
+                            originOf frames,
                             call.Ty,
                             call.Tok
                         )
@@ -196,13 +201,14 @@ module InlineExpansion =
                     fresh
                         {
                             Frame =
-                                fun cycleReport ->
+                                fun placement cycleReport ->
                                     {
                                         Own =
                                             {
                                                 Template = call.Template
                                                 Name = name
                                                 Site = call.Tok
+                                                Origin = Placement.domain (originOf frames) placement
                                                 CycleReport = cycleReport
                                             }
                                         Caller = frames
@@ -238,6 +244,10 @@ module InlineExpansion =
             // In the walker's own `let rec` chain because it walks: every reduction resolves the
             // nested inline heads inside the body it is reducing.
             let rec reduceClassified (placement: Placement) (inFlight: InFlight) (peeled: Peeled) : Reduced =
+                // Every fusion below is the CALLER's material, so it is marked with the caller's
+                // domain and not this reduction's.
+                let caller = originOf inFlight.Caller
+
                 let fusedLambdas =
                     peeled.Params |> List.filter (fun p -> p.Disposition = Disposition.FuseLambda)
 
@@ -254,7 +264,7 @@ module InlineExpansion =
                 for p in fusedLambdas do
                     lambdaEnv.[p.Key] <-
                         {
-                            Body = Inline.underLambdas (Placement.fuse placement) p.Arg
+                            Body = Inline.underLambdas (Placement.fuse caller placement) p.Arg
                             CallerFrames = inFlight.Caller
                         }
 
@@ -276,7 +286,10 @@ module InlineExpansion =
                     | Disposition.FuseLambda -> ()
                     | Disposition.FuseAtMostOnce ->
                         body <-
-                            Inline.substituteVar p.Key (Placement.fuse placement (walkAt inFlight.Caller p.Arg)) body
+                            Inline.substituteVar
+                                p.Key
+                                (Placement.fuse caller placement (walkAt inFlight.Caller p.Arg))
+                                body
                     | Disposition.Survive ->
                         survivors.Add
                             { p with
@@ -310,13 +323,14 @@ module InlineExpansion =
                 // below, so the origin an outlined reduction records is the very one that made
                 // it outlined.
                 let placement = Placement.ofOrigin served.Origin
+                let caller = originOf entering.Caller
 
                 let peeled =
-                    classifyApplication placement served.ParamAttrs resolved.Body call.Spine
+                    classifyApplication caller placement served.ParamAttrs resolved.Body call.Spine
 
                 match placement with
                 | Placement.Spliced ->
-                    letBound (reduceClassified placement (entering.Frame CycleReport.AtThisCall) peeled)
+                    letBound (reduceClassified placement (entering.Frame placement CycleReport.AtThisCall) peeled)
                 | Placement.Outlined origin ->
                     SpecTable.outline
                         {
@@ -335,11 +349,15 @@ module InlineExpansion =
                                 && resolved.TypeArgs |> Array.forall (SemTypeQuery.isGround ctx.Store)
                             Origin = origin
                             EdgeTok = call.Tok
+                            EdgeOrigin = caller
                             EdgeTy = call.Ty
                             ReuseArgs = fun () -> peeled.Params |> List.map (fun p -> walkAt entering.Caller p.Arg)
                             Build =
                                 fun spec ->
-                                    reduceClassified placement (entering.Frame(CycleReport.FromTable spec)) peeled
+                                    reduceClassified
+                                        placement
+                                        (entering.Frame placement (CycleReport.FromTable spec))
+                                        peeled
                         }
                         specs
 
@@ -376,6 +394,7 @@ module InlineExpansion =
                         Shareable = SemTypeQuery.isGround ctx.Store refTy
                         Origin = origin
                         EdgeTok = tok
+                        EdgeOrigin = originOf entering.Caller
                         EdgeTy = refTy
                         ReuseArgs = fun () -> []
                         Build = fun _ -> { Body = body; Survivors = [] }
@@ -495,8 +514,9 @@ module InlineExpansion =
                                                         // site, so its body and the arguments fused
                                                         // into it are one anchor domain already.
                                                         Placement.Spliced
-                                                        (entering.Frame CycleReport.AtThisCall)
+                                                        (entering.Frame Placement.Spliced CycleReport.AtThisCall)
                                                         (classifyApplication
+                                                            (originOf entering.Caller)
                                                             Placement.Spliced
                                                             (localParamAttrs k)
                                                             (expandLocalAt appTok localInlines.[k] spineArgs)
@@ -624,7 +644,9 @@ module InlineExpansion =
                                         }
                                         (fun entering ->
                                             walkAt
-                                                (InFlight.frames (entering.Frame CycleReport.AtThisCall))
+                                                (InFlight.frames (
+                                                    entering.Frame Placement.Spliced CycleReport.AtThisCall
+                                                ))
                                                 (expandLocalAt tok localInlines.[k] [])
                                         )
                                 )

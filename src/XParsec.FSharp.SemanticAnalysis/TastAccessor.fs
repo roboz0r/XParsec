@@ -576,7 +576,7 @@ module TastAccessor =
     [<return: Struct>]
     let private (|EInlineCall|_|) (e: ExprId) : SpecializationId voption =
         match payload e with
-        | ExprPayload.InlineCall spec -> ValueSome spec
+        | ExprPayload.InlineCall p -> ValueSome p.Spec
         | _ -> ValueNone
 
     /// The specialization slot an `InlineCall` node names — an index into the pools'

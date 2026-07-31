@@ -51,22 +51,22 @@ module Hashing =
             Lexed = lexed
         }
 
-    /// A compiling unit handed over as TEXT with no file behind it: a script fragment, a
-    /// driver given a string, a test. The content hash stands in for the path, so two
-    /// different texts are two different origins and cannot collide in an `OriginSources`.
-    /// Deriving it from the text also keeps this origin a function of what `fileInputHash`
-    /// already keys on, so it cannot become a cache determinant the key never sees.
-    let originSourceOfText (input: string) (lexed: Lexed) : OriginSource =
-        let content = hashString input
+    /// The identity of a compiling unit handed over as TEXT with no file behind it: a script
+    /// fragment, a driver given a string, a test. The content hash stands in for the path, so
+    /// two different texts are two different origins and cannot collide in an `OriginSources`.
+    ///
+    /// Separate from `originSourceOfText` because a cache key is taken BEFORE the parse that
+    /// yields a `Lexed` — a driver keying a compile needs the identity without paying for the
+    /// front end it is trying to elide.
+    let textOriginPath (input: string) : OriginPath =
+        {
+            BucketName = ""
+            Relative = sprintf "<text:%s>" (hashString input).Hex
+            Absolute = ""
+        }
 
-        originSource
-            {
-                BucketName = ""
-                Relative = sprintf "<text:%s>" content.Hex
-                Absolute = ""
-            }
-            input
-            lexed
+    let originSourceOfText (input: string) (lexed: Lexed) : OriginSource =
+        originSource (textOriginPath input) input lexed
 
     /// Append a variable-length byte run PREFIXED by its length, so a hash built from a
     /// sequence of such runs is injective in the run boundaries: two different splittings of
@@ -316,7 +316,24 @@ module Hashing =
                  :: (manifests @ selfManifests |> List.map dependencySignatureHash))
         )
 
-    /// The per-file compile-cache input hash: this file's text folded with its compilation's
-    /// digest. Touches no disk — the whole cost of a key lives in `compilationDigest`, which
-    /// is why that one is hoisted and this one is not.
-    let fileInputHash (source: string) (CompilationDigest digest) : InputHash = inputHash source [ digest ]
+    /// A file's IDENTITY as ONE digest. Its own fold and not three entries in the list below,
+    /// because the three fields are a record where `inputHash` takes a SET: handed separately
+    /// they would dedupe when two agree and say nothing about which field held which string.
+    let private originPathHash (p: OriginPath) : InputHash =
+        let hasher = XxHash128()
+        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes p.BucketName)
+        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes p.Relative)
+        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes p.Absolute)
+        InputHash.ofBytes (hasher.GetCurrentHash())
+
+    /// The per-file compile-cache input hash: this file's text and IDENTITY folded with its
+    /// compilation's digest. Touches no disk — the whole cost of a key lives in
+    /// `compilationDigest`, which is why that one is hoisted and this one is not.
+    ///
+    /// The path is a determinant and not decoration: a frozen tree's nodes carry the
+    /// `OriginFile` their anchors index, so the same text analysed under a different path
+    /// freezes to a different tree, and a key blind to the path would serve the first for the
+    /// second. Taking the `OriginPath` rather than deriving one is what makes that checkable:
+    /// the caller states the identity it is about to analyse under, once, for both.
+    let fileInputHash (path: OriginPath) (source: string) (CompilationDigest digest) : InputHash =
+        inputHash source [ originPathHash path; digest ]

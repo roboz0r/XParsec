@@ -75,11 +75,12 @@ type SpecializationKeyG<'ty> =
 type TSpecializationG<'ty, 'tok, 'id> =
     {
         Key: SpecializationKeyG<'ty>
-        /// The file every anchor inside `Decl` is an index into — the anchor DOMAIN, held once
-        /// per entry rather than once per node. That is what lets the node column stay a bare
-        /// `int` (`Anchor`) while a body keeps the positions it was WRITTEN at: a physically
-        /// spliced body has no enclosing entry to hang an origin on, which is the whole reason
-        /// it had to be relocated onto its call site.
+        /// The file every anchor inside `Decl` is an index into, except under a node that names
+        /// another — the anchor DOMAIN, held once per entry rather than once per node. That is
+        /// what lets the node column stay a bare `int` (`Anchor`) while a body keeps the
+        /// positions it was WRITTEN at: a physically spliced body has no enclosing entry to
+        /// hang an origin on, which is the whole reason it had to be relocated onto its call
+        /// site.
         ///
         /// It carries a content hash, and the hash is checked wherever the anchors are read
         /// (`OriginSources.tokenAt`) — see `OriginFile`.

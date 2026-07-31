@@ -276,10 +276,13 @@ module FrozenCodec =
             w.Write 38uy
             writeTypeRef w p.Receiver
             w.Write p.MemberName
-        | ExprPayload.InlineCall spec ->
+        | ExprPayload.InlineCall p ->
             w.Write 39uy
-            writeSpecializationId w spec
-        | ExprPayload.CallerExpr -> w.Write 40uy
+            writeSpecializationId w p.Spec
+            writeOriginRef w p.Origin
+        | ExprPayload.CallerExpr origin ->
+            w.Write 40uy
+            writeOriginRef w origin
 
     let private readExprPayload (r: FrozenReader) : ExprPayload =
         match r.ReadByte() with
@@ -393,8 +396,15 @@ module FrozenCodec =
                     Receiver = receiver
                     MemberName = memberName
                 |}
-        | 39uy -> ExprPayload.InlineCall(readSpecializationId r)
-        | 40uy -> ExprPayload.CallerExpr
+        | 39uy ->
+            let spec = readSpecializationId r
+
+            ExprPayload.InlineCall
+                {|
+                    Spec = spec
+                    Origin = readOriginRef r
+                |}
+        | 40uy -> ExprPayload.CallerExpr(readOriginRef r)
         | b -> failwithf "FrozenCodec: unknown ExprPayload tag %d" b
 
     let private writePatPayload (w: FrozenWriter) (p: PatPayload) =

@@ -137,11 +137,16 @@ module ClrDriver =
         let provider =
             ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences clrTarget inputs.Manifests
 
+        // The identity the unit is ANALYSED under, taken once and used for both: the key covers
+        // the very path the frozen tree's nodes will name, so a hit cannot serve a tree
+        // anchored somewhere else.
+        let path = Hashing.textOriginPath source
+
         let key =
             {
                 Query = QueryId.Freeze
                 CodeVersion = Cache.CodeVersion
-                Input = Hashing.fileInputHash source digest
+                Input = Hashing.fileInputHash path source digest
             }
 
         FrozenCache.freezeResult
@@ -155,7 +160,7 @@ module ClrDriver =
                         Pipeline.analyseFor
                             inputs.Project.AssemblyName
                             provider
-                            (Hashing.originSourceOfText source parsed.Lexed)
+                            (Hashing.originSource path source parsed.Lexed)
                             parsed.File
 
                     match blockingErrors tast with

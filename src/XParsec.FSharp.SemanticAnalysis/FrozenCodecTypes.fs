@@ -53,15 +53,14 @@ module FrozenCodecTypes =
 
     let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
 
-    /// The file a set of FOREIGN anchors index (`TSpecializationG.Origin`) — the case
-    /// `writeAnchor` does not cover. Those anchors index a file that is NOT the one the blob
-    /// is keyed by, so the identity of that file, and a hash of the contents the indices were
-    /// taken against, have to be in the blob: they are the only thing a later build can check
-    /// its re-read of that file against.
+    /// The file a set of anchors index — the case `writeAnchor` does not cover. Those anchors
+    /// may index a file that is NOT the one the blob is keyed by, so the identity of that file,
+    /// and a hash of the contents the indices were taken against, have to be in the blob: they
+    /// are the only thing a later build can check its re-read of that file against.
     ///
-    /// A REFERENCE like the three above, and for the same reason: a program's entries drain
-    /// from a handful of producer files, so the four strings that identify one go out once per
-    /// FILE rather than once per entry.
+    /// A REFERENCE like the three above, and for the same reason: a program's entries and the
+    /// edges into them name a handful of files, so the four strings that identify one go out
+    /// once per FILE rather than once per node.
     let writeOriginRef (w: FrozenWriter) (f: OriginFile) =
         writeOriginId w (w.Types.InternOrigin f)
 

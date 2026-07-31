@@ -86,12 +86,21 @@ module InlineReduction =
             | ValueSome file -> Placement.Outlined file
             | ValueNone -> Placement.Spliced
 
-        /// A fused call-site argument as it must appear INSIDE the body it is fused into.
-        /// Applied UNCONDITIONALLY at an outlined site, a trivial argument included: a uniform
-        /// invariant is checkable where one that skips `Var`s and constants is not.
-        let fuse (placement: Placement) (arg: TExpr) : TExpr =
+        /// The anchor domain of the body a reduction is about to walk. An outlined body keeps
+        /// the producer's positions; a spliced one was relocated onto the call site and so is
+        /// in `caller`'s domain like everything else there.
+        let domain (caller: OriginFile) (placement: Placement) : OriginFile =
             match placement with
-            | Placement.Outlined _ -> TastWalk.callerExpr arg
+            | Placement.Outlined origin -> origin
+            | Placement.Spliced -> caller
+
+        /// A fused call-site argument as it must appear INSIDE the body it is fused into,
+        /// `caller` being the file it was written in. Applied UNCONDITIONALLY at an outlined
+        /// site, a trivial argument included: a uniform invariant is checkable where one that
+        /// skips `Var`s and constants is not.
+        let fuse (caller: OriginFile) (placement: Placement) (arg: TExpr) : TExpr =
+            match placement with
+            | Placement.Outlined _ -> TastWalk.callerExpr caller arg
             | Placement.Spliced -> arg
 
     /// The peel of a resolved inline body against one call site's spine, with each parameter's
@@ -175,9 +184,23 @@ module InlineReduction =
             /// node of a producer's body, whose anchor indexes a file this compilation is not
             /// reporting against.
             Site: SyntaxToken
+            /// The anchor domain of the body this frame is expanding, recorded when the frame is
+            /// pushed. It rides the chain because material and chain always travel together, so
+            /// a walk cannot be handed one under a domain the other disagrees with.
+            Origin: OriginFile
             /// How a call reaching this binding again is reported.
             CycleReport: CycleReport
         }
+
+    [<RequireQualifiedAccess>]
+    module internal ExpansionFrame =
+
+        /// The domain material walked under `frames` is anchored in. An empty chain is the
+        /// compiling unit's own material, which `compiling` supplies.
+        let originOf (compiling: OriginFile) (frames: ExpansionFrame list) : OriginFile =
+            match frames with
+            | [] -> compiling
+            | f :: _ -> f.Origin
 
     /// A FRESH reduction and the two chains its material belongs to: `Own` is the frame this
     /// reduction pushes, `Caller` the chain — innermost first — the CALL SITE's material was
@@ -206,14 +229,19 @@ module InlineReduction =
     /// What a FRESH reduction is handed once its template is known not to be on the chain: how
     /// to push its frame, and where a verdict about it is positioned.
     ///
-    /// The frame is a FUNCTION of the cycle report because a reduction does not know how its
-    /// own recursion would be reported until it has classified its parameters and either taken
-    /// a table slot or settled on a splice. Nothing walks the body before then, so no call can
-    /// reach the binding while the answer is still unsettled.
+    /// The frame is a FUNCTION of the placement and the cycle report because a reduction knows
+    /// neither where its body will live nor how its own recursion would be reported until it
+    /// has classified its parameters and either taken a table slot or settled on a splice.
+    /// Nothing walks the body before then, so no call can reach the binding while the answer
+    /// is still unsettled.
+    ///
+    /// Taking the PLACEMENT and not the domain it implies is what keeps a frame's domain a
+    /// function of the chain it is consed onto: the builder closes over that chain, so a
+    /// spliced frame cannot be handed some file its caller was not walking in.
     [<NoEquality; NoComparison>]
     type internal Entering =
         {
-            Frame: CycleReport -> InFlight
+            Frame: Placement -> CycleReport -> InFlight
             /// The chain the CALL SITE's material was written under — what an argument this
             /// site supplied is walked against, independent of the re-entry answer.
             Caller: ExpansionFrame list
@@ -473,10 +501,11 @@ module InlineReduction =
     ///   4. a declared `[<CallAtMostOnce>]` parameter is marked `FuseAtMostOnce`;
     ///   5. everything else survives.
     ///
-    /// `placement` reaches step (2) because that fusion happens HERE rather than in the
-    /// reduction: an argument substituted into an outlined body has left its own file and is
-    /// marked accordingly.
+    /// `placement` and `caller` reach step (2) because that fusion happens HERE rather than in
+    /// the reduction: an argument substituted into an outlined body has left the file it was
+    /// written in and is marked with it.
     let internal classifyApplication
+        (caller: OriginFile)
         (placement: Placement)
         (paramAttrs: ParamAttrs[])
         (expanded: TExpr)
@@ -532,7 +561,7 @@ module InlineReduction =
             bindings
             |> List.choose (fun p ->
                 match TastWalk.unmarked p.Arg with
-                | TExpr.External _ -> Some(p.Key, Placement.fuse placement p.Arg)
+                | TExpr.External _ -> Some(p.Key, Placement.fuse caller placement p.Arg)
                 | _ -> None
             )
 

@@ -771,6 +771,20 @@ module N =
                 | [ entry ] ->
                     Expect.equal entry.Origin all.[0].Source.File "the entry is anchored in the DECLARING unit"
                 | other -> failtestf "expected exactly one specialization entry, got %d" (List.length other)
+
+                // The other half, and the one a relative pop cannot state: the EDGE is unit 2's
+                // own node, so it names unit 2 while the entry it points at names unit 1.
+                let edgeOrigins =
+                    [
+                        for p in consumer.Frozen.ExprPayloads do
+                            match p with
+                            | ExprPayload.InlineCall c -> yield c.Origin
+                            | _ -> ()
+                    ]
+
+                match edgeOrigins with
+                | [ o ] -> Expect.equal o consumer.Source.File "the call site is the CONSUMING unit's material"
+                | other -> failtestf "expected exactly one edge in the consumer, got %d" (List.length other)
             }
 
             test "cross-unit INTRINSIC: a prior unit's primitive resolves in a later unit's annotation" {

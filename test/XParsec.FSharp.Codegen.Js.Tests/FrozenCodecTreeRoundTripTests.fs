@@ -78,9 +78,30 @@ let private withSpecialization () : FrozenPools =
             && ChildColumn.count pools.ExprPatChildren i = 0
         )
 
+    // The two grafted nodes are CALL-SITE material, so their domain is the consuming file and
+    // deliberately NOT the entry's producer: a codec that dropped a node's own origin and
+    // recovered it from the entry would still round-trip if the two agreed.
+    let consumer =
+        {
+            Path =
+                {
+                    BucketName = "App"
+                    Relative = "m.fs"
+                    Absolute = "/app/m.fs"
+                }
+            Content = Hashing.hashString "module M\n"
+        }
+
     let payloads = Array.copy pools.ExprPayloads
-    payloads.[leaf] <- ExprPayload.InlineCall(SpecializationId 0)
-    payloads.[unary] <- ExprPayload.CallerExpr
+
+    payloads.[leaf] <-
+        ExprPayload.InlineCall
+            {|
+                Spec = SpecializationId 0
+                Origin = consumer
+            |}
+
+    payloads.[unary] <- ExprPayload.CallerExpr consumer
 
     { pools with
         ExprPayloads = payloads
@@ -250,22 +271,42 @@ let tests =
                 Expect.isTrue (survivesRoundTrip grafted) "the grafted file survived flatten/thaw structurally"
             }
 
-            // The origin is a REF into a table of its own, and one entry exercises the ref but
-            // not the interning: what a realistic program has is many groundings of one
-            // producer's templates, and the four strings that identify that producer are then
-            // written once per FILE. Asserted on the decoded row array, which is where the
-            // sharing is observable — two entries carrying equal `OriginFile` values would
-            // decode identically either way.
-            test "two entries drained from ONE producer file share a single origin row" {
+            // The origin is a REF into a table of its own, and one reference exercises the ref
+            // but not the interning: what a realistic program has is many groundings of one
+            // producer's templates plus a call site per grounding, and the four strings that
+            // identify a file are then written once per FILE. Asserted on the decoded row
+            // array, which is where the sharing is observable — references carrying equal
+            // `OriginFile` values would decode identically either way.
+            test "every reference to a file resolves to ONE origin row" {
                 let grafted = withSharedOrigin ()
                 let rt = FrozenCodec.thaw (FrozenCodec.flatten grafted)
 
                 Expect.equal (rt.Specializations.Length) 2 "both entries survived the wire"
                 Expect.equal rt.Specializations grafted.Specializations "…each with the origin it was written with"
 
+                // Counted rather than assumed: two entries name the producer and the two
+                // grafted nodes the consumer, on top of whatever the freeze itself anchored.
+                let referenced =
+                    [
+                        for s in rt.Specializations do
+                            yield s.Origin
+
+                        for p in rt.ExprPayloads do
+                            match p with
+                            | ExprPayload.InlineCall c -> yield c.Origin
+                            | ExprPayload.CallerExpr o -> yield o
+                            | _ -> ()
+                    ]
+                    |> List.distinct
+
+                Expect.isGreaterThan
+                    referenced.Length
+                    1
+                    "the fixture must name more than one file, else sharing is vacuous"
+
                 Expect.equal
                     (rt.Types.Rows.Origins.Length)
-                    1
-                    "the producer file occupies ONE row, not one per entry that names it"
+                    referenced.Length
+                    "each file occupies ONE row, not one per reference that names it"
             }
         ]

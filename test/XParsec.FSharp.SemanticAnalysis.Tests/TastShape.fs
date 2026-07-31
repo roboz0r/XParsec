@@ -595,7 +595,7 @@ type private Renderer() =
         // The entry is a separate root, so the rendering shows the SLOT and the call's own
         // args; a golden that inlined the body here would print one body per call site and
         // stop showing that the two calls share it.
-        | TExpr.InlineCall(SpecializationId spec, args, _, _) ->
+        | TExpr.InlineCall(spec = SpecializationId spec; args = args) ->
             push "spec#"
             push (string spec)
             push "("
@@ -612,7 +612,7 @@ type private Renderer() =
 
         // Rendered, not elided: the marker says the subtree was written in the CALLER's file,
         // and a rendering that hid it would show a fused entry as if it were homogeneous.
-        | TExpr.CallerExpr(body, _, _) ->
+        | TExpr.CallerExpr(body = body) ->
             push "caller<"
             this.Expr body
             push ">"

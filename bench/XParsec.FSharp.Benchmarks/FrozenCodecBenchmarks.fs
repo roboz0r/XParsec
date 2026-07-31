@@ -205,6 +205,6 @@ type FrozenCodecBenchmarks() =
         let mutable acc = 0
 
         for s in sources do
-            acc <- acc + (Hashing.fileInputHash s keyDigest).Hex.Length
+            acc <- acc + (Hashing.fileInputHash (Hashing.textOriginPath s) s keyDigest).Hex.Length
 
         acc

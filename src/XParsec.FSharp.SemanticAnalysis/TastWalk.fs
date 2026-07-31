@@ -122,14 +122,13 @@ module TastWalk =
         | TExprG.CallerExpr(tok = tok)
         | TExprG.TypeTest(tok = tok) -> tok
 
-    /// Mark `body` as CALLER material: an expression written at the call site that a reduction
-    /// FUSED into a specialization entry, and so anchored one frame out from the entry's own
-    /// `OriginFile`.
+    /// Mark `body` as CALLER material: an expression written in `origin` that a reduction
+    /// FUSED into a specialization entry anchored in some other file.
     ///
     /// THE constructor of the node — its `ty`/`tok` ARE its body's by definition, so routing
     /// every mint through here is what keeps them from being filled in twice and disagreeing.
-    let callerExpr (body: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
-        TExprG.CallerExpr(body, exprTy body, exprTok body)
+    let callerExpr (origin: OriginFile) (body: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
+        TExprG.CallerExpr(body, origin, exprTy body, exprTok body)
 
     /// The node under any caller marks — `CallerExpr` is semantically transparent, so a SHAPE
     /// test (is this an `External`? an application head?) must read through it or a rewrite
@@ -139,7 +138,7 @@ module TastWalk =
     /// pops twice, and both layers are equally transparent to a shape test.
     let rec unmarked (e: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
         match e with
-        | TExprG.CallerExpr(body, _, _) -> unmarked body
+        | TExprG.CallerExpr(body = body) -> unmarked body
         | _ -> e
 
     let patTy (p: TPatG<'ty, 'tok, 'id>) : 'ty =
@@ -726,7 +725,7 @@ module TastWalk =
             // The type map does NOT reach the entry's body: the table is a separate root
             // and is mapped as one (`TastConvert.file`). Mapping it from here would rewrite
             // a shared entry once per call site.
-            | TExpr.InlineCall(spec, args, ty, tok) ->
+            | TExpr.InlineCall(spec, args, origin, ty, tok) ->
                 let ty' = f ty
 
                 match EqArray.mapPreserve pe args with
@@ -734,17 +733,14 @@ module TastWalk =
                     if refEq ty' ty then
                         e
                     else
-                        TExpr.InlineCall(spec, args, ty', tok)
-                | ValueSome args' -> TExpr.InlineCall(spec, args', ty', tok)
+                        TExpr.InlineCall(spec, args, origin, ty', tok)
+                | ValueSome args' -> TExpr.InlineCall(spec, args', origin, ty', tok)
             // `ty`/`tok` ARE the body's, so the mapped body supplies both rather than being
             // mapped alongside a second copy of them that could disagree.
-            | TExpr.CallerExpr(body, _, _) ->
+            | TExpr.CallerExpr(body, origin, _, _) ->
                 let body' = pe body
 
-                if refEq body' body then
-                    e
-                else
-                    TExpr.CallerExpr(body', exprTy body', exprTok body')
+                if refEq body' body then e else callerExpr origin body'
 
     and mapArm (m: Mapper) (arm: TMatchArm) : TMatchArm =
         match m.OverrideArm m arm with
@@ -922,7 +918,7 @@ module TastWalk =
             | TExpr.New(_, _, args, _, _)
             | TExpr.StaticMethodCall(_, args, _, _)
             | TExpr.TraitCall(_, _, args, _, _)
-            | TExpr.InlineCall(_, args, _, _)
+            | TExpr.InlineCall(args = args)
             | TExpr.ILIntrinsic(_, _, args, _, _) ->
                 for x in args do
                     walk x
@@ -962,7 +958,7 @@ module TastWalk =
                     walk c.Body
             | TExpr.Upcast(src, _, _)
             | TExpr.Downcast(src, _, _)
-            | TExpr.CallerExpr(src, _, _)
+            | TExpr.CallerExpr(body = src)
             | TExpr.TypeTest(src, _, _, _) -> walk src
 
     and iterArm (it: Iter) (arm: TMatchArm) : unit =

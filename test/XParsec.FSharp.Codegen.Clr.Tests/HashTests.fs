@@ -53,10 +53,9 @@ let tests =
                 // what makes the entry shareable across call sites at this grounding.
                 match EqArray.toList tast.Decls with
                 | [ TDecl.Let(TPat.NamedSimple _,
-                              TExpr.InlineCall(spec,
-                                               EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _) ],
-                                               _,
-                                               _),
+                              TExpr.InlineCall(
+                                  spec = spec
+                                  args = EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _) ]),
                               false,
                               _) ] ->
                     match specializationValue tast spec with

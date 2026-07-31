@@ -70,7 +70,7 @@ let specializationValue (tast: TastFile) (spec: SpecializationId) : TExpr =
 /// lowered to" follows the edge to find it.
 let rec throughEdge (tast: TastFile) (e: TExpr) : TExpr =
     match e with
-    | TExpr.InlineCall(spec, _, _, _) -> throughEdge tast (specializationValue tast spec)
+    | TExpr.InlineCall(spec = spec) -> throughEdge tast (specializationValue tast spec)
     | _ -> e
 
 /// Run `it` over `e` and over the entry any edge inside `e` names, transitively — the walk
@@ -84,7 +84,7 @@ let rec iterThroughEdges (it: TastWalk.Iter) (tast: TastFile) (e: TExpr) : unit 
                     let descend = it.VisitExpr m n
 
                     match n with
-                    | TExpr.InlineCall(spec, _, _, _) -> iterThroughEdges it tast (specializationValue tast spec)
+                    | TExpr.InlineCall(spec = spec) -> iterThroughEdges it tast (specializationValue tast spec)
                     | _ -> ()
 
                     descend

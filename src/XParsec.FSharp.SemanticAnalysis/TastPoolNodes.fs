@@ -383,14 +383,19 @@ type ExprPayload =
             Receiver: FrozenType
             MemberName: string
         |}
-    /// The specialization-table slot this call names; the args are the child expressions.
-    /// The ENTRY is a root of its own (`FrozenPools.Specializations`) and is deliberately
-    /// not a child edge — several call sites share one entry, so making it a child would
-    /// turn the DAG into a tree by duplication.
-    | InlineCall of spec: SpecializationId
-    /// EMPTY, and necessarily so: the pop is RELATIVE and names no file, so the node's whole
-    /// content is its position in the tree plus its single child expression.
-    | CallerExpr
+    /// The specialization-table slot this call names, and the file the node's own anchor
+    /// (and its args') indexes; the args are the child expressions. The ENTRY is a root of
+    /// its own (`FrozenPools.Specializations`) and is deliberately not a child edge —
+    /// several call sites share one entry, so making it a child would turn the DAG into a
+    /// tree by duplication.
+    | InlineCall of
+        {|
+            Spec: SpecializationId
+            Origin: OriginFile
+        |}
+    /// The file everything under this node is anchored in — the whole of its content, the
+    /// rest being its position in the tree plus its single child expression.
+    | CallerExpr of origin: OriginFile
 
 [<RequireQualifiedAccess>]
 module ExprPayload =
@@ -442,7 +447,7 @@ module ExprPayload =
         | ExprPayload.TypeTest _ -> ExprShape.TypeTest
         | ExprPayload.TraitCall _ -> ExprShape.TraitCall
         | ExprPayload.InlineCall _ -> ExprShape.InlineCall
-        | ExprPayload.CallerExpr -> ExprShape.CallerExpr
+        | ExprPayload.CallerExpr _ -> ExprShape.CallerExpr
 
     /// Map every `Anchor` an expression payload EMBEDS — the loop variable's own identifier
     /// token, and each format hole's. A node's own anchor is the `ExprToks` column and is
@@ -506,8 +511,10 @@ module ExprPayload =
         | ExprPayload.Downcast
         | ExprPayload.TypeTest _
         | ExprPayload.TraitCall _
+        // An `Origin` is a file IDENTITY and not an `Anchor` — a MOVE that remapped it would
+        // be claiming the subtree came from somewhere it did not.
         | ExprPayload.InlineCall _
-        | ExprPayload.CallerExpr -> p
+        | ExprPayload.CallerExpr _ -> p
 
     // ── re-nesting the flat child columns ───────────────────────────────────
     //

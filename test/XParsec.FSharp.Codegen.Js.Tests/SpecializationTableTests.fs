@@ -51,6 +51,12 @@ let private expandedFor (input: string) : InlineExpansion.Expanded =
     | expanded, [] -> expanded
     | _, ds -> failtestf "the expansion reported: %A" (ds |> List.map (fun d -> d.Message))
 
+/// The file the harness above analyses `input` under. Off the same mint the harness uses, so
+/// a test naming it cannot drift from what the pass was handed.
+let private compilingOrigin (input: string) : OriginFile =
+    let lexed, _ = parseFile input
+    (Hashing.originSourceOfText input lexed).File
+
 /// The recursive-inline verdicts among `ds`, as the binding each closes on and the way round.
 let private cyclicInlines (ds: Diagnostic list) : (string * string list) list =
     [
@@ -197,7 +203,7 @@ let private edgeArities (e: TExpr) : (SpecializationId * int) list =
     e
     |> TastWalk.chooseExpr (fun n ->
         match n with
-        | TExpr.InlineCall(spec, args, _, _) -> ValueSome(spec, args.Length)
+        | TExpr.InlineCall(spec = spec; args = args) -> ValueSome(spec, args.Length)
         | _ -> ValueNone
     )
 
@@ -280,12 +286,12 @@ let rec private abstractedParams (value: TExpr) : int =
     | TExpr.Lambda(_, body, _, _) -> 1 + abstractedParams body
     | _ -> 0
 
-/// Every subtree a `CallerExpr` marks as written one frame OUT from the entry it sits in.
+/// Every subtree a `CallerExpr` marks as written in a file other than its entry's.
 let private callerMarked (value: TExpr) : TExpr list =
     value
     |> TastWalk.chooseExpr (fun e ->
         match e with
-        | TExpr.CallerExpr(body, _, _) -> ValueSome body
+        | TExpr.CallerExpr(body = body) -> ValueSome body
         | _ -> ValueNone
     )
 
@@ -741,10 +747,64 @@ let tests =
                     Expect.isLessThan i expanded.Specializations.Length "the edge names a slot the table has"
             }
 
+            // The two halves of an outlined call sit in DIFFERENT files, and each node says
+            // which. Without that, an anchor's meaning is a property of the descent that
+            // reached it rather than of the node.
+            test "an edge and its mark name the CALLING file; the entry names the producer" {
+                let src = "let a = true && false\n"
+                let expanded = expandedFor src
+                let compiling = compilingOrigin src
+
+                let entry =
+                    match
+                        expanded.Specializations
+                        |> Array.filter (fun e -> SymbolKeyOps.intrinsicName e.Key.Template = "op_BooleanAnd")
+                    with
+                    | [| e |] -> e
+                    | other -> failtestf "expected exactly one `(&&)` entry, got %d" other.Length
+
+                Expect.notEqual
+                    entry.Origin
+                    compiling
+                    "the fixture must reach a body from ANOTHER file, else every origin agrees and nothing is being tested"
+
+                let markOrigins =
+                    entryValue entry
+                    |> TastWalk.chooseExpr (fun e ->
+                        match e with
+                        | TExpr.CallerExpr(origin = o) -> ValueSome o
+                        | _ -> ValueNone
+                    )
+
+                Expect.isNonEmpty markOrigins "`(&&)` fuses its right operand, so its entry carries marks"
+
+                for o in markOrigins do
+                    Expect.equal o compiling "a fused operand was written HERE, not in the file the entry came from"
+
+                let edgeOrigins =
+                    [
+                        for (d, _) in expanded.Decls do
+                            match d with
+                            | TDecl.Let(_, value, _, _) ->
+                                yield!
+                                    value
+                                    |> TastWalk.chooseExpr (fun e ->
+                                        match e with
+                                        | TExpr.InlineCall(origin = o) -> ValueSome o
+                                        | _ -> ValueNone
+                                    )
+                            | _ -> ()
+                    ]
+
+                Expect.isNonEmpty edgeOrigins "the call site left an edge"
+
+                for o in edgeOrigins do
+                    Expect.equal o compiling "the call site is this file's material, whatever file the body came from"
+            }
+
             test "a fused entry named by TWO edges is what the closure assertion convicts" {
-                // The condition that LICENSES the mark: a `CallerExpr` pops one frame, and "the
-                // frame out" names one file only while the entry has one caller. `(&&)`'s entry
-                // fuses, so a second edge to it would make its own mark undefined.
+                // Fused material belongs to the one site that wrote it. `(&&)`'s entry fuses its
+                // right operand, so a second edge to it would run that call with this one's.
                 let expanded = expandedFor "let a = true && false\n"
 
                 let slot =
@@ -758,8 +818,16 @@ let tests =
                 let spec = SpecializationId slot
                 let entry = expanded.Specializations.[slot]
 
+                // Only the slot is read, so the edge's own domain is free; the entry's is the
+                // one file this fixture can name without reaching back into the compile.
                 let edge =
-                    TExpr.InlineCall(spec, EqArray.empty, TastWalk.exprTy (entryValue entry), SyntaxToken.nowhere)
+                    TExpr.InlineCall(
+                        spec,
+                        EqArray.empty,
+                        entry.Origin,
+                        TastWalk.exprTy (entryValue entry),
+                        SyntaxToken.nowhere
+                    )
 
                 Expect.isEmpty
                     (InlineSpecTable.miscountedFusedEntries [ edge ] expanded.Specializations)

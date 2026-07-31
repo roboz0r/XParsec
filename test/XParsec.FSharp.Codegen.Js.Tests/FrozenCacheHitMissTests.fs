@@ -45,7 +45,7 @@ let private freezeKey (src: string) : CacheKey =
     {
         Query = QueryId.Freeze
         CodeVersion = Cache.CodeVersion
-        Input = Hashing.fileInputHash src conformanceDigest
+        Input = Hashing.fileInputHash (Hashing.textOriginPath src) src conformanceDigest
     }
 
 [<Tests>]

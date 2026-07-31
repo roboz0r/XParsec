@@ -392,8 +392,8 @@ module TastPoolShapes =
                     Receiver = receiver
                     MemberName = memberName
                 |}
-        | TExprG.InlineCall(spec = spec) -> ExprPayload.InlineCall spec
-        | TExprG.CallerExpr _ -> ExprPayload.CallerExpr
+        | TExprG.InlineCall(spec = spec; origin = origin) -> ExprPayload.InlineCall {| Spec = spec; Origin = origin |}
+        | TExprG.CallerExpr(origin = origin) -> ExprPayload.CallerExpr origin
 
     /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
     /// child sub-pat ids (`patChildren`). The exact inverse of `substitutePat`, mirroring

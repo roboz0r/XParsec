@@ -175,7 +175,7 @@ module TastUnpool =
             let sink', segments' = ExprPayload.format widenTok p.Sink p.Segments nextE
             TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
         | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
-        | ExprPayload.InlineCall spec -> TExprG.InlineCall(spec, EqArray.ofArray es, ty, tok)
+        | ExprPayload.InlineCall p -> TExprG.InlineCall(p.Spec, EqArray.ofArray es, p.Origin, ty, tok)
         | ExprPayload.StaticOptimization clauseConstraints ->
             let clauses' =
                 clauseConstraints
@@ -189,7 +189,7 @@ module TastUnpool =
 
             let defaultExpr = nextE ()
             TExprG.StaticOptimization(clauses', defaultExpr, ty, tok)
-        | ExprPayload.CallerExpr -> TExprG.CallerExpr(nextE (), ty, tok)
+        | ExprPayload.CallerExpr origin -> TExprG.CallerExpr(nextE (), origin, ty, tok)
         | ExprPayload.Upcast -> TExprG.Upcast(nextE (), ty, tok)
         | ExprPayload.Downcast -> TExprG.Downcast(nextE (), ty, tok)
         | ExprPayload.TypeTest testTy ->

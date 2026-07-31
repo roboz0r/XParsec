@@ -44,7 +44,7 @@ let private digestOf (artifact: ClrArtifact) : string =
 /// than mirroring its construction: a determinant the driver starts folding must not be able
 /// to pass this gate by being absent from a copy of it here.
 let private keyOf (inputs: ClrCompilation) (source: string) : InputHash =
-    Hashing.fileInputHash source (ClrDriver.compilationDigest inputs)
+    Hashing.fileInputHash (Hashing.textOriginPath source) source (ClrDriver.compilationDigest inputs)
 
 let private okArtifact (label: string) (result: Result<ClrArtifact, Diagnostic list>) : ClrArtifact =
     match result with

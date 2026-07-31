@@ -151,9 +151,11 @@ module TastConvert =
         | TExprG.TraitCall(recv, n, args, ty, tok) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty, tk tok)
         | TExprG.TypeTest(src, testTy, ty, tok) -> TExprG.TypeTest(pe src, f testTy, f ty, tk tok)
         // The `spec` index is domain-free: the table it indexes is remapped whole alongside
-        // the tree (`file`), so the slot a call names is the same slot after the map.
-        | TExprG.InlineCall(spec, args, ty, tok) -> TExprG.InlineCall(spec, EqArray.map pe args, f ty, tk tok)
-        | TExprG.CallerExpr(body, ty, tok) -> TExprG.CallerExpr(pe body, f ty, tk tok)
+        // the tree (`file`), so the slot a call names is the same slot after the map. An
+        // `origin` is a file IDENTITY, not a position, so `tk` has no business with it.
+        | TExprG.InlineCall(spec, args, origin, ty, tok) ->
+            TExprG.InlineCall(spec, EqArray.map pe args, origin, f ty, tk tok)
+        | TExprG.CallerExpr(body, origin, ty, tok) -> TExprG.CallerExpr(pe body, origin, f ty, tk tok)
 
     and arm
         (f: 'a -> 'b)

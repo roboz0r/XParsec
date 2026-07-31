@@ -102,10 +102,13 @@ module InlineSpecTable =
             /// The producer file the entry's nodes stay anchored in. Taken off the placement
             /// that made the reduction outlined, so it cannot be paired with a spliced one.
             Origin: OriginFile
-            /// The position and result type of the EDGE — this file's call site, NOT `Site`
-            /// and not anything read off the entry: a reused entry's types belong to the thaw
-            /// that built it, where this node belongs to this file.
+            /// The position, anchor domain and result type of the EDGE — the call site's, NOT
+            /// `Site`'s and not anything read off the entry: a reused entry's types belong to
+            /// the thaw that built it, where this node belongs to the material the call was
+            /// written in. `EdgeOrigin` is the entry's `Origin` only for a call in the very
+            /// file the body came from.
             EdgeTok: SyntaxToken
+            EdgeOrigin: OriginFile
             EdgeTy: SemType
             /// The edge's arguments when an interned entry is REUSED. A thunk because walking
             /// them is an expansion in its own right, and the minting path takes its arguments
@@ -120,12 +123,12 @@ module InlineSpecTable =
     // Queries over a FINISHED `TSpecialization[]` — the graph invariants the finish step
     // discharges.
 
-    /// Does the tree mark any caller-anchored material?
+    /// Does the tree hold material FUSED from a call site?
     ///
-    /// The question a SHAREABLE entry must answer `false`. A `CallerExpr` pops ONE frame, and
-    /// "the frame out" names a single file only while the entry has a single call edge —
-    /// which is precisely what sharing gives up. So this is not a diagnostic aid but the
-    /// condition under which the node is well-defined at all.
+    /// The question a SHAREABLE entry must answer `false`. Fused material is one site's, so an
+    /// entry holding it and reached from a second site would run that site's call against the
+    /// first site's operand. Not a diagnostic aid but the condition under which sharing is
+    /// sound at all.
     let containsCallerExpr (e: TExpr) : bool =
         let mutable found = false
 
@@ -163,7 +166,7 @@ module InlineSpecTable =
         e
         |> TastWalk.chooseExpr (fun n ->
             match n with
-            | TExpr.InlineCall(spec, _, _, _) -> ValueSome spec
+            | TExpr.InlineCall(spec = spec) -> ValueSome spec
             | _ -> ValueNone
         )
 
@@ -226,12 +229,11 @@ module InlineSpecTable =
     /// Entries that FUSED call-site material yet are named by other than exactly ONE edge,
     /// paired with the edge count that convicts them. Empty ⇒ the table is sound.
     ///
-    /// This is what LICENSES `TExprG.CallerExpr`. The node pops ONE frame, and "the frame out"
-    /// names a single file only while the entry it sits in has a single call edge — so an
-    /// entry that fused material and is reached twice does not merely look wrong, it makes its
-    /// own marks undefined. `mintEntry` asserts the narrow half at the moment an entry is built
-    /// (a SHAREABLE entry marks nothing); this is the half that needs the finished graph,
-    /// because an edge count is a fact about the whole table and not about one reduction.
+    /// Fused material belongs to the ONE site that wrote it, so a second edge into the entry
+    /// holding it would run that site's call against the first site's operand. `mintEntry`
+    /// asserts the narrow half at the moment an entry is built (a SHAREABLE entry fuses
+    /// nothing); this is the half that needs the finished graph, because an edge count is a
+    /// fact about the whole table and not about one reduction.
     ///
     /// `roots` are the trees OUTSIDE the table — the file's own declarations — whose edges
     /// count exactly as an entry's do.
@@ -350,13 +352,8 @@ module InlineSpecTable =
                     reduced.Survivors
                     (reduced.Body, TastWalk.exprTy reduced.Body)
 
-            // What LICENSES `TExpr.CallerExpr`: the node pops one frame, and "the frame
-            // out" names a single file only while the entry has a single call edge. A
-            // shareable entry is exactly the one that gives that up, so a mark inside it
-            // would be undefined rather than merely unhelpful.
-            //
-            // It holds by construction — `shareable` implies a CLOSED peel, which is
-            // "no parameter fused", and a nested reduction puts its own fusions in its own
+            // Holds by construction — `shareable` implies a CLOSED peel, which is "no
+            // parameter fused", and a nested reduction puts its own fusions in its own
             // entry — so this is the check that a fusion bug shows up as a fault here
             // instead of as a body silently shared across sites with one site's material
             // baked into it.
@@ -400,7 +397,7 @@ module InlineSpecTable =
                     let spec, survivors = mintEntry o t
                     spec, [ for p in survivors -> p.Arg ]
 
-            TExpr.InlineCall(spec, EqArray.ofList args, o.EdgeTy, o.EdgeTok)
+            TExpr.InlineCall(spec, EqArray.ofList args, o.EdgeOrigin, o.EdgeTy, o.EdgeTok)
 
         /// Materialise the table, and discharge the two facts about it that no single entry can
         /// see. `declExprs` is every tree OUTSIDE the table — the file's own declarations —
@@ -436,17 +433,16 @@ module InlineSpecTable =
                     [ for i in slots -> Inline.servedName table.[i].Key.Template ]
                     t
             | ValueNone ->
-                // The other half of what LICENSES `TExpr.CallerExpr`, and the half no single
-                // reduction can see: an entry that FUSED call-site material pops one frame to
-                // "the caller", which names one file only while the entry has ONE call edge.
-                // `mintEntry` asserts the narrow half as each entry is built; this is the count
-                // over the finished graph, and it is what turns a fusion bug into a fault here
-                // rather than a body silently shared across sites with one site's material in it.
+                // The half no single reduction can see: fused material belongs to the ONE site
+                // that wrote it, and an edge count is a fact about the finished graph.
+                // `mintEntry` asserts the narrow half as each entry is built; this is what
+                // turns a fusion bug into a fault here rather than a body silently shared
+                // across sites with one site's material in it.
                 match miscountedFusedEntries declExprs table with
                 | [] -> ()
                 | bad ->
                     failwithf
-                        "InlineExpansion: %A fused caller material yet are named by that many call edges — a marked entry pops one frame, which names a single file only while it has exactly one caller"
+                        "InlineExpansion: %A fused caller material yet are named by that many call edges — fused material belongs to the one site that wrote it"
                         [ for (SpecializationId i, count) in bad -> table.[i].Key.Template, count ]
 
             table

@@ -84,7 +84,7 @@ let private fixtureSource = "let x = 1"
 /// `fileInputHash` for this file's text. The coverage tests below each move one input and
 /// compare two of these.
 let private keyOf (source: string) (inputs: Hashing.CompilationInputs) : InputHash =
-    Hashing.fileInputHash source (Hashing.compilationDigest inputs)
+    Hashing.fileInputHash (Hashing.textOriginPath source) source (Hashing.compilationDigest inputs)
 
 /// `keyOf` at the fixture source, for the tests that vary the compilation and not the text.
 let private keyUnder (inputs: Hashing.CompilationInputs) : InputHash = keyOf fixtureSource inputs
@@ -214,6 +214,47 @@ let tests =
                             "so is the file's own text"
                     }
 
+                    // A frozen tree's nodes carry the `OriginFile` their anchors index, so two
+                    // units with identical text and different paths freeze to different trees.
+                    // A key blind to the path would hand the first one's blob to the second.
+                    test "moving ONLY the file's path moves its key" {
+                        let digest = Hashing.compilationDigest compilation
+
+                        let under (path: OriginPath) =
+                            Hashing.fileInputHash path fixtureSource digest
+
+                        let a =
+                            {
+                                BucketName = "Pkg"
+                                Relative = "a.fs"
+                                Absolute = "/pkg/a.fs"
+                            }
+
+                        Expect.notEqual
+                            (under a)
+                            (under { a with Relative = "b.fs" })
+                            "the relative path is a key input"
+
+                        Expect.notEqual (under a) (under { a with Absolute = "/other/a.fs" }) "…so is the absolute path"
+
+                        Expect.notEqual (under a) (under { a with BucketName = "Other" }) "…and so is the bucket"
+
+                        // The three are a record, not a set: a fold that handed them to
+                        // `inputHash` separately would deduplicate and lose which held which.
+                        Expect.notEqual
+                            (under
+                                { a with
+                                    BucketName = "x"
+                                    Relative = "y"
+                                })
+                            (under
+                                { a with
+                                    BucketName = "y"
+                                    Relative = "x"
+                                })
+                            "transposing two fields is a different file, not the same one"
+                    }
+
                     // The two halves have different lifetimes, and the digest is the reusable
                     // one: a driver folds it once and keys every file of the compilation off
                     // it. That is only sound if it is a pure function of its inputs.
@@ -234,7 +275,7 @@ let tests =
                         let digest = Hashing.compilationDigest inputs
 
                         Expect.equal
-                            (Hashing.fileInputHash fixtureSource digest)
+                            (Hashing.fileInputHash (Hashing.textOriginPath fixtureSource) fixtureSource digest)
                             (keyUnder inputs)
                             "a hoisted digest keys a file exactly as an inline fold does"
                     }
