@@ -473,10 +473,10 @@ type ExternalMember =
         /// admission at a foreign-call arg position treats it as not-required. Every
         /// non-interface producer (metadata, .fsi contract, JS-native, ctors) sets `false`.
         IsOptional: bool
-        /// The member's splice TEMPLATE, when it has one — a concrete `(# … #)`-bodied
-        /// member, lifted `this`-first (`SymbolProviders.liftMemberBody`) so it
-        /// splices through the same path a `let inline` value does. `ValueNone` for a
-        /// real callable. See `ExternalSymbol.InlineBody` for why it is folded here.
+        /// The member's splice TEMPLATE, when it has one — a `member inline`, lifted
+        /// `this`-first (`SymbolProviders.liftMemberBody`) so it splices through the same
+        /// path a `let inline` value does. `ValueNone` for a real callable. See
+        /// `ExternalSymbol.InlineBody` for why it is folded here.
         ///
         /// A splice site must select the member by EXACT `Key`
         /// (`IExternalSymbolStore.TryLookupMemberByKey`), never by a name lookup:

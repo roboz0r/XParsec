@@ -16,14 +16,17 @@ name = "widget"
 namespace = "Widgets"
 description = "Test fixture: a `(# … #)`-bodied member (`Poke`) on an `extern` type."
 
-# The front-end symbol contract: `type widget = extern with member Poke: int -> int`.
+# The front-end symbol contract: `widget` with `Poke`, and `gadget` with `Bump`.
 files = [
     "widget.fsi",
 ]
 
-# The JS-target body source: `type widget = (# "object" #) with member _.Poke …`.
-# Read by the codegen inline-body loader (`resolveInlineBodies (Some "js")`), whose
-# `liftMemberBody` mints the `this`-first inline body served under `Poke`'s key.
+# The JS-target body sources. Read by the codegen inline-body loader
+# (`resolveInlineBodies (Some "js")`), whose `liftMemberBody` mints each `member inline`
+# as a `this`-first inline body served under that member's key. `gadget.js.fs` is the
+# NON-IL-bodied case: its body is a keyed `widget.Poke` call, and it publishes because it
+# is declared `inline`, not because of anything the body is.
 inline-bodies-js = [
     "widget.js.fs",
+    "gadget.js.fs",
 ]

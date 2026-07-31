@@ -105,10 +105,11 @@ let private ftString: FrozenType = toFrozen BuiltinTypes.tyString
 let private ftWidget: FrozenType =
     FTConst(RuntimeNames.opaqueKey "widget", EqArray.empty)
 
-/// A hand-built FROZEN `widget.Poke` member over one value parameter:
-/// `member inline _.Poke (x: 'paramTy) : int = (# template x : int #)`. Frozen because that is
-/// what the lifting reads — a published inline body never carries a live inference cell.
-let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor.TypeMember =
+/// A hand-built FROZEN `widget.Poke` member over one value parameter, its body minted by
+/// `mkBody` from the parameter's binder: `member inline _.Poke (x: 'paramTy) : int = <body>`.
+/// Frozen because that is what the lifting reads — a published inline body never carries a
+/// live inference cell.
+let private pokeMemberWith (paramTy: FrozenType) (mkBody: BinderId -> Pooled.TExpr) : TastAccessor.TypeMember =
     // The hand-built body is a node of no file, so it gets a pool of its own — the same
     // zero-column shape an `.fsi`-minted `ValRepr`'s patterns take. `liftMemberBody`
     // mints its wrapping lambdas straight into it, and the member's definition sites are
@@ -125,15 +126,7 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor
 
     let thisBinder = BinderKey.ofInterned (TastPoolBuilder.mintBinder pool)
 
-    let body =
-        TExprG.ILIntrinsic(
-            template,
-            ValueSome paramTy,
-            EqArray.ofList [ TExprG.Var(xId, paramTy, dummyTok) ],
-            ftInt,
-            dummyTok
-        )
-        |> TastPoolBuilder.appendExprTree pool
+    let body = mkBody xId |> TastPoolBuilder.appendExprTree pool
 
     {
         Name = "Poke"
@@ -150,6 +143,20 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor
         ReturnTy = ftInt
         MethodTypeParams = EqArray.empty
     }
+
+/// `member inline _.Poke (x: 'paramTy) : int = (# template x : int #)`.
+let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor.TypeMember =
+    pokeMemberWith
+        paramTy
+        (fun xId ->
+            TExprG.ILIntrinsic(
+                template,
+                ValueSome paramTy,
+                EqArray.ofList [ TExprG.Var(xId, paramTy, dummyTok) ],
+                ftInt,
+                dummyTok
+            )
+        )
 
 /// `member inline _.Poke (x: int) : int = (# "$0 + 1" x : int #)`.
 let private pokeMember () : TastAccessor.TypeMember = pokeMemberOf "$0 + 1" ftInt
@@ -200,6 +207,18 @@ let tests =
                 // NEVER reach emit — it lives only in the inline-bodies file. Pins the
                 // 1b-elab flag that a lift-only Class decl is not emitted.
                 Expect.isFalse (js.Contains "class widget") (sprintf "widget's Class decl leaked into emit:\n%s" js)
+            }
+
+            // The NON-IL body, end-to-end. `gadget.Bump`'s body is `w.Poke x` — a keyed
+            // reference to a member of a foreign type, which is the node shape a primitive
+            // whose operator body is a BCL call publishes. It crosses the provider seam and
+            // re-resolves in the consumer, where the splice it produces is itself spliced.
+            test "`gadget.Bump w` splices its NON-IL body, and the `Poke` it yields splices too" {
+                let js = emitWidget "open Widgets\nlet useBump (w: widget) : int = gadget.Bump w\n"
+
+                Expect.stringContains js "(41) + 1" (sprintf "expected the twice-spliced `(41) + 1`, got:\n%s" js)
+                Expect.isFalse (js.Contains ".Bump") (sprintf "a `.Bump` method call leaked into emit:\n%s" js)
+                Expect.isFalse (js.Contains ".Poke") (sprintf "a `.Poke` method call leaked into emit:\n%s" js)
             }
 
             test "liftMemberBody mints a `this`-first curried inline TDecl.Let" {
@@ -264,6 +283,32 @@ let tests =
                         Expect.equal body.ParamAttrs.Length 1 "one curried ParamAttr (x only, no this)"
                     | other -> failtestf "expected `fun x -> (# … #)` with no `this`, got %A" other
                 | None -> failtest "liftMemberBody returned None for a static inline-IL member"
+            }
+
+            // `inline` on the DECLARATION is the whole test. Body shape is not consulted:
+            // an ordinary expression publishes exactly as an inline-IL template does,
+            // which is what lets a primitive whose operator body is a BCL call
+            // (`String.Concat`) be spliced at all.
+            test "a non-IL body publishes when the member is declared inline" {
+                let identity = pokeMemberWith ftInt (fun xId -> TExprG.Var(xId, ftInt, dummyTok))
+
+                match SymbolProviders.liftMemberBody nowhereSource identity with
+                | Some body ->
+                    match body.Decl with
+                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.Lambda(_, TExprG.Var _, _, _), _, _), true, _) -> ()
+                    | other -> failtestf "expected a `this`-first curried lambda over the `Var` body, got %A" other
+                | None -> failtest "liftMemberBody returned None for a non-IL `member inline`"
+            }
+
+            // …and the converse: a member the author did NOT mark `inline` is a real
+            // callable, whatever it is bodied with. An inline-IL body is the sharpest
+            // form of that — under the old body-shape guard it published regardless.
+            test "a NON-inline member publishes nothing, even with an inline-IL body" {
+                let notInline = { pokeMember () with IsInline = false }
+
+                Expect.isNone
+                    (SymbolProviders.liftMemberBody nowhereSource notInline)
+                    "a member without `inline` is a real callable, not a splice template"
             }
 
             // THE load-bearing assertion: the member body stores under the FINALIZED

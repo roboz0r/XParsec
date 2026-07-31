@@ -164,9 +164,8 @@ module Probe =
 /// too few — a miscompile no non-recursive member call can expose, because every other edge is
 /// minted from the survivors of the very peel it belongs to.
 ///
-/// `'T[]`'s `get_Item` is OVERRIDDEN rather than a fresh type declared: a member inline body is
-/// lifted only off a `(# … #)`-rooted member (`SymbolProviders.liftMemberBody`), and such
-/// a body cannot name its own type's member — within its declaring file that call is not
+/// `'T[]`'s `get_Item` is OVERRIDDEN rather than a fresh type declared: a member inline body
+/// cannot name its own type's member — within its declaring file that call is not
 /// external at all. Reaching the member through `bounce`, whose own file sees the array type as
 /// a foreign one, is what makes the reference keyed. Bodies are keyed and a later manifest wins,
 /// so appending this package replaces the real body for `[]`.get_Item.

@@ -33,26 +33,27 @@ module SymbolProviders =
     let buildWith (metaTail: MetaTailFactory) (manifestPaths: string list) : IExternalSymbolProvider =
         ReferencedProject.composeContract metaTail None manifestPaths
 
-    /// Mint the `this`-first inline `TDecl.Let` for a concrete `(# … #)`-bodied
-    /// member — the member-sourced twin of the `let inline` value case. A concrete
-    /// accessor `member _.M p0 p1 = (# … #)` IS the inline function
-    /// `M this p0 p1 = (# … #)`: `this` (the member's `ThisKey` / `ThisTy`) prepended
+    /// Mint the `this`-first inline `TDecl.Let` for a concrete `member inline` — the
+    /// member-sourced twin of the `let inline` value case. An accessor
+    /// `member inline _.M p0 p1 = body` IS the inline function
+    /// `M this p0 p1 = body`: `this` (the member's `ThisKey` / `ThisTy`) prepended
     /// as the OUTERMOST curried lambda param, then the value params in order; a STATIC
     /// member (`ThisKey = ValueNone`) prepends no `this`. The curried lambda and its
     /// `declTy` (the outer lambda's own function type, carrying the declaring + method
     /// typars in curried-param order) match the exact shape `inlineExpand` consumes.
-    /// Only an inline-IL (`ExprShape.ILIntrinsic`) body is a splice template; any
-    /// other member body is a real callable and yields `None`.
+    /// Only a `member inline` is a splice template; a non-`inline` member is a real
+    /// callable and yields `None`. The DECLARATION says which, so a member whose body is
+    /// an ordinary expression (`System.String.Concat(x, y)`) publishes exactly as an
+    /// inline-IL one does — body shape is not consulted.
     ///
-    /// That restriction is load-bearing beyond inlining: a class's compiler-generated
-    /// backing storage (primary-ctor params, preamble `let`s, `static let`s) is emitted
-    /// `FieldAttributes.Assembly`, so a `FieldGet` on it CANNOT be read from a consumer
-    /// assembly. Nothing published here can carry such a read — an IL splice has no
-    /// `FieldGet` on class storage, and a module-level `let inline` cannot name a class's
-    /// ctor param or `let` binding at all (F# scoping forbids it). Widening this to
-    /// publish general member bodies would expose exactly that, and would first need the
+    /// `inline` is the same contract the value half already runs on: `InlineTemplates`
+    /// publishes every `let inline` regardless of body shape. What both still owe is the
     /// accessibility check F# spells FS1113 ("marked inline but its implementation makes
-    /// use of an internal or private function which is not sufficiently accessible").
+    /// use of an internal or private function which is not sufficiently accessible"). A
+    /// class's compiler-generated backing storage (primary-ctor params, preamble `let`s,
+    /// `static let`s) is emitted `FieldAttributes.Assembly`, so a `FieldGet` on it CANNOT
+    /// be read from a consumer assembly — and an `inline` member body, unlike a
+    /// module-level `let inline`, is in scope to name one.
     ///
     /// Lifted off the FROZEN member, so the published body is `FrozenType` like every
     /// other thing crossing the provider seam. The wrapping lambdas are minted into the
@@ -65,8 +66,9 @@ module SymbolProviders =
     /// itself: it is a node, and only the collection that opened the pool knows which file the
     /// pool is.
     let liftMemberBody (origin: OriginSource) (m: TastAccessor.TypeMember) : InlineBody option =
-        match TastAccessor.exprKind m.Body with
-        | ExprShape.ILIntrinsic ->
+        if not m.IsInline then
+            None
+        else
             let pool = m.Body.Pool
             // EVERY node minted below takes this one anchor, so the wrapper adds no position
             // the body did not already have: the finished tree's anchor domain is exactly the
@@ -117,7 +119,6 @@ module SymbolProviders =
             let paramAttrs = Array.create curried.Length ParamAttrs.Default
 
             Some(InlineBody.anchoredIn origin (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
-        | _ -> None
 
     type KeyedInlineBody = { Key: SymbolKey; Body: InlineBody }
 
@@ -149,11 +150,10 @@ module SymbolProviders =
         let members =
             [
                 for d in TastAccessor.roots pool do
-                    // A concrete `(# … #)`-bodied member on ANY member-bearing host
-                    // (class / union / record — `TTypeKindG.members`) is a splice
-                    // template. A member with a non-inline-IL body is a real callable and
-                    // is skipped by `liftMemberBody`, so a union/record augmentation
-                    // with an ordinary member is unaffected.
+                    // A `member inline` on ANY member-bearing host (class / union /
+                    // record — `TTypeKindG.members`) is a splice template. A non-`inline`
+                    // member is a real callable and is skipped by `liftMemberBody`, so a
+                    // union/record augmentation with an ordinary member is unaffected.
                     match TastAccessor.declKind d with
                     | DeclShape.Type ->
                         let tdecl = TastAccessor.declType d
