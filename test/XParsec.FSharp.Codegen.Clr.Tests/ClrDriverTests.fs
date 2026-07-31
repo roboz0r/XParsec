@@ -47,12 +47,7 @@ let tests =
                         TargetFramework = Some "net8.0"
                     }
 
-                let inputs =
-                    {
-                        Project = project
-                        Manifests = [ vesperCoreManifest ]
-                        BclReferences = bclReferences
-                    }
+                let inputs = ClrCompilation.consumer project [ vesperCoreManifest ] bclReferences
 
                 let artifact =
                     match ClrDriver.compileApp inputs "System.Console.WriteLine \"hello\"" with
@@ -84,14 +79,12 @@ let tests =
             // Severity.Error diagnostics, never a `failwith`.
             test "a type error returns Error diagnostics (no exception)" {
                 let inputs =
-                    {
-                        Project = ProjectInfo.defaults "ClrDriverTypeError"
-                        Manifests = [ vesperCoreManifest ]
-                        BclReferences =
-                            match RefPack.resolve "net8.0" with
-                            | Result.Ok dlls -> dlls
-                            | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e
-                    }
+                    ClrCompilation.consumer
+                        (ProjectInfo.defaults "ClrDriverTypeError")
+                        [ vesperCoreManifest ]
+                        (match RefPack.resolve "net8.0" with
+                         | Result.Ok dlls -> dlls
+                         | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e)
 
                 // `1 + "x"`: an int/string operand mismatch the front end rejects.
                 match ClrDriver.compile inputs "let x = 1 + \"x\"" with

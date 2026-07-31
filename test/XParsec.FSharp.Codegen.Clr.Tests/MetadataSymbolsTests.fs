@@ -288,10 +288,10 @@ let tests =
                 Expect.isTrue (List.length withoutLinq < List.length full) "host TPA carries System.Linq.dll"
 
                 let fullProvider =
-                    ClrSymbolProviders.buildContractWithRefs full None [ TestHelpers.vesperCoreManifest ]
+                    ClrSymbolProviders.buildContractWithRefs None full None [ TestHelpers.vesperCoreManifest ]
 
                 let limited =
-                    ClrSymbolProviders.buildContractWithRefs withoutLinq None [ TestHelpers.vesperCoreManifest ]
+                    ClrSymbolProviders.buildContractWithRefs None withoutLinq None [ TestHelpers.vesperCoreManifest ]
 
                 Expect.isTrue
                     (fullProvider.TryLookupType "System.Linq.Enumerable" |> ValueOption.isSome)

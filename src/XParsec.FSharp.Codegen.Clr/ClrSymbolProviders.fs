@@ -74,6 +74,59 @@ module ClrSymbolProviders =
     let buildContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).Provider
 
+    /// The compiling package's own intrinsic reverse axis
+    /// The reverse `{ platform-repr -> [canon] }` axis of the package being compiled, as
+    /// a consumer of it would see it. Read off that package's own composed contract
+    /// sources.
+    let selfReverseCanon (target: string option) (selfManifest: string option) : Map<string, SymbolKey list> =
+        match selfManifest with
+        | None -> Map.empty
+        | Some manifestPath -> (buildContractFor target [ manifestPath ]).IntrinsicReverseCanon
+
+    let private seeded
+        (seed: Map<string, SymbolKey list>)
+        (tail: SymbolProviders.MetaTailFactory)
+        : SymbolProviders.MetaTailFactory =
+        if seed.IsEmpty then
+            tail
+        else
+            fun referenced ->
+                (referenced, seed)
+                ||> Map.fold (fun acc platform canons ->
+                    match Map.tryFind platform acc with
+                    | Some existing -> Map.add platform (canons @ existing |> List.distinct) acc
+                    | None -> Map.add platform canons acc
+                )
+                |> tail
+
+    let private seedTag (seed: Map<string, SymbolKey list>) : string =
+        if seed.IsEmpty then
+            ""
+        else
+            "|self:"
+            + (seed
+               |> Map.toList
+               |> List.map (fun (platform, canons) ->
+                   platform
+                   + "="
+                   + (canons |> List.map SymbolKeyOps.qualifiedName |> String.concat ",")
+               )
+               |> String.concat ";")
+
+    /// `buildContractFor` for a compilation that IS a package — the host-TPA mirror of
+    /// `buildContractWithRefs`, for a caller with no explicit reference set (the package
+    /// fixtures). `selfManifest` seeds the leaf; it is NOT added to the resolution stack,
+    /// which would declare every one of its types twice.
+    let buildContractForSelf
+        (selfManifest: string option)
+        (target: string option)
+        (manifestPaths: string list)
+        : IExternalSymbolProvider =
+        let seed = selfReverseCanon target selfManifest
+
+        (SymbolProviders.buildContractWith ("bcl" + seedTag seed) (seeded seed bclMetaTail) target manifestPaths)
+            .Provider
+
     /// Raw cross-package inline bodies by source name — introspection seam for tests.
     /// Production code reads a body off the resolved entry that owns its key
     /// (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`); a simple name is not a
@@ -85,26 +138,47 @@ module ClrSymbolProviders =
     let contractInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).BodiesByName
 
-    /// `buildContractFor` over an EXPLICIT reference set (a per-compilation BCL
-    /// surface — a TFM ref pack + `<Reference>`s — not the host TPA). The path set is
-    /// folded into the cache tag (`refsCacheTag`) so two compilations with different
-    /// ref sets but identical manifests never alias.
+    /// The cached contract for one compilation: an EXPLICIT reference set (a
+    /// per-compilation BCL surface — a TFM ref pack + `<Reference>`s — not the host TPA),
+    /// seeded with the compiling package's own intrinsic reverse axis.
+    ///
+    /// Both halves of the identity are in the tag: the ref path set (`refsCacheTag`), so
+    /// two compilations with different ref sets but identical manifests never alias, and
+    /// the seed (`seedTag`), so two packages compiling THEMSELVES — each with an empty
+    /// manifest list — never alias either.
+    let private compilationContract
+        (selfManifest: string option)
+        (dllPaths: string list)
+        (target: string option)
+        (manifestPaths: string list)
+        : SymbolProviders.Contract =
+        let seed = selfReverseCanon target selfManifest
+
+        SymbolProviders.buildContractWith
+            (refsCacheTag dllPaths + seedTag seed)
+            (seeded seed (bclMetaTailWith dllPaths))
+            target
+            manifestPaths
+
+    /// `buildContractFor` over a compilation's own reference set and self package.
+    /// `selfManifest` is `None` for a consumer — every compilation that does not itself
+    /// declare primitives.
     let buildContractWithRefs
+        (selfManifest: string option)
         (dllPaths: string list)
         (target: string option)
         (manifestPaths: string list)
         : IExternalSymbolProvider =
-        (SymbolProviders.buildContractWith (refsCacheTag dllPaths) (bclMetaTailWith dllPaths) target manifestPaths)
-            .Provider
+        (compilationContract selfManifest dllPaths target manifestPaths).Provider
 
     /// The inline-body half of the SAME cached `buildContractWith` call
     /// `buildContractWithRefs` takes the provider of: a driver needs the provider AND the
-    /// bodies for one `(refs, target, manifests)`, and the shared cache tag means the
-    /// second call hits the built entry rather than rebuilding.
+    /// bodies for one compilation, and the shared cache tag means the second call hits the
+    /// built entry rather than rebuilding.
     let contractInlineBodiesWithRefs
+        (selfManifest: string option)
         (dllPaths: string list)
         (target: string option)
         (manifestPaths: string list)
         : Map<string, InlineBody> =
-        (SymbolProviders.buildContractWith (refsCacheTag dllPaths) (bclMetaTailWith dllPaths) target manifestPaths)
-            .BodiesByName
+        (compilationContract selfManifest dllPaths target manifestPaths).BodiesByName

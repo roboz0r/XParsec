@@ -194,11 +194,14 @@ let vesperCoreDll: Lazy<string> =
              implFiles
              |> List.map (fun rel -> vesperCoreSource rel, IO.File.ReadAllText(vesperCoreSource rel))
 
-         // Vesper.Core *defines* its own primitives + operators, so it compiles
-         // against the empty contract stack (just the BCL metadata leaf for the
-         // `(# "System.Int32" #)` reprs) — the same provider `buildPackage
-         // "Vesper.Core"` uses (Core has no `depends-on`).
-         let provider = ClrSymbolProviders.buildContract []
+         // Vesper.Core *defines* its own primitives + operators, so it REFERENCES nothing
+         // (no `depends-on`) and names itself as the SELF manifest — which is what seeds
+         // the metadata leaf with its own `{ platform -> canon }` axis, so a BCL signature
+         // presents `System.String` as `Vesper.string` inside Core's own compile exactly
+         // as it does in a consumer's. Built through the production driver seam, so the
+         // fixture cannot drift from what `buildPackage "Vesper.Core"` does.
+         let provider =
+             ClrSymbolProviders.buildContractForSelf (Some vesperCoreManifest) None []
 
          let artifact =
              match ClrDriver.compileAssemblyWith Pipeline.analyseFor [] provider project files with

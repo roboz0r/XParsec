@@ -34,6 +34,7 @@ let private conformanceDigest =
             Target = Some "js"
             ReferenceAssemblies = []
             Manifests = []
+            SelfManifest = None
         }
 
 /// The cache key a driver would assemble for a source file with no dependencies — the query tag

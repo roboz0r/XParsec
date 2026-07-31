@@ -5,19 +5,38 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 /// A single CLR compilation's inputs, MSBuild-shaped: a future `dotnet build`
-/// integration hands us these three lists already resolved.
+/// integration hands us these already resolved.
 ///   - `Project` — the target-generic per-build config (headed for `Codegen.Common`).
-///   - `Manifests` — the Vesper package-manifest (`.fsi` contract) stack.
+///   - `Manifests` — the Vesper package-manifest (`.fsi` contract) stack it REFERENCES.
 ///   - `BclReferences` — the compilation's OWN BCL surface (a TFM ref pack + the
 ///     `<Reference>`/`<PackageReference>` assemblies), read for `AssemblyRef`
 ///     identity rather than reflected off the codegen host. This is a DRIVER-level
 ///     input by design: it is BCL-exclusive and must NOT accrete onto `ProjectInfo`.
+///   - `SelfManifest` — the manifest of the package this compilation IS, when it is
+///     one. Distinct from `Manifests` in both direction and effect: a referenced
+///     package is RESOLVED against, while the self package is being DEFINED, and its
+///     `(# … #)` reprs seed the metadata leaf so a BCL signature presents its own
+///     primitives as its own canon identities. `None` for a consumer.
 type ClrCompilation =
     {
         Project: ProjectInfo
         Manifests: string list
         BclReferences: string list
+        SelfManifest: string option
     }
+
+module ClrCompilation =
+
+    /// A consumer compilation: references packages, defines no primitives of its own.
+    /// The overwhelmingly common shape, and the one a caller should reach for unless it
+    /// is compiling a package that declares `extern` types.
+    let consumer (project: ProjectInfo) (manifests: string list) (bclReferences: string list) : ClrCompilation =
+        {
+            Project = project
+            Manifests = manifests
+            BclReferences = bclReferences
+            SelfManifest = None
+        }
 
 /// The library-level production CLR driver: parse → analyse → gate → emit against
 /// an EXPLICIT reference set, returning front-end errors rather than throwing. The
@@ -51,7 +70,7 @@ module ClrDriver =
         | Error diagnostics -> Error diagnostics
         | Ok parsed ->
             let provider =
-                ClrSymbolProviders.buildContractWithRefs inputs.BclReferences None inputs.Manifests
+                ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences None inputs.Manifests
 
             let tast =
                 Pipeline.analyseFor inputs.Project.AssemblyName provider source parsed.Lexed parsed.File
@@ -79,6 +98,7 @@ module ClrDriver =
                 Target = clrTarget
                 ReferenceAssemblies = inputs.BclReferences
                 Manifests = inputs.Manifests
+                SelfManifest = inputs.SelfManifest
             }
 
     /// `compile`, but routing the per-file front end through the frozen-compile cache
@@ -97,7 +117,7 @@ module ClrDriver =
     /// the front end that yields the frozen tree, never emission. This is sound only because
     /// the key covers every input the provider is built from as well as the source:
     /// `Hashing.CompilationInputs` names them, and `compilationDigest` fills them from
-    /// exactly the three arguments handed to `buildContractWithRefs` plus the home assembly
+    /// exactly the four arguments handed to `buildContractWithRefs` plus the home assembly
     /// `analyseFor` roots its minted keys at. A hit therefore implies a provider equivalent to
     /// the one that produced the cached tree, hence identical codegen. The key's
     /// `QueryId.Freeze` / `Cache.CodeVersion` guards match the rest of the cache seam.
@@ -111,7 +131,7 @@ module ClrDriver =
         (source: string)
         : Result<ClrArtifact, Diagnostic list> =
         let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.BclReferences clrTarget inputs.Manifests
+            ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences clrTarget inputs.Manifests
 
         let key =
             {
@@ -217,7 +237,7 @@ module ClrDriver =
         (files: (string * string) list)
         : Result<ClrArtifact, AssemblyUnits.AnchoredDiagnostic list> =
         let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.BclReferences None inputs.Manifests
+            ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences None inputs.Manifests
 
         compileAssemblyWith Pipeline.analyseFor inputs.BclReferences provider inputs.Project files
 

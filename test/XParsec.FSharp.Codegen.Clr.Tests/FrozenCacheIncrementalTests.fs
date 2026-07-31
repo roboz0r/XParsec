@@ -34,11 +34,7 @@ let private bclReferences () : string list =
     | Result.Error e -> failtestf "net8.0 ref pack unavailable: %s" e
 
 let private inputsWith (manifests: string list) (name: string) : ClrCompilation =
-    {
-        Project = ProjectInfo.defaults name
-        Manifests = manifests
-        BclReferences = bclReferences ()
-    }
+    ClrCompilation.consumer (ProjectInfo.defaults name) manifests (bclReferences ())
 
 let private digestOf (artifact: ClrArtifact) : string =
     ClrStructuralDigest.ofBytes (Codegen.toBytes artifact)

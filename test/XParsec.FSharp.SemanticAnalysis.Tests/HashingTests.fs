@@ -73,6 +73,7 @@ let private compilation: Hashing.CompilationInputs =
         Target = None
         ReferenceAssemblies = []
         Manifests = []
+        SelfManifest = None
     }
 
 /// The fixture source. Fixed wherever a test is gating a COMPILATION determinant, so a moved
@@ -279,6 +280,52 @@ let tests =
                             before
                             (keyUnder inputs)
                             "the key closes over `depends-on`; only the root was named"
+                    }
+
+                    test "the self manifest changes the key" {
+                        // It seeds the metadata leaf's `{ platform -> canon }` map, so it
+                        // decides what a BCL name resolves to inside the package's own
+                        // compile. Naming it as SELF differs from naming it as a REFERENCE:
+                        // same bytes, different provider, so path equality alone must not
+                        // let the two share a blob.
+                        let root = freshRoot "self-manifest"
+                        let manifest = writePackage root "Pkg" "type a = extern\n"
+
+                        let asSelf =
+                            { compilation with
+                                SelfManifest = Some manifest
+                            }
+
+                        let asReference =
+                            { compilation with
+                                Manifests = [ manifest ]
+                            }
+
+                        Expect.notEqual (keyUnder asSelf) (keyUnder compilation) "a self package is part of the key"
+
+                        Expect.notEqual
+                            (keyUnder asSelf)
+                            (keyUnder asReference)
+                            "compiling a package is not the same as referencing it"
+                    }
+
+                    test "an edited self package changes the key" {
+                        // Its `.fs` companions carry the `(# … #)` reprs the seed is folded
+                        // from, so editing one moves what a BCL signature resolves to with no
+                        // `.fsi` touched — the same stale hit `dependencySignatureHash`
+                        // documents for a reference, one role over.
+                        let root = freshRoot "self-manifest-edit"
+                        let manifest = writePackage root "Pkg" "type a = extern\n"
+
+                        let inputs =
+                            { compilation with
+                                SelfManifest = Some manifest
+                            }
+
+                        let before = keyUnder inputs
+                        File.WriteAllText(Path.Combine(root, "Pkg", "contract.fsi"), "type b = extern\n")
+
+                        Expect.notEqual before (keyUnder inputs) "the self package's contents are a determinant"
                     }
 
                     test "the home assembly changes the key" {

@@ -210,6 +210,17 @@ module Hashing =
             /// The ROOT package manifests. Closed over `depends-on` by `compilationDigest`,
             /// not by the caller.
             Manifests: string list
+            /// The manifest of the package this compilation IS, when it is one — the source
+            /// of the intrinsic reverse axis its own leaf is seeded with, so a BCL signature
+            /// presents the package's own primitives (`System.String` -> `Vesper.string`)
+            /// inside its own compile. `None` for a compilation that declares no primitives,
+            /// which is every consumer.
+            ///
+            /// A determinant twice over, and both halves are folded: its CONTENTS (the
+            /// `(# … #)` reprs live in the `.fs` companions the manifest names) and its ROLE
+            /// (the same manifest as a REFERENCE seeds nothing, so path equality alone would
+            /// alias two different compilations).
+            SelfManifest: string option
         }
 
     /// A folded `CompilationInputs` — the per-compilation half of every file's cache key,
@@ -243,6 +254,13 @@ module Hashing =
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes inputs.HomeAssembly)
         appendPresence hasher inputs.Target.IsSome
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes(defaultArg inputs.Target ""))
+
+        // The self manifest's ROLE. Its CONTENTS are folded by `compilationDigest` through
+        // the same `dependencySignatureHash` a reference gets — which is why the role has to
+        // be recorded here as well: that fold is deduplicated, so a package named BOTH as
+        // self and as a reference would otherwise contribute one indistinguishable digest.
+        appendPresence hasher inputs.SelfManifest.IsSome
+        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes(defaultArg inputs.SelfManifest ""))
 
         for path in inputs.ReferenceAssemblies do
             let info = FileInfo path
@@ -279,7 +297,18 @@ module Hashing =
             | Ok ordered -> ordered
             | Error _ -> inputs.Manifests
 
-        CompilationDigest(inputHash "" (environmentHash inputs :: (manifests |> List.map dependencySignatureHash)))
+        // The self package's sources are a determinant on the SAME footing as a reference's:
+        // its `.fs` companions carry the `(# … #)` reprs the leaf's seed is folded from, and
+        // editing one moves what a BCL signature resolves to WITHOUT touching any `.fsi`.
+        // Folded through the identical hash, so "a package's bytes matter" is one rule.
+        let selfManifests = Option.toList inputs.SelfManifest
+
+        CompilationDigest(
+            inputHash
+                ""
+                (environmentHash inputs
+                 :: (manifests @ selfManifests |> List.map dependencySignatureHash))
+        )
 
     /// The per-file compile-cache input hash: this file's text folded with its compilation's
     /// digest. Touches no disk — the whole cost of a key lives in `compilationDigest`, which

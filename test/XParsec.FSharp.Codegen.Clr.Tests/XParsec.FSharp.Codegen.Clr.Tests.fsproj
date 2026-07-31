@@ -94,6 +94,7 @@
     <Compile Include="PrintfSpecTests.fs" />
     <Compile Include="MetadataStructureTests.fs" />
     <Compile Include="CrossFileUnitsTests.fs" />
+    <Compile Include="SelfPackageReverseCanonTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
