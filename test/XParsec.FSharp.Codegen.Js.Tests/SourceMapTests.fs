@@ -243,29 +243,35 @@ let tests =
             }
 
             test "an inlined body maps to the PRODUCER's own file and line" {
-                // The end-to-end claim. `(+)` at `int` is served by Vesper.Core and spliced onto
-                // this call site, but the node that becomes the `+` was written in
-                // `ops-platform.js.fs` — so a debugger stepping into it must land there, in that
-                // file's text, on the line that spells the intrinsic.
+                // The end-to-end claim. `1 + 2` reaches Vesper.Core TWICE — the operator's own
+                // `let inline` in `ops-platform.js.fs`, whose trait call dispatches to `int`'s
+                // `static member (+)` in `prim-types-min.js.fs`, where the template text
+                // actually is — and both are spliced onto this call site. A debugger stepping
+                // into the `+` must land in the file that spells the intrinsic.
                 let input = "let a = 1 + 2\n"
                 let m = decodeMap (compileMapped "Add" input)
 
                 Expect.equal
-                    m.Sources
-                    [| "Add.fsx"; "Vesper.Core/ops-platform.js.fs" |]
-                    "the consuming file keeps index 0; the producer is published after it"
+                    m.Sources.[0]
+                    "Add.fsx"
+                    "the consuming file keeps index 0; producers are published after it"
 
-                match m.Segments |> List.filter (fun s -> s.SrcIndex = 1) with
+                let sourceIndex (file: string) =
+                    match m.Sources |> Array.tryFindIndex ((=) file) with
+                    | Some i -> i
+                    | None -> failtestf "%s is not among the map's sources: %A" file m.Sources
+
+                sourceIndex "Vesper.Core/ops-platform.js.fs" |> ignore
+                let templateSrc = sourceIndex "Vesper.Core/prim-types-min.js.fs"
+
+                match m.Segments |> List.filter (fun s -> s.SrcIndex = templateSrc) with
                 | [ seg ] ->
                     let line = lineOf m.Contents.[seg.SrcIndex] seg.SrcLine
 
                     // Asserted against the CONTENT the map itself embeds, not against a line
                     // number: what must be true is that the coordinates land on the intrinsic,
-                    // and editing `ops-platform.js.fs` may legitimately move which line that is.
-                    Expect.stringContains
-                        line
-                        "($0 + $1) | 0"
-                        "the producer line is the `int` static-optimization clause"
+                    // and editing the producer may legitimately move which line that is.
+                    Expect.stringContains line "($0 + $1) | 0" "the producer line is `int`'s own `(+)` body"
 
                     Expect.stringStarts
                         (line.Substring seg.SrcCol)

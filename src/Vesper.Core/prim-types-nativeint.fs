@@ -5,6 +5,12 @@ namespace Vesper
 type nativeint =
     (# "native int" #)
     with
+        static member (+)(x: nativeint, y: nativeint) : nativeint = (# "add" x y : nativeint #)
+        static member (-)(x: nativeint, y: nativeint) : nativeint = (# "sub" x y : nativeint #)
+        static member ( * )(x: nativeint, y: nativeint) : nativeint = (# "mul" x y : nativeint #)
+        static member (/)(x: nativeint, y: nativeint) : nativeint = (# "div" x y : nativeint #)
+        static member (%)(x: nativeint, y: nativeint) : nativeint = (# "rem" x y : nativeint #)
+        static member (~-)(n: nativeint) : nativeint = (# "neg" n : nativeint #)
         static member (&&&)(x: nativeint, y: nativeint) : nativeint = (# "and" x y : nativeint #)
         static member (|||)(x: nativeint, y: nativeint) : nativeint = (# "or" x y : nativeint #)
         static member (^^^)(x: nativeint, y: nativeint) : nativeint = (# "xor" x y : nativeint #)
@@ -16,6 +22,11 @@ type nativeint =
 type unativeint =
     (# "unsigned native int" #)
     with
+        static member (+)(x: unativeint, y: unativeint) : unativeint = (# "add" x y : unativeint #)
+        static member (-)(x: unativeint, y: unativeint) : unativeint = (# "sub" x y : unativeint #)
+        static member ( * )(x: unativeint, y: unativeint) : unativeint = (# "mul" x y : unativeint #)
+        static member (/)(x: unativeint, y: unativeint) : unativeint = (# "div.un" x y : unativeint #)
+        static member (%)(x: unativeint, y: unativeint) : unativeint = (# "rem.un" x y : unativeint #)
         static member (&&&)(x: unativeint, y: unativeint) : unativeint = (# "and" x y : unativeint #)
         static member (|||)(x: unativeint, y: unativeint) : unativeint = (# "or" x y : unativeint #)
         static member (^^^)(x: unativeint, y: unativeint) : unativeint = (# "xor" x y : unativeint #)

@@ -6,6 +6,18 @@ namespace Vesper
 type nativeint =
     extern with
 
+    static member (+): x: nativeint * y: nativeint -> nativeint
+
+    static member (-): x: nativeint * y: nativeint -> nativeint
+
+    static member ( * ): x: nativeint * y: nativeint -> nativeint
+
+    static member (/): x: nativeint * y: nativeint -> nativeint
+
+    static member (%): x: nativeint * y: nativeint -> nativeint
+
+    static member (~-): n: nativeint -> nativeint
+
     static member (&&&): x: nativeint * y: nativeint -> nativeint
 
     static member (|||): x: nativeint * y: nativeint -> nativeint
@@ -23,6 +35,16 @@ type nativeint =
 /// <category>Basic Types</category>
 type unativeint =
     extern with
+
+    static member (+): x: unativeint * y: unativeint -> unativeint
+
+    static member (-): x: unativeint * y: unativeint -> unativeint
+
+    static member ( * ): x: unativeint * y: unativeint -> unativeint
+
+    static member (/): x: unativeint * y: unativeint -> unativeint
+
+    static member (%): x: unativeint * y: unativeint -> unativeint
 
     static member (&&&): x: unativeint * y: unativeint -> unativeint
 

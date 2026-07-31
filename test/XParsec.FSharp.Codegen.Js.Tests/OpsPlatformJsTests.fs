@@ -20,14 +20,17 @@ let tests =
     testList
         "OpsPlatformJs"
         [
-            // The clause set of each arithmetic operator IS the JS target's
-            // arithmetic-support definition; the manifest states the same matrix. Built
-            // through the JS-native leaf, so this is what a real JS build splices.
-            OperatorClauseParity.tests
+            // The declared operator surface IS the JS target's arithmetic-support
+            // definition; the manifest states the same matrix. Built through the JS-native
+            // leaf, so this is the contract a real JS build resolves against.
+            OperatorSurfaceParity.tests
                 "js"
+                (JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ])
                 (JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ])
 
-            test "arithmetic operator bodies are collected as cross-package inlines (js target)" {
+            // The operators themselves are still `let inline` values in the collection —
+            // now bare trait calls, with the per-width IL on the primitives.
+            test "arithmetic operators are collected as cross-package inlines (js target)" {
                 let js =
                     JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
 
@@ -43,30 +46,34 @@ let tests =
                     Expect.isTrue (Map.containsKey name js) (sprintf "%s sourced from ops-platform.js.fs" name)
             }
 
-            test "the int32 / int64 / float clauses freeze with their JS templates intact" {
+            // The per-width JS templates, read off the primitives that now declare them.
+            // Each of these was a `when ^T1 : …` clause on the operator; the width owning
+            // its own body is what the freeze has to carry across intact.
+            test "the int32 / int64 / float bodies freeze with their JS templates intact" {
                 let js =
-                    JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
+                    JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
 
-                let add = InlineBodies.ilOpCodes js.["op_Addition"]
+                let opsOf width compiled =
+                    InlineBodies.ilOpCodes (InlineBodies.operatorBody js width compiled)
 
-                Expect.contains add "$0 + $1" "float base template"
-                Expect.contains add "($0 + $1) | 0" "int32 `| 0` truncation clause"
-                Expect.contains add "BigInt.asIntN(64, $0 + $1)" "int64 BigInt-wrap clause"
+                Expect.contains (opsOf "float" "op_Addition") "$0 + $1" "float `+` is the bare JS operator"
+                Expect.contains (opsOf "int" "op_Addition") "($0 + $1) | 0" "int32 `+` truncates through `| 0`"
 
-                // The Math.imul int32 multiply clause is the JS template (contrasted
-                // against the CLR `mul` mnemonic in `OpsPlatformClrTests`).
-                let mul = InlineBodies.ilOpCodes js.["op_Multiply"]
-                Expect.contains mul "Math.imul($0, $1)" "js `*` int32 clause is the Math.imul template"
+                Expect.contains
+                    (opsOf "int64" "op_Addition")
+                    "BigInt.asIntN(64, $0 + $1)"
+                    "int64 `+` wraps through BigInt"
 
-                // Unary negation is a static-opt with base + int + int64 clauses.
-                let neg = InlineBodies.ilOpCodes js.["op_UnaryNegation"]
-                Expect.contains neg "-$0" "unary-neg float base"
-                Expect.contains neg "(-$0) | 0" "unary-neg int32 clause"
+                // `Math.imul` is the JS answer at 32 bits (contrasted against the CLR
+                // `mul` mnemonic in `OpsPlatformClrTests`).
+                Expect.contains (opsOf "int" "op_Multiply") "Math.imul($0, $1)" "int32 `*` is the Math.imul template"
+
+                Expect.contains (opsOf "float" "op_UnaryNegation") "-$0" "float `~-` is the bare JS operator"
+                Expect.contains (opsOf "int" "op_UnaryNegation") "(-$0) | 0" "int32 `~-` re-truncates"
 
                 // The `%` in the modulus template is NOT a printf placeholder — must survive freeze verbatim.
-                let modOps = InlineBodies.ilOpCodes js.["op_Modulus"]
-                Expect.contains modOps "$0 % $1" "modulus `%` carried through verbatim"
-                Expect.contains modOps "($0 % $1) | 0" "modulus int32 clause keeps the bare `%`"
+                Expect.contains (opsOf "float" "op_Modulus") "$0 % $1" "modulus `%` carried through verbatim"
+                Expect.contains (opsOf "int" "op_Modulus") "($0 % $1) | 0" "int32 modulus keeps the bare `%`"
             }
 
             test "equality operators freeze with `===` primitive clauses + structural-call base" {

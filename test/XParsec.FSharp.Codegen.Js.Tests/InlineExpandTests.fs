@@ -193,22 +193,18 @@ let tests =
             test "a node re-authored REPEATEDLY still names the file it was copied from" {
                 // The chain, which is the whole reason provenance is resolved along one rather
                 // than copied at each re-authorship. `1 + 2` beta-reduces `(+)`'s body to a
-                // `let` chain of two pure bindings, and collapsing them (`reduceInlinableLet`,
-                // what every `buildExpr` site does) re-authors the operator node ONCE PER
-                // COLLAPSE — so the node the origin is filed against is two links away, and a
-                // reader that followed one link would fall back to the CALL SITE's anchor:
-                // in range, plausible, and the wrong file.
+                // `let` chain of pure bindings — one per binder, and `1 + 2` now binds twice
+                // over: the operator's own operands, then `int`'s `(+)` witness below it.
+                // Collapsing them (`reduceInlinableLet`, what every `buildExpr` site does)
+                // re-authors the operator node ONCE PER COLLAPSE — so the node the origin is
+                // filed against is several links away, and a reader that followed one link
+                // would fall back to the CALL SITE's anchor: in range, plausible, and the
+                // wrong file.
                 let pool, decls = opened "let a = 1 + 2\n"
                 let expansion = InlineExpand.expand pool decls
 
                 let derivation = InlineExpand.Derivation.create ()
                 InlineExpand.Derivation.absorb derivation expansion.Derived
-
-                let letBody (what: string) (e: TastAccessor.ExprId) =
-                    match TastAccessor.exprKind e with
-                    | ExprShape.Let -> (TastAccessor.exprLet e).Body
-                    | other ->
-                        failtestf "the %s of the expanded body is a %A, not the `let` beta reduction left" what other
 
                 let body =
                     match
@@ -218,30 +214,45 @@ let tests =
                     | [ d ] -> (TastAccessor.declLet d).Value
                     | ds -> failtestf "expected one `let` declaration, got %d" (List.length ds)
 
-                // The operator node as the EXPANSION left it: under both binder `let`s, and the
-                // node the producer origin is filed against.
-                let copied = body |> letBody "outer" |> letBody "inner"
+                // The operator node as the EXPANSION left it: under EVERY binder `let`, and the
+                // node the producer origin is filed against. Walked rather than counted — how
+                // many binders the chain has is a fact about the contract's shape, not the
+                // provenance claim under test.
+                let rec underBinders (e: TastAccessor.ExprId) =
+                    match TastAccessor.exprKind e with
+                    | ExprShape.Let -> underBinders (TastAccessor.exprLet e).Body
+                    | _ -> e
+
+                let copied = underBinders body
+
+                Expect.notEqual copied body "the expansion left at least one binder `let` to collapse"
 
                 let expected =
                     match expansion.Origins.TryGetValue copied with
                     | true, origin -> origin
                     | _ -> failtest "the operator node came out of the table, or the chain below tests nothing"
 
-                let collapse (e: TastAccessor.ExprId) =
+                // Collapse the WHOLE chain, not a fixed two links: every binder the
+                // expansion left is one more re-authorship, and how many there are is a fact
+                // about the contract's shape, not about the provenance claim.
+                let rec collapseAll (e: TastAccessor.ExprId) (links: int) =
                     match JsEmitHelpers.reduceInlinableLet derivation e with
-                    | Some reduced -> reduced
-                    | None -> failtest "the beta-reduced binding is a pure `let` the emitter collapses"
+                    | Some reduced -> collapseAll reduced (links + 1)
+                    | None -> e, links
 
-                let once = collapse body
-                let twice = collapse once
+                let collapsed, links = collapseAll body 0
 
-                Expect.notEqual twice once "the second collapse re-authored the node a second time"
-                Expect.notEqual twice copied "…and neither re-authorship left the node it was given"
+                Expect.isGreaterThan
+                    links
+                    1
+                    "more than one collapse, or a single link would satisfy the claim trivially"
+
+                Expect.notEqual collapsed copied "no re-authorship left the node it was given"
 
                 Expect.equal
-                    (InlineExpand.Derivation.tryFind derivation expansion.Origins twice)
+                    (InlineExpand.Derivation.tryFind derivation expansion.Origins collapsed)
                     (ValueSome expected)
-                    "the twice-derived node resolves to the origin filed against the node it descends from"
+                    "the repeatedly-derived node resolves to the origin filed against the node it descends from"
             }
 
             test "two call sites at one grounding get their OWN binders" {

@@ -1,16 +1,29 @@
 namespace Vesper
 
-// Each width states its own bitwise surface (`&&& ||| ^^^ ~~~ <<< >>>`). The list is
-// the contract: an operand type that states no member does not support the operator,
-// which is what makes `1.0 &&& 2.0` an error rather than garbage IL. The bodies are the
-// target's own, in the paired `.fs` — a member on an intrinsic is spliced at the use
-// site, never emitted. The shift amount is `int` at every width.
+// Each width states its own operator surface — the arithmetic family (`+ - * / %`), the
+// bitwise family (`&&& ||| ^^^ ~~~ <<< >>>`), and, at the signed widths only, `~-`. The
+// list is the contract: an operand type that states no member does not support the
+// operator, which is what makes `1.0 &&& 2.0` an error rather than garbage IL. The bodies
+// are the target's own, in the paired `.fs` — a member on an intrinsic is spliced at the
+// use site, never emitted. The shift amount is `int` at every width.
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.SByte"/>.</summary>
 ///
 /// <category>Basic Types</category>
 type sbyte =
     extern with
+
+    static member (+): x: sbyte * y: sbyte -> sbyte
+
+    static member (-): x: sbyte * y: sbyte -> sbyte
+
+    static member ( * ): x: sbyte * y: sbyte -> sbyte
+
+    static member (/): x: sbyte * y: sbyte -> sbyte
+
+    static member (%): x: sbyte * y: sbyte -> sbyte
+
+    static member (~-): n: sbyte -> sbyte
 
     static member (&&&): x: sbyte * y: sbyte -> sbyte
 
@@ -29,6 +42,16 @@ type sbyte =
 /// <category>Basic Types</category>
 type byte =
     extern with
+
+    static member (+): x: byte * y: byte -> byte
+
+    static member (-): x: byte * y: byte -> byte
+
+    static member ( * ): x: byte * y: byte -> byte
+
+    static member (/): x: byte * y: byte -> byte
+
+    static member (%): x: byte * y: byte -> byte
 
     static member (&&&): x: byte * y: byte -> byte
 
@@ -58,6 +81,18 @@ type uint8 = byte
 type int16 =
     extern with
 
+    static member (+): x: int16 * y: int16 -> int16
+
+    static member (-): x: int16 * y: int16 -> int16
+
+    static member ( * ): x: int16 * y: int16 -> int16
+
+    static member (/): x: int16 * y: int16 -> int16
+
+    static member (%): x: int16 * y: int16 -> int16
+
+    static member (~-): n: int16 -> int16
+
     static member (&&&): x: int16 * y: int16 -> int16
 
     static member (|||): x: int16 * y: int16 -> int16
@@ -75,6 +110,16 @@ type int16 =
 /// <category>Basic Types</category>
 type uint16 =
     extern with
+
+    static member (+): x: uint16 * y: uint16 -> uint16
+
+    static member (-): x: uint16 * y: uint16 -> uint16
+
+    static member ( * ): x: uint16 * y: uint16 -> uint16
+
+    static member (/): x: uint16 * y: uint16 -> uint16
+
+    static member (%): x: uint16 * y: uint16 -> uint16
 
     static member (&&&): x: uint16 * y: uint16 -> uint16
 
@@ -99,6 +144,16 @@ type int32 = int
 type uint32 =
     extern with
 
+    static member (+): x: uint32 * y: uint32 -> uint32
+
+    static member (-): x: uint32 * y: uint32 -> uint32
+
+    static member ( * ): x: uint32 * y: uint32 -> uint32
+
+    static member (/): x: uint32 * y: uint32 -> uint32
+
+    static member (%): x: uint32 * y: uint32 -> uint32
+
     static member (&&&): x: uint32 * y: uint32 -> uint32
 
     static member (|||): x: uint32 * y: uint32 -> uint32
@@ -117,6 +172,18 @@ type uint32 =
 type int64 =
     extern with
 
+    static member (+): x: int64 * y: int64 -> int64
+
+    static member (-): x: int64 * y: int64 -> int64
+
+    static member ( * ): x: int64 * y: int64 -> int64
+
+    static member (/): x: int64 * y: int64 -> int64
+
+    static member (%): x: int64 * y: int64 -> int64
+
+    static member (~-): n: int64 -> int64
+
     static member (&&&): x: int64 * y: int64 -> int64
 
     static member (|||): x: int64 * y: int64 -> int64
@@ -134,6 +201,16 @@ type int64 =
 /// <category>Basic Types</category>
 type uint64 =
     extern with
+
+    static member (+): x: uint64 * y: uint64 -> uint64
+
+    static member (-): x: uint64 * y: uint64 -> uint64
+
+    static member ( * ): x: uint64 * y: uint64 -> uint64
+
+    static member (/): x: uint64 * y: uint64 -> uint64
+
+    static member (%): x: uint64 * y: uint64 -> uint64
 
     static member (&&&): x: uint64 * y: uint64 -> uint64
 

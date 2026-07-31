@@ -151,24 +151,43 @@ let tests =
                 for name in arithmeticOps do
                     Expect.isTrue (Map.containsKey name inlines) (sprintf "%s body sourced from ops-platform.fs" name)
 
-                // Every arithmetic body is a static-opt whose BASE is the SRTP trait
-                // call: that inversion is what makes an unsupported operand diagnose
-                // instead of riding a raw-IL base. Binary ops abstract twice, `~-` once.
-                let staticOptBase (decl: Wire.TDecl) : Wire.TExpr voption =
-                    match decl with
-                    | TDeclG.Let(_,
-                                 TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization(_, b, _, _), _, _), _, _),
-                                 true,
-                                 _)
-                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.StaticOptimization(_, b, _, _), _, _), true, _) ->
-                        ValueSome b
-                    | _ -> ValueNone
+                // Every arithmetic body IS the SRTP trait call — an operand type either
+                // declares the member or does not support the operator. Nothing rides a
+                // raw-IL base, which is what makes an unsupported operand diagnose.
+                // Binary ops abstract twice, `~-` once. `(+)` is the one still wrapped in
+                // a static-opt: its lone `string` clause (see `prim-types-string.fsi`).
+                let rec traitBase (e: Wire.TExpr) : Wire.TExpr =
+                    match e with
+                    | TExprG.Lambda(_, b, _, _) -> traitBase b
+                    | TExprG.StaticOptimization(_, b, _, _) -> traitBase b
+                    | e -> e
 
                 for name in arithmeticOps do
-                    match staticOptBase inlines.[name].Decl with
-                    | ValueSome(TExprG.TraitCall(_, traitName, _, _, _)) ->
-                        Expect.equal traitName name (sprintf "%s's static-opt base dispatches to its own trait" name)
-                    | other -> failtestf "%s's static-opt base should be a TraitCall, got %A" name other
+                    match inlines.[name].Decl with
+                    | TDeclG.Let(_, v, true, _) ->
+                        match traitBase v with
+                        | TExprG.TraitCall(_, traitName, _, _, _) ->
+                            Expect.equal traitName name (sprintf "%s's body dispatches to its own trait" name)
+                        | other -> failtestf "%s's body should be a TraitCall, got %A" name other
+                    | other -> failtestf "%s should freeze as an inline `let`, got %A" name other
+            }
+
+            // Every width states its own `(+)` on the type, so the operator itself no
+            // longer names any. `string` alone still needs a clause, and its declaration
+            // being absent is what this pins — the `.fsi` remark says why.
+            test "only `string` still rides a clause on `+`; every numeric width declares its own" {
+                let provider = ClrSymbolProviders.buildContract defaultManifests
+
+                let declares (width: string) (op: string) =
+                    match provider.TryLookupMember(RuntimeNames.primitiveKey width, op) with
+                    | ValueSome m -> m.IsStatic
+                    | ValueNone -> false
+
+                for width in [ "int"; "byte"; "sbyte"; "int16"; "uint16"; "uint32"; "int64"; "uint64" ] do
+                    for op in [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ] do
+                        Expect.isTrue (declares width op) (sprintf "%s declares %s" width op)
+
+                Expect.isFalse (declares "string" "op_Addition") "string's `(+)` is still the operator's own clause"
             }
 
             // A HETEROGENEOUS user operator (`Vec2 * int -> Vec2`): the contract's

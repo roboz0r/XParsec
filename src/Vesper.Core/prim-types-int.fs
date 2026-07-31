@@ -2,14 +2,26 @@ namespace Vesper
 
 #nowarn "42"
 
-// The CIL bitwise mnemonics are width-agnostic on the evaluation stack: `and`/`or`/`xor`
-// of two in-range operands stays in range, and `not` on a sub-int32 width keeps the
-// meaningful low bits — so none of them needs a `conv.*` back. Right shift is the one
-// split: `shr` sign-extends (correct for the signed widths), `shr.un` zero-fills.
+// The arithmetic mnemonics compute on the int32 evaluation stack, so every sub-int32
+// width truncates its result back through a `conv.*` — without it `200uy + 100uy`
+// answers 300 rather than wrapping to 44uy. Division splits by sign: `div`/`rem` at the
+// signed widths, `div.un`/`rem.un` at the unsigned. Negation exists only where the width
+// can hold the answer, which is the signed widths alone.
+//
+// The bitwise mnemonics, by contrast, ARE width-agnostic: `and`/`or`/`xor` of two
+// in-range operands stays in range, and `not` on a sub-int32 width keeps the meaningful
+// low bits — so none of them needs a `conv.*` back. Right shift is their one split:
+// `shr` sign-extends, `shr.un` zero-fills.
 
 type sbyte =
     (# "System.SByte" #)
     with
+        static member (+)(x: sbyte, y: sbyte) : sbyte = (# "conv.i1" (# "add" x y : int #) : sbyte #)
+        static member (-)(x: sbyte, y: sbyte) : sbyte = (# "conv.i1" (# "sub" x y : int #) : sbyte #)
+        static member ( * )(x: sbyte, y: sbyte) : sbyte = (# "conv.i1" (# "mul" x y : int #) : sbyte #)
+        static member (/)(x: sbyte, y: sbyte) : sbyte = (# "conv.i1" (# "div" x y : int #) : sbyte #)
+        static member (%)(x: sbyte, y: sbyte) : sbyte = (# "conv.i1" (# "rem" x y : int #) : sbyte #)
+        static member (~-)(n: sbyte) : sbyte = (# "conv.i1" (# "neg" n : int #) : sbyte #)
         static member (&&&)(x: sbyte, y: sbyte) : sbyte = (# "and" x y : sbyte #)
         static member (|||)(x: sbyte, y: sbyte) : sbyte = (# "or" x y : sbyte #)
         static member (^^^)(x: sbyte, y: sbyte) : sbyte = (# "xor" x y : sbyte #)
@@ -21,6 +33,11 @@ type sbyte =
 type byte =
     (# "System.Byte" #)
     with
+        static member (+)(x: byte, y: byte) : byte = (# "conv.u1" (# "add" x y : int #) : byte #)
+        static member (-)(x: byte, y: byte) : byte = (# "conv.u1" (# "sub" x y : int #) : byte #)
+        static member ( * )(x: byte, y: byte) : byte = (# "conv.u1" (# "mul" x y : int #) : byte #)
+        static member (/)(x: byte, y: byte) : byte = (# "conv.u1" (# "div.un" x y : int #) : byte #)
+        static member (%)(x: byte, y: byte) : byte = (# "conv.u1" (# "rem.un" x y : int #) : byte #)
         static member (&&&)(x: byte, y: byte) : byte = (# "and" x y : byte #)
         static member (|||)(x: byte, y: byte) : byte = (# "or" x y : byte #)
         static member (^^^)(x: byte, y: byte) : byte = (# "xor" x y : byte #)
@@ -35,6 +52,12 @@ type uint8 = byte
 type int16 =
     (# "System.Int16" #)
     with
+        static member (+)(x: int16, y: int16) : int16 = (# "conv.i2" (# "add" x y : int #) : int16 #)
+        static member (-)(x: int16, y: int16) : int16 = (# "conv.i2" (# "sub" x y : int #) : int16 #)
+        static member ( * )(x: int16, y: int16) : int16 = (# "conv.i2" (# "mul" x y : int #) : int16 #)
+        static member (/)(x: int16, y: int16) : int16 = (# "conv.i2" (# "div" x y : int #) : int16 #)
+        static member (%)(x: int16, y: int16) : int16 = (# "conv.i2" (# "rem" x y : int #) : int16 #)
+        static member (~-)(n: int16) : int16 = (# "conv.i2" (# "neg" n : int #) : int16 #)
         static member (&&&)(x: int16, y: int16) : int16 = (# "and" x y : int16 #)
         static member (|||)(x: int16, y: int16) : int16 = (# "or" x y : int16 #)
         static member (^^^)(x: int16, y: int16) : int16 = (# "xor" x y : int16 #)
@@ -46,6 +69,11 @@ type int16 =
 type uint16 =
     (# "System.UInt16" #)
     with
+        static member (+)(x: uint16, y: uint16) : uint16 = (# "conv.u2" (# "add" x y : int #) : uint16 #)
+        static member (-)(x: uint16, y: uint16) : uint16 = (# "conv.u2" (# "sub" x y : int #) : uint16 #)
+        static member ( * )(x: uint16, y: uint16) : uint16 = (# "conv.u2" (# "mul" x y : int #) : uint16 #)
+        static member (/)(x: uint16, y: uint16) : uint16 = (# "conv.u2" (# "div.un" x y : int #) : uint16 #)
+        static member (%)(x: uint16, y: uint16) : uint16 = (# "conv.u2" (# "rem.un" x y : int #) : uint16 #)
         static member (&&&)(x: uint16, y: uint16) : uint16 = (# "and" x y : uint16 #)
         static member (|||)(x: uint16, y: uint16) : uint16 = (# "or" x y : uint16 #)
         static member (^^^)(x: uint16, y: uint16) : uint16 = (# "xor" x y : uint16 #)
@@ -59,6 +87,11 @@ type int32 = int
 type uint32 =
     (# "System.UInt32" #)
     with
+        static member (+)(x: uint32, y: uint32) : uint32 = (# "add" x y : uint32 #)
+        static member (-)(x: uint32, y: uint32) : uint32 = (# "sub" x y : uint32 #)
+        static member ( * )(x: uint32, y: uint32) : uint32 = (# "mul" x y : uint32 #)
+        static member (/)(x: uint32, y: uint32) : uint32 = (# "div.un" x y : uint32 #)
+        static member (%)(x: uint32, y: uint32) : uint32 = (# "rem.un" x y : uint32 #)
         static member (&&&)(x: uint32, y: uint32) : uint32 = (# "and" x y : uint32 #)
         static member (|||)(x: uint32, y: uint32) : uint32 = (# "or" x y : uint32 #)
         static member (^^^)(x: uint32, y: uint32) : uint32 = (# "xor" x y : uint32 #)
@@ -70,6 +103,12 @@ type uint32 =
 type int64 =
     (# "System.Int64" #)
     with
+        static member (+)(x: int64, y: int64) : int64 = (# "add" x y : int64 #)
+        static member (-)(x: int64, y: int64) : int64 = (# "sub" x y : int64 #)
+        static member ( * )(x: int64, y: int64) : int64 = (# "mul" x y : int64 #)
+        static member (/)(x: int64, y: int64) : int64 = (# "div" x y : int64 #)
+        static member (%)(x: int64, y: int64) : int64 = (# "rem" x y : int64 #)
+        static member (~-)(n: int64) : int64 = (# "neg" n : int64 #)
         static member (&&&)(x: int64, y: int64) : int64 = (# "and" x y : int64 #)
         static member (|||)(x: int64, y: int64) : int64 = (# "or" x y : int64 #)
         static member (^^^)(x: int64, y: int64) : int64 = (# "xor" x y : int64 #)
@@ -81,6 +120,11 @@ type int64 =
 type uint64 =
     (# "System.UInt64" #)
     with
+        static member (+)(x: uint64, y: uint64) : uint64 = (# "add" x y : uint64 #)
+        static member (-)(x: uint64, y: uint64) : uint64 = (# "sub" x y : uint64 #)
+        static member ( * )(x: uint64, y: uint64) : uint64 = (# "mul" x y : uint64 #)
+        static member (/)(x: uint64, y: uint64) : uint64 = (# "div.un" x y : uint64 #)
+        static member (%)(x: uint64, y: uint64) : uint64 = (# "rem.un" x y : uint64 #)
         static member (&&&)(x: uint64, y: uint64) : uint64 = (# "and" x y : uint64 #)
         static member (|||)(x: uint64, y: uint64) : uint64 = (# "or" x y : uint64 #)
         static member (^^^)(x: uint64, y: uint64) : uint64 = (# "xor" x y : uint64 #)

@@ -2,7 +2,7 @@ class Factorial {
   constructor(n) {
     this.n = n;
     const _s0 = this;
-    (this.fact = (k) => (((k) <= (1)) ? 1 : ((_s18) => (Math.imul((k), (_s18))))(_s0.fact((((k) - (1)) | 0)))));
+    (this.fact = (k) => (((k) <= (1)) ? 1 : ((_s26) => (Math.imul((k), (_s26))))(_s0.fact((((k) - (1)) | 0)))));
     (this.value = _s0.fact(_s0.n));
   }
 }

@@ -7,8 +7,8 @@ namespace       'namespace'       KWNamespace         tok=   0  pos=   0
       =         '='               OpEquality          tok=  15  pos= 154
       extern    'extern'          KWExtern            tok=  17  pos= 156
   Type:
-    type        'type'            KWType              tok=  26  pos= 292
+    type        'type'            KWType              tok=  46  pos=1061
     TypeSig.Extern:
-      TypeName  'string'          Identifier          tok=  28  pos= 297
-      =         '='               OpEquality          tok=  30  pos= 304
-      extern    'extern'          KWExtern            tok=  32  pos= 306
+      TypeName  'string'          Identifier          tok=  48  pos=1066
+      =         '='               OpEquality          tok=  50  pos=1073
+      extern    'extern'          KWExtern            tok=  52  pos=1075

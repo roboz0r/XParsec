@@ -6,6 +6,11 @@ type int =
     (# "System.Int32" #)
     with
         static member (+)(x: int, y: int) : int = (# "add" x y : int #)
+        static member (-)(x: int, y: int) : int = (# "sub" x y : int #)
+        static member ( * )(x: int, y: int) : int = (# "mul" x y : int #)
+        static member (/)(x: int, y: int) : int = (# "div" x y : int #)
+        static member (%)(x: int, y: int) : int = (# "rem" x y : int #)
+        static member (~-)(n: int) : int = (# "neg" n : int #)
         static member (&&&)(x: int, y: int) : int = (# "and" x y : int #)
         static member (|||)(x: int, y: int) : int = (# "or" x y : int #)
         static member (^^^)(x: int, y: int) : int = (# "xor" x y : int #)

@@ -12,6 +12,18 @@ type int = extern with
     /// emitted.</summary>
     static member (+): x: int * y: int -> int
 
+    static member (-): x: int * y: int -> int
+
+    static member ( * ): x: int * y: int -> int
+
+    static member (/): x: int * y: int -> int
+
+    static member (%): x: int * y: int -> int
+
+    /// <summary>Unary negation, declared at the SIGNED widths only: a negated unsigned
+    /// value has no answer its own width can hold.</summary>
+    static member (~-): n: int -> int
+
     /// <summary>The bitwise family. Declaring it HERE is what rejects
     /// <c>1.0 &amp;&amp;&amp; 2.0</c>: a type that states no such member does not support the
     /// operator, and <c>float</c> states none.</summary>

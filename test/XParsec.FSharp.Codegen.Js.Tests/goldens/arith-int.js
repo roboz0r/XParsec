@@ -6,7 +6,7 @@ console.log((((100) / ($Vesper_ArithmeticRuntime_checkedDivisor(7))) | 0));
 console.log((((100) % ($Vesper_ArithmeticRuntime_checkedDivisor(7))) | 0));
 console.log((((3) - (10)) | 0));
 console.log(((((((7) - (3)) | 0)) - (2)) | 0));
-console.log(((_s33) => (((_s33) / ($Vesper_ArithmeticRuntime_checkedDivisor(2))) | 0))((((100) / ($Vesper_ArithmeticRuntime_checkedDivisor(5))) | 0)));
+console.log(((_s66) => (((_s66) / ($Vesper_ArithmeticRuntime_checkedDivisor(2))) | 0))((((100) / ($Vesper_ArithmeticRuntime_checkedDivisor(5))) | 0)));
 console.log((((2) + ((Math.imul((3), (4))))) | 0));
 console.log(((((Math.imul(((((10) + (5)) | 0)), (2)))) - (3)) | 0));
 console.log(((((((100) - ((Math.imul((2), (3))))) | 0)) + (1)) | 0));

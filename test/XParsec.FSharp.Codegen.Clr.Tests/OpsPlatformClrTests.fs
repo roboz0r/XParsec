@@ -21,22 +21,29 @@ let tests =
     testList
         "OpsPlatformClr"
         [
-            // The clause set of each arithmetic operator IS the CLR's arithmetic-support
-            // definition; the manifest states the same matrix. The bodies are the ones a
-            // CLR build splices — target `None`.
-            OperatorClauseParity.tests "clr" (ClrSymbolProviders.contractInlineBodiesFor None [ vesperCoreManifest ])
+            // The declared operator surface IS the CLR's arithmetic-support definition;
+            // the manifest states the same matrix. The contract is the one a CLR build
+            // resolves against — target `None`.
+            OperatorSurfaceParity.tests
+                "clr"
+                (ClrSymbolProviders.buildContractFor None [ vesperCoreManifest ])
+                (ClrSymbolProviders.contractInlineBodiesFor None [ vesperCoreManifest ])
 
             test "target selection swaps in the JS bodies (Math.imul present for js, absent for clr)" {
-                let js =
-                    ClrSymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
+                let js = ClrSymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
 
-                let clr = ClrSymbolProviders.contractInlineBodiesFor None [ vesperCoreManifest ]
+                let clr = ClrSymbolProviders.buildContractFor None [ vesperCoreManifest ]
 
-                let jsMul = InlineBodies.ilOpCodes js.["op_Multiply"]
-                let clrMul = InlineBodies.ilOpCodes clr.["op_Multiply"]
+                // `int`'s own `( * )` — the per-width body that used to be the operator's
+                // int32 clause, now served by member key off the primitive.
+                let jsMul =
+                    InlineBodies.ilOpCodes (InlineBodies.operatorBody js "int" "op_Multiply")
 
-                Expect.contains jsMul "Math.imul($0, $1)" "js `*` int32 clause is the Math.imul template"
-                Expect.contains clrMul "mul" "clr `*` base is the CIL `mul` mnemonic"
+                let clrMul =
+                    InlineBodies.ilOpCodes (InlineBodies.operatorBody clr "int" "op_Multiply")
+
+                Expect.contains jsMul "Math.imul($0, $1)" "js int `*` is the Math.imul template"
+                Expect.contains clrMul "mul" "clr int `*` is the CIL `mul` mnemonic"
 
                 Expect.isFalse
                     (clrMul |> List.exists (fun s -> s.Contains "Math.imul"))

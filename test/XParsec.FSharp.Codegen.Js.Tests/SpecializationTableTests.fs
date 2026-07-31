@@ -210,6 +210,28 @@ let private entriesFor (name: string) (table: TSpecialization[]) : TSpecializati
                 yield e
     ]
 
+/// `entriesFor`, split by WHERE the template is declared. An arithmetic use site names
+/// TWO entries under one compiled name: the operator's own `let inline` — a module
+/// BINDING, holding the trait call — and the witness it dispatches to, a static MEMBER
+/// declared on the primitive. The key's case is the whole discriminator; the name cannot
+/// be, because the witness is deliberately named after the operator it answers.
+let private operatorEntriesFor (name: string) (table: TSpecialization[]) : TSpecialization list =
+    entriesFor name table
+    |> List.filter (fun e ->
+        match e.Key.Template with
+        | SymbolKey.Binding _ -> true
+        | _ -> false
+    )
+
+/// The primitive-side half of `operatorEntriesFor` — `int`'s own `static member (+)`.
+let private witnessEntriesFor (name: string) (table: TSpecialization[]) : TSpecialization list =
+    entriesFor name table
+    |> List.filter (fun e ->
+        match e.Key.Template with
+        | SymbolKey.Member _ -> true
+        | _ -> false
+    )
+
 /// Every position a specialization entry's declaration carries, in `TastConvert`'s own
 /// traversal order — the total walk of the position axis, so nothing an entry holds is
 /// exempt from the anchoring assertions below.
@@ -459,21 +481,27 @@ let tests =
             test "two call sites at the SAME grounding share one entry" {
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 30 + 40\n"
 
-                match entriesFor "op_Addition" expanded.Specializations with
+                // Both halves of the chain share: the operator, and the `int` witness it
+                // dispatches to. Sharing only one of the two would still duplicate a body.
+                match operatorEntriesFor "op_Addition" expanded.Specializations with
                 | [ _ ] -> ()
                 | other ->
                     failtestf
                         "two `int + int` sites ground `(+)` identically and must name ONE entry; got %d"
                         (List.length other)
+
+                match witnessEntriesFor "op_Addition" expanded.Specializations with
+                | [ _ ] -> ()
+                | other -> failtestf "…and ONE `int` witness below it; got %d" (List.length other)
             }
 
             test "two call sites at DIFFERENT groundings get their own entries" {
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 1.5 + 2.5\n"
 
-                // `(+)` resolves its static-opt clause against the operand type, so `int` and
-                // `float` are two different bodies — sharing them would emit one primitive's
-                // template for the other.
-                match entriesFor "op_Addition" expanded.Specializations with
+                // `(+)` dispatches its trait call to the operand type's own `static member
+                // (+)`, so `int` and `float` reach two different witnesses — sharing the
+                // operator entry would emit one primitive's template for the other.
+                match operatorEntriesFor "op_Addition" expanded.Specializations with
                 | [ x; y ] ->
                     Expect.notEqual
                         x.Key.TypeArgs
@@ -483,6 +511,13 @@ let tests =
                     failtestf
                         "`int + int` and `float + float` are two groundings and must name TWO entries; got %d"
                         (List.length other)
+
+                // The witnesses are distinct TEMPLATES, not one template at two groundings:
+                // `int` and `float` each declare their own member.
+                match witnessEntriesFor "op_Addition" expanded.Specializations with
+                | [ x; y ] ->
+                    Expect.notEqual x.Key.Template y.Key.Template "the two witnesses are declared on different types"
+                | other -> failtestf "…and two witnesses, one per width; got %d" (List.length other)
             }
 
             test "an entry's nodes keep the PRODUCER's anchors, not the call site's" {
@@ -492,10 +527,12 @@ let tests =
                 let expanded = expandedFor input
                 let lexed, _ = parseFile input
 
+                // The WITNESS, not the operator: `int`'s own `(+)` is where the template
+                // text lives now, so it is the entry with producer tokens to read back.
                 let entry =
-                    match entriesFor "op_Addition" expanded.Specializations with
+                    match witnessEntriesFor "op_Addition" expanded.Specializations with
                     | [ e ] -> e
-                    | other -> failtestf "expected exactly one `(+)` entry, got %d" (List.length other)
+                    | other -> failtestf "expected exactly one `int` `(+)` witness entry, got %d" (List.length other)
 
                 let origins = jsContract.Value.Origins
 
@@ -636,7 +673,7 @@ let tests =
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 30 + 40\n"
 
                 let entry =
-                    match entriesFor "op_Addition" expanded.Specializations with
+                    match operatorEntriesFor "op_Addition" expanded.Specializations with
                     | [ e ] -> e
                     | other -> failtestf "expected exactly one `(+)` entry, got %d" (List.length other)
 

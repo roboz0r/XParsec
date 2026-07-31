@@ -3,8 +3,8 @@ class Cell {
     this.x = x;
     this.n = n;
     const _s0 = this;
-    (this.k = ((_s11) => (((_s11) + (1)) | 0))(((_s9) => (Math.imul((_s9), (2))))(_s0.n)));
-    (this.get = (_u13) => _s0.x);
+    (this.k = ((_s19) => (((_s19) + (1)) | 0))(((_s15) => (Math.imul((_s15), (2))))(_s0.n)));
+    (this.get = (_u23) => _s0.x);
   }
 }
 const Cell__K = (_s0) => _s0.k;
