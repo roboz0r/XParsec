@@ -92,7 +92,6 @@ let private retainedSource (input: string) : OriginSource =
         {
             BucketName = "Producer"
             Relative = "sq.fs"
-            Absolute = "/producer/sq.fs"
         }
         input
         lexed
@@ -126,10 +125,7 @@ let private tokenIndices (toks: SyntaxToken list) : int list =
 /// than out of the declaration the call sits in.
 let private entryValue (tast: TastFile) (spec: SpecializationId) : TExpr =
     let (SpecializationId i) = spec
-
-    match tast.Specializations.[i].Decl with
-    | TDecl.Let(_, value, _, _) -> value
-    | other -> failwithf "an entry is a `TDecl.Let` of lambdas; got %A" other
+    snd (TSpecializationG.binding spec tast.Specializations.[i])
 
 /// What a `do` declaration's inline call expanded to, with the entry's own abstraction peeled
 /// off. Peeled because the edge's arguments are positional against those leading lambdas: they

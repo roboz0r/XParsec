@@ -343,19 +343,16 @@ module FrozenCodecRows =
     let private writeOriginRow (w: FrozenWriter) (row: OriginRow) =
         writeStrId w row.BucketName
         writeStrId w row.Relative
-        writeStrId w row.Absolute
         writeStrId w row.ContentHex
 
     let private readOriginRow (r: FrozenReader) : OriginRow =
         let bucketName = readStrId r
         let relative = readStrId r
-        let absolute = readStrId r
         let contentHex = readStrId r
 
         {
             BucketName = bucketName
             Relative = relative
-            Absolute = absolute
             ContentHex = contentHex
         }
 

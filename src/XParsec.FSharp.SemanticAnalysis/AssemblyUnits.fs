@@ -36,7 +36,6 @@ module AssemblyUnits =
             {
                 BucketName = assemblyName
                 Relative = path
-                Absolute = path
             }
             input
             lexed

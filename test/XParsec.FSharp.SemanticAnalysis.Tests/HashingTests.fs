@@ -227,7 +227,6 @@ let tests =
                             {
                                 BucketName = "Pkg"
                                 Relative = "a.fs"
-                                Absolute = "/pkg/a.fs"
                             }
 
                         Expect.notEqual
@@ -235,11 +234,9 @@ let tests =
                             (under { a with Relative = "b.fs" })
                             "the relative path is a key input"
 
-                        Expect.notEqual (under a) (under { a with Absolute = "/other/a.fs" }) "…so is the absolute path"
-
                         Expect.notEqual (under a) (under { a with BucketName = "Other" }) "…and so is the bucket"
 
-                        // The three are a record, not a set: a fold that handed them to
+                        // The two are a record, not a set: a fold that handed them to
                         // `inputHash` separately would deduplicate and lose which held which.
                         Expect.notEqual
                             (under

@@ -67,7 +67,7 @@ module Cache =
     /// that changes order or representation lands a stale blob at the same
     /// `FileSystemStore` path and misparses. Bump on any edit to `writePools`/`readPools`.
     [<Literal>]
-    let CodeVersion = 25
+    let CodeVersion = 26
 
     /// A process-lifetime store backed by a dictionary. `CacheKey` is a record, so its structural
     /// equality keys the map directly with no custom comparer.

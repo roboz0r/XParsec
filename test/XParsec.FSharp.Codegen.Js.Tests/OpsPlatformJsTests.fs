@@ -177,12 +177,18 @@ let tests =
                 for s in origins do
                     let f = s.File
 
-                    Expect.isTrue (System.IO.File.Exists f.Path.Absolute) (sprintf "%s exists on disk" f.Path.Relative)
+                    // Resolved the way the collection itself resolved it — the package
+                    // directory plus the path the manifest names — because a retained file's
+                    // IDENTITY says which file it is, never where this build mounted it.
+                    let path =
+                        System.IO.Path.Combine(System.IO.Path.GetDirectoryName vesperCoreManifest, f.Path.Relative)
+
+                    Expect.isTrue (System.IO.File.Exists path) (sprintf "%s exists on disk" f.Path.Relative)
 
                     // `parseFileFull` normalises line endings before lexing, so the retained
                     // text — the string the token offsets index, and the string a source map
                     // would publish — is the normalised one, and the hash is of exactly it.
-                    let onDisk = (System.IO.File.ReadAllText f.Path.Absolute).Replace("\r\n", "\n")
+                    let onDisk = (System.IO.File.ReadAllText path).Replace("\r\n", "\n")
 
                     Expect.equal s.Input onDisk (sprintf "%s's retained text is the file's text" f.Path.Relative)
 

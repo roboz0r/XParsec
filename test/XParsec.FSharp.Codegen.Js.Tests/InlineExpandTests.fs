@@ -74,7 +74,7 @@ let private entryOwners (pool: PoolBuilder) : Dictionary<TastAccessor.ExprId, In
                 for c in TastAccessor.exprChildren e do
                     walk c
 
-        walk (TastAccessor.declLet entry.Decl).Value
+        walk entry.Value
 
     owners
 

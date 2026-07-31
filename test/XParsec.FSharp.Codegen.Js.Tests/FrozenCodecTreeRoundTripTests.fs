@@ -87,7 +87,6 @@ let private withSpecialization () : FrozenPools =
                 {
                     BucketName = "App"
                     Relative = "m.fs"
-                    Absolute = "/app/m.fs"
                 }
             Content = Hashing.hashString "module M\n"
         }
@@ -123,7 +122,6 @@ let private withSpecialization () : FrozenPools =
                                 {
                                     BucketName = "Lib"
                                     Relative = "n.fs"
-                                    Absolute = "/lib/n.fs"
                                 }
                             Content = Hashing.hashString "module N\n\nlet inline f x = x + 1\n"
                         }

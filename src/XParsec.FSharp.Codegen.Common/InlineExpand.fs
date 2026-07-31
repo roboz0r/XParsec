@@ -178,15 +178,6 @@ module InlineExpand =
             CallerSite: Site
         }
 
-    /// The abstraction an entry's edge applies. An entry is ALWAYS a `TDecl.Let` of lambdas
-    /// (`TSpecializationG.Decl`), asserted here so nothing below has to re-state it.
-    let private entryValue (spec: SpecializationId) (entry: TastAccessor.Specialization) : TastAccessor.ExprId =
-        match TastAccessor.declKind entry.Decl with
-        | DeclShape.Let -> (TastAccessor.declLet entry.Decl).Value
-        | other ->
-            let (SpecializationId i) = spec
-            failwithf "InlineExpand: specialization %d is not a `Let` declaration, but %A" i other
-
     /// Splice every `TExprG.InlineCall` in `decls` — including the ones inside MEMBER bodies,
     /// which no expression-level entry point of either backend reaches — replacing it with
     /// the entry it names, applied to the edge's own arguments, and descending into the
@@ -417,7 +408,7 @@ module InlineExpand =
                             At = at
                             Binders = Dictionary<BinderId, BinderId>()
                         })
-                    (entryValue spec entry)
+                    entry.Value
 
             betaReduce at body (List.ofArray args)
 

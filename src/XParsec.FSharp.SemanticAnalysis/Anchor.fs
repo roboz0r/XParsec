@@ -54,18 +54,22 @@ module Anchor =
         if raw < 0 then nowhere else { Raw = raw * 1<token> }
 
 /// WHICH FILE a set of `Anchor`s index — identity only, with no claim about the file's
-/// contents. `LibFile`-shaped (`VesperLibManifest.LibFile`), that being what resolves a
-/// package's `inline-bodies` entry to a path, but declared here beside the index it gives
-/// meaning to and so reachable long before the manifest reader is.
+/// contents.
 ///
 /// A FILE and not a unit: a unit has many files, and an anchor indexes exactly one of them.
+///
+/// The package and the path WITHIN it, and deliberately nothing else — no absolute path. This
+/// is a KEY: it decides which retained source an anchor resolves against, and it is folded into
+/// the per-file compile-cache key. Where a driver happens to have mounted the package is not a
+/// fact about the file, so admitting it would make one invocation's blobs unreachable to the
+/// next (and one retention unfindable from the other) over a difference no tree can observe.
+/// WHERE to read the bytes belongs with whoever reads them.
 type OriginPath =
     {
         /// The declaring package.
         BucketName: string
         /// Path relative to the package directory, as the manifest names it (`"math/z.fs"`).
         Relative: string
-        Absolute: string
     }
 
 /// A producer file an `Anchor` may be resolved against: which file, plus a hash of the exact
@@ -100,12 +104,7 @@ module OriginFile =
     /// Distinguishable from every real origin, which names a path: no file is spelled `""`.
     let nowhere: OriginFile =
         {
-            Path =
-                {
-                    BucketName = ""
-                    Relative = ""
-                    Absolute = ""
-                }
+            Path = { BucketName = ""; Relative = "" }
             Content = InputHash.ofBytes [||]
         }
 

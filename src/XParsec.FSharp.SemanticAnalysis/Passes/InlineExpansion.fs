@@ -97,10 +97,9 @@ module InlineExpansion =
             LambdaEnv: Dictionary<NodeKey, FusedLambda>
         }
 
-    /// The anchor domain of the material walked under a frame chain. The empty chain is this
-    /// unit's own decls, which is where every walk starts.
-    let private originOf (x: Expander) (frames: ExpansionFrame list) : OriginFile =
-        ExpansionFrame.originOf x.Ctx.Origin frames
+    /// The anchor domain of the material walked at a descent. The empty chain is this unit's
+    /// own decls, which is where every walk starts.
+    let private originOf (x: Expander) (at: Descent) : OriginFile = Descent.originOf x.Ctx.Origin at
 
     /// This file's module-level `let inline` bindings, in the form ONE reduction consumes.
     ///
@@ -159,24 +158,17 @@ module InlineExpansion =
     /// A re-entered frame is answered with an edge into the entry it reserved. The edge carries
     /// `Spine` — the same list that expansion peeled its parameters from — so it and the entry
     /// agree on arity by construction.
-    let private expandingTemplate
-        (x: Expander)
-        (frames: ExpansionFrame list)
-        (call: PendingCall)
-        (fresh: unit -> TExpr)
-        : TExpr =
-        match frames |> List.tryFind (fun f -> f.Template = call.Template) with
-        | Some reentered ->
-            // At most one frame can match: a template found on the chain is answered rather than
-            // entered, so it is never on it twice.
+    let private expandingTemplate (x: Expander) (at: Descent) (call: PendingCall) (fresh: unit -> TExpr) : TExpr =
+        match Descent.reentered call.Template at with
+        | ValueSome reentered ->
             TExpr.InlineCall(
                 reentered.Spec,
                 EqArray.ofList [ for (a, _, _) in call.Spine -> call.Walk a ],
-                originOf x frames,
+                originOf x at,
                 call.Ty,
                 call.Tok
             )
-        | None -> fresh ()
+        | ValueNone -> fresh ()
 
     /// What THIS call head resolves to — the one dispatch of the application rule, so a head
     /// shape cannot be claimed by two answers or fall between them.
@@ -238,14 +230,14 @@ module InlineExpansion =
     /// parallel notion of "a body from elsewhere" would have to re-derive it.
     let private outlineNullaryIntrinsic
         (x: Expander)
-        (frames: ExpansionFrame list)
+        (at: Descent)
         (call: PendingCall)
         (template: TemplateBody)
         (body: TExpr)
         : TExpr =
         SpecTable.outline
             {
-                Site = PendingCall.outermostSite frames call
+                Site = Descent.siteOf at call
                 Grounding =
                     {
                         Key =
@@ -263,7 +255,7 @@ module InlineExpansion =
                 Shareable = SemTypeQuery.isGround x.Ctx.Store call.Ty
                 Origin = template.Origin
                 EdgeTok = call.Tok
-                EdgeOrigin = originOf x frames
+                EdgeOrigin = originOf x at
                 EdgeTy = call.Ty
                 ReuseArgs = fun () -> []
                 Build = fun _ -> { Body = body; Survivors = [] }
@@ -299,10 +291,10 @@ module InlineExpansion =
             x.LambdaEnv.[p.Key] <-
                 {
                     Body = Inline.underLambdas (TastWalk.callerExpr caller) p.Arg
-                    CallerFrames = inFlight.Caller
+                    Caller = inFlight.Caller
                 }
 
-        let core = walkAt x (InFlight.frames inFlight) peeled.Core
+        let core = walkAt x inFlight.Own peeled.Core
 
         for p in fusedLambdas do
             x.LambdaEnv.Remove p.Key |> ignore
@@ -349,24 +341,19 @@ module InlineExpansion =
     /// Resolution and classification run BEFORE the frame is pushed. Neither walks the body, so
     /// nothing can re-enter in the meantime, and the frame is therefore built with its re-entry
     /// answer already settled.
-    and private expandAt
-        (x: Expander)
-        (frames: ExpansionFrame list)
-        (template: TemplateBody)
-        (call: PendingCall)
-        : TExpr =
+    and private expandAt (x: Expander) (at: Descent) (template: TemplateBody) (call: PendingCall) : TExpr =
         expandingTemplate
             x
-            frames
+            at
             call
             (fun () ->
                 let resolved = resolveAt x.Ctx x.Mint call.Tok template.Decl call.Spine
-                let caller = originOf x frames
+                let caller = originOf x at
                 let peeled = classifyApplication caller template.ParamAttrs resolved.Body call.Spine
 
                 SpecTable.outline
                     {
-                        Site = PendingCall.outermostSite frames call
+                        Site = Descent.siteOf at call
                         Grounding =
                             {
                                 Key =
@@ -383,26 +370,25 @@ module InlineExpansion =
                         EdgeTok = call.Tok
                         EdgeOrigin = caller
                         EdgeTy = call.Ty
-                        ReuseArgs = fun () -> peeled.Params |> List.map (fun p -> walkAt x frames p.Arg)
-                        Build =
-                            fun spec -> reduceClassified x (PendingCall.enter frames call template.Origin spec) peeled
+                        ReuseArgs = fun () -> peeled.Params |> List.map (fun p -> walkAt x at p.Arg)
+                        Build = fun spec -> reduceClassified x (Descent.enter at call template.Origin spec) peeled
                     }
                     x.Specs
             )
 
-    /// The expansion walker, as a FUNCTION of the chain the material it is handed was WRITTEN
-    /// under — the only way the chain can be threaded, `TastWalk.Mapper` having no room for a
-    /// parameter of its own. Descending into a callee's body builds a mapper at the chain with
-    /// that callee's frame consed on; walking material the CALL SITE supplied builds one at the
-    /// shorter chain that material belongs to. The default child recursion stays in the same
-    /// material and so on the same chain, which is exactly what re-using `m` says.
+    /// The expansion walker, as a FUNCTION of the descent the material it is handed was WRITTEN
+    /// under — the only way the descent can be threaded, `TastWalk.Mapper` having no room for a
+    /// parameter of its own. Descending into a callee's body builds a mapper at the descent with
+    /// that callee's frame pushed; walking material the CALL SITE supplied builds one at the
+    /// shorter descent that material belongs to. The default child recursion stays in the same
+    /// material and so at the same descent, which is exactly what re-using `m` says.
     ///
     /// The `App` arm is ALWAYS handled explicitly (never falls through to `TastWalk`'s default
     /// child recursion): collect the whole spine and recurse only into the ARGS. Relying on
     /// default recursion would instead let the walker descend into a saturated op's
     /// partial-application sub-`App` and expand it with a single arg — leaving a dangling
     /// `fun y -> …` closure with a free `TyVar`.
-    and private mapperAt (x: Expander) (frames: ExpansionFrame list) : TastWalk.Mapper =
+    and private mapperAt (x: Expander) (at: Descent) : TastWalk.Mapper =
         { TastWalk.identityMapper with
             OverrideExpr =
                 fun m e ->
@@ -432,7 +418,7 @@ module InlineExpansion =
                                     Walk = walk
                                 }
 
-                            ValueSome(expandAt x frames body call)
+                            ValueSome(expandAt x at body call)
                         // Beta-reduced against the call args and walked, so nested inline heads and
                         // further lambda parameters resolve in the recursion.
                         //
@@ -443,10 +429,7 @@ module InlineExpansion =
                         // surviving `let`.
                         | CallHead.Fused fused ->
                             ValueSome(
-                                walkAt
-                                    x
-                                    fused.CallerFrames
-                                    (Inline.betaReduce (Inline.freshen x.Mint fused.Body) spineArgs)
+                                walkAt x fused.Caller (Inline.betaReduce (Inline.freshen x.Mint fused.Body) spineArgs)
                             )
                         // The spine walked as the CALLER's own material, which every rebuild needs
                         // and no expansion does.
@@ -482,7 +465,7 @@ module InlineExpansion =
                                     Walk = walk
                                 }
 
-                            ValueSome(expandAt x frames served call)
+                            ValueSome(expandAt x at served call)
                         // No served body: a real static call. Default child recursion walks the
                         // arguments.
                         | ValueNone -> ValueNone
@@ -502,7 +485,7 @@ module InlineExpansion =
                                 Walk = walk
                             }
 
-                        ValueSome(expandAt x frames x.LocalInlines.[k] call)
+                        ValueSome(expandAt x at x.LocalInlines.[k] call)
                     // A BARE (non-applied) reference to a cross-package `let` value whose body is a
                     // single zero-operand intrinsic (`undefined`, `defaultof`): the intrinsic body
                     // stands in place of the `External` reference, so codegen emits the bare
@@ -568,17 +551,16 @@ module InlineExpansion =
                             ValueSome(
                                 expandingTemplate
                                     x
-                                    frames
+                                    at
                                     call
-                                    (fun () -> outlineNullaryIntrinsic x frames call hit.Template hit.Body)
+                                    (fun () -> outlineNullaryIntrinsic x at call hit.Template hit.Body)
                             )
                         | ValueNone -> etaReify x.Ctx x.Mint body name keyOpt refTy tok |> ValueOption.map walk
                     | _ -> ValueNone
         }
 
-    /// Walk `e` as material written under `frames`.
-    and private walkAt (x: Expander) (frames: ExpansionFrame list) (e: TExpr) : TExpr =
-        TastWalk.mapExpr (mapperAt x frames) e
+    /// Walk `e` as material written at `at`.
+    and private walkAt (x: Expander) (at: Descent) (e: TExpr) : TExpr = TastWalk.mapExpr (mapperAt x at) e
 
     /// Expand the module-level inlines in one decl-list (the elaborated, `TyVar`-carrying decls
     /// paired with their freeze envs). The cross-unit inline-body channel is `ctx.Provider`
@@ -613,10 +595,11 @@ module InlineExpansion =
                     LambdaEnv = Dictionary()
                 }
 
-            // The file's OWN declarations are inside no expansion, so they are walked under the
-            // empty chain — which is also why the outermost frame of any chain reached from here
-            // is the one whose `Site` names a position in this file.
-            let expanded = decls |> List.map (fun (d, env) -> mapDeclExprs (walkAt x []) d, env)
+            // The file's OWN declarations are inside no expansion, so they are walked at the top
+            // descent — which is also why every site a descent reached from here carries is a
+            // position in this file.
+            let expanded =
+                decls |> List.map (fun (d, env) -> mapDeclExprs (walkAt x Descent.top) d, env)
 
             // The roots the finished table counts edges from — collected through `mapDeclExprs` so
             // "which expressions does a declaration carry?" is answered ONCE for the whole pass; a

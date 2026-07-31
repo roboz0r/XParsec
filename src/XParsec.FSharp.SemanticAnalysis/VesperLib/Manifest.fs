@@ -12,24 +12,19 @@ open XParsec.FSharp.Parser
 /// here one at a time.
 module VesperLibManifest =
 
-    /// One file handed to the extractor. `Relative` both selects the parser
-    /// (`.fsi` ⇒ signature, otherwise implementation) and names the file in
-    /// diagnostics; `BucketName` is the declaring package.
+    /// One file handed to the extractor: the identity every anchor into it will name, and
+    /// where to read its bytes. The identity is the `OriginPath` itself and not a copy of its
+    /// fields, so a manifest entry and the anchor domain it becomes cannot come apart.
+    ///
+    /// `Path.Relative` also selects the parser (`.fsi` ⇒ signature, otherwise implementation)
+    /// and names the file in diagnostics.
     type LibFile =
         {
-            BucketName: string
-            /// Relative path from the package directory (e.g. `"math/z.fsi"`).
-            Relative: string
+            Path: OriginPath
+            /// Where this build found the file. NOT part of the identity — two invocations
+            /// that mount the package differently are reading the same file — so it stays
+            /// here, with the read, rather than riding into every tree anchored in it.
             Absolute: string
-        }
-
-    /// A manifest file as an ANCHOR DOMAIN. Field-for-field: `OriginPath` is declared beside
-    /// the index it gives meaning to, long before this reader, and the two agree by shape.
-    let originPath (file: LibFile) : OriginPath =
-        {
-            BucketName = file.BucketName
-            Relative = file.Relative
-            Absolute = file.Absolute
         }
 
     /// The lexer's token table and source text are retained so subsequent
@@ -61,12 +56,12 @@ module VesperLibManifest =
         let input = raw.Replace("\r\n", "\n")
 
         match Lexing.lexString input with
-        | Error _ -> Error(sprintf "Lex error in %s" file.Relative)
+        | Error _ -> Error(sprintf "Lex error in %s" file.Path.Relative)
         | Ok lexed ->
             let reader = Reader.ofLexed lexed input Set.empty
 
             let result =
-                if file.Relative.EndsWith ".fsi" then
+                if file.Path.Relative.EndsWith ".fsi" then
                     FSharpAst.parseSignature reader
                 else
                     FSharpAst.parse reader

@@ -292,8 +292,7 @@ module M =
                     {
                         File =
                             {
-                                BucketName = "P"
-                                Relative = "p.fsi"
+                                Path = { BucketName = "P"; Relative = "p.fsi" }
                                 Absolute = "p.fsi"
                             }
                         Input = sigSrc

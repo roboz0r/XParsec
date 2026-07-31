@@ -62,7 +62,6 @@ module Hashing =
         {
             BucketName = ""
             Relative = sprintf "<text:%s>" (hashString input).Hex
-            Absolute = ""
         }
 
     let originSourceOfText (input: string) (lexed: Lexed) : OriginSource =
@@ -316,14 +315,13 @@ module Hashing =
                  :: (manifests @ selfManifests |> List.map dependencySignatureHash))
         )
 
-    /// A file's IDENTITY as ONE digest. Its own fold and not three entries in the list below,
-    /// because the three fields are a record where `inputHash` takes a SET: handed separately
-    /// they would dedupe when two agree and say nothing about which field held which string.
+    /// A file's IDENTITY as ONE digest. Its own fold and not two entries in the list below,
+    /// because the fields are a record where `inputHash` takes a SET: handed separately they
+    /// would dedupe when the two agree and say nothing about which field held which string.
     let private originPathHash (p: OriginPath) : InputHash =
         let hasher = XxHash128()
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes p.BucketName)
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes p.Relative)
-        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes p.Absolute)
         InputHash.ofBytes (hasher.GetCurrentHash())
 
     /// The per-file compile-cache input hash: this file's text and IDENTITY folded with its

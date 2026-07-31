@@ -72,8 +72,11 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * strin
         {
             File =
                 {
-                    BucketName = "Widgets"
-                    Relative = "widget.fsi"
+                    Path =
+                        {
+                            BucketName = "Widgets"
+                            Relative = "widget.fsi"
+                        }
                     Absolute = "widget.fsi"
                 }
             Input = input

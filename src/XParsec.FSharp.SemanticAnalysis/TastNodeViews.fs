@@ -46,15 +46,18 @@ module TastNodeViews =
     type SecondaryCtor = TSecondaryCtorG<FrozenType, BinderId, ExprId>
     type BaseCtorCall = TBaseCtorCallG<FrozenType, BinderId, ExprId>
 
-    /// One resolved-specialization table entry with its declaration resolved to a handle —
-    /// the pooled `PooledSpecialization` as a consumer of the TREE reads it. `Origin` rides
-    /// across unchanged: it is a file identity, which no column addresses, and it is what
-    /// says which file the anchors inside `Decl` are indices into.
+    /// One resolved-specialization table entry as a consumer of the TREE reads it. `Origin`
+    /// rides across unchanged: it is a file identity, which no column addresses, and it is what
+    /// says which file the anchors inside the entry are indices into.
     type Specialization =
         {
             Key: Frozen.SpecializationKey
             Origin: OriginFile
-            Decl: DeclId
+            /// The abstraction this entry's edges apply — the lambda spine an edge's arguments
+            /// are positional against. The DECLARATION is not carried: an entry is always a
+            /// `Let` of lambdas, and reading its value at the one place an entry is reached
+            /// discharges that for every consumer instead of each restating it.
+            Value: ExprId
         }
 
     /// The compiled-form cluster with its tuple-group / destructuring patterns held as

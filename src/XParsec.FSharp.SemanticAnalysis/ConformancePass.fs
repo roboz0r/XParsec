@@ -121,8 +121,7 @@ module ConformancePass =
     let private parseRel (name: string) (dir: string) (rel: string) : Result<VesperLib.ParsedFile, string> =
         VesperLib.parseFileFull
             {
-                BucketName = name
-                Relative = rel
+                Path = { BucketName = name; Relative = rel }
                 Absolute = Path.Combine(dir, rel)
             }
 

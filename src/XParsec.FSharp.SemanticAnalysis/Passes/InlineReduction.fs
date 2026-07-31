@@ -70,18 +70,10 @@ module InlineReduction =
     /// binding already on the chain would present the same call again, forever; so such a call
     /// is answered with an edge into the entry that expansion already reserved, which keeps the
     /// graph finite for the acyclicity check on the finished table to convict.
-    ///
-    /// INNERMOST FIRST, and threaded through the walk as a parameter: material is walked under
-    /// the chain it was WRITTEN under by construction, and no reader has to state a depth.
     [<NoEquality; NoComparison>]
     type internal ExpansionFrame =
         {
             Template: TemplateId
-            /// The call site as written in the file being compiled. On the OUTERMOST frame it is
-            /// the only position a verdict about this expansion can carry: every deeper site is a
-            /// node of a producer's body, whose anchor indexes a file this compilation is not
-            /// reporting against.
-            Site: SyntaxToken
             /// The anchor domain of the body this frame is expanding, recorded when the frame is
             /// pushed. It rides the chain because material and chain always travel together, so
             /// a walk cannot be handed one under a domain the other disagrees with.
@@ -91,35 +83,57 @@ module InlineReduction =
             Spec: SpecializationId
         }
 
-    [<RequireQualifiedAccess>]
-    module internal ExpansionFrame =
-
-        /// The domain material walked under `frames` is anchored in. An empty chain is the
-        /// compiling unit's own material, which `compiling` supplies.
-        let originOf (compiling: OriginFile) (frames: ExpansionFrame list) : OriginFile =
-            match frames with
-            | [] -> compiling
-            | f :: _ -> f.Origin
-
-    /// A FRESH reduction and the two chains its material belongs to.
+    /// The inline bindings whose bodies this walk is currently INSIDE, innermost first, plus the
+    /// token of the call in the user's file that it went inside them for.
     ///
-    /// Two fields and not one list because the body walks under `Own :: Caller` while an
-    /// argument the site supplied walks under `Caller` alone. An argument is the caller's, so a
-    /// call it makes to the binding it is an argument OF is an ordinary nested application and
-    /// not a recursion: `1 - 2 - 3` applies `(-)` inside `(-)`'s own left operand without either
-    /// expansion containing the other, and the callee's chain would convict every such program.
+    /// Expanding `sq 3` in `app.fs` means walking the body of `let inline sq x = x * x`, whose
+    /// expressions were written somewhere else — possibly in another package's `math.fs` — and
+    /// may call further inlines from there. At every node of such a body two questions come up
+    /// that the node cannot answer about itself, and this is what answers them:
+    ///
+    ///   - the FRAMES say which binding's body this expression came out of: which FILE its
+    ///     token indices are indices into (`math.fs`, not the `app.fs` being compiled), and
+    ///     whether a call it makes names a binding already being expanded further up. The
+    ///     second is what terminates `let rec inline f x = f x`: the call is answered from the
+    ///     frame with an edge to the table slot that expansion already reserved, leaving a
+    ///     finite table for the cycle check to convict with a diagnostic.
+    ///   - the SITE is where that diagnostic — or any other verdict reached while expanding —
+    ///     is reported: at `sq 3` in `app.fs`. Reporting it at the `x * x` the walk is standing
+    ///     on would take a token index into `math.fs` and read it against `app.fs`'s tokens,
+    ///     where it is in range and underlines unrelated source.
+    ///
+    /// The site is settled by the OUTERMOST call (`sq 3`) and every frame pushed beneath it
+    /// inherits that same one, so it belongs to the descent and not to a frame: written once,
+    /// where it is decided, instead of onto each frame and read back off the end of the chain.
+    ///
+    /// PRIVATE, so `top` and `enter` are the only ways to build one and no walk can push a frame
+    /// while leaving the site behind.
+    [<NoEquality; NoComparison>]
+    type internal Descent =
+        private
+            {
+                Frames: ExpansionFrame list
+                /// `ValueNone` only while walking the compiling file's own declarations: nothing
+                /// has been entered, so the call about to be answered is itself written there
+                /// and its own token is the position to report at.
+                Site: SyntaxToken voption
+            }
+
+    /// A FRESH reduction and the two descents its material belongs to.
+    ///
+    /// Two fields and not one because the body walks INSIDE this reduction while an argument the
+    /// site supplied walks outside it. An argument is the caller's, so a call it makes to the
+    /// binding it is an argument OF is an ordinary nested application and not a recursion:
+    /// `1 - 2 - 3` applies `(-)` inside `(-)`'s own left operand without either expansion
+    /// containing the other, and the callee's chain would convict every such program.
     [<NoEquality; NoComparison>]
     type internal InFlight =
         {
-            Own: ExpansionFrame
-            Caller: ExpansionFrame list
+            /// The descent this reduction's own BODY is walked under.
+            Own: Descent
+            /// The descent the CALL SITE's own material is walked under.
+            Caller: Descent
         }
-
-    [<RequireQualifiedAccess>]
-    module internal InFlight =
-
-        /// The chain this reduction's own BODY is walked under, innermost first.
-        let frames (f: InFlight) : ExpansionFrame list = f.Own :: f.Caller
 
     /// The call an expansion is being entered FOR: which binding it calls, where it stands, and
     /// the spine an ANSWER needs it in.
@@ -156,35 +170,61 @@ module InlineReduction =
         }
 
     [<RequireQualifiedAccess>]
-    module internal PendingCall =
+    module internal Descent =
 
-        /// Where a verdict about this call is positioned: the OUTERMOST in-flight site, which
-        /// every deeper site fails to be — a deeper one is a node of a producer's body, whose
-        /// anchor indexes a file this compilation is not reporting against.
-        let outermostSite (frames: ExpansionFrame list) (call: PendingCall) : SyntaxToken =
-            match frames with
-            | [] -> call.Tok
-            | caller -> (List.last caller).Site
+        /// The compiling file's own declarations, inside no inline body — where the walk starts
+        /// and what it returns to for every call-site argument it walks.
+        let top: Descent = { Frames = []; Site = ValueNone }
 
-        /// The reduction this call enters, pushed onto the chain its CALL SITE was written
-        /// under. `origin` and `spec` arrive last because a reduction knows neither until it
-        /// has resolved its body and taken a table slot; nothing walks the body before then, so
-        /// no call can reach the binding while the answer is still unsettled.
-        let enter
-            (frames: ExpansionFrame list)
-            (call: PendingCall)
-            (origin: OriginFile)
-            (spec: SpecializationId)
-            : InFlight =
+        /// The file the expressions being walked here were WRITTEN in, whose token array their
+        /// anchors index — the producer's once the walk is inside a body served from another
+        /// unit, and `compiling` while it is in the file's own declarations.
+        let originOf (compiling: OriginFile) (d: Descent) : OriginFile =
+            match d.Frames with
+            | [] -> compiling
+            | f :: _ -> f.Origin
+
+        /// The frame already expanding `template`, if the walk is inside one: this call has
+        /// reached a binding that reaches itself, and is answered from that frame instead of
+        /// expanding the same body a second time. At most one frame can match — a template on
+        /// the chain is answered rather than entered, so it is never on it twice.
+        let reentered (template: TemplateId) (d: Descent) : ExpansionFrame voption =
+            match d.Frames |> List.tryFind (fun f -> f.Template = template) with
+            | Some f -> ValueSome f
+            | None -> ValueNone
+
+        /// The token a diagnostic about `call` is reported at: the user-written call this whole
+        /// descent went inside a body for, or `call`'s own token where nothing has been entered
+        /// and `call` IS that user-written one.
+        let siteOf (d: Descent) (call: PendingCall) : SyntaxToken =
+            match d.Site with
+            | ValueSome site -> site
+            | ValueNone -> call.Tok
+
+        /// Go INSIDE the body this call names: the descent its own expressions are walked at
+        /// (this binding pushed onto the caller's), beside the one the call site's arguments
+        /// stay at — they are the caller's expressions and never enter anything.
+        ///
+        /// `origin` (the file the body was written in) and `spec` (its table slot) arrive last
+        /// because neither is known until the body has been resolved and a slot taken; nothing
+        /// walks the body before then, so no call can reach this binding while the answer a
+        /// recursive reach would get is still unsettled.
+        let enter (d: Descent) (call: PendingCall) (origin: OriginFile) (spec: SpecializationId) : InFlight =
             {
                 Own =
                     {
-                        Template = call.Template
-                        Site = call.Tok
-                        Origin = origin
-                        Spec = spec
+                        Frames =
+                            {
+                                Template = call.Template
+                                Origin = origin
+                                Spec = spec
+                            }
+                            :: d.Frames
+                        // The site the descent already carries, or this call's own where it is
+                        // the outermost — the ONE write, inherited unchanged from here down.
+                        Site = ValueSome(siteOf d call)
                     }
-                Caller = frames
+                Caller = d
             }
 
     /// A call HEAD that names a cross-unit symbol, reduced to the three things an answer needs
@@ -209,20 +249,16 @@ module InlineReduction =
             RebuiltHead: unit -> TExpr
         }
 
-    /// A lambda argument eligible for inline-first elimination, with the chain it was WRITTEN
-    /// under. The chain travels with it because the lambda is spliced at a use INSIDE the body
-    /// it was passed to, where what it computes is still the caller's material — so a call it
-    /// makes to the very binding it was passed to is a nested application and not a recursion.
+    /// A lambda argument eligible for inline-first elimination, with the descent it was WRITTEN
+    /// under. That travels with it because the lambda is spliced at a use INSIDE the body it was
+    /// passed to, where what it computes is still the caller's material — so a call it makes to
+    /// the very binding it was passed to is a nested application and not a recursion.
     ///
-    /// The chain itself and not a position in one: the splice site is an arbitrary number of
+    /// The descent itself and not a position in one: the splice site is an arbitrary number of
     /// bodies deeper than the capture, so any index taken here would be read against a chain the
     /// lambda never saw.
     [<NoEquality; NoComparison>]
-    type internal FusedLambda =
-        {
-            Body: TExpr
-            CallerFrames: ExpansionFrame list
-        }
+    type internal FusedLambda = { Body: TExpr; Caller: Descent }
 
     /// What a call HEAD resolves to: the whole dispatch of the walker's application rule as one
     /// total answer. Three cases and not more — a template of this file and one another unit

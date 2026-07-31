@@ -186,7 +186,6 @@ type OriginRow =
     {
         BucketName: StrId
         Relative: StrId
-        Absolute: StrId
         ContentHex: StrId
     }
 
@@ -325,7 +324,6 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             {
                 BucketName = str f.Path.BucketName
                 Relative = str f.Path.Relative
-                Absolute = str f.Path.Absolute
                 ContentHex = str f.Content.Hex
             }
 
@@ -502,7 +500,6 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                         {
                             BucketName = str row.BucketName
                             Relative = str row.Relative
-                            Absolute = str row.Absolute
                         }
                     Content = InputHash.ofHex (str row.ContentHex)
                 }

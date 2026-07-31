@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// Lex + parse an in-memory `.fsi` snippet into the `ParsedFile` the extractor
 /// consumes. The extractor reads no FIELD of the `LibFile` — it only carries the
 /// record through as the tag on a `ctx.Diagnostics` / `ctx.Skipped` entry — so one
-/// fixture name stands for all three, and `relative` exists solely to name the
+/// fixture name stands for every field, and `relative` exists solely to name the
 /// snippet in a fixture-level (lex/parse) failure.
 let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
     let lexed =
@@ -27,8 +27,11 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
     {
         File =
             {
-                BucketName = "App"
-                Relative = relative
+                Path =
+                    {
+                        BucketName = "App"
+                        Relative = relative
+                    }
                 Absolute = relative
             }
         Input = input

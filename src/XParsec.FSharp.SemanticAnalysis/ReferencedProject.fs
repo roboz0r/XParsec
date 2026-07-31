@@ -630,8 +630,11 @@ module ReferencedProject =
             let harvestCompanion (dest: System.Collections.Generic.Dictionary<string, string>) (abs: string) =
                 let fsFile: VesperLib.LibFile =
                     {
-                        BucketName = manifest.Name
-                        Relative = Path.GetFileName abs
+                        Path =
+                            {
+                                BucketName = manifest.Name
+                                Relative = Path.GetFileName abs
+                            }
                         Absolute = abs
                     }
 
@@ -684,8 +687,11 @@ module ReferencedProject =
             for rel in manifest.Files @ resolveExtraFiles target manifest do
                 let file: VesperLib.LibFile =
                     {
-                        BucketName = manifest.Name
-                        Relative = rel
+                        Path =
+                            {
+                                BucketName = manifest.Name
+                                Relative = rel
+                            }
                         Absolute = Path.Combine(dir, rel)
                     }
 
