@@ -280,7 +280,7 @@ printfn \"%d\" (r.X + r.Y)
             test "two files run: file 2 calls an INTERFACE member declared in file 1 (decurried slot)" {
                 // File 1 declares an interface, a class implementing it, and a factory returning
                 // the interface; file 2 dispatches `GetVal` on the interface-typed result — a
-                // receiver grounded to file 1's cross-file interface. A missing/wrong decurry
+                // receiver grounded to file 1's cross-file interface. A missing/wrong uncurry
                 // surfaces as a front-end "no such member" miss or a bad `callvirt`, so a clean
                 // run returning the value is the proof the slot resolved cross-file.
                 let file1 =

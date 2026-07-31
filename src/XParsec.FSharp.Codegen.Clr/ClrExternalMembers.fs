@@ -55,7 +55,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// `paramsT` is the .NET-tupled argument slot and `retT` the
     /// return, each carrying self-describing `FTTypar(Declaring, i)` / `FTTypar(Method, j)` placeholders
     /// the `encodeType` arm resolves to `!i` / `!!j` directly. Replaces running the legacy
-    /// `BuildSignature` closure on marker typars then decurrying — the template already carries the
+    /// `BuildSignature` closure on marker typars then uncurrying — the template already carries the
     /// single top-level tupled split. `methodTyparArity > 0` sets the `GENERIC` calling-convention header
     /// count for a generic external method (`Enumerable.Take<TSource>`); the caller wraps the result in
     /// a `MethodSpec`. Shared by `externalMemberRef` (parent recovered by signature match) and

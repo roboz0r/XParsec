@@ -270,7 +270,7 @@ module TastLower =
         | _ -> t
 
     /// `peelFuns` projected to the F#-form `(parameter types, residual result)`:
-    /// `decurryFrozen`'s shape (`n < 0`, peel all) and the contract peelers (`n`
+    /// `uncurryFrozen`'s shape (`n < 0`, peel all) and the contract peelers (`n`
     /// groups). The residual is the type after the peeled `->`.
     let peelFunDomains (n: int) (t: FrozenType) : FrozenType list * FrozenType =
         match peelFuns n t with

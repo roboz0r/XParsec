@@ -4,7 +4,7 @@
 when this plan was written have since landed too — type-annotation by `open` (was item 1),
 cross-unit `[<RequireQualifiedAccess>]` on records + union cases (was item 2), the
 ambient-scope / `open` gate on bare record construction (was item 3), **cross-unit enum
-projection (item 5)**, and **cross-unit interface-member decurrying + dispatch and member-level
+projection (item 5)**, and **cross-unit interface-member uncurrying + dispatch and member-level
 accessibility (item 6)**. Their design lives in the code and its tests, not here. What remains below are the gaps
 deliberately deferred until a corpus demands them, plus the separate publishing-format track —
 **none is a live miscompile.** The item numbers are kept as originally written so the WHY
@@ -13,7 +13,7 @@ comments at each seam still match.*
 ## Two safety classes
 
 - **INCOMPLETE** — a *valid* cross-unit program fails to resolve. User-visible; fix on demand.
-  Item 4 (obj-field boxing). (Item 6's interface-member decurrying was here; it has since
+  Item 4 (obj-field boxing). (Item 6's interface-member uncurrying was here; it has since
   landed — see below.)
 - **OVER-PERMISSIVE** — an *invalid* program wrongly resolves; **never a miscompile**. Item 6's
   member-level accessibility was this class; it has since landed (see below).
@@ -60,15 +60,15 @@ dropped, matching the TS-manifest arm and `TEnumCases.classify`. Tested in
 produces no `Enum` shape (a TS-manifest-only shape today — see `TypeTranslate` line ~470);
 cross-package enums ride the separate publishing-format track alongside item 7.
 
-## 6. Interface members: decurrying DONE; member-level accessibility DONE
+## 6. Interface members: uncurrying DONE; member-level accessibility DONE
 
-The original framing bundled two *unrelated* concerns — abstract-slot **decurrying** (interface
+The original framing bundled two *unrelated* concerns — abstract-slot **uncurrying** (interface
 members) and **member accessibility** (any type's `member private`). They share no code seam;
 split here.
 
-**Interface-member decurrying — DONE (front end + codegen, cross-file).** The premise "interface
+**Interface-member uncurrying — DONE (front end + codegen, cross-file).** The premise "interface
 member surfaces publish name/arity but not decurried members" was already stale for the front end:
-all three providers decurry each abstract slot to an `ExternalMember` — `FrozenSignature`'s
+all three providers uncurry each abstract slot to an `ExternalMember` — `FrozenSignature`'s
 `Interface` arm (`abstractMemberOf` → `memberFromParts`), the `.fsi` extractor's
 `TypeSignatureElement.Abstract` arm (`extractTypeMembers`), and the metadata reader's
 `enumerateClassMembers`. The consumer resolves + dispatches the slot cross-file (a grounded

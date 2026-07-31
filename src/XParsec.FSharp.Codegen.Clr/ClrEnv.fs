@@ -611,10 +611,10 @@ type internal ClrEnv
     // behaviour).
     let mutable closureTyparScope: int voption = ValueNone
 
-    let rec decurryTy (t: FrozenType) : FrozenType list * FrozenType =
+    let rec uncurryTy (t: FrozenType) : FrozenType list * FrozenType =
         match t with
         | FTFun(a, b) ->
-            let ps, r = decurryTy b
+            let ps, r = uncurryTy b
             a :: ps, r
         | other -> [], other
 
@@ -698,7 +698,7 @@ type internal ClrEnv
         and set v = closureTyparScope <- v
 
     member _.ArityOfMetaName name = arityOfMetaName name
-    member _.DecurryTy t = decurryTy t
+    member _.UncurryTy t = uncurryTy t
 
     member _.ExternalAsmRef asm = externalAsmRef asm
     member _.ExternalModuleRef(origin: SymbolOrigin, m: ModuleKey) = externalModuleRef origin m

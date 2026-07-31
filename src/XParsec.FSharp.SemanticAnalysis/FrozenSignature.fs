@@ -134,7 +134,7 @@ module FrozenSignature =
         // return, folded into the overload identity + signature every producer speaks. A
         // concrete type member (`memberOf`) and an interface's abstract method
         // (`abstractMemberOf`) both reduce to these parts, so a slot and the class impl
-        // that satisfies it mint the SAME `argSig` from ONE decurry/axis home.
+        // that satisfies it mint the SAME `argSig` from ONE uncurry/axis home.
         let memberFromParts
             (declKey: TypeKey)
             (declArity: int)
@@ -383,7 +383,7 @@ module FrozenSignature =
                     register (ExternalTypeShape.Class shape) (ValueSome members)
 
                 | TTypeKindG.Interface methods ->
-                    // Decurry each abstract method to an `ExternalMember` under the
+                    // Uncurry each abstract method to an `ExternalMember` under the
                     // interface key (mirroring the `Class` arm's `membersOf`, via the
                     // shared `memberFromParts`), so a cross-file `interface F with member
                     // …` conformance check and a `receiver.M` dispatch both resolve the

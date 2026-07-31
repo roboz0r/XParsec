@@ -26,10 +26,10 @@ module internal AssemblerScaffold =
         sigB
 
     /// `FTFun('A, 'B)` ⇒ `(['A], 'B)`.
-    let rec decurry (t: FrozenType) : FrozenType list * FrozenType =
+    let rec uncurry (t: FrozenType) : FrozenType list * FrozenType =
         match t with
         | FTFun(a, b) ->
-            let ps, r = decurry b
+            let ps, r = uncurry b
             a :: ps, r
         | _ -> [], t
 
@@ -49,7 +49,7 @@ module internal AssemblerScaffold =
     /// name emission so the two never disagree on arity (a mismatch makes the
     /// emitted method un-reflectable: "parameters and signature don't match").
     let abstractMethodParamTys (m: Frozen.TAbstractMethod) : FrozenType list =
-        let paramTys, _ = decurry m.Signature
+        let paramTys, _ = uncurry m.Signature
 
         match paramTys with
         | [ single ] when isUnitTy single -> []
@@ -69,7 +69,7 @@ module internal AssemblerScaffold =
     /// declaring axis to `!i` and the method axis to `!!j`), encoded by the provider's
     /// `EncodeAbstractType` (the same `encodeType` the executable path uses).
     let abstractMethodSignature (provider: ClrProvider) (m: Frozen.TAbstractMethod) : BlobBuilder =
-        let _, retTy = decurry m.Signature
+        let _, retTy = uncurry m.Signature
         let paramTys = abstractMethodParamTys m
         let blob = BlobBuilder()
 

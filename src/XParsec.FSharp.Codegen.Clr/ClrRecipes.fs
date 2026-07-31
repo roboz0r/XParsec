@@ -17,11 +17,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     let encodeType te t = enc.EncodeType(te, t)
 
-    /// Decurry a curried `FrozenType` function into `(params, return)` — the `FrozenType`
-    /// analogue of `ClrEnv.decurryTy`, for the open module-function template.
-    /// A curried `p1 -> … -> pN -> ret` peels to `([p1; …; pN], ret)`. Peels every
-    /// `->` (`TastLower.peelFunDomains -1`); the `n`-group variant uses `peelN`.
-    let decurryFrozen (t: FrozenType) : FrozenType list * FrozenType = TastLower.peelFunDomains -1 t
+    /// Uncurry a curried `FrozenType` function into `(params, return)`
+    /// A curried `p1 -> … -> pN -> ret` peels to `([p1; …; pN], ret)`.
+    let uncurryFrozen (t: FrozenType) : FrozenType list * FrozenType = TastLower.peelFunDomains -1 t
 
     let encodeListOf te inner = enc.EncodeListOf(te, inner)
     let methodSpec handle args = enc.MethodSpec(handle, args)
@@ -341,7 +339,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let methodTyparArity = openSig.MethodTyparArity
 
             // Peel exactly `n` top-level `->` groups off the open template — one per
-            // SOURCE argument group. Unlike `decurryFrozen` (which peels every `->`),
+            // SOURCE argument group. Unlike `uncurryFrozen` (which peels every `->`),
             // `peelFunDomains n` stops at the source arity, so a function-typed
             // RESULT stays whole.
             let peelN n t = TastLower.peelFunDomains n t
@@ -353,7 +351,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // come from peeling the open template (its method typars are already
             // `FTTypar(Method, i)`, matching the producer's `!!i` slots). Without a
             // captured `ValRepr` (a value, a metadata-layer symbol), fall back to the
-            // bare-`decurryFrozen` reconstruction — the curried calling convention,
+            // bare-`uncurryFrozen` reconstruction — the curried calling convention,
             // correct for an all-`GSimple` signature. A `unit` source result is emitted
             // genuine CLR `void` by the producer ("void everywhere"), so the
             // member-ref must encode `void` too or a `System.ValueTuple` return misses
@@ -383,7 +381,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                     TastLower.flattenGroupShape groups groupParamTys, retTy, isUnitReturn retTy, ValueSome groups
                 | ValueNone ->
-                    let ps, r = decurryFrozen openSig.Signature
+                    let ps, r = uncurryFrozen openSig.Signature
                     ps, r, isUnitReturn r, ValueNone
 
             // The open method-ref signature: parameters + return encoded with the method typars as

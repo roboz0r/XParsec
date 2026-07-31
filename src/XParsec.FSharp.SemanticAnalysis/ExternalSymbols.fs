@@ -1103,7 +1103,7 @@ type CodegenOpenSignature =
         /// it to flatten / lone-unit-erase the member-ref parameters and split the
         /// call's applied arguments, and derives the flat `CompiledForm`
         /// (`TastLower.compiledOf`) for the `void`-vs-value decision — replacing the
-        /// ambiguous `decurryFrozen` reconstruction of the curried `Signature` (which
+        /// ambiguous `uncurryFrozen` reconstruction of the curried `Signature` (which
         /// can't tell a tupled group `f (x,y)` from a single tuple param
         /// `f (t:int*int)`). `ValueNone` for a symbol with no captured arity (a value,
         /// a metadata-layer symbol); the boundary then keeps the curried

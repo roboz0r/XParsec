@@ -755,7 +755,7 @@ type internal Assembler
                 // param) must match `abstractMethodSignature`'s, or the `Param` rows
                 // and the signature disagree and the method becomes un-reflectable.
                 let paramTys = abstractMethodParamTys m
-                let _, retTy = decurry m.Signature
+                let _, retTy = uncurry m.Signature
 
                 let handle = toEntity (this.MethodDef(MethodKey.InterfaceMethod(td.Key, i)))
 
