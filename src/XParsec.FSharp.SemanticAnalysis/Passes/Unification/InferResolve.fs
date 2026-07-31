@@ -197,7 +197,7 @@ module internal UnificationInferResolve =
             PartialMatches: ResolvedRecord list
         }
 
-    /// Whether a provider (cross-unit) record candidate belongs to the UNQUALIFIED
+    /// Whether a provider (cross-file) record candidate belongs to the UNQUALIFIED
     /// field-set index a bare `{ X = … }` literal reads — F#'s `eFieldLabels`. Two
     /// exclusions, BOTH bare-only (the qualified `{ R.X = … }` path resolves `R` by
     /// name and is unaffected by either — F# indexes qualified construction through
@@ -210,7 +210,7 @@ module internal UnificationInferResolve =
     ///     implicit open — exactly the reach `OpenScope.tryQualify` answers for a written
     ///     name (the record's simple name must qualify, under the opens in force, to the
     ///     candidate's own dotted spelling). A type NESTED in a type is never
-    ///     bare-reachable cross-unit. `ctx.Resolution.OpenScope` is the live per-element
+    ///     bare-reachable cross-file. `ctx.Resolution.OpenScope` is the live per-element
     ///     scope (`Unification.walkElems` sets it via `EnterElement`, in lockstep with the
     ///     walk), so it names the opens in force at this literal.
     let private admitsBareExternalRecord (ctx: PassContext) (cand: ExternalRecordCandidate) : bool =
@@ -266,7 +266,7 @@ module internal UnificationInferResolve =
             }
         | first :: _ ->
             // Provider candidates join LOCAL-FIRST: on a `TypeKey` collision the local
-            // record wins (local is authoritative for the compiling unit) — the
+            // record wins (local is authoritative for the compiling file) — the
             // classifier's first-occurrence dedup keeps the earlier (local) entry, so
             // ordering local-first suffices. The field-name reverse index is a genuine
             // spelling reach with no stampable node: a bare `{ X = … }` field set has no

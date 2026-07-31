@@ -396,8 +396,8 @@ let tests =
                             "    | (::): Head: 'T * Tail: List<'T> -> List<'T>"
                         ]
 
-                // This unit IS `Vesper.List`: it declares `Vesper.Collections.List`, the very
-                // type Vesper.List's contract (mounted by `defaultManifests`) publishes. A unit
+                // This file IS `Vesper.List`: it declares `Vesper.Collections.List`, the very
+                // type Vesper.List's contract (mounted by `defaultManifests`) publishes. A file
                 // may declare the types its OWN contract publishes — that is what compiling it
                 // MEANS — so it must be analysed under that package's assembly name. Under any
                 // other name it is a project declaring a type a REFERENCED assembly already

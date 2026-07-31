@@ -470,7 +470,7 @@ module UnificationEngineCore =
     // A **currency-only** map (`SymbolKey -> SymbolKey`): the reverse tier is gone, so a
     // key only ever routes FORWARD to an already-published intrinsic canon, else returns
     // itself. Resolution order:
-    //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprKeys`) — a key it
+    //   1. the compiled file's OWN intrinsics (`ctx.Types.IntrinsicReprKeys`) — a key it
     //      holds IS a contract-stamped canon (`intrinsicKeyOf` wrote both together at
     //      registration), so it is its own canon;
     //   2. a *referenced* package's intrinsic, riding the provider as
@@ -501,7 +501,7 @@ module UnificationEngineCore =
     /// Keyed by the intrinsic's already-resolved canon `SymbolKey` — the
     /// opens-discharged identity the receiver `TyConst` carries — so BOTH halves of the
     /// forward axis answer by key and no name is ever projected back out of one: the
-    /// self-compiling unit's own intrinsics from `IntrinsicReprKeys`, a referenced
+    /// self-compiling file's own intrinsics from `IntrinsicReprKeys`, a referenced
     /// package's from the store's `IntrinsicForwardRepr`. Returns the key's identity name
     /// for a non-intrinsic key (a project-local / already-qualified name passes through)
     /// or an intrinsic with no repr on the compiling target (`decimal` on JS, absent from

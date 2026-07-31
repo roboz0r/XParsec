@@ -8,9 +8,9 @@ open XParsec.FSharp.SemanticAnalysis
 
 /// The per-kind layout node builders: `partitionTypeDecls` + the private row helpers +
 /// the `buildXNodes` that map each partition slice to its `TypeNode` rows. Factored out
-/// of `Layout` so `Layout.fs` keeps only the unit orchestration (`buildUnit`), the
+/// of `Layout` so `Layout.fs` keeps only the per-file orchestration (`buildFile`), the
 /// assembly `combine`, and `deriveHandles`. Consumes the layout data model in `LayoutModel`
-/// and is consumed by `Layout.buildUnit`.
+/// and is consumed by `Layout.buildFile`.
 module internal LayoutNodes =
 
     /// Single-walk partition of `tast.Decls` by `TTypeKind`.
@@ -299,8 +299,8 @@ module internal LayoutNodes =
     //
     // One `TypeNode list` per partition slice (plus the discovered closures). Each maps a
     // slice to its by-kind rows and is a pure function of that slice + the one ambient fact
-    // a nominal row needs (`symbols`, for co-slots). `buildUnit` calls them in the by-kind
-    // order the `TypeDef` table has always used; nothing here reads unit-wide or
+    // a nominal row needs (`symbols`, for co-slots). `buildFile` calls them in the by-kind
+    // order the `TypeDef` table has always used; nothing here reads file-wide or
     // later-derived state.
 
     let buildInterfaceNodes (interfaces: (TastAccessor.TypeDecl * Frozen.TAbstractMethod list) list) : TypeNode list =

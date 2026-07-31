@@ -9,21 +9,21 @@ open XParsec.FSharp.Codegen.Common
 
 module internal Layout =
 
-    /// Build ONE compilation unit's contribution to the type HIERARCHY, and its slice of
+    /// Build ONE file's contribution to the type HIERARCHY, and its slice of
     /// the ranged tables. By kind: namespace-level interfaces / unions / records / classes
     /// / enums → closures → the root modules' holders. A module's holder is immediately
     /// followed by the types it holds — in that same by-kind order — and by its nested
     /// modules' holders. The single `<Module>` pseudo-type (TypeDef row 1) and the single
     /// Program holder are NOT minted here: they belong to the assembly, so `combine` mints
-    /// them once around the concatenated units. The shared `ClosureNamer` is threaded in so
-    /// a multi-unit driver can keep closure TypeDef names unique assembly-wide. Reuses the
+    /// them once around the concatenated files. The shared `ClosureNamer` is threaded in so
+    /// a multi-file driver can keep closure TypeDef names unique assembly-wide. Reuses the
     /// existing lowering/discovery passes unchanged and carries their products.
-    let buildUnit
+    let buildFile
         (closureNamer: Emit.ClosureNamer)
         (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (pools: FrozenPools)
-        : UnitLayout =
+        : FileLayout =
         // The file's trees as columns, with an append-only overlay stacked over them.
         // Every node this emission DERIVES — the eta bridges, the closure-verdict
         // retypes, a `use`'s dispose synthetic — is appended to the overlay, and every
@@ -51,8 +51,8 @@ module internal Layout =
         // A source lambda's verdict, on the lambda ID SPACE: a lambda's dense id is its
         // `ExprPoolId`, so a discovered lambda's verdict is a lookup on the node itself
         // rather than a key recomputed from its token. Keyed by the NODE (id + the pool
-        // that issued it), not the bare id: two units' pools both number from 0, so a bare
-        // id would not miss across units — it would silently name a different node.
+        // that issued it), not the bare id: two files' pools both number from 0, so a bare
+        // id would not miss across files — it would silently name a different node.
         //
         // Read on the EXPANDED tree, so a lambda the expansion re-authored — every lambda with
         // an inline call anywhere beneath it, since re-pointing a child mints a new row — is
@@ -321,7 +321,7 @@ module internal Layout =
             |> List.map holderNode
 
         // The single `<Module>` pseudo-type and the single Program holder are minted by
-        // `combine`, not here — they belong to the assembly, not a unit. This unit hands
+        // `combine`, not here — they belong to the assembly, not a file. This file hands
         // over its placeable roots (namespace-level nominals, then closures, then root
         // holders — each carrying its own subtree) and the flat key set for the
         // completeness check.
@@ -343,78 +343,78 @@ module internal Layout =
             Partitioned = partitioned
             FunVerdicts = funVerdicts
             // The entry flag is the whole-assembly OutputKind decision, made by `combine`
-            // (an executable's LAST file is the entry unit); a file cannot know it alone.
+            // (an executable's LAST file is the entry file); a file cannot know it alone.
             EmitEntryPoint = false
         }
 
-    /// Assemble the units into the whole `AssemblyLayout`: PREPEND the single `<Module>`
+    /// Assemble the files into the whole `AssemblyLayout`: PREPEND the single `<Module>`
     /// pseudo-type (so it is TypeDef row 1 for the assembly), APPEND the single Program
     /// holder, flatten the concatenated roots into the `TypeDef` table, and run the
     /// completeness check ONCE over the combined set. The singular lowering products stay
-    /// exposed for the Assembler; for a single unit they are that unit's.
-    let combine (project: ProjectInfo) (units: UnitLayout list) : AssemblyLayout =
-        // The entry unit carries the program entry point (`Main` + the anonymous "Program"
+    /// exposed for the Assembler; for a single file they are that file's.
+    let combine (project: ProjectInfo) (files: FileLayout list) : AssemblyLayout =
+        // The entry file carries the program entry point (`Main` + the anonymous "Program"
         // holder). For an executable it is the LAST file — F#'s rule that only the final
-        // compilation unit may hold top-level expressions — and a library has none. Stamp
-        // the flag onto exactly that unit (`buildUnit` left every unit FALSE, unaware of
-        // the whole-assembly OutputKind decision) so `PrepareMain` fires once.
+        // file may hold top-level expressions — and a library has none. Stamp the flag onto
+        // exactly that file (`buildFile` left every file FALSE, unaware of the
+        // whole-assembly OutputKind decision) so `PrepareMain` fires once.
         let entryIndex =
             match project.OutputKind with
-            | Exe -> List.length units - 1
+            | Exe -> List.length files - 1
             | Library -> -1
 
-        let units =
-            units
-            |> List.mapi (fun i u ->
-                { u with
+        let files =
+            files
+            |> List.mapi (fun i f ->
+                { f with
                     EmitEntryPoint = (i = entryIndex)
                 }
             )
 
-        let entryUnit =
-            match units |> List.tryFind (fun u -> u.EmitEntryPoint) with
-            | Some u -> ValueSome u
+        let entryFile =
+            match files |> List.tryFind (fun f -> f.EmitEntryPoint) with
+            | Some f -> ValueSome f
             | None -> ValueNone
 
         // Only the entry file may carry top-level VALUE bindings — the anonymous "Program"
         // holder's static fields, written by its `.cctor` (leading prefix) or `Main`
         // (trailing). These come from a file's implicit-module top-level `let`s, which only
-        // an executable's last file has; a non-entry unit with any is a front-end error. A
+        // an executable's last file has; a non-entry file with any is a front-end error. A
         // namespace-level `let` (a holder-less FN) is NOT top-level code — a library may
         // carry those on the Program holder — so it is aggregated below, not rejected here.
-        units
-        |> List.iteri (fun i u ->
-            if not u.EmitEntryPoint then
-                let p = u.Plan
+        files
+        |> List.iteri (fun i f ->
+            if not f.EmitEntryPoint then
+                let p = f.Plan
 
                 if
                     not (List.isEmpty p.ProgramCctorValues)
                     || not (List.isEmpty p.ProgramMainValues)
                 then
                     failwithf
-                        "Layout.combine: compilation unit %d of %d carries %d top-level value binding(s) but is not the entry file — only the last file of an executable may carry top-level code"
+                        "Layout.combine: file %d of %d carries %d top-level value binding(s) but is not the entry file — only the last file of an executable may carry top-level code"
                         (i + 1)
-                        (List.length units)
+                        (List.length files)
                         (List.length p.ProgramCctorValues + List.length p.ProgramMainValues)
         )
 
-        // A holder `TypeSlotKey` contributed by two units is a same-FQN module split across
+        // A holder `TypeSlotKey` contributed by two files is a same-FQN module split across
         // files — a front-end error the front end should already reject. Assert it here so a
         // duplicate holder TypeDef row can never reach `deriveHandles` (an opaque throw).
         let holderSeen = HashSet<TypeSlotKey>()
 
-        for u in units do
-            for k in u.BuiltKeys do
+        for f in files do
+            for k in f.BuiltKeys do
                 match k with
                 | TypeSlotKey.Holder _ ->
                     if not (holderSeen.Add k) then
                         failwithf
-                            "Layout.combine: holder %A is contributed by more than one unit — a module's definition is split across files"
+                            "Layout.combine: holder %A is contributed by more than one file — a module's definition is split across files"
                             k
                 | _ -> ()
 
-        // The single `<Module>` pseudo-type is minted once here, not per unit, so it is
-        // TypeDef row 1 for the whole assembly no matter how many units are combined.
+        // The single `<Module>` pseudo-type is minted once here, not per file, so it is
+        // TypeDef row 1 for the whole assembly no matter how many files are combined.
         let moduleNode =
             {
                 Slot =
@@ -431,22 +431,22 @@ module internal Layout =
                 Nested = []
             }
 
-        // The single Program holder, minted once here (not per unit). Its top-level value
-        // FIELDS + `.cctor` + `Main` come from the ENTRY unit alone (only the last file of
+        // The single Program holder, minted once here (not per file). Its top-level value
+        // FIELDS + `.cctor` + `Main` come from the ENTRY file alone (only the last file of
         // an executable has top-level value bindings / `Main`; a library has neither):
         // leading-prefix values are `initonly` (written by the `.cctor`), values after a
         // top-level `do` are plain mutable `static` (written by `Main`). Its holder-less
-        // static FNS aggregate across EVERY unit — a namespace-level `let` in any file lands
-        // here — in unit order, each prepared by its owning unit's `MethodPlan`.
+        // static FNS aggregate across EVERY file — a namespace-level `let` in any file lands
+        // here — in file order, each prepared by its owning file's `MethodPlan`.
         //
         // `Main` belongs to this node's method list, which is what puts it inside the
         // Program type's `MethodList` range: the row and the range that claims it are
         // now the same list, so no ordering convention is left to preserve.
         let programFields =
-            match entryUnit with
+            match entryFile with
             | ValueNone -> []
-            | ValueSome u ->
-                let plan = u.Plan
+            | ValueSome f ->
+                let plan = f.Plan
 
                 [
                     for mv in plan.ProgramCctorValues ->
@@ -468,13 +468,13 @@ module internal Layout =
                 ]
 
         let hasProgramCctor =
-            match entryUnit with
-            | ValueSome u -> not (List.isEmpty u.Plan.ProgramCctorValues)
+            match entryFile with
+            | ValueSome f -> not (List.isEmpty f.Plan.ProgramCctorValues)
             | ValueNone -> false
 
-        // Every unit's holder-less fns, in unit order, on the one Program holder.
+        // Every file's holder-less fns, in file order, on the one Program holder.
         //
-        // This is the one place two units' bindings share a TYPE, so it is the one place
+        // This is the one place two files' bindings share a TYPE, so it is the one place
         // their identities can collide: a top-level binding is keyed by its file's
         // NAMESPACE, and two files that declare the same namespace (or none) can both
         // declare `let f`. F# keeps them apart by giving each header-less file an implicit
@@ -485,8 +485,8 @@ module internal Layout =
             let seen = HashSet<SymbolKey>()
 
             [
-                for u in units do
-                    for fn in u.Plan.HolderlessFns do
+                for f in files do
+                    for fn in f.Plan.HolderlessFns do
                         if not (seen.Add fn.SymbolKey) then
                             failwithf
                                 "Layout.combine: top-level binding %s is declared by more than one file — two files declaring the same namespace cannot both hold a binding of that name (F# would distinguish them by an implicit module named after each file)"
@@ -502,10 +502,10 @@ module internal Layout =
 
         // The Program holder exists when there is any top-level code or namespace-level fn
         // to hold it: an entry point (`Main`), leading-prefix value fields, or any
-        // holder-less fn across the units.
+        // holder-less fn across the files.
         let programNodes =
             if
-                entryUnit.IsSome
+                entryFile.IsSome
                 || not (List.isEmpty programFields)
                 || not (List.isEmpty holderlessFnRows)
             then
@@ -533,9 +533,9 @@ module internal Layout =
 
                                 yield! holderlessFnRows
 
-                                // `Main` is emitted iff there is an entry unit — only an
-                                // executable has one, and it is what makes that unit the entry.
-                                if entryUnit.IsSome then
+                                // `Main` is emitted iff there is an entry file — only an
+                                // executable has one, and it is what makes that file the entry.
+                                if entryFile.IsSome then
                                     yield
                                         {
                                             Key = MethodKey.Main
@@ -549,10 +549,10 @@ module internal Layout =
             else
                 []
 
-        // The roots, by kind: `<Module>` first (it must be TypeDef row 1), then the units'
+        // The roots, by kind: `<Module>` first (it must be TypeDef row 1), then the files'
         // namespace-level types / closures / root holders (each carrying its own subtree),
         // and the Program holder last.
-        let roots = moduleNode :: (units |> List.collect (fun u -> u.Roots)) @ programNodes
+        let roots = moduleNode :: (files |> List.collect (fun f -> f.Roots)) @ programNodes
 
         // The `TypeDef` table: the pre-order flattening. Every table the writer walks is
         // a projection of it, so a type's row range and the rows in that range cannot
@@ -569,8 +569,8 @@ module internal Layout =
         let builtKeys =
             [
                 yield moduleNode.Slot.Key
-                for u in units do
-                    yield! u.BuiltKeys
+                for f in files do
+                    yield! f.BuiltKeys
                 for n in programNodes -> n.Slot.Key
             ]
 
@@ -589,29 +589,29 @@ module internal Layout =
             Types = types
             Fields = types |> List.collect (fun n -> n.Fields)
             Methods = types |> List.collect (fun n -> n.Methods)
-            // Assembly-level: does any unit carry the entry point (the PE serialises with an
+            // Assembly-level: does any file carry the entry point (the PE serialises with an
             // entry point)?
-            EmitEntryPoint = entryUnit.IsSome
-            Units = units
+            EmitEntryPoint = entryFile.IsSome
+            Files = files
         }
 
-    /// Plan the whole assembly from every tast: build one unit per file and combine them.
-    /// The ONE `ClosureNamer` is created here and threaded through every `buildUnit`, so
+    /// Plan the whole assembly from every tast: build one layout per file and combine them.
+    /// The ONE `ClosureNamer` is created here and threaded through every `buildFile`, so
     /// closure TypeDef names stay unique assembly-wide across files. `combine` selects the
-    /// entry unit, rejects top-level code outside it, and mints the shared `<Module>` /
-    /// Program roots once. Single-unit output is byte-identical to the pre-split `build`.
+    /// entry file, rejects top-level code outside it, and mints the shared `<Module>` /
+    /// Program roots once. Single-file output is byte-identical to the pre-split `build`.
     ///
-    /// Unit order carries no meaning beyond that: a unit is planned from its own tast
+    /// File order carries no meaning beyond that: a file is planned from its own tast
     /// alone. In particular the `%A` `Format` row is reserved for every record / union
     /// regardless of where the `%A` interfaces are declared — they resolve local-or-external
     /// like any nominal (`ClrEnv.coreInterfaceEntity`), and IL imposes no declaration order
     /// within an assembly, so a record may precede the interface it implements.
     let buildMany (symbols: ICodegenSymbols) (project: ProjectInfo) (tasts: FrozenPools list) : AssemblyLayout =
         let closureNamer = Emit.ClosureNamer()
-        let units = tasts |> List.map (buildUnit closureNamer symbols project)
-        combine project units
+        let files = tasts |> List.map (buildFile closureNamer symbols project)
+        combine project files
 
-    /// Plan the whole assembly from one tast — `buildMany` over a singleton unit list.
+    /// Plan the whole assembly from one tast — `buildMany` over a singleton file list.
     let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: FrozenPools) : AssemblyLayout =
         buildMany symbols project [ tast ]
 

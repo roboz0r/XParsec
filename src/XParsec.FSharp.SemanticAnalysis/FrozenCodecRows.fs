@@ -2,10 +2,10 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 
-/// The unit's interned type / key TABLES on the wire: the ROW form of `FrozenType` and the
+/// The file's interned type / key TABLES on the wire: the ROW form of `FrozenType` and the
 /// `SymbolKey`/`TypeKey` cluster it interlocks with, with every child already replaced by a
 /// row id. `FrozenTypeTable` is where the row layout is specified and justified — the
-/// per-unit id discipline, and why the rows are nine arrays rather than one flat key space;
+/// per-file id discipline, and why the rows are nine arrays rather than one flat key space;
 /// this file only puts them on the wire.
 ///
 /// This is the ONLY place in the codec where a type's structure is spelled out. Everywhere
@@ -52,17 +52,17 @@ module FrozenCodecRows =
     let private writeMemberKeyId (w: FrozenWriter) (MemberKeyId i) = w.Write i
     let private readMemberKeyId (r: FrozenReader) : MemberKeyId = MemberKeyId(r.ReadInt32())
 
-    /// A row of the unit's symbol-key table. Public because `FrozenCodecTypes` writes a
+    /// A row of the file's symbol-key table. Public because `FrozenCodecTypes` writes a
     /// symbol REFERENCE as one.
     let writeSymbolId (w: FrozenWriter) (SymbolId i) = w.Write i
     let readSymbolId (r: FrozenReader) : SymbolId = SymbolId(r.ReadInt32())
 
-    /// A row of the unit's type table — the identity a `ty` column entry holds. Public
+    /// A row of the file's type table — the identity a `ty` column entry holds. Public
     /// because `FrozenCodec` writes the columns themselves.
     let writeTypeId (w: FrozenWriter) (TypeId i) = w.Write i
     let readTypeId (r: FrozenReader) : TypeId = TypeId(r.ReadInt32())
 
-    /// A row of the unit's origin table. Public because a specialization entry writes the
+    /// A row of the file's origin table. Public because a specialization entry writes the
     /// producer file its anchors index as one (`FrozenCodecTypes.writeOriginRef`).
     let writeOriginId (w: FrozenWriter) (OriginId i) = w.Write i
     let readOriginId (r: FrozenReader) : OriginId = OriginId(r.ReadInt32())
@@ -358,7 +358,7 @@ module FrozenCodecRows =
 
     // ── the nine arrays ────────────────────────────────────────────────────
 
-    /// The whole of the unit's type/key tables, in `FrozenTypeRows` declaration order — the
+    /// The whole of the file's type/key tables, in `FrozenTypeRows` declaration order — the
     /// order that is also MINT order, so a row's children are rows of a table already at
     /// least this far read. The materialised side is derived on read and never stored.
     let writeTypeRows (w: FrozenWriter) (rows: FrozenTypeRows) =

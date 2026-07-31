@@ -387,8 +387,8 @@ let tests =
             // to one key — the old `TryLookupMember` best-by-arity round-trip — the second
             // harvested body would overwrite the first and one call site could never splice.
             // Pinned STRUCTURALLY (hand-built harvested signatures) rather than via a real
-            // cross-unit declaration because two `(# … #)`-bodied same-name overloads are not
-            // DECLARABLE in one unit today: local member overloading is unrepresentable (the
+            // cross-file declaration because two `(# … #)`-bodied same-name overloads are not
+            // DECLARABLE in one file today: local member overloading is unrepresentable (the
             // arity-only local key collides), the deferred follow-on this identity unblocks.
             test "collectInlineBodies mints distinct keys for two distinct harvested overload signatures" {
                 let declKey = SymbolKeyOps.qualifiedTypeKeyOf "widget" 0

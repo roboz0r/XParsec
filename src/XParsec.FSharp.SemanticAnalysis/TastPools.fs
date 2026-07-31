@@ -254,7 +254,7 @@ module TastPools =
         (anchor: 'tok -> Anchor)
         (file: TastFileG<FrozenType, 'tok, 'id>)
         : FrozenPools =
-        // The unit's type tables, hash-consed AS THE COLUMNS ARE FILLED — there is no
+        // The file's type tables, hash-consed AS THE COLUMNS ARE FILLED — there is no
         // separate interning pass, so what a node's `ty` column holds is a row of the very
         // table the pools ship with. A type is interned exactly where its column entry is
         // appended (the sink below), which is what keeps the two from being built apart.
@@ -572,7 +572,7 @@ module TastPools =
     /// spliced body ends up on its call site.
     ///
     /// This is where a binder's name is committed, so the text a backend emits is a column
-    /// value and not a re-scan of a source file the backend may no longer hold (a unit
+    /// value and not a re-scan of a source file the backend may no longer hold (a file
     /// emitted from its cache blob has none). The text is verbatim; mangling it for a target
     /// dialect's reserved words belongs to the backend.
     ///

@@ -232,7 +232,7 @@ let typeOf (ctx: PassContext) (key: NodeKey) : SemType =
     | ValueSome tv -> Passes.Unification.zonk ctx.Store (TyVar tv)
     | ValueNone -> failwithf "no TypeVar entry for %O" key
 
-/// The registered record / union / class named `name`, resolved from the whole-unit
+/// The registered record / union / class named `name`, resolved from the whole-file
 /// view (`UseSite.unbounded`), or a test failure. Collapse the `match TypeRegistry.try*
 /// … | ValueNone -> failtest` shape the registry-assertion sites otherwise repeat.
 let expectRecord (ctx: PassContext) (name: string) =

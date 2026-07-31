@@ -12,7 +12,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // domains — a diagnostic and its `Kind` / `Site`, and a node's anchor
 // (`FrozenCodecPrimitives`) — and, for the type domain, `materialise (read (write (intern
 // x))) = x`: a type reaches the blob ONLY as a row id now, so what has to survive is the
-// whole path through the unit's tables and their row codec, not a structural writer.
+// whole path through the file's tables and their row codec, not a structural writer.
 //
 // Data comes from two sources: the frozen conformance corpus (realistic breadth), harvested
 // from the leaf-bearing side tables + FrozenType child-walk of each `Frozen.TastFile` (no
@@ -325,7 +325,7 @@ let private roundTrips (write: FrozenWriter -> 'a -> unit) (read: FrozenReader -
         read
         (FrozenCodecPrimitives.toBytes (FrozenTypeTableBuilder()) write x)
 
-/// The harvest interned into ONE unit's tables, and the table those rows make after a trip
+/// The harvest interned into ONE file's tables, and the table those rows make after a trip
 /// through the row codec — the ids alongside, so each source value can be asked for back.
 type private Interned =
     {
@@ -335,7 +335,7 @@ type private Interned =
         Table: FrozenTypeTable
     }
 
-/// The whole path a type now takes to a blob and back: intern it into the unit's tables,
+/// The whole path a type now takes to a blob and back: intern it into the file's tables,
 /// write the ROWS, read them, materialise the id. Interning every harvested value into ONE
 /// builder is also what the freeze does — the corpus's types share their sub-types heavily,
 /// so this exercises rows that name rows, not just isolated values.

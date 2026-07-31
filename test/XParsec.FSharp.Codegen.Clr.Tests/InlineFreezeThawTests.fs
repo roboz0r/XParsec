@@ -27,9 +27,9 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //    `FTLocalTypar(scheme, index)`; the thaw mints one fresh cell per
 //    `(scheme, index)` pair.
 //
-// 4. That identity is BODY-RELATIVE and survives two units minting the same `SchemeId` —
+// 4. That identity is BODY-RELATIVE and survives two files minting the same `SchemeId` —
 //    the multi-file case, an id being an ordinal within one body and nothing more. Both
-//    the freeze/thaw half and a REAL cross-unit splice are pinned below.
+//    the freeze/thaw half and a REAL cross-file splice are pinned below.
 
 /// Every type mentioned by a frozen clause's constraints, in order.
 let private frozenConstraintTypes (clauses: TStaticOptClauseG<FrozenType, 'tok, 'id> list) : FrozenType list =
@@ -115,13 +115,13 @@ let private distinctCells (tvs: TyVarId list) : TyVarId list =
 let private distinctLeafCount (d: TDeclG<FrozenType, 'tok, 'id>) : int =
     collectTys d |> List.collect typarLeavesIn |> List.distinct |> List.length
 
-/// The frozen unit of a source — the pools the freeze yields.
+/// The frozen file of a source — the pools the freeze yields.
 let private freezePools (src: string) : FrozenPools =
     let ctx, tast = analyseWithCtx src
     Expect.isEmpty tast.Diagnostics "no diagnostics"
     Freeze.run ctx tast
 
-/// The same unit as the DU: every assertion in this file reads whole decl trees and the
+/// The same file as the DU: every assertion in this file reads whole decl trees and the
 /// inline vocabulary, which is what `ofPools` re-authors.
 let private freeze (src: string) : Pooled.TastFile = TastUnpool.ofPools (freezePools src)
 
@@ -153,7 +153,7 @@ let private frozenLetDecl (src: string) : Wire.TDecl =
     )
     |> Option.defaultWith (fun () -> failtestf "no top-level `let` in the frozen tree of:\n%s" src)
 
-/// The unit's sole published inline body.
+/// The file's sole published inline body.
 let private soleInlineBody (src: string) : Pooled.TInlineValue =
     match (freeze src).InlineBodies |> EqArray.toList with
     | [ v ] -> v
@@ -196,7 +196,7 @@ let private traitUnit (ns: string) (moduleName: string) =
 
 /// A module-held `let inline` — the only shape with a declaring holder chain, hence an
 /// exportable identity, hence a vocabulary entry. (A top-level inline lives in the
-/// anonymous Program holder and is spliceable only within its own unit.)
+/// anonymous Program holder and is spliceable only within its own file.)
 let private kindOfUnit (ns: string) (moduleName: string) =
     String.concat
         "\n"
@@ -232,7 +232,7 @@ let rec private typarArity (ft: FrozenType) : int =
         FrozenType.iterChildren (fun c -> n <- max n (typarArity c)) t
         n
 
-/// Unit A's inline vocabulary, published as a provider over the default contract stack —
+/// File A's inline vocabulary, published as a provider over the default contract stack —
 /// a multi-file provider in miniature: one `ExternalSymbol` per published body, with the
 /// body FOLDED ONTO it (that is the whole interface; there is no sibling body channel).
 ///
@@ -240,12 +240,12 @@ let rec private typarArity (ft: FrozenType) : int =
 /// key. Nothing `SemType` crosses: A published `FrozenType`, and B thaws.
 let private publishing (unitASource: string) : IExternalSymbolProvider =
     let ctx, tastA = analyseWithCtx unitASource
-    Expect.isEmpty tastA.Diagnostics "unit A has no diagnostics"
+    Expect.isEmpty tastA.Diagnostics "file A has no diagnostics"
     let unitA = Freeze.run ctx tastA
     let pool = TastPoolBuilder.openOver unitA
 
     // Drained the way a provider serves a template — `declTree`, which re-mints the body's
-    // binders into the node space a consuming unit's expansion speaks — and anchored in unit
+    // binders into the node space a consuming file's expansion speaks — and anchored in file
     // A's own file, which is what makes the indices those bodies carry readable at B.
     let source = sourceOf unitASource
 
@@ -495,10 +495,10 @@ let tests =
                     "two freezes of the same source yield identical (scheme, index) leaves, in the same order"
             }
 
-            test "freeze/thaw: colliding scheme ids across two units do not conflate — the leaf is BODY-relative" {
+            test "freeze/thaw: colliding scheme ids across two files do not conflate — the leaf is BODY-relative" {
                 // The multi-file hazard, made concrete. A `SchemeId` is an ordinal minted per
-                // frozen body, so two units' ids collide freely — a leaf is only ever
-                // interpreted against the body carrying it. These two units are DIFFERENT
+                // frozen body, so two files' ids collide freely — a leaf is only ever
+                // interpreted against the body carrying it. These two files are DIFFERENT
                 // programs, each with one local scheme, so both land on the SAME `SchemeId`.
                 let producer =
                     String.concat "\n" [ "let a () ="; "    let p = fun x -> x"; "    (p, p)" ]
@@ -512,22 +512,22 @@ let tests =
                 let pLeaves = collectTys pDecl |> List.collect localLeavesIn |> List.distinct
                 let cLeaves = collectTys cDecl |> List.collect localLeavesIn |> List.distinct
 
-                Expect.equal pLeaves.Length 1 "the producer unit has one local scheme"
-                Expect.equal cLeaves.Length 1 "the consumer unit has one local scheme"
+                Expect.equal pLeaves.Length 1 "the producer file has one local scheme"
+                Expect.equal cLeaves.Length 1 "the consumer file has one local scheme"
 
                 // The collision is REAL — assert it, or the test proves nothing.
                 Expect.equal
                     (fst pLeaves.Head)
                     (fst cLeaves.Head)
-                    "the two units' local schemes collide on the same SchemeId (an id is body-relative — by design)"
+                    "the two files' local schemes collide on the same SchemeId (an id is body-relative — by design)"
 
                 Expect.equal
                     pLeaves.Head
                     cLeaves.Head
-                    "…so the two frozen leaves are structurally EQUAL across units. That is not a bug: a frozen typar leaf is only ever interpreted against the template carrying it, exactly as FTTypar(Declaring, 0) is."
+                    "…so the two frozen leaves are structurally EQUAL across files. That is not a bug: a frozen typar leaf is only ever interpreted against the template carrying it, exactly as FTTypar(Declaring, 0) is."
 
                 // A `TyVarId` indexes ONE store, so cross-store id comparison is meaningless
-                // after the handle collapse — two units' cells are distinguishable only within a
+                // after the handle collapse — two files' cells are distinguishable only within a
                 // single id space. So route the consumer's own inference AND both thaws through
                 // ONE store: a leaf-keyed conflation would then surface as a REUSED (colliding)
                 // id rather than hide behind separate object identities. Each thaw still
@@ -571,23 +571,23 @@ let tests =
 
                 Expect.isEmpty
                     (disjointFrom pCells cCells)
-                    "the colliding scheme id does NOT conflate the two units' local typars — each thaw mints its own cells"
+                    "the colliding scheme id does NOT conflate the two files' local typars — each thaw mints its own cells"
 
                 Expect.isEmpty
                     (disjointFrom consumerOwnCells pCells)
                     "the producer's thawed cells are fresh — none is a cell of the consumer's own inference state, colliding id notwithstanding"
             }
 
-            // ─── Cross-unit EXPANSION: freeze in A, resolve in B ────────────────────────
+            // ─── Cross-file EXPANSION: freeze in A, resolve in B ────────────────────────
             //
-            // The property the whole channel exists for. Unit A is compiled, frozen, and
-            // published as a provider over the SAME contract stack; unit B then resolves A's
+            // The property the whole channel exists for. File A is compiled, frozen, and
+            // published as a provider over the SAME contract stack; file B then resolves A's
             // inline value BY KEY and expands its thawed body. Nothing B does can reach a cell
             // of A's — A handed out `FrozenType` only.
 
 
-            test "cross-unit: B resolves A's published inline BY KEY and expands the thawed body" {
-                // Unit A is a real compilation, sharing B's `NodeKey` space (no file id).
+            test "cross-file: B resolves A's published inline BY KEY and expands the thawed body" {
+                // File A is a real compilation, sharing B's `NodeKey` space (no file id).
                 let provider = publishing (kindOfUnit "Lib" "Kinds")
 
                 // Only a real expansion can answer these: the clause conditions are resolved
@@ -609,15 +609,15 @@ let tests =
             }
 
 
-            test "cross-unit expansion ≡ in-unit expansion, over COLLIDING NodeKeys" {
+            test "cross-file expansion ≡ in-file expansion, over COLLIDING NodeKeys" {
                 // A and B are compiled in the same `NodeKey` space, so A's body binders and
-                // B's own collide freely. If the thaw consulted any ambient unit state — or
+                // B's own collide freely. If the thaw consulted any ambient file state — or
                 // if its freshener cache were keyed by anything B also keys by — the
                 // collision would surface here as a wrong clause or a type error.
                 let provider = publishing (kindOfUnit "AAA" "Kind1")
 
-                // The SAME program with the inline declared IN-unit: the reference answer
-                // the cross-unit expansion must reproduce. Both are outlined — a template of
+                // The SAME program with the inline declared IN-file: the reference answer
+                // the cross-file expansion must reproduce. Both are outlined — a template of
                 // this file has an anchor domain to name like any other — so the two answers
                 // are read the same way, through the edge.
                 let inUnitAnswer =
@@ -637,6 +637,6 @@ let tests =
                 Expect.equal
                     (resolvedConst provider "open AAA\nlet r : int = Kind1.kindOf 5.0\n")
                     inUnitAnswer
-                    "freeze-in-A / expand-in-B ≡ in-unit expansion"
+                    "freeze-in-A / expand-in-B ≡ in-file expansion"
             }
         ]

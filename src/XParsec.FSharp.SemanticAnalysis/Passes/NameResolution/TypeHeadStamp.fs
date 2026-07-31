@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis
 // annotation position and record the resolved key in `ResolvedTypeHead` so
 // Unification's `Translate` reads the key-addressed store face instead of
 // re-resolving the spelling. Split out of `NameResolutionScope` (which owns
-// value/ident resolution) because it is a self-contained unit keyed on the same
+// value/ident resolution) because it is a self-contained module keyed on the same
 // `CstKeys.ofTypeHead` derivation the read side uses.
 
 module NameResolutionTypeHeadStamp =
@@ -94,7 +94,7 @@ module NameResolutionTypeHeadStamp =
     /// A NOMINAL head (Class/IntrinsicInterface/Record/Union/Enum) takes the producer's
     /// REGISTERED key — the identity that came back WITH the shape, from the one provider
     /// that answered — rather than a key re-cut from the spelling. Only the registered key
-    /// preserves an `InModule` holder chain: a module-held cross-unit type written by its
+    /// preserves an `InModule` holder chain: a module-held cross-file type written by its
     /// dotted source name (`Test.A.M.R`) has canonical key `{InModule M in Test.A, R}`, but
     /// a re-cut would flatten the module segment into the namespace (`{InNamespace
     /// Test.A.M, R}`) — an unequal identity that mismatches the one construction pins via
@@ -213,7 +213,7 @@ module NameResolutionTypeHeadStamp =
     ///
     /// A head is LOCAL by the claims in scope where it is written, whether it is written bare
     /// (`T`) or qualified by the module holding it (`A.T`, `N.A.T`) — the qualifier names a
-    /// scope of this unit, so the type it selects there is as local as a bare one, and beats
+    /// scope of this file, so the type it selects there is as local as a bare one, and beats
     /// an external type of the same dotted spelling.
     let classifyTypeHead (ctx: PassContext) (head: CstKeys.TypeHead) : TypeHeadVerdict =
         let written = ctx.WrittenTypeNameOf head.LongIdent

@@ -12,7 +12,7 @@ open XParsec.FSharp.Parser
 // serialize them verbatim, and `Freeze.run` yields them. So `FrozenPools` must be a
 // self-contained, serializable value (nothing may ride it that only makes sense with the
 // source file still in hand — see `FrozenFileResidue`). The DU survives as freeze's own
-// internal construction shape, as the cross-unit inline-template wire, and as a debug/test
+// internal construction shape, as the cross-file inline-template wire, and as a debug/test
 // facility; the pools' correctness obligation is that the two are INTERCONVERTIBLE —
 // `toPools`/`ofPools` round-trip a `Frozen.TastFile` — which is what proves the columns
 // carry the whole tree, and is gated structurally over the corpus.
@@ -269,21 +269,21 @@ type FrozenFileResidue =
 [<NoEquality; NoComparison>]
 type FrozenPools =
     {
-        /// WHICH FILE this unit's `Anchor` columns index. Every `Anchor` here — the expr, pat
+        /// WHICH FILE this file's `Anchor` columns index. Every `Anchor` here — the expr, pat
         /// and binder token columns — is a position in this file and means nothing against
         /// another's, so the identity travels with the columns rather than beside them: a pool
         /// handed one separately can be handed the wrong one, and nothing downstream could
         /// tell (`OriginSources.tokenAt` faults only for a file it was NAMED against).
         ///
         /// It is also the only thing that can say whether a stated domain — an entry's
-        /// `Origin`, a node's — is this unit's own or a producer's, which is a question no
+        /// `Origin`, a node's — is this file's own or a producer's, which is a question no
         /// consumer past the freeze can otherwise answer: the identity is minted before the
         /// parse (`Hashing.originSource`) and reconstructing it downstream from a path and a
         /// re-read would be a different value that compares unequal.
         Origin: OriginFile
-        /// The unit's own interned type and key tables — what the `ty` columns index. Every
+        /// The file's own interned type and key tables — what the `ty` columns index. Every
         /// `TypeId` in this record is a row of THIS table and of no other: the tables are
-        /// per unit (see `FrozenTypeTable`), so an id from another unit's pools would name a
+        /// per file (see `FrozenTypeTable`), so an id from another file's pools would name a
         /// different, valid type rather than miss.
         ///
         /// Hash-consed as the pools are filled, so two structurally equal types of this file

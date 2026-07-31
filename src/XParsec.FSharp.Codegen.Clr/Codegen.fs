@@ -18,86 +18,86 @@ module Codegen =
         (project: ProjectInfo)
         (tasts: FrozenPools list)
         : ClrArtifact =
-        // A compilation is an ordered SEQUENCE of frozen units emitted into one assembly;
+        // A compilation is an ordered SEQUENCE of frozen files emitted into one assembly;
         // `Layout.buildMany` combines them and the Bind/Prepare loops below iterate every
-        // unit. A single-file compile is the length-1 case — byte-identical to before.
+        // file. A single-file compile is the length-1 case — byte-identical to before.
         let asm = Assembler(symbols, project, tasts, bclReferences)
 
-        // Bind, per unit: pre-fill the registries with layout-derived handles, so any
+        // Bind, per file: pre-fill the registries with layout-derived handles, so any
         // prepared body can reference any type / member / factory / static fn / closure
-        // ctor with no emission-order discipline. Each unit binds against its own
+        // ctor with no emission-order discipline. Each file binds against its own
         // `EmitContext` (NodeKey-keyed tables are file-local); the nominal registries and
         // the combined row space are shared on the Assembler.
-        for u in asm.Units do
-            for ud in u.Layout.Partitioned.Unions do
+        for f in asm.Files do
+            for ud in f.Layout.Partitioned.Unions do
                 NominalEmit.register asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
 
-            for rd in u.Layout.Partitioned.Records do
+            for rd in f.Layout.Partitioned.Records do
                 NominalEmit.register
                     asm
                     (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> ClassValueKind.RefType))
                     rd.Decl
                     rd.Members
 
-            for cd in u.Layout.Partitioned.Classes do
+            for cd in f.Layout.Partitioned.Classes do
                 NominalEmit.register asm (NominalEmissionInput.Class cd) cd.Decl cd.Members
 
-            asm.BindClosures u
+            asm.BindClosures f
 
-        // Prepare, per unit: build every signature + body against the resolved handles,
-        // using that unit's `EmitContext`. `PrepareMain` gates itself on the unit that
-        // carries the entry point, so it fires for the entry unit alone.
-        for u in asm.Units do
-            asm.PrepareInterfaces u
+        // Prepare, per file: build every signature + body against the resolved handles,
+        // using that file's `EmitContext`. `PrepareMain` gates itself on the file that
+        // carries the entry point, so it fires for the entry file alone.
+        for f in asm.Files do
+            asm.PrepareInterfaces f
 
-            for ud in u.Layout.Partitioned.Unions do
+            for ud in f.Layout.Partitioned.Unions do
                 NominalEmit.prepare
                     asm
-                    u.EmitCtx
+                    f.EmitCtx
                     (NominalEmissionInput.Union(ud.Cases, ud.Interfaces))
                     ud.Decl
                     ud.Members
 
-            for rd in u.Layout.Partitioned.Records do
+            for rd in f.Layout.Partitioned.Records do
                 NominalEmit.prepare
                     asm
-                    u.EmitCtx
+                    f.EmitCtx
                     (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> ClassValueKind.RefType))
                     rd.Decl
                     rd.Members
 
-            for cd in u.Layout.Partitioned.Classes do
-                NominalEmit.prepare asm u.EmitCtx (NominalEmissionInput.Class cd) cd.Decl cd.Members
+            for cd in f.Layout.Partitioned.Classes do
+                NominalEmit.prepare asm f.EmitCtx (NominalEmissionInput.Class cd) cd.Decl cd.Members
 
-            asm.PrepareStructEnums u
-            asm.PrepareClosures u
-            asm.PrepareStaticMethods u
-            asm.PrepareMain u
+            asm.PrepareStructEnums f
+            asm.PrepareClosures f
+            asm.PrepareStaticMethods f
+            asm.PrepareMain f
 
         // Write the MethodDef table in layout order, then the TypeDef rows +
         // sorted GenericParams, and serialise.
         asm.WriteMethods()
         asm.Finalise()
 
-    /// A SEQUENCE of frozen units → one in-memory PE artifact. The `symbols` provider
-    /// must already carry every cross-file surface the units reference — the caller
-    /// composes `composite(each unit's projected view ++ external)` so a call into a
-    /// prior unit's exported module function finds its open signature (which
+    /// A SEQUENCE of frozen files → one in-memory PE artifact. The `symbols` provider
+    /// must already carry every cross-file surface the files reference — the caller
+    /// composes `composite(each file's projected view ++ external)` so a call into a
+    /// prior file's exported module function finds its open signature (which
     /// `ClrRecipes.emitExternalCall` then re-homes to the LOCAL `MethodDef` via
     /// `localModuleFns`); types / records / unions resolve through the shared nominal
-    /// registries the Bind pass fills. Only the LAST unit may carry top-level
+    /// registries the Bind pass fills. Only the LAST file may carry top-level
     /// expressions, so it alone owns `Main` + the Program holder + the entry point.
     ///
     /// This is the general entry; `compile` is the length-1 case. Codegen stays agnostic
-    /// of the front-end `AssemblyUnits.FrozenUnit`: the caller owns view-composition and
+    /// of the front-end `AssemblyFiles.FrozenFile`: the caller owns view-composition and
     /// hands over the already-composed provider + the bare `FrozenPools` list.
-    let compileUnits (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tasts: FrozenPools list) : ClrArtifact =
+    let compileFiles (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tasts: FrozenPools list) : ClrArtifact =
         assemble [] symbols project tasts
 
-    /// `compileUnits` with the compilation's own BCL surface threaded into the emitted-
-    /// `AssemblyRef` identity map (see `compileWithBclReferences`). `compileUnits` is
+    /// `compileFiles` with the compilation's own BCL surface threaded into the emitted-
+    /// `AssemblyRef` identity map (see `compileWithBclReferences`). `compileFiles` is
     /// this with `[]`.
-    let compileUnitsWithBclReferences
+    let compileFilesWithBclReferences
         (bclReferences: string list)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
@@ -115,9 +115,9 @@ module Codegen =
     /// published TEMPLATES are a separate root array (`FrozenPools.InlineTemplates`) that
     /// emission never walks; an `inline` binding's ordinary compiled function is in
     /// `Roots` like any other and IS emitted.
-    /// The single-file case of `compileUnits`.
+    /// The single-file case of `compileFiles`.
     let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: FrozenPools) : ClrArtifact =
-        compileUnits symbols project [ tast ]
+        compileFiles symbols project [ tast ]
 
     /// `compile` with the compilation's own BCL surface (a TFM ref pack +
     /// `<Reference>`s) threaded into the emitted-`AssemblyRef` identity map, so the
@@ -131,7 +131,7 @@ module Codegen =
         (project: ProjectInfo)
         (tast: FrozenPools)
         : ClrArtifact =
-        compileUnitsWithBclReferences bclReferences symbols project [ tast ]
+        compileFilesWithBclReferences bclReferences symbols project [ tast ]
 
     /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
     /// directly — the testable seam for hand-written bodies, independent of any

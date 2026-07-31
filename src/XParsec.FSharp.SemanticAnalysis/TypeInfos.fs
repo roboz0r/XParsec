@@ -289,7 +289,7 @@ type RecordTypeInfo
     /// `[<RequireQualifiedAccess>]` posture. Filled during
     /// `NameResolution.registerRecordTypeDefn` from the type's attributes; defaults
     /// to `false`. `Elaborate` projects it onto `TTypeDecl.IsRequireQualifiedAccess`,
-    /// which the frozen-tree projection reads so a cross-unit RQA record is kept out
+    /// which the frozen-tree projection reads so a cross-file RQA record is kept out
     /// of a consumer's unqualified (`{ X = … }`) field-set index.
     member val IsRequireQualifiedAccess = false with get, set
     /// Augmentation members (`with member …` / `static member …`). Member types
@@ -388,7 +388,7 @@ type UnionTypeInfo
     /// `[<RequireQualifiedAccess>]` posture. Filled during
     /// `NameResolution.registerUnionTypeDefn` from the type's attributes; defaults
     /// to `false`. `Elaborate` projects it onto `TTypeDecl.IsRequireQualifiedAccess`,
-    /// which the frozen-tree projection reads so a cross-unit RQA union's cases are
+    /// which the frozen-tree projection reads so a cross-file RQA union's cases are
     /// kept out of a consumer's bare case index (F# requires `Color.Red`, not `Red`).
     member val IsRequireQualifiedAccess = false with get, set
     /// `interface IFace with member …` blocks declared on the union.

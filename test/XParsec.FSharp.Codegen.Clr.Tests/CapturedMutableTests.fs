@@ -282,14 +282,14 @@ let tests =
                 let lowered0 = Emit.lower (List.ofArray (TastAccessor.roots pool))
                 // No lambda in these sources carries a value-struct verdict, but the
                 // discovery signature is the pooled one, so feed it the pooled table —
-                // node-keyed, as `Layout.buildUnit` does.
+                // node-keyed, as `Layout.buildFile` does.
                 let funVerdicts =
                     pools.FunVerdicts
                     |> Array.map (fun (id, v) -> ({ Pool = pool; Id = id }: TastAccessor.ExprId), v)
                     |> DenseTable.index
 
                 // The binder-keyed tables at the dense id the CLR emit's API takes, indexed
-                // exactly as `Layout.buildUnit` indexes them, so this harness cannot drift
+                // exactly as `Layout.buildFile` indexes them, so this harness cannot drift
                 // from the real path.
                 let moduleMembers = Map.ofArray pools.ModuleMembers
                 let closureReprs = Map.ofArray pools.ClosureReprs

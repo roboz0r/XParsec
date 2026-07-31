@@ -225,7 +225,7 @@ module EmitClosures =
             SymbolKey = SymbolKeyOps.valueKey (ModuleHolder.InModule programHolder) name
         }
 
-    /// How EVERY top-level decl of a unit emits, decided in ONE pass so the answer cannot
+    /// How EVERY top-level decl of a file emits, decided in ONE pass so the answer cannot
     /// differ between the collectors that ask (module values, program values, generic
     /// values, static fns) — they each see a slice of the decls, and shadowing is a fact
     /// about the whole list.
@@ -682,7 +682,7 @@ module EmitClosures =
 
     /// Build the **static-method** `StaticFn`s from the precomputed `eligible` set
     /// (`staticEligible`): each gathered function whose key is eligible, named by the
-    /// unit's `emissions` table (a named-holder source name, or the same source name on
+    /// file's `emissions` table (a named-holder source name, or the same source name on
     /// the "Program" holder for a top-level function — the CLR having no namespace-level
     /// method to put it on). Taking `eligible` as input — rather than recomputing it —
     /// guarantees the set bridging assumed and the set emitted as static methods are the
@@ -867,7 +867,7 @@ module EmitClosures =
     /// `<bound-name>@<line>` scheme (debuggable) is deliberately NOT the default:
     /// because the name is the global TypeDef key it must be (1) UNIQUE across
     /// files — the same `let f = fun…` source line recurs in every compilation
-    /// unit — and (2) TOTAL — an anonymous lambda has no bound name at all.
+    /// file — and (2) TOTAL — an anonymous lambda has no bound name at all.
     /// `<bound-name>@<line>` satisfies neither without an added disambiguator and
     /// an anonymous-lambda fallback, so the monotonic counter is the
     /// correct-by-construction default. `NextName` still receives the closure

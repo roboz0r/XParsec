@@ -412,7 +412,7 @@ type internal ClrEnv
     // member signature — so Core's own records implement that `TypeDef` instead of an
     // `AssemblyRef` to themselves (which `refRequired` rejects).
     //
-    // A function, not a `lazy`: the answer depends on `userTypes`, which fills per unit in
+    // A function, not a `lazy`: the answer depends on `userTypes`, which fills per file in
     // `buildPrelude`, so a value forced too early would cache the wrong side. `ctx.TypeRef`
     // dedupes by (scope, ns, name), so re-probing mints no extra row.
     let coreInterfaceEntity (key: TypeKey) (name: string) : EntityHandle =
@@ -623,7 +623,7 @@ type internal ClrEnv
     member _.Symbols: ICodegenSymbols = symbols
 
     /// Resolve a Vesper primitive's canon `SymbolKey` to its IL representation string,
-    /// single-sourced from the `.fs` `(# … #)`: (1) this unit's OWN intrinsics (`reprs` —
+    /// single-sourced from the `.fs` `(# … #)`: (1) this file's OWN intrinsics (`reprs` —
     /// the `.fs` being compiled, `TastFile.IntrinsicReprKeys`), then (2) the provider's
     /// harvested forward `{ canon -> platform }` map (the dependency closure). No
     /// hard-coded fallback. BOTH halves are addressed by the canon `SymbolKey` itself —

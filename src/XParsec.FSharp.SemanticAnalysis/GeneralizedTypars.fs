@@ -3,11 +3,11 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 
 /// THE one SemType structural pre-order skeleton, plus the link-following root
-/// collector built on it. Lives here (compile-unit #14, after `UnionFind` and
+/// collector built on it. Lives here (file #14 in compile order, after `UnionFind` and
 /// before every consumer — `Inline`, `InferGeneralize`, `Elaborate`) so the
 /// four historically-duplicated "first-appearance typar" walks share a single
 /// traversal. Free of any Unification-pass dependency: needs only `SemType` /
-/// `TyVarId` / `UnionFind`, all earlier compile units.
+/// `TyVarId` / `UnionFind`, all earlier files.
 module SemTypeWalk =
 
     /// THE one SemType typar-collector: invoke `onVar` at every `TyVar` leaf with

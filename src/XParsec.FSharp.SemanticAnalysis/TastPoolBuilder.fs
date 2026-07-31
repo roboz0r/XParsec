@@ -29,7 +29,7 @@ open XParsec.FSharp.Parser
 // A builder is WRITE-ONLY DOWNWARD: it is opened over a base, appended to during one
 // emission, and dropped. There is no collapse back to a plain `FrozenPools` — nothing
 // stores or ships a derived tree (`Freeze.run` is the only producer of the stored form),
-// so the only way OUT of a builder is `declTree`, the DU drain the cross-unit inline
+// so the only way OUT of a builder is `declTree`, the DU drain the cross-file inline
 // wire needs.
 
 /// An append-only overlay stacked over an immutable base `FrozenPools`. See the file
@@ -79,8 +79,8 @@ type PoolBuilder =
 /// Equality is the pool's identity plus the id (hence `ReferenceEquality` on
 /// `PoolBuilder`), so two ids denote the same node only when they came from the same
 /// pool. That is why the identity tables an assembly's emit carries key on the HANDLE
-/// (`LayoutModel.UnitLayout.FunVerdicts`, `EmitTypes.EmitContext`'s `…ByNode` set):
-/// a bare `ExprPoolId` would be sound only for as long as no two units' tables met,
+/// (`LayoutModel.FileLayout.FunVerdicts`, `EmitTypes.EmitContext`'s `…ByNode` set):
+/// a bare `ExprPoolId` would be sound only for as long as no two files' tables met,
 /// since every pool numbers from 0 and a foreign id would name a different node rather
 /// than miss.
 [<Struct; NoComparison>]
@@ -162,7 +162,7 @@ module TastPoolBuilder =
     /// The node's type, across both layers. The BASE column holds a row id of the base
     /// pool's own type table and is resolved through it; an OVERLAY row holds the type
     /// itself, because a lowering that retypes a node (`ClosureVerdictRewrite`,
-    /// `copyPatTreeInto`) mints a type the frozen unit never interned — and the base table
+    /// `copyPatTreeInto`) mints a type the frozen file never interned — and the base table
     /// is immutable, which is what makes stacking sound in the first place.
     let exprTy (b: PoolBuilder) (id: ExprPoolId) : FrozenType =
         readExpr b id (fun p i -> p.Types.[p.ExprTys.[i]]) (fun r -> r.Ty)
@@ -408,7 +408,7 @@ module TastPoolBuilder =
 
     /// The file this pool's `Anchor`s index (`FrozenPools.Origin`) — the base's, an overlay
     /// deriving nodes onto the very file it was opened over. What a consumer holding a stated
-    /// domain compares against to learn whether it is this unit's own or a producer's.
+    /// domain compares against to learn whether it is this file's own or a producer's.
     let origin (b: PoolBuilder) : OriginFile = b.Base.Origin
 
     /// How many resolved-specialization entries the table holds — the bound every
@@ -526,7 +526,7 @@ module TastPoolBuilder =
         TastUnpool.substitutePat rename row.Ty row.Tok row.Payload (row.Children |> Array.map (patTree rename b))
 
     /// The DU subtree an expression id denotes — see `patTree`. Reached through `declTree`:
-    /// the cross-unit wire carries whole declarations, never a bare expression.
+    /// the cross-file wire carries whole declarations, never a bare expression.
     let rec private exprTree (rename: BinderId -> NodeKey) (b: PoolBuilder) (at: ExprPoolId) : Wire.TExpr =
         let row = exprRow b at
 
@@ -546,14 +546,14 @@ module TastPoolBuilder =
     /// hand a DU-typed consumer; what such a consumer needs of one is distinctness within
     /// the drained subtree plus equality between a binder and the references to it, and a
     /// counter-minted key gives both. Naming no position, it also cannot be mistaken for a
-    /// key that resolves against some unit's tree.
+    /// key that resolves against some file's tree.
     ///
     /// The counter and the rename map are the BUILDER's, which is the largest scope either
     /// needs. Two drains that reach one binder must name it alike — they are two views of
     /// the same definition site, and a consumer expanding both has to see that — and a
     /// builder covers every drain of one pool. Two builders may hand out the same key, and
     /// that is harmless: a drained body is renamed again by `Inline.freshen` against the
-    /// CONSUMING unit's counter before it lands, so no two of them ever meet unfreshened.
+    /// CONSUMING file's counter before it lands, so no two of them ever meet unfreshened.
     ///
     /// Its anchors are the PRODUCER's, passed through untouched — the rebuild takes no position
     /// mapping, so this cannot blank or rebase them, and nothing should: they are the only record

@@ -51,7 +51,7 @@ module Hashing =
             Lexed = lexed
         }
 
-    /// The identity of a compiling unit handed over as TEXT with no file behind it: a script
+    /// The identity of a compiled source handed over as TEXT with no file behind it: a script
     /// fragment, a driver given a string, a test. The content hash stands in for the path, so
     /// two different texts are two different origins and cannot collide in an `OriginSources`.
     ///

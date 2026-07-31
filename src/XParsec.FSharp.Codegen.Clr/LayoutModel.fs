@@ -161,7 +161,7 @@ type internal FieldKey =
     | ClosureCached of closure: string
     /// A module-level value's `public static` holder field, keyed by its
     /// `SymbolKey` (declaring holder + emitted name) so the ONE combined field-def
-    /// map stays injective across compilation units and under entry-file shadowing —
+    /// map stays injective across files and under entry-file shadowing —
     /// a bare per-file `NodeKey` collides on both axes (`Emit.ModuleValue.SymbolKey`).
     | ModuleValue of SymbolKey
 
@@ -219,7 +219,7 @@ type internal MethodKey =
     | ProgramCctor
     /// A top-level function lowered to a static method, keyed by its `SymbolKey`
     /// (declaring holder + emitted name) so the ONE combined method-def map stays
-    /// injective across compilation units and under entry-file shadowing — a bare
+    /// injective across files and under entry-file shadowing — a bare
     /// per-file `NodeKey` collides on both axes (`Emit.StaticFn.SymbolKey`).
     | StaticFn of SymbolKey
     | Main
@@ -299,21 +299,21 @@ type internal TypeNode =
         Nested: TypeNode list
     }
 
-/// One compilation unit's contribution to the assembly, as data — everything a
-/// unit produces on its own, BEFORE the single `<Module>` pseudo-type and the
-/// single Program holder are minted (both belong to the assembly, not a unit, so
-/// `Layout.combine` mints them once and `Layout.buildUnit` never does). A future
-/// multi-unit driver builds one of these per source unit and hands the list to
+/// One file's contribution to the assembly, as data — everything a file produces
+/// on its own, BEFORE the single `<Module>` pseudo-type and the single Program
+/// holder are minted (both belong to the assembly, not a file, so
+/// `Layout.combine` mints them once and `Layout.buildFile` never does). A
+/// multi-file driver builds one of these per source file and hands the list to
 /// `combine`.
-type internal UnitLayout =
+type internal FileLayout =
     {
-        /// This unit's placeable ROOT nodes — its namespace-level nominals, its
+        /// This file's placeable ROOT nodes — its namespace-level nominals, its
         /// closures, its root-module holders (each carrying its own nested subtree)
         /// — with the `<Module>` and Program roots deliberately absent. `combine`
-        /// concatenates these across units between the one `<Module>` head and the
+        /// concatenates these across files between the one `<Module>` head and the
         /// one Program tail.
         Roots: TypeNode list
-        /// This unit's contribution to the completeness check's built-key set: every
+        /// This file's contribution to the completeness check's built-key set: every
         /// nominal, closure and holder key it built, independently of how they were
         /// placed in the tree. `combine` adds the `<Module>` and Program keys and asks
         /// the set question once over the whole assembly.
@@ -323,18 +323,18 @@ type internal UnitLayout =
         Closures: EmitTypes.Closure list
         ClosureByNode: Dictionary<TastAccessor.ExprId, EmitTypes.Closure>
         Partitioned: PartitionedTypeDecls
-        /// This unit's source-lambda value-struct closure verdicts, keyed by the lambda
+        /// This file's source-lambda value-struct closure verdicts, keyed by the lambda
         /// NODE — the id together with the pool that issued it. A bare `ExprPoolId` is
-        /// only meaningful relative to that pool: two units' pools both number from 0,
-        /// so a foreign unit's id would not miss, it would silently name a DIFFERENT
+        /// only meaningful relative to that pool: two files' pools both number from 0,
+        /// so a foreign file's id would not miss, it would silently name a DIFFERENT
         /// node. The handle carries its pool and a `PoolBuilder` compares by reference,
-        /// so a cross-unit lookup misses like any other absent key and per-unit scoping
+        /// so a cross-file lookup misses like any other absent key and per-file scoping
         /// is no longer the thing keeping this sound.
         FunVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>
-        /// Whether this unit carries the entry point (`Main`). `buildUnit` leaves it FALSE
+        /// Whether this file carries the entry point (`Main`). `buildFile` leaves it FALSE
         /// — the OutputKind decision belongs to the whole assembly, not a file — and
-        /// `combine` stamps it TRUE on the single entry unit (an executable's last file)
-        /// and FALSE on all others, so `PrepareMain` fires exactly once.
+        /// `combine` stamps it TRUE on the single entry file (an executable's last) and
+        /// FALSE on all others, so `PrepareMain` fires exactly once.
         EmitEntryPoint: bool
     }
 
@@ -355,14 +355,14 @@ type internal AssemblyLayout =
         /// order. Derived, never assembled a second time.
         Methods: MethodRow list
         /// The Program slot's presence is a layout decision: exe (`Main`) or
-        /// holder-less fns. True iff some unit carries the entry point.
+        /// holder-less fns. True iff some file carries the entry point.
         EmitEntryPoint: bool
-        /// The per-unit products this layout was combined from — one per source file.
-        /// Every per-unit datum the emission passes need (lowered decls, holder plan,
+        /// The per-file products this layout was combined from — one per source file.
+        /// Every per-file datum the emission passes need (lowered decls, holder plan,
         /// closures, partition, closure verdicts, the entry flag) lives here, keyed so a
-        /// unit's bodies resolve their own file-local nodes; the shared registries and the
+        /// file's bodies resolve their own file-local nodes; the shared registries and the
         /// one combined row space live on the Assembler.
-        Units: UnitLayout list
+        Files: FileLayout list
     }
 
 /// The resolved handle lookup derived from the layout once: `TypeSlotKey` →

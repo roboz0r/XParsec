@@ -136,7 +136,7 @@ module SymbolProviders =
         let anchored = InlineBody.anchoredIn origin
 
         // The published VALUE templates, drained off their own pool roots — the wire form
-        // is DU-typed because a pool id means nothing in the consuming unit's pool.
+        // is DU-typed because a pool id means nothing in the consuming file's pool.
         let values =
             [
                 for iv in tast.InlineTemplates ->
@@ -241,7 +241,7 @@ module SymbolProviders =
                         match implFile with
                         | None -> ()
                         | Some f ->
-                            // The FROZEN unit is the publish surface: its `InlineBodies`
+                            // The FROZEN file is the publish surface: its `InlineBodies`
                             // carry the minted keys, and every type in a body is
                             // `FrozenType` — no live `UnionFind` cell can cross to a
                             // consumer. `manifest.Name` is the home assembly the keys are
@@ -346,7 +346,7 @@ module SymbolProviders =
                              System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
 
                          // Both channels arrive already keyed by a resolved identity — a
-                         // VALUE by the key its home unit minted at freeze, a MEMBER by the
+                         // VALUE by the key its home file minted at freeze, a MEMBER by the
                          // key the provider resolved at collection. Nothing here re-derives
                          // an identity from a spelling.
                          for v in collected.Values do

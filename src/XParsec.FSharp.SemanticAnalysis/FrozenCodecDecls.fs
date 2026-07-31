@@ -27,7 +27,7 @@ module FrozenCodecDecls =
     // constructor) with `let`-sequenced field reads that provably mirror the writer's emit
     // order.
     //
-    // NOTHING here mentions the unit's type tables, though a signature in this file can name
+    // NOTHING here mentions the file's type tables, though a signature in this file can name
     // a type the `ty` columns never interned: the tables ride the sink (`FrozenWriter`), so
     // every codec below is a plain element codec the generic containers take as-is.
     //

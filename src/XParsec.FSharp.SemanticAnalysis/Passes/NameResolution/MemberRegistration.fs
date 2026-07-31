@@ -861,7 +861,7 @@ module NameResolutionMemberRegistration =
                 // A heritable base's platform repr → its external `TyClass` (codegen's
                 // `ExternalClass` encoder maps it to a `TypeRef` for `extends` + base-ctor),
                 // or a "did not resolve" diagnostic. Shared by the LOCAL heritable-extern arm
-                // and the cross-unit provider arm for a ctor-less `(# class … #)` base.
+                // and the cross-file provider arm for a ctor-less `(# class … #)` base.
                 let reprToExternalBase (repr: string) =
                     match tryResolveExternalTypeKey ctx repr targs.Length with
                     | ValueSome extKey -> ValueSome(TyClass(extKey, EqArray.ofList targs))
@@ -878,7 +878,7 @@ module NameResolutionMemberRegistration =
                         ValueNone
 
                 // Fallback when the name is not a project-local class: a referenced heritable
-                // primitive published by a provider (`exn`, or a prior compilation unit's
+                // primitive published by a provider (`exn`, or a prior file's
                 // `(# class … #)` base like `Attribute`).
                 let resolveThroughProvider () =
                     // The provider publishes it as an `Intrinsic` with a class surface.
@@ -887,7 +887,7 @@ module NameResolutionMemberRegistration =
                     // over `ctx.Resolution.OpenScope`) — the file's explicit `open`s, then the
                     // implicit open of its own `namespace N` header (`CstWalk.addNamespacePrefix`,
                     // F#'s `ImplicitlyOpenOwnNamespace`), then the ambient prelude. That implicit
-                    // open is what resolves a SAME-namespace prior unit's base (`Vesper.Core`'s
+                    // open is what resolves a SAME-namespace prior file's base (`Vesper.Core`'s
                     // `compiler-attributes.fs` inheriting `prim-types-attr.fs`'s `Attribute`): the
                     // fact lives in the CONSUMER's scope, never in a producer-published ambient.
                     // `pick` returning `ValueNone` scans past a non-intrinsic hit to the next
@@ -949,7 +949,7 @@ module NameResolutionMemberRegistration =
                 match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
                 | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
                 | ValueNone ->
-                    // Heritable-local arm: a `(# class … #)` intrinsic of THIS unit. ONE
+                    // Heritable-local arm: a `(# class … #)` intrinsic of THIS file. ONE
                     // key-addressed read (`intrinsicKeyOf` → `IntrinsicReprInfo`) yields BOTH
                     // the repr and the `class`-tag verdict from the SAME entry, so a heritable
                     // base with no repr is structurally unrepresentable — no runtime invariant
@@ -1188,8 +1188,8 @@ module NameResolutionMemberRegistration =
 
         registerNominalMember ctx id td
 
-    /// Register one `type … and …` group — the unit of mutual recursion, and the unit of
-    /// registration. `ModuleElem.Type` IS that group, so the driver above is a single
+    /// Register one `type … and …` group — what recurses mutually, and what registers at
+    /// once. `ModuleElem.Type` IS that group, so the driver above is a single
     /// top-down scan and F#'s file-order type scoping falls out of it: at the moment a
     /// group registers, `TypeClaims` holds every type above it and nothing below, so a head
     /// naming a type declared below simply misses the registry — no guard has to say so.
@@ -1220,7 +1220,7 @@ module NameResolutionMemberRegistration =
         (defs: ImmutableArray<TypeDefn<SyntaxToken>>)
         : unit =
         let claims = ResizeArray<ClaimedTypeDefn>(defs.Length)
-        // One offset for the whole group — the unit of mutual recursion is the unit of
+        // One offset for the whole group — what recurses mutually shares one
         // visibility, so an `and`-sibling cannot be visible from a different place than
         // the type it is joined to.
         let visibleFrom = typeGroupVisibleFrom recScopeOffset defs

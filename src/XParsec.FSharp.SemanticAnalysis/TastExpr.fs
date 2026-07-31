@@ -5,7 +5,7 @@ open XParsec.FSharp.Lexer
 // The TERM shapes of the TAST: constants, patterns, expressions, and the compiled-form
 // cluster (a function's SOURCE arity and the flat signature derived from it). Declarations
 // are `TastDecl.fs`, which reads these shapes and not the reverse — a declaration's bodies
-// are expressions; the unit-level file shape and the monomorphic instantiations of every
+// are expressions; the file-level shape and the monomorphic instantiations of every
 // name here are `Tast.fs`.
 //
 // Each node carries its inferred SemType inline so target lowering doesn't

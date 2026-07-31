@@ -56,7 +56,7 @@ module Anchor =
 /// WHICH FILE a set of `Anchor`s index — identity only, with no claim about the file's
 /// contents.
 ///
-/// A FILE and not a unit: a unit has many files, and an anchor indexes exactly one of them.
+/// A FILE and not a package: a package has many files, and an anchor indexes exactly one.
 ///
 /// The package and the path WITHIN it, and deliberately nothing else — no absolute path. This
 /// is a KEY: it decides which retained source an anchor resolves against, and it is folded into

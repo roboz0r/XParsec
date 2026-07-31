@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecDecls
 
 /// A hand-rolled structural binary (de)serializer for the FROZEN domain, layered across six
 /// modules: the leaf domains (`FrozenCodecPrimitives` for the `FrozenWriter`/`FrozenReader`
-/// seam and the value structs, `FrozenCodecRows` for the unit's interned type/key TABLES,
+/// seam and the value structs, `FrozenCodecRows` for the file's interned type/key TABLES,
 /// `FrozenCodecDiagnostics` for a `Diagnostic` and its `Kind`, `FrozenCodecTypes` for the id
 /// every other module names a type by and the leaf payloads), the non-tree declaration shell
 /// and scalar clusters a pool payload rides (`FrozenCodecDecls`), and — on top of all of them
@@ -532,11 +532,11 @@ module FrozenCodec =
         // The tables must be READ first — everything below names a type by row id — but they
         // are not KNOWN until the body has been written: a payload embeds types the `ty`
         // columns never carried (a signature, an `isinst` operand, a `ValRepr`'s result), and
-        // interning them is what appends them to the unit's tables. So the body goes to a
+        // interning them is what appends them to the file's tables. So the body goes to a
         // buffer and the completed rows are emitted in front of it.
         //
         // Both writes go through `w.Types` — the sink's own builder, seeded by `flatten` from
-        // this unit's stored rows, which preserves every id the freeze minted so the `ty`
+        // this file's stored rows, which preserves every id the freeze minted so the `ty`
         // column entries stay valid. There is no second builder to write the wrong tables in
         // front of the wrong body.
         let body = toBytes w.Types writeBody p
@@ -546,7 +546,7 @@ module FrozenCodec =
     let private readPools (r: FrozenReader) : FrozenPools =
         // The tables come first and everything below resolves against THEM: the reader
         // arrives holding none (there are none until they are read) and is rebound to the
-        // unit's own before a single column is touched.
+        // file's own before a single column is touched.
         let types = FrozenTypeTable.OfRows(readTypeRows r)
         let r = { r with Types = types }
         let origin = readOriginRef r
@@ -621,7 +621,7 @@ module FrozenCodec =
 
     // ── the whole frozen file (top-level entry points) ──────────────────────
 
-    /// Flatten an entire frozen file to a byte blob: the unit's type/key tables, then the
+    /// Flatten an entire frozen file to a byte blob: the file's type/key tables, then the
     /// columns. The pools ARE the stored form, so the columns go out as they stand; the only
     /// work done here is EXTENDING the tables with the types a payload embeds, which the
     /// freeze had no column to intern them from. No compression — `Compression` wraps the

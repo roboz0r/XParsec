@@ -3,13 +3,13 @@ module XParsec.FSharp.SemanticAnalysis.Tests.FrozenTypeTableTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// The hash-consing gate for the per-unit type tables. Four obligations, and they are the
+// The hash-consing gate for the per-file type tables. Four obligations, and they are the
 // whole of what the rest of the frozen format rests on:
 //
 //   * `table.[intern t] = t` — a row materialises back to the type it was interned from, so
 //     swapping a `FrozenType[]` column for a `TypeId[]` one loses nothing.
 //   * intern is INJECTIVE on structural equality — two types intern to one id iff they are
-//     equal, which is what makes a within-unit id compare a type comparison.
+//     equal, which is what makes a within-file id compare a type comparison.
 //   * the tables are SHARED — a repeated type mints no second row.
 //   * the rows survive `FrozenCodecRows` unchanged, so an id resolves to the same value
 //     after a trip through a blob as before it.
@@ -190,7 +190,7 @@ let private rowTag (row: TypeRow) : string =
 [<Tests>]
 let tests =
     testList
-        "FrozenTypeTable hash-conses a unit's types and keys"
+        "FrozenTypeTable hash-conses a file's types and keys"
         [
             test "a row materialises back to the type it was interned from" {
                 let ids, table = internedSamples ()
@@ -199,7 +199,7 @@ let tests =
                     Expect.equal table.[id] ty (sprintf "round-trips: %A" ty)
             }
 
-            // The whole point of the id column: within one unit, `=` on two `TypeId`s IS
+            // The whole point of the id column: within one file, `=` on two `TypeId`s IS
             // structural type equality. Both directions, over every pair of samples.
             test "interning is injective on structural equality" {
                 let ids, _ = internedSamples ()

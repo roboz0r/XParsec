@@ -148,7 +148,7 @@
     <Compile Include="DynamicEscape.fs" />
     <Compile Include="Freeze.fs" />
     <Compile Include="Pipeline.fs" />
-    <Compile Include="AssemblyUnits.fs" />
+    <Compile Include="AssemblyFiles.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp\XParsec.FSharp.fsproj" />

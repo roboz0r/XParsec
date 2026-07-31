@@ -100,7 +100,7 @@ module HolderPlan =
         (refStructNsNames: HashSet<string * string>)
         (lowered0: TastAccessor.DeclId list)
         : HolderPlan =
-        // How every top-level decl of this unit emits (name, holder, handle key), decided
+        // How every top-level decl of this file emits (name, holder, handle key), decided
         // ONCE — before bridging, which rewrites expressions inside decls but neither adds
         // nor removes a top-level binder, so the same table is valid for `lowered` below.
         // Every collector reads it, so none of them can name a binding differently from

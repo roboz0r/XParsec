@@ -78,11 +78,11 @@ type ImportForm =
     | CommonJs
     | Namespace
 
-/// A published inline body as the provider serves it: the producing unit's own template,
+/// A published inline body as the provider serves it: the producing file's own template,
 /// drained to the wire shape (`Wire.TDecl`) and handed across the boundary VERBATIM.
 ///
 /// Its binder keys are MINTED BY THE DRAIN (`TastPoolBuilder.declTree`), not the producer's
-/// own: a pooled binder is a slot, and a slot means nothing in the consuming unit's pool.
+/// own: a pooled binder is a slot, and a slot means nothing in the consuming file's pool.
 /// What the wire needs of them is distinctness within this one template plus equality
 /// between a binder and its references, which a counter-minted key gives — and, being
 /// counter-minted, it names no position anything could try to resolve it against.
@@ -178,14 +178,14 @@ type ExternalSymbol =
         /// (VesperLib, MetadataSymbols, JsNativeSymbols) never touch it.
         ImportForm: ImportForm
         /// The symbol's splice TEMPLATE, when it has one — a `val inline` whose home
-        /// unit published its body. `ValueNone` for every ordinary (compiled) symbol,
+        /// file published its body. `ValueNone` for every ordinary (compiled) symbol,
         /// and for every provider that carries no inline bodies.
         ///
         /// Folded ONTO the resolved entry rather than served by a sibling by-key
         /// channel: the entry already carries the identity the body is keyed by
         /// (`Key`), so a separate lookup could only re-ask a question this entry has
         /// already answered — and answer it under a key that might disagree. NOT
-        /// `Lazy`: the provider builds its symbols FROM the frozen unit, so the body is
+        /// `Lazy`: the provider builds its symbols FROM the frozen file, so the body is
         /// already in memory and deferring it would defer work already done.
         InlineBody: InlineBody voption
     }
@@ -323,7 +323,7 @@ type ExternalUnionCase =
 /// answers identity.
 type ExternalRecordCandidate =
     {
-        /// The record's REAL identity — the exact `TypeKey` the declaring unit minted
+        /// The record's REAL identity — the exact `TypeKey` the declaring file minted
         /// (a module-held record's `InModule` holder chain, which no compiled-name
         /// string can reconstruct: `externalTypeKeyOf` would re-cut the `+`-mangled
         /// module segment as an `InType` class holder, yielding a key with the same
@@ -736,7 +736,7 @@ type IntrinsicClassSurface =
 ///
 /// `Class = ValueSome` ⇔ a heritable primitive (`obj`/`exn`): the contract's
 /// `class` kind tag IS the predicate, and the added surface lets a downstream
-/// unit `inherit exn` / `new exn` through the ordinary provider paths while the
+/// file `inherit exn` / `new exn` through the ordinary provider paths while the
 /// value identity stays `TyConst` (no `TyClass` churn at the pervasive
 /// `obj`/`exn` value sites). Distinct from a capability `IntrinsicInterface`
 /// (`disposable`) — an INTERFACE, which resolves to `TyClass`.
@@ -864,7 +864,7 @@ type ExternalTypeShape =
     /// through the reverse `{ platform -> canon }` map
     /// (`IExternalSymbolProvider.IntrinsicReverseCanon`), so `int`-as-metadata and
     /// `int`-as-contract still meet at `"int"`. The *local* `IntrinsicReprTypes`
-    /// twin (`TypeRegistry.fs`) stays single-string: it holds a self-compiled unit's
+    /// twin (`TypeRegistry.fs`) stays single-string: it holds a self-compiled file's
     /// own `platform` repr keyed by the `.fsi` short name (which is the canon).
     | Intrinsic of shape: IntrinsicShape
     /// A capability interface (`disposable`/`equatable`/`comparable`): an intrinsic on
@@ -1262,7 +1262,7 @@ module ExternalSymbols =
     /// identity, so it must never round-trip through a short-name/ambient re-scan
     /// (a composited provider could resolve the short name to a DIFFERENT entry
     /// than the one that minted the key). `ValueNone` is the honest miss: a scalar
-    /// intrinsic, a non-intrinsic key, or a self-host unit whose own primitives
+    /// intrinsic, a non-intrinsic key, or a self-host file whose own primitives
     /// publish no provider shape — callers no-op or fall to their ordinary error.
     let tryIntrinsicClass
         (provider: IExternalSymbolStore)

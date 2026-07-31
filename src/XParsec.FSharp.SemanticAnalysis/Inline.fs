@@ -15,8 +15,8 @@ open XParsec.FSharp.SemanticAnalysis.Passes.UnificationEngineCore
 // private state.
 //
 // By the time `inlineExpand` runs an inline binding's typars are free `TyVar` roots either
-// way: a SAME-unit template still holds the roots its generalised scheme quantified, and a
-// CROSS-unit one holds the roots the thaw just minted. `inlineExpand` substitutes those
+// way: a SAME-file template still holds the roots its generalised scheme quantified, and a
+// CROSS-file one holds the roots the thaw just minted. `inlineExpand` substitutes those
 // roots to the caller's concrete types; `freshen` renames binders so independent call sites
 // do not alias each other's codegen local slots. Argument (beta) reduction stays with the
 // caller, which is what holds the spine.
@@ -51,7 +51,7 @@ module Inline =
     /// and every reference splices the intrinsic body (`(# "undefined" #)` → bare
     /// `undefined`). The shape is deliberately narrow (one intrinsic, zero operands) so
     /// the alias can never lose or duplicate an operand. `InlineExpansion` splices it at
-    /// each `External` reference; `Freeze` publishes it in the unit's inline vocabulary
+    /// each `External` reference; `Freeze` publishes it in the file's inline vocabulary
     /// (it is a splice template, `inline` keyword or not) so a consumer's provider serves
     /// the body. Publication is additive, here as for a `let inline`: the binding stays in
     /// `Decls`, and it is the JS backend's own reference splicing — not the freeze — that
@@ -72,7 +72,7 @@ module Inline =
     ///
     /// Keying by `TyVar` root is correct for a THAWED body too: the thaw re-mints a fresh
     /// `TyVar` cell per frozen typar leaf BEFORE the splice, so by the time this runs the
-    /// template's typars are roots again — this unit's roots. It never sees a `TyTypar`.
+    /// template's typars are roots again — this file's roots. It never sees a `TyTypar`.
     let quantifiedTypars (store: TypeStore) (declTy: SemType) : TyVarId[] =
         let acc = ResizeArray<TyVarId>()
         let seen = HashSet<TyVarId>()
@@ -81,7 +81,7 @@ module Inline =
 
     /// Substitute typar roots present in `subst`. A template's free typar is a
     /// `TyVar` root with no Link (the producer's, pre-freeze; a freshly minted one
-    /// of this unit's, post-thaw); chase to the union-find root and swap.
+    /// of this file's, post-thaw); chase to the union-find root and swap.
     /// Roots absent from `subst` stay abstract.
     let rec private substType (store: TypeStore) (subst: Dictionary<TyVarId, SemType>) (t: SemType) : SemType =
         match t with

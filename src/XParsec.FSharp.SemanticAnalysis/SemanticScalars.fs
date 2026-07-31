@@ -235,7 +235,7 @@ type TyparAxis =
 /// and equality, and both are interpreted only against the body carrying the leaf.
 ///
 /// Being file-scoped is the point. A `NodeKey` addresses a node of SOME file with no file
-/// id in it, so two units' local schemes collide silently and a reader is always one
+/// id in it, so two files' local schemes collide silently and a reader is always one
 /// careless lookup away from resolving one; a dense per-body int cannot be mistaken for
 /// anything resolvable, because it names nothing outside the body it came with.
 [<Struct>]

@@ -6,7 +6,7 @@ open XParsec.FSharp.Parser
 // under it in each of its five kinds (interface / union / record / class / enum) with the
 // members, preambles and constructors they carry. The term shapes a declaration's bodies
 // are made of live in `TastExpr.fs`, which this file reads and which does not read it back;
-// the unit-level file shape and the monomorphic instantiations of every name here are
+// the file-level shape and the monomorphic instantiations of every name here are
 // `Tast.fs`.
 //
 // The projections over a type kind (`module TTypeKindG`) live with the shapes they project,
@@ -115,7 +115,7 @@ and TTypeDeclG<'ty, 'tok, 'id, 'body> =
         TypeParams: EqArray<string>
         /// `[<RequireQualifiedAccess>]` posture. Type-level so it covers records
         /// AND unions in one carrier: it is F#'s `isILOrRequiredQualifiedAccess`
-        /// signal (`NameResolution.fs:1277`) projected through freeze — a cross-unit
+        /// signal (`NameResolution.fs:1277`) projected through freeze — a cross-file
         /// RQA record is kept OUT of the consumer's unqualified field-set index
         /// (a bare `{ X = … }` must qualify), and an RQA union's case out of the
         /// bare case index. Carried here so the frozen-tree projection
@@ -343,7 +343,7 @@ and TTypeMemberG<'ty, 'id, 'body> =
         /// or the public default). Carried physically on the member — not in
         /// `TastFile.Accessibility`, which keys top-level entities — so the frozen
         /// file→file projection (`FrozenSignature`) can honour member-level
-        /// accessibility and NOT leak a `member private` across the unit boundary
+        /// accessibility and NOT leak a `member private` across the file boundary
         /// (internal-or-better threshold: same-assembly visible, `Private` dropped).
         Accessibility: Accessibility
         Kind: TMemberKind

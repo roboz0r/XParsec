@@ -11,13 +11,13 @@ open InlineReduction
 
 // The pre-freeze inline-expansion pass. Runs after elaboration and before the typar freeze, on
 // the still `TyVar`-carrying `TExpr` tree, where `zonk` / union-find are native. A saturated use
-// of a local `let inline` — or of a cross-unit `val inline` whose body the provider serves on the
+// of a local `let inline` — or of a cross-file `val inline` whose body the provider serves on the
 // resolved entry — is resolved and static-opt selected here, so the frozen module decls reaching
 // codegen carry no inline call heads and no `StaticOptimization` nodes.
 //
 // What the walk LEAVES is a tree carrying edges — a `TExpr.InlineCall` per call site — and the
 // table those edges name, which is a DAG: an entry's own body carries edges. EVERY expandable
-// call becomes an edge, a same-unit template's included: its body is anchored in the file being
+// call becomes an edge, a same-file template's included: its body is anchored in the file being
 // compiled and so has a domain to name like any other. The edges SURVIVE the pass, and the
 // freeze: placing the bodies is the backends' shared emit-time expansion, which copies them as it
 // emits and reads the file each copied node was written in off the node itself.
@@ -97,7 +97,7 @@ module InlineExpansion =
             LambdaEnv: Dictionary<NodeKey, FusedLambda>
         }
 
-    /// The anchor domain of the material walked at a descent. The empty chain is this unit's
+    /// The anchor domain of the material walked at a descent. The empty chain is this file's
     /// own decls, which is where every walk starts.
     let private originOf (x: Expander) (at: Descent) : OriginFile = Descent.originOf x.Ctx.Origin at
 
@@ -187,7 +187,7 @@ module InlineExpansion =
             CallHead.Template(TemplateId.Local k, x.LocalInlines.[k], spineArgs)
         | TExpr.Var(k, _, _) when x.LambdaEnv.ContainsKey k -> CallHead.Fused x.LambdaEnv.[k]
         | head ->
-            // How a cross-unit head presents itself, taken ONCE so the expansion behind it is
+            // How a cross-file head presents itself, taken ONCE so the expansion behind it is
             // written once — see `ExternalHead`. `ValueNone` is any other head.
             let external: ExternalHead voption =
                 match head with
@@ -223,7 +223,7 @@ module InlineExpansion =
                 | ValueNone -> CallHead.Opaque ext.RebuiltHead
             | ValueNone -> CallHead.Opaque(fun () -> walk markedHead)
 
-    /// The same entry-and-edge as an applied call for a cross-unit NULLARY INTRINSIC used as a
+    /// The same entry-and-edge as an applied call for a cross-file NULLARY INTRINSIC used as a
     /// VALUE: the degenerate reduction, at arity 0, with a body that is one node and no survivors.
     /// It goes through the ordinary outlining path precisely because those are the only
     /// differences — the token the intrinsic was WRITTEN at is exactly what an entry keeps, so a
@@ -330,7 +330,7 @@ module InlineExpansion =
     /// and then an EDGE naming the resolved specialization. THE reduction: there is no path to
     /// one that does not come through here, so none can skip the gate.
     ///
-    /// A template of this file and one another unit served reach this by different lookups and
+    /// A template of this file and one another file served reach this by different lookups and
     /// are the same reduction thereafter — the whole reason `TemplateBody` says nothing about
     /// where its body came from.
     ///
@@ -563,7 +563,7 @@ module InlineExpansion =
     and private walkAt (x: Expander) (at: Descent) (e: TExpr) : TExpr = TastWalk.mapExpr (mapperAt x at) e
 
     /// Expand the module-level inlines in one decl-list (the elaborated, `TyVar`-carrying decls
-    /// paired with their freeze envs). The cross-unit inline-body channel is `ctx.Provider`
+    /// paired with their freeze envs). The cross-file inline-body channel is `ctx.Provider`
     /// itself — the body rides the resolved entry, reached by the key the use-site node carries;
     /// a front-end-only provider serves none and every lookup returns `ValueNone`, so the walk is
     /// an identity rebuild — which the typar freeze does to every decl immediately after

@@ -20,7 +20,7 @@ let private unclosedParen = "let f () = (1 + 2\n"
 /// the close. Nothing is inserted.
 let private mismatchedClose = "let r = {| x = 1 }\n"
 
-let private parsed (source: string) : Pipeline.ParsedUnit =
+let private parsed (source: string) : Pipeline.ParsedFile =
     match Pipeline.parse source with
     | Ok p -> p
     | Error f -> failtestf "expected a recovered parse, not a failure: %A" f.Diagnostics
@@ -28,12 +28,12 @@ let private parsed (source: string) : Pipeline.ParsedUnit =
 /// The diagnostic whose VERDICT is the one asked for. Asked of the `Kind` and not of a
 /// message substring or a stringly code: the classification is the thing the diagnostic
 /// carries, so a consumer selecting on it cannot be broken by a reworded sentence.
-let private ofKind (wanted: Kind -> bool) (what: string) (p: Pipeline.ParsedUnit) : Diagnostic =
+let private ofKind (wanted: Kind -> bool) (what: string) (p: Pipeline.ParsedFile) : Diagnostic =
     match p.Diagnostics |> List.tryFind (fun d -> wanted d.Kind) with
     | Some d -> d
     | None -> failtestf "no %s diagnostic; got %A" what p.Diagnostics
 
-let private unclosedDelimiter (p: Pipeline.ParsedUnit) : Diagnostic =
+let private unclosedDelimiter (p: Pipeline.ParsedFile) : Diagnostic =
     p
     |> ofKind
         (function
@@ -41,7 +41,7 @@ let private unclosedDelimiter (p: Pipeline.ParsedUnit) : Diagnostic =
         | _ -> false)
         "unclosed delimiter"
 
-let private mismatchedDelimiter (p: Pipeline.ParsedUnit) : Diagnostic =
+let private mismatchedDelimiter (p: Pipeline.ParsedFile) : Diagnostic =
     p
     |> ofKind
         (function
@@ -103,12 +103,12 @@ let tests =
                 | other -> failtestf "expected the '{|' token, got %A" other
             }
 
-            // `AssemblyUnits.failureDiagnostics` resolves a failed unit's diagnostics, and
+            // `AssemblyFiles.failureDiagnostics` resolves a failed file's diagnostics, and
             // `unpositionedDiagnostics` FAULTS on a positioned one rather than printing a
             // plausible line — so a mistake in the `Lexed` plumbing is a crash, not a bad
             // message. Built by hand because the top-level parser is infallible: it recovers
             // to a tree rather than failing, so no source reaches the positioned branch yet.
-            test "a failed unit's diagnostics resolve against its own token stream" {
+            test "a failed file's diagnostics resolve against its own token stream" {
                 // No trailing newline, so the end of the file is a column on line 1.
                 let source = "let f () = (1 + 2"
 
@@ -123,7 +123,7 @@ let tests =
                     | Error f -> f.Diagnostics
 
                 let anchored =
-                    AssemblyUnits.failureDiagnostics
+                    AssemblyFiles.failureDiagnostics
                         {
                             Path = "broken.fs"
                             Input = source
@@ -134,8 +134,8 @@ let tests =
                                 }
                         }
 
-                Expect.isNonEmpty anchored "the failed unit's diagnostics came out"
-                Expect.all anchored (fun a -> a.Path = "broken.fs") "each anchored to the failed unit"
+                Expect.isNonEmpty anchored "the failed file's diagnostics came out"
+                Expect.all anchored (fun a -> a.Path = "broken.fs") "each anchored to the failed file"
 
                 // The `)` belonged past the last token written, which is the end of the
                 // file: line 1, one column past `2`. A resolved position, not a fault and
@@ -143,12 +143,12 @@ let tests =
                 Expect.all
                     anchored
                     (fun a -> (a.Line, a.Col) = (1, source.Length + 1))
-                    (sprintf "resolved against the unit's own text: %A" anchored)
+                    (sprintf "resolved against the file's own text: %A" anchored)
             }
 
-            test "a unit with no token stream renders its diagnostics at the file head" {
+            test "a file with no token stream renders its diagnostics at the file head" {
                 let anchored =
-                    AssemblyUnits.failureDiagnostics
+                    AssemblyFiles.failureDiagnostics
                         {
                             Path = "unlexable.fs"
                             Input = ""
@@ -161,7 +161,7 @@ let tests =
 
                 match anchored with
                 | [ a ] ->
-                    Expect.equal a.Path "unlexable.fs" "anchored to the unit"
+                    Expect.equal a.Path "unlexable.fs" "anchored to the file"
                     Expect.equal (a.Line, a.Col) (1, 1) "the file head"
                 | other -> failtestf "expected one anchored diagnostic, got %A" other
             }

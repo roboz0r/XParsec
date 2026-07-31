@@ -129,14 +129,14 @@ let stagesFor (depth: ChainDepth) : Stage list =
 
 /// Analyse one stage through the self-host front end (`analyseForSelfHost`, the entry the
 /// package build uses: bare `[]`/`::` default to the Vesper cons-list) and return every
-/// unit's result. `analyse` is a seam so the probe can inject a timing wrapper.
-let analyseStage (analyse: AssemblyUnits.AnalyseUnit) (s: Stage) =
-    AssemblyUnits.analyseAssemblyWith analyse s.Name s.Provider s.Files
+/// file's result. `analyse` is a seam so the probe can inject a timing wrapper.
+let analyseStage (analyse: AssemblyFiles.AnalyseFile) (s: Stage) =
+    AssemblyFiles.analyseAssemblyWith analyse s.Name s.Provider s.Files
 
 /// Count error-severity diagnostics across a stage's results (parse failures + analysis
 /// errors). The green-workload guard: a bench on an erroring workload measures the error
 /// path, so a non-zero count is a setup crash, not a silent number.
-let stageErrorCount (results: Result<AssemblyUnits.FrozenUnit, AssemblyUnits.UnitError> list) : int =
+let stageErrorCount (results: Result<AssemblyFiles.FrozenFile, AssemblyFiles.UnparsedFile> list) : int =
     results
     |> List.sumBy (
         function
@@ -144,7 +144,7 @@ let stageErrorCount (results: Result<AssemblyUnits.FrozenUnit, AssemblyUnits.Uni
             e.Failure.Diagnostics
             |> List.filter (fun d -> d.Severity = Severity.Error)
             |> List.length
-        // A unit that parsed only because RECOVERY patched it is not a green workload
+        // A file that parsed only because RECOVERY patched it is not a green workload
         // either, so its parse diagnostics count the same as the analysis residue.
         | Ok u ->
             u.ParseDiagnostics @ u.Frozen.Residue.Diagnostics

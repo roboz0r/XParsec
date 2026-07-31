@@ -793,7 +793,7 @@ module ExternalSymbolProviders =
         }
 
     /// The published splice TEMPLATE `key` names, or `ValueNone` when it names none —
-    /// the ONE channel a splice site (`Passes.InlineExpansion`) asks for a cross-unit
+    /// the ONE channel a splice site (`Passes.InlineExpansion`) asks for a cross-file
     /// inline body through.
     ///
     /// It exists because the two body-bearing kinds of key route to different ENTRY types:

@@ -10,18 +10,18 @@ module Pipeline =
     // that type's declaration for why the bare name would otherwise be the parser's.
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
-    /// A parsed unit: the token stream and tree every pass runs on, and the diagnostics
+    /// A parsed file: the token stream and tree every pass runs on, and the diagnostics
     /// RECOVERY raised producing them. A file can parse to a COMPLETE tree and still have
     /// had every delimiter in it inserted and every missing expression stubbed, so a
     /// successful parse carries diagnostics as routinely as a failed one.
-    type ParsedUnit =
+    type ParsedFile =
         {
             Lexed: Lexed
             File: ImplementationFile<SyntaxToken>
             Diagnostics: Diagnostic list
         }
 
-    /// A unit no tree came out of. `Lexed` is present whenever LEXING succeeded, so the
+    /// A file no tree came out of. `Lexed` is present whenever LEXING succeeded, so the
     /// recovery diagnostics raised before the parser gave up still have the token stream
     /// their positions resolve against; only a lex failure has none.
     type ParseFailure =
@@ -72,7 +72,7 @@ module Pipeline =
     /// exceptions). WHICH driver ran is not a property of the failure, so nothing here is
     /// stamped with a caller-supplied code: the kind says what went wrong. The parser's own
     /// recovery diagnostics ride out on BOTH arms.
-    let parse (source: string) : Result<ParsedUnit, ParseFailure> =
+    let parse (source: string) : Result<ParsedFile, ParseFailure> =
         match Lexing.lexString source with
         | Result.Error e ->
             Error
@@ -110,7 +110,7 @@ module Pipeline =
     /// compilable one — every inserted delimiter and every `Expr.Missing` is a hole the
     /// source did not fill — so the rule is a property of the product, stated once here
     /// rather than re-derived by each driver and each test harness.
-    let parseUnrecovered (source: string) : Result<ParsedUnit, Diagnostic list> =
+    let parseUnrecovered (source: string) : Result<ParsedFile, Diagnostic list> =
         match parse source with
         | Error f -> Error f.Diagnostics
         | Ok parsed ->
@@ -121,7 +121,7 @@ module Pipeline =
     /// Runs every pass through the `SemType` domain and returns the populated
     /// `PassContext` plus the **`SemType`** `TastFile` — the pre-freeze tree. This is
     /// the accessor for front-end consumers that assert on `SemType` shapes (tests,
-    /// side-table inspection). `assemblyName` is the assembly this unit emits into
+    /// side-table inspection). `assemblyName` is the assembly this file emits into
     /// (`PassContext.AssemblyName`); `""` for the front-end-only paths that never emit.
     let analyseSemWithContextForCore
         (selfHostList: bool)

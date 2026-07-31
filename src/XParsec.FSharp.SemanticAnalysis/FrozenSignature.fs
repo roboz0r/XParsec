@@ -4,9 +4,8 @@ open System.Collections.Generic
 
 // In-memory projection of a FROZEN implementation file to an
 // `IExternalSymbolProvider` — the compiler computing a file's *implicit signature*
-// so file N+1 resolves file N's exports by NAME, with no DLL emitted. This is the
-// enabling piece for multi-file compilation units (see
-// `docs/multi-file-compilation-units-plan.md`).
+// so file N+1 resolves file N's exports by NAME, with no DLL emitted. This is what
+// makes a multi-file assembly compile as one.
 //
 // It is the intra-assembly twin of the two existing signature projections into the
 // SAME provider surface: the `.fsi` contract extractor (`VesperLib.toProvider`, from
@@ -56,7 +55,7 @@ module FrozenSignature =
             vr
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a
-    /// provider view. `assemblyName` is this unit's home assembly — a file-N entity is
+    /// provider view. `assemblyName` is this file's home assembly — a file-N entity is
     /// the same assembly as N+1, so it rides every entry's `Origin`.
     ///
     /// `producer` is the file `frozen` was analysed FROM, retained. Every anchor in every
@@ -100,7 +99,7 @@ module FrozenSignature =
         let symbols = Dictionary<string, ExternalSymbol>(System.StringComparer.Ordinal)
 
         // The frozen twin of `ExtractCtx.ModuleHolders`: the DOTTED path of a module this
-        // unit declares -> the `TypeHolder` a type it holds sits in. A frozen impl carries
+        // file declares -> the `TypeHolder` a type it holds sits in. A frozen impl carries
         // no standalone module decls (a module is implicit in its types' holder keys), so
         // this is populated from the containment chain of each registered type. It exists so
         // a WRITTEN dotted name for a module-held type (`Test.A.M.T`, whose canonical
@@ -221,7 +220,7 @@ module FrozenSignature =
             // threshold `exported` applies to top-level entities: a `member private`
             // is not visible to another file, so it is dropped from the projection (an
             // `internal` / public member stays — same-assembly visible). Without this a
-            // cross-unit `receiver.PrivateMember` would wrongly resolve (OVER-PERMISSIVE).
+            // cross-file `receiver.PrivateMember` would wrongly resolve (OVER-PERMISSIVE).
             for m in ms do
                 if m.Accessibility <> Accessibility.Private then
                     acc.Add(memberOf declKey declArity m)
@@ -262,7 +261,7 @@ module FrozenSignature =
 
                 // Index the enclosing module chain so a written `A.M.T` for this type
                 // resolves through containment. An `InType`-nested type contributes no module
-                // holder — a written `Outer.Inner` cross-unit name is the extension point.
+                // holder — a written `Outer.Inner` cross-file name is the extension point.
                 match typeKey.Holder with
                 | TypeHolder.InModule m -> registerModuleHolder m
                 | TypeHolder.InNamespace _
@@ -386,7 +385,7 @@ module FrozenSignature =
                 | TTypeKindG.Interface methods ->
                     // Decurry each abstract method to an `ExternalMember` under the
                     // interface key (mirroring the `Class` arm's `membersOf`, via the
-                    // shared `memberFromParts`), so a cross-unit `interface F with member
+                    // shared `memberFromParts`), so a cross-file `interface F with member
                     // …` conformance check and a `receiver.M` dispatch both resolve the
                     // slot. An interface inherits no base and carries no `interface`
                     // clause on the frozen tree, so base / interfaces stay empty.
@@ -492,8 +491,8 @@ module FrozenSignature =
         // SITE's operand types). But it is a tree over the SAME source binder, which is
         // what lets the two meet here rather than as two passes over one dictionary where
         // the later write happened to win. What ships is the DU drain of the root:
-        // `InlineBody` is the cross-unit wire (`InlineThaw.bodyAtOrigin` realises it in
-        // another unit), and a pool id is meaningless outside the file that issued it.
+        // `InlineBody` is the cross-file wire (`InlineThaw.bodyAtOrigin` realises it in
+        // another file), and a pool id is meaningless outside the file that issued it.
         let inlineBodyOf =
             let d = Dictionary<BinderId, InlineBody>(frozen.InlineTemplates.Length)
 
@@ -541,14 +540,14 @@ module FrozenSignature =
         // --- intrinsic / primitive type shapes ----------------------------------------
         // An intrinsic-repr primitive (`type int = (# "System.Int32" #)`) is an
         // `ILIntrinsic` abbrev, kept OUT of `Decls` — the type-decl loop above never
-        // sees it. Its identity + repr ride `IntrinsicReprKeys` (a home unit's key IS its
+        // sees it. Its identity + repr ride `IntrinsicReprKeys` (a home file's key IS its
         // contract-stamped canon). Publish each as an `ExternalTypeShape.Intrinsic` — the
         // SAME nominal shape the `.fsi` extractor mints (`VesperLib.registerIntrinsic`) —
         // so a later file's `unit` / `int` / `obj` annotation resolves the name and its
         // canon reconciles through `TryLookupType key` (`EngineCore.canonKey` tier 2).
-        // `platform` is always `Some`: a home unit holds its own `(# … #)` repr. A
+        // `platform` is always `Some`: a home file holds its own `(# … #)` repr. A
         // HERITABLE `(# class … #)` primitive (`obj` / `exn` / `Attribute`) additionally
-        // carries a class surface so a later unit's `inherit` resolves it
+        // carries a class surface so a later file's `inherit` resolves it
         // (`resolveInheritParent`'s `Class = ValueSome` probe). Its `BaseType` is
         // `ValueNone` — the impl `.fs` binds only the repr, never the parent nominal
         // (`obj`), and codegen chains the base-`.ctor` off the canon's own repr, not this
@@ -583,7 +582,7 @@ module FrozenSignature =
             | _ -> ()
 
         // --- intrinsic axes -----------------------------------------------------------
-        // The FORWARD `{ canon -> platform-repr }` axis is the repr face of this unit's own
+        // The FORWARD `{ canon -> platform-repr }` axis is the repr face of this file's own
         // `IntrinsicReprKeys` (identity-keyed, the frozen face); heritability rides the
         // published `Class` surface above, not this axis. The REVERSE
         // `{ platform-repr -> [canon] }` is its inversion; a degenerate self-map (a
@@ -653,17 +652,17 @@ module FrozenSignature =
                             match recordFieldIndex.TryGetValue fieldName with
                             | true, buf -> buf.ToArray()
                             | _ -> [||]
-                    // A frozen impl unit publishes no `[<AutoOpen>]` surface, so it contributes
+                    // A frozen impl file publishes no `[<AutoOpen>]` surface, so it contributes
                     // no ambient. `AmbientOpenPrefixes` means the implicit PRELUDE — a
                     // package's `[<AutoOpen>]` modules plus its manifest namespace
                     // (`ReferencedProject.wrap`), i.e. `open Vesper.ArithmeticOperators; open
                     // Vesper` — and a producer never gets to say "open me" beyond that.
                     //
-                    // A later file in the SAME namespace reaches this unit's namespace-direct
+                    // A later file in the SAME namespace reaches this file's namespace-direct
                     // types by BARE name through its OWN scope, not through anything published
                     // here: its `namespace N` header implicitly opens `N`
                     // (`CstWalk.addNamespacePrefix`, F#'s `ImplicitlyOpenOwnNamespace` —
-                    // `CheckDeclarations.fs:355`). Publishing this unit's declared namespaces
+                    // `CheckDeclarations.fs:355`). Publishing this file's declared namespaces
                     // instead would hand every LATER file an implicit `open` of them whatever
                     // namespace it declares, which is not F#: there, a prior file contributes
                     // only its root NAME (`AddLocalRootModuleOrNamespace`), never its contents.

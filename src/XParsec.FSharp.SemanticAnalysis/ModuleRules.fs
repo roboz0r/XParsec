@@ -10,7 +10,7 @@ open XParsec.FSharp.Parser
 /// implementation serve both faces.
 ///
 ///   * `Lexed` / `Input` — the source text the module's attributes are read out of.
-///   * `IsNominalTypeName` — does THIS compilation unit declare a record / union / class
+///   * `IsNominalTypeName` — does THIS file declare a record / union / class
 ///     by that short name? A live predicate, not a snapshot: each face answers it from
 ///     its own name table.
 [<NoEquality; NoComparison>]
@@ -28,7 +28,7 @@ type ModuleNaming =
 module ModuleRules =
 
     /// The COMPILED holder-type name of a module: `Foo`, or `FooModule` when the module
-    /// would otherwise collide with a same-named nominal type in this unit, or when
+    /// would otherwise collide with a same-named nominal type in this file, or when
     /// `[<CompilationRepresentation(ModuleSuffix)>]` pins the suffix. A module compiles to
     /// a static class, and this is that class's name.
     ///

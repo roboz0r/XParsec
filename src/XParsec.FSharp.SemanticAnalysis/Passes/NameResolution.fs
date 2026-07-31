@@ -582,7 +582,7 @@ module NameResolution =
         (walker: CstWalk.ExprWalker<Scope list>)
         (elems: WalkedElem<SyntaxToken> list)
         =
-        // The whole-unit type-name pre-scan, and the ONE scan that must see a type before
+        // The whole-file type-name pre-scan, and the ONE scan that must see a type before
         // the registration scan reaches it: `moduleHolderName` (the `…Module` suffix rule)
         // reads `NominalTypeNames` at the very first key mint, and a `module Foo` may
         // textually precede the `type Foo` it collides with.

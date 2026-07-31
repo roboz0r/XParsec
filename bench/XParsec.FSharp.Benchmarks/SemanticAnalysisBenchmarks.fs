@@ -43,7 +43,7 @@ type SemanticAnalysisBenchmarks() =
                     s.Name
                     errs
 
-    /// The whole compilation through the SA-only multi-file seam (`AssemblyUnits`), through
+    /// The whole compilation through the SA-only multi-file seam (`AssemblyFiles`), through
     /// Freeze, no codegen. Parse is inside the seam and thus in the measured body — it is a
     /// fixed cost that cancels in the before/after diff; the `InternProbe` timing wrapper
     /// isolates SA-from-parse when the per-pass split is needed.

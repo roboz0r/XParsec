@@ -10,12 +10,12 @@ open InlineSpecTable
 // body belongs to, and how one call site's spine is resolved against it and its parameters
 // classified.
 //
-// A cross-unit body arrives FROZEN and is THAWED here (`lookupExternal`), minting this unit's
+// A cross-file body arrives FROZEN and is THAWED here (`lookupExternal`), minting this file's
 // own inference cells. That thaw is the single immutable→mutable transition on the provider
 // seam: nothing below it can `UnionFind.union` into a producer's cells, because it never holds
 // one.
 //
-// EVERY reduction is outlined, whether its template is this file's own or another unit's: the
+// EVERY reduction is outlined, whether its template is this file's own or another file's: the
 // body becomes a table entry keeping the positions it was written at, and the call site gets a
 // `TExpr.InlineCall` edge naming it. Placing a body is the backends' emit-time expansion.
 //
@@ -36,9 +36,9 @@ module InlineReduction =
             Core: TExpr
         }
 
-    /// An inline body as this pass consumes it, in this unit's `SemType` domain.
+    /// An inline body as this pass consumes it, in this file's `SemType` domain.
     ///
-    /// The SAME record for a template of this file and for one another unit served, because a
+    /// The SAME record for a template of this file and for one another file served, because a
     /// reduction of the two differs in nothing: both are outlined, both keep the positions they
     /// were written at, and only `Origin` tells them apart.
     type internal TemplateBody =
@@ -46,7 +46,7 @@ module InlineReduction =
             Key: SymbolKey
             Decl: TDecl
             ParamAttrs: ParamAttrs[]
-            /// The file every anchor in `Decl` indexes — this unit's own for a local template,
+            /// The file every anchor in `Decl` indexes — this file's own for a local template,
             /// the producer's for a served one.
             Origin: OriginFile
         }
@@ -178,7 +178,7 @@ module InlineReduction =
 
         /// The file the expressions being walked here were WRITTEN in, whose token array their
         /// anchors index — the producer's once the walk is inside a body served from another
-        /// unit, and `compiling` while it is in the file's own declarations.
+        /// file, and `compiling` while it is in the file's own declarations.
         let originOf (compiling: OriginFile) (d: Descent) : OriginFile =
             match d.Frames with
             | [] -> compiling
@@ -227,7 +227,7 @@ module InlineReduction =
                 Caller = d
             }
 
-    /// A call HEAD that names a cross-unit symbol, reduced to the three things an answer needs
+    /// A call HEAD that names a cross-file symbol, reduced to the three things an answer needs
     /// of it — so the expansion behind a plain `External` and behind the dotted
     /// `ExternalMember` that `x.get_Item(2)` lowers to is written ONCE.
     ///
@@ -261,7 +261,7 @@ module InlineReduction =
     type internal FusedLambda = { Body: TExpr; Caller: Descent }
 
     /// What a call HEAD resolves to: the whole dispatch of the walker's application rule as one
-    /// total answer. Three cases and not more — a template of this file and one another unit
+    /// total answer. Three cases and not more — a template of this file and one another file
     /// served are the same reduction, and a cross-package call, a CLR/JS method and a
     /// higher-order parameter are all heads nothing here expands.
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
@@ -509,7 +509,7 @@ module InlineReduction =
 
         { Params = classified; Core = core }
 
-    /// Reach a cross-unit body by its resolved `SymbolKey` — the sole channel, routing a value
+    /// Reach a cross-file body by its resolved `SymbolKey` — the sole channel, routing a value
     /// key and a member key to the entry that CARRIES it, so the body and the identity cannot
     /// disagree. A member is selected by EXACT key, never by a name lookup whose best-by-arity
     /// collapse could serve a sibling overload's body.
@@ -524,7 +524,7 @@ module InlineReduction =
     ///
     /// The THAW happens here, per lookup, so two call sites of one template never share an
     /// inference cell. The body keeps the producer's own positions — it stays behind an edge, so
-    /// its indices never have to mean anything against this unit's tokens — and the producer
+    /// its indices never have to mean anything against this file's tokens — and the producer
     /// file is retained on the table as it is read, being what those indices resolve against.
     let internal lookupExternal
         (ctx: PassContext)

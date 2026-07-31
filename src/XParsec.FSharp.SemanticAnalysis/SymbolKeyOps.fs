@@ -237,7 +237,7 @@ module SymbolKeyOps =
     /// for the one spelling that is NOT that rendering: the DOTTED source form of a
     /// module-held type (`Test.A.M.T` for `T` in `module M`), whose canonical key spells
     /// `Test.A.M+T`. On an exact-index miss, split the LAST dot — if the prefix names a
-    /// module this unit declares (`moduleHolder`), the suffix is the type that module holds:
+    /// module this file declares (`moduleHolder`), the suffix is the type that module holds:
     /// mint the candidate key under that holder, render it, and re-look-it-up in the index,
     /// so the value returned is ALWAYS the registered one and a spelling that names nothing
     /// resolves to nothing.
@@ -249,7 +249,7 @@ module SymbolKeyOps =
     /// `TypeKey`, so `'T` is what lets one spelling serve either index. A type NESTED
     /// IN A TYPE (`Outer.Inner`, `TypeHolder.InType`) is deliberately NOT reached: only
     /// module holders are indexed, matching both callers — the `InType` extension point when
-    /// the corpus needs a written `Outer.Inner` cross-unit name.
+    /// the corpus needs a written `Outer.Inner` cross-file name.
     let tryDottedModuleHeld
         (exact: string -> 'T voption)
         (moduleHolder: string -> TypeHolder voption)

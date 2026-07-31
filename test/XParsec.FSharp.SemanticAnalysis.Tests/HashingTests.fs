@@ -215,7 +215,7 @@ let tests =
                     }
 
                     // A frozen tree's nodes carry the `OriginFile` their anchors index, so two
-                    // units with identical text and different paths freeze to different trees.
+                    // files with identical text and different paths freeze to different trees.
                     // A key blind to the path would hand the first one's blob to the second.
                     test "moving ONLY the file's path moves its key" {
                         let digest = Hashing.compilationDigest compilation

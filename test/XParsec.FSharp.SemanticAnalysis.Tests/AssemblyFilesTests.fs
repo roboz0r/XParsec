@@ -1,43 +1,43 @@
-module XParsec.FSharp.SemanticAnalysis.Tests.AssemblyUnitsTests
+module XParsec.FSharp.SemanticAnalysis.Tests.AssemblyFilesTests
 
 open Expecto
 // Ahead of the SemanticAnalysis open so the bare `Diagnostic` stays the semantic one; this
 // is here for the parser's `DiagnosticCode`, which `Kind.Parse` wraps.
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
-open XParsec.FSharp.SemanticAnalysis.AssemblyUnits
+open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// Step B1 of multi-file compilation units: the FRONT-END multi-file assembly pipeline.
+// The FRONT-END multi-file assembly pipeline.
 // NO codegen here. It proves cross-file NAME RESOLUTION — file N+1 resolves file N's
 // symbols by name through file N's projected provider view — plus forward-only scoping,
-// nearest-first shadowing, and per-unit diagnostic anchoring. Each file owns its own
+// nearest-first shadowing, and per-file diagnostic anchoring. Each file owns its own
 // Input/Lexed, so `NodeKey` offsets are per-file and never collide across files.
 
 let private asm = "MultiFileAsm"
 
-/// The `Ok` units of an assembly run, or a test failure naming the first parse error.
-let private units (results: Result<FrozenUnit, UnitError> list) : FrozenUnit list =
+/// The `Ok` files of an assembly run, or a test failure naming the first parse error.
+let private files (results: Result<FrozenFile, UnparsedFile> list) : FrozenFile list =
     results
     |> List.map (
         function
-        | Ok u -> u
-        | Error e -> failtestf "unit %s failed to parse: %A" e.Path e.Failure.Diagnostics
+        | Ok f -> f
+        | Error e -> failtestf "file %s failed to parse: %A" e.Path e.Failure.Diagnostics
     )
 
-/// A unit's unresolved-symbol error diagnostics (the front end phrases both the bare and
+/// A file's unresolved-symbol error diagnostics (the front end phrases both the bare and
 /// the qualified miss with an "Unresolved" message).
-let private unresolvedErrors (u: FrozenUnit) : Diagnostic list =
-    u.Frozen.Residue.Diagnostics
+let private unresolvedErrors (f: FrozenFile) : Diagnostic list =
+    f.Frozen.Residue.Diagnostics
     |> List.filter (fun d -> Diagnostic.isError d && d.Message.Contains "Unresolved")
 
-/// A unit's TYPE-RESOLUTION-miss errors, both message families. An unresolved VALUE name
+/// A file's TYPE-RESOLUTION-miss errors, both message families. An unresolved VALUE name
 /// is phrased "Unresolved …"; a TYPE name that fails to resolve in annotation / signature
 /// position is phrased "The type '…' is not defined" (`PassContext.Error`). A faithful
-/// cross-unit type-resolution check must catch BOTH — filtering only "Unresolved" let an
+/// cross-file type-resolution check must catch BOTH — filtering only "Unresolved" let an
 /// annotation-position type miss pass silently (a false green).
-let private definitionErrors (u: FrozenUnit) : Diagnostic list =
-    u.Frozen.Residue.Diagnostics
+let private definitionErrors (f: FrozenFile) : Diagnostic list =
+    f.Frozen.Residue.Diagnostics
     |> List.filter (fun d ->
         Diagnostic.isError d
         && (d.Message.Contains "Unresolved" || d.Message.Contains "is not defined")
@@ -58,7 +58,7 @@ module M =
 [<Tests>]
 let tests =
     testList
-        "AssemblyUnits (multi-file front end)"
+        "AssemblyFiles (multi-file front end)"
         [
             test "file 2 resolves file 1's type + saturated function by QUALIFIED name" {
                 // file 2 references file 1 fully qualified: `Test.A.M.T` / `Test.A.M.f`.
@@ -74,7 +74,7 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1Qualified; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 Expect.hasLength all 2 "both files analysed"
                 let f2 = all.[1]
@@ -102,7 +102,7 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1Qualified; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
@@ -134,7 +134,7 @@ module B =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f1 = all.[0]
                 let f2 = all.[1]
@@ -166,7 +166,7 @@ module Shared =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "earlier.fs", earlier; "later.fs", later ]
-                    |> units
+                    |> files
 
                 let viewEarlier = all.[0].View
                 let viewLater = all.[1].View
@@ -204,7 +204,7 @@ module Shared =
                 | ValueNone -> failtest "composed provider did not resolve dup"
             }
 
-            test "diagnostics anchor to their OWN unit's path + (line, col)" {
+            test "diagnostics anchor to their OWN file's path + (line, col)" {
                 // file 1 is clean; file 2 has an undefined name on line 4. The anchored
                 // diagnostic must carry file 2's PATH and a (line, col) from file 2's text
                 // — not file 1's.
@@ -226,7 +226,7 @@ module B =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "one.fs", file1; "two.fs", file2 ]
-                    |> units
+                    |> files
 
                 let anchored = consolidatedDiagnostics all
 
@@ -249,12 +249,12 @@ module B =
                     "file 1 contributes no diagnostics"
             }
 
-            test "file 2 reads a record FIELD declared in file 1 (cross-unit provider fallback)" {
-                // R3: a record field read on a receiver whose record type is declared in a
-                // PRIOR unit. Unit 1 declares `R = { X: int }` and a factory returning it;
-                // unit 2 reads `.X`. Before R3 this errored "Unknown record type 'R'" because
-                // `resolveFieldStep`'s `TyRecord` arm never consulted the provider on a local
-                // miss — records were the one nominal kind with no provider field-read path.
+            test "file 2 reads a record FIELD declared in file 1 (cross-file provider fallback)" {
+                // A record field read on a receiver whose record type is declared in a PRIOR
+                // file. File 1 declares `R = { X: int }` and a factory returning it; file 2
+                // reads `.X`. `resolveFieldStep`'s `TyRecord` arm must consult the provider on
+                // a local miss — records are otherwise the one nominal kind with no
+                // provider field-read path.
                 let file1 =
                     "\
 namespace Test.A
@@ -278,11 +278,11 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
-                // No provider-miss field-read error leaked (the pre-R3 failure mode).
+                // No provider-miss field-read error leaked.
                 let unknownRecord =
                     f2.Frozen.Residue.Diagnostics
                     |> List.filter (fun d -> Diagnostic.isError d && d.Message.Contains "Unknown record")
@@ -290,28 +290,27 @@ module N =
                 Expect.isEmpty
                     unknownRecord
                     (sprintf
-                        "cross-unit field read must not error 'Unknown record' (diagnostics: %A)"
+                        "cross-file field read must not error 'Unknown record' (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
 
                 Expect.isEmpty
                     (unresolvedErrors f2)
-                    (sprintf "cross-unit field read resolves clean (diagnostics: %A)" f2.Frozen.Residue.Diagnostics)
+                    (sprintf "cross-file field read resolves clean (diagnostics: %A)" f2.Frozen.Residue.Diagnostics)
 
                 // The read types as `int`: `z`'s exported scheme is the field's type,
                 // resolved through the provider's frozen record shape.
                 match (f2.View :> IExternalSymbolResolver).TryLookup "Test.B.N.z" with
                 | ValueSome sym ->
-                    Expect.equal sym.Scheme (FTConst(RuntimeNames.intKey, EqArray.empty)) "r.X types as int cross-unit"
+                    Expect.equal sym.Scheme (FTConst(RuntimeNames.intKey, EqArray.empty)) "r.X types as int cross-file"
                 | ValueNone -> failtest "file 2 did not export z"
             }
 
-            test "file 2 CONSTRUCTS a record declared in file 1 — bare + qualified (cross-unit provider)" {
-                // R4b-2: a record LITERAL whose record type is declared in a PRIOR unit.
-                // Unit 1 declares `R = { X: int; Y: int }`; unit 2 builds it two ways — bare
+            test "file 2 CONSTRUCTS a record declared in file 1 — bare + qualified (cross-file provider)" {
+                // A record LITERAL whose record type is declared in a PRIOR file.
+                // File 1 declares `R = { X: int; Y: int }`; file 2 builds it two ways — bare
                 // `{ X = 1; Y = 2 }` (resolved through the provider field-set reverse index)
                 // and qualified `{ R.X = 3; R.Y = 4 }` (local `tryRecord` miss → the qualified
-                // external filter). Before R4b-2 both errored "No record type matches the field
-                // set" because `recordFieldSetVerdict` never consulted the provider.
+                // external filter). Both need `recordFieldSetVerdict` to consult the provider.
                 let file1 =
                     "\
 namespace Test.A
@@ -333,7 +332,7 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
@@ -349,24 +348,24 @@ module N =
                 Expect.isEmpty
                     recordErrors
                     (sprintf
-                        "cross-unit record construction must resolve clean (diagnostics: %A)"
+                        "cross-file record construction must resolve clean (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
 
                 Expect.isEmpty
                     (unresolvedErrors f2)
                     (sprintf
-                        "cross-unit record construction has no unresolved symbols (diagnostics: %A)"
+                        "cross-file record construction has no unresolved symbols (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
 
                 // Both literals type as `R` (an `FTRecord` whose type key's simple name is R),
-                // proving the construction resolved to unit 1's record, not a fresh TyVar.
+                // proving the construction resolved to file 1's record, not a fresh TyVar.
                 let expectRecordR (name: string) =
                     match (f2.View :> IExternalSymbolResolver).TryLookup name with
                     | ValueSome sym ->
                         match sym.Scheme with
                         | FTRecord(key, _) ->
                             let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
-                            Expect.equal shown "R" (sprintf "%s types as record R cross-unit" name)
+                            Expect.equal shown "R" (sprintf "%s types as record R cross-file" name)
                         | other -> failtestf "%s expected to type as record R, got %A" name other
                     | ValueNone -> failtestf "file 2 did not export %s" name
 
@@ -374,10 +373,10 @@ module N =
                 expectRecordR "Test.B.N.qualified"
             }
 
-            test "file 2 PATTERN-MATCHES a record declared in file 1 (cross-unit provider)" {
-                // R4b-2 pattern position: the record-literal arm of `inferPat` routes through
-                // the SAME shared resolver, so a `{ X = x; Y = y }` pattern resolves to unit 1's
-                // record by field set cross-unit.
+            test "file 2 PATTERN-MATCHES a record declared in file 1 (cross-file provider)" {
+                // Pattern position: the record-literal arm of `inferPat` routes through
+                // the SAME shared resolver, so a `{ X = x; Y = y }` pattern resolves to file 1's
+                // record by field set cross-file.
                 let file1 =
                     "\
 namespace Test.A
@@ -402,7 +401,7 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
@@ -418,22 +417,22 @@ module N =
                 Expect.isEmpty
                     patternErrors
                     (sprintf
-                        "cross-unit record pattern must resolve clean (diagnostics: %A)"
+                        "cross-file record pattern must resolve clean (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
 
                 Expect.isEmpty
                     (unresolvedErrors f2)
                     (sprintf
-                        "cross-unit record pattern has no unresolved symbols (diagnostics: %A)"
+                        "cross-file record pattern has no unresolved symbols (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
             }
 
             test "file 2 ANNOTATES a value + parameter with a record type declared in file 1" {
-                // Value-position + parameter-position annotation of a prior-unit record:
+                // Value-position + parameter-position annotation of a prior-file record:
                 // `let h (r : R) = r` and `let g (r : R) : int = r.X`, `R` opened from file 1.
                 // The annotation type head is name-resolved + stamped external, and its dotted
                 // open-expansion (`Test.A.M.R`) resolves through the frozen provider's
-                // module-containment fallback to unit 1's record shape. Before that fallback the
+                // module-containment fallback to file 1's record shape. Before that fallback the
                 // dotted spelling missed the `+`-keyed identity index and the annotation errored
                 // "The type 'R' is not defined".
                 //
@@ -463,14 +462,14 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
                 Expect.isEmpty
                     (definitionErrors f2)
                     (sprintf
-                        "value/parameter annotation of a cross-unit record resolves clean (diagnostics: %A)"
+                        "value/parameter annotation of a cross-file record resolves clean (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
 
                 // Honest guard: a pure annotation must raise NO error at all (a hidden
@@ -479,14 +478,14 @@ module N =
                 Expect.isEmpty
                     (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
-                        "pure cross-unit annotation raises no error (diagnostics: %A)"
+                        "pure cross-file annotation raises no error (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
             }
 
             test "file 2's MEMBER signature annotates a type declared in file 1" {
-                // Member-signature return + constructor-parameter annotation of a prior-unit
+                // Member-signature return + constructor-parameter annotation of a prior-file
                 // type: a class in file 2 captures a `T` (ctor param annotation) and returns it
-                // from a member (return annotation). Both annotation heads are prior-unit type
+                // from a member (return annotation). Both annotation heads are prior-file type
                 // names brought in by `open`, resolved through the same module-containment
                 // fallback.
                 let file1 =
@@ -510,17 +509,17 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
                 Expect.isEmpty
                     (definitionErrors f2)
                     (sprintf
-                        "member-signature annotation of a cross-unit type resolves clean (diagnostics: %A)"
+                        "member-signature annotation of a cross-file type resolves clean (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
 
-                // Ctor param + member return both annotate the SAME prior-unit type, so their
+                // Ctor param + member return both annotate the SAME prior-file type, so their
                 // one (flattened) identity is used consistently — no error at all.
                 Expect.isEmpty
                     (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
@@ -531,7 +530,7 @@ module N =
 
             test "same offset-0 decl in both files does not break resolution" {
                 // Both files open with `namespace` at offset 0 and a decl at identical
-                // early offsets; because each unit owns its own Lexed/PassContext the keys
+                // early offsets; because each file owns its own Lexed/PassContext the keys
                 // never collide, and the cross-file reference still resolves.
                 let file2 =
                     "\
@@ -543,14 +542,14 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1Qualified; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 // Both files carry a binding whose NodeKey offset is small/overlapping,
-                // yet file 2 resolves file 1's `f` — the separate-unit invariant holds.
+                // yet file 2 resolves file 1's `f` — the separate-file invariant holds.
                 Expect.isEmpty (unresolvedErrors all.[1]) "resolution survives colliding raw offsets"
             }
 
-            test "cross-unit MODULE-HELD type: annotation identity matches construction identity" {
+            test "cross-file MODULE-HELD type: annotation identity matches construction identity" {
                 // A module-held type's identity agrees across resolution paths:
                 //   * construction / field-set (`{ X = 1 }`) pins the REGISTERED `InModule` key,
                 //     carried structurally on `ExternalRecordCandidate.TypeKey`;
@@ -580,23 +579,23 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
                 Expect.isEmpty
                     (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
-                        "annotation + construction of a cross-unit module-held record agree on identity (diagnostics: %A)"
+                        "annotation + construction of a cross-file module-held record agree on identity (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
             }
 
-            // Two cross-unit resolution rules that were OVER-PERMISSIVE while records
+            // Two cross-file resolution rules that were OVER-PERMISSIVE while records
             // landed (an INVALID program wrongly resolved — never a miscompile). Each
             // asserts the CORRECT, rejecting behaviour now that the gap is closed.
 
-            test "RQA record is NOT bare-constructible across units (RequireQualifiedAccess honoured)" {
-                // unit 1 marks a record `[<RequireQualifiedAccess>]`; unit 2 `open`s the
+            test "RQA record is NOT bare-constructible across files (RequireQualifiedAccess honoured)" {
+                // file 1 marks a record `[<RequireQualifiedAccess>]`; file 2 `open`s the
                 // module and builds it with a BARE field-set literal. F# requires the
                 // qualifier for an RQA record, so bare construction must NOT resolve — an
                 // error. The RQA flag is threaded from the declaration's attributes through
@@ -625,7 +624,7 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
@@ -634,12 +633,12 @@ module N =
                 Expect.isNonEmpty
                     errs
                     (sprintf
-                        "bare construction of a cross-unit RQA record must be rejected (diagnostics: %A)"
+                        "bare construction of a cross-file RQA record must be rejected (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
             }
 
-            test "record in an UNOPENED namespace is NOT bare-constructible across units (ambient-scope gate)" {
-                // unit 1 declares a record; unit 2 does NOT `open` its module, yet builds it
+            test "record in an UNOPENED namespace is NOT bare-constructible across files (ambient-scope gate)" {
+                // file 1 declares a record; file 2 does NOT `open` its module, yet builds it
                 // with a BARE field-set literal matching its fields. F#'s unqualified field
                 // index (`eFieldLabels`) holds only `open`-ed records, so without the `open`
                 // the bare literal must NOT resolve — an error. `recordFieldSetVerdict` gates
@@ -664,7 +663,7 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
@@ -673,13 +672,13 @@ module N =
                 Expect.isNonEmpty
                     errs
                     (sprintf
-                        "bare construction of a cross-unit record without the `open` must be rejected (diagnostics: %A)"
+                        "bare construction of a cross-file record without the `open` must be rejected (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
             }
 
-            test "a cross-unit `member private` does NOT resolve for dispatch (member-level accessibility honoured)" {
-                // unit 1 declares a class with a PUBLIC method and a `member private` one;
-                // unit 2 dispatches on each. A `private` member is not visible to another
+            test "a cross-file `member private` does NOT resolve for dispatch (member-level accessibility honoured)" {
+                // file 1 declares a class with a PUBLIC method and a `member private` one;
+                // file 2 dispatches on each. A `private` member is not visible to another
                 // file, so the private dispatch must NOT resolve — an error — while the
                 // public one stays clean. Member accessibility rides
                 // `TTypeMemberG.Accessibility` (captured from the CST `access` token) and
@@ -720,7 +719,7 @@ module N =
 
                 let errorsOf (caller: string) =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", caller ]
-                    |> units
+                    |> files
                     |> fun all -> all.[1].Frozen.Residue.Diagnostics
                     |> Diagnostic.errors
 
@@ -729,17 +728,17 @@ module N =
 
                 Expect.isEmpty
                     pubErrs
-                    (sprintf "a cross-unit PUBLIC member dispatch resolves (diagnostics: %A)" pubErrs)
+                    (sprintf "a cross-file PUBLIC member dispatch resolves (diagnostics: %A)" pubErrs)
 
                 Expect.isNonEmpty
                     privErrs
-                    (sprintf "a cross-unit `member private` dispatch must be rejected (diagnostics: %A)" privErrs)
+                    (sprintf "a cross-file `member private` dispatch must be rejected (diagnostics: %A)" privErrs)
             }
 
-            test "a prior unit's inline template is OUTLINED, not spliced" {
+            test "a prior file's inline template is OUTLINED, not spliced" {
                 // A view carries the file it was projected from, so a template it serves has
                 // both readings available and the expansion abstracts the call into a
-                // specialization entry. Anchored in unit 1, which is the whole point: an entry
+                // specialization entry. Anchored in file 1, which is the whole point: an entry
                 // keeps the producer's positions, and a spliced body cannot.
                 let file1 =
                     "\
@@ -759,21 +758,21 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let consumer = all.[1]
 
                 Expect.isEmpty
                     (consumer.Frozen.Residue.Diagnostics |> Diagnostic.errors)
-                    (sprintf "the cross-unit inline call resolves (diagnostics: %A)" consumer.Frozen.Residue.Diagnostics)
+                    (sprintf "the cross-file inline call resolves (diagnostics: %A)" consumer.Frozen.Residue.Diagnostics)
 
                 match List.ofArray consumer.Frozen.Specializations with
                 | [ entry ] ->
-                    Expect.equal entry.Origin all.[0].Source.File "the entry is anchored in the DECLARING unit"
+                    Expect.equal entry.Origin all.[0].Source.File "the entry is anchored in the DECLARING file"
                 | other -> failtestf "expected exactly one specialization entry, got %d" (List.length other)
 
-                // The other half, and the one a relative pop cannot state: the EDGE is unit 2's
-                // own node, so it names unit 2 while the entry it points at names unit 1.
+                // The other half, and the one a relative pop cannot state: the EDGE is file 2's
+                // own node, so it names file 2 while the entry it points at names file 1.
                 let edgeOrigins =
                     [
                         for p in consumer.Frozen.ExprPayloads do
@@ -783,14 +782,14 @@ module N =
                     ]
 
                 match edgeOrigins with
-                | [ o ] -> Expect.equal o consumer.Source.File "the call site is the CONSUMING unit's material"
+                | [ o ] -> Expect.equal o consumer.Source.File "the call site is the CONSUMING file's material"
                 | other -> failtestf "expected exactly one edge in the consumer, got %d" (List.length other)
             }
 
-            test "cross-unit INTRINSIC: a prior unit's primitive resolves in a later unit's annotation" {
-                // unit 1 declares an intrinsic-repr primitive (`type x = (# "…" #)` — an
-                // `ILIntrinsic` abbrev kept OUT of `Decls`); unit 2 annotates a binding with
-                // it. It resolves cross-unit only because `FrozenSignature.toProvider`
+            test "cross-file INTRINSIC: a prior file's primitive resolves in a later file's annotation" {
+                // file 1 declares an intrinsic-repr primitive (`type x = (# "…" #)` — an
+                // `ILIntrinsic` abbrev kept OUT of `Decls`); file 2 annotates a binding with
+                // it. It resolves cross-file only because `FrozenSignature.toProvider`
                 // publishes each `IntrinsicReprKeys` entry as an
                 // `ExternalTypeShape.Intrinsic`, so `TryLookupType` answers the name — the
                 // repr axes alone never did.
@@ -813,19 +812,19 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
                 Expect.isEmpty
                     (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
-                        "a prior unit's primitive resolves in a later unit's annotation (diagnostics: %A)"
+                        "a prior file's primitive resolves in a later file's annotation (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
             }
 
-            test "cross-unit INTERFACE MEMBER: a prior unit's abstract method resolves for dispatch + conformance" {
-                // unit 1 declares an interface with an abstract method; unit 2 both
+            test "cross-file INTERFACE MEMBER: a prior file's abstract method resolves for dispatch + conformance" {
+                // file 1 declares an interface with an abstract method; file 2 both
                 // DISPATCHES on it (`g.Apply …`) and IMPLEMENTS it (`interface … with member
                 // …`). Both resolve only because the interface arm of
                 // `FrozenSignature.toProvider` now decurries each abstract method to an
@@ -854,14 +853,14 @@ type IdInt() =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
                 Expect.isEmpty
                     (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
-                        "cross-unit interface dispatch + conformance resolve the abstract method (diagnostics: %A)"
+                        "cross-file interface dispatch + conformance resolve the abstract method (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
             }
 
@@ -875,13 +874,13 @@ type IdInt() =
             // "open me". Vesper mints that implicit open in `CstWalk.addNamespacePrefix`.
             //
             // The pair below pins both directions, which is what makes the rule falsifiable:
-            // publishing a unit's declared namespaces as `AmbientOpenPrefixes` would pass the
+            // publishing a file's declared namespaces as `AmbientOpenPrefixes` would pass the
             // SAME-namespace test while silently failing the DIFFERENT-namespace one.
 
-            test "SAME-namespace later file resolves a prior unit's type by BARE name (no open)" {
+            test "SAME-namespace later file resolves a prior file's type by BARE name (no open)" {
                 // The consumer declares the SAME namespace as the producer, so its own header
                 // implicitly opens `Test.A` and `Widget` resolves unqualified — with no `open`
-                // written and nothing published by unit 1's view. This is the case `Vesper.Core`
+                // written and nothing published by file 1's view. This is the case `Vesper.Core`
                 // relies on: every Core file is `namespace Vesper`, so `compiler-attributes.fs`
                 // reaches `prim-types-attr.fs`'s `Attribute` this way.
                 let file1 =
@@ -901,22 +900,22 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
                 Expect.isEmpty
                     (f2.Frozen.Residue.Diagnostics |> Diagnostic.errors)
                     (sprintf
-                        "a same-namespace later file resolves a prior unit's type bare (diagnostics: %A)"
+                        "a same-namespace later file resolves a prior file's type bare (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
             }
 
-            test "DIFFERENT-namespace later file does NOT resolve a prior unit's type by bare name" {
+            test "DIFFERENT-namespace later file does NOT resolve a prior file's type by bare name" {
                 // The consumer declares a DIFFERENT namespace and writes no `open`, so `Test.A`
                 // is not in its scope and `Widget` must not resolve. Its own header opens only
                 // `Test.B`. Guards the leak that a producer-published ambient reintroduces: with
-                // unit 1's view publishing `Test.A` as `AmbientOpenPrefixes`, this resolved
+                // file 1's view publishing `Test.A` as `AmbientOpenPrefixes`, this resolved
                 // clean — an implicit `open Test.A` no source line asked for.
                 let file1 =
                     "\
@@ -935,21 +934,21 @@ module N =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
-                    |> units
+                    |> files
 
                 let f2 = all.[1]
 
                 Expect.isNonEmpty
                     (definitionErrors f2)
                     (sprintf
-                        "a bare prior-unit type in an UNOPENED different namespace must not resolve (diagnostics: %A)"
+                        "a bare prior-file type in an UNOPENED different namespace must not resolve (diagnostics: %A)"
                         f2.Frozen.Residue.Diagnostics)
             }
 
-            // A unit that analysed only because RECOVERY patched its tree is not silent: its
-            // parse diagnostics ride on the unit and anchor against that unit's own text,
+            // A file that analysed only because RECOVERY patched its tree is not silent: its
+            // parse diagnostics ride on the file and anchor against that file's own text,
             // exactly as the analysis residue does.
-            test "a RECOVERED unit's parse diagnostics anchor to its own file" {
+            test "a RECOVERED file's parse diagnostics anchor to its own file" {
                 let clean =
                     "\
 namespace Test
@@ -968,25 +967,25 @@ module B =
 
                 let all =
                     analyseAssembly asm realProvider.Value [ "clean.fs", clean; "broken.fs", broken ]
-                    |> units
+                    |> files
 
                 let anchored = consolidatedDiagnostics all
 
                 // Selected on the VERDICT, not on a rendered code: the classification is what
                 // the diagnostic carries, so this cannot be broken by a renumbering.
-                let isUnclosed (a: AssemblyUnits.AnchoredDiagnostic) =
+                let isUnclosed (a: AssemblyFiles.AnchoredDiagnostic) =
                     match a.Diagnostic.Kind with
                     | Kind.Parse(DiagnosticCode.UnclosedDelimiter _) -> true
                     | _ -> false
 
                 match anchored |> List.filter isUnclosed with
                 | [ a ] ->
-                    Expect.equal a.Path "broken.fs" "anchored to the unit that needed recovery"
+                    Expect.equal a.Path "broken.fs" "anchored to the file that needed recovery"
                     Expect.isNonEmpty a.Diagnostic.Related "the opening delimiter is labelled"
                 | other -> failtestf "expected one unclosed-delimiter diagnostic, got %A" other
 
                 Expect.isEmpty
                     (anchored |> List.filter (fun a -> a.Path = "clean.fs"))
-                    "the clean unit contributed none"
+                    "the clean file contributed none"
             }
         ]

@@ -13,7 +13,7 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecRows
 /// and `FrozenCodec` (the pool columns) read this module, never the reverse.
 ///
 /// NOTHING is written structurally in the type domain. A `FrozenType`, a `SymbolKey`, a
-/// `TypeKey` and a `ModuleKey` each reach the wire as the id of their row in the unit's own
+/// `TypeKey` and a `ModuleKey` each reach the wire as the id of their row in the file's own
 /// tables, and those tables — the only place a type is spelled out — go out once per file
 /// from `FrozenCodecRows`. So a type occurring at a thousand nodes costs one row plus a
 /// thousand ints.
@@ -22,7 +22,7 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecRows
 /// `FrozenCodecDiagnostics` against the same primitives rather than riding this file.
 module FrozenCodecTypes =
 
-    // ── a REFERENCE into the unit's tables ──────────────────────────────────
+    // ── a REFERENCE into the file's tables ──────────────────────────────────
     //
     // How every OTHER module writes a type, a key or a producer file: as the id of its row.
     // The whole codec below and in `FrozenCodecDecls` / `FrozenCodec` goes through these
@@ -31,12 +31,12 @@ module FrozenCodecTypes =
     // The write side INTERNS where the read side resolves, and that asymmetry is the point:
     // the `ty` columns were interned at freeze, but a payload can carry a type they never
     // did (an `ILIntrinsic`'s operand, a member's signature, a `ValRepr`'s result), and
-    // interning it here is what appends it to the unit's tables. `FrozenCodec.writePools`
+    // interning it here is what appends it to the file's tables. `FrozenCodec.writePools`
     // therefore emits the tables AFTER the body it interned them from.
     //
     // The tables ride the SINK (`FrozenWriter.Types`) and not a parameter, so these pairs
     // have the shape of every other element codec and the generic containers take them
-    // as-is — and a writer cannot emit into one stream while interning into another unit's
+    // as-is — and a writer cannot emit into one stream while interning into another file's
     // tables.
 
     let writeTypeRef (w: FrozenWriter) (t: FrozenType) = writeTypeId w (w.Types.Intern t)

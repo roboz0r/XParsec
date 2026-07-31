@@ -763,7 +763,7 @@ module Regions =
                     RegionRepr.StackOnlyEligible
             )
 
-    /// `specializations` is the unit's resolved-inline table, walked because an entry's body is
+    /// `specializations` is the file's resolved-inline table, walked because an entry's body is
     /// code this file emits and holds the call site's OWN fused material: a caller local
     /// captured by a lambda fused into an inline body is a capture of THIS file's binding, and
     /// an unwalked table is that capture unseen — a `let mutable` left unpromoted. An

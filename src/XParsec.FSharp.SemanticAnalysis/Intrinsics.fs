@@ -6,12 +6,12 @@ open XParsec.FSharp.Lexer
 // The primitive-intrinsic identity surface: how a pass resolves `int`/`string`/…
 // to their CONTRACT-sourced identities (never authored from a hardcoded name
 // set), and the lazily-resolved bag a `PassContext` exposes as `ctx.Intrinsics`.
-// Lives in its own compile unit between `ExternalSymbols` (the provider shapes it
+// Lives in its own file between `ExternalSymbols` (the provider shapes it
 // reads) and `PassContext` (which instantiates it) — neither an external-symbol
 // concern nor a side table.
 
 /// Try to resolve ONE intrinsic name to its identity the way a written `int` annotation resolves:
-/// this unit's own registered intrinsics first (`intrinsicKeys` — the
+/// this file's own registered intrinsics first (`intrinsicKeys` — the
 /// `PassContextTypes.IntrinsicKeys` index, self-host), else the provider through
 /// `ExternalSymbols.tryPickRuntimeType` (bare name, then each `AmbientOpenPrefixes` entry,
 /// scanning PAST a non-intrinsic hit — a composited FSharp.Core-lib `int` abbreviation must not
@@ -49,7 +49,7 @@ module internal IntrinsicResolve =
 /// The primitive-intrinsic identity bag, the `SemType` analogue of `ctx.CapabilityIds`:
 /// `int`/`string`/`bool`/… resolved ONCE from the `prim-types-*` contract (never authored),
 /// so the front end carries no static intrinsic `SemType`s. Each field resolves lazily on first
-/// access and caches — laziness matters because a self-host unit's own intrinsics
+/// access and caches — laziness matters because a self-host file's own intrinsics
 /// (`IntrinsicKeys`) are only populated by the NameResolution pre-pass AFTER the `PassContext`
 /// is built, and because a test that never types an `int` never forces its resolution (so a
 /// minimal fake provider need only satisfy the intrinsics its test actually exercises).

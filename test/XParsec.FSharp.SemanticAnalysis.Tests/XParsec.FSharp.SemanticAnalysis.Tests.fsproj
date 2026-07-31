@@ -38,7 +38,7 @@
     <Compile Include="MkUnionTests.fs" />
     <Compile Include="ExternalSignatureOracleTests.fs" />
     <Compile Include="FrozenSignatureTests.fs" />
-    <Compile Include="AssemblyUnitsTests.fs" />
+    <Compile Include="AssemblyFilesTests.fs" />
     <Compile Include="ExpansionTests.fs" />
     <Compile Include="CoverageTests.fs" />
     <Compile Include="GeneralisationTests.fs" />

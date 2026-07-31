@@ -14,7 +14,7 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 /// A fresh provider over an empty metadata context — enough to mint TypeRef /
-/// TypeSpec / MemberRef handles without emitting a full assembly. The own-unit
+/// TypeSpec / MemberRef handles without emitting a full assembly. The own-file
 /// intrinsic forward map carries the `int`/`string` → IL-repr the element encoding
 /// needs (the two primitives these tests exercise); `nullProvider` because no
 /// external-symbol resolution is involved.

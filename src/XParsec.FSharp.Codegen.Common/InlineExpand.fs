@@ -108,7 +108,7 @@ module InlineExpand =
             /// nothing changed, so a file that reaches no inline body appends nothing.
             Decls: TastAccessor.DeclId list
             /// Every node whose anchor indexes a file OTHER than the one being compiled → that
-            /// file and its position in it. A node absent from this is the compiling unit's
+            /// file and its position in it. A node absent from this is the compiling file's
             /// own, so absence is the answer rather than a missing entry.
             ///
             /// Mostly nodes COPIED out of a specialization entry, which a consumer must
@@ -123,13 +123,13 @@ module InlineExpand =
         }
 
     /// WHICH FILE the material being walked is anchored in, as the walk needs to know it: a
-    /// producer's, or the consuming unit's own. Both are `OriginFile`s and the walk is TOLD
+    /// producer's, or the consuming file's own. Both are `OriginFile`s and the walk is TOLD
     /// which by the node it descends through — `Consuming` is not a missing answer but the
     /// answer compared for once, at the point a domain is entered, rather than at every node
     /// a copy is filed from.
     ///
     /// The distinction is what `Expansion.Origins` records: a node already in the consuming
-    /// unit's index space is read against the tree it sits in, which is what every consumer of
+    /// file's index space is read against the tree it sits in, which is what every consumer of
     /// an `Anchor` does by default, so filing it would say nothing.
     [<Struct>]
     type private Domain =
@@ -199,7 +199,7 @@ module InlineExpand =
         // A stated domain, read: the one file whose anchors need no provenance is the file
         // being compiled, and it is the pool that says which that is. It has to be the very
         // identity the front end stamped onto the nodes — one rebuilt here from a path would
-        // compare unequal and file the unit's own code as if it were foreign.
+        // compare unequal and file the compiling file's own code as if it were foreign.
         let compiling = TastPoolBuilder.origin pool
 
         let domainOf (origin: OriginFile) : Domain =
@@ -224,9 +224,9 @@ module InlineExpand =
 
         // Where `source` was written, filed against the node that lands in the tree — the copy
         // where one was taken, the node itself where it stays put. Nothing is filed for the
-        // consuming unit's own material, and absence carries that meaning.
+        // consuming file's own material, and absence carries that meaning.
         //
-        // That includes a COPY of the consuming unit's own material — a template of this file,
+        // That includes a COPY of the consuming file's own material — a template of this file,
         // whose entry keeps the positions it was written at. Deliberate: absence means "read the
         // node's own anchor", which for such a copy is the call site it was moved onto, and
         // attributing an inlined body to the call that asked for it is what a stack trace and a
@@ -283,7 +283,7 @@ module InlineExpand =
                 // (`InlineSpecTable.miscountedFusedEntries`): the material appears once however
                 // the graph is walked, so there is no second expansion for it to alias.
                 //
-                // The node states the caller's domain, which is NOT the consuming unit's
+                // The node states the caller's domain, which is NOT the consuming file's
                 // whenever the call site was itself inside an entry. So the anchors it keeps
                 // may be a producer's, and the material is filed as it is walked.
                 let caller = domainOf (TastAccessor.exprCallerExprOrigin e)

@@ -34,20 +34,20 @@ let private declType (tast: TastFile) : SemType =
     | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
     | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
-/// The template as a CONSUMER receives it: published by `Freeze` into the unit's inline
+/// The template as a CONSUMER receives it: published by `Freeze` into the file's inline
 /// vocabulary (typars named on the self-describing `FTTypar` axis) and THAWED back into
 /// fresh `TyVar` cells.
 ///
 /// This — not `tast.Decls` — is the shape `Inline.inlineExpand` runs on for any GENERIC
 /// template. The post-`freezeTypars` SemType decl in `tast.Decls` carries `TyTypar`, not
 /// roots — that cut is what lets freeze NAME the typars — so a decl read out of
-/// `tast.Decls` cannot stand in for the published template. (A SAME-unit splice does see
+/// `tast.Decls` cannot stand in for the published template. (A SAME-file splice does see
 /// the roots, because `Passes.InlineExpansion` runs BEFORE that cut.)
 ///
 /// The `namespace` + nested `module` wrapper is not incidental: only a binding with a
 /// declaring MODULE has a holder chain, hence an exportable identity, hence a vocabulary
 /// entry. A top-level binding lives in the anonymous Program holder and is published
-/// nowhere — it is spliceable only within its own unit.
+/// nowhere — it is spliceable only within its own file.
 // Returns the thaw `TypeStore` alongside the decl: the thawed typars are fresh roots in
 // THAT store, so a test reading them back (`Inline.quantifiedTypars`) must use the same one.
 let private thawedTemplate (letInline: string) : TypeStore * TDecl =
@@ -55,7 +55,7 @@ let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let lexed, file = parseFile input
     let source = Hashing.originSourceOfText input lexed
     // The vocabulary is a pool root array; `declTree` drains a template to the DU form the
-    // cross-unit wire (and `InlineThaw`) speaks — the very path a provider serves it through.
+    // cross-file wire (and `InlineThaw`) speaks — the very path a provider serves it through.
     let pools = Pipeline.analyse realProvider.Value source file
 
     let pool = TastPoolBuilder.openOver pools
@@ -521,11 +521,11 @@ let tests =
             }
 
             test "a published body's reference to a NON-inline module sibling is an External carrying its key" {
-                // The published body is expanded at a CONSUMER, where none of this unit's
+                // The published body is expanded at a CONSUMER, where none of this file's
                 // binders exist. A module-level sibling — inline template or ordinary
-                // compiled value, it makes no difference — must therefore leave the unit
+                // compiled value, it makes no difference — must therefore leave the file
                 // as `External` + `SymbolKey`, never as a `Var` naming a binder only this
-                // unit's tree has.
+                // file's tree has.
                 let input =
                     "namespace Ns\n\nmodule M =\n    let k = 3\n    let inline addK x = x + k\n"
 

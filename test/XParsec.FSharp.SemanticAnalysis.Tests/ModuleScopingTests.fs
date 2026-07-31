@@ -99,7 +99,7 @@ let private nominalKey (ty: SemType) : SymbolKey =
     | SemType.TyUnion(k, _) -> SymbolKey.Type k
     | other -> failtestf "expected a nominal type, got %A" other
 
-/// The ARGUMENT type of the unit's sole module-level `let` — for `let f (v: T) = v`, what
+/// The ARGUMENT type of the file's sole module-level `let` — for `let f (v: T) = v`, what
 /// the written `T` bound to. Every program below writes exactly one `let`, so the use site
 /// under test is the only one there is.
 let private soleLetArg (tast: TastFile) : SemType =
@@ -340,7 +340,7 @@ let tests =
         ]
 
 // A type is reached from outside the module holding it by NAMING that module: the qualifier
-// is a path through the scopes this unit declares, resolved from the use — its own scopes
+// is a path through the scopes this file declares, resolved from the use — its own scopes
 // (innermost first), the `open`s in force, or the root (a fully-qualified path). The type it
 // selects there is as local as a bare one.
 //
@@ -375,7 +375,7 @@ let qualifiedTests =
                     "A.T is A's T — not the B.T that a bare T would have named"
             }
 
-            test "a fully-qualified path names the type from anywhere in the unit" {
+            test "a fully-qualified path names the type from anywhere in the file" {
                 let tast =
                     analyse (
                         src
@@ -539,7 +539,7 @@ let qualifiedTests =
                 | other -> failtestf "expected a record, got %A" other
             }
 
-            // A qualifier that names a module of THIS unit wins over an external type of the
+            // A qualifier that names a module of THIS file wins over an external type of the
             // same dotted spelling: `Vesper.Collections.seq` is a real external type (the
             // contract's `seq` interface), and the local module chain shadows it. F#'s answer,
             // probed against `dotnet fsi`: the nearest scope that can name the qualifier wins,
@@ -574,7 +574,7 @@ let qualifiedTests =
             //
             // The same cannot be said under a qualifier we do not declare: what an external
             // name means is the provider's to answer, and the provider is a partial view.
-            test "a name a module of this unit does not hold is not defined" {
+            test "a name a module of this file does not hold is not defined" {
                 expectRejected (
                     src
                         [

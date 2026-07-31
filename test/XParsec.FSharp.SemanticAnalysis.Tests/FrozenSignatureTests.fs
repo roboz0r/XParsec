@@ -71,7 +71,7 @@ let private bindingKey (frozen: FrozenPools) (name: string) : SymbolKey =
     moduleBindings frozen |> List.find (fun (n, _) -> n = name) |> snd
 
 /// The grouping SHAPE of a `ValRepr` — one integer per curried group (`0` = lone
-/// `unit`, `1` = simple, `N` = a tuple of `N`). Typar-axis-independent, so it pins
+/// `file`, `1` = simple, `N` = a tuple of `N`). Typar-axis-independent, so it pins
 /// the curried/tupled/mixed grouping without depending on primitive canon keys.
 let private groupShape (vr: TastAccessor.ValRepr voption) : int list option =
     match vr with
@@ -220,10 +220,10 @@ let tests =
                 | ValueNone -> failtest "internal 'shared' MUST be exported"
             }
 
-            test "IntrinsicForwardRepr passes this unit's IntrinsicReprKeys through verbatim" {
+            test "IntrinsicForwardRepr passes this file's IntrinsicReprKeys through verbatim" {
                 let origin, frozen = freezeWithOrigin projectionSrc
                 let store = FrozenSignature.toProvider testAsm origin frozen :> IExternalSymbolStore
-                // A plain impl unit declares no intrinsics, so the forward axis is its
+                // A plain impl file declares no intrinsics, so the forward axis is its
                 // (empty) `IntrinsicReprKeys` — the wiring is the assertion.
                 Expect.equal
                     (Seq.length store.IntrinsicForwardRepr)

@@ -54,7 +54,7 @@ module Freeze =
     /// not a property of the source). The binder key itself stops here: a local
     /// scheme's identity is needed only to keep two of them apart within one body,
     /// and an ordinal that names nothing outside that body cannot be resolved against
-    /// a consuming unit's tree the way a `NodeKey` could.
+    /// a consuming file's tree the way a `NodeKey` could.
     let private schemeBinders (ctx: PassContext) : Dictionary<TyVarId, struct (SchemeId * int)> =
         let map = Dictionary<TyVarId, struct (SchemeId * int)>()
 
@@ -154,7 +154,7 @@ module Freeze =
         // reaches `onVar`.
         Unification.zonk store t |> FrozenTypeBridge.toFrozenWith onVar
 
-    /// Is this decl a splice TEMPLATE — a member of the unit's inline vocabulary?
+    /// Is this decl a splice TEMPLATE — a member of the file's inline vocabulary?
     ///
     /// Two shapes, one meaning ("a use of this is spliced, never called"): an explicit
     /// `let inline`, and a `let` value whose body is a single zero-operand intrinsic
@@ -176,8 +176,8 @@ module Freeze =
     /// Rewrite a template's references to its MODULE-LEVEL SIBLINGS — every one of them,
     /// inline or not — from `Var` to `External`, carrying the sibling's `SymbolKey`.
     ///
-    /// A `Var` names a binder that exists only in THIS unit's tree; a consumer splicing
-    /// the body has no such binder in scope. `External` + key is the cross-unit form,
+    /// A `Var` names a binder that exists only in THIS file's tree; a consumer splicing
+    /// the body has no such binder in scope. `External` + key is the cross-file form,
     /// and it must be baked into the PUBLISHED body. The two kinds of sibling resolve
     /// through different channels at the consumer, and the SAME key serves both: an
     /// inline sibling resolves through the by-key inline channel (hitting the identity
@@ -216,7 +216,7 @@ module Freeze =
     /// The publish invariant, checked STRUCTURALLY on the rewritten body: every `Var` it
     /// still carries must name a binder the SPLICE re-creates — the template's own name,
     /// its parameters, its body-locals. Anything else is a binder that exists only in this
-    /// unit's tree, and splicing it at a consumer yields an unbound `NodeKey` (a bad local
+    /// file's tree, and splicing it at a consumer yields an unbound `NodeKey` (a bad local
     /// slot in the emitted code, with nothing having said so).
     ///
     /// The residue this can actually catch, after `rewriteSiblingRefs` has keyed every
@@ -260,7 +260,7 @@ module Freeze =
     /// Report an error-severity diagnostic and DROP the body from `InlineBodies`: an
     /// un-splice-able template is not published, so a consumer gets a clean "no such
     /// inline body" rather than silently bad codegen. The template still splices
-    /// correctly WITHIN this unit — `Passes.InlineExpansion` ran upstream, where the
+    /// correctly WITHIN this file — `Passes.InlineExpansion` ran upstream, where the
     /// binder is in scope — so nothing local regresses.
     ///
     /// Rejecting it is a CONCESSION, not a rule of the language: the input is legal F#,
@@ -303,7 +303,7 @@ module Freeze =
         // WHAT gets published; `tast.ModuleMembers` — every module-level binder, inline or
         // not, in a module or at the top level — is what the body is rewritten AGAINST. A
         // template with no `ModuleBindingInfo` binds no single name (a destructuring `let`
-        // head) and so has no exportable identity: it is spliced within its own unit and
+        // head) and so has no exportable identity: it is spliced within its own file and
         // published nowhere.
         //
         // Publication is ADDITIVE: `Decls` keeps the binding and both backends emit it as

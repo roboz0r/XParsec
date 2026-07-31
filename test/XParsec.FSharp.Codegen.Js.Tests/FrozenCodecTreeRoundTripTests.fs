@@ -269,13 +269,13 @@ let tests =
                 Expect.isTrue (survivesRoundTrip grafted) "the grafted file survived flatten/thaw structurally"
             }
 
-            // The unit's OWN origin is the one field no structural comparison can reach: the
+            // The file's OWN origin is the one field no structural comparison can reach: the
             // drain yields a tree, the tree has no field for it, so a writer that dropped it
             // passes every gate above. What it costs is not a decode error but a silent one —
-            // the expansion tells this unit's material from a producer's by comparing against
-            // it, and a unit that came back off the wire naming nobody's file calls all of its
+            // the expansion tells this file's material from a producer's by comparing against
+            // it, and a file that came back off the wire naming nobody's file calls all of its
             // own code foreign.
-            test "the unit's own origin survives flatten/thaw" {
+            test "the file's own origin survives flatten/thaw" {
                 let frozen = frozenOfJs "module M\n\nlet y = 1 + 2\n"
 
                 Expect.notEqual
@@ -286,7 +286,7 @@ let tests =
                 Expect.equal
                     (FrozenCodec.thaw (FrozenCodec.flatten frozen)).Origin
                     frozen.Origin
-                    "the compiling unit's identity came back off the wire"
+                    "the compiling file's identity came back off the wire"
             }
 
             // The origin is a REF into a table of its own, and one reference exercises the ref

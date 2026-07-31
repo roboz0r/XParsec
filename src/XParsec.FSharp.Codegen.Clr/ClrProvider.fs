@@ -13,7 +13,7 @@ open XParsec.FSharp.SemanticAnalysis
 ///   `ClrExternalMembers`— external member/ctor/field refs and generic-static-method specs;
 ///   `ClrRecipes`        — call/ctor/format recipes and the structural equality/comparison member refs.
 ///
-/// `reprs` is this unit's own `{ intrinsic canon key -> IL representation }` map
+/// `reprs` is this file's own `{ intrinsic canon key -> IL representation }` map
 /// (`TastFile.IntrinsicReprKeys`); `references` maps an assembly's
 /// simple name to the identity read off its file, so an emitted `AssemblyRef` matches that exact
 /// artifact; `symbols` is the front end's resolution provider — pass
@@ -155,7 +155,7 @@ type ClrProvider
         | FTClass(key, args) when args.IsEmpty ->
             // LOCAL-FIRST, like every other nominal reference (`encodeType`'s project-local
             // arms, the `INVARIANT` at `ClrEncoder`'s `FTClass` arm): a project-local
-            // interface — INCLUDING a same-assembly CROSS-FILE one, which a later unit
+            // interface — INCLUDING a same-assembly CROSS-FILE one, which a later file
             // resolved as `External` (home-stamped to our OWN assembly) — has an emitted
             // `TypeDef` registered via `RegisterUserType`, and its `InterfaceImpl` row must
             // name that `TypeDef`, not an `AssemblyRef`-scoped `TypeRef` back to ourselves.

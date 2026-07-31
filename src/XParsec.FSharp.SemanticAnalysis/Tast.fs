@@ -34,8 +34,8 @@ type TInlineBodyG<'ty, 'tok, 'id> =
         ParamAttrs: ParamAttrs[]
     }
 
-/// One entry of a unit's INLINE VOCABULARY (`TastFileG.InlineBodies`): a body,
-/// under the identity its home unit interns it by.
+/// One entry of a file's INLINE VOCABULARY (`TastFileG.InlineBodies`): a body,
+/// under the identity its home file interns it by.
 ///
 /// The `Key` is MINTED (from `ModuleBindingInfo`, at freeze), not recovered: an inline
 /// binding is the one kind of symbol that is exported but NEVER emitted, so nothing
@@ -48,7 +48,7 @@ type TInlineValueG<'ty, 'tok, 'id> =
     }
 
 /// WHICH resolved specialization: the template's own identity (the `TInlineValueG.Key` its
-/// home unit interns it under) plus the type arguments a call site ground it at, in the
+/// home file interns it under) plus the type arguments a call site ground it at, in the
 /// template's typar order.
 ///
 /// The key is what makes the table a SET: two call sites that ground one template the same
@@ -59,7 +59,7 @@ type SpecializationKeyG<'ty> =
         TypeArgs: EqArray<'ty>
     }
 
-/// One entry of a unit's RESOLVED-SPECIALIZATION table (`TastFileG.Specializations`),
+/// One entry of a file's RESOLVED-SPECIALIZATION table (`TastFileG.Specializations`),
 /// addressed by the `SpecializationId` a `TExprG.InlineCall` carries.
 ///
 /// `Decl` is always a `TDecl.Let` of lambdas — the template's body with its type arguments
@@ -88,7 +88,7 @@ type TSpecializationG<'ty, 'tok, 'id> =
         Decl: TDeclG<'ty, 'tok, 'id>
     }
 
-/// What a unit's `(# … #)` binding records about one intrinsic: the target
+/// What a file's `(# … #)` binding records about one intrinsic: the target
 /// representation string, and whether the binding was `class`-tagged
 /// (`(# class "System.Attribute" #)`) and so may be inherited.
 ///
@@ -99,7 +99,7 @@ type IntrinsicReprInfo =
     {
         /// The target representation (`Vesper.int` → `"System.Int32"`).
         Platform: string
-        /// `(# class "…" #)`-tagged: a derived unit may `inherit` this primitive
+        /// `(# class "…" #)`-tagged: a derived file may `inherit` this primitive
         /// (`obj` / `exn` / `Attribute`). A scalar primitive (`int`) is `false`.
         Heritable: bool
     }
@@ -109,14 +109,14 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// Source order, every module-level declaration — `inline` bindings INCLUDED, in
         /// both domains. An inline binding is code as well as vocabulary (it is emitted
         /// as an ordinary module function and its `InlineBodies` entry is additive), so
-        /// nothing is partitioned out here. `Passes.InlineExpansion` splices a same-unit
+        /// nothing is partitioned out here. `Passes.InlineExpansion` splices a same-file
         /// inline call off these.
         Decls: EqArray<TDeclG<'ty, 'tok, 'id>>
         /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
         // Qualified: see `Diagnostic`'s declaration for why the bare name would otherwise
         // be the parser's, mistyping this field.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
-        /// This unit's OWN intrinsics: the canon `SymbolKey` of a `type x = (# "..." #)`
+        /// This file's OWN intrinsics: the canon `SymbolKey` of a `type x = (# "..." #)`
         /// abbrev → its target representation string (`Vesper.int` → `"System.Int32"`).
         /// The backend keys the emitted IL type off the *representation string* (so a
         /// platform author retargets a primitive by editing one `.fs` line), and asks for
@@ -167,10 +167,10 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// (`EmitCall`); the emitted arity is re-derived independently by
         /// `staticFnTypars`' body sweep.
         GenericFnSchemes: Map<BinderKeyG<'id>, FrozenConstraint list>
-        /// The unit's INLINE VOCABULARY: every `let inline` binding (and every
+        /// The file's INLINE VOCABULARY: every `let inline` binding (and every
         /// nullary-intrinsic value alias — `let undefined = (# "undefined" #)`, which
         /// the backends also splice rather than call), keyed by the identity its home
-        /// unit interns it under.
+        /// file interns it under.
         ///
         /// Published by `Freeze`, ADDITIVELY: the binding also stays in `Decls` and is
         /// emitted as an ordinary module function, because F# gives an `inline` binding
@@ -190,12 +190,12 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// EMPTY pre-freeze: the SemType tree carries the templates in `Decls` and the
         /// unexpanded snapshots on the `PassContext`.
         InlineBodies: EqArray<TInlineValueG<'ty, 'tok, 'id>>
-        /// The unit's RESOLVED-SPECIALIZATION table: one entry per distinct
+        /// The file's RESOLVED-SPECIALIZATION table: one entry per distinct
         /// (template, type-arguments) grounding this file's call sites reached, addressed by
         /// the `SpecializationId` an `InlineCall` carries.
         ///
         /// A SECOND root array beside `InlineBodies`, on a different axis: `InlineBodies`
-        /// PUBLISHES unresolved templates for other units to resolve against their own
+        /// PUBLISHES unresolved templates for other files to resolve against their own
         /// operand types, while this holds bodies already resolved against THIS file's, and
         /// is consumed by the backends rather than exported.
         Specializations: EqArray<TSpecializationG<'ty, 'tok, 'id>>

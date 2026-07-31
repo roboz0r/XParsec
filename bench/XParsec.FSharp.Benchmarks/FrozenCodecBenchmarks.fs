@@ -54,7 +54,7 @@
 /// may. `CompilationDigest` is flat across `Depth` — it is the same `Vesper.Set` closure either
 /// way — which is exactly the shape of a cost that belongs to the compilation and not the file.
 ///
-/// Real self-host units, not toy programs: `FrozenBlobSizeTests` already covers small shapes
+/// Real self-host files, not toy programs: `FrozenBlobSizeTests` already covers small shapes
 /// for SIZE, and a 400-byte blob cannot tell you anything about load. `[<MemoryDiagnoser>]`
 /// because `thaw` is an allocation story before it is a time story — it materialises every
 /// column array and every payload object.
@@ -72,11 +72,11 @@ open XParsec.FSharp.Benchmarks.SemanticAnalysisFixtures
 [<Config(typeof<BenchConfig.InProcessConfig>)>]
 type FrozenCodecBenchmarks() =
 
-    /// Every unit of the chain, frozen once in setup. The front end is what this format
+    /// Every file of the chain, frozen once in setup. The front end is what this format
     /// exists to AVOID re-running, so it must not be in any measured body.
     let mutable frozen: FrozenPools list = []
 
-    /// The same units already flattened, and already compressed — so the load-side
+    /// The same files already flattened, and already compressed — so the load-side
     /// benchmarks measure a decode and not the encode that produced their input.
     let mutable raw: byte[] list = []
     let mutable compressed: byte[] list = []
@@ -101,7 +101,7 @@ type FrozenCodecBenchmarks() =
     /// the life of a compilation.
     let keyDigest = Hashing.compilationDigest keyInputs
 
-    /// Every unit's source text — what `FileKey` folds against the digest, one per file, which
+    /// Every file's source text — what `FileKey` folds against the digest, one per file, which
     /// is how a driver actually asks the cache a question.
     let mutable sources: string list = []
 
@@ -116,16 +116,16 @@ type FrozenCodecBenchmarks() =
                     for r in analyseStage Pipeline.analyseForSelfHost s do
                         match r with
                         | Ok u -> u.Frozen
-                        // A unit that did not parse has no frozen tree to encode. The
+                        // A file that did not parse has no frozen tree to encode. The
                         // green-workload guard belongs to the analysis benchmark; here an
-                        // unparsed unit is simply not a codec input.
+                        // unparsed file is simply not a codec input.
                         | Error _ -> ()
             ]
 
         // A codec benchmark over nothing measures nothing — fail loudly in setup rather
         // than report a fast zero.
         if List.isEmpty frozen then
-            failwithf "FrozenCodecBenchmarks: chain depth %A froze no units" this.Depth
+            failwithf "FrozenCodecBenchmarks: chain depth %A froze no files" this.Depth
 
         raw <- frozen |> List.map FrozenCodec.flatten
         compressed <- raw |> List.map Compression.compress
@@ -137,7 +137,7 @@ type FrozenCodecBenchmarks() =
             ]
 
     /// The store side, encode half: pools → bytes. Interns every payload type into the
-    /// unit's tables on the way (`writePools`' two-pass buffer), so this is not a pure
+    /// file's tables on the way (`writePools`' two-pass buffer), so this is not a pure
     /// serialise.
     [<Benchmark>]
     member _.Flatten() =

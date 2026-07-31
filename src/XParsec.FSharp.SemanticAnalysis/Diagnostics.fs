@@ -222,7 +222,7 @@ module InternalBreak =
 [<RequireQualifiedAccess>]
 type Kind =
     // ── Types and members that do not resolve ──────────────────────────────────
-    /// `name` names no type: no scope of this unit claims it and the target's external
+    /// `name` names no type: no scope of this file claims it and the target's external
     /// universe does not hold it.
     | UndefinedType of name: string
     /// Types with no representation on the compiling target: they exist only as a
@@ -309,7 +309,7 @@ type Kind =
     | UnrelatedTypeTest of source: string * target: string
     | RedundantDowncast of ty: string
 
-    // ── Whole-unit and whole-package verdicts ──────────────────────────────────
+    // ── Whole-file and whole-package verdicts ──────────────────────────────────
     | Conformance of package: string * verdict: ConformanceVerdict
     | LexFailure of detail: string
     | ParseFailure of detail: string
@@ -397,7 +397,7 @@ module Kind =
         // classification, which is not worth reproducing.
         | Kind.CyclicType(via = TypeCycle.Inheritance)
         // fsc has no analogue: it declines to inline a recursive binding and emits the
-        // ordinary function instead, where a cross-unit `val inline` here has no such
+        // ordinary function instead, where a cross-file `val inline` here has no such
         // function to fall back to. A refusal fsc never makes cannot borrow its number.
         | Kind.CyclicInline _
         | Kind.UnrepresentableTypes _
@@ -632,7 +632,7 @@ module Diagnostic =
             Related = related
         }
 
-    /// A verdict about a whole unit or package rather than about a place in one: a lex or
+    /// A verdict about a whole file or package rather than about a place in one: a lex or
     /// parse failure, a driver refusal, a conformance finding about a signature.
     let nowhere (kind: Kind) : Diagnostic = create kind Site.Nowhere []
 

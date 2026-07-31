@@ -50,7 +50,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 //
 // Nothing in the type domain is written structurally any more, so there is no more of this
 // particular win left: the only thing that spells a type out is the row table itself, once
-// per distinct type per unit. Nor is the SPINE further compressible without giving something
+// per distinct type per file. Nor is the SPINE further compressible without giving something
 // up — a child edge IS a 4-byte id and every one of them is named. What remains is to stop
 // PAYING for the ids at load: a flat int column is mmap-able, which is what step 9 is about,
 // and no re-encoding buys that.

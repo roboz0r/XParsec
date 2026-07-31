@@ -311,7 +311,7 @@ module UnificationEngine =
         // the source, not a missing dependency, and re-reporting it at every contact would
         // spray secondary errors across a program whose single fault the user has already been
         // told about. What is left to report here is the OTHER producer of `TyUnknown` — a
-        // name a package's baked contract could not resolve, which no site in this unit could
+        // name a package's baked contract could not resolve, which no site in this file could
         // have blamed.
         | TyUnknown name, _
         | _, TyUnknown name ->

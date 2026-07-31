@@ -105,17 +105,17 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    /// `ModuleRules.holderName` under this unit's `ModuleNaming` (`PassContext.ModuleNaming`).
+    /// `ModuleRules.holderName` under this file's `ModuleNaming` (`PassContext.ModuleNaming`).
     /// The rule itself lives in `ModuleRules` because the contract extractor — which is
     /// upstream of every pass and has no `PassContext` — is its third reader.
     let moduleHolderName (ctx: PassContext) (md: ModuleDefn<SyntaxToken>) : string =
         ModuleRules.holderName ctx.ModuleNaming md
 
-    /// `ModuleRules.typeHolder` under this unit's `ModuleNaming`.
+    /// `ModuleRules.typeHolder` under this file's `ModuleNaming`.
     let localTypeHolder (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeHolder =
         ModuleRules.typeHolder ctx.ModuleNaming c
 
-    /// `ModuleRules.holderChain` under this unit's `ModuleNaming` — the holder a BINDING
+    /// `ModuleRules.holderChain` under this file's `ModuleNaming` — the holder a BINDING
     /// declared in `c` sits in. The SAME chain `localTypeHolder` reads, so a binding and a
     /// type declared in one module agree about which module holds them.
     let localHolderChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleHolder =
@@ -229,16 +229,16 @@ module NameResolutionTypeRegistration =
     /// wins) but the UNIFIER would not: the two keys are equal, so it would happily unify
     /// two genuinely different types. Diagnosed, that state is unreachable.
     ///
-    /// A unit's OWN contract is NOT a referenced assembly. Compiling `Vesper.List` against
+    /// A file's OWN contract is NOT a referenced assembly. Compiling `Vesper.List` against
     /// a provider stack that mounts `Vesper.List`'s own `.fsi` — which is precisely what
-    /// `SymbolProviders.inlineBodies` does for every package's impl — the unit declares the
+    /// `SymbolProviders.inlineBodies` does for every package's impl — the file declares the
     /// very types its contract publishes. That is what compiling it MEANS. The shape's
-    /// `SymbolOrigin` names its home assembly and `PassContext.AssemblyName` names the unit
+    /// `SymbolOrigin` names its home assembly and `PassContext.AssemblyName` names the file
     /// being compiled, so the two are distinguishable by construction: a shape homed HERE
-    /// is the unit seeing itself.
+    /// is the file seeing itself.
     ///
     /// (This is the one front-end reader of `AssemblyName` that survives the assembly's
-    /// removal from `SymbolKey` — it does not identify a *type*, it identifies the *unit*,
+    /// removal from `SymbolKey` — it does not identify a *type*, it identifies the *file*,
     /// which is what "own contract" is a statement about.)
     let private diagnoseExternalClaim (ctx: PassContext) (declTok: SyntaxToken) (key: TypeKey) : unit =
         match ctx.Provider.TryLookupType(SymbolKey.Type key) with
@@ -307,7 +307,7 @@ module NameResolutionTypeRegistration =
         | ValueNone -> false
 
     /// Pre-scan: note the RECORD / UNION / CLASS short names this element declares into
-    /// `NominalTypeNames`. Sweeps the WHOLE unit before the registration scan, because its
+    /// `NominalTypeNames`. Sweeps the WHOLE file before the registration scan, because its
     /// one reader needs the answer for a type the scan has not reached yet:
     /// `moduleHolderName`'s `…Module` suffix rule must give the same answer at key-mint
     /// time and at emit time, and a `module Foo` may textually precede the `type Foo` it
@@ -315,7 +315,7 @@ module NameResolutionTypeRegistration =
     /// claims it shadows.
     ///
     /// It is the ONE scan that must precede registration. Nothing else may read the whole
-    /// unit's type names ahead of the scan: doing so is how a type declared BELOW a
+    /// file's type names ahead of the scan: doing so is how a type declared BELOW a
     /// reference becomes visible to it, which is exactly the scoping rule the top-down
     /// scan exists to enforce.
     let noteNominalTypeNames (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
@@ -480,7 +480,7 @@ module NameResolutionTypeRegistration =
                     // The arity is part of the identity, exactly as for a record/union key — it
                     // is what makes this key EQUAL to the CONTRACT's
                     // `SymbolKeyOps.intrinsicCanonKey` (whose arity comes from PARSING the
-                    // suffixed compiled name) when a unit compiles the very types its own
+                    // suffixed compiled name) when a file compiles the very types its own
                     // contract publishes. Key equality is then the whole identity test.
                     //
                     // NAMESPACE-only (not the containment): an intrinsic is a primitive binding
@@ -511,9 +511,9 @@ module NameResolutionTypeRegistration =
     /// reach is blamed once and in the same words.
     let private classifyingTypeIter (ctx: PassContext) : CstWalk.TypeIter =
         // `float<kg>` is a measured carrier, not a generic type applied to a type argument:
-        // `translateType` reinterprets the WHOLE node — carrier and unit alike — as a
+        // `translateType` reinterprets the WHOLE node — carrier and measure alike — as a
         // measured type and resolves neither through the type registry. Neither the carrier
-        // head (which has no arity-1 shape to find) nor the unit is a type head, so
+        // head (which has no arity-1 shape to find) nor the measure is a type head, so
         // classification stops exactly where translation stops.
         let isMeasuredCarrier (t: Type<SyntaxToken>) =
             match t with
@@ -727,7 +727,7 @@ module NameResolutionTypeRegistration =
                 | ValueSome v -> v
                 | ValueNone -> ComparisonVerdict.NoComparison
 
-            // `[<RequireQualifiedAccess>]` keeps this record out of a cross-unit
+            // `[<RequireQualifiedAccess>]` keeps this record out of a cross-file
             // consumer's bare `{ X = … }` field-set index (`Elaborate` projects it
             // onto the frozen decl; `FrozenSignature` / `InferResolve` honour it).
             info.IsRequireQualifiedAccess <-
@@ -882,7 +882,7 @@ module NameResolutionTypeRegistration =
                 | ValueNone -> ComparisonVerdict.NoComparison
 
             // `[<RequireQualifiedAccess>]` keeps this union's cases out of a
-            // cross-unit consumer's bare case index (`Elaborate` projects it onto
+            // cross-file consumer's bare case index (`Elaborate` projects it onto
             // the frozen decl; `FrozenSignature` honours it).
             info.IsRequireQualifiedAccess <-
                 AttributeDecode.decodeRequireQualifiedAccess ctx.NameOf (Attributes.attributesOfTypeName tn)

@@ -386,7 +386,7 @@ module VesperLibTyparCapture =
         ///
         /// PRECONDITION: the deferred bodies / members must already be frozen into
         /// the shapes' templates — `VesperLib.finalizeDeferred` runs the
-        /// `translateType` pass (it lives a compile unit later, where the
+        /// `translateType` pass (it lives a file later, where the
         /// translation is in scope). The `VesperLib.ExtractCtx.toProvider` wrapper
         /// chains the two; nothing else calls this directly.
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =

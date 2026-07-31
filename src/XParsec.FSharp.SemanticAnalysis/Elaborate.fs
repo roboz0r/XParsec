@@ -1972,10 +1972,10 @@ module Elaborate =
         // `zonk` / union-find are native); `freezeTypars` makes the
         // `TyVar → TyTypar` cut on each.
         //
-        // Cross-unit inline bodies ride `ctx.Provider` directly: a published body sits ON
+        // Cross-file inline bodies ride `ctx.Provider` directly: a published body sits ON
         // the resolved entry (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`),
         // reached by the same `SymbolKey` the use-site node carries. Frozen, so
-        // `InlineExpansion` thaws it into this unit's own cells before splicing.
+        // `InlineExpansion` thaws it into this file's own cells before splicing.
         let elaborateDecls () =
             let elaborated = elaborate ctx file
 
@@ -2043,7 +2043,7 @@ module Elaborate =
             // The inline vocabulary is `Freeze`'s to publish: that is where a template
             // becomes `FrozenType`. Publication is ADDITIVE and takes nothing out of
             // `Decls` (`TastFileG.InlineBodies`) — an inline binding stays a decl in both
-            // domains, which is where the same-unit splice (`Passes.InlineExpansion`)
+            // domains, which is where the same-file splice (`Passes.InlineExpansion`)
             // reads it and where both backends emit it as an ordinary module function.
             InlineBodies = EqArray.empty
             // The resolved-specialization table `InlineExpansion.run` built, in slot order —

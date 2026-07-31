@@ -129,8 +129,8 @@ type NodeKind =
     /// sites don't alias each other's bound names. Counter-minted (`ofSyntheticCounter`) — it
     /// names no source position.
     | SynthPreFreezeInline = 1007us
-    /// Binder of a template DRAINED from the pools onto the cross-unit wire
-    /// (`TastPoolBuilder.declTree`), whose slot means nothing in the consuming unit and so is
+    /// Binder of a template DRAINED from the pools onto the cross-file wire
+    /// (`TastPoolBuilder.declTree`), whose slot means nothing in the consuming file and so is
     /// re-minted. Counter-minted like `SynthPreFreezeInline`, and a KIND of its own precisely
     /// because it is: the two counters are independent, so sharing a kind would let a drain's
     /// nth binder and a freshen's nth binder be one key. They meet — a drained body is
@@ -195,7 +195,7 @@ type SourcePos =
 
 module SourcePos =
 
-    /// A read that sees EVERY declaration, wherever it sits — the whole-unit view, for a query
+    /// A read that sees EVERY declaration, wherever it sits — the whole-file view, for a query
     /// with no source position to scope by (an observer of the finished registry, a consumer
     /// that already holds a resolved key).
     let unbounded: SourcePos = { Pos = System.Int32.MaxValue }

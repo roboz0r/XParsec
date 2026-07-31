@@ -48,7 +48,7 @@ module internal UnificationTranslate =
         ctx.Report(tok, kind)
         TyVar(freshTyVar ctx)
 
-    /// The shared tail of every WRITTEN type head no claim of this unit holds and no
+    /// The shared tail of every WRITTEN type head no claim of this file holds and no
     /// external shape built — the one place that decides what a head naming nothing IS.
     ///
     /// A STAMP is NameResolution's committed verdict that the spelling DOES name a type of
@@ -58,7 +58,7 @@ module internal UnificationTranslate =
     /// keeps `residue`, the caller's best-effort identity, and the user is not blamed for a
     /// name they got right.
     ///
-    /// UNSTAMPED, nothing resolved the head at all — not a scope of this unit, not the
+    /// UNSTAMPED, nothing resolved the head at all — not a scope of this file, not the
     /// target's view of the world — so it is NOT A TYPE. Recovering with a free `TyVar` (which
     /// unifies with everything) or an opaque nominal (which unifies with itself) would let ANY
     /// spelling type-check silently, and the mistake would surface as unencodable output far
@@ -78,7 +78,7 @@ module internal UnificationTranslate =
             ctx.UndefinedType(Site.ofToken head.Tok, name)
             TyUnknown name
 
-    /// Multi-segment qualified unit names (`Microsoft.FSharp.SI.kg`) and
+    /// Multi-segment qualified measure names (`Microsoft.FSharp.SI.kg`) and
     /// measure typars (`'u`) are v2 — they produce an empty term plus a
     /// diagnostic so the rest of inference continues without measure noise.
     let rec translateMeasure (ctx: PassContext) (measureTok: SyntaxToken) (m: Measure<SyntaxToken>) : MeasureTerm =
@@ -281,7 +281,7 @@ module internal UnificationTranslate =
             // NameResolution's committed verdict that it is EXTERNAL — it stamps only a head
             // no local claim held where it was written — so it outranks the registry here
             // exactly as it does for a bare head. Unstamped ⇒ the qualifier names a scope of
-            // THIS unit, or the head names nothing.
+            // THIS file, or the head names nothing.
             let head = CstKeys.typeHeadSite t
 
             match tryResolveExternalTypeStamped ctx head.Key EqArray.empty with
@@ -298,7 +298,7 @@ module internal UnificationTranslate =
             // The parser only tags an arg as `TypeArg.Measure` when the
             // measure grammar is unambiguous; for bare `float<m>` it lands
             // as `TypeArg.Type (Type.NamedType "m")` because the type
-            // grammar can't tell unit names apart from type-arg type names.
+            // grammar can't tell measure names apart from type-arg type names.
             // Both shapes resolve here.
             let carrierTok = li.Idents.[0]
 
@@ -541,7 +541,7 @@ module internal UnificationTranslate =
     /// of its own.
     ///
     /// A head that claims nothing here and carries no stamp names NOTHING — no scope of this
-    /// unit holds it, and NameResolution, which resolves every written head against the
+    /// file holds it, and NameResolution, which resolves every written head against the
     /// target's whole external universe, did not resolve it either. It is undefined, under a
     /// local qualifier or any other, and `unresolvedHeadTy` says so: a free type variable
     /// unifies with everything, so leaving one would type-check the mistake here and surface

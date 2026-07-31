@@ -101,7 +101,7 @@ module internal AssemblerScaffold =
     /// value / list literal / external member access (so `Vesper.Fun` / `Vesper.List`
     /// are never needed and `references` is empty), but it DOES name primitives —
     /// whose reprs are read from `symbols` (the single source: the real Vesper.Core
-    /// provider the caller supplies), not a codegen-local table. Own-unit intrinsics
+    /// provider the caller supplies), not a codegen-local table. Own-file intrinsics
     /// are empty: a hand-written body declares no `(# … #)` types of its own.
     let assembleWith
         (symbols: IExternalSymbolProvider)

@@ -176,13 +176,13 @@ and FrozenType =
     /// the program it addresses: no node, no pool slot, no side-table key. That is
     /// what the type buys — the leaf cannot be resolved even by accident, whereas a
     /// `NodeKey` here was always one lookup away from being resolved against the
-    /// consuming unit's own tree (keys from different files collide freely, by
+    /// consuming file's own tree (keys from different files collide freely, by
     /// design: cross-file references resolve by NAME against prior views). What is
     /// left to uphold:
     ///
     /// - It is interpreted only against the TEMPLATE that carries it, exactly as
-    ///   `FTTypar`'s index is. Two leaves from different units comparing structurally
-    ///   equal is no more a bug than `FTTypar(Declaring, 0)` from two units doing so.
+    ///   `FTTypar`'s index is. Two leaves from different files comparing structurally
+    ///   equal is no more a bug than `FTTypar(Declaring, 0)` from two files doing so.
     /// - It is CONSUMED AT THAW: the leaf becomes a fresh consumer-owned `TyVar` and
     ///   the id does not survive into the spliced tree.
     ///
@@ -233,7 +233,7 @@ and FTConditionalPayload =
     }
 
 /// Every `TyVar` is a dense `TyVarId` index into the per-file `TypeStore`
-/// union-find graph. Will grow to include generics, units.
+/// union-find graph. Will grow to include generics, measures.
 type SemType =
     /// Call `UnionFind.find` then read the representative's `Link` to dereference.
     /// The payload is the raw `TyVarId` — the store keys every metavar cell by it,
@@ -423,9 +423,9 @@ and [<Sealed>] UnionMembers private (members: EqSet<SemType>) =
 
     override _.GetHashCode() = hash members
 
-/// Abelian-group expression over named unit atoms. Always stored in a
+/// Abelian-group expression over named measure atoms. Always stored in a
 /// normalised form: each exponent is in canonical Rational form, zero
-/// exponents are dropped, and entries are sorted by unit name. Equality
+/// exponents are dropped, and entries are sorted by measure name. Equality
 /// is structural list equality after normalise.
 and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
     member _.Exponents = exponents
@@ -434,8 +434,8 @@ and [<Sealed>] MeasureTerm private (exponents: (string * Rational) list) =
     /// The group identity (dimensionless).
     static member Empty = MeasureTerm([])
 
-    /// Normalises a raw list: duplicate units are merged (exponents summed),
-    /// zero exponents dropped, result sorted by unit name.
+    /// Normalises a raw list: duplicate measures are merged (exponents summed),
+    /// zero exponents dropped, result sorted by measure name.
     static member ofList(raw: (string * Rational) list) : MeasureTerm =
         raw
         |> List.groupBy fst

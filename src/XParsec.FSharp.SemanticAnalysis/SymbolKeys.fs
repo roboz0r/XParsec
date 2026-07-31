@@ -218,7 +218,7 @@ type BindingRank = { Depth: int; Offset: int }
 /// `Pos` is a `SourcePos`, whose representation is private: a use site can therefore only
 /// be pinned to a node that HAS a place in the file, and a counter-minted key cannot mint
 /// one. `Holder` is `ValueNone` exactly for a read that speaks from nowhere — the
-/// whole-unit view (`UseSite.unbounded`).
+/// whole-file view (`UseSite.unbounded`).
 [<NoComparison>]
 type UseSite =
     {
@@ -250,7 +250,7 @@ module UseSite =
 ///
 /// The path is a SOURCE path (what an `open` and a qualifier write), never a compiled holder
 /// name (`ListModule`): the scope it names is recovered by resolving it against the scopes
-/// this unit declares, exactly as an `open`'s path is.
+/// this file declares, exactly as an `open`'s path is.
 ///
 /// A BARE name is the empty path — not a separate case. A bare name and a qualified one
 /// resolve by ONE rule (`TypeRegistry.claimRank`): the name enters the environment through a

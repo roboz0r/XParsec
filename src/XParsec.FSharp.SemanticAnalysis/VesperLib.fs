@@ -596,7 +596,7 @@ module VesperLib =
         /// Finalize the deferred CST bodies / members into `FrozenType` templates
         /// (`finalizeDeferred`), then lift the context to an
         /// `IExternalSymbolProvider`. The two-phase split exists only because the
-        /// `CST → FrozenType` translation lives a compile unit later than
+        /// `CST → FrozenType` translation lives a file later than
         /// `VesperLibTyparCapture.ExtractCtx.toProvider`.
         let toProvider (ctx: ExtractCtx) : IExternalSymbolProvider =
             finalizeDeferred ctx
@@ -1576,7 +1576,7 @@ module VesperLib =
     /// Sweep a signature file's whole element tree for its nominal type names. Runs BEFORE
     /// extraction, because the `…Module` suffix rule reads the answer when it mints a
     /// module's holder name and a `module Foo` may be written above the `type Foo` it
-    /// collides with. The unit is the FILE, matching the local face.
+    /// collides with. The scope is the FILE, matching the local face.
     let rec private noteNominalTypeSigNames
         (lexed: Lexed)
         (input: string)

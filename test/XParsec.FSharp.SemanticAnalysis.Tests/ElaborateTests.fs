@@ -370,7 +370,7 @@ let interfaceTests =
         [
             test "`Fun` interface freezes to TDecl.Type with the resolved Invoke signature" {
                 // `Vesper.Fun` is Vesper.Core's OWN type, and the provider mounts Vesper.Core's
-                // contract — so this unit must be compiled AS Vesper.Core. A unit is allowed to
+                // contract — so this file must be compiled AS Vesper.Core. A file is allowed to
                 // declare the types its own contract publishes (that is what compiling it means);
                 // any other assembly name here is the CS0433 analogue
                 // (`claimTypeIdentity`'s external-claim diagnostic).

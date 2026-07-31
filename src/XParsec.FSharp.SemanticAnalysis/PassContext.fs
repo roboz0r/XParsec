@@ -570,7 +570,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             Prefixes = provider.AmbientOpenPrefixes
         }
 
-    // `IntrinsicReprTypes` holds ONLY this compilation unit's own intrinsic
+    // `IntrinsicReprTypes` holds ONLY this file's own intrinsic
     // bindings (`type int = (# "System.Int32" #)`), registered by NameResolution.
     // A *referenced* package's intrinsics are no longer seeded here: they ride
     // the provider as `ExternalTypeShape.Intrinsic` shapes, read local-first /
@@ -638,7 +638,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val Lexed = source.Lexed
     member val Origin = source.File
 
-    /// The simple name of the assembly this compilation unit emits into. NOT part of any
+    /// The simple name of the assembly this file emits into. NOT part of any
     /// `SymbolKey` — nominal identity is the containment chain, so a locally-minted key
     /// and a consumer's cross-package reference to the same type are equal without either
     /// side naming an assembly. `""` for the front-end-only / contract-scrape paths that
@@ -653,7 +653,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// The primitive-intrinsic identities (`int`/`string`/…) resolved from the
     /// `prim-types-*` contract — the `SemType` analogue of `CapabilityIds`, so the passes
     /// carry no static intrinsic `SemType`s. Each field resolves lazily/cached (see
-    /// `IntrinsicSet`), reading this unit's own `IntrinsicKeys` (populated by the
+    /// `IntrinsicSet`), reading this file's own `IntrinsicKeys` (populated by the
     /// NameResolution pre-pass) first, then the provider via ambient `open`.
     member val Intrinsics =
         IntrinsicSet(fun name -> IntrinsicResolve.tryResolveIntrinsicType provider types.IntrinsicKeys name) with get
@@ -673,7 +673,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// reconciliation (`"System.Exception"` -> `exn`) that `canonKey` used to read
     /// from here now happens eagerly at resolution (`MetadataSymbols.tryBuildType`),
     /// so no BCL name reaches the unifier. Merges the provider's
-    /// `IntrinsicReverseCanon` (referenced contracts) with this unit's own
+    /// `IntrinsicReverseCanon` (referenced contracts) with this file's own
     /// self-compiled intrinsics (`IntrinsicReprTypes`, inverted). `lazy` so it is
     /// built once, on the first Unification read — AFTER NameResolution has
     /// populated `IntrinsicReprTypes`.
@@ -685,9 +685,9 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
                  d.[platform] <- canons
              // Local self-compiled intrinsics (short `.fsi` name -> platform repr):
              // invert so a raw platform name reconciles with the short identity within
-             // a `--compiling-fslib` unit. Skips a degenerate `platform = short`. A local
+             // a `--compiling-fslib` file. Skips a degenerate `platform = short`. A local
              // repr wins over the provider's canons for the same platform (self-compiled
-             // identity is authoritative within the unit), so it replaces the entry. The
+             // identity is authoritative within the file), so it replaces the entry. The
              // canon value is the contract-stamped qualified identity (`IntrinsicKeys`, keyed
              // from the declaring `namespace`), so it compares EQUAL to the forward/provider
              // canons; `intrinsicKeyOf` falls back to the by-name mint only for a repr with
@@ -908,10 +908,10 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// `inferTypeAnnotation`. "Name the type at the escape point."
     member val DynamicEscapeSuppressed = HashSet<NodeKey>() with get
 
-    /// Type names this unit's SOURCE wrote and nothing defined (`UndefinedType`). The
+    /// Type names this file's SOURCE wrote and nothing defined (`UndefinedType`). The
     /// unifier's `TyUnknown` arm reads this to stay silent for such a name: its own message
     /// speaks for the OTHER producer of `TyUnknown` — a name a package's BAKED CONTRACT could
-    /// not resolve, which no site in this unit's source could blame — and would misattribute a
+    /// not resolve, which no site in this file's source could blame — and would misattribute a
     /// plain spelling mistake to a missing package dependency.
     member val UndefinedTypeNames = HashSet<string>() with get
 
@@ -939,7 +939,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val InlineParamAttrs = Dictionary<NodeKey, ParamAttrs[]>() with get
 
     /// The UNEXPANDED body of each module-level `let inline`, keyed by its
-    /// function-binder `NodeKey` — the form `Freeze` publishes as this unit's inline
+    /// function-binder `NodeKey` — the form `Freeze` publishes as this file's inline
     /// VOCABULARY.
     ///
     /// It is a second copy on purpose. The decl of the same name in `TastFile.Decls` is
@@ -956,7 +956,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// applied, so the two forms differ only by the expansion.
     member val InlineTemplates = Dictionary<NodeKey, TDecl>() with get
 
-    /// The facts `ModuleRules` reads, as this compilation unit answers them. The nominal
+    /// The facts `ModuleRules` reads, as this file answers them. The nominal
     /// type names come from the registry the pre-scan filled and the attributes from the
     /// source text, so a module's compiled holder name is the same here as at every other
     /// reader of the rule. The predicate is read at CALL time, so it sees a type declared
@@ -1000,7 +1000,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// file, plus the module chain and the `open`s the walk is currently inside. The only
     /// way to name a use site AT a node, so the parts cannot be supplied separately or one
     /// of them forgotten. A caller with nowhere to speak from passes `UseSite.unbounded`
-    /// instead and gets the whole-unit view.
+    /// instead and gets the whole-file view.
     member this.UseSiteAt(key: NodeKey) : UseSite =
         {
             Pos = SourcePos.ofNodeKey key
@@ -1092,7 +1092,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member this.Report(site: Site, kind: Kind) =
         this.Diagnostics.Add(Diagnostic.create kind site [])
 
-    /// Blame the written type head at `site`: `name` names no type — no scope of this unit
+    /// Blame the written type head at `site`: `name` names no type — no scope of this file
     /// claims it and the target's external universe does not hold it. THE one home for that
     /// verdict, so the passes that reach a head — the head classifier, which knows a bare name
     /// nothing answers for, and type translation, which is where every written head is finally

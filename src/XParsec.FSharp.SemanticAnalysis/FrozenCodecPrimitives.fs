@@ -5,14 +5,14 @@ open System.IO
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// The codec's WRITE seam: the stream, and the unit's type/key tables, as ONE value.
+/// The codec's WRITE seam: the stream, and the file's type/key tables, as ONE value.
 ///
 /// The tables belong here and not in a parameter because a type reaches the wire only as the
 /// id of its row, and interning it is what mints that row — so every writer that names a type
 /// needs both, and the pairing between them is an invariant rather than a convention each call
 /// site restates. `FrozenCodec.writePools` has two streams live at once (the body buffer and
 /// the blob) and one builder; bundling is what makes "emit into this stream while interning
-/// into that unit's tables" unstateable rather than merely unwritten.
+/// into that file's tables" unstateable rather than merely unwritten.
 ///
 /// The `Write` overloads forward the stream verbatim. They exist so that the whole frozen
 /// codec is written against this seam and none of it against a bare `BinaryWriter`, which is
@@ -113,7 +113,7 @@ module FrozenCodecPrimitives =
     let readEqSetWith (r: FrozenReader) (readElem: FrozenReader -> 'a) : EqSet<'a> =
         EqSet.ofSeq (readArrayWith r readElem)
 
-    /// The `ImmutableArray` twin — the shape the unit's stored type/key tables take
+    /// The `ImmutableArray` twin — the shape the file's stored type/key tables take
     /// (`FrozenTypeRows`), and so the only container the row codec frames with. Same length
     /// prefix as its two siblings above; the reader builds AT the final length and freezes
     /// in place, so the immutability costs no copy.

@@ -8,7 +8,7 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
 
-/// Every instance/static method-call key in the unit's value bindings, in a pre-order
+/// Every instance/static method-call key in the file's value bindings, in a pre-order
 /// walk — the identity the total-key mint stamps on `MethodCall` / `StaticMethodCall`.
 let private callKeys (tast: TastFile) : ResizeArray<SymbolKey> =
     let calls = ResizeArray<SymbolKey>()
@@ -32,7 +32,7 @@ let private callKeys (tast: TastFile) : ResizeArray<SymbolKey> =
 
     calls
 
-/// The unit's single class declaration.
+/// The file's single class declaration.
 let private soleClass (tast: TastFile) : TClass =
     let found =
         [
@@ -190,13 +190,13 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            test "try-finally cleanup must be unit" {
+            test "try-finally cleanup must be file" {
                 let tast = analyse "let r = try 1 finally 2"
 
                 let hasMismatch =
                     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
 
-                Expect.isTrue hasMismatch "non-unit cleanup triggers mismatch"
+                Expect.isTrue hasMismatch "non-file cleanup triggers mismatch"
             }
 
             test "try-with TAST shape" {
@@ -211,7 +211,7 @@ let tests =
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = try 1 finally ()" "try-finally shape"
             }
 
-            test "`x <- y` types as unit" {
+            test "`x <- y` types as file" {
                 // The LHS must be a mutable binding (otherwise Validation flags it —
                 // see ValidationTests).
                 let tast = analyse "let r = let mutable x = 0 in x <- 1"
@@ -382,7 +382,7 @@ let tests =
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = (1..2..10)" "stepped range shape"
             }
 
-            test "`for i in 1..10 do ()` types as unit with no diagnostic" {
+            test "`for i in 1..10 do ()` types as file with no diagnostic" {
                 let tast = analyse "let r = for i in 1..10 do ()"
                 Expect.equal (declType tast) BuiltinTypes.tyUnit "r : unit"
                 // The range special case suppresses the "not implemented" Info.
@@ -425,20 +425,20 @@ let tests =
 
             test "`let () = ()` types and translates" {
                 let tast = analyse "let () = ()"
-                Expect.equal (declType tast) BuiltinTypes.tyUnit "binding type is unit"
+                Expect.equal (declType tast) BuiltinTypes.tyUnit "binding type is file"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            test "`let () = expr` rejects non-unit RHS" {
+            test "`let () = expr` rejects non-file RHS" {
                 let tast = analyse "let () = 1"
 
                 let hasMismatch =
                     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
 
-                Expect.isTrue hasMismatch "non-unit RHS triggers mismatch"
+                Expect.isTrue hasMismatch "non-file RHS triggers mismatch"
             }
 
-            test "match arm with `()` pattern types as unit" {
+            test "match arm with `()` pattern types as file" {
                 let tast = analyse "let f x = match x with | () -> 0"
                 let unitToInt = TyFun(BuiltinTypes.tyUnit, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) unitToInt "f : unit -> int"
@@ -698,7 +698,7 @@ let tests =
                 match body with
                 | TExpr.MethodCall(_, key, _, args, ty, _) ->
                     Expect.equal (SymbolKeyOps.simpleName key) (DisplayName "Magnitude") "method name"
-                    Expect.equal args.Length 0 "no args (unit-arg fold)"
+                    Expect.equal args.Length 0 "no args (file-arg fold)"
                     Expect.equal ty BuiltinTypes.tyInt "method return"
                 | _ -> failtestf "expected MethodCall, got %A" body
 
@@ -1314,7 +1314,7 @@ let tests =
             // A `PassContext` whose provider is the stub `leaf` layered OVER `realProvider`
             // (`Vec2` is answered by the stub; the primitives / ambient opens the passes need
             // fall through to the real contract stack). `Vec2` is NOT a local type, so
-            // `totalMemberKey` takes the external arm. The passes run over the trivial unit so
+            // `totalMemberKey` takes the external arm. The passes run over the trivial file so
             // the intrinsics / registries the picker reads are initialised.
             let extCtx (leaf: ExternalSymbolProviders.NamedLeaf) : PassContext =
                 let provider =

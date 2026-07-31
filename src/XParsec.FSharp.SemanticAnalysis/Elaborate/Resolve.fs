@@ -322,11 +322,11 @@ module internal ElaborateResolve =
 
     /// The declared SemType of a record field, for boxing a value flowing into an
     /// `obj` field. Answers for a LOCAL record (registry field model) AND an
-    /// external / cross-unit one (provider field shapes, instantiated at the receiver's
-    /// type args), so `wrapObjArg` boxes an `obj`-typed field of a cross-unit record
+    /// external / cross-file one (provider field shapes, instantiated at the receiver's
+    /// type args), so `wrapObjArg` boxes an `obj`-typed field of a cross-file record
     /// exactly as it does a local one. The external arm is load-bearing: field-init now
     /// COERCES a value into an `obj` field (`InferRecordAccess`'s `unifyArg`), so a
-    /// cross-unit `{ X = v }` type-checks — without the box here it would emit invalid IL.
+    /// cross-file `{ X = v }` type-checks — without the box here it would emit invalid IL.
     /// `ValueNone` when the field is unknown or the shape is not a provider record.
     let recordFieldTy (ctx: PassContext) (recordTy: SemType) (fieldName: string) : SemType voption =
         match recordTy with

@@ -55,7 +55,7 @@ type OpenScope =
         /// dotted prefixes to try, ambient prelude included); this is what the PROJECT-LOCAL
         /// resolver needs (where each `open` sits, so a name it brings can be ordered
         /// against the declarations around it). The ambient prelude contributes to
-        /// `Prefixes` only: it names nothing this unit declares.
+        /// `Prefixes` only: it names nothing this file declares.
         Locals: LocalOpen list
         /// Module-abbrev aliases (`module R = A.B.C` ⇒ `"R" → "A.B.C"`), expanded
         /// on the head segment of a dotted name before probing.

@@ -276,7 +276,7 @@ module internal UnificationInferRecordAccess =
                     resolveLocalInstanceMember ctx memberTok info.Name info.TypeParams args info.Members memberName
             | ValueNone ->
                 // Not a project-local record — an *external* one (a record declared in a
-                // prior unit / referenced package). Records are the last nominal kind to
+                // prior file / referenced package). Records are the last nominal kind to
                 // gain a provider fallback; mirror the external `TyUnion`/`TyClass` arms.
                 let recQual = SymbolKeyOps.typeMetaName recKey
 

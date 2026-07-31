@@ -26,7 +26,7 @@ let private expectRejected (source: string) =
     let es = errors (analyse source)
     Expect.isNonEmpty es "expected a diagnostic: the name is used above its declaration"
 
-/// The inferred type of the unit's ONE module-level `let`, off the elaborated TAST.
+/// The inferred type of the file's ONE module-level `let`, off the elaborated TAST.
 let private soleModuleLetType (tast: TastFile) : SemType =
     let found =
         [
@@ -66,13 +66,13 @@ let private nominalKey (ty: SemType) : TypeKey =
     | SemType.TyUnion(k, _) -> k
     | other -> failtestf "expected a nominal type, got %A" other
 
-/// The RESULT type of the unit's sole module `let` — for `let f () = e`, what `e` bound to.
+/// The RESULT type of the file's sole module `let` — for `let f () = e`, what `e` bound to.
 let private soleModuleLetResult (tast: TastFile) : SemType =
     match soleModuleLetType tast with
     | SemType.TyFun(_, ret) -> ret
     | other -> failtestf "expected the sole module let to be a function, got %A" other
 
-/// The ARGUMENT type of the unit's sole module `let` — for `let f x = …`, what `x` bound to.
+/// The ARGUMENT type of the file's sole module `let` — for `let f x = …`, what `x` bound to.
 let private soleModuleLetArg (tast: TastFile) : SemType =
     match soleModuleLetType tast with
     | SemType.TyFun(arg, _) -> arg

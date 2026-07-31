@@ -46,7 +46,7 @@ let (|TyClass|_|) (t: SemType) =
 let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 
 /// A frozen file's declarations as pool handles, with the specialization graph spliced —
-/// what `Layout.buildUnit` opens and expands before anything else, so a test that drives a
+/// what `Layout.buildFile` opens and expands before anything else, so a test that drives a
 /// lowering / discovery pass directly starts from the same representation the backend does.
 /// Placing a body is deferred to emission, so an inline body a test looks for is behind an
 /// edge until this runs.
@@ -154,7 +154,7 @@ let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
 
 /// Render a multi-file driver's anchored diagnostics (`path: message`, one per line)
 /// for a fixture's failure message.
-let private anchoredDiagText (diags: AssemblyUnits.AnchoredDiagnostic list) : string =
+let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : string =
     diags
     |> List.map (fun d -> sprintf "%s: %s" d.Path d.Diagnostic.Message)
     |> String.concat "\n"
@@ -179,10 +179,10 @@ let vesperCoreDll: Lazy<string> =
                  OutputPath = Some corePath
              }
 
-         // Compile every `impl` file the manifest lists as its OWN unit through the
+         // Compile every `impl` file the manifest lists as its OWN file through the
          // shared multi-file seam (`ClrDriver.compileAssemblyWith`) — the fixture and the
          // package build share ONE source list (no fixture/manifest drift), and each file
-         // is analysed against the composed prior-unit views rather than fused into one
+         // is analysed against the composed prior-file views rather than fused into one
          // `String.concat` blob. The intrinsic-only prim-types files complete channel-1, so
          // primitive reprs (`string`, …) resolve from Core's own `.fs`.
          let implFiles =
@@ -385,7 +385,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  let dir = IO.Path.GetDirectoryName manifestPath
 
-                 // Each `impl` file is analysed as its OWN unit through the shared multi-file
+                 // Each `impl` file is analysed as its OWN file through the shared multi-file
                  // seam (`ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost`) rather
                  // than fused into one `String.concat` blob — self-host front end, so a bare
                  // `[]`/`::` in a BCL-only package defaults to the Vesper cons-list, not
@@ -1024,7 +1024,7 @@ let runsSelfHostLines (expected: string list) (src: string) : unit =
 
 let private dataDir = IO.Path.Combine(__SOURCE_DIRECTORY__, "data")
 
-/// Read `data/<name>.fs`, expanding each `//#include <file>` line (resolved against
+/// Read `data/<name>.fs`, expanding each `//#include <unit>` line (resolved against
 /// `data/`, recursively) into the referenced fragment's lines. Fragments are authored
 /// at column 0 and re-indented to the directive's own column, so a `member`-block
 /// fragment splices cleanly at any nesting (`    //#include …` lands its lines at

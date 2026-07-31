@@ -3,11 +3,11 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// The FRONT-END multi-file assembly pipeline: an assembly is a LINEAR compose of
+// The FRONT-END multi-file assembly pipeline: an assembly is a LINEAR composition of
 // per-file provider views, ahead of the external (package/BCL) provider. Each file is
 // parsed and analysed ON ITS OWN — its own Input/Lexed/Ast/PassContext — so `NodeKey`
 // offsets are per-file and never collide across files. That is the whole point: nothing
-// `NodeKey`-keyed is ever merged across units.
+// `NodeKey`-keyed is ever merged across files.
 //
 // For file N (manifest order):
 //   1. Parse it (its own `Lexed` + `ImplementationFile`).
@@ -22,16 +22,17 @@ open XParsec.FSharp.Parser
 //
 // This is the FRONT END only: no codegen. It proves cross-file NAME RESOLUTION.
 
-module AssemblyUnits =
+module AssemblyFiles =
 
     // The alias binds `Diagnostic` to the SemanticAnalysis one throughout this module; see
     // that type's declaration for why the bare name would otherwise be the parser's.
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
-    /// A driver's `(path, source)` pair as an anchor domain. The unit's diagnostics resolve
-    /// against it, and so does every anchor its analysis mints — one value, so a path and a
-    /// text a caller could transpose without the compiler noticing cannot be paired wrongly.
-    let unitSource (assemblyName: string) (path: string) (input: string) (lexed: Lexed) : OriginSource =
+    /// A driver's `(path, source)` pair as the file every anchor resolves against. The
+    /// file's diagnostics resolve against it, and so does every anchor its analysis mints —
+    /// one value, so a path and a text a caller could transpose without the compiler
+    /// noticing cannot be paired wrongly.
+    let fileSource (assemblyName: string) (path: string) (input: string) (lexed: Lexed) : OriginSource =
         Hashing.originSource
             {
                 BucketName = assemblyName
@@ -40,35 +41,35 @@ module AssemblyUnits =
             input
             lexed
 
-    /// One successfully analysed unit of a multi-file assembly: what its diagnostics
+    /// One successfully analysed file of a multi-file assembly: what its diagnostics
     /// resolve against, the frozen tree, and the provider view later files resolve its
     /// exports through.
-    type FrozenUnit =
+    type FrozenFile =
         {
             Source: OriginSource
-            /// What RECOVERY reported while parsing this unit. Analysis runs regardless —
+            /// What RECOVERY reported while parsing this file. Analysis runs regardless —
             /// a recovered tree is still a tree — so these ride alongside the analysis
-            /// residue rather than short-circuiting the unit.
+            /// residue rather than short-circuiting the file.
             ParseDiagnostics: Diagnostic list
             Frozen: FrozenPools
             View: IExternalSymbolProvider
         }
 
-    /// A unit that never reached analysis: a lex/parse failure (`Pipeline.parse`),
-    /// surfaced as a unit-level error rather than thrown. Such a unit contributes NO view,
-    /// so later files simply compose over the units that did parse. The failure is carried
-    /// as the parser seam produced it, so the "`Lexed` present iff lexing succeeded"
-    /// invariant is stated once, on `ParseFailure`, rather than restated here.
-    type UnitError =
+    /// A file that never reached analysis: a lex/parse failure (`Pipeline.parse`), surfaced
+    /// as a file-level error rather than thrown. Such a file contributes NO view, so later
+    /// files simply compose over the ones that did parse. The failure is carried as the
+    /// parser seam produced it, so the "`Lexed` present iff lexing succeeded" invariant is
+    /// stated once, on `ParseFailure`, rather than restated here.
+    type UnparsedFile =
         {
             Path: string
             Input: string
             Failure: Pipeline.ParseFailure
         }
 
-    /// A diagnostic anchored to the unit it came from: its source path plus a (line, col)
-    /// resolved against THAT unit's own text. Offsets are per-unit, so resolution happens
-    /// within each unit — never by flattening bare diagnostics across units.
+    /// A diagnostic anchored to the file it came from: its source path plus a (line, col)
+    /// resolved against THAT file's own text. Offsets are per-file, so resolution happens
+    /// within each file — never by flattening bare diagnostics across files.
     type AnchoredDiagnostic =
         {
             Path: string
@@ -81,26 +82,26 @@ module AssemblyUnits =
     /// provider. `Pipeline.analyseFor` (a package/FSharp.Core consumer) and
     /// `Pipeline.analyseForSelfHost` (a BCL-only self-host package) both have this exact
     /// shape, so a multi-file assembly can be driven through either front end.
-    type AnalyseUnit =
+    type AnalyseFile =
         string -> IExternalSymbolProvider -> OriginSource -> ImplementationFile<SyntaxToken> -> FrozenPools
 
     /// Analyse a multi-file assembly in manifest order through a chosen front end. Each
     /// file resolves the ones BEFORE it — the prior file views composed nearest-first,
     /// then the external provider last — so a name a nearer file re-declares shadows a
     /// farther one's, and the external surface is the final fallback. Returns one `Result`
-    /// per file, in order: `Ok` for an analysed unit (carrying its view), `Error` for a
+    /// per file, in order: `Ok` for an analysed file (carrying its view), `Error` for a
     /// parse failure. A failed file contributes no view; the files after it compose over
     /// the survivors.
     let analyseAssemblyWith
-        (analyse: AnalyseUnit)
+        (analyse: AnalyseFile)
         (assemblyName: string)
         (external: IExternalSymbolProvider)
         (files: (string * string) list)
-        : Result<FrozenUnit, UnitError> list =
+        : Result<FrozenFile, UnparsedFile> list =
         // Prior file views in FILE ORDER (oldest first); the newest is at the head after
         // each push, so `List.rev` before composing puts the NEAREST file first.
         let mutable priorViews: IExternalSymbolProvider list = []
-        let results = ResizeArray<Result<FrozenUnit, UnitError>>()
+        let results = ResizeArray<Result<FrozenFile, UnparsedFile>>()
 
         for (path, source) in files do
             match Pipeline.parse source with
@@ -118,7 +119,7 @@ module AssemblyUnits =
                 let composed =
                     ExternalSymbolProviders.composite ((List.rev priorViews) @ [ external ])
 
-                let origin = unitSource assemblyName path source parsed.Lexed
+                let origin = fileSource assemblyName path source parsed.Lexed
                 let frozen = analyse assemblyName composed origin parsed.File
                 let view = FrozenSignature.toProvider assemblyName origin frozen
 
@@ -145,15 +146,15 @@ module AssemblyUnits =
         (assemblyName: string)
         (external: IExternalSymbolProvider)
         (files: (string * string) list)
-        : Result<FrozenUnit, UnitError> list =
+        : Result<FrozenFile, UnparsedFile> list =
         analyseAssemblyWith Pipeline.analyseFor assemblyName external files
 
-    /// Diagnostics from a unit that never reached analysis: it has no `Lexed`, so no token
+    /// Diagnostics from a file that never reached analysis: it has no `Lexed`, so no token
     /// index could be resolved against it — and a whole-file lex/parse failure names no
     /// place in the file anyway. They render at the file head.
     ///
     /// A POSITIONED diagnostic here is a contradiction, not a case to render at (1, 1):
-    /// something resolved a token of a unit whose token stream this function cannot see, so
+    /// something resolved a token of a file whose token stream this function cannot see, so
     /// the position it carries is unverifiable. Fault rather than print a plausible line.
     let unpositionedDiagnostics (path: string) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
         [
@@ -168,23 +169,23 @@ module AssemblyUnits =
                     }
                 | positioned ->
                     failwithf
-                        "AssemblyUnits.unpositionedDiagnostics: %s produced no `Lexed`, so a diagnostic cannot carry a position — got %A (%s)"
+                        "AssemblyFiles.unpositionedDiagnostics: %s produced no `Lexed`, so a diagnostic cannot carry a position — got %A (%s)"
                         path
                         positioned
                         d.Message
         ]
 
-    /// Anchor a unit's bare diagnostics to a `path` + its own `source`: a `Site` names
-    /// tokens of THIS unit's `Lexed`, whose `StartIndex` is the char offset resolved
+    /// Anchor a file's bare diagnostics to a `path` + its own `source`: a `Site` names
+    /// tokens of THIS file's `Lexed`, whose `StartIndex` is the char offset resolved
     /// against THAT text via `XParsec`'s canonical `LineIndex` (the same resolver
     /// `Debug.fs` uses), built ONCE. `Lexed.GetLineForToken` alone will not do — it yields
     /// a line, and a column still needs the offset. `Site.Nowhere` renders at the file
-    /// head. Token indices are per-unit, so this is only ever called with a diagnostic and
-    /// the unit it was produced in — bare diagnostics are never flattened across units and
+    /// head. Token indices are per-file, so this is only ever called with a diagnostic and
+    /// the file it was produced in — bare diagnostics are never flattened across files and
     /// resolved later.
-    let anchorDiagnostics (unit: OriginSource) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
-        let lexed = unit.Lexed
-        let source = unit.Input
+    let anchorDiagnostics (file: OriginSource) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+        let lexed = file.Lexed
+        let source = file.Input
         let lineIndex = XParsec.LineIndex.OfString source
 
         // The gap after the LAST token is the end of the file; every other token's gap is
@@ -207,27 +208,27 @@ module AssemblyUnits =
                     | Site.After t -> lineIndex.GetLineCol(gapAfter t)
 
                 {
-                    Path = unit.File.Path.Relative
+                    Path = file.File.Path.Relative
                     Diagnostic = d
                     Line = line
                     Col = col
                 }
         ]
 
-    /// A failed unit's diagnostics, anchored against its own token stream when the failure
+    /// A failed file's diagnostics, anchored against its own token stream when the failure
     /// came AFTER lexing, and at the file head when there is no stream to anchor against.
-    let failureDiagnostics (e: UnitError) : AnchoredDiagnostic list =
+    let failureDiagnostics (e: UnparsedFile) : AnchoredDiagnostic list =
         match e.Failure.Lexed with
-        // No unit was analysed, so no assembly claims this file; the domain exists only to
+        // No file was analysed, so no assembly claims this one; the source exists only to
         // resolve the positions the parser's own diagnostics carry.
-        | ValueSome lexed -> anchorDiagnostics (unitSource "" e.Path e.Input lexed) e.Failure.Diagnostics
+        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Path e.Input lexed) e.Failure.Diagnostics
         | ValueNone -> unpositionedDiagnostics e.Path e.Failure.Diagnostics
 
-    /// Every analysed unit's diagnostics, each anchored to ITS OWN unit (path + source).
+    /// Every analysed file's diagnostics, each anchored to ITS OWN file (path + source).
     /// Recovery's findings come first: they are what the tree the analysis ran on was
     /// patched up from, so they precede anything the analysis then concluded about it.
-    let consolidatedDiagnostics (units: FrozenUnit list) : AnchoredDiagnostic list =
+    let consolidatedDiagnostics (files: FrozenFile list) : AnchoredDiagnostic list =
         [
-            for u in units do
-                yield! anchorDiagnostics u.Source (u.ParseDiagnostics @ u.Frozen.Residue.Diagnostics)
+            for f in files do
+                yield! anchorDiagnostics f.Source (f.ParseDiagnostics @ f.Frozen.Residue.Diagnostics)
         ]

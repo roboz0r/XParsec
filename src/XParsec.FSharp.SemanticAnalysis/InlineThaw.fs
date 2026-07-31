@@ -3,14 +3,14 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 open XParsec.FSharp.Parser
 
-// The immutable→mutable transition on the provider seam: realise a cross-unit inline body,
+// The immutable→mutable transition on the provider seam: realise a cross-file inline body,
 // which arrives as cell-free `Wire.TDecl`, in the CONSUMER's `SemType` domain.
 //
 // The provider hands out `FrozenType`, so nothing a consumer does can reach back into a
 // producer's inference state; the cells a splice then unifies against are minted HERE, out of
 // leaves that name nothing but positions in the template. After this, `substType` / `freshen` /
 // SRTP resolution run unchanged — they key on `TyVar` roots, and the roots now exist and are
-// this unit's.
+// this file's.
 
 module InlineThaw =
 
@@ -28,9 +28,9 @@ module InlineThaw =
     /// occurrences of one typar must land on ONE cell, or the body's internal type links (a
     /// parameter's type and the use of that parameter) come apart.
     ///
-    /// It consults no ambient unit state: a leaf is interpreted against the body carrying it and
+    /// It consults no ambient file state: a leaf is interpreted against the body carrying it and
     /// nothing else. That is what makes an `FTLocalTypar`'s body-relative `SchemeId` safe across
-    /// units — it addresses nothing outside the body it arrived with.
+    /// files — it addresses nothing outside the body it arrived with.
     ///
     /// Realised WHERE IT WAS WRITTEN: every node keeps the producer's own token, read out of that
     /// file's retained `Lexed`. There is no second reading — a `Wire.TDecl` carries the

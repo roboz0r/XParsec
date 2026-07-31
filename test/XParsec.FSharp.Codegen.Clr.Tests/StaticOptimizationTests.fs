@@ -76,7 +76,7 @@ let tests =
                 // self-describing axis — which is what lets `Freeze` publish the body with
                 // `FTTypar` leaves. Self-reference is now equality of that leaf rather than
                 // union-find root identity; `Inline.substType` sees the ROOTS again, because
-                // the same-unit splice runs BEFORE the cut and a cross-unit one thaws first.
+                // the same-file splice runs BEFORE the cut and a cross-file one thaws first.
                 let src =
                     String.concat "\n" [ "let inline kindOf (x: ^T) : int ="; "    -1"; "    when ^T : ^T = 0" ]
 

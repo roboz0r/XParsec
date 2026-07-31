@@ -98,7 +98,7 @@ module InlineSpecTable =
             /// ground — either way the entry belongs to this site rather than the template.
             Shareable: bool
             /// The file the entry's nodes stay anchored in — the template's, which for a
-            /// template of this unit is the file being compiled.
+            /// template of this file is the file being compiled.
             Origin: OriginFile
             /// The position, anchor domain and result type of the EDGE — the call site's, NOT
             /// `Site`'s and not anything read off the entry: a reused entry's types belong to

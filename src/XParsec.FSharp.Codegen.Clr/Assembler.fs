@@ -9,14 +9,14 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open AssemblerScaffold
 
-/// One compilation unit's emission state that the single combined field table forces
+/// One file's emission state that the single combined field table forces
 /// to straddle the up-front field pass: the value-struct closure mint and the
 /// closure-verdict rewrite must PRECEDE the pass (both feed a field's signature), so
-/// they are built first and carried here into the post-pass completion (`completeUnit`),
+/// they are built first and carried here into the post-pass completion (`completeFile`),
 /// which adds the field-derived tables and the `EmitContext`.
-type private UnitPrelude =
+type private FilePrelude =
     {
-        Layout: UnitLayout
+        Layout: FileLayout
         CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
         CachedClosureFieldByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
         ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
@@ -24,16 +24,16 @@ type private UnitPrelude =
         Verdict: ClosureVerdictRewrite.Rewrite
     }
 
-/// The per-unit emission state the Bind / Prepare passes consume. `EmitCtx` is a FRESH
-/// `EmitContext` per unit — its binder-keyed tables (`StaticMethods` / `ModuleValues` /
+/// The per-file emission state the Bind / Prepare passes consume. `EmitCtx` is a FRESH
+/// `EmitContext` per file — its binder-keyed tables (`StaticMethods` / `ModuleValues` /
 /// `MainInitValues`) and reference-keyed closure tables are file-local, so they never
-/// collide across units; its nominal registries, the field-handle map and the ONE combined
+/// collide across files; its nominal registries, the field-handle map and the ONE combined
 /// row space are the SHARED ones on the `Assembler`. The Bind / Prepare passes reach every
-/// per-unit table THROUGH `EmitCtx`; `Layout` and `Verdict` are the only two things they
+/// per-file table THROUGH `EmitCtx`; `Layout` and `Verdict` are the only two things they
 /// need that `EmitContext` deliberately does not carry.
-type internal UnitEmit =
+type internal FileEmit =
     {
-        Layout: UnitLayout
+        Layout: FileLayout
         Verdict: ClosureVerdictRewrite.Rewrite
         EmitCtx: Emit.EmitContext
     }
@@ -71,7 +71,7 @@ type internal Assembler
         )
         |> Map.ofList
 
-    // The own-compilation intrinsic reprs are the UNION of every unit's `IntrinsicReprKeys`
+    // The own-compilation intrinsic reprs are the UNION of every file's `IntrinsicReprKeys`
     // — a `SymbolKey` identifies an intrinsic assembly-wide, so a key repeated across files
     // is the same declaration (a genuine duplicate would already be a front-end
     // duplicate-decl error), making last-wins union safe. Repr face only: `extends` on the
@@ -113,8 +113,8 @@ type internal Assembler
 
     // closure name → its `Closure` record, so the type-layout pass (keyed only by
     // `TypeSlotKey.Closure name`) can branch a value-struct closure onto struct attrs /
-    // `System.ValueType` base. SHARED across units (the one `ClosureNamer` keeps names
-    // unique assembly-wide); populated per unit in `buildPrelude`.
+    // `System.ValueType` base. SHARED across files (the one `ClosureNamer` keeps names
+    // unique assembly-wide); populated per file in `buildPrelude`.
     let closureByName = Dictionary<string, Emit.Closure>()
 
     let closureIsValueStruct (name: string) : bool =
@@ -124,22 +124,22 @@ type internal Assembler
 
     // The whole field table is written up front, straight off the layout; every later
     // phase resolves def handles by `FieldKey` instead of adding rows. The map is SHARED
-    // — it spans the ONE combined field table, so any unit's body resolves a sibling
-    // unit's field row through it.
+    // — it spans the ONE combined field table, so any file's body resolves a sibling
+    // file's field row through it.
     let fieldDefHandles = Dictionary<FieldKey, FieldDefinitionHandle>()
 
     // A numeric enum's `static literal` case fields each carry a `Constant` row whose
     // value is the case's underlying integer (boxed to the authored CLR primitive, so
     // SRM picks the matching `ConstantTypeCode`). Keyed by `FieldKey` (SymbolKey-based,
-    // shared across units); the field pass attaches the constant as it writes each
+    // shared across files); the field pass attaches the constant as it writes each
     // literal field (ascending field order, which the `Constant` table is also sorted by).
     let enumFieldConstants = Dictionary<FieldKey, obj>()
 
     // The nominal registries are SHARED: keyed by nominal `SymbolKey`, so a call in one
-    // unit's body resolves a type / member defined in another unit through the same
+    // file's body resolves a type / member defined in another file through the same
     // tables. `unions`/`records`/`classes`/`interfaces` are filled by the Bind /
     // `PrepareInterfaces` passes; `enums` is filled numeric here (in `buildPrelude`) and
-    // struct post-field-pass (in `completeUnit`).
+    // struct post-field-pass (in `completeFile`).
     let unions = Dictionary<SymbolKey, Emit.EmittedUnion>()
     let records = Dictionary<SymbolKey, Emit.EmittedRecord>()
     let classes = Dictionary<SymbolKey, Emit.EmittedClass>()
@@ -148,23 +148,23 @@ type internal Assembler
 
     // A module value's verdict-rewritten field-slot type, keyed by its `SymbolKey` — the
     // SAME identity `FieldKey.ModuleValue` carries, so the ONE shared field pass reads it
-    // straight off the field key (a per-file binder id would collide here across units too).
-    // Accumulated per unit in `buildPrelude` (each unit's own closure-verdict rewrite) and
+    // straight off the field key (a per-file binder id would collide here across files too).
+    // Accumulated per file in `buildPrelude` (each file's own closure-verdict rewrite) and
     // read by the shared field pass — the single spot where the combined field table needs
-    // a per-unit datum, surfaced as a lookup so the pass itself stays a plain walk of
+    // a per-file datum, surfaced as a lookup so the pass itself stays a plain walk of
     // `layout.Fields`.
     let moduleValueSlotType = Dictionary<SymbolKey, FrozenType>()
 
-    // Per unit, BEFORE the shared field pass: register this unit's nominals with the
+    // Per file, BEFORE the shared field pass: register this file's nominals with the
     // provider, mint its value-struct closure types, and build its closure-verdict
     // rewrite — all three feed a field's signature, so they must precede the pass. The
     // binder / reference-keyed tables and the `EmitContext` are built post-field-pass in
-    // `completeUnit`; the provider registries and the field / enum-constant / registry
+    // `completeFile`; the provider registries and the field / enum-constant / registry
     // maps this touches are SHARED.
-    let buildPrelude (unit: UnitLayout) : UnitPrelude =
-        let partitioned = unit.Partitioned
-        let closures = unit.Closures
-        let plan = unit.Plan
+    let buildPrelude (file: FileLayout) : FilePrelude =
+        let partitioned = file.Partitioned
+        let closures = file.Closures
+        let plan = file.Plan
 
         for c in closures do
             closureByName.[c.Name] <- c
@@ -255,7 +255,7 @@ type internal Assembler
             provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
             provider.RegisterUserValueType td.TypeKey
 
-        // Register this unit's home-local module functions so a SIBLING unit's cross-file
+        // Register this file's home-local module functions so a SIBLING file's cross-file
         // call resolves to the local `MethodDef` (`ClrRecipes.emitExternalCall` probes
         // `env.LocalModuleFns` before minting an `AssemblyRef`-scoped `MemberRef`). The
         // key is the fn's `SymbolKey` — which IS the identity the front end stamped on the
@@ -263,9 +263,9 @@ type internal Assembler
         //
         // Holder-less (top-level) fns register too: they live on the anonymous Program
         // holder, but that is only where they EMIT — their identity is held by the file's
-        // namespace and a sibling unit can name it. A fn with no identity at all (a
+        // namespace and a sibling file can name it. A fn with no identity at all (a
         // shadowed or entry-expression-local binding) carries a minted key no reference
-        // can spell, so registering it is inert. For a single unit no `External` call ever
+        // can spell, so registering it is inert. For a single file no `External` call ever
         // targets this table, leaving emission unchanged.
         for fn in plan.StaticFns do
             let localMethodDef =
@@ -339,7 +339,7 @@ type internal Assembler
         // For a project-local seq class, its `GetEnumerator` interface-impl member's
         // RETURN type is the enumerator over the class's declaring typars; map each seq
         // class key → that template, then `enumeratorOf` instantiates it by a concrete
-        // seq nominal's args. Computed from THIS unit's class decls because `env.Classes`
+        // seq nominal's args. Computed from THIS file's class decls because `env.Classes`
         // is not yet populated at the up-front field pass.
         let enumeratorTemplateByClass =
             let d = Dictionary<SymbolKey, FrozenType>()
@@ -371,26 +371,26 @@ type internal Assembler
                 | false, _ -> ValueNone
             | _ -> ValueNone
 
-        // The closure-verdict TAST rewrite for THIS unit's bodies, from backend-neutral
-        // inputs (this unit's already-minted value-struct closure types + its result-typar
+        // The closure-verdict TAST rewrite for THIS file's bodies, from backend-neutral
+        // inputs (this file's already-minted value-struct closure types + its result-typar
         // verdicts + its stored module values + the seq→enumerator witness). It owns
         // `substituteVerdictClosures` / `retypeBody` / `retypeDecl` and the field-slot
         // lookup; see `ClosureVerdictRewrite`.
         let verdict =
             ClosureVerdictRewrite.build
                 closureValueTypeByNode
-                unit.FunVerdicts
+                file.FunVerdicts
                 enumeratorOf
                 [ for mv in plan.AllModuleValues -> mv.Key, mv.Ty, mv.Init ]
 
-        // Surface this unit's module-value slot types into the shared lookup the field
+        // Surface this file's module-value slot types into the shared lookup the field
         // pass reads. A non-verdict binding stores its declared type unchanged (the field
         // pass would encode the same), so the pass need not know the verdict itself.
         for mv in plan.AllModuleValues do
             moduleValueSlotType.[mv.SymbolKey] <- verdict.ModuleValueSlotType mv.Key mv.Ty
 
         {
-            Layout = unit
+            Layout = file
             CtorHandleByNode = ctorHandleByNode
             CachedClosureFieldByNode = cachedClosureFieldByNode
             ClosureValueTypeByNode = closureValueTypeByNode
@@ -398,14 +398,14 @@ type internal Assembler
             Verdict = verdict
         }
 
-    // Force every unit's prelude BEFORE the field pass, so all units' nominals are
+    // Force every file's prelude BEFORE the field pass, so all files' nominals are
     // registered and value-struct closures minted by the time any field signature is
     // encoded.
-    let unitPreludes = layout.Units |> List.map buildPrelude
+    let filePreludes = layout.Files |> List.map buildPrelude
 
     // Tables are independent (only intra-table order matters), so the whole field table
     // is written up front, straight off the layout — the ONE combined row space across
-    // every unit. Every later phase resolves def handles by `FieldKey`. A generic
+    // every file. Every later phase resolves def handles by `FieldKey`. A generic
     // closure's capture-field signature encodes inside the ambient closure-typar scope,
     // bracketed per slot.
     do
@@ -426,7 +426,7 @@ type internal Assembler
                     | FieldKey.ClosureCached name ->
                         provider.ClosureSelfFieldSignature(toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure name)))
                     // A stored module value whose initialiser feeds a value-struct source
-                    // lambda into a `'TFunc`-carrying result type — the owning unit's
+                    // lambda into a `'TFunc`-carrying result type — the owning file's
                     // verdict rewrote the slot to the `<closure>$` value-struct, surfaced
                     // through `moduleValueSlotType`. Absent ⇒ the declared type unchanged.
                     | FieldKey.ModuleValue mvKey ->
@@ -462,15 +462,15 @@ type internal Assembler
                 ctx.FieldRowCount
                 layoutHandles.TotalFields
 
-    // Per unit, AFTER the field pass: the field-derived tables (struct-enum registry,
-    // static-method refs, module-value field handles) and this unit's `EmitContext`. A
-    // FRESH EmitContext per unit keeps its binder-keyed tables (`StaticMethods` /
+    // Per file, AFTER the field pass: the field-derived tables (struct-enum registry,
+    // static-method refs, module-value field handles) and this file's `EmitContext`. A
+    // FRESH EmitContext per file keeps its binder-keyed tables (`StaticMethods` /
     // `ModuleValues` / `MainInitValues`) and reference-keyed closure tables from
     // colliding across files; its nominal registries are the SHARED ones.
-    let completeUnit (pre: UnitPrelude) : UnitEmit =
-        let unit = pre.Layout
-        let partitioned = unit.Partitioned
-        let plan = unit.Plan
+    let completeFile (pre: FilePrelude) : FileEmit =
+        let file = pre.Layout
+        let partitioned = file.Partitioned
+        let plan = file.Plan
 
         // String/mixed enums: the per-case `static initonly` field handles (read off the
         // completed field pass) drive `E.A` `ldsfld`, and the case literals + backing
@@ -536,7 +536,7 @@ type internal Assembler
             {
                 Provider = icodegen
                 Ctx = ctx
-                ClosureByNode = unit.ClosureByNode
+                ClosureByNode = file.ClosureByNode
                 CtorHandleByNode = pre.CtorHandleByNode
                 CachedClosureFieldByNode = pre.CachedClosureFieldByNode
                 ClosureValueTypeByNode = pre.ClosureValueTypeByNode
@@ -552,12 +552,12 @@ type internal Assembler
             }
 
         {
-            Layout = unit
+            Layout = file
             Verdict = pre.Verdict
             EmitCtx = emitCtx
         }
 
-    let units = unitPreludes |> List.map completeUnit
+    let files = filePreludes |> List.map completeFile
 
     // The Prepare phase binds every layout method row to its signature + body
     // offset + param names; `WriteMethods` walks `layout.Methods` and writes
@@ -685,11 +685,11 @@ type internal Assembler
     member _.Records = records
     member _.Classes = classes
 
-    /// The per-unit emission state: a fresh `EmitContext` plus this unit's binder /
+    /// The per-file emission state: a fresh `EmitContext` plus this file's binder /
     /// reference-keyed tables and its closure-verdict rewrite. The Bind / Prepare passes
     /// iterate these; the nominal registries, the field-handle map and the one combined
-    /// row space live on the Assembler and are shared across units.
-    member _.Units: UnitEmit list = units
+    /// row space live on the Assembler and are shared across files.
+    member _.Files: FileEmit list = files
 
     /// The emission-side symbol view — `NominalEmit` derives a nominal's capability
     /// co-slots from it (`CapabilityCoSlots.required`) exactly as `Layout` did when it
@@ -719,16 +719,16 @@ type internal Assembler
     // The construction-site `Newobj` targets the ctor's `Def` directly via
     // this dict. Generic closures mint a fresh `MemberRef` at the use site
     // instead (dict left unpopulated).
-    member this.BindClosures(u: UnitEmit) =
-        for c in u.Layout.Closures do
+    member this.BindClosures(f: FileEmit) =
+        for c in f.Layout.Closures do
             if c.Typars = 0 then
-                u.EmitCtx.CtorHandleByNode.[c.Node] <-
+                f.EmitCtx.CtorHandleByNode.[c.Node] <-
                     toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
 
             // A non-capturing, monomorphic closure is cached: the construction site
             // `ldsfld`s its singleton field instead of `newobj`ing.
             if Emit.closureIsCached c then
-                u.EmitCtx.CachedClosureFieldByNode.[c.Node] <-
+                f.EmitCtx.CachedClosureFieldByNode.[c.Node] <-
                     toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
 
             // A captureless `Stack` (value-struct) closure is
@@ -738,11 +738,11 @@ type internal Assembler
             // minted in `buildPrelude` (before the field pass, so the stored-slot
             // substitution could read them); `RegisterStackClosureValueType` is
             // single-shot, so this only asserts they are present — never re-mints.
-            if c.IsValueStruct && not (u.EmitCtx.ClosureValueTypeByNode.ContainsKey c.Node) then
+            if c.IsValueStruct && not (f.EmitCtx.ClosureValueTypeByNode.ContainsKey c.Node) then
                 failwithf "Emit: value-struct closure '%s' was not pre-minted before the field pass" c.Name
 
-    member this.PrepareInterfaces(u: UnitEmit) =
-        for (td, methods) in u.Layout.Partitioned.Interfaces do
+    member this.PrepareInterfaces(f: FileEmit) =
+        for (td, methods) in f.Layout.Partitioned.Interfaces do
             // The use-site member table for a call on an interface-typed receiver:
             // each method's `MethodKey.InterfaceMethod` handle keyed by source name, so
             // `resolveInstanceMember` finds the slot and `buildMethodCall` `callvirt`s
@@ -802,8 +802,8 @@ type internal Assembler
     /// base for the `TypeDefinition` row. The per-case field handles + literals were
     /// captured in the `enums` registry (after the field pass); here they drive the
     /// `newobj;stsfld` sequence.
-    member this.PrepareStructEnums(u: UnitEmit) =
-        for sed in u.Layout.Partitioned.StructEnums do
+    member this.PrepareStructEnums(f: FileEmit) =
+        for sed in f.Layout.Partitioned.StructEnums do
             let td = sed.Decl
 
             let fieldTy =
@@ -871,8 +871,8 @@ type internal Assembler
     // A *generic* closure enters closure-typar mode around every signature/body
     // build, so the body's `FTTypar(Method, i)` (the enclosing method's typars)
     // re-project onto this closure class's `!i`.
-    member this.PrepareClosures(u: UnitEmit) =
-        for c in u.Layout.Closures do
+    member this.PrepareClosures(f: FileEmit) =
+        for c in f.Layout.Closures do
             let captureFields = Dictionary<BinderId, EntityHandle>()
             let isGenericClosure = c.Typars > 0
             // This closure's self-instantiation over its *own* typars (`!0 … !{n-1}`),
@@ -922,7 +922,7 @@ type internal Assembler
                         (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles))
 
             let invokeBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildClosureInvoke u.EmitCtx c captureFields))
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildClosureInvoke f.EmitCtx c captureFields))
 
             this.AddPrepared(
                 MethodKey.ClosureCtor c.Name,
@@ -1013,12 +1013,12 @@ type internal Assembler
                 }
             )
 
-    member this.PrepareStaticMethods(u: UnitEmit) =
-        let plan = u.Layout.Plan
-        let emitCtx = u.EmitCtx
+    member this.PrepareStaticMethods(f: FileEmit) =
+        let plan = f.Layout.Plan
+        let emitCtx = f.EmitCtx
         let staticMethods = emitCtx.StaticMethods
         let moduleValueFields = emitCtx.ModuleValues
-        let retypeBody = u.Verdict.RetypeBody
+        let retypeBody = f.Verdict.RetypeBody
 
         let prepareStaticFn (fn: Emit.StaticFn) =
             // A *generic* static method: its body / signature / locals embed
@@ -1109,17 +1109,17 @@ type internal Assembler
             | HolderFn fn -> prepareStaticFn fn
             | ProgramCctor -> prepareProgramCctor ()
 
-    /// `Main` belongs to the ENTRY unit only — the one whose layout carries the entry
-    /// point. A non-entry unit contributes no `Main` row, so this is a no-op for it.
-    member this.PrepareMain(u: UnitEmit) =
-        if u.Layout.EmitEntryPoint then
+    /// `Main` belongs to the ENTRY file only — the one whose layout carries the entry
+    /// point. A non-entry file contributes no `Main` row, so this is a no-op for it.
+    member this.PrepareMain(f: FileEmit) =
+        if f.Layout.EmitEntryPoint then
             // Retype the Main decls so a reference to a verdict module
             // value (and its field projections) dispatches on the `<closure>$` value-
             // struct nominal, not the frozen arrow.
-            let mainDecls = u.Layout.Lowered |> List.map u.Verdict.RetypeDecl
+            let mainDecls = f.Layout.Lowered |> List.map f.Verdict.RetypeDecl
 
             let mainBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildMain u.EmitCtx mainDecls))
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildMain f.EmitCtx mainDecls))
 
             this.AddPrepared(
                 MethodKey.Main,

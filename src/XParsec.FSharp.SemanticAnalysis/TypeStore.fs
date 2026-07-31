@@ -264,7 +264,7 @@ type TypeStore() =
 /// Union-find over the per-file `TypeStore`. `find` is the SOLE producer of `Rep`
 /// (the private case above is unconstructible outside this file), so every
 /// root-authoritative read is gated behind a real path-compression walk. Lives here
-/// (rather than a separate unit) precisely so `find` can mint `Rep`.
+/// (rather than a separate file) precisely so `find` can mint `Rep`.
 module UnionFind =
 
     /// Iterative rather than recursive to avoid stack pressure on long chains.

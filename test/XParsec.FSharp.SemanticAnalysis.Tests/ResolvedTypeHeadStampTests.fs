@@ -293,7 +293,7 @@ let tests =
             }
 
             // The negative control for the assertion above, and the rule itself: a name
-            // NOTHING resolves — no scope of this unit, no shape the provider serves — is not
+            // NOTHING resolves — no scope of this file, no shape the provider serves — is not
             // a type, whatever it is spelled like. It is diagnosed where it is written, so
             // the positive test above is not vacuous: an annotation that type-checks in
             // silence is one the target really could name.

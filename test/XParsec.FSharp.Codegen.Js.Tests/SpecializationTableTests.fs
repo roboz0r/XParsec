@@ -166,8 +166,8 @@ module Probe =
 ///
 /// `'T[]`'s `get_Item` is OVERRIDDEN rather than a fresh type declared: a member inline body is
 /// harvested only off a `(# … #)`-rooted member (`SymbolProviders.harvestMemberBody`), and such
-/// a body cannot name its own type's member — within its declaring unit that call is not
-/// external at all. Reaching the member through `bounce`, whose own unit sees the array type as
+/// a body cannot name its own type's member — within its declaring file that call is not
+/// external at all. Reaching the member through `bounce`, whose own file sees the array type as
 /// a foreign one, is what makes the reference keyed. Bodies are keyed and a later manifest wins,
 /// so appending this package replaces the real body for `[]`.get_Item.
 let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =

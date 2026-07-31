@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Common
 
 /// The input source as the map needs it: its text, its tokens, and the file name to record
 /// for it. Its presence is what turns on source-map emission, so the three travel as one
-/// unit rather than as a string whose emptiness doubles as an on/off flag.
+/// value rather than as a string whose emptiness doubles as an on/off flag.
 type JsSource =
     {
         /// The source file name recorded in the map's `sources` array

@@ -313,7 +313,7 @@ module EmitTypes =
             Key: BinderId
             /// This binding's stable handle key. The combined `MethodKey.StaticFn`
             /// handle map keys on this rather than the per-file `Key` — a bare
-            /// `NodeKey` collides across compilation units (same offset in two files).
+            /// `NodeKey` collides across files (same offset in two files).
             ///
             /// For a binding that HAS an exportable identity this IS that identity
             /// (`ModuleBindingInfo.Key`) — the same key the front end stamped on every

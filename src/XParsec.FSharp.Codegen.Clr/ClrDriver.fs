@@ -137,7 +137,7 @@ module ClrDriver =
         let provider =
             ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences clrTarget inputs.Manifests
 
-        // The identity the unit is ANALYSED under, taken once and used for both: the key covers
+        // The identity the file is ANALYSED under, taken once and used for both: the key covers
         // the very path the frozen tree's nodes will name, so a hit cannot serve a tree
         // anchored somewhere else.
         let path = Hashing.textOriginPath source
@@ -185,60 +185,60 @@ module ClrDriver =
     /// assembly through `analyse` (the front end — `Pipeline.analyseFor` for a package
     /// consumer, `analyseForSelfHost` for a BCL-only package), then emit ONE PE. A file
     /// that fails to parse, or any error-severity front-end diagnostic across the analysed
-    /// units, is returned anchored to its own unit (path + in-unit line/col) rather than
-    /// throwing. On a clean analysis the units' projected views compose ahead of `external`
-    /// (so a cross-file call finds the prior unit's exported open signature, which codegen
-    /// re-homes to the LOCAL `MethodDef`) and `Codegen.compileUnitsWithBclReferences` emits
+    /// files, is returned anchored to its own file (path + in-file line/col) rather than
+    /// throwing. On a clean analysis the files' projected views compose ahead of `external`
+    /// (so a cross-file call finds the prior file's exported open signature, which codegen
+    /// re-homes to the LOCAL `MethodDef`) and `Codegen.compileFilesWithBclReferences` emits
     /// the assembly. `bclReferences` feeds emitted-`AssemblyRef` identity only.
     ///
-    /// This bridges the SemanticAnalysis multi-file front end (`AssemblyUnits`) and CLR
+    /// This bridges the SemanticAnalysis multi-file front end (`AssemblyFiles`) and CLR
     /// emission; the `ClrCompilation`-shaped `compileAssembly` and the package-build
     /// fixtures all route through it, so the front-end/compose/emit core exists once.
     let compileAssemblyWith
-        (analyse: AssemblyUnits.AnalyseUnit)
+        (analyse: AssemblyFiles.AnalyseFile)
         (bclReferences: string list)
         (external: IExternalSymbolProvider)
         (project: ProjectInfo)
         (files: (string * string) list)
-        : Result<ClrArtifact, AssemblyUnits.AnchoredDiagnostic list> =
+        : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let results =
-            AssemblyUnits.analyseAssemblyWith analyse project.AssemblyName external files
+            AssemblyFiles.analyseAssemblyWith analyse project.AssemblyName external files
 
-        // A parse failure is fatal for the whole assembly: surface every failed unit's
+        // A parse failure is fatal for the whole assembly: surface every failed file's
         // diagnostics anchored to its own source (looked up by path from `files`).
         let parseFailures =
             results
             |> List.collect (
                 function
-                | Error e -> AssemblyUnits.failureDiagnostics e
+                | Error e -> AssemblyFiles.failureDiagnostics e
                 | Ok _ -> []
             )
 
         match parseFailures with
         | _ :: _ -> Error parseFailures
         | [] ->
-            let units =
+            let analysed =
                 results
                 |> List.choose (
                     function
-                    | Ok u -> Some u
+                    | Ok f -> Some f
                     | Error _ -> None
                 )
 
-            // Every analysed unit's error-severity diagnostics, anchored per-unit.
+            // Every analysed file's error-severity diagnostics, anchored per-file.
             let analysisErrors =
-                AssemblyUnits.consolidatedDiagnostics units
+                AssemblyFiles.consolidatedDiagnostics analysed
                 |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
 
             match analysisErrors with
             | _ :: _ -> Error analysisErrors
             | [] ->
-                // Each unit's projected view (nearest-first) ahead of the external stack.
+                // Each file's projected view (nearest-first) ahead of the external stack.
                 let symbols =
-                    ExternalSymbolProviders.composite ([ for u in units -> u.View ] @ [ external ])
+                    ExternalSymbolProviders.composite ([ for f in analysed -> f.View ] @ [ external ])
 
-                let tasts = [ for u in units -> u.Frozen ]
-                Ok(Codegen.compileUnitsWithBclReferences bclReferences symbols project tasts)
+                let tasts = [ for f in analysed -> f.Frozen ]
+                Ok(Codegen.compileFilesWithBclReferences bclReferences symbols project tasts)
 
     /// Compile an ordered multi-file assembly against the compilation's own reference
     /// set, MSBuild-shaped (`ClrCompilation`). The multi-file counterpart of `compile`:
@@ -248,7 +248,7 @@ module ClrDriver =
     let compileAssembly
         (inputs: ClrCompilation)
         (files: (string * string) list)
-        : Result<ClrArtifact, AssemblyUnits.AnchoredDiagnostic list> =
+        : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let provider =
             ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences None inputs.Manifests
 

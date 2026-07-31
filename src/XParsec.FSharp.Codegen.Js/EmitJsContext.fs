@@ -46,7 +46,7 @@ module EmitJsContext =
             Resolver: Resolver
             /// Every node the expansion left anchored in a file OTHER than the one being
             /// compiled → that file and its index into THAT file's tokens
-            /// (`InlineExpand.Expansion`). A node absent from it is the compiling unit's own
+            /// (`InlineExpand.Expansion`). A node absent from it is the compiling file's own
             /// and reads against `Resolver`.
             /// Empty until `buildProgram` splices the graph, which is what discovers them.
             ///

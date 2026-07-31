@@ -172,7 +172,7 @@ type PassContextTypes =
         /// `class`-tag verdict alongside the repr (`IntrinsicReprInfo.Heritable`) — the
         /// frozen face `TastFile.IntrinsicReprKeys` is a straight copy of this table.
         IntrinsicReprKeys: Dictionary<SymbolKey, IntrinsicReprInfo>
-        /// The name → qualified `SymbolKey` index for this unit's own intrinsics,
+        /// The name → qualified `SymbolKey` index for this file's own intrinsics,
         /// populated at registration from the declaring `namespace` (`Vesper`). The
         /// intrinsic's identity is CONTRACT-SOURCED: `Translate` reads the resolved key
         /// here instead of re-deriving the namespace from a hardcoded name set. The key
@@ -228,7 +228,7 @@ type PassContextTypes =
         /// group (all of whose names are claimed before any of its detail registers). That
         /// is the file-order half of F# type scoping; the module half is `claimRank`'s.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
-        /// The module / namespace scopes this unit DECLARES, keyed by the dotted SOURCE
+        /// The module / namespace scopes this file DECLARES, keyed by the dotted SOURCE
         /// path an `open` names them by (`"N"`, `"N.A"`) — the one route from an `open`'s
         /// written path to the holder it opens. Filled by `PassContext.EnterContainment` as
         /// each pass walks into a scope, from `ModuleRules.holderScopes`, which is also
@@ -246,7 +246,7 @@ type PassContextTypes =
         /// `LocalHolders` at the one site (`noteLocalHolder`), so the two directions cannot
         /// disagree about which path names which scope.
         LocalHolderPaths: Dictionary<ModuleHolder, string>
-        /// Every ACCEPTED type declaration of this unit, in SOURCE order, with the identity
+        /// Every ACCEPTED type declaration of this file, in SOURCE order, with the identity
         /// its claim established. Co-populated with `TypeClaims` (one write, `claimType`),
         /// so the list and the name table cannot disagree about which declarations were
         /// accepted. The accepted / rejected pair below it is the whole record of what the
@@ -256,7 +256,7 @@ type PassContextTypes =
         /// The type declarations rejected as duplicates, in source order. Observability
         /// only — see `RejectedTypeDefn`; nothing downstream may read it.
         RejectedDuplicates: ResizeArray<RejectedTypeDefn>
-        /// The RECORD / UNION / CLASS short names this unit declares — the names a
+        /// The RECORD / UNION / CLASS short names this file declares — the names a
         /// `module` of the same name collides with, and so the ONE input (with the
         /// module's own attributes) to the `…Module` suffix rule
         /// (`NameResolutionTypeRegistration.moduleHolderName`).
@@ -266,7 +266,7 @@ type PassContextTypes =
         /// opposite sides of registration: the key mint runs DURING the identity pass (the
         /// kind registries do not exist yet, and a `module Foo` may textually precede the
         /// `type Foo` it collides with), the emitter's holder-name site runs long after.
-        /// So the set is filled by one sweep of the whole unit BEFORE the first key is
+        /// So the set is filled by one sweep of the whole file BEFORE the first key is
         /// minted, from the same `tryDeclaredTypeName` the claims come from.
         NominalTypeNames: HashSet<string>
         /// Uniqueness witness for project-local `SymbolKey`s.
@@ -330,7 +330,7 @@ module PassContextTypes =
 /// written at (F# declaration scoping is file-ordered) together with the module chain that
 /// encloses it (a bare name resolves innermost-outward). Every by-name face below therefore
 /// takes one, and answers against the claims visible there (`TypeIdentity.VisibleFrom`); a
-/// caller with nowhere to speak from passes `UseSite.unbounded` and gets the whole-unit
+/// caller with nowhere to speak from passes `UseSite.unbounded` and gets the whole-file
 /// view. The `…ByKey` faces take none, and must not: a `SymbolKey` already names a resolved
 /// type, so there is no scoping question left to ask. Requiring a use site of exactly the
 /// by-name faces is what makes an unscoped by-name read impossible to write by accident.
@@ -383,13 +383,13 @@ module TypeRegistry =
     // by-name face below is a `max claimRank` over a candidate set — there is no second
     // statement of precedence anywhere.
 
-    /// The scope this unit declares under the dotted SOURCE `path`, as a path is WRITTEN
+    /// The scope this file declares under the dotted SOURCE `path`, as a path is WRITTEN
     /// INSIDE the scope whose own source path is `scope`: `scope.path` first, then each
     /// shorter prefix of `scope`, longest first — F#'s own order — and finally `path` alone
     /// (fully qualified from the root). So `open A` inside `namespace N` names `N.A` before
     /// it names a top-level `A`, and so does the qualifier of an `A.T` written there.
     ///
-    /// `ValueNone` for a path this unit does not declare (`open System`, `System.Uri`): it
+    /// `ValueNone` for a path this file does not declare (`open System`, `System.Uri`): it
     /// names no local scope and so brings no local claim into reach; the external resolver
     /// answers for it instead.
     let private tryHolderOfPath (types: PassContextTypes) (scope: string) (path: string) : ModuleHolder voption =
@@ -407,7 +407,7 @@ module TypeRegistry =
 
         go scope
 
-    /// The module / namespace this `open` names, if THIS unit declares it — its written path
+    /// The module / namespace this `open` names, if THIS file declares it — its written path
     /// resolved from the scope it is written in.
     let private openedHolder (types: PassContextTypes) (o: LocalOpen) : ModuleHolder voption =
         tryHolderOfPath types o.Scope o.Path
@@ -451,7 +451,7 @@ module TypeRegistry =
         }
 
     /// EVERY way the written module `path` (EMPTY for a bare name) reaches a scope of this
-    /// unit from `useSite`. THE enumeration of routes a name may travel — the ranker below
+    /// file from `useSite`. THE enumeration of routes a name may travel — the ranker below
     /// maximises over it, and it is the only place the routes are stated:
     ///
     ///   * an ANCESTOR scope of the use — its own module, an enclosing module, the namespace
@@ -467,10 +467,10 @@ module TypeRegistry =
     ///     scope a declaration and an `open` are ordered by nothing but the text, and an
     ///     `open N` qualifies a PARTIAL path (`A.T` ⇒ `N.A.T`);
     ///   * a FULLY-QUALIFIED path (`N.A.T`) reaches its scope from the ROOT, from anywhere —
-    ///     including another namespace of the same unit — and ranks outermost, below every
+    ///     including another namespace of the same file — and ranks outermost, below every
     ///     scope that could name it more nearly.
     ///
-    /// EMPTY for a path that names no scope of this unit (`System.Text.StringBuilder`): the
+    /// EMPTY for a path that names no scope of this file (`System.Text.StringBuilder`): the
     /// external resolver answers for those, and a use site with nowhere to speak from
     /// (`UseSite.unbounded`) reaches nothing this way — it sees every claim regardless.
     let private pathReaches (types: PassContextTypes) (useSite: UseSite) (path: string) : ScopeReach list =
@@ -532,7 +532,7 @@ module TypeRegistry =
             ValueNone
         else
             match useSite.Holder with
-            // Nowhere to speak from: the whole-unit view (`UseSite.unbounded`). Every claim
+            // Nowhere to speak from: the whole-file view (`UseSite.unbounded`). Every claim
             // is in scope, and none outranks another — so a caller that must choose still
             // takes the first, as it did before it had anywhere to speak from.
             | ValueNone -> ValueSome { Depth = 0; Offset = 0 }
@@ -781,7 +781,7 @@ module TypeRegistry =
     let isTypeNameInScope (types: PassContextTypes) (useSite: UseSite) (name: string) : bool =
         isWrittenTypeNameInScope types useSite (WrittenTypeName.bare name)
 
-    /// Record a module / namespace scope this unit declares, under the dotted SOURCE path an
+    /// Record a module / namespace scope this file declares, under the dotted SOURCE path an
     /// `open` — or a qualified name — names it by, and the path it is named by. Idempotent —
     /// every pass re-walks the tree and re-enters the same scopes.
     let noteLocalHolder (types: PassContextTypes) (path: string) (holder: ModuleHolder) : unit =
@@ -793,7 +793,7 @@ module TypeRegistry =
     let noteNominalTypeName (types: PassContextTypes) (name: string) : unit =
         types.NominalTypeNames.Add name |> ignore
 
-    /// Does this unit declare a record / union / class called `name`? THE
+    /// Does this file declare a record / union / class called `name`? THE
     /// module-name-collision test behind the `…Module` suffix — see `NominalTypeNames`.
     let isNominalTypeName (types: PassContextTypes) (name: string) : bool = types.NominalTypeNames.Contains name
 

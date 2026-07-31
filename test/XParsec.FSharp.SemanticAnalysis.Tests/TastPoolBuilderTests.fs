@@ -82,7 +82,7 @@ let private checkBaseIdsResolve (pools: FrozenPools) (b: PoolBuilder) =
 
 /// Every base root drains to the SAME decl before and after the overlay grows — the
 /// end-to-end half of id preservation, through the ONE way out of a builder that production
-/// uses (`declTree`, the cross-unit inline wire's drain). An id-space boundary error shows
+/// uses (`declTree`, the cross-file inline wire's drain). An id-space boundary error shows
 /// up as a wrong or missing subtree; the drain is deterministic within a builder (its
 /// re-minted binder keys are the builder's), so the two drains are directly comparable.
 let private drainRoots (b: PoolBuilder) : Wire.TDecl[] =

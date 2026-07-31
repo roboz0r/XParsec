@@ -3,7 +3,7 @@
 /// cache is built, so a cache that cannot be shown to pay never lands:
 ///
 ///   * Pure analyse+freeze wall time per stage, ISOLATED from parse. `analyseAssemblyWith`
-///     parses each unit before calling the front end, so wrapping the front-end seam
+///     parses each file before calling the front end, so wrapping the front-end seam
 ///     (`timed`) times SA only — the fair denominator for "how much could SA-internal
 ///     caching save".
 ///   * Redundancy ceilings via shadow counters (`hit`) keyed EXACTLY as a real cache would
@@ -61,9 +61,9 @@ let hit (family: string) (key: string) =
     b.Calls <- b.Calls + 1
     b.Distinct.Add key |> ignore
 
-/// Wrap an `AnalyseUnit` so each per-file front-end call (POST-parse) accumulates into
+/// Wrap an `AnalyseFile` so each per-file front-end call (POST-parse) accumulates into
 /// `family` — the parse cost is excluded, isolating SA.
-let timed (family: string) (analyse: AssemblyUnits.AnalyseUnit) : AssemblyUnits.AnalyseUnit =
+let timed (family: string) (analyse: AssemblyFiles.AnalyseFile) : AssemblyFiles.AnalyseFile =
     fun asmName provider source file ->
         let sw = Stopwatch.StartNew()
         let r = analyse asmName provider source file
@@ -82,12 +82,12 @@ let report () =
     printfn "== SA analyse+freeze time (parse excluded) =="
 
     for kv in stageMs do
-        let units =
+        let files =
             match stageUnits.TryGetValue kv.Key with
             | true, u -> u
             | _ -> 0
 
-        printfn "  %-22s %9.2f ms  %3d units" kv.Key kv.Value units
+        printfn "  %-22s %9.2f ms  %3d files" kv.Key kv.Value files
 
     if buckets.Count > 0 then
         printfn ""
