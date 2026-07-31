@@ -457,11 +457,7 @@ module InlineExpansion =
                                     Template = TemplateId.Foreign served.Key
                                     Tok = tok
                                     Ty = ty
-                                    Spine =
-                                        [
-                                            for a in EqArray.toList args ->
-                                                a, TastWalk.exprTy a, TastWalk.exprTok a
-                                        ]
+                                    Spine = [ for a in EqArray.toList args -> a, TastWalk.exprTy a, TastWalk.exprTok a ]
                                     Walk = walk
                                 }
 
