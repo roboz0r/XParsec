@@ -54,16 +54,16 @@ module internal UnificationInferApp =
     /// SOURCE lambda lands on a parameter whose typar bound is `:> Fun<a,b>`/`:> Fun<a,b,c>`
     /// (`funSlotArityOf`, the same nominal the `subsumes` arm matches), key the
     /// lambda's node → that flat arity so codegen sizes its value-struct `Invoke`.
-    /// Must run BEFORE `inferGenericAppFrom` links the domain to the arrow (which
+    /// Must run BEFORE `inferGenericAppFrom` links the domain to the function type (which
     /// would erase the bound). A non-lambda argument or a non-`Fun` slot records
     /// nothing. Pure side-effect into `ctx.FunVerdicts`.
     let private recordFunArityVerdicts (ctx: PassContext) (args: ImmutableArray<Expr<SyntaxToken>>) (fnTy: SemType) =
         let mutable currTy = fnTy
-        // The lambda verdicts recorded in the spine walk, paired with the typar `dom`
-        // (its union-find root) the lambda landed on — so a SECOND pass over the spine
+        // The lambda verdicts recorded in the argument walk, paired with the typar `dom`
+        // (its union-find root) the lambda landed on — so a SECOND pass over the arguments
         // RESULT can record `lambda → result-typar position` once `currTy`
         // reaches the tail. Recording the position in the loop is premature: `currTy`
-        // is still the residual arrow, not the result nominal.
+        // is still the residual function type, not the result nominal.
         let lambdaSlots = ResizeArray<LambdaKey * SemType>()
 
         for i in 0 .. args.Length - 1 do
@@ -105,11 +105,11 @@ module internal UnificationInferApp =
             | _ -> currTy <- TyVar(freshTyVar ctx)
 
         // Record the result-typar POSITION for each verdict lambda.
-        // `currTy` is now the spine's result type; a *transformer* combinator's result
+        // `currTy` is now the application's result type; a *transformer* combinator's result
         // is a nominal (`Holder<'TF>`, `MapSeq<…,'TF,…>`) carrying the lambda's typar
         // at some top-level arg index. Match by typar IDENTITY (the arg's union-find
         // root equals `dom`'s root), NOT by shape — a genuine function-valued arg of
-        // the same arrow shape would otherwise be conflated. A *terminal* combinator
+        // the same function shape would otherwise be conflated. A *terminal* combinator
         // (`fold`/`apply2`, result `'State`/`int`) records nothing, so its stored
         // bindings are never rewritten.
         if lambdaSlots.Count > 0 then
@@ -272,7 +272,7 @@ module internal UnificationInferApp =
 
             // Record the node-keyed `Fun`-arity + result-typar
             // verdicts for any source-lambda arguments, BEFORE the curried-application
-            // loop below links each domain to its arrow (which would erase the `:> Fun`
+            // loop below links each domain to its function type (which would erase the `:> Fun`
             // bound the verdict reads).
             recordFunArityVerdicts ctx args fnTy
 

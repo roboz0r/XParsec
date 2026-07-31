@@ -276,19 +276,19 @@ module UnificationSubsume =
         // here (a `string` source hits `subsumesNominal` → `Unrelated`); the only
         // inward path is the syntactic-constant consultation at the external-arg seam.
         | TyLiteral v, TyConst(key, _) when SymbolKeyOps.intrinsicName key = v.BaseName -> SubsumeOutcome.Subtype
-        // The arrow↔`Fun` correspondence: a structural arrow
+        // The `TyFun`↔`Fun` correspondence: a structural function type
         // `TyFun(a, …)` IS a subtype of the canonical `Vesper.Fun`(k+1)<a1..ak, r>`
         // interface. This is the ONE place the two layers meet — the unifier keeps
-        // seeing `TyFun` as the structural arrow everywhere else (function-
+        // seeing `TyFun` as the structural function type everywhere else (function-
         // representation §"Two layers"); only a `'TF :> Fun<…>` constrained-typar slot
         // discharges through here. Arity-parametric (1..4): peel exactly `k =
-        // targs.Length - 1` domains off the arrow spine, each invariant-`Equal` (same
+        // targs.Length - 1` domains off the `TyFun` chain, each invariant-`Equal` (same
         // rule as `subsumesNominal`) to the matching `Fun` type arg; the residual
         // codomain must be `Equal` to `targs.[k]` matched WHOLE (it may itself be a
-        // further curried arrow — the printf `n > K` tail — which is NOT peeled).
-        // Read-only, not a `unify` — grounding a still-free `Fun`-arg FROM the arrow is
-        // the Engine constraint-drain's job (`peelFunSpine` is shared with it so the
-        // check and the grounding peel the SAME shape). A spine too short to peel `k`
+        // further curried function — the printf `n > K` tail — which is NOT peeled).
+        // Read-only, not a `unify` — grounding a still-free `Fun`-arg FROM the `TyFun` is
+        // the Engine constraint-drain's job (`peelFunDomains` is shared with it so the
+        // check and the grounding peel the SAME shape). A chain too short to peel `k`
         // domains does not match ⇒ `Unrelated`. The caller records the arity-`k` verdict
         // for the lambda node (`inferApp`), keyed for the value-struct flat-`Invoke`.
         | TyFun(a, b), (TyClass(tk, targs)) when
@@ -297,7 +297,7 @@ module UnificationSubsume =
             ->
             let k = targs.Length - 1
 
-            match peelFunSpine ctx.Store k a b with
+            match peelFunDomains ctx.Store k a b with
             | Some tys when List.forall2 (fun s t -> subsumes ctx s t = SubsumeOutcome.Equal) tys (EqArray.toList targs) ->
                 SubsumeOutcome.Subtype
             | _ -> SubsumeOutcome.Unrelated
@@ -336,10 +336,10 @@ module UnificationSubsume =
                 SubsumeOutcome.Unrelated
 
     /// Deep-fold carried type-level nodes NESTED inside a union member before the
-    /// union arms compare against it. A member that WRAPS an arrow (mitt off's
+    /// union arms compare against it. A member that WRAPS a function type (mitt off's
     /// optional `Handler<Events[Key]> | undefined` → `TyOr`) is compared WHOLE, so
     /// its nested access must fold here (`Handler<Events[Key]>` → `(int) -> unit`)
-    /// for the member to match; a bare-arrow parameter already folds at its leaf
+    /// for the member to match; a bare function-typed parameter already folds at its leaf
     /// via `unify`'s structural descent. Gated on an actual carrier occurrence so
     /// the common (carrier-free) member pays nothing. `evalTypeLevel` is a pure read —
     /// `groundMemberType` realises external members through the NON-freshening
@@ -408,7 +408,7 @@ module UnificationSubsume =
         // COMPOUND types recurse so a carried node NESTED inside them folds too — a
         // `keyof`/`T[K]` under a `TyFun`, `TyOr`, tuple, or nominal argument. A bare
         // `TyFun` parameter (mitt's `on` handler `(Events[Key]) -> unit`) already folds at
-        // its leaf via `unify`'s structural descent, but a param that WRAPS the arrow (off's
+        // its leaf via `unify`'s structural descent, but a param that WRAPS the `TyFun` (off's
         // optional `Handler<Events[Key]> | undefined` → `TyOr`) is admitted by `subsumes`,
         // which compares members whole — so its nested access must be folded HERE for the
         // member to match. `mapChildren` routes `TyOr` through its smart constructor

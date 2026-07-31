@@ -125,35 +125,35 @@ module EmitJs =
         | ExprShape.Lambda -> emitFunction ctx ValueNone e
 
         // Application. A SATURATED call to a module function (local or external)
-        // collapses its whole spine into a single FLAT call (`f(a, b)`, tuple groups
+        // collapses all its arguments into a single FLAT call (`f(a, b)`, tuple groups
         // flattened, lone unit dropped); any residual over-application folds on as unary
         // calls. Everything else — closures, members, under-applied module functions —
         // keeps the curried `f(a)(b)` shape (one unary call per `App`); an under-applied
         // module function reaches its head's curried adapter through this fallback.
         | ExprShape.App ->
             let av = TastAccessor.exprApp e
-            let head, spine = TastAccessor.collectSpine [] e
+            let head, appArgs = TastAccessor.collectAppChain [] e
 
             // Flat dispatch: a capability-protocol member call (`tryCapabilityCall` —
             // `src.GetEnumerator()`, `e.MoveNext()`, `e.Dispose()`) folds head + the lone
-            // `unit` spine element into its JS form; a native attached-member call
-            // (`JsExternalMembers.tryAttachedCall`) folds the whole spine into ONE
+            // `unit` argument into its JS form; a native attached-member call
+            // (`JsExternalMembers.tryAttachedCall`) folds every argument into ONE
             // `receiver.member(args)`; else a saturated module-function call collapses to a
             // flat call; anything else keeps the curried unary fallback.
             let folded =
-                match tryCapabilityCall ctx.Capabilities ctx.Imports (buildExpr ctx) head spine loc with
+                match tryCapabilityCall ctx.Capabilities ctx.Imports (buildExpr ctx) head appArgs loc with
                 | ValueSome call -> ValueSome call
-                | ValueNone -> JsExternalMembers.tryAttachedCall ctx.Provider (buildExpr ctx) head spine loc
+                | ValueNone -> JsExternalMembers.tryAttachedCall ctx.Provider (buildExpr ctx) head appArgs loc
 
             match folded with
             | ValueSome call -> call
             | ValueNone ->
-                // Resolve a spine head that names a module function to its flat callee +
-                // SOURCE groups — a local `CompiledFns` entry or an external `ValRepr`. The
+                // Resolve an application head that names a module function to its flat callee
+                // + SOURCE groups — a local `CompiledFns` entry or an external `ValRepr`. The
                 // groups are non-empty by construction (both `gather` and the external
                 // `ValRepr` capture require ≥ 1 source group), so the saturation predicate
-                // below is written ONCE for both kinds: a flat call exactly when the spine
-                // is at least the group count. Anything else keeps the curried fallback.
+                // below is written ONCE for both kinds: a flat call exactly when the argument
+                // count is at least the group count. Anything else keeps the curried fallback.
                 let flatHead: (JsExpr * TastAccessor.ArgGroup list) voption =
                     let identAt name = JsExpr.Identifier(name, locOf ctx head)
 
@@ -177,8 +177,8 @@ module EmitJs =
                     | _ -> ValueNone
 
                 match flatHead with
-                | ValueSome(callee, groups) when List.length spine >= List.length groups ->
-                    JsFlatFns.emitFlatCall ctx.Pool (buildExpr ctx) callee groups spine loc
+                | ValueSome(callee, groups) when List.length appArgs >= List.length groups ->
+                    JsFlatFns.emitFlatCall ctx.Pool (buildExpr ctx) callee groups appArgs loc
                 | _ -> JsExpr.Call(buildExpr ctx av.Fn, [ buildExpr ctx av.Arg ], loc)
 
         // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args
@@ -384,7 +384,7 @@ module EmitJs =
         //   * an ERASED grouping type erases to the bare module export
         //     (`erasedGroupingRef`); it holds only STATIC members, so a receiver is
         //     an invariant break;
-        //   * an ATTACH-MEMBERS instance member reached WITHOUT an applying spine —
+        //   * an ATTACH-MEMBERS instance member reached WITHOUT being applied —
         //     the CALL form is folded in the `App` head-case — is a native value
         //     read: a data-property READ for a property, an eta-wrapped method
         //     value for a method. (R2 scope is INSTANCE members: a static member /
@@ -406,7 +406,7 @@ module EmitJs =
                 let em = TastAccessor.exprExternalMember e
                 let declKey = JsExternalMembers.declKey em.Key
                 // JS has no field/property distinction at access — both are a value member
-                // (the `get_`-style mangled import); only a `Method` is an arrow. (A `Field`
+                // (the `get_`-style mangled import); only a `Method` is a function. (A `Field`
                 // here would gain only `readonly` fidelity, not yet modelled.)
                 let isProperty = em.Storage.IsValueMember
 
@@ -677,7 +677,7 @@ module EmitJs =
     /// write them back and `continue`.
     and emitFunction (ctx: WalkCtx) (selfKey: BinderId voption) (lam: TastAccessor.ExprId) : JsExpr =
         let loc = locOf ctx lam
-        let names, body = peelArrow ctx.Pool lam
+        let names, body = peelLambdas ctx.Pool lam
         nestUnaryArrows loc names (trampolineOrExpr ctx selfKey (List.length names) names body)
 
     /// Build the statements of a self-tail-call trampoline's loop body, walking
@@ -758,7 +758,7 @@ module EmitJs =
     /// `() => …`). When every group is a plain binder and the body makes a saturated
     /// tail self-call, the body becomes a `while (true)` trampoline — the flat
     /// parameters are the mutated slots (only the all-`GSimple` shape maps a self-call's
-    /// spine one-to-one onto them).
+    /// arguments one-to-one onto them).
     and private emitFlatModuleFn
         (ctx: WalkCtx)
         (k: BinderId)
@@ -767,7 +767,7 @@ module EmitJs =
         : JsExpr =
         let names = [ for p in cf.Params -> JsFlatFns.paramNameOf ctx.Pool p ]
 
-        // Only the all-`GSimple` shape maps a self-call's spine one-to-one onto the flat
+        // Only the all-`GSimple` shape maps a self-call's arguments one-to-one onto the flat
         // params, so the trampoline is gated on it; otherwise no self-key is offered.
         let selfKey =
             if TastLower.allSimpleGroups cf.Groups then
@@ -1062,7 +1062,7 @@ module EmitJs =
 
         // The top-level module functions and their flat compiled form — the same
         // `Codegen.Common.CompiledFns` analysis the CLR backend reads. Drives the FLAT
-        // (Fable-style) emission of every module function and the spine-collapsing of
+        // (Fable-style) emission of every module function and the argument-collapsing of
         // its saturated call sites.
         let compiledFns =
             System.Collections.Generic.Dictionary<BinderId, CompiledFns.CompiledFn>()

@@ -1,7 +1,7 @@
-/// The frozen-format LOAD/STORE benchmark — the gate for whether an mmap'd spine is worth
+/// The frozen-format LOAD/STORE benchmark — the gate for whether an mmap'd blob is worth
 /// building.
 ///
-/// The claim under test is narrow and falsifiable: the frozen spine is flat 4-byte columns
+/// The claim under test is narrow and falsifiable: the frozen form is flat 4-byte columns
 /// (`TypeId`, `Anchor`, CSR child ids), so a cached compile "pays for the ids at load" and an
 /// mmap'd tier would stop paying. That is only worth the format churn — a raw, aligned,
 /// section-headed blob in place of today's Brotli-wrapped byte-packed one — if column decode
@@ -28,7 +28,7 @@
 ///     FileKey                23 us      89 KB   <- the key, per file (~0.25 us each)
 ///
 /// `Thaw` is **1.6% of the analysis it replaces**, and mmap improves only a fraction of that
-/// — so no mmap'd spine is worth a raw, aligned, section-headed blob. A hit is ~24x faster
+/// — so no mmap'd tier is worth a raw, aligned, section-headed blob. A hit is ~24x faster
 /// and ~29x leaner than analysing, which is what makes the cache worth having at all.
 ///
 /// The one visible cost is `Compress`, on the MISS path: five times `Thaw`, the largest single
@@ -169,7 +169,7 @@ type FrozenCodecBenchmarks() =
 
         acc
 
-    /// The load side, decode half — the ONLY stage an mmap'd spine improves, and only for
+    /// The load side, decode half — the ONLY stage an mmap'd blob improves, and only for
     /// its blittable columns. This number against `Decompress` is the whole question.
     [<Benchmark>]
     member _.Thaw() =

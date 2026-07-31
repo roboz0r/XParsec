@@ -294,7 +294,7 @@ module Freeze =
 
     /// The freeze's own working form. It is DU-shaped because that is what the passes
     /// below it speak — `TastConvert.file` maps a `TastFileG` node-for-node, and the
-    /// `ValRepr` peel reads a curried lambda spine — and it never leaves this module:
+    /// `ValRepr` peel reads a curried lambda chain — and it never leaves this module:
     /// `run` pools it and drops it. Building the columns natively (skipping this
     /// materialisation entirely) is a separate optimisation, not a correctness question.
     let private toFrozenFile (ctx: PassContext) (tast: TastFile) : Frozen.TastFile =
@@ -382,8 +382,8 @@ module Freeze =
     /// is built.
     ///
     /// The SOURCE `ValRepr` grouping is not computed here: it is a PROJECTION of the
-    /// pooled lambda spine, so `TastPools.toPools` derives it off the columns it has just
-    /// filled and a tuple group's pattern is the spine node itself.
+    /// pooled lambda chain, so `TastPools.toPools` derives it off the columns it has just
+    /// filled and a tuple group's pattern is the lambda's own parameter node.
     let run (ctx: PassContext) (tast: TastFile) : FrozenPools =
         // No record means no source writes the binder: a class's `this`/`base` are MINTED
         // from the declaration, and `Inline.freshen` mints one per spliced binder. Both are

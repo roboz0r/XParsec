@@ -2079,7 +2079,7 @@ module Elaborate =
                 System.Collections.Generic.Dictionary(ctx.Bindings.Accessibility)
                 :> System.Collections.Generic.IReadOnlyDictionary<_, _>
             // The `ValRepr` grouping is a FREEZE product (it reads the frozen lambda
-            // spine) — empty here, filled by `Freeze.run`.
+            // chain) — empty here, filled by `Freeze.run`.
             BindingTyparArities =
                 ctx.Bindings.BindingTyparArities
                 |> Seq.map (fun kv -> kv.Key, kv.Value)

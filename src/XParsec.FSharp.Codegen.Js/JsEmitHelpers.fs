@@ -306,14 +306,14 @@ module JsEmitHelpers =
 
     /// Peel a curried `Lambda` chain into its parameter names and the innermost
     /// body. The inverse of the nested-arrow emission.
-    let rec peelArrow (pool: PoolBuilder) (e: TastAccessor.ExprId) : string list * TastAccessor.ExprId =
+    let rec peelLambdas (pool: PoolBuilder) (e: TastAccessor.ExprId) : string list * TastAccessor.ExprId =
         match TastAccessor.exprKind e with
         | ExprShape.Lambda ->
             let l = TastAccessor.exprLambda e
             // Named left to right, so a reader of the emitted arrows sees the temporaries
             // of one function in ascending order.
             let name = lambdaParamName pool l.Param
-            let names, inner = peelArrow pool l.Body
+            let names, inner = peelLambdas pool l.Body
             name :: names, inner
         | _ -> [], e
 
@@ -329,13 +329,13 @@ module JsEmitHelpers =
     let (|TailSelfCall|_|) (selfKey: BinderId) (arity: int) (e: TastAccessor.ExprId) : TastAccessor.ExprId list option =
         match TastAccessor.exprKind e with
         | ExprShape.App ->
-            match TastAccessor.collectSpine [] e with
-            | head, spine when
+            match TastAccessor.collectAppChain [] e with
+            | head, appArgs when
                 TastAccessor.exprKind head = ExprShape.Var
                 && TastAccessor.exprVarBinding head = selfKey
-                && List.length spine = arity
+                && List.length appArgs = arity
                 ->
-                Some [ for (a, _, _) in spine -> a ]
+                Some [ for (a, _, _) in appArgs -> a ]
             | _ -> None
         | _ -> None
 

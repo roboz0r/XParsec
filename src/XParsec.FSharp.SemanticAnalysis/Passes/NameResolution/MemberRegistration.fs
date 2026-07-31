@@ -376,7 +376,7 @@ module NameResolutionMemberRegistration =
                 | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(
                     ident = idOrOp; typarDefns = tds; sign = CurriedSig(args = sigArgs))) ->
                     // An arg-less signature (`abstract member Current : int`, no `->`)
-                    // is an abstract *property*; a curried/arrow signature is a method.
+                    // is an abstract *property*; a curried/function signature is a method.
                     let kind =
                         if sigArgs.IsEmpty then
                             ClassMemberKind.Property

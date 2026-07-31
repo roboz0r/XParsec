@@ -162,7 +162,7 @@ type ExternalSymbol =
         /// nothing narrows back, so "what if it isn't a binding?" cannot be asked.
         Key: BindingKey
         /// The SOURCE arity (`ValRepr`) of a module-level FUNCTION, carried across the
-        /// assembly boundary so a caller reconciles its application spine against the
+        /// assembly boundary so a caller reconciles its call arguments against the
         /// producer's
         /// curried / tupled grouping. The flat, lone-unit-erased, `void`-normalised
         /// `CompiledForm` is derived from it on demand (`TastLower.compiledOf`), never
@@ -430,8 +430,8 @@ type ExternalMember =
         Name: string
         IsStatic: bool
         /// The storage/shape axis: `Field` / `Property` (value members) vs `Method`
-        /// (arrow member). `Field` vs `Property` matters only at CLR emission
-        /// (`ldfld` vs `call get_X`); consumers that only need value-vs-arrow read
+        /// (function member). `Field` vs `Property` matters only at CLR emission
+        /// (`ldfld` vs `call get_X`); consumers that only need value-vs-function read
         /// `IsValueMember`. See `MemberStorage`.
         Storage: MemberStorage
         /// The tupled `(Parameters, Return)` two-axis template, the declaring +
@@ -510,7 +510,7 @@ type ExternalMember =
         }
 
     /// A value member (field or property) — no parameters, the value in `Return` —
-    /// as opposed to an arrow `Method`. The single predicate the inference/freeze
+    /// as opposed to a `Method`. The single predicate the inference/freeze
     /// consumers gate on; only CLR emission cares about `Field` vs `Property`.
     member m.IsValueMember = m.Storage.IsValueMember
 
@@ -1101,7 +1101,7 @@ type CodegenOpenSignature =
         /// The SOURCE arity carried across the assembly boundary: how the producer grouped
         /// curried / tupled parameters (`ValRepr.Groups`). The codegen boundary reads
         /// it to flatten / lone-unit-erase the member-ref parameters and split the
-        /// call's application spine, and derives the flat `CompiledForm`
+        /// call's applied arguments, and derives the flat `CompiledForm`
         /// (`TastLower.compiledOf`) for the `void`-vs-value decision — replacing the
         /// ambiguous `decurryFrozen` reconstruction of the curried `Signature` (which
         /// can't tell a tupled group `f (x,y)` from a single tuple param

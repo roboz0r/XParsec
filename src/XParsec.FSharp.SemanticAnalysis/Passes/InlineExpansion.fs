@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 // The table this pass builds, and the parameter vocabulary its reductions classify into.
 open InlineSpecTable
-// One reduction: what a template body is, and how a call site's spine resolves against it.
+// One reduction: what a template body is, and how a call site's arguments resolve against it.
 open InlineReduction
 
 // The pre-freeze inline-expansion pass. Runs after elaboration and before the typar freeze, on
@@ -156,14 +156,14 @@ module InlineExpansion =
     /// the answer is INSIDE it, so no call site can give a different one.
     ///
     /// A re-entered frame is answered with an edge into the entry it reserved. The edge carries
-    /// `Spine` — the same list that expansion peeled its parameters from — so it and the entry
+    /// `Args` — the same list that expansion peeled its parameters from — so it and the entry
     /// agree on arity by construction.
     let private expandingTemplate (x: Expander) (at: Descent) (call: PendingCall) (fresh: unit -> TExpr) : TExpr =
         match Descent.reentered call.Template at with
         | ValueSome reentered ->
             TExpr.InlineCall(
                 reentered.Spec,
-                EqArray.ofList [ for (a, _, _) in call.Spine -> call.Walk a ],
+                EqArray.ofList [ for (a, _, _) in call.Args -> call.Walk a ],
                 originOf x at,
                 call.Ty,
                 call.Tok
@@ -176,7 +176,7 @@ module InlineExpansion =
         (x: Expander)
         (walk: TExpr -> TExpr)
         (markedHead: TExpr)
-        (spineArgs: (TExpr * SemType * SyntaxToken) list)
+        (args: (TExpr * SemType * SyntaxToken) list)
         : CallHead =
         // Read THROUGH any caller mark: a fused external value in head position is still the head
         // it was before the fusion marked it, and a head that stopped being recognised would fall
@@ -184,7 +184,7 @@ module InlineExpansion =
         // an expansion replaces the head itself, so there is no subtree left for it to cover.
         match TastWalk.unmarked markedHead with
         | TExpr.Var(k, _, _) when x.LocalInlines.ContainsKey k ->
-            CallHead.Template(TemplateId.Local k, x.LocalInlines.[k], spineArgs)
+            CallHead.Template(TemplateId.Local k, x.LocalInlines.[k], args)
         | TExpr.Var(k, _, _) when x.LambdaEnv.ContainsKey k -> CallHead.Fused x.LambdaEnv.[k]
         | head ->
             // How a cross-file head presents itself, taken ONCE so the expansion behind it is
@@ -195,17 +195,17 @@ module InlineExpansion =
                     ValueSome
                         {
                             Key = keyOpt
-                            Spine = spineArgs
+                            Args = args
                             RebuiltHead = fun () -> markedHead
                         }
                 | TExpr.ExternalMember(receiver, key, _, _, _, memberTok) ->
                     ValueSome
                         {
                             Key = ValueSome key
-                            Spine =
+                            Args =
                                 match receiver with
-                                | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: spineArgs
-                                | ValueNone -> spineArgs
+                                | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: args
+                                | ValueNone -> args
                             RebuiltHead = fun () -> walk markedHead
                         }
                 | _ -> ValueNone
@@ -219,7 +219,7 @@ module InlineExpansion =
                 // (`EqualityComparer<^T>.Default.Equals` for `=`). Declining instead routed the
                 // head to a name-keyed raw-IL fallback, turning a structural `=` into a reference
                 // `ceq`.
-                | ValueSome served -> CallHead.Template(TemplateId.Foreign served.Key, served, ext.Spine)
+                | ValueSome served -> CallHead.Template(TemplateId.Foreign served.Key, served, ext.Args)
                 | ValueNone -> CallHead.Opaque ext.RebuiltHead
             | ValueNone -> CallHead.Opaque(fun () -> walk markedHead)
 
@@ -334,7 +334,7 @@ module InlineExpansion =
     /// are the same reduction thereafter — the whole reason `TemplateBody` says nothing about
     /// where its body came from.
     ///
-    /// WHERE the call stands, WHAT it evaluates to and the spine its parameters are peeled against
+    /// WHERE the call stands, WHAT it evaluates to and the arguments its parameters are peeled against
     /// are all read off `call` — the same record a re-entry reads — so the two cannot be
     /// positioned or typed differently.
     ///
@@ -347,9 +347,9 @@ module InlineExpansion =
             at
             call
             (fun () ->
-                let resolved = resolveAt x.Ctx x.Mint call.Tok template.Decl call.Spine
+                let resolved = resolveAt x.Ctx x.Mint call.Tok template.Decl call.Args
                 let caller = originOf x at
-                let peeled = classifyApplication caller template.ParamAttrs resolved.Body call.Spine
+                let peeled = classifyApplication caller template.ParamAttrs resolved.Body call.Args
 
                 SpecTable.outline
                     {
@@ -384,7 +384,7 @@ module InlineExpansion =
     /// material and so at the same descent, which is exactly what re-using `m` says.
     ///
     /// The `App` arm is ALWAYS handled explicitly (never falls through to `TastWalk`'s default
-    /// child recursion): collect the whole spine and recurse only into the ARGS. Relying on
+    /// child recursion): collect the whole application and recurse only into the ARGS. Relying on
     /// default recursion would instead let the walker descend into a saturated op's
     /// partial-application sub-`App` and expand it with a single arg — leaving a dangling
     /// `fun y -> …` closure with a free `TyVar`.
@@ -396,10 +396,10 @@ module InlineExpansion =
 
                     match e with
                     | TExpr.App _ ->
-                        let markedHead, spineArgs = TastWalk.collectSpine [] e
+                        let markedHead, appArgs = TastWalk.collectAppChain [] e
 
-                        match callHead x walk markedHead spineArgs with
-                        | CallHead.Template(id, body, spine) ->
+                        match callHead x walk markedHead appArgs with
+                        | CallHead.Template(id, body, templateArgs) ->
                             let call =
                                 {
                                     Template = id
@@ -414,7 +414,7 @@ module InlineExpansion =
                                     // position in a file that entry does not name.
                                     Tok = TastWalk.exprTok e
                                     Ty = TastWalk.exprTy e
-                                    Spine = spine
+                                    Args = templateArgs
                                     Walk = walk
                                 }
 
@@ -429,15 +429,13 @@ module InlineExpansion =
                         // surviving `let`.
                         | CallHead.Fused fused ->
                             ValueSome(
-                                walkAt x fused.Caller (Inline.betaReduce (Inline.freshen x.Mint fused.Body) spineArgs)
+                                walkAt x fused.Caller (Inline.betaReduce (Inline.freshen x.Mint fused.Body) appArgs)
                             )
-                        // The spine walked as the CALLER's own material, which every rebuild needs
-                        // and no expansion does.
+                        // The arguments walked as the CALLER's own material, which every rebuild
+                        // needs and no expansion does.
                         | CallHead.Opaque rebuiltHead ->
                             ValueSome(
-                                TastWalk.rebuildApp
-                                    (rebuiltHead ())
-                                    [ for (a, ty, tok) in spineArgs -> walk a, ty, tok ]
+                                TastWalk.rebuildApp (rebuiltHead ()) [ for (a, ty, tok) in appArgs -> walk a, ty, tok ]
                             )
                     // A dispatched SRTP trait call — a static operator member whose body the
                     // provider serves. The INTRINSIC operator surface arrives here: `1 &&& 2`
@@ -446,8 +444,8 @@ module InlineExpansion =
                     // operator (`Vesper.Set`'s `op_Addition`) serves no body and falls through to
                     // the real call it is.
                     //
-                    // Its arguments ARE the spine — a `StaticMethodCall` carries them itself rather
-                    // than through an `App` chain — and they line up with the curried parameters
+                    // It carries its arguments itself rather than through an `App` chain, and they
+                    // line up with the curried parameters
                     // the lifted member body was wrapped in.
                     | TExpr.StaticMethodCall(key, args, ty, tok) ->
                         match lookupExternal x.Ctx x.Specs (ValueSome key) with
@@ -457,7 +455,7 @@ module InlineExpansion =
                                     Template = TemplateId.Foreign served.Key
                                     Tok = tok
                                     Ty = ty
-                                    Spine = [ for a in EqArray.toList args -> a, TastWalk.exprTy a, TastWalk.exprTok a ]
+                                    Args = [ for a in EqArray.toList args -> a, TastWalk.exprTy a, TastWalk.exprTok a ]
                                     Walk = walk
                                 }
 
@@ -466,7 +464,7 @@ module InlineExpansion =
                         // arguments.
                         | ValueNone -> ValueNone
                     // A BARE (non-applied) reference to a LOCAL inline — the template used as a
-                    // value. The degenerate reduction, at arity 0: no spine, so no type argument is
+                    // value. The degenerate reduction, at arity 0: no arguments, so no type argument is
                     // derivable and the body's typars stay abstract, but it is the SAME expansion
                     // as an applied site (which is what a peel against no arguments comes to) and
                     // so resolves its static-opt clauses and reports any trait call it cannot
@@ -477,7 +475,7 @@ module InlineExpansion =
                                 Template = TemplateId.Local k
                                 Tok = tok
                                 Ty = TastWalk.exprTy e
-                                Spine = []
+                                Args = []
                                 Walk = walk
                             }
 
@@ -540,7 +538,7 @@ module InlineExpansion =
                                     Template = TemplateId.Foreign hit.Template.Key
                                     Tok = tok
                                     Ty = refTy
-                                    Spine = []
+                                    Args = []
                                     Walk = walk
                                 }
 

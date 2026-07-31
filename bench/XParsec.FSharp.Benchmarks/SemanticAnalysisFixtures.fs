@@ -99,7 +99,7 @@ let syntheticStage () : Stage =
         Files = [ "synthetic.fs", syntheticSource ]
     }
 
-/// The chain-prefix size axis: how many packages of the spine to analyse in one run.
+/// The chain-prefix size axis: how many packages of the chain to analyse in one run.
 type ChainDepth =
     | Core = 0
     | CoreList = 1

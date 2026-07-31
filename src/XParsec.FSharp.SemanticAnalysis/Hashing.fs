@@ -6,7 +6,7 @@ open System.IO.Hashing
 open System.Text
 open XParsec.FSharp.Lexer
 
-/// The Merkle spine of the per-file compile cache: a file's key is the hash of its own
+/// The Merkle root of the per-file compile cache: a file's key is the hash of its own
 /// source folded with a digest of everything ELSE its compile reads — the compilation
 /// environment (home assembly, target, reference assemblies) and the full contents of every
 /// source file in the referenced-package closure. Because the cache key hashes INPUTS (never

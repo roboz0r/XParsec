@@ -7,7 +7,7 @@ open UnificationEngineCore
 open InlineSpecTable
 
 // One inline reduction: what the body it expands IS, WHICH template that
-// body belongs to, and how one call site's spine is resolved against it and its parameters
+// body belongs to, and how one call site's arguments are resolved against it and its parameters
 // classified.
 //
 // A cross-file body arrives FROZEN and is THAWED here (`lookupExternal`), minting this file's
@@ -24,7 +24,7 @@ open InlineSpecTable
 // point the body can be spliced into it, and codegen's lowering never walks member bodies.
 module InlineReduction =
 
-    /// The peel of a resolved inline body against one call site's spine — everything about the
+    /// The peel of a resolved inline body against one call site's arguments — everything about the
     /// reduction that is knowable before the body is walked.
     type internal Peeled =
         {
@@ -136,10 +136,10 @@ module InlineReduction =
         }
 
     /// The call an expansion is being entered FOR: which binding it calls, where it stands, and
-    /// the spine an ANSWER needs it in.
+    /// the arguments an ANSWER needs it in.
     ///
     /// An answered call is an EDGE into the entry the re-entered expansion reserved. The edge is
-    /// positional against that entry's parameters, so it takes the spine the FRESH reduction
+    /// positional against that entry's parameters, so it takes the arguments the FRESH reduction
     /// would have peeled — for an `ExternalMember` that includes the receiver, at curried
     /// position 0, which the application it was reached through never held.
     ///
@@ -160,11 +160,11 @@ module InlineReduction =
             /// The node's own result type — the type of EVERY edge minted for this call,
             /// recursive or fresh.
             Ty: SemType
-            /// The spine AS APPLIED — what the entry's parameters were peeled against, so an
+            /// The arguments AS APPLIED — what the entry's parameters were peeled against, so an
             /// edge's arguments are positional against them by construction. Unwalked: only the
             /// edge answer walks them, and only the arguments it actually carries.
-            Spine: (TExpr * SemType * SyntaxToken) list
-            /// Walks one of `Spine`. Those are the CALLER's own material and are expanded on
+            Args: (TExpr * SemType * SyntaxToken) list
+            /// Walks one of `Args`. Those are the CALLER's own material and are expanded on
             /// their own merits however the call is answered.
             Walk: TExpr -> TExpr
         }
@@ -232,8 +232,8 @@ module InlineReduction =
     /// `ExternalMember` that `x.get_Item(2)` lowers to is written ONCE.
     ///
     /// The whole of the difference between the two is that the receiver is a FIELD of the member
-    /// head rather than a spine argument. An EDGE is positional against parameters peeled from
-    /// the spine, so a member call must carry its receiver at curried position 0 (a STATIC
+    /// head rather than an applied argument. An EDGE is positional against parameters peeled from
+    /// the arguments, so a member call must carry its receiver at curried position 0 (a STATIC
     /// member has none and prepends nothing) for each `pi` to align to `argi`. A REBUILD instead
     /// leaves the receiver inside the head — where it is the one piece of material nothing else
     /// walks, so that head must be walked where a plain `External` head must not.
@@ -243,7 +243,7 @@ module InlineReduction =
             /// `ValueNone` is a genuine "carries no inline body", never a missed lookup — see
             /// `lookupExternal`. A member head is always keyed.
             Key: SymbolKey voption
-            Spine: (TExpr * SemType * SyntaxToken) list
+            Args: (TExpr * SemType * SyntaxToken) list
             /// A thunk: the walk a member head needs is wasted on any answer that expands the
             /// call, which is every answer but the rebuild.
             RebuiltHead: unit -> TExpr
@@ -266,10 +266,10 @@ module InlineReduction =
     /// higher-order parameter are all heads nothing here expands.
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
     type internal CallHead =
-        /// A head with an inline body, and the spine that body's parameters are peeled against —
+        /// A head with an inline body, and the arguments that body's parameters are peeled against —
         /// which for a member head carries the receiver at curried position 0 and so is not the
-        /// spine the application was written with.
-        | Template of id: TemplateId * body: TemplateBody * spine: (TExpr * SemType * SyntaxToken) list
+        /// argument list the application was written with.
+        | Template of id: TemplateId * body: TemplateBody * args: (TExpr * SemType * SyntaxToken) list
         /// A saturated use of an inline-first lambda parameter: the bound lambda is spliced at
         /// this use, so its closure never exists.
         | Fused of FusedLambda
@@ -292,7 +292,7 @@ module InlineReduction =
             p.Params |> List.forall (fun x -> x.Disposition = Disposition.Survive)
 
     /// Expand ONE inline binding for one use site: derive the site's type arguments from the
-    /// spine, substitute them through the body (which also selects its `StaticOptimization`
+    /// arguments, substitute them through the body (which also selects its `StaticOptimization`
     /// clause and dispatches its `TraitCall`s), freshen the binders, and report every trait
     /// call the substitution could NOT dispatch.
     ///
@@ -316,11 +316,11 @@ module InlineReduction =
         (mint: unit -> NodeKey)
         (siteTok: SyntaxToken)
         (decl: TDecl)
-        (spineArgs: (TExpr * SemType * SyntaxToken) list)
+        (args: (TExpr * SemType * SyntaxToken) list)
         : {| Body: TExpr; TypeArgs: SemType[] |} =
         match decl with
         | TDecl.Let(_, _, _, declTy) ->
-            let typeArgs = Inline.deriveInlineTypeArgs ctx.Store declTy spineArgs
+            let typeArgs = Inline.deriveInlineTypeArgs ctx.Store declTy args
             let expanded, unresolved = Inline.inlineExpand ctx decl typeArgs
 
             for u in unresolved do
@@ -352,8 +352,8 @@ module InlineReduction =
     /// `App` re-presents the SAME `External` in call-HEAD position, where the `App` arm claims
     /// it before the value-position arm can see it.
     ///
-    /// Arity is the reference's arrow count capped by the body's lambda arity, a partial eta
-    /// (`fun x -> f x` for a 2-arrow `f` whose body abstracts once) still being type-correct.
+    /// Arity is the reference's parameter count capped by the body's lambda arity, a partial eta
+    /// (`fun x -> f x` for a 2-parameter `f` whose body abstracts once) still being type-correct.
     /// `ValueNone` at arity 0 — a non-function reference, which etas to nothing.
     let internal etaReify
         (ctx: PassContext)
@@ -372,8 +372,8 @@ module InlineReduction =
                     | TDecl.Let(_, value, _, _) -> Inline.lambdaArity value
                     | _ -> 0
 
-                min (SemTypeQuery.Arrows.count ctx.Store refTy) bodyArity
-            | ValueNone -> SemTypeQuery.Arrows.count ctx.Store refTy
+                min (SemTypeQuery.Funs.count ctx.Store refTy) bodyArity
+            | ValueNone -> SemTypeQuery.Funs.count ctx.Store refTy
 
         match arity with
         | 0 -> ValueNone
@@ -381,14 +381,14 @@ module InlineReduction =
             // Fresh binders come from the pass's own `mint`, so an eta site can never alias the
             // binders of the body about to be resolved at it.
             let binders =
-                SemTypeQuery.Arrows.domains ctx.Store arity refTy
+                SemTypeQuery.Funs.domains ctx.Store arity refTy
                 |> List.mapi (fun i pty -> mint (), pty, i)
 
             let appBody =
                 binders
                 |> List.fold
                     (fun acc (k, pty, i) ->
-                        let resTy = SemTypeQuery.Arrows.resultAfter ctx.Store (i + 1) refTy
+                        let resTy = SemTypeQuery.Funs.resultAfter ctx.Store (i + 1) refTy
                         TExpr.App(acc, TExpr.Var(k, pty, tok), resTy, tok)
                     )
                     (TExpr.External(name, keyOpt, refTy, tok))
@@ -398,11 +398,11 @@ module InlineReduction =
                 let lamTy = TyFun(pty, innerTy)
                 TExpr.Lambda(TPat.NamedSimple(k, pty, tok), innerBody, lamTy, tok), lamTy
             )
-            <| (appBody, SemTypeQuery.Arrows.resultAfter ctx.Store arity refTy)
+            <| (appBody, SemTypeQuery.Funs.resultAfter ctx.Store arity refTy)
             |> fst
             |> ValueSome
 
-    /// Peel a resolved inline body against one call site's spine and DECIDE each parameter's
+    /// Peel a resolved inline body against one call site's arguments and DECIDE each parameter's
     /// fate — the half of the reduction that needs no recursion, and so the half that can run
     /// before a specialization slot is reserved for the body the recursion will build.
     ///

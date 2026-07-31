@@ -104,8 +104,8 @@ module EmitExpr =
         // A bare external value with no application — a zero-arg module value such
         // as `Set.empty` (the `[<GeneralizableValue>]` generic value compiled to a
         // generic static method `SetModule.Empty<'T>()`). Route it through the same
-        // head dispatch as an application with an empty spine: `buildAppCall`
-        // collects a zero-length spine, `TryEmitCall` emits the 0-arg recipe, and
+        // head dispatch as an application with no arguments: `buildAppCall`
+        // collects an empty argument list, `TryEmitCall` emits the 0-arg recipe, and
         // the generic instantiation is read from the value's (result) type.
         | ExprShape.External -> EmitCall.buildAppCall buildExpr env b e
 

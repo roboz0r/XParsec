@@ -323,7 +323,7 @@ type PassContextResolution =
         /// not an external enum case (a project-local enum, handled by the sibling
         /// `ctx.Types.Enum` arm, or an unrelated qualified name). The enum-case sibling
         /// of `ExternalUnionCaseStamp`, but a bare `SymbolKey` suffices rather than a
-        /// payload: an enum case is a named constant on a closed set, not a ctor arrow.
+        /// payload: an enum case is a named constant on a closed set, not a ctor function.
         ExternalEnumCaseStamp: SideTable<TypeKey>
         /// Keyed by an expression Elaborate lowers to a desugared
         /// `TExpr.External(<intrinsicName>, …)` head that splices a cross-package
@@ -768,7 +768,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// (`Box<_>`: `Box` declared, the arg inferred). Those are tracked per-TyVar by
     /// `inferenceHoles`: read provenance off the node's *un-zonked* annotation type and
     /// treat a `TyVar` position as inferred iff `IsInferenceHole`, every nominal /
-    /// arrow / tuple / applied-with-concrete-arg position as declared. (A *named* typar
+    /// function / tuple / applied-with-concrete-arg position as declared. (A *named* typar
     /// `'a` in `Box<'a>` is written, so it is NOT a hole — only the anonymous `_` is.)
     member val private declaredTypeSites = SideTable<unit>() with get
 

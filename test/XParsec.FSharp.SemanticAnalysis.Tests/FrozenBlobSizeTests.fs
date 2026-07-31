@@ -40,8 +40,8 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // below are unchanged throughout: they exist to catch a LARGE inflation, not to track the
 // number.)
 //
-// The columnar form is inherently spine-heavier than the recursive tree codec, which encodes
-// the tree spine implicitly in its nesting (zero bytes) where the columns must name every
+// The columnar form is inherently edge-heavier than the recursive tree codec, which encodes
+// the tree's child edges implicitly in its nesting (zero bytes) where the columns must name every
 // child edge explicitly — a 4-byte dense id per edge, per domain, which is precisely what
 // buys O(1) id-indexed access. What paid that back is HASH-CONSING the types: a `FrozenType`
 // (and the `SymbolKey`/`TypeKey` cluster it reaches) recurs at thousands of nodes and was

@@ -291,7 +291,7 @@ module VesperLib =
                             specs.Length
                     ]
 
-                let paramTys, resultTy = TastLower.peelArrowDomains arities.Length template
+                let paramTys, resultTy = TastLower.peelFunDomains arities.Length template
 
                 if List.isEmpty arities || List.length paramTys <> List.length arities then
                     ValueNone

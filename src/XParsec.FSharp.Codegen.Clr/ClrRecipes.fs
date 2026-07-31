@@ -17,11 +17,11 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     let encodeType te t = enc.EncodeType(te, t)
 
-    /// Decurry a `FrozenType` arrow chain into `(params, return)` — the `FrozenType`
+    /// Decurry a curried `FrozenType` function into `(params, return)` — the `FrozenType`
     /// analogue of `ClrEnv.decurryTy`, for the open module-function template.
     /// A curried `p1 -> … -> pN -> ret` peels to `([p1; …; pN], ret)`. Peels every
-    /// arrow (`TastLower.peelArrowDomains -1`); the `n`-group variant uses `peelN`.
-    let decurryFrozen (t: FrozenType) : FrozenType list * FrozenType = TastLower.peelArrowDomains -1 t
+    /// `->` (`TastLower.peelFunDomains -1`); the `n`-group variant uses `peelN`.
+    let decurryFrozen (t: FrozenType) : FrozenType list * FrozenType = TastLower.peelFunDomains -1 t
 
     let encodeListOf te inner = enc.EncodeListOf(te, inner)
     let methodSpec handle args = enc.MethodSpec(handle, args)
@@ -341,10 +341,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let methodTyparArity = openSig.MethodTyparArity
 
             // Peel exactly `n` top-level `->` groups off the open template — one per
-            // SOURCE argument group. Unlike `decurryFrozen` (which peels every arrow),
-            // `peelArrowDomains n` stops at the source arity, so a function-typed
+            // SOURCE argument group. Unlike `decurryFrozen` (which peels every `->`),
+            // `peelFunDomains n` stops at the source arity, so a function-typed
             // RESULT stays whole.
-            let peelN n t = TastLower.peelArrowDomains n t
+            let peelN n t = TastLower.peelFunDomains n t
 
             // The flat parameter vector + `void`-vs-value decision come from the SOURCE
             // `ValRepr` the symbol carries: its groups drive the tuple-flatten
@@ -373,10 +373,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                     if List.length groupParamTys <> n then
                         // The producer peels the same arity off the same template, so a
-                        // well-formed contract always exposes `n` arrows here; a shortfall
-                        // is a corrupt contract, not a recoverable shape.
+                        // well-formed contract always exposes `n` parameter groups here; a
+                        // shortfall is a corrupt contract, not a recoverable shape.
                         failwithf
-                            "emitExternalCall: contract for %s declares %d source groups but its template has only %d arrows"
+                            "emitExternalCall: contract for %s declares %d source groups but its template has only %d"
                             compiledFullName
                             n
                             (List.length groupParamTys)
@@ -477,11 +477,11 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     methodSpec callBase methodArgs
 
             // `Grouped` carries the SOURCE grouping (the walker consumes
-            // `groups.Length` spine elements and flattens each) AND the FLAT pop count
+            // `groups.Length` arguments and flattens each) AND the FLAT pop count
             // `List.length flatParamTys` — what the `call` actually consumes and what
             // drives the IlIr stack model (`Pushes - FlatArgCount`). The two diverge
-            // for a non-`GSimple` group (a tupled group is N flat from ONE spine
-            // element; a lone `()` is ZERO from one); `Flat` is the all-`GSimple`
+            // for a non-`GSimple` group (a tupled group is N flat from ONE
+            // argument; a lone `()` is ZERO from one); `Flat` is the all-`GSimple`
             // fallback where they coincide.
             let arity =
                 match recipeGroups with

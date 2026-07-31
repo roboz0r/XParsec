@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.ElaboratePatterns
 open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
-// Application lowering for the Elaborate pass: the general `App` spine walk, the
+// Application lowering for the Elaborate pass: the general `App` chain walk, the
 // residual single `HighPrecedenceApp`, the external optional-argument fill both
 // consult first, SRTP member-trait invocations, and the desugared infix /
 // prefix operator forms.
@@ -125,7 +125,7 @@ module internal ElaborateApply =
             // An external .NET method head reads its obj slots off the declared
             // signature Unification recorded (`externalHeadDom`); its node SemType is
             // the un-grounded applied shape, not the function type. The method consumes
-            // the first spine arg (its tupled argument list); a project-local function
+            // the first argument (its tupled argument list); a project-local function
             // reads each obj parameter off the head's function type (`currTy`) instead.
             let externalDom = externalHeadDom ctx (CstKeys.ofExpr fn) result
             let mutable isFirst = true

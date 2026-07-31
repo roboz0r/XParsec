@@ -387,7 +387,7 @@ let tests =
             test "%a demands a callback printer — a bare value is a type error" {
                 // `%a` types as a printer `'State -> 'T -> 'Residue`, so the first
                 // trailing arg must be a callback; here `42` (an `int`) unifies against
-                // that arrow and is rejected.
+                // that function type and is rejected.
                 let tast = analyse "let r = printfn \"%a\" 42"
                 Expect.isNonEmpty tast.Diagnostics "a non-callback %a argument is flagged, not silently mistyped"
             }

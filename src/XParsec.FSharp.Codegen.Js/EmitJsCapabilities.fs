@@ -163,7 +163,7 @@ module EmitJsCapabilities =
         | ValueNone -> ValueNone
 
     /// An `ExternalMember` node that is a capability-member VALUE read (`e.Current`), reached
-    /// WITHOUT an applying spine → its receiver and the slot's emitter. Vesper compiles an
+    /// WITHOUT being applied → its receiver and the slot's emitter. Vesper compiles an
     /// interface property to a zero-arg method, so the read IS the call: `e.Current` emits
     /// `e.Current()`.
     ///
@@ -184,11 +184,11 @@ module EmitJsCapabilities =
         | _ -> ValueNone
 
     /// The APPLIED form — `src.GetEnumerator()` / `e.MoveNext()` / `e.Dispose()`: an `App`
-    /// whose head is a capability member and whose spine is the lone `unit` argument, folded
+    /// whose head is a capability member applied to the lone `unit` argument, folded
     /// into the zero-arg access. The capability analogue of `JsExternalMembers.tryAttachedCall`,
     /// and dispatched beside it in `EmitJs`'s `App` arm. `ValueNone` for every other head.
     ///
-    /// The `unit` spine element is matched, not assumed: a capability member that ever takes a
+    /// The `unit` argument is matched, not assumed: a capability member that ever takes a
     /// real argument would silently lose it here, so it falls through to the ordinary
     /// external-member lowering (which fails loudly) instead.
     let tryCapabilityCall
@@ -196,10 +196,10 @@ module EmitJsCapabilities =
         (imports: JsImports)
         (build: TastAccessor.ExprId -> JsExpr)
         (head: TastAccessor.ExprId)
-        (spine: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
         (loc: JsLoc voption)
         : JsExpr voption =
-        match head, spine with
+        match head, appArgs with
         | JsExternalMembers.InstanceExternalMember(recv, em), [ (arg, _, _) ] when
             em.Storage = MemberStorage.Method
             && TastAccessor.exprKind arg = ExprShape.Const

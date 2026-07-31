@@ -208,7 +208,7 @@ module PrintfSpec =
     /// Excludes `%a`/`%t` (`FormatFunction`/`Text`) and `%A`/`%O`
     /// (`Object`/`Structured` — a fresh typar, which is unpinned when the printf
     /// partial is left unapplied). Though `argTypes` now types `%a`/`%t` (a printer
-    /// arrow over the family's `'State`/`'Residue`, plus a fresh value typar for
+    /// function over the family's `'State`/`'Residue`, plus a fresh value typar for
     /// `%a`), they are still not *concrete*: a fully-unapplied partial over such a
     /// hole would be a *generic* value struct, out of scope for the 4a heap-closure
     /// lowering, so they must stay `false` here and route cold.
@@ -414,7 +414,7 @@ module PrintfSpec =
     /// placeholder isn't typeable (no letter is left untypeable now that `argTypes`
     /// covers `%a`/`%t` from `fam.State`/`fam.Residue`) — the caller then defers to
     /// standard inference. Star dimensions concat their leading `int`s into the
-    /// printer arrow via `argTypes`, so the printer curries width/precision before
+    /// printer's type via `argTypes`, so the printer curries width/precision before
     /// the value.
     let appliedTypeOf
         (fresh: unit -> SemType)

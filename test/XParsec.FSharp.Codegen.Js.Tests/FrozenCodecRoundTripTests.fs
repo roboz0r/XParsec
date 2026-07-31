@@ -117,8 +117,8 @@ let private collect () : Collected =
                 | FrozenConstraint.Coercion(_, target) -> visitFt target
 
         // No `BindingValReprs` pass: the DU carries none — a binding's source arity is
-        // a PROJECTION of its lambda spine that `TastPools.toPools` derives off the
-        // columns, so every type and slot it names is already reached by the spine walk
+        // a PROJECTION of its lambda chain that `TastPools.toPools` derives off the
+        // columns, so every type and slot it names is already reached by the lambda walk
         // this walk runs.
 
         // Real frozen anchors, shallowly: the source anchor of each top-level decl body.

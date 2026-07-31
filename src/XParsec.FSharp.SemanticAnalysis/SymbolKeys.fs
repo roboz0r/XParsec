@@ -334,8 +334,8 @@ type SymbolOrigin =
 /// signature's `Return`); they diverge only at CLR emission — a `Field` reads via a
 /// `FieldRef` + `ldfld`/`ldsfld`, a `Property` via its `get_X` getter `MemberRef` +
 /// `call`. On JS both are a plain value access (a `Field` adds only `readonly`
-/// fidelity, not yet modelled). `Method` is an arrow member (`call`/JS call).
-/// Consumers that only care about value-vs-arrow read `IsValueMember` (here, or the
+/// fidelity, not yet modelled). `Method` is a function member (`call`/JS call).
+/// Consumers that only care about value-vs-function read `IsValueMember` (here, or the
 /// forwarding `ExternalMember.IsValueMember` / `ResolvedExternalMember.IsValueMember`)
 /// rather than matching this directly.
 [<RequireQualifiedAccess>]
@@ -345,6 +345,6 @@ type MemberStorage =
     | Method
 
     /// A value member (`Field`/`Property` — no parameters, value in the signature's
-    /// `Return`) vs an arrow `Method`. The canonical value-vs-arrow predicate; the
+    /// `Return`) vs a `Method`. The canonical value-vs-function predicate; the
     /// `ExternalMember` / `ResolvedExternalMember` members of the same name forward here.
     member s.IsValueMember = s <> MemberStorage.Method

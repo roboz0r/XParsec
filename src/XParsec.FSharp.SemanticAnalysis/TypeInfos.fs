@@ -819,6 +819,6 @@ type ResolvedExternalMember =
         OptionalDefaults: TConstValue list
     }
 
-    /// A value member (field/property) vs an arrow `Method` — the predicate the
+    /// A value member (field/property) vs a `Method` — the predicate the
     /// optional-default gate and Elaborate read; mirrors `ExternalMember.IsValueMember`.
     member m.IsValueMember = m.Storage.IsValueMember

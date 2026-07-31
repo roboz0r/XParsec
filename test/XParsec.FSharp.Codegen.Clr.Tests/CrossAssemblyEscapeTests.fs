@@ -29,7 +29,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // repo `tmp/` dir so the consumer's contract provider extracts the producer's
 // `ValRepr`/`CompiledForm` from the recorded arity — the exact tupled/unit path.
 
-/// The producer contract: the arity the consumer reconciles its call spines
+/// The producer contract: the arity the consumer reconciles its call arguments
 /// against. `addPair`'s `*`-separated group is a TUPLED group (2 flat params);
 /// `getUnit`'s `unit` group is the lone-erasable shape.
 let private producerFsi =

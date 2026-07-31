@@ -512,7 +512,7 @@ module EmitClosures =
     /// eta-expanding `f` to its full SOURCE arity at every non-saturated occurrence:
     ///   * a bare value-use  `f`     → `fun a0 … a(n-1) -> f a0 … a(n-1)`
     ///   * an under-application `f x` → `(fun a0 … a(n-1) -> f a0 … a(n-1)) x`
-    /// After the rewrite every surviving `Var f` heads a saturated (≥ arity) spine, so
+    /// After the rewrite every surviving `Var f` heads a saturated (≥ arity) application, so
     /// `collectStaticFns` emits `f` as a static method; the synthesised eta-lambdas are
     /// ordinary closures whose body is a saturated direct `call` to it (the "wrapper
     /// that calls it"). Exported and holderless escapers are treated alike — both keep
@@ -530,7 +530,7 @@ module EmitClosures =
         (decls: TastAccessor.DeclId list)
         : TastAccessor.DeclId list =
         // Each eligible function's source arity (its curried group count) — the number
-        // of arrows the eta-expansion peels, and the spine length at or above which a
+        // of parameters the eta-expansion peels, and the argument count at or above which a
         // reference is a saturated direct `call`. `fns` is the SAME pre-bridge
         // `gather` `staticEligible` ran on, threaded in so the two cannot disagree.
         let arity = Dictionary<BinderId, int>()
@@ -543,7 +543,7 @@ module EmitClosures =
             decls
         else
             // `fun a0 … a(n-1) -> f a0 … a(n-1)`, typed from the reference's own
-            // curried type: peel `n` arrows for the param domains + each `App` node's
+            // curried type: peel `n` domains for the params + each `App` node's
             // result type. A tuple / unit source group needs no special case — the
             // single fresh param carries the group's (possibly tuple / unit) domain
             // and is passed as one argument, exactly as the saturated-call site
@@ -553,10 +553,13 @@ module EmitClosures =
 
                 // Each peeled `->` as a `(domain, codomain)` pair: the fresh param's
                 // type and the intermediate `App` result type.
-                let levels = TastLower.peelArrows n (typeOfExpr fVar)
+                let levels = TastLower.peelFuns n (typeOfExpr fVar)
 
                 if List.length levels <> n then
-                    failwithf "bridgeStaticFnEscapes: function type has fewer than %d arrows: %A" n (typeOfExpr fVar)
+                    failwithf
+                        "bridgeStaticFnEscapes: function type has fewer than %d parameters: %A"
+                        n
+                        (typeOfExpr fVar)
 
                 let keys = levels |> List.map (fun _ -> TastPoolBuilder.mintBinder fVar.Pool)
 
@@ -568,7 +571,7 @@ module EmitClosures =
                 let argTriples =
                     List.map2 (fun k (dom, cod) -> TastAccessor.mintVar pool k dom tok, cod, tok) keys levels
 
-                let body = TastAccessor.mintAppSpine fVar argTriples
+                let body = TastAccessor.mintAppChain fVar argTriples
 
                 List.foldBack2
                     (fun k (dom, cod) acc ->
@@ -582,22 +585,22 @@ module EmitClosures =
                 match e with
                 | TastAccessor.EVar k when arity.ContainsKey k -> buildEta e arity.[k]
                 | TastAccessor.EApp _ ->
-                    let head, args = TastAccessor.collectSpine [] e
+                    let head, args = TastAccessor.collectAppChain [] e
 
                     match head with
                     | TastAccessor.EVar k when arity.ContainsKey k && List.length args < arity.[k] ->
                         // Under-application: partially apply the eta closure. The head is
-                        // a freshly minted closure, so this spine is genuinely new.
-                        TastAccessor.mintAppSpine
+                        // a freshly minted closure, so this application is genuinely new.
+                        TastAccessor.mintAppChain
                             (buildEta head arity.[k])
                             (args |> List.map (fun (a, t, tk) -> rw a, t, tk))
                     | _ ->
-                        // The spine STANDS: a saturated (or over-applied) eligible head
+                        // The application STANDS: a saturated (or over-applied) eligible head
                         // stays a direct `call` and everything else recurses, so only the
                         // arguments and a non-eligible head can move. Rewriting in place
                         // keeps each `App`'s own id — the rows that did not change are not
                         // re-appended.
-                        TastAccessor.mapSpine
+                        TastAccessor.mapAppChain
                             (fun h ->
                                 match h with
                                 | TastAccessor.EVar k when arity.ContainsKey k -> h

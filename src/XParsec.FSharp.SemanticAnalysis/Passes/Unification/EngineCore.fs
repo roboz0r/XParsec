@@ -364,14 +364,14 @@ module UnificationEngineCore =
     /// arity, so every recognizer site matches this name AND discriminates on
     /// `targs.Length` (arity = length - 1, for 2..5 args) — the name alone never tells
     /// them apart. `subsumes` consults this for the
-    /// arrow→`Fun` discharge rules; the unifier otherwise keeps `TyFun` structural.
+    /// `TyFun`→`Fun` discharge rules; the unifier otherwise keeps `TyFun` structural.
     [<Literal>]
     let funInterfaceQualifiedName = "Vesper.Fun"
 
     /// The flat `FunN` arity a matched `Fun`(k+1)` interface instantiation denotes:
     /// `Some(genericArity - 1)` when `bareName` is the canonical `Fun` family AND the
     /// generic arity is 2..5 (⇒ arity 1..4), else `None`. The ONE predicate every
-    /// arrow↔`Fun` recognizer shares (`funSlotArityOf`, `subsumes`, the Engine
+    /// `TyFun`↔`Fun` recognizer shares (`funSlotArityOf`, `subsumes`, the Engine
     /// constraint-drain) — keeps the "name-match + 2..5 bound + length - 1" rule
     /// single-sourced so the sites cannot disagree on what counts as a `Fun` slot.
     let funSlotArityOfArgs (bareName: string) (genericArity: int) : int option =
@@ -380,16 +380,16 @@ module UnificationEngineCore =
         else
             None
 
-    /// Peel `k` domains off an arrow spine `TyFun(a, b)`, returning the `k+1` types
+    /// Peel `k` domains off the `TyFun(a, b)` chain, returning the `k+1` types
     /// `[dom0; …; dom_{k-1}; residualCodomain]` aligned to a `Fun`(k+1)`'s type args —
-    /// or `None` if the spine is too short to peel `k` domains. The residual codomain
-    /// is returned WHOLE (a further curried arrow — the printf `n > K` tail — is NOT
-    /// peeled). `resolveStep` unwraps each codomain before the next arrow. SINGLE
-    /// source of the arrow↔`Fun` spine shape shared by `subsumes` (checks each `Equal`)
+    /// or `None` if the chain is too short to peel `k` domains. The residual codomain
+    /// is returned WHOLE (a further curried `TyFun` — the printf `n > K` tail — is NOT
+    /// peeled). `resolveStep` unwraps each codomain before the next `TyFun`. SINGLE
+    /// source of the `TyFun`↔`Fun` shape shared by `subsumes` (checks each `Equal`)
     /// and the Engine constraint-drain (`unify`s each): the two MUST peel identically,
     /// else a green-lit coercion grounds to a different shape than was checked.
     /// `k >= 1` at every call site (a validated `Fun` slot is arity ≥ 1).
-    let peelFunSpine (store: TypeStore) (k: int) (a: SemType) (b: SemType) : SemType list option =
+    let peelFunDomains (store: TypeStore) (k: int) (a: SemType) (b: SemType) : SemType list option =
         let rec go i (dom: SemType) (cod: SemType) (acc: SemType list) =
             let acc = dom :: acc
 

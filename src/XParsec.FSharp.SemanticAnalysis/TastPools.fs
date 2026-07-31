@@ -169,7 +169,7 @@ module TastPools =
             }
 
     /// The SOURCE arity of every module binding, READ OFF THE POOLED SPINE — the columns
-    /// `toPools` has just filled, so a tuple group's pattern IS the lambda-spine node it
+    /// `toPools` has just filled, so a tuple group's pattern IS the lambda parameter node it
     /// was peeled from and not a re-pooled copy of it. Derived rather than carried: it is a
     /// projection of the tree, and the only way for a projection to disagree with what it
     /// projects is for the two to be computed apart.

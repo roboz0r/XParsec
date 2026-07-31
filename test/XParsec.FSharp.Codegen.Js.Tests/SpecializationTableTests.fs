@@ -158,9 +158,9 @@ module Probe =
             (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
 
 /// A synthetic producer whose recursion closes on a MEMBER, which is the one head whose
-/// RECEIVER is not a spine argument: the reduction PREPENDS it, so the entry's parameters are
+/// RECEIVER is not an applied argument: the reduction PREPENDS it, so the entry's parameters are
 /// peeled from `this :: args` while the application it was reached through carries only `args`.
-/// A back edge taking the application's spine would therefore name the entry with one argument
+/// A back edge taking the application's own arguments would therefore name the entry with one argument
 /// too few — a miscompile no non-recursive member call can expose, because every other edge is
 /// minted from the survivors of the very peel it belongs to.
 ///
@@ -454,7 +454,7 @@ let tests =
             }
 
             test "a recursion that closes on a MEMBER answers the call without losing its receiver" {
-                // The one head whose receiver is not a spine argument. `a.[1]` expands
+                // The one head whose receiver is not an applied argument. `a.[1]` expands
                 // `get_Item`, whose reduction peels `this :: [index]`; its body reaches the same
                 // member through `bounce`, and THAT call is answered rather than expanded.
                 //
@@ -522,7 +522,7 @@ let tests =
 
                 // THE case: the back edge is minted inside `bounce`'s entry, where the source
                 // spells `a.[i]` — one explicit argument. It carries TWO, because the peel it was
-                // minted from prepended the receiver. An edge taking the application's own spine
+                // minted from prepended the receiver. An edge taking the application's own arguments
                 // would name this two-parameter entry with one argument, and nothing before the
                 // backend would notice.
                 match
@@ -533,7 +533,7 @@ let tests =
                     Expect.equal
                         argCount
                         2
-                        "the back edge carries `this` ahead of the index — the receiver the application never held in its spine"
+                        "the back edge carries `this` ahead of the index — the receiver the application never held as an argument"
                 | other ->
                     failtestf "`bounce`'s body closes the loop with exactly one back edge; got %d" (List.length other)
             }
@@ -641,7 +641,7 @@ let tests =
                 // `(&&)` is `let inline (&&) a [<CallAtMostOnce>] b = if a then b else false`:
                 // `b` is substituted at its single use rather than bound, so it vanishes into
                 // the body and the entry abstracts ONE parameter, not two. Nothing records an
-                // arity — the lambda spine and the edge's argument count are the same fact.
+                // arity — the lambda chain and the edge's argument count are the same fact.
                 let expanded = expandedFor "let a = true && false\n"
 
                 let entry =

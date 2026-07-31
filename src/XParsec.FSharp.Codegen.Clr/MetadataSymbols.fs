@@ -203,7 +203,7 @@ module private MetadataMapping =
 
         acc
 
-    /// Property signature: value type only (no arrow). `Storage = Property` on the member.
+    /// Property signature: value type only (no `->`). `Storage = Property` on the member.
     let tryPropertySignature (reverseCanon: Map<string, SymbolKey list>) (p: PropertyInfo) : FrozenType option =
         tryBuildType reverseCanon p.PropertyType
 

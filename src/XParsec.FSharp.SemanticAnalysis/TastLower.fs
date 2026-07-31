@@ -155,7 +155,7 @@ module TastLower =
     ///
     /// The witness is AUTHORITATIVE for a bound-mentioned typar even when the signature
     /// already recovered it: a combinator carrying `'E` in BOTH its bound AND its result
-    /// can have a stale arrow in the result occurrence (a chained source's `'TFunc`
+    /// can have a stale function type in the result occurrence (a chained source's `'TFunc`
     /// buried in its frozen enumerator type), whereas the witness reads it from the
     /// source's ACTUAL `<closure>$`-bearing seq impl — so every bound-mentioned index is
     /// overridden with the witness value. Mutates `instArr` in place.
@@ -216,7 +216,7 @@ module TastLower =
     //   * `ValRepr`      — the SOURCE arity (the `ValReprInfo` analogue): the
     //                      curried groups, each group's tuple structure, the typar
     //                      arity, and the SOURCE (non-erased) result type. A caller
-    //                      reconciles its application spine against this.
+    //                      reconciles its call arguments against this.
     //   * `CompiledForm` — the flat CLR/JS signature DERIVED from a `ValRepr`:
     //                      tuple groups flattened (full F#, one level), a lone unit
     //                      group erased, a unit result mapped to `void`.
@@ -242,16 +242,16 @@ module TastLower =
         | FTUnit -> true
         | _ -> false
 
-    /// Peel up to `n` top-level `->` arrows off a frozen type (all of them when
+    /// Peel up to `n` top-level `->` off a frozen type (all of them when
     /// `n < 0`), returning each as a `(domain, codomain)` pair in order. One home for
-    /// the `peelN` / `arrows` / `decurryFrozen` walks that were copied across
+    /// the function-peeling walks that were copied across
     /// `VesperLib`, `ClrRecipes`, and `EmitClosures`.
-    let rec peelArrows (n: int) (t: FrozenType) : (FrozenType * FrozenType) list =
+    let rec peelFuns (n: int) (t: FrozenType) : (FrozenType * FrozenType) list =
         if n = 0 then
             []
         else
             match t with
-            | FTFun(a, b) -> (a, b) :: peelArrows (if n < 0 then -1 else n - 1) b
+            | FTFun(a, b) -> (a, b) :: peelFuns (if n < 0 then -1 else n - 1) b
             | _ -> []
 
     /// Rebuild a frozen type by transforming its top-level type-argument vector.
@@ -269,11 +269,11 @@ module TastLower =
         | FTTuple items -> FTTuple(f items)
         | _ -> t
 
-    /// `peelArrows` projected to the F#-form `(parameter types, residual result)`:
+    /// `peelFuns` projected to the F#-form `(parameter types, residual result)`:
     /// `decurryFrozen`'s shape (`n < 0`, peel all) and the contract peelers (`n`
-    /// groups). The residual is the type after the peeled arrows.
-    let peelArrowDomains (n: int) (t: FrozenType) : FrozenType list * FrozenType =
-        match peelArrows n t with
+    /// groups). The residual is the type after the peeled `->`.
+    let peelFunDomains (n: int) (t: FrozenType) : FrozenType list * FrozenType =
+        match peelFuns n t with
         | [] -> [], t
         | levels -> List.map fst levels, snd (List.last levels)
 
@@ -361,7 +361,7 @@ module TastLower =
     /// binder (`fun () -> …` — the body never references it) so the emission still
     /// allocates a slot for the unit value the caller pushes; a tuple group likewise gets
     /// one and carries its `Pat` so the emission `bindPattern`s the leaf bindings out of
-    /// the value. Both are minted into the spine's OWN pool, so every slot a lowering
+    /// the value. Both are minted into the lambda chain's OWN pool, so every slot a lowering
     /// hands the emission is addressed in the one id space its `Var`s are.
     let peelLambda (e: TastAccessor.ExprId) : StaticParam list * TastAccessor.ExprId =
         let groups, body = peelValRepr e
@@ -538,7 +538,7 @@ module TastLower =
         // chain here lets each trailing `let` become its own `TDecl.Let`, which
         // flows into the already-built `ProgramMainValues` / `stsfld` path.
         //
-        // Only the outermost statement *spine* is peeled — `Sequential` items and
+        // Only the outermost statement *chain* is peeled — `Sequential` items and
         // the continuation (`body`) of a top-level `let … in …`. Sub-expressions
         // (application args, lambda bodies, match arms) are NOT descended into, so
         // a genuinely-local `let` nested inside an expression is left intact.
@@ -550,7 +550,7 @@ module TastLower =
                         yield! flattenTopLevel it
                 ]
             | ExprShape.Let ->
-                // The bound value is itself an expression (not a statement spine) —
+                // The bound value is itself an expression (not a statement chain) —
                 // keep it whole; only the `body` continuation is more top-level decls.
                 let l = TastAccessor.exprLet e
 

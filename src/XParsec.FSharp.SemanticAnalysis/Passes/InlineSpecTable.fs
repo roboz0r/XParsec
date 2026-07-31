@@ -303,7 +303,7 @@ module InlineSpecTable =
                 ValueNone
 
         /// The TABLE form of a reduction: a new entry, its surviving parameters abstracted
-        /// back into the lambda spine an `InlineCall`'s arguments are positional against.
+        /// back into the lambda chain an `InlineCall`'s arguments are positional against.
         /// Arity is therefore the surviving-parameter count and nothing stores it — a
         /// parameter the reduction fused is simply not a parameter of the entry.
         ///
@@ -367,7 +367,7 @@ module InlineSpecTable =
             let spec, args =
                 match tryReuse o.Grounding o.Shareable t with
                 // A shared entry is CLOSED, so every peeled parameter survived it and the
-                // site's whole spine is the edge's argument list.
+                // site's whole argument list is the edge's argument list.
                 | ValueSome spec -> spec, o.ReuseArgs()
                 | ValueNone ->
                     let spec, survivors = mintEntry o t

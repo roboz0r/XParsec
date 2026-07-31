@@ -19,7 +19,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes.UnificationEngineCore
 // CROSS-file one holds the roots the thaw just minted. `inlineExpand` substitutes those
 // roots to the caller's concrete types; `freshen` renames binders so independent call sites
 // do not alias each other's codegen local slots. Argument (beta) reduction stays with the
-// caller, which is what holds the spine.
+// caller, which is what holds the arguments.
 
 module Inline =
 
@@ -270,7 +270,7 @@ module Inline =
     /// there are typars substitutes the leading ones and leaves the rest abstract.
     ///
     /// The substituting walk runs even when there is nothing to substitute (a
-    /// monomorphic binding, or a bare reference with no spine to derive typars from):
+    /// monomorphic binding, or a bare reference with no arguments to derive typars from):
     /// it is what resolves `StaticOptimization` and `TraitCall` nodes, and NEITHER
     /// backend can emit those. Short-circuiting an empty substitution would let both node
     /// kinds ride an un-substituted body straight through to codegen's `failwithf`
@@ -360,11 +360,11 @@ module Inline =
 
         TastWalk.mapExpr mapper body
 
-    /// Beta-reduce a curried lambda against its spine args, lowering each application to a
-    /// `TExpr.Let`. The lambda count must be at least the
-    /// spine-arg count; a leftover lambda is a partial application and is returned as it
-    /// stands. The `SemType` of each spine element is the applying `App` node's RESULT type,
-    /// carried only because that is the shape a collected spine comes in — the reduction
+    /// Beta-reduce a curried lambda against its applied arguments, lowering each application
+    /// to a `TExpr.Let`. The lambda count must be at least the
+    /// argument count; a leftover lambda is a partial application and is returned as it
+    /// stands. The `SemType` of each argument is the applying `App` node's RESULT type,
+    /// carried only because that is the shape a collected application comes in — the reduction
     /// reads the argument and the position it was applied at.
     ///
     /// Anchoring: the synthesised `Let` sits at the application node it lowers, and the binder
@@ -411,7 +411,7 @@ module Inline =
         | _ -> 0
 
     /// Rewrite what a curried lambda COMPUTES, leaving its abstractions in place. The lambda
-    /// spine has to survive the rewrite because `betaReduce` matches on it, and its
+    /// chain has to survive the rewrite because `betaReduce` matches on it, and its
     /// binders are consumed against arguments belonging to whatever body the lambda is spliced
     /// into — so a rewrite about the lambda's own origin applies below them, not around them.
     let rec internal underLambdas (f: TExpr -> TExpr) (e: TExpr) : TExpr =
@@ -430,9 +430,9 @@ module Inline =
     /// fully-applied [<InlineIfLambda>]-style parameter is guaranteed to vanish.
     ///
     /// The walk mirrors the expansion walker's `App` rule exactly: collect the
-    /// WHOLE spine at each `App` and never let `TastWalk`'s default recursion
-    /// descend into a sub-`App` (which would mis-measure a partial spine as the
-    /// arity), recursing only into the spine's head (when not a candidate) and
+    /// WHOLE application at each `App` and never let `TastWalk`'s default recursion
+    /// descend into a sub-`App` (which would mis-measure a partial application as the
+    /// arity), recursing only into the application's head (when not a candidate) and
     /// its arguments.
     let internal nonInlinableLambdaParams (candidates: Dictionary<NodeKey, TExpr>) (core: TExpr) : HashSet<NodeKey> =
         let bad = HashSet<NodeKey>()
@@ -443,7 +443,7 @@ module Inline =
                     fun iter e ->
                         match e with
                         | TExpr.App _ ->
-                            let head, args = TastWalk.collectSpine [] e
+                            let head, args = TastWalk.collectAppChain [] e
 
                             (match head with
                              | TExpr.Var(k, _, _) when candidates.ContainsKey k ->
@@ -468,13 +468,13 @@ module Inline =
 
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter (and return) types — carrying the quantified typars —
-    /// against the actual spine-arg types. Tolerant: a typar the params don't pin is
+    /// against the actual argument types. Tolerant: a typar the params don't pin is
     /// left as its own `TyVar`, which selects no `when ^T : Type` clause and so falls
     /// to the body's base. Returned in `quantifiedTypars` order.
     let internal deriveInlineTypeArgs
         (store: TypeStore)
         (declTy: SemType)
-        (spineArgs: (TExpr * SemType * SyntaxToken) list)
+        (args: (TExpr * SemType * SyntaxToken) list)
         : SemType[] =
         let typars = quantifiedTypars store declTy
 
@@ -540,19 +540,19 @@ module Inline =
                     pairGo ps' acts'
                 | _ -> ()
 
-            let nArgs = List.length spineArgs
+            let nArgs = List.length args
 
-            pairGo (SemTypeQuery.Arrows.domains store nArgs declTy) [ for (a, _, _) in spineArgs -> TastWalk.exprTy a ]
+            pairGo (SemTypeQuery.Funs.domains store nArgs declTy) [ for (a, _, _) in args -> TastWalk.exprTy a ]
 
             // Pair the result position too: `failwith`'s only typar `'T` sits in
             // the *return* (`string -> 'T`), so the param walk leaves it unbound.
-            // The last spine arg's recorded type is the whole application's result
-            // (`collectSpine` pairs each arg with its `App` node's result), so
+            // The last argument's recorded type is the whole application's result
+            // (`collectAppChain` pairs each arg with its `App` node's result), so
             // unifying it against `declTy`'s return position grounds the result
             // typars.
             if nArgs > 0 then
-                let declRetTy = SemTypeQuery.Arrows.resultAfter store nArgs declTy
-                let _, actualRetTy, _ = spineArgs |> List.last
+                let declRetTy = SemTypeQuery.Funs.resultAfter store nArgs declTy
+                let _, actualRetTy, _ = args |> List.last
                 go declRetTy actualRetTy
 
             Array.mapi

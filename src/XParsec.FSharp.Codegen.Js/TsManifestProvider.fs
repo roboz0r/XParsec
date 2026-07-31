@@ -78,7 +78,7 @@ module TsManifestProvider =
             let sg = singleSignature name signatures
 
             // A TRAILING optional parameter (`mitt(all?)`) is dropped from the curried
-            // arrow: a zero-arg use site (`mitt()`) applies to `unit`, so a sole trailing
+            // signature: a zero-arg use site (`mitt()`) applies to `unit`, so a sole trailing
             // optional collapses the function to `unit -> ret`. (Only trailing optionals
             // drop — an optional followed by a required one keeps its slot; TS forbids
             // that ordering anyway.) The runtime default (`n = n || new Map`) supplies the
@@ -113,7 +113,7 @@ module TsManifestProvider =
 
     /// A `Variable` export → a singleton VALUE symbol, resolved by name via
     /// `TryLookup` exactly like a free function but carrying the variable's type
-    /// directly (a VALUE, not an arrow). `isConst` carries no front-end distinction
+    /// directly (a VALUE, not a function). `isConst` carries no front-end distinction
     /// at this seam (JS lowering reads the imported binding by name regardless of
     /// mutability), so it is not consumed here.
     let private toValueSymbol
@@ -197,7 +197,7 @@ module TsManifestProvider =
         let types = (regularTypes @ syntheticTypes @ structuralTypes) |> Map.ofList
 
         // Free functions and singleton VARIABLES both resolve by name via `TryLookup`,
-        // so they share the one value map (a variable is a value, not an arrow).
+        // so they share the one value map (a variable is a value, not a function).
         // OVERLOADED functions are excluded here — they resolve through their synthetic
         // type's static members (`TryLookupMembers`), not by bare name.
         let funcs =

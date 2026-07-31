@@ -279,7 +279,7 @@ an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse
   union/record `this`-first host-member path; CONSUMER capture (VesperLib invariant lifted → Class +
   `CapabilityFace`); member-keyed harvest/store (`SymbolProviders.harvestMemberBody` + `buildContractCached`).
 - `1f7222bb` **1c** — the `TExpr.ExternalMember` splice arm (`InlineExpansion.fs`; receiver prepended to
-  the spine, splice-vs-call fork on `TryLookupInlineBody`) + end-to-end emit fixture (`fixtures/widget/`).
+  the arguments, splice-vs-call fork on `TryLookupInlineBody`) + end-to-end emit fixture (`fixtures/widget/`).
 - `d2d890bf` **1d** — key the harvest store by `SymbolKeyOps.qualifiedName tdecl.Key` (namespaced types work).
 - `0fbec4d0` **2a** — array `arr.[i]` READ via a `get_Item` member on `'T[]` (JS), byte-identical, with a
   white-box anti-masking assertion (`ArrayIndexMemberTests`). New files `src/Vesper.Core/array-index.js.fsi`

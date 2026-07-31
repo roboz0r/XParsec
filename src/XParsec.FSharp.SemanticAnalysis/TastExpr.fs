@@ -642,8 +642,8 @@ and StaticParamG<'ty, 'pat, 'id> =
 /// no pool to index into and stays at the tree.
 ///
 /// `GSimple`'s slot rides the tree's identity axis for the same reason every other
-/// reference does: a file's own arity is DERIVED from its pooled spine, so the parameter
-/// it names is the `BinderId` that spine already addresses, while a contract-minted arity
+/// reference does: a file's own arity is DERIVED from its pooled lambda chain, so the parameter
+/// it names is the `BinderId` that chain already addresses, while a contract-minted arity
 /// belongs to no pool and stays in the node space.
 and [<RequireQualifiedAccess>] ArgGroupG<'ty, 'pat, 'id> =
     | GUnit of ty: 'ty

@@ -8,7 +8,7 @@
 // `structuralEquals` / `structuralHash`, which the backend imports from here through
 // the ordinary external-call path (`JsImports.addRef`) — so these two exports are
 // the public surface, aliased like any other Vesper module function. They are FLAT
-// (Fable-style) two-arg functions — a saturated `=` / `hash` call collapses its spine
+// (Fable-style) two-arg functions — a saturated `=` / `hash` call collapses its arguments
 // to `structuralEquals(a, b)` / `structuralHash(x)`; the recursive walkers
 // (`eq` / `hashOf`) stay private and never cross the module boundary.
 //

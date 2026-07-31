@@ -156,7 +156,7 @@ module JsExternalMembers =
 
     /// Forward a native attached-member escape's SINGLE eta-wrap parameter (`argVar`)
     /// to the member's JS positional arguments. An external method is tupled, so an
-    /// escaped `box.get` value is a single-arrow `arg -> ret`: the one wrapper param is
+    /// escaped `box.get` value is a one-parameter `arg -> ret`: the one wrapper param is
     /// DROPPED for a 0-param (`unit`) member, passed straight for 1, or spread
     /// element-wise (`argVar[j]`) for a ≥2-param (tupled) member. Parallels the
     /// applied-call flatten (`attachedMemberArgs`), reading a JS array rather than a
@@ -197,11 +197,11 @@ module JsExternalMembers =
 
     /// A NATIVE attached-member call. An `ExternalMember` head whose declaring
     /// type carries `AttachMembers` (a real manifest object — its instance
-    /// members are genuine prototype/own methods) folds its whole application
-    /// spine into ONE `receiver.member(args)`; it is NOT a receiver-first free-fn
+    /// members are genuine prototype/own methods) folds every applied argument
+    /// into ONE `receiver.member(args)`; it is NOT a receiver-first free-fn
     /// import (the form Vesper's OWN runtimes emit as a tree-shaking optimisation).
-    /// The member is tupled (.NET convention): it consumes the FIRST spine
-    /// element as its argument list — the key's `argSig` length drives the
+    /// The member is tupled (.NET convention): it consumes the FIRST argument
+    /// as its argument list — the key's `argSig` length drives the
     /// flatten (0 → drop the lone `unit`, 1 → the value, ≥2 → spread the literal
     /// tuple), mirroring the CLR `ExternalMember` arg push — and any residual
     /// over-application folds on as unary calls. `ValueNone` for every other head:
@@ -210,7 +210,7 @@ module JsExternalMembers =
         (provider: IExternalSymbolProvider)
         (build: TastAccessor.ExprId -> JsExpr)
         (head: TastAccessor.ExprId)
-        (spine: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
         (loc: JsLoc voption)
         : JsExpr voption =
         match head with
@@ -219,7 +219,7 @@ module JsExternalMembers =
             && (classFlagsOf provider (declKey em.Key)
                 |> ValueOption.exists (fun flags -> flags.MemberLowering = MemberLowering.AttachedNative))
             ->
-            match spine with
+            match appArgs with
             | (argExpr, _, _) :: rest ->
                 let call =
                     attachedCall
@@ -231,7 +231,7 @@ module JsExternalMembers =
                 rest
                 |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) call
                 |> ValueSome
-            | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 spine element
+            | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 argument
         | _ -> ValueNone
 
     /// A METHOD on an `AttachMembers` type extracted as a VALUE (`let f = box.get`):
@@ -239,7 +239,7 @@ module JsExternalMembers =
     /// loses `this` in JS. The receiver is spilled to a temp unless it is a trivial
     /// `Var`, so it evaluates exactly once — the spill is `(name, value) voption`,
     /// so the at-most-one-binding invariant is in the type. An external method is
-    /// tupled, so the escaped value is a single-arrow `arg -> ret`: one wrapper
+    /// tupled, so the escaped value is a one-parameter `arg -> ret`: one wrapper
     /// param, forwarded per the member's `argSig` arity (`attachedForwardArgs`).
     let etaWrapAttachedMethod
         (build: TastAccessor.ExprId -> JsExpr)

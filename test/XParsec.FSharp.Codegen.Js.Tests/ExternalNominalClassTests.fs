@@ -118,7 +118,7 @@ let private returnOf (name: string) : FrozenType =
     | ValueSome sym ->
         match sym.Scheme with
         | FTFun(_, ret) -> ret
-        | other -> failwithf "'%s' scheme is not a function arrow: %A" name other
+        | other -> failwithf "'%s' scheme is not a function type: %A" name other
     | ValueNone -> failwithf "'%s' did not resolve as a value symbol" name
 
 let private analyse (input: string) : Diagnostic list =

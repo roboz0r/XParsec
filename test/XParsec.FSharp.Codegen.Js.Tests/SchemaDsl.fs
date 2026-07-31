@@ -23,7 +23,7 @@ let typar (i: int) : Schema.TypeRef = Schema.TypeRef.Typar i
 /// A method-axis open type parameter (a generic MEMBER's own `i`-th typar).
 let methodTypar (i: int) : Schema.TypeRef = Schema.TypeRef.MethodTypar i
 
-/// A curried function arrow (`int -> unit`).
+/// A curried function type (`int -> unit`).
 let fn (args: Schema.TypeRef list) (ret: Schema.TypeRef) : Schema.TypeRef = Schema.TypeRef.Fun(args, ret)
 
 /// A structural union (`"auto" | "manual"`, `string | null`).

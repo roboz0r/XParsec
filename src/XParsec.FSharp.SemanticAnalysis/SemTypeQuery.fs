@@ -8,19 +8,19 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 module SemTypeQuery =
 
-    /// Arrow-spine views of a `SemType`: which domains a curried function type has, and what it
+    /// `TyFun`-chain views of a `SemType`: which domains a curried function type has, and what it
     /// returns after `n` of them are applied.
     ///
-    /// A spine shorter than `n` is not an error: callers cap `n` at a count they measured, and
+    /// A chain shorter than `n` is not an error: callers cap `n` at a count they measured, and
     /// `Inline.deriveInlineTypeArgs` is deliberately tolerant of a declared type it cannot fully
     /// peel.
     ///
-    /// The `FrozenType` twin is `TastLower.peelArrows` — deliberately separate: that side has no
+    /// The `FrozenType` twin is `TastLower.peelFuns` — deliberately separate: that side has no
     /// union-find to chase.
     [<RequireQualifiedAccess>]
-    module internal Arrows =
+    module internal Funs =
 
-        /// The number of `->` in the spine.
+        /// The number of `->` in the chain.
         let rec count (store: TypeStore) (t: SemType) : int =
             match UnificationEngineCore.zonk store t with
             | TyFun(_, r) -> 1 + count store r
@@ -35,7 +35,7 @@ module SemTypeQuery =
                 | TyFun(a, b) -> a :: domains store (n - 1) b
                 | _ -> []
 
-        /// What the spine returns once `n` arguments have been applied.
+        /// What the chain returns once `n` arguments have been applied.
         let rec resultAfter (store: TypeStore) (n: int) (t: SemType) : SemType =
             let t = UnificationEngineCore.zonk store t
 

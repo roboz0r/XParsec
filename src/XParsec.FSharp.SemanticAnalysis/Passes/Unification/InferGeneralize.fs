@@ -42,9 +42,9 @@ module internal UnificationInferGeneralize =
         // the enumerator `'E` in `fold`'s `'S :> IStructSeq<'T,'E>`, absent from the
         // surface type). Previously phantom roots were left verbatim so the body
         // grounded them at the binding — but that baked one call's concrete
-        // enumerator (carrying a function-arrow where a value-struct closure belongs)
+        // enumerator (carrying a function type where a value-struct closure belongs)
         // into a method that is supposed to be generic over `'E`, forcing the
-        // collision-prone arrow-equality rewrite in ClosureVerdictRewrite. Now `'E`
+        // collision-prone type-equality rewrite in ClosureVerdictRewrite. Now `'E`
         // stays free in the body (freezes as `FTTypar(Method, idx_E)`), becomes a
         // real generic method slot, and the call site solves it from the bound. The
         // remapping of SURFACE quantified roots (e.g. `'U` in `map`'s

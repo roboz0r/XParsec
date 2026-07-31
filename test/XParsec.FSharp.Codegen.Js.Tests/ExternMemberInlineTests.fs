@@ -222,7 +222,7 @@ let tests =
                             ()
                         | other -> failtestf "expected inner `fun x -> (# … #)`, got %A" other
 
-                        // `declTy` is the full curried arrow `widget -> int -> int`.
+                        // `declTy` is the full curried function `widget -> int -> int`.
                         match declTy with
                         | FTFun(FTConst(k1, _), FTFun(FTConst(k2, _), FTConst(k3, _))) when
                             SymbolKeyOps.simpleName k1 = DisplayName "widget"

@@ -97,7 +97,7 @@ genuine interim, but it ships FSharp.Core; the lightweight default still needs R
   real `fsc`-compiled DLL and round-trips a function (and a list) both ways. Without
   that, the per-boundary encoder decision and the adapter shapes are guesses.
 - **It must not regress the default.** The lightweight, FSharp.Core-free path is the
-  spine; compat is a bolt-on behind a flag, validated to not perturb the default
+  default path; compat is a bolt-on behind a flag, validated to not perturb the default
   bundle.
 
 Recommended sequencing: land it after R2/R3 give us real `Vesper.*` core symbols on

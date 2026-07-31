@@ -281,7 +281,7 @@ type Kind =
     /// self-reference — so the pair is non-empty by construction and a renderer never has to
     /// decide what an empty chain would mean.
     ///
-    /// The bindings as DATA rather than an arrow-joined sentence, like every other case: a
+    /// The bindings as DATA rather than a `→`-joined sentence, like every other case: a
     /// consumer asking "which binding is recursive?" must not have to parse English.
     | CyclicInline of binding: string * via: string list
 

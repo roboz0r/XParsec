@@ -164,7 +164,7 @@ module internal ElaboratePrintf =
                 else
                     ValueNone
 
-            // The callback's OWN arrow type (`'State -> 'T -> 'Residue`, or `'State ->
+            // The callback's OWN function type (`'State -> 'T -> 'Residue`, or `'State ->
             // 'Residue` for `%t`) drives each `App`'s result type — independent of the
             // concrete arg pushed (a writer family passes a `StringWriter` where the
             // callback's domain is the abstract `TextWriter`; a base-reference push is
@@ -180,7 +180,7 @@ module internal ElaboratePrintf =
                     | ValueSome v ->
                         match afterState with
                         | TyFun(_, residueTy) -> TExpr.App(appState, v, residueTy, t)
-                        | _ -> failwithf "Elaborate.addCallbackSeg: %%a callback lacks a value arrow: %A" funcTy
+                        | _ -> failwithf "Elaborate.addCallbackSeg: %%a callback lacks a value parameter: %A" funcTy
                     | ValueNone -> appState
                 | _ -> failwithf "Elaborate.addCallbackSeg: callback is not a function type: %A" funcTy
 
@@ -367,7 +367,7 @@ module internal ElaboratePrintf =
     /// as a `Var`; the format's literal runs and per-hole `HoleForm` are baked in
     /// exactly as the happy path bakes them, so the closure's `Invoke` — the same
     /// `EmitFormat` unroll — produces byte-identical output. `ty` is the App node's
-    /// type: the curried printer arrow `h1 -> … -> hn -> tail`, whose domains supply
+    /// type: the curried printer `h1 -> … -> hn -> tail`, whose domains supply
     /// the parameter types (in specifier order) and whose tail is the `Format`
     /// result. `%A`/`%O` (and `%a`/`%t`) are excluded at the gate, so every hole has
     /// a concrete argument type. Unlike `translatePrintfFormat` this path never
@@ -400,8 +400,8 @@ module internal ElaboratePrintf =
                 segments.Add(FormatSeg.Lit(litRun.ToString()))
                 litRun.Clear() |> ignore
 
-        // Peel one printer-arrow domain per hole (specifier order matches the
-        // curried arrow order — `PrintfSpec.printerType` folds the hole types onto
+        // Peel one printer domain per hole (specifier order matches the
+        // curried parameter order — `PrintfSpec.printerType` folds the hole types onto
         // the tail left-to-right). The running codomain after the last hole is the
         // tail (the `Format` result).
         let mutable runningTy = Unification.zonk ctx.Store ty
@@ -432,7 +432,7 @@ module internal ElaboratePrintf =
                     | TyFun(dom, cod) -> dom, cod
                     | _ ->
                         failwithf
-                            "Elaborate.translatePrintfPartial: printer type has fewer arrows than holes: %A"
+                            "Elaborate.translatePrintfPartial: printer type has fewer parameters than holes: %A"
                             (Unification.zonk ctx.Store ty)
 
                 // A fresh parameter keyed off the specifier's own token offset —
@@ -478,7 +478,7 @@ module internal ElaboratePrintf =
         let mutable resultTy = runningTy
 
         // Wrap innermost-last so the outermost lambda's type is the whole printer
-        // arrow (equal to `ty`), exactly as `translateFun` folds a source lambda.
+        // type (equal to `ty`), exactly as `translateFun` folds a source lambda.
         for i = parameters.Count - 1 downto 0 do
             let (pk, pty, ptok) = parameters.[i]
             let lamTy = TyFun(pty, resultTy)

@@ -15,7 +15,7 @@ open EmitDispatch
 
 /// Application (`f a b …`) lowering and the curried-invoke fold. The head
 /// dispatch is shape-by-shape (provider call recipe / static method / external
-/// member / function value); the residual spine is applied through `Invoke`.
+/// member / function value); the residual arguments are applied through `Invoke`.
 module EmitCall =
 
     /// Apply remaining arguments to a native `Vesper.Fun` value via its `Invoke`,
@@ -51,7 +51,7 @@ module EmitCall =
         (env: EmitEnv)
         (b: IlBuilder)
         (arrTy: FrozenType)
-        (spineArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
         : bool =
         let elemOf =
             match arrTy with
@@ -67,7 +67,7 @@ module EmitCall =
                 | _ -> None
             | _ -> None
 
-        match elemOf, spineArgs with
+        match elemOf, appArgs with
         | ValueSome elem, [ (chain, _, _) ] ->
             match collect [] chain with
             | Some elems ->
@@ -87,7 +87,7 @@ module EmitCall =
             | None -> false
         | _ -> false
 
-    /// Flatten a saturated call's leading spine (one element per SOURCE group) to its
+    /// Flatten a saturated call's leading arguments (one per SOURCE group) to its
     /// pushed CLR values, returning each pushed value's actual type in order (for
     /// generic-instantiation matching; an external recipe call ignores them). The
     /// lone-unit-erase / literal-vs-value tuple dispatch is `CompiledFns.flattenPlan`'s
@@ -139,23 +139,23 @@ module EmitCall =
     ///   recovered by matching declared param types against the actual arg types.
     /// - an `ExternalMember` node (`MemberStorage.Method`) — an
     ///   external method call; tupled per .NET convention, so the call consumes
-    ///   one spine element (the arg list) and the param count comes from the
+    ///   one argument (the arg list) and the param count comes from the
     ///   key's `argSig` length.
     /// - otherwise — the head is itself a function value (a closure local or a
     ///   partially applied result); emit it, then `Invoke` each arg.
     let buildAppCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        let head, spineArgs = TastAccessor.collectSpine [] e
+        let head, appArgs = TastAccessor.collectAppChain [] e
 
         match head with
         | TastAccessor.EExternal ext ->
             // An `[| … |]` literal lowered to `ArrayModule.OfList <cons-chain>`
             // (ElaborateExpr) is emitted directly as newarr + stelem, so the BCL-only
             // path needs no FSharp.Core. `tryEmitArrayLiteral` commits IL and returns
-            // true only when the spine arg is that literal cons-chain; any other shape
+            // true only when the argument is that literal cons-chain; any other shape
             // emits nothing, returns false, and falls through to the recipe path below.
             if
                 ext.CompiledName = RuntimeNames.arrayOfListName
-                && tryEmitArrayLiteral recur env b (typeOfExpr e) spineArgs
+                && tryEmitArrayLiteral recur env b (typeOfExpr e) appArgs
             then
                 ()
             else
@@ -170,26 +170,26 @@ module EmitCall =
                 // When a SOURCE-LAMBDA argument lowered to a
                 // value-struct closure (an external struct-seq combinator: `StructSeq.map`
                 // / `fold`), the head's frozen type is stale for the instantiation recovery
-                // — its `'TFunc` leaf is the front end's arrow (→ the `Fun`2`/`Fun`3`
+                // — its `'TFunc` leaf is the front end's function type (→ the `Fun`2`/`Fun`3`
                 // INTERFACE), and a chained `'S` source slot still carries the producing
-                // transformer's arrow rather than its already-rewritten `<closure>$`
+                // transformer's function type rather than its already-rewritten `<closure>$`
                 // value-struct. Reconstruct the recovery type from the ACTUAL (closure-
-                // rewritten) spine argument types + result instead, overriding each value-
+                // rewritten) argument types + result instead, overriding each value-
                 // struct-closure position with its `<closure>$` nominal — the external
                 // analogue of the project-local `StaticMethods`-arm override + rewritten
                 // `actualTys`. Gated on the presence of a value-struct closure so every
                 // existing external call keeps the (identical) head-type recovery.
                 let recipeFnTy =
                     if
-                        spineArgs
+                        appArgs
                         |> List.exists (fun (arg, _, _) -> env.ClosureValueTypeByNode.ContainsKey arg)
                     then
-                        // NOTE the spine tuple's middle element is the partial-application
+                        // NOTE the argument tuple's middle element is the partial-application
                         // RESULT type at that step, not the argument's own type — read the
                         // argument type from `typeOfExpr arg` (already closure-rewritten by
                         // `ClosureVerdictRewrite` for a chained source slot).
                         let argTys =
-                            spineArgs
+                            appArgs
                             |> List.map (fun (arg, _, _) ->
                                 match env.ClosureValueTypeByNode.TryGetValue arg with
                                 | true, closureFt -> closureFt
@@ -202,19 +202,19 @@ module EmitCall =
 
                 match env.Provider.TryEmitCall(name, key, recipeFnTy) with
                 | ValueSome recipe ->
-                    // The spine split keys off the SOURCE-group count when the recipe
+                    // The argument split keys off the SOURCE-group count when the recipe
                     // carries one (`Grouped` — an external module function with a captured
-                    // `ValRepr`): one spine element per source group, then each
+                    // `ValRepr`): one argument per source group, then each
                     // group flattened to its pushed CLR values exactly as the in-assembly
                     // static-fn arm does. `Flat` pushes every leading element one-to-one.
                     let leading, rest =
                         match recipe.Arity with
                         | CallArity.Grouped(groups, _) ->
-                            let leading, rest = List.splitAt (List.length groups) spineArgs
+                            let leading, rest = List.splitAt (List.length groups) appArgs
                             flattenGroupPushes recur env b groups leading |> ignore
                             leading, rest
                         | CallArity.Flat argCount ->
-                            let leading, rest = List.splitAt argCount spineArgs
+                            let leading, rest = List.splitAt argCount appArgs
 
                             for (a, _, _) in leading do
                                 recur env b a
@@ -232,14 +232,14 @@ module EmitCall =
                         EmitTypes.buildUnitValue env b
 
                     // Whatever the recipe left on the stack — a function value
-                    // the rest of the spine is applied to.
+                    // the rest of the arguments are applied to.
                     let funcTy =
                         match List.tryLast leading with
                         | Some(_, ty, _) -> ty
                         | None -> typeOfExpr head
 
                     // Whatever the recipe left is a native `Vesper.Fun` — apply the
-                    // rest of the spine through its `Invoke`.
+                    // rest of the arguments through its `Invoke`.
                     foldInvoke recur env b funcTy rest
                 | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
@@ -252,11 +252,11 @@ module EmitCall =
             // parameter types against the actual argument types (recursion yields
             // the method's own typars ⇒ `!!i`).
             let sm = env.StaticMethods.[k]
-            // The spine split is driven by the SOURCE arity (`Groups.Length`): one
+            // The argument split is driven by the SOURCE arity (`Groups.Length`): one
             // application per source group. `flattenGroupPushes` then expands each
             // group to its flat pushed values (a tupled group → N; a lone `()` → 0),
             // so the flat CLR arg count it returns can exceed `Groups.Length`.
-            let leading, rest = List.splitAt (List.length sm.Groups) spineArgs
+            let leading, rest = List.splitAt (List.length sm.Groups) appArgs
             let flatActualTys = flattenGroupPushes recur env b sm.Groups leading
 
             let callHandle =
@@ -286,12 +286,12 @@ module EmitCall =
                     // A captureless `Stack` (value-struct) lambda
                     // argument fed a bare method-typar parameter (the constrained
                     // `'TF :> Fun<_,_>` slot) must instantiate `!TF` with the
-                    // closure's own struct `TypeDef`, NOT the arrow (which encodes to
+                    // closure's own struct `TypeDef`, NOT the function type (which encodes to
                     // the `Fun\`2` INTERFACE and would force a box). `matchInstantiation`
-                    // bound that typar to the arrow `FTFun(_,_)`; override it with the
+                    // bound that typar to the `FTFun(_,_)`; override it with the
                     // closure's synthetic value-type `FrozenType` so `constrained. !TF`
                     // targets the struct → JIT devirt, no box. The discovery gate runs
-                    // only on all-`GSimple` callees, so the leading spine arg index
+                    // only on all-`GSimple` callees, so the leading argument index
                     // maps one-to-one onto the flat parameter index.
                     leading
                     |> List.iteri (fun i (arg, _, _) ->
@@ -310,7 +310,7 @@ module EmitCall =
                     // `'S :> IStructSeq<'T,'E>`) is in no param/result, so it is still
                     // `ValueNone`; solve it from `sm.Constraints` via the project-local
                     // interface-impl witness (`env.Classes`). The closure rides in
-                    // through `'S`'s rewritten arg — collision-free, no arrow-equality.
+                    // through `'S`'s rewritten arg — collision-free, no type-equality.
                     // The same solve serves the external module-fn call
                     // (`ClrRecipes.emitExternalCall`); only `tryWitness` differs.
                     TastLower.solvePhantomTypars sm.Typars sm.Constraints (tryInterfaceWitness env) instArr
@@ -350,7 +350,7 @@ module EmitCall =
             // only) beneath the arguments, then `call` (static) / `callvirt`
             // (instance) the keyed member ref. A .NET method is tupled
             // (`m(a, b)` = one application to `(a, b)`), so the call consumes a
-            // single spine element — the argument list — and the parameter count
+            // single argument — the argument list — and the parameter count
             // comes from the chosen key's `argSig` length (authoritative: `memberTy`
             // alone can't tell a flattened 2-param method from a genuine single
             // `(int*int)` param). A literal `Tuple` argument is pushed
@@ -360,10 +360,10 @@ module EmitCall =
             let argCount =
                 (SymbolKeyOps.asMemberKey "Emit: external member call" key).ArgSig.Length
 
-            // The method consumes one spine element (its argument list); any
+            // The method consumes one argument (its argument list); any
             // remainder is further application of the result (rare).
             let argList, rest =
-                match spineArgs with
+                match appArgs with
                 | first :: more -> ValueSome first, more
                 | [] -> ValueNone, []
 
@@ -445,7 +445,7 @@ module EmitCall =
             //
             // Void-ness is read from the member's *declared* signature codomain
             // (`memberTy` is `paramsT → retT` for a .NET method), NOT the applied
-            // spine type: a void instance method on a generic value-type receiver
+            // node's type: a void instance method on a generic value-type receiver
             // (`Span<char>.Fill(T)`) can leave the applied node type un-grounded as a
             // non-`unit` placeholder, which mis-modelled it as result-bearing (the
             // `pop` then underflowed). The declared return is authoritative.
@@ -478,4 +478,4 @@ module EmitCall =
             // The head is itself a function value (a closure local or a
             // partially applied result): emit it, then `Invoke` each arg.
             recur env b head
-            foldInvoke recur env b (typeOfExpr head) spineArgs
+            foldInvoke recur env b (typeOfExpr head) appArgs

@@ -85,10 +85,10 @@ let structSeqTests =
             // `apply` combinator whose param is a constrained `'TF :> Fun<int,int>`
             // typar. The front-end originally REJECTED this —
             // `subsumes` (Engine.fs `checkConstraint` Coercion arm) returned
-            // `Unrelated` for (TyFun, Fun`2). A single arrow→`Fun`
+            // `Unrelated` for (TyFun, Fun`2). A single `TyFun`→`Fun`
             // discharge rule was added to `subsumes`: `subsumes(TyFun(a,b), Fun`2<a,b>) =
             // Subtype` (args invariant-Equal). The typar `'TF` then binds to the
-            // arrow and the existing heap-closure emission (a System.Object subclass
+            // function type and the existing heap-closure emission (a System.Object subclass
             // implementing Vesper.Fun`2) dispatches via `callvirt Fun::Invoke`, so
             // it compiles + runs 42. The no-box/`constrained.` struct-repr IL ideal
             // is asserted in the value-struct test below, NOT here.
@@ -119,11 +119,11 @@ let structSeqTests =
             // independent of the value-struct work. The heap closure shape is
             // UNCHANGED — this is only the caching.
             //
-            // NOTE: `apply`'s parameter is a PLAIN arrow `int -> int` (an ordinary
+            // NOTE: `apply`'s parameter is a PLAIN function `int -> int` (an ordinary
             // higher-order function), NOT a constrained `'TF :> Fun` typar. The
             // value-struct lowering intercepts ONLY the bare-method-typar slot — the
             // value-struct shape needs a typar to instantiate `!TF` at the struct
-            // `TypeDef` — so a plain arrow HOF still takes the heap-singleton path. (The
+            // `TypeDef` — so a plain-function HOF still takes the heap-singleton path. (The
             // constrained-typar shape these tests previously used now lowers to a
             // value-struct; that is the dedicated value-struct test above.)
             test "a non-capturing lambda lowers to a cached singleton (ldsfld at use, newobj in .cctor)" {
@@ -154,7 +154,7 @@ let structSeqTests =
             // the one cached singleton. Proven by counting closure types (one) and the
             // total `newobj` in its `.cctor` (one), while both use sites `ldsfld`.
             test "the same non-capturing lambda at two sites allocates once" {
-                // Plain arrow `int -> int` parameter ⇒ the heap-caching path (a
+                // Plain function `int -> int` parameter ⇒ the heap-caching path (a
                 // constrained typar would take the value-struct path instead).
                 let tast, artifact = compileSourceData "StepBTwoSites"
                 Expect.isEmpty tast.Diagnostics (sprintf "Step B two-site diagnostics: %A" tast.Diagnostics)
@@ -183,10 +183,10 @@ let structSeqTests =
             // (no `.cctor`, no cached field). Proven by the construction site (here the
             // body of `outer`, a top-level static method) still containing `newobj`.
             //
-            // NOTE: `apply`'s parameter is a PLAIN arrow `int -> int`, NOT a constrained
+            // NOTE: `apply`'s parameter is a PLAIN function `int -> int`, NOT a constrained
             // `'TF :> Fun` typar. The value-struct lowering now lowers a capturing lambda
             // through the CONSTRAINED slot to a by-value value-struct (no `newobj`); the
-            // plain-arrow HOF is the genuine heap path this guard still describes (the
+            // plain-function HOF is the genuine heap path this guard still describes (the
             // dedicated value-struct test above asserts the value-struct shape).
             test "a capturing lambda is NOT cached (still newobjs per construction)" {
                 let tast, artifact = compileSourceData "StepBCapturingNotCached"
@@ -246,7 +246,7 @@ let structSeqTests =
             // The IDEAL — a CAPTURELESS SOURCE lambda
             // (`fun x -> x + 1`) fed into the constrained `'TF :> Fun<int,int>` slot
             // is now lowered to a zero-alloc VALUE-STRUCT closure, dispatched with
-            // `constrained.` devirt and NO box. The arrow→`Fun\`2` subsumes rule made
+            // `constrained.` devirt and NO box. The `TyFun`→`Fun\`2` subsumes rule made
             // it typecheck and run on the heap; the heap singleton was cached. The
             // value-struct lowering synthesises the closure as a `System.ValueType` and
             // overrides the call-site `!TF` instantiation to the struct `TypeDef`, so
@@ -413,7 +413,7 @@ let structSeqTests =
 
                 // (2) Its `Invoke` is FLAT 2-arg: the closure type defines a single
                 // `Invoke` taking two parameters (peeled from the curried lambda body),
-                // and there is no nested inner closure for the second arrow.
+                // and there is no nested inner closure for the second parameter.
                 use peReader = openPe bytes
                 let md = peReader.GetMetadataReader()
 
@@ -428,7 +428,7 @@ let structSeqTests =
                 Expect.equal
                     (List.length closureTds)
                     1
-                    "exactly one closure type (no nested inner closure for the second arrow)"
+                    "exactly one closure type (no nested inner closure for the second parameter)"
 
                 let invokeParamCount =
                     let td = md.GetTypeDefinition closureTds.[0]
@@ -469,7 +469,7 @@ let structSeqTests =
             // The arity-3 analog: a saturated 3-arg source lambda `fun x y z -> …`
             // fed into a constrained `'TF :> Fun<int,int,int,int>` slot lowers to a
             // zero-alloc VALUE-STRUCT closure with a single FLAT `Invoke(a,b,c)` (both
-            // inner arrows peeled, NO nested inner closures), dispatched with NO box.
+            // inner lambdas peeled, NO nested inner closures), dispatched with NO box.
             // Exercises the arity-parametric peel/encoder/interface-spec path emitting
             // `Vesper.Fun`4<a,b,c,r>`.
             test "a saturated 3-arg source lambda lowers to a no-box flat-Invoke value-struct" {
@@ -490,7 +490,7 @@ let structSeqTests =
                     "the 3-arg closure is a value type (base System.ValueType)"
 
                 // (2) Its `Invoke` is FLAT 3-arg and there is exactly ONE closure type
-                // (both inner arrows peeled — no nested inner closures).
+                // (both inner lambdas peeled — no nested inner closures).
                 use peReader = openPe bytes
                 let md = peReader.GetMetadataReader()
 
@@ -543,7 +543,7 @@ let structSeqTests =
             // The arity-4 analog: a saturated 4-arg source lambda `fun w x y z -> …`
             // fed into a constrained `'TF :> Fun<int,int,int,int,int>` slot lowers to a
             // zero-alloc VALUE-STRUCT closure with a single FLAT `Invoke(a,b,c,d)` (all
-            // three inner arrows peeled, NO nested inner closures), NO box. Emits
+            // three inner lambdas peeled, NO nested inner closures), NO box. Emits
             // `Vesper.Fun`5<a,b,c,d,r>` — the widest flat function value-struct.
             test "a saturated 4-arg source lambda lowers to a no-box flat-Invoke value-struct" {
                 let tast, artifact = compileSourceData "StepCM3Flat4ValueStruct"
@@ -563,7 +563,7 @@ let structSeqTests =
                     "the 4-arg closure is a value type (base System.ValueType)"
 
                 // (2) Its `Invoke` is FLAT 4-arg and there is exactly ONE closure type
-                // (all inner arrows peeled — no nested inner closures).
+                // (all inner lambdas peeled — no nested inner closures).
                 use peReader = openPe bytes
                 let md = peReader.GetMetadataReader()
 
@@ -1113,7 +1113,7 @@ let structSeqTests =
             //      struct-instantiated) `'S` arg's seq impl, so the `constrained.
             //      callvirt GetEnumerator` token's nested `'TFunc` is the
             //      `<closure>$` value-struct and matches the receiver's impl. No
-            //      arrow-equality rewrite (the old `rewriteClosureLeaves` is gone).
+            //      type-equality rewrite (the old `rewriteClosureLeaves` is gone).
             test "SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
                 let tast, artifact = compileSourceData "StructSeqRung4M6SourceLambda"
                 let bytes = Codegen.toBytes artifact
@@ -1162,7 +1162,7 @@ let structSeqTests =
             // not a module-value field, so it exercises the temp-slot side of the
             // verdict propagation: `map`'s value-struct result flows directly into
             // `fold`'s `'S` MethodSpec (the call-site instantiation) and `fold`'s
-            // `for y in source` for-in still carries the arrow-as-`'TFunc` seq types,
+            // `for y in source` for-in still carries the function-type-as-`'TFunc` seq types,
             // both rewritten to the `<closure>$` value-struct. Same
             // output (14), same no-box constrained dispatch.
             test "nested-temp source-lambda map/fold pipeline runs non-allocating" {
@@ -1225,12 +1225,12 @@ let structSeqTests =
             }
 
             // A MULTI-`map` chain — two transformers before the terminal,
-            // whose lambdas have STRUCTURALLY IDENTICAL frozen arrows (`int -> int`):
+            // whose lambdas have STRUCTURALLY IDENTICAL frozen types (`int -> int`):
             //   s1 = map (fun x -> x + 1) s0   // closure A
-            //   s2 = map (fun x -> x * 2) s1   // closure B — SAME arrow type as A
+            //   s2 = map (fun x -> x * 2) s1   // closure B — SAME function type as A
             //   total = fold (fun acc x -> acc + x) 0 s2
-            // This is the case the earlier program-wide arrow-TYPE-keyed table could not
-            // handle: A and B collide on the arrow key, so `s2`'s outer `'TFunc` slot (and
+            // This is the case the earlier program-wide function-TYPE-keyed table could not
+            // handle: A and B collide on the type key, so `s2`'s outer `'TFunc` slot (and
             // the nested-`s1` slot inside it) would both bind to whichever closure the
             // table picked FIRST. Expected output:
             // ((1+1)*2)+((2+1)*2)+((3+1)*2)+((4+1)*2) = 4+6+8+10 = 28.
@@ -1241,7 +1241,7 @@ let structSeqTests =
             // (already `<closure>$`-rewritten) source arg's seq interface impl. So the body
             // is genuinely generic over `'E`, each `fold` instantiation carries its own
             // enumerator via the normal `MethodSpec`, and the collision-prone for-in
-            // arrow-equality rewrite (which raised `EntryPointNotFoundException` on the
+            // type-equality rewrite (which raised `EntryPointNotFoundException` on the
             // doubly-nested `MapSeq<MapSeq<…>,…>` receiver) is gone — no shared baked body
             // to disambiguate. The closure identity rides through `'S`'s rewritten arg, so
             // the two same-typed `int->int` maps stay distinct.
@@ -1255,14 +1255,14 @@ let structSeqTests =
             }
 
             // A THREE-`map` chain whose three transformer
-            // lambdas all share the STRUCTURALLY IDENTICAL frozen arrow (`int -> int`):
+            // lambdas all share the STRUCTURALLY IDENTICAL frozen type (`int -> int`):
             //   s1 = map (fun x -> x + 1) s0   // closure A
-            //   s2 = map (fun x -> x * 2) s1   // closure B — SAME arrow type as A
-            //   s3 = map (fun x -> x + 3) s2   // closure C — SAME arrow type as A, B
+            //   s2 = map (fun x -> x * 2) s1   // closure B — SAME function type as A
+            //   s3 = map (fun x -> x + 3) s2   // closure C — SAME function type as A, B
             //   total = fold (fun acc x -> acc + x) 0 s3
-            // The 2-map test passes even with a structural arrow→closure table by sheer
+            // The 2-map test passes even with a structural type→closure table by sheer
             // luck (only one nested level). At THREE maps the table COLLIDES: rewriting
-            // `s3`'s field type, a structural `arrow_(int->int) → closure` lookup cannot
+            // `s3`'s field type, a structural `(int->int) → closure` lookup cannot
             // tell `s3`'s outer `'TFunc` (closure C), the once-nested `s2` source slot
             // (closure B), and the twice-nested `s1` source slot (closure A) apart — they
             // are all `int->int`. A first/last-match structural rewrite picks ONE closure

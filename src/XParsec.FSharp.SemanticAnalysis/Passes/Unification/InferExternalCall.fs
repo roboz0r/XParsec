@@ -186,7 +186,7 @@ module internal UnificationInferExternalCall =
     /// each argument position via `unifyArg`/`tryCoerceUpcast` — the richer coercion the
     /// picker's subsumption tier admits (a superset of `unifyArgCoerce`'s obj/union
     /// absorption, so the commit accepts exactly what filtering did, base/interface arguments
-    /// included) — and unify the residual result exactly. The one overload-commit spine walk,
+    /// included) — and unify the residual result exactly. The one overload-commit argument walk,
     /// shared by the external and project-local overload paths so they cannot drift.
     let rec private commitAppliedCoerce
         (ctx: PassContext)
@@ -243,7 +243,7 @@ module internal UnificationInferExternalCall =
         ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome memberSig)
         let resultTy = TyVar(freshTyVar ctx)
 
-        // The applied `arg -> result` spine coerces against the member signature: an `obj`
+        // The applied `arg -> result` chain coerces against the member signature: an `obj`
         // parameter absorbs a typar / value-type argument via the implicit box without
         // grounding the typar, and a base / interface parameter accepts the concrete subtype
         // argument the subsumption tier admitted (`CultureInfo` into an `IFormatProvider`
@@ -386,7 +386,7 @@ module internal UnificationInferExternalCall =
     /// since this probe intercepts every overloaded call before them).
     ///
     /// On a unique winner it commits (unifies the applied arguments against the chosen
-    /// member's instantiated arrow) AND records the chosen member's TOTAL frozen `MemberKey`
+    /// member's instantiated function type) AND records the chosen member's TOTAL frozen `MemberKey`
     /// on the call node so Elaborate/Freeze resolves the identical overload by identity,
     /// never a second name-based pick. `NoneApplicable` / `Ambiguous` raise the two distinct
     /// call-site diagnostics; a non-overloaded name (`NotOverloaded`) declines so the
@@ -478,13 +478,13 @@ module internal UnificationInferExternalCall =
                     )
                 | MemberPick.Resolved chosen ->
                     // Commit: unify the applied `argTy -> resultTy` against the chosen
-                    // member's instantiated arrow (domains coerce, the residual result
-                    // unifies), exactly as the external overload commit does.
-                    let memberArrow =
+                    // member's instantiated function type (domains coerce, the residual
+                    // result unifies), exactly as the external overload commit does.
+                    let memberFunTy =
                         instantiateMemberCall ctx (typeParams, args) chosen.EffectiveMethodTypars chosen.Type
 
                     let resultTy = TyVar(freshTyVar ctx)
-                    commitAppliedCoerce ctx node.Tok (TyFun(argTy, resultTy)) memberArrow
+                    commitAppliedCoerce ctx node.Tok (TyFun(argTy, resultTy)) memberFunTy
 
                     // The inference→Freeze handshake: record the chosen overload's TOTAL
                     // frozen `MemberKey` so Elaborate stamps the identical identity with no

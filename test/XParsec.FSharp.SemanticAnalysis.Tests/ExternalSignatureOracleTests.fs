@@ -246,7 +246,7 @@ let tests =
                             )
                         ))
 
-                    // Property: bare value type, no parameters / leading arrow.
+                    // Property: bare value type, no parameters / leading `->`.
                     memberOracle
                         "property bare value"
                         true

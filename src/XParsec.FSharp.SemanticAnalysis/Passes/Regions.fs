@@ -435,7 +435,7 @@ module Regions =
             // per-function effect signatures would refine it (`'a -> 'a` captures
             // nothing; `'a -> ('a -> 'b)` captures the argument), but that needs a
             // way to carry effects on external symbols and inferred schemes.
-            let head, args = TastWalk.collectSpine [] e
+            let head, args = TastWalk.collectAppChain [] e
 
             joinArms
                 ctx.Store

@@ -19,7 +19,7 @@ module UnificationEngine =
     /// or `ValueNone` for an ordinary (non-`Fun`-bounded) parameter. A combinator
     /// param `'TF :> Fun<a,b>` is arity 1, `'TF :> Fun<a,b,c>` arity 2, up through
     /// `'TF :> Fun<a,b,c,d,e>` arity 4 (arity = type-arg count - 1, for 2..5 args). The
-    /// `subsumes` arm decides the arrow↔`FunN` correspondence; this reads the SAME
+    /// `subsumes` arm decides the `TyFun`↔`FunN` correspondence; this reads the SAME
     /// nominal bound so `inferApp` can record the verdict against the lambda
     /// argument's node (the value-struct flat-`Invoke` lowering reads it at codegen).
     /// Reads the coercion bound off the still-free typar's union-find root.
@@ -488,7 +488,7 @@ module UnificationEngine =
     /// absorbs a typar / value-type argument instead of grounding it); result
     /// positions unify exactly. Used where a *whole* signature is unified against a
     /// pre-built `TyFun` (the deferred dot-access drain, the overload-commit), unlike
-    /// `inferApp`'s spine walk which already coerces each argument as it applies it.
+    /// `inferApp`'s argument walk which already coerces each argument as it applies it.
     and unifyAppliedSig (ctx: PassContext) (tok: SyntaxToken) (actual: SemType) (expected: SemType) : unit =
         match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyFun(ad, ar), TyFun(ed, er) ->
@@ -846,19 +846,19 @@ module UnificationEngine =
                     | _ -> ()
                 | _ -> ()
 
-                // The INVERSE direction for the arrow↔`Fun`2`..`Fun`5` correspondence:
-                // a source lambda whose arrow has STILL-FREE
+                // The INVERSE direction for the `TyFun`↔`Fun`2`..`Fun`5` correspondence:
+                // a source lambda whose function type has STILL-FREE
                 // domains (`fun x y -> x + y` — no literal pins `x`/`y`) coerced into a
                 // GROUND constrained slot (`'TF :> Fun<int,int,int>`) must ground from
                 // the slot's args, so the lambda body's SRTP operators resolve instead
                 // of leaking `?free-typar`. `subsumes` itself stays read-only
                 // (it only *checks* invariant-equality); this is the one place the
                 // grounding `unify` lives. Arity-parametric (1..4): peel exactly
-                // `targs.Length - 1` arrow domains, `unify` each with the slot's ground
+                // `targs.Length - 1` domains, `unify` each with the slot's ground
                 // arg, then `unify` the residual codomain with the last arg (matched
-                // whole — a `n > K` printf tail stays curried, not peeled). A spine too
+                // whole — a `n > K` printf tail stays curried, not peeled). A chain too
                 // short to peel `k` domains grounds NOTHING. Non-`Fun` coercions and a
-                // non-arrow `linkTarget` are untouched.
+                // non-`TyFun` `linkTarget` are untouched.
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
                     match subtypeNominalOf ctx (zonk ctx.Store target), resolveStep ctx.Store linkTarget with
@@ -866,11 +866,11 @@ module UnificationEngine =
                         funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tname)) targs.Length
                         |> Option.isSome
                         ->
-                        // `peelFunSpine` (shared with `subsumes`) yields the `k+1` types
-                        // aligned to `targs` — a too-short spine grounds NOTHING. The
+                        // `peelFunDomains` (shared with `subsumes`) yields the `k+1` types
+                        // aligned to `targs` — a too-short chain grounds NOTHING. The
                         // check-side and this grounding side peel identically by
                         // construction.
-                        match peelFunSpine ctx.Store (targs.Length - 1) a b with
+                        match peelFunDomains ctx.Store (targs.Length - 1) a b with
                         | Some tys -> tys |> List.iteri (fun i s -> unify ctx tok s targs.[i])
                         | None -> ()
                     | _ -> ()

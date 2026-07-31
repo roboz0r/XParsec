@@ -113,7 +113,7 @@ let mkMember (name: string) : ExternalMember =
     }
 
 /// A throwaway source token for hand-built TAST construction in tests. The
-/// frozen `TExprG` spine pins `'tok = SyntaxToken`, so every hand-assembled
+/// frozen `TExprG` shape pins `'tok = SyntaxToken`, so every hand-assembled
 /// `TExpr.*` node needs a token; tests that don't exercise source-map positions
 /// pass this virtual EOF token.
 let dummyTok: SyntaxToken =

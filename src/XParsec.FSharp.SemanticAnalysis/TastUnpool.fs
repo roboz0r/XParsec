@@ -398,7 +398,7 @@ module TastUnpool =
             Specializations = specializations
             Accessibility = pools.Residue.Accessibility
             // No `BindingValReprs`: the DU does not carry one. It is a PROJECTION of the
-            // lambda spine, so `toPools` re-derives it off the columns rather than the DU
+            // lambda chain, so `toPools` re-derives it off the columns rather than the DU
             // ferrying it across — which is also why the round trip does not have to
             // reconstruct it to stay faithful.
             BindingTyparArities = binderColumnMap readmittedBinder pools.BindingTyparArities

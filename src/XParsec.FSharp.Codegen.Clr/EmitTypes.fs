@@ -68,7 +68,7 @@ module EmitTypes =
             /// default / arity-1 path) is the single-arg `Vesper.Fun<P,R>` interface
             /// with `Invoke(P):R`. `2` is the flat `Vesper.Fun`3<P1,P2,R>` interface
             /// with one flat `Invoke(P1,P2):R`; `3`⇒`Fun`4`, `4`⇒`Fun`5` — the curried
-            /// N-arg source lambda `fun x y … -> …` peeled so the inner arrows are NOT
+            /// N-arg source lambda `fun x y … -> …` peeled so the inner lambdas are NOT
             /// separate closures. Always `1 + List.length ExtraParams`. Driven by the
             /// node-keyed verdict (`TastFile.FunVerdicts`); only a value-struct closure
             /// (`IsValueStruct`) is ever arity > 1 today.
@@ -333,7 +333,7 @@ module EmitTypes =
             /// `Params.Length` is the CLR method's parameter count — NOT the number
             /// of source applications a call collapses (that is `Groups.Length`).
             Params: StaticParam list
-            /// The SOURCE curried/tupled groups (`ValRepr.Groups`): how many spine
+            /// The SOURCE curried/tupled groups (`ValRepr.Groups`): how many source
             /// applications a saturated call consumes (`Groups.Length`) and which of
             /// them are tuple groups whose single argument the call site flattens to
             /// N pushed values. Distinct from `Params` because the flat compiled
@@ -386,10 +386,10 @@ module EmitTypes =
             Handle: EntityHandle
             /// The flat CLR parameter count (`StaticFn.Params.Length`) — the `call`
             /// instruction's argument count. With tuple flattening this can exceed
-            /// the number of source applications a call collapses; the spine split
+            /// the number of source applications a call collapses; the argument split
             /// is driven by `Groups.Length`, not this.
             ParamArity: int
-            /// The SOURCE groups (mirrors `StaticFn.Groups`): `Groups.Length` spine
+            /// The SOURCE groups (mirrors `StaticFn.Groups`): `Groups.Length` source
             /// applications collapse into one `call`, and each tuple group's single
             /// argument is flattened to N pushed values at the call site.
             Groups: TastAccessor.ArgGroup list

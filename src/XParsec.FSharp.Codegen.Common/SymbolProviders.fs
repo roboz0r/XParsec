@@ -39,7 +39,7 @@ module SymbolProviders =
     /// `M this p0 p1 = (# … #)`: `this` (the member's `ThisKey` / `ThisTy`) prepended
     /// as the OUTERMOST curried lambda param, then the value params in order; a STATIC
     /// member (`ThisKey = ValueNone`) prepends no `this`. The curried lambda and its
-    /// `declTy` (the outer lambda's own arrow type, carrying the declaring + method
+    /// `declTy` (the outer lambda's own function type, carrying the declaring + method
     /// typars in curried-param order) match the exact shape `inlineExpand` consumes.
     /// Only an inline-IL (`ExprShape.ILIntrinsic`) body is a splice template; any
     /// other member body is a real callable and yields `None`.
@@ -88,7 +88,7 @@ module SymbolProviders =
             let mutable resultTy = m.ReturnTy
 
             // Fold innermost-last so the outermost lambda's type is the whole curried
-            // arrow (`this -> p0 -> … -> ret`), exactly as `translateFun` folds a
+            // function (`this -> p0 -> … -> ret`), exactly as `translateFun` folds a
             // source lambda.
             for i = curried.Length - 1 downto 0 do
                 let (pk, pty) = curried.[i]

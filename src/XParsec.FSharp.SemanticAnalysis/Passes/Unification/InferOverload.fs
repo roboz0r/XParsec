@@ -351,21 +351,21 @@ module UnificationInferOverload =
     //
     // A project-local class / union / record member participates in the SAME
     // `rankCandidates` machinery as an external member: only the projection into a
-    // `RankCandidate` differs (peel the member's `.Type` arrow spine rather than an
+    // `RankCandidate` differs (peel the member's `.Type` function type rather than an
     // `ExternalSignature`), so the ranking rule is never copied.
 
-    /// Peel a member's (single-tupled) arrow spine to its value parameters: `unit → r`
+    /// Peel a member's (single-tupled) function type to its value parameters: `unit → r`
     /// is zero parameters, a single `TyTuple` domain flattens to its elements, any other
     /// single domain is one parameter. The by-VALUE analogue of `memberParamTypes`.
     let private flatParamsOf (store: TypeStore) (mty: SemType) : SemType list =
-        let rec arrows t =
+        let rec peelFuns t =
             match resolveStep store t with
             | TyFun(a, b) ->
-                let ps, r = arrows b
+                let ps, r = peelFuns b
                 a :: ps, r
             | o -> [], o
 
-        match arrows mty with
+        match peelFuns mty with
         | [ single ], _ ->
             match resolveStep store single with
             | TyTuple es -> EqArray.toList es

@@ -275,7 +275,7 @@ module NodeSite =
 /// the others' representation: `InferApp` files the verdict off a CST pattern token,
 /// `TastPools.toPools` stamps the pooled lambda's id space off the frozen row's anchor, and
 /// `TastUnpool.rebuildFile` inverts that id back off the `ExprToks` column. All three speak
-/// the same `Anchor` — the frozen spine stores anchors, so there is nothing left to resolve
+/// the same `Anchor` — the frozen pools store anchors, so there is nothing left to resolve
 /// at any of them. A verdict filed under one spelling and sought under another does not
 /// fault — it silently resolves to no lambda, and the closure it was about is emitted as if
 /// no verdict existed.

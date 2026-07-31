@@ -148,7 +148,7 @@ module TastAccessor =
     /// where no source spells it (see `TastPoolBuilder.exprTok`).
     let exprTok (e: ExprId) : Anchor = TastPoolBuilder.exprTok e.Pool e.Id
 
-    /// The immediate child *expressions*, in evaluation order — the recursion spine a
+    /// The immediate child *expressions*, in evaluation order — the child edges a
     /// generic walk (free-vars, closure discovery) follows. Sub-patterns are NOT
     /// children (see `exprPatChildren`); composite carriers with no node identity of
     /// their own (match arms, format segments, static-opt clauses) were flattened in,
@@ -1082,28 +1082,28 @@ module TastAccessor =
     let existsChild (p: ExprId -> bool) (e: ExprId) : bool = exprChildren e |> Array.exists p
 
     /// Peel a curried `App` chain into its head and the arguments paired with each
-    /// `App` node's *result* type and token. The inverse of `mintAppSpine`.
-    let rec collectSpine
+    /// `App` node's *result* type and token. The inverse of `mintAppChain`.
+    let rec collectAppChain
         (acc: (ExprId * FrozenType * Anchor) list)
         (e: ExprId)
         : ExprId * (ExprId * FrozenType * Anchor) list =
         match exprKind e with
         | ExprShape.App ->
             let app = exprApp e
-            collectSpine ((app.Arg, exprTy e, exprTok e) :: acc) app.Fn
+            collectAppChain ((app.Arg, exprTy e, exprTok e) :: acc) app.Fn
         | _ -> e, acc
 
     /// Rewrite a curried `App` chain IN PLACE: `fArg` on each argument, `fHead` on the
-    /// spine's head. The id-preserving counterpart of `collectSpine` + `mintAppSpine`,
+    /// chain's head. The id-preserving counterpart of `collectAppChain` + `mintAppChain`,
     /// for a rewrite that must decide something about the HEAD (is this call saturated?)
-    /// yet leave the spine's own nodes alone: every `App` is a row copy, so a chain whose
+    /// yet leave the chain's own nodes alone: every `App` is a row copy, so a chain whose
     /// head and arguments all stay put keeps every id it already had. Peeling to a list
     /// and re-applying would mint a fresh node per level unconditionally.
-    let rec mapSpine (fHead: ExprId -> ExprId) (fArg: ExprId -> ExprId) (e: ExprId) : ExprId =
+    let rec mapAppChain (fHead: ExprId -> ExprId) (fArg: ExprId -> ExprId) (e: ExprId) : ExprId =
         match exprKind e with
         | ExprShape.App ->
             let app = exprApp e
-            let fn = mapSpine fHead fArg app.Fn
+            let fn = mapAppChain fHead fArg app.Fn
             let arg = fArg app.Arg
 
             at
@@ -1173,9 +1173,9 @@ module TastAccessor =
     let mintApp (fn: ExprId) (arg: ExprId) (ty: FrozenType) (tok: Anchor) : ExprId =
         mintExpr fn.Pool ty tok [| fn.Id; arg.Id |] [||] ExprPayload.App
 
-    /// Re-apply a head to a spine of `(arg, result type, token)` levels — the inverse
-    /// of `collectSpine`.
-    let mintAppSpine (head: ExprId) (args: (ExprId * FrozenType * Anchor) list) : ExprId =
+    /// Re-apply a head to a list of `(arg, result type, token)` levels — the inverse
+    /// of `collectAppChain`.
+    let mintAppChain (head: ExprId) (args: (ExprId * FrozenType * Anchor) list) : ExprId =
         List.fold (fun acc (arg, resTy, tok) -> mintApp acc arg resTy tok) head args
 
     /// `fun param -> body`.

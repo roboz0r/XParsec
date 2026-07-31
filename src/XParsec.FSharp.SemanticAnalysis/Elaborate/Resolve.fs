@@ -266,7 +266,7 @@ module internal ElaborateResolve =
             | _ -> ValueNone
         | ValueNone -> ValueNone
 
-    /// The `obj`-slot model for a *residual* application head (the spine fold and
+    /// The `obj`-slot model for a *residual* application head (the argument fold and
     /// the single-`HighPrecedenceApp` arm share this probe): an external .NET
     /// method head reads it off the recorded declared signature
     /// (`externalMethodParamTy`), since its node SemType is the un-grounded applied
@@ -282,14 +282,14 @@ module internal ElaborateResolve =
     /// `TyTuple` parameter; `peelCtorArgs` flattens its call args to two, so the
     /// tuple is expanded element-wise here to keep the indices aligned.
     let private flatMemberParams (store: TypeStore) (memberTy: SemType) : SemType list =
-        let rec arrows t =
+        let rec peelFuns t =
             match Unification.zonk store t with
             | TyFun(a, b) ->
-                let ps, r = arrows b
+                let ps, r = peelFuns b
                 a :: ps, r
             | other -> [], other
 
-        match arrows memberTy with
+        match peelFuns memberTy with
         | [ single ], _ ->
             match Unification.zonk store single with
             | TyTuple elems -> EqArray.toList elems

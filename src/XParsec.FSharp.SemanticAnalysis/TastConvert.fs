@@ -19,7 +19,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // rebuild is just the diagonal (`Id = BinderKey.identity`, `Body = expr f fTok`,
 // `fPat = pat f fTok`), while the frozen POOLS instantiate the other parameters at dense ids
 // and run the very same traversals in both directions. Keeping them here rather than
-// re-walking those shapes in `TastPools` is what stops the declaration spine — the seven
+// re-walking those shapes in `TastPools` is what stops the declaration shape — the seven
 // body slots and the seven key slots especially — from being enumerated twice.
 //
 // The `'id` axis stops at the DECLARATION cluster: a `Var` reference and a `NamedSimple`
@@ -237,11 +237,11 @@ module TastConvert =
     // at `Id = BinderKey.identity` and `Body = expr` (`decl` below); a body-POOLING pass runs
     // it at `Ty = id`, `Body = <expr → pool id>` and `Id = <key → binder id>`, and its
     // inverse at the opposite two. So the seven body slots, the seven key slots, and the
-    // declaration spine around them are enumerated in ONE place, and neither pooling
+    // declaration shape around them are enumerated in ONE place, and neither pooling
     // direction is a second hand-written walk of this shape.
 
     /// The four mappings a declaration rebuild runs under, one per axis. A RECORD and not
-    /// four arguments: `Ty`, `Tok` and `Body` are bare arrows, and every run instantiates at
+    /// four arguments: `Ty`, `Tok` and `Body` are bare functions, and every run instantiates at
     /// least two of them at `id`, so positional arguments could be transposed without the
     /// types noticing. Naming them makes a transposition a compile error and each call site
     /// say which axis it is moving.

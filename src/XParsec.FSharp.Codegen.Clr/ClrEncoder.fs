@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
 /// The signature-type encoder over a `ClrEnv`: turns a `FrozenType` into a metadata signature, mapping
-/// function arrows to `Vesper.Fun`2`, lists to `FSharpList`1` / `Vesper.Collections.List`1`, user
+/// function types to `Vesper.Fun`2`, lists to `FSharpList`1` / `Vesper.Collections.List`1`, user
 /// types to their predicted `TypeDefinition`, and external types through the symbol provider. Also
 /// hosts the blob/signature builders that are pure `encodeType` wrappers.
 type internal ClrEncoder(env: ClrEnv) =

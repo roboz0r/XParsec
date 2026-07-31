@@ -33,7 +33,7 @@ module TastNodeViews =
     type DeclId = Handle<DeclPoolId>
 
     /// The `type`-declaration cluster with its member/preamble/ctor BODY slots holding
-    /// handles — the shape `TTypeDeclG`'s `'body` parameter exists for. Same spine as
+    /// handles — the shape `TTypeDeclG`'s `'body` parameter exists for. Same shape as
     /// `Frozen.TTypeDecl`, ids in the body slots.
     type TypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, ExprId>
     type TypeKind = TTypeKindG<FrozenType, Anchor, BinderId, ExprId>
@@ -53,7 +53,7 @@ module TastNodeViews =
         {
             Key: Frozen.SpecializationKey
             Origin: OriginFile
-            /// The abstraction this entry's edges apply — the lambda spine an edge's arguments
+            /// The abstraction this entry's edges apply — the lambda chain an edge's arguments
             /// are positional against. The DECLARATION is not carried: an entry is always a
             /// `Let` of lambdas, and reading its value at the one place an entry is reached
             /// discharges that for every consumer instead of each restating it.
@@ -62,7 +62,7 @@ module TastNodeViews =
 
     /// The compiled-form cluster with its tuple-group / destructuring patterns held as
     /// handles — the `'pat` instantiation every consumer reads, whether the pats came
-    /// from a file's own pool (`peelValRepr` off the frozen lambda spine) or from the
+    /// from a file's own pool (`peelValRepr` off the frozen lambda chain) or from the
     /// standalone pool an `.fsi` contract's are minted into.
     type StaticParam = StaticParamG<FrozenType, PatId, BinderId>
     type ArgGroup = ArgGroupG<FrozenType, PatId, BinderId>

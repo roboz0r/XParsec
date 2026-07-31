@@ -321,7 +321,7 @@ let tests =
                             "    printfn \"side %d\" x"
                             "    x + 1"
                             "f 41 |> ignore"
-                            "ignore (f 7)" // the un-piped form, same head + spine
+                            "ignore (f 7)" // the un-piped form, same head + arguments
                             "printfn \"done\""
                         ]
 

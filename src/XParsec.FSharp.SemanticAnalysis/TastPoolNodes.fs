@@ -32,15 +32,15 @@ open XParsec.FSharp.Parser
 // FLAT child columns back into their nested shape, since the node that once held that
 // shape is gone. Both directions reuse the pooling walk's child enumeration
 // (`TastPoolShapes.exprChildren`/`exprPatChildren`) and consume it in that same order —
-// the coupling the round-trip test guards — rather than re-deriving the tree spine. The
+// the coupling the round-trip test guards — rather than re-deriving the tree's child edges. The
 // `ExprPayloads` build (`exprPayload`) and consume (`substituteExpr`) are inverse
 // per-case matches, each exhaustive so a new `TExprG`/`ExprShape` case fails to compile.
 //
 // Two carriers that used to hold trees opaquely are pooled like any other node, and their
 // pooled shapes live here: a `Type` decl's member bodies (`PooledTypeDecl` — ids in the
 // declaration shape) and a binding's `ValRepr` tuple-group patterns (`PooledValRepr`,
-// which holds no tree of its own at all — it names the LAMBDA SPINE's own pattern nodes,
-// being derived from that spine rather than carried alongside it).
+// which holds no tree of its own at all — it names the LAMBDA CHAIN's own pattern nodes,
+// being derived from that chain rather than carried alongside it).
 //
 // Identity goes positional too: a binder's identity after freeze IS its slot in the file's
 // binder pool, addressed by `BinderId`. Every distinct definition site the walk reaches
@@ -191,7 +191,7 @@ type PooledTypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, ExprPoolId>
 
 /// A binding's SOURCE arity with its tuple-group patterns named by pool id — the file's own
 /// `ValRepr`s, whose pats ARE nodes of the pooled tree (the peel reads the pooled lambda
-/// spine, so a group's pattern is the very node the spine bears, not a copy of it).
+/// chain, so a group's pattern is the very node that chain bears, not a copy of it).
 /// Distinct from `Frozen.ValRepr`, which stays at the pattern TREE because an EXTERNAL
 /// symbol's pats are minted from an `.fsi` contract and index into no file's pool.
 type PooledValRepr = ValReprG<FrozenType, PatPoolId, BinderId>
@@ -204,7 +204,7 @@ type PooledValRepr = ValReprG<FrozenType, PatPoolId, BinderId>
 /// representation (the raw columns at `TastPools.toPools`, node handles at
 /// `TastLower.peelValRepr`) and the arity itself is not restated. Two peels that agreed
 /// only by review is exactly how a binding's recorded arity came to be able to disagree
-/// with the spine it was read from.
+/// with the lambda chain it was read from.
 [<RequireQualifiedAccess>]
 module ArgGroups =
 
@@ -237,7 +237,7 @@ module ArgGroups =
     /// caller supplies only how to READ its representation — `unLambda` opens one lambda
     /// into its `(param, body)` and declines on anything else, `facts` reads a parameter
     /// pattern — so the walk, the grouping and the stopping condition exist once for every
-    /// domain that has a spine.
+    /// domain that has a lambda chain.
     let rec peel
         (unLambda: 'e -> struct ('p * 'e) voption)
         (facts: 'p -> ParamPatFacts<'id>)
@@ -706,7 +706,7 @@ type DeclPayload =
     | Let of {| IsInline: bool; Ty: FrozenType |}
     /// The decl's declared type; the body is the sole expr child.
     | Expression of FrozenType
-    /// The `type` declaration's spine, its seven body slots holding pool ids rather than
+    /// The `type` declaration's shape, its seven body slots holding pool ids rather than
     /// expression trees (`PooledTypeDecl`). A `Type` decl still surfaces no
     /// `DeclExprChildren` — its bodies are named by id INSIDE the declaration shape, which
     /// is what keeps "which body fills which slot" expressed by the shape itself.

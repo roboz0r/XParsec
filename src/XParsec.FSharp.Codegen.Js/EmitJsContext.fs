@@ -102,7 +102,7 @@ module EmitJsContext =
             /// Top-level module functions keyed by binding, with their flat compiled
             /// form (`CompiledFns.gather`). Drives the Fable-style FLAT emission: a
             /// module function emits as one multi-arg arrow (tuple groups flattened,
-            /// lone unit erased) and a saturated call collapses its spine to a single
+            /// lone unit erased) and a saturated call collapses its arguments to a single
             /// flat call; a value-use / under-application gets an inline curried adapter.
             /// Empty until `buildProgram`
             /// populates it from the lowered decls.

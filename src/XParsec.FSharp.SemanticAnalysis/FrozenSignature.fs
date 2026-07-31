@@ -191,10 +191,10 @@ module FrozenSignature =
         // member carries decurried `Params` / `ReturnTy`. The typar cut already landed the
         // signature's leaves on the Declaring / Method axis at freeze
         // (`Elaborate.freezeTypars` runs the decl's cut over each `Signature`), so no re-axis
-        // is needed — only the arrow is peeled. Peel ONE arrow to the `.NET`-tupled domain
+        // is needed — only the `->` is peeled. Peel ONE `->` to the `.NET`-tupled domain
         // (`argSigOfParameters` re-flattens a tuple domain to one arg per element, so a
         // 2-arg `a * b -> c` folds to the same slot a `member _.M(a, b)` impl mints; a
-        // `unit` domain / no arrow ⇒ no value parameters). A property's `Signature` IS its
+        // `unit` domain / no `->` ⇒ no value parameters). A property's `Signature` IS its
         // value type.
         let abstractMemberOf (declKey: TypeKey) (declArity: int) (am: Frozen.TAbstractMethod) : ExternalMember =
             let methodArity = am.MethodTypeParams.Length

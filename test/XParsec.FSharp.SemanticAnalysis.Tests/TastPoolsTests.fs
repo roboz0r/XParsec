@@ -133,7 +133,7 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
     // holds. Only the KEYS are compared — a dense value need not be the source value's type
     // — and the values' faithfulness is the round-trip gate's business, not this one's.
     // `BindingValReprs` is absent: it is DERIVED off the columns rather than re-keyed from
-    // a source map, and has its own gate (`checkValReprPatsAreSpineNodes`).
+    // a source map, and has its own gate (`checkValReprPatsAreLambdaParams`).
     let checkTable (name: string) (resolve: 'id -> 'k) (dense: ('id * 'v)[]) (sourceKeys: Set<'k>) =
         Expect.equal dense.Length sourceKeys.Count (name + " dense form covers the source map 1:1")
 
@@ -171,15 +171,15 @@ let private checkIdResolution (pools: FrozenPools) (frozen: Pooled.TastFile) =
     checkTable "GenericFnSchemes" id pools.GenericFnSchemes (binderSource frozen.GenericFnSchemes)
     checkColumn "BindingTyparArities" pools.BindingTyparArities (binderSource frozen.BindingTyparArities)
 
-/// A binding's recorded arity is READ OFF the pooled spine, so a tuple group's pattern must
-/// BE the spine node it was peeled from. A re-pooled copy would be structurally equal and
+/// A binding's recorded arity is READ OFF the pooled lambda chain, so a tuple group's pattern must
+/// BE the lambda parameter node it was peeled from. A re-pooled copy would be structurally equal and
 /// so invisible to the round-trip gate, but a different id — and identity after freeze is
 /// the id. Every recorded `GTuple` must therefore name a pat that some `Lambda` bears as
 /// its parameter.
 ///
 /// Also: one entry per `NamedSimple`-headed `Let` root and no more, which is the coverage
 /// the file→file signature projection relies on.
-let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
+let private checkValReprPatsAreLambdaParams (pools: FrozenPools) =
     let lambdaParams = System.Collections.Generic.HashSet<PatPoolId>()
 
     for i in 0 .. pools.ExprPayloads.Length - 1 do
@@ -243,7 +243,7 @@ let private checkProgram (src: string) =
     Expect.equal pools.Roots.Length duDecls.Length "one root per emittable decl"
     Array.iter2 (checkDecl pools) pools.Roots duDecls
     checkIdResolution pools frozen
-    checkValReprPatsAreSpineNodes pools
+    checkValReprPatsAreLambdaParams pools
 
     // The interconversion gate: `ofPools ∘ rePool` reconstructs a structurally-equal file.
     // Both sides speak the pool's own dense identity, so the comparison needs no widening
@@ -416,7 +416,7 @@ let binderAnchorTests =
 // count the three, and fail loudly if the set stops populating any of them.
 
 /// The three formerly-opaque carriers, counted over one program's pools. A tuple group
-/// names a spine node rather than a pooled copy of one, so its count is coverage of the
+/// names a lambda parameter node rather than a pooled copy of one, so its count is coverage of the
 /// DERIVATION — that the program set produces tuple-parameter bindings at all.
 let private carrierCounts (pools: FrozenPools) =
     let memberBodies =

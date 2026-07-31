@@ -15,7 +15,7 @@ let inline applySum f x y = f (x + y)
 printfn "%d" (double 21)
 printfn "%d" (applySum double 20 1)
 
-// A first-class reference — no call spine to saturate, so the compiler has to produce a
+// A first-class reference — no call arguments to saturate, so the compiler has to produce a
 // function VALUE for the binding rather than a spliced expression.
 let d = double
 printfn "%d" (d 7)

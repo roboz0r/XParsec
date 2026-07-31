@@ -34,7 +34,7 @@ let tests =
                     "curried source groups flatten to one multi-arg arrow (Fable-style)"
             }
 
-            test "a saturated call collapses the spine to one flat call" {
+            test "a saturated call collapses the arguments to one flat call" {
                 Expect.equal
                     (emitJs "let add x y = x + y\nprintfn \"%d\" (add 2 3)")
                     "const add = (x, y) => (((x) + (y)) | 0);\nconsole.log(add(2, 3));\n"

@@ -335,7 +335,7 @@ type internal Assembler
                 }
 
         // The seq→enumerator witness the closure-verdict rewrite needs to rewrite a
-        // chained binding's nested `'E` ENUMERATOR slot node-keyed (NOT by arrow shape).
+        // chained binding's nested `'E` ENUMERATOR slot node-keyed (NOT by type shape).
         // For a project-local seq class, its `GetEnumerator` interface-impl member's
         // RETURN type is the enumerator over the class's declaring typars; map each seq
         // class key → that template, then `enumeratorOf` instantiates it by a concrete
@@ -498,7 +498,7 @@ type internal Assembler
             staticMethods.[fn.Key] <-
                 {
                     Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
-                    // The flat CLR arg count (the `call` operand count); the spine split
+                    // The flat CLR arg count (the `call` operand count); the argument split
                     // uses `Groups.Length`, which can be smaller (a tupled group is one
                     // application, many flat params).
                     ParamArity = List.length fn.Params
@@ -1029,7 +1029,7 @@ type internal Assembler
             // Retype the body so a reference to a verdict module value (a
             // stored transformer result, `Var h` / `h.F`) or an inline transformer call
             // dispatches on the `<closure>$` value-struct nominal rather than the frozen
-            // arrow. A no-op when there are no verdicts (the green named-struct path).
+            // function type. A no-op when there are no verdicts (the green named-struct path).
             let fn = { fn with Body = retypeBody fn.Body }
 
             let bodyOffset =
@@ -1115,7 +1115,7 @@ type internal Assembler
         if f.Layout.EmitEntryPoint then
             // Retype the Main decls so a reference to a verdict module
             // value (and its field projections) dispatches on the `<closure>$` value-
-            // struct nominal, not the frozen arrow.
+            // struct nominal, not the frozen function type.
             let mainDecls = f.Layout.Lowered |> List.map f.Verdict.RetypeDecl
 
             let mainBodyOffset =

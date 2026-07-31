@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// Backend-agnostic compiled-form analysis of a file's top-level module functions —
 /// the facts both the CLR and JS backends need to lower a `let f … = …`. `gather`
 /// returns each function's flat compiled signature (`CompiledForm`): the SOURCE arity
-/// groups (how many spine applications a saturated call collapses), the tuple-expanded
+/// groups (how many source applications a saturated call collapses), the tuple-expanded
 /// / lone-unit-erased flat params, and the `void`-vs-value return — derived via the
 /// same `TastLower.peelValRepr` + `compiledOf` builders Elaborate runs.
 ///
@@ -15,7 +15,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// flat form is suppressed. Both backends share this model: the flat method is always
 /// emitted and an escaping reference *adds* a curried bridge — the JS backend via
 /// `curryAdapter`, the CLR backend via `EmitClosures.bridgeStaticFnEscapes` (which
-/// derives saturation from the spine directly). The only CLR-private demotion left is
+/// derives saturation from the applied arguments directly). The only CLR-private demotion left is
 /// the *capture* axis (`EmitClosures.staticEligible`), genuinely intrinsic to a
 /// `this`-less static method and orthogonal to escape.
 module CompiledFns =
@@ -53,7 +53,7 @@ module CompiledFns =
         /// value through an IIFE). Both decide how from `elemTys`/the value itself.
         | TupleValue of value: TastAccessor.ExprId * elemTys: FrozenType list
 
-    /// Flatten a saturated call's LEADING spine (one element per SOURCE group) into the
+    /// Flatten a saturated call's LEADING arguments (one per SOURCE group) into the
     /// backend-neutral push plan: a lone `()` group contributes nothing; a `GSimple` /
     /// non-lone `GUnit` one `Arg`; a `GTuple` either a `TupleLiteral` (its argument is a
     /// literal `Tuple`) or a `TupleValue` (any other tuple-typed expression). The single

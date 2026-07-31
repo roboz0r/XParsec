@@ -169,18 +169,18 @@ module TastWalk =
 
     /// Peel a curried `App` chain into its head and the arguments paired with
     /// each `App` node's *result* type. The inverse of `rebuildApp`. Shared by
-    /// every spine-walking client (`EmitLower`'s eta/lowering, the pre-freeze
-    /// `InlineExpansion` pass).
-    let rec collectSpine
+    /// every client that walks an application (`EmitLower`'s eta/lowering, the
+    /// pre-freeze `InlineExpansion` pass).
+    let rec collectAppChain
         (acc: (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list)
         (e: TExprG<'ty, 'tok, 'id>)
         : TExprG<'ty, 'tok, 'id> * (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list =
         match e with
-        | TExprG.App(fn, arg, ty, tok) -> collectSpine ((arg, ty, tok) :: acc) fn
+        | TExprG.App(fn, arg, ty, tok) -> collectAppChain ((arg, ty, tok) :: acc) fn
         | head -> head, acc
 
-    /// Re-fold a head + (arg, result-type, tok) spine back into a curried `App`
-    /// chain. The inverse of `collectSpine`.
+    /// Re-fold a head + (arg, result-type, tok) arguments back into a curried
+    /// `App` chain. The inverse of `collectAppChain`.
     let rebuildApp
         (head: TExprG<'ty, 'tok, 'id>)
         (args: (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list)

@@ -58,7 +58,7 @@ module JsFlatFns =
             | ValueNone -> ValueNone
         | ValueNone -> ValueNone
 
-    /// Flatten a saturated call's LEADING spine (one element per source group) to the
+    /// Flatten a saturated call's LEADING arguments (one per source group) to the
     /// flat compiled argument list, rendering each `CompiledFns.flattenPlan` step: a
     /// scalar `Arg` built directly; a `TupleLiteral`'s elements built element-wise; a
     /// `TupleValue` read positionally — a pure value inline (`v[j]`), an impure one
@@ -108,7 +108,7 @@ module JsFlatFns =
                 loc
             )
 
-    /// A saturated module-function call: collapse the leading spine (one element per
+    /// A saturated module-function call: collapse the leading arguments (one per
     /// source group) into a single flat `callee(flatArgs…)`, then fold any residual
     /// over-application on as unary calls.
     let emitFlatCall
@@ -116,10 +116,10 @@ module JsFlatFns =
         (build: TastAccessor.ExprId -> JsExpr)
         (callee: JsExpr)
         (groups: TastAccessor.ArgGroup list)
-        (spine: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
         (loc: JsLoc voption)
         : JsExpr =
-        let leading, rest = List.splitAt (List.length groups) spine
+        let leading, rest = List.splitAt (List.length groups) appArgs
 
         let flatArgs, spills =
             flattenGroupArgs pool build groups (leading |> List.map (fun (a, _, _) -> a))

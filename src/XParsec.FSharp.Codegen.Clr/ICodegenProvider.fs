@@ -7,26 +7,26 @@ open XParsec.FSharp.SemanticAnalysis
 // symbol provider knows a compiled name's *shape*; the codegen provider knows
 // how to *emit a call* to it.
 
-/// A call's argument arity — how many application-spine elements it consumes and
+/// A call's argument arity — how many applied arguments it consumes and
 /// how many CLR values that flattens to. The two diverge only for a module function
-/// carrying a captured SOURCE grouping (Step C): a tupled group is one spine element
-/// but N pushed values, a lone `()` group one spine element but zero. Making the two
+/// carrying a captured SOURCE grouping (Step C): a tupled group is one argument
+/// but N pushed values, a lone `()` group one argument but zero. Making the two
 /// counts a single typed value keeps the `FlatArgCount` (the stack-model pop count)
-/// and the spine split provably consistent, instead of a flat `ArgCount` plus a
+/// and the argument split provably consistent, instead of a flat `ArgCount` plus a
 /// parallel optional `Groups` the reader must reconcile.
 [<RequireQualifiedAccess>]
 type CallArity =
-    /// Spine count = flat pop count: every leading spine element pushes one value
+    /// Argument count = flat pop count: every leading argument pushes one value
     /// (all-`GSimple` module functions and every non-module-function recipe — an
     /// instance call's count includes the receiver).
     | Flat of argCount: int
     /// The callee's SOURCE grouping drives the split: the walker consumes
-    /// `groups.Length` spine elements and flattens each to its pushed CLR values
+    /// `groups.Length` arguments and flattens each to its pushed CLR values
     /// (`CompiledFns.flattenPlan`); `flatArgCount` is the resulting flat pop count.
     | Grouped of groups: TastAccessor.ArgGroup list * flatArgCount: int
 
     /// The number of CLR values the `call` actually pops — what the IlIr stack model
-    /// adjusts by (`Pushes - FlatArgCount`). The spine-element count is this for
+    /// adjusts by (`Pushes - FlatArgCount`). The applied-argument count is this for
     /// `Flat`, but `groups.Length` for `Grouped`.
     member this.FlatArgCount =
         match this with
