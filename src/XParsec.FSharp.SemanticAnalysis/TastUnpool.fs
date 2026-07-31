@@ -170,7 +170,7 @@ module TastUnpool =
             let receiver' = if p.HasReceiver then ValueSome(nextE ()) else ValueNone
             TExprG.ExternalMember(receiver', p.Key, p.MemberName, p.Storage, ty, tok)
         | ExprPayload.Format p ->
-            let sink', segments' = ExprPayload.format id p.Sink p.Segments nextE
+            let sink', segments' = ExprPayload.format p.Sink p.Segments nextE
             TExprG.Format(sink', EqArray.ofArray segments', ty, tok)
         | ExprPayload.ILIntrinsic p -> TExprG.ILIntrinsic(p.OpCode, p.TypeOperand, EqArray.ofArray es, ty, tok)
         | ExprPayload.InlineCall p -> TExprG.InlineCall(p.Spec, EqArray.ofArray es, p.Origin, ty, tok)

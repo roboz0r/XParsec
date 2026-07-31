@@ -757,7 +757,7 @@ module TastAccessor =
             // No leading children of its own: the sink's sub-expression is the first thing
             // `exprChildren` yields, which is where `ExprPayload.format` starts.
             let sink, segments =
-                ExprPayload.format id p.Sink p.Segments (ExprPayload.cursor (exprChildren e) 0)
+                ExprPayload.format p.Sink p.Segments (ExprPayload.cursor (exprChildren e) 0)
 
             ValueSome { Sink = sink; Segments = segments }
         | _ -> ValueNone

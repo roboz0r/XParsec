@@ -4,55 +4,28 @@ open System.Collections.Generic
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
-// The table an outlined reduction reserves a slot in, and the parameter vocabulary a peel
-// classifies into.
 open InlineSpecTable
 
-// The vocabulary of ONE inline reduction: what the body it expands IS, WHICH template that
+// One inline reduction: what the body it expands IS, WHICH template that
 // body belongs to, and how one call site's spine is resolved against it and its parameters
 // classified.
-//
-// A file of its own because none of it depends on the WALK. Everything here is a function of a
-// template body and a spine — no traversal, no pass-wide mutable state, no descent into a
-// callee — so each piece reads against the single reduction it describes rather than against
-// the thousand-line closure that drives them all. What is deliberately ABSENT is the walk:
-// which node is a call site and which chain it was written under belong to the walk, and
-// nothing here can observe them. The `ExpansionFrame` / `InFlight` chain is here even so,
-// because what a frame IS — a template identity plus the table slot its expansion reserved —
-// is a fact about one reduction; only the THREADING of the chain belongs to the walk.
 //
 // A cross-unit body arrives FROZEN and is THAWED here (`lookupExternal`), minting this unit's
 // own inference cells. That thaw is the single immutable→mutable transition on the provider
 // seam: nothing below it can `UnionFind.union` into a producer's cells, because it never holds
 // one.
 //
-// EVERY reduction is outlined, whether its template is this file's own or another unit's: it
-// becomes an entry of the file's resolved-specialization table, keeping the positions the body
-// was written at, and the call site gets a `TExpr.InlineCall` edge naming it — so a body called
-// from N sites is one entry and N edges, each with its own provenance. Nothing here moves a
-// body onto a call site; placing them is the backends' shared emit-time expansion.
+// EVERY reduction is outlined, whether its template is this file's own or another unit's: the
+// body becomes a table entry keeping the positions it was written at, and the call site gets a
+// `TExpr.InlineCall` edge naming it. Placing a body is the backends' emit-time expansion.
 //
-// It also owns the compiler's ONE eta-reification (`etaReify`): an `External` of function type
-// used as a VALUE becomes a closure here, whether or not it has an inline body. Codegen has no
-// eta of its own. The pre-freeze position is forced — an inline-bodied external
-// (`List.fold (+) 0 xs`) reified post-freeze mints its call `App` past the last point the body
-// can be spliced into it, and codegen's lowering never walks member bodies at all.
-//
-// The inline-first soundness condition (beta-reduction half) is `classifyApplication`'s: a
-// lambda argument bound to an inline parameter and fully applied inside the body is eliminated
-// — its closure never exists, the classification marking it and the walk splicing it away at
-// each use. A lambda that is stored or partially
-// applied survives as a real closure. The byref-like-capture half (reject / ref-struct closures
-// for a SURVIVING closure that holds a `Span`/`ref struct`) is deferred — see the TODO in
-// `classifyApplication`; it needs a byref-like predicate that does not exist yet.
-//
-// `internal` and not `private`: this is the pass's own vocabulary and no consumer outside the
-// assembly has business with it, but `InlineExpansion` names it from another module.
+// It also owns the compiler's ONE eta-reification (`etaReify`), and the pre-freeze position is
+// forced: an inline-bodied external reified post-freeze mints its call `App` past the last
+// point the body can be spliced into it, and codegen's lowering never walks member bodies.
 module InlineReduction =
 
-    /// The peel of a resolved inline body against one call site's spine, with each parameter's
-    /// disposition already decided. Everything about the reduction that is knowable before the
-    /// body is walked.
+    /// The peel of a resolved inline body against one call site's spine — everything about the
+    /// reduction that is knowable before the body is walked.
     type internal Peeled =
         {
             /// Outermost curried parameter first, so an index into this list IS the curried
@@ -63,14 +36,11 @@ module InlineReduction =
             Core: TExpr
         }
 
-    /// An inline body as this pass consumes it, in this unit's `SemType` domain: the identity
-    /// its entry is keyed by, its declared parameter attributes, and the anchor domain its
-    /// nodes keep.
+    /// An inline body as this pass consumes it, in this unit's `SemType` domain.
     ///
     /// The SAME record for a template of this file and for one another unit served, because a
-    /// reduction of the two differs in nothing: both keep the positions they were written at,
-    /// both are outlined, and the only thing that tells them apart is which file `Origin`
-    /// names.
+    /// reduction of the two differs in nothing: both are outlined, both keep the positions they
+    /// were written at, and only `Origin` tells them apart.
     type internal TemplateBody =
         {
             Key: SymbolKey
@@ -81,15 +51,14 @@ module InlineReduction =
             Origin: OriginFile
         }
 
-    /// WHICH inline binding a reduction is expanding — the identity a RECURSION is detected on.
+    /// WHICH inline binding a reduction is expanding — the identity a RECURSION is detected on,
+    /// and NOT the `SymbolKey` its table entry is keyed by. A local binding's key and a
+    /// package's can collide, and the collision must not answer "is this call recursive?".
     ///
     /// The TEMPLATE alone and not its `Grounding`: a binding that reaches itself at a different
     /// grounding is no less non-terminating (a polymorphically recursive one mints a fresh
     /// grounding every time round), so keying on the grounding would let exactly the divergence
     /// this exists to stop straight through.
-    ///
-    /// Two cases because a SAME-UNIT template has no `SymbolKey` at all — the freeze refuses to
-    /// publish a top-level `let inline` — so its binder is the only identity it has.
     [<RequireQualifiedAccess>]
     type internal TemplateId =
         | Local of binder: NodeKey
@@ -97,20 +66,13 @@ module InlineReduction =
 
     /// One inline reduction IN FLIGHT: a binding whose body is currently being expanded.
     ///
-    /// The CHAIN of these is what makes a recursive inline TERMINATE. A call that reaches a
-    /// binding already on the chain has no expansion — substituting the body in would present
-    /// the same call again — so it is answered from the frame rather than expanded a second time.
+    /// The CHAIN of these is what makes a recursive inline TERMINATE. Substituting the body of a
+    /// binding already on the chain would present the same call again, forever; so such a call
+    /// is answered with an edge into the entry that expansion already reserved, which keeps the
+    /// graph finite for the acyclicity check on the finished table to convict.
     ///
-    /// The chain is a list, INNERMOST FIRST, threaded through the walk as a parameter rather
-    /// than held anywhere: pushing a frame is a cons and popping one is a tail, so a piece of
-    /// material is walked under the chain it was WRITTEN under by construction and no reader has
-    /// to state a depth.
-    ///
-    /// An inline binding that reaches ITSELF has no expansion: substituting the body in presents
-    /// the same call again, forever. This is what stops that — the call is answered with an edge
-    /// into the entry this expansion has already reserved, which keeps the graph finite, and the
-    /// acyclicity check on the FINISHED table then reports `Kind.CyclicInline` naming every
-    /// binding on the loop rather than just the call that closed it.
+    /// INNERMOST FIRST, and threaded through the walk as a parameter: material is walked under
+    /// the chain it was WRITTEN under by construction, and no reader has to state a depth.
     [<NoEquality; NoComparison>]
     type internal ExpansionFrame =
         {
@@ -139,17 +101,13 @@ module InlineReduction =
             | [] -> compiling
             | f :: _ -> f.Origin
 
-    /// A FRESH reduction and the two chains its material belongs to: `Own` is the frame this
-    /// reduction pushes, `Caller` the chain — innermost first — the CALL SITE's material was
-    /// written under.
+    /// A FRESH reduction and the two chains its material belongs to.
     ///
-    /// Two fields and not one list because a reduction walks two kinds of material against two
-    /// different chains: the body walks under `Own :: Caller`, an argument the site supplied
-    /// walks under `Caller` alone. An argument is the caller's, not the callee's, so a call it
-    /// makes to the binding it is an argument OF is an ordinary nested application and not a
-    /// recursion: `1 - 2 - 3` applies `(-)` inside `(-)`'s own left operand without either
-    /// expansion containing the other, and walking it under the callee's chain would convict
-    /// every such program.
+    /// Two fields and not one list because the body walks under `Own :: Caller` while an
+    /// argument the site supplied walks under `Caller` alone. An argument is the caller's, so a
+    /// call it makes to the binding it is an argument OF is an ordinary nested application and
+    /// not a recursion: `1 - 2 - 3` applies `(-)` inside `(-)`'s own left operand without either
+    /// expansion containing the other, and the callee's chain would convict every such program.
     [<NoEquality; NoComparison>]
     type internal InFlight =
         {
@@ -162,25 +120,6 @@ module InlineReduction =
 
         /// The chain this reduction's own BODY is walked under, innermost first.
         let frames (f: InFlight) : ExpansionFrame list = f.Own :: f.Caller
-
-    /// What a FRESH reduction is handed once its template is known not to be on the chain: how
-    /// to push its frame, and where a verdict about it is positioned.
-    ///
-    /// The frame is a FUNCTION of the body's anchor domain and of the slot the expansion
-    /// reserved, because a reduction knows neither until it has resolved its body and taken a
-    /// table slot. Nothing walks the body before then, so no call can reach the binding while
-    /// the answer is still unsettled.
-    [<NoEquality; NoComparison>]
-    type internal Entering =
-        {
-            Frame: OriginFile -> SpecializationId -> InFlight
-            /// The chain the CALL SITE's material was written under — what an argument this
-            /// site supplied is walked against, independent of the re-entry answer.
-            Caller: ExpansionFrame list
-            /// The outermost in-flight site — a position in the file being compiled, which
-            /// every deeper site fails to be.
-            Site: SyntaxToken
-        }
 
     /// The call an expansion is being entered FOR: which binding it calls, where it stands, and
     /// the spine an ANSWER needs it in.
@@ -199,17 +138,13 @@ module InlineReduction =
             /// WHICH binding is being called: the identity a recursion is detected on, and the
             /// template a fresh reduction enters.
             Template: TemplateId
-            /// The position the expansion stands in for. A rewrite inherits the position of the
-            /// node it REPLACES, so for an application that is the APPLICATION node's own token
-            /// and never the head's — the two differ exactly when an outer fusion substituted
-            /// the head in, which makes the head call-site material sitting inside a producer's
-            /// own application. It is also the site the fresh frame records, and the anchor a
-            /// fresh reduction's own edge is minted at.
+            /// The position the expansion stands in for: the APPLICATION node's own token and
+            /// never the head's. The two differ exactly when an outer fusion substituted the
+            /// head in, which makes the head call-site material sitting inside a producer's own
+            /// application.
             Tok: SyntaxToken
-            /// The node's own result type, which the outermost `App` already records
-            /// (`collectSpine` pairs each argument with its node's result) and a bare reference
-            /// carries directly. It is the type of EVERY edge minted for this call, recursive or
-            /// fresh.
+            /// The node's own result type — the type of EVERY edge minted for this call,
+            /// recursive or fresh.
             Ty: SemType
             /// The spine AS APPLIED — what the entry's parameters were peeled against, so an
             /// edge's arguments are positional against them by construction. Unwalked: only the
@@ -220,21 +155,48 @@ module InlineReduction =
             Walk: TExpr -> TExpr
         }
 
+    [<RequireQualifiedAccess>]
+    module internal PendingCall =
+
+        /// Where a verdict about this call is positioned: the OUTERMOST in-flight site, which
+        /// every deeper site fails to be — a deeper one is a node of a producer's body, whose
+        /// anchor indexes a file this compilation is not reporting against.
+        let outermostSite (frames: ExpansionFrame list) (call: PendingCall) : SyntaxToken =
+            match frames with
+            | [] -> call.Tok
+            | caller -> (List.last caller).Site
+
+        /// The reduction this call enters, pushed onto the chain its CALL SITE was written
+        /// under. `origin` and `spec` arrive last because a reduction knows neither until it
+        /// has resolved its body and taken a table slot; nothing walks the body before then, so
+        /// no call can reach the binding while the answer is still unsettled.
+        let enter
+            (frames: ExpansionFrame list)
+            (call: PendingCall)
+            (origin: OriginFile)
+            (spec: SpecializationId)
+            : InFlight =
+            {
+                Own =
+                    {
+                        Template = call.Template
+                        Site = call.Tok
+                        Origin = origin
+                        Spec = spec
+                    }
+                Caller = frames
+            }
+
     /// A call HEAD that names a cross-unit symbol, reduced to the three things an answer needs
-    /// of it: the key that resolves it, the spine the callee's parameters are peeled against,
-    /// and the head an un-expanded rebuild leaves standing.
+    /// of it — so the expansion behind a plain `External` and behind the dotted
+    /// `ExternalMember` that `x.get_Item(2)` lowers to is written ONCE.
     ///
-    /// The two head shapes — a plain `External` and the dotted `ExternalMember` that
-    /// `x.get_Item(2)` / `w.Poke 41` lowers to — differ in exactly this much, and the whole of
-    /// the difference is that the receiver is a FIELD of the member head rather than a spine
-    /// argument. An EDGE is positional against parameters peeled from the spine, so a member
-    /// call must carry its receiver at curried position 0 (`this`→receiver; a STATIC member has
-    /// none and prepends nothing) for each `pi` to align to `argi`. A REBUILD leaves the
-    /// receiver inside the head — where it is the one piece of material nothing else walks, so
-    /// that head must be walked where a plain `External` head must not.
-    ///
-    /// Taken before the expansion so the expansion is written ONCE: the two shapes reach the
-    /// same reduction by the same path, and cannot drift into two.
+    /// The whole of the difference between the two is that the receiver is a FIELD of the member
+    /// head rather than a spine argument. An EDGE is positional against parameters peeled from
+    /// the spine, so a member call must carry its receiver at curried position 0 (a STATIC
+    /// member has none and prepends nothing) for each `pi` to align to `argi`. A REBUILD instead
+    /// leaves the receiver inside the head — where it is the one piece of material nothing else
+    /// walks, so that head must be walked where a plain `External` head must not.
     [<NoEquality; NoComparison>]
     type internal ExternalHead =
         {
@@ -248,20 +210,38 @@ module InlineReduction =
         }
 
     /// A lambda argument eligible for inline-first elimination, with the chain it was WRITTEN
-    /// under.
+    /// under. The chain travels with it because the lambda is spliced at a use INSIDE the body
+    /// it was passed to, where what it computes is still the caller's material — so a call it
+    /// makes to the very binding it was passed to is a nested application and not a recursion.
     ///
-    /// The chain travels with it because the lambda is spliced at a use INSIDE the body it was
-    /// passed to: what it computes is still the caller's material, so a call it makes to the very
-    /// binding it was passed to is an ordinary nested application and not a recursion. It is the
-    /// chain itself and not a position in one — the splice site is an arbitrary number of bodies
-    /// deeper than the capture, so any index taken here would be read against a chain the lambda
-    /// never saw.
+    /// The chain itself and not a position in one: the splice site is an arbitrary number of
+    /// bodies deeper than the capture, so any index taken here would be read against a chain the
+    /// lambda never saw.
     [<NoEquality; NoComparison>]
     type internal FusedLambda =
         {
             Body: TExpr
             CallerFrames: ExpansionFrame list
         }
+
+    /// What a call HEAD resolves to: the whole dispatch of the walker's application rule as one
+    /// total answer. Three cases and not more — a template of this file and one another unit
+    /// served are the same reduction, and a cross-package call, a CLR/JS method and a
+    /// higher-order parameter are all heads nothing here expands.
+    [<RequireQualifiedAccess; NoEquality; NoComparison>]
+    type internal CallHead =
+        /// A head with an inline body, and the spine that body's parameters are peeled against —
+        /// which for a member head carries the receiver at curried position 0 and so is not the
+        /// spine the application was written with.
+        | Template of id: TemplateId * body: TemplateBody * spine: (TExpr * SemType * SyntaxToken) list
+        /// A saturated use of an inline-first lambda parameter: the bound lambda is spliced at
+        /// this use, so its closure never exists.
+        | Fused of FusedLambda
+        /// Nothing to expand; the head survives its application. A THUNK because the head a
+        /// rebuild leaves standing is walked for a member (whose receiver nothing else walks) and
+        /// must NOT be walked for a plain `External` — walking one etas it into the very closure
+        /// this application is the saturated call of.
+        | Opaque of rebuiltHead: (unit -> TExpr)
 
     [<RequireQualifiedAccess>]
     module internal Peeled =
@@ -280,26 +260,21 @@ module InlineReduction =
     /// clause and dispatches its `TraitCall`s), freshen the binders, and report every trait
     /// call the substitution could NOT dispatch.
     ///
-    /// The SINGLE resolution entry — local and external, applied and bare — so no path can
-    /// carry a body forward while quietly leaving an unresolvable
-    /// `TraitCall` in it. That matters because neither backend has a `TraitCall` arm: an
-    /// unreported one is an emitter crash, where a reported one is "the type 'decimal' does not
-    /// support the operator '+'" and stops the compile before codegen. Reporting belongs here,
-    /// not in `Inline`: the expander is `PassContext`-free, and it sees the body before it
-    /// acquires a position — so the call site is the only anchor available to it. It reports at
-    /// EVERY site, including one that goes on to reuse an entry another site interned: an
-    /// unsupported operator is a fact about the site that wrote it.
+    /// The SINGLE resolution entry — local and external, applied and bare — so no path can carry
+    /// a body forward while quietly leaving an unresolvable `TraitCall` in it. Neither backend
+    /// has a `TraitCall` arm, so an unreported one is an emitter crash. Reported at EVERY site,
+    /// including one that goes on to reuse an entry another site interned: an unsupported
+    /// operator is a fact about the site that wrote it, and the site is also the only anchor
+    /// available (the expander is `PassContext`-free and sees the body before it has a position).
     ///
     /// Deriving the type arguments is not only for static-opt selection: for any generic inline
     /// it GROUNDS the body's typars to the caller's types. Without it, a typar reachable only
-    /// through the body (`asNode`'s `value :?> SetTreeNode<'T>` result) stays a free `TyVar`
-    /// root of the CALLEE's scheme — beta-reduction binds the value params but never unifies
-    /// that typar — and pollutes the caller's frozen TAST as a `ResolvedTypes` "unresolved
-    /// TyVar".
+    /// through the body stays a free `TyVar` root of the CALLEE's scheme — beta-reduction binds
+    /// the value params but never unifies that typar — and pollutes the caller's frozen TAST.
     ///
-    /// Binders are freshened and the body is NOT moved: renaming binders is required of every
-    /// expansion (two of one template must not share a codegen local slot), where keeping the
-    /// positions the body was written at is the entry's whole purpose.
+    /// Binders are freshened and the body is NOT moved: two expansions of one template must not
+    /// share a codegen local slot, where keeping the positions the body was written at is the
+    /// entry's whole purpose.
     let internal resolveAt
         (ctx: PassContext)
         (mint: unit -> NodeKey)
@@ -335,18 +310,15 @@ module InlineReduction =
     /// the freeze, that `App` would be minted past the last point its body can be reached. And
     /// only a pre-freeze eta reaches MEMBER bodies at all (codegen's lowering never walks them).
     ///
-    /// `body` is the reference's inline body when it has one. Arity is the reference's arrow
-    /// count, capped by the body's lambda arity: `classifyApplication` rejects an over-applied
-    /// inline body, and a partial eta (`fun x -> f x` for a 2-arrow `f` whose body abstracts
-    /// once) is still type-correct. `ValueNone` when there is nothing to eta (arity 0) — a
-    /// non-function reference. This never recurses: the eta'd `App` re-presents the SAME
-    /// `External` in call-HEAD position, where the `App` arm claims it before the
-    /// value-position arm can see it.
+    /// It mints an `App` and NOT an `InlineCall` even when the reference has a body, because the
+    /// `App` arm is the ONE place a call is resolved against a template; minting the edge here
+    /// would resolve it a second time and let the two drift. This never recurses — the eta'd
+    /// `App` re-presents the SAME `External` in call-HEAD position, where the `App` arm claims
+    /// it before the value-position arm can see it.
     ///
-    /// The eta mints an `App` and NOT an `InlineCall` even when the reference has a body,
-    /// because that `App` is claimed by the `App` arm, which is the ONE place a call is resolved
-    /// against a template. Minting the edge here would resolve it a second time and let the two
-    /// drift.
+    /// Arity is the reference's arrow count capped by the body's lambda arity, a partial eta
+    /// (`fun x -> f x` for a 2-arrow `f` whose body abstracts once) still being type-correct.
+    /// `ValueNone` at arity 0 — a non-function reference, which etas to nothing.
     let internal etaReify
         (ctx: PassContext)
         (mint: unit -> NodeKey)
@@ -398,18 +370,10 @@ module InlineReduction =
     /// fate — the half of the reduction that needs no recursion, and so the half that can run
     /// before a specialization slot is reserved for the body the recursion will build.
     ///
-    ///   1. peel the inline's lambdas, pairing each parameter with its arg;
-    ///   2. a parameter bound to a bare `External` function VALUE is substituted into
-    ///      the body right here — the classification in (3) reads the substituted body;
-    ///   3. a lambda-valued parameter every use of which is a saturated application
-    ///      head is marked `FuseLambda` (the walker splices it away) — its closure
-    ///      vanishes;
-    ///   4. a declared `[<CallAtMostOnce>]` parameter is marked `FuseAtMostOnce`;
-    ///   5. everything else survives.
-    ///
-    /// `caller` reaches step (2) because that fusion happens HERE rather than in the reduction:
-    /// an argument substituted into a body has left the file it was written in and is marked
-    /// with it.
+    /// The `FuseExternalValue` substitution happens HERE and not in the reduction, because the
+    /// lambda classification below reads the substituted body. That is also why `caller` is
+    /// needed: an argument substituted into a body has left the file it was written in, and is
+    /// marked with it.
     let internal classifyApplication
         (caller: OriginFile)
         (paramAttrs: ParamAttrs[])
@@ -447,20 +411,14 @@ module InlineReduction =
 
         let bindings, core = peel expanded args []
 
-        // A parameter bound to a bare `External` function value — a
-        // library/top-level symbol reference, pure and capture-free (e.g.
-        // `ignore` in `x |> ignore`, where `(|>) arg func = func arg` binds
-        // `func = ignore`) — is substituted directly into the body BEFORE the
-        // recursive walk. A saturated `func arg` use then re-forms the
-        // `ignore arg` head and the walker expands its inline body (from
-        // `ops-platform.fs`). Duplicating a value reference is always sound
-        // (no side effect, no capture). Without this the binding survives as
-        // `let func = ignore in func arg`, leaving `ignore` a bare external
-        // value codegen cannot eta-expand ("no call recipe for external …").
+        // A parameter bound to a bare `External` function value is substituted into the body
+        // BEFORE the walk, which is sound because a value reference has no side effect and no
+        // capture. A saturated `func arg` use then re-forms the head and the walk expands its
+        // body; without this the binding survives as `let func = ignore in func arg`, leaving a
+        // bare external value codegen cannot eta-expand.
         //
-        // Recognised THROUGH any caller mark: an argument an OUTER fusion already
-        // marked is still the bare external value this rule is about, and re-marking
-        // it here is right rather than redundant — two frames out is two pops.
+        // Recognised THROUGH any caller mark, and re-marked: an argument an OUTER fusion already
+        // marked is still the bare external value this rule is about, two domains deep.
         let externalValParams =
             bindings
             |> List.choose (fun p ->
@@ -484,21 +442,15 @@ module InlineReduction =
 
         let bad = Inline.nonInlinableLambdaParams candidates core
 
-        // Positionally aligned to the inline's curried parameters (freshen /
-        // typar-substitution preserve order), so the index into `bindings` IS the
-        // curried position `ParamAttrs` is indexed by.
+        // Positionally aligned to the inline's curried parameters (freshen / typar-substitution
+        // preserve order), so the index into `bindings` IS the curried position `ParamAttrs` is
+        // indexed by.
         //
-        // TODO(byref-capture half): a lambda arg that SURVIVES here (not fused —
-        // stored or partially applied) and captures a byref-like value (`Span`,
-        // `ReadOnlySpan`, any `ref struct`) is a real heap closure that cannot legally
-        // hold it. Today it compiles to a heap closure regardless (we have no
-        // byref-like detection — `SemType` has no ref-struct case and metadata drops
-        // byref params, see Inline.isStructType). The full path forks here: (1) emit it
-        // as a ref-struct closure (`Fun`-as-`ref struct`, the designed-for escape
-        // hatch) so the capture is legal, or (3) reject it like F# when it genuinely
-        // escapes (`HeapShared` per Regions). Either makes a currently (would-be)
-        // rejected program compile or fail cleanly; both need the byref-like predicate
-        // that does not exist yet.
+        // TODO(byref-capture): a SURVIVING lambda arg that captures a byref-like value (`Span`,
+        // any `ref struct`) is a heap closure that cannot legally hold it, and today compiles to
+        // one regardless. The fix is either a ref-struct closure or an F#-style rejection when
+        // it genuinely escapes; both need a byref-like predicate that does not exist yet
+        // (`SemType` has no ref-struct case and metadata drops byref params).
         let classified =
             bindings
             |> List.mapi (fun i p ->
@@ -507,13 +459,10 @@ module InlineReduction =
                         Disposition.FuseExternalValue
                     elif candidates.ContainsKey p.Key && not (bad.Contains p.Key) then
                         Disposition.FuseLambda
-                    // A `[<CallAtMostOnce>]` parameter is substituted at its single
-                    // (declaration-validated linear) use instead of bound eagerly, so
-                    // the argument is evaluated at most once and on demand — the
-                    // mechanism behind `&&`/`||` short-circuiting, driven by the
-                    // declared attribute rather than a body-shape guess. Every other
-                    // parameter keeps the eager binding (F#-strict evaluation order,
-                    // single-evaluation, and closure capture undisturbed).
+                    // Substituted at its single (declaration-validated linear) use instead of
+                    // bound eagerly, so the argument is evaluated at most once and on demand —
+                    // the mechanism behind `&&`/`||` short-circuiting, driven by the declared
+                    // attribute rather than a body-shape guess. Everything else stays eager.
                     elif i < paramAttrs.Length && paramAttrs.[i].CallAtMostOnce then
                         Disposition.FuseAtMostOnce
                     else
@@ -524,29 +473,23 @@ module InlineReduction =
 
         { Params = classified; Core = core }
 
-    /// Reach a cross-unit body by its resolved `SymbolKey` — the sole channel
-    /// (`tryInlineBody`), which routes a value key and a member key to the entry that CARRIES
-    /// it, so the body and the identity cannot disagree (and a member is selected by EXACT key,
-    /// never by a name lookup whose best-by-arity collapse could serve a sibling overload's
-    /// body).
+    /// Reach a cross-unit body by its resolved `SymbolKey` — the sole channel, routing a value
+    /// key and a member key to the entry that CARRIES it, so the body and the identity cannot
+    /// disagree. A member is selected by EXACT key, never by a name lookup whose best-by-arity
+    /// collapse could serve a sibling overload's body.
     ///
-    /// Every expandable head is key-stamped upstream: value refs by name resolution,
-    /// operator / synthesised-intrinsic heads by elaboration, intra-body sibling refs by the
-    /// freeze's publish rewrite, and a member call by its resolved `MemberKey`. Operators are NOT an exception — a primitive
-    /// `1 + 2` head is keyed and DOES reach `ops-platform.fs`'s `(+)`. A `key = ValueNone` head
-    /// carries no inline body by construction (`Array.ofList` / ctor-as-value, handled by
-    /// codegen recipes / eta-expansion), so `ValueNone` is a genuine "no body", never a missed
-    /// keyless lookup. A provider with no inline bodies returns `ValueNone`.
+    /// Every expandable head is key-stamped upstream (operators included — a primitive `1 + 2`
+    /// head is keyed and DOES reach `ops-platform.fs`'s `(+)`), so a `key = ValueNone` head
+    /// carries no inline body by construction and `ValueNone` is a genuine "no body", never a
+    /// missed keyless lookup.
     ///
-    /// The KEY rides out with the body because it is the specialization table's template
-    /// identity: an entry says which template it resolved, and the only place that is known is
-    /// the lookup that found it.
+    /// The KEY rides out with the body because it is the table's template identity, and the
+    /// lookup that found it is the only place that is known.
     ///
-    /// The THAW happens here, and the body keeps the producer's own positions: it stays behind
-    /// an edge, so its indices never have to mean anything against this unit's tokens. Thawed
-    /// per lookup, so two call sites of one template never share an inference cell — and the
-    /// producer file is retained on the table as it is read, since it is an entry's anchors that
-    /// will have to be resolved against it.
+    /// The THAW happens here, per lookup, so two call sites of one template never share an
+    /// inference cell. The body keeps the producer's own positions — it stays behind an edge, so
+    /// its indices never have to mean anything against this unit's tokens — and the producer
+    /// file is retained on the table as it is read, being what those indices resolve against.
     let internal lookupExternal
         (ctx: PassContext)
         (specs: SpecTable)

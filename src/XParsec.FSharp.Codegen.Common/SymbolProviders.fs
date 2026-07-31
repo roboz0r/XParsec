@@ -119,50 +119,8 @@ module SymbolProviders =
             Some(InlineBody.anchoredIn origin (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
         | _ -> None
 
-    /// A published body under the identity it is served by. The `Wire.TInlineValue` shape,
-    /// except that the body carries the producer file its anchors index — which is the whole
-    /// reason this collection retains the parse at all.
-    ///
-    /// The anchor domain is not a property of the KIND of body — a value template and a
-    /// harvested member body drained off one pool were written in one file — and it is
-    /// `InlineBody.Origin`, required of every body, that keeps the two lists from being stamped
-    /// against different files.
-    type KeyedInlineBody =
-        private
-            {
-                Key: SymbolKey
-                Body: InlineBody
-            }
+    type KeyedInlineBody = { Key: SymbolKey; Body: InlineBody }
 
-    [<RequireQualifiedAccess>]
-    module KeyedInlineBody =
-
-        /// Publish a body under the identity it is served by.
-        let under (key: SymbolKey) (body: InlineBody) : KeyedInlineBody = { Key = key; Body = body }
-
-    /// A unit's published inline vocabulary, read off its FROZEN tree: its value templates and
-    /// its harvested member bodies.
-    ///
-    /// `tast` is the frozen form of `origin`, so every anchor in every body drained below is an
-    /// index into THAT file's `Lexed`. Taking the origin as an argument is what makes the
-    /// pairing a fact of the call rather than something a caller has to remember to do
-    /// afterwards, when the parse it would need is already out of scope.
-    ///
-    /// The value half is a straight drain of the pool's own template roots: `Freeze`
-    /// already minted each template's `SymbolKey` from its declaring module chain and
-    /// published it — that identity is OWNED, not reconstructed, which is what a
-    /// multi-file unit (no `.fsi` to recover a name against) needs.
-    ///
-    /// The member half is harvested here, and its total `MemberKey` is minted DIRECTLY
-    /// from the frozen member `m`: at freeze `m.Params` are already `FrozenType`s and
-    /// `m.MethodTypeParams` its own generic arity, so the structural, value-equal key is
-    /// in hand with no re-derivation. A name-lookup round-trip (`TryLookupMember`) would
-    /// collapse a same-name overload set to a single best-by-arity pick and lose every
-    /// sibling body — the second harvested body would overwrite the first under one key
-    /// and neither of the others would ever get a body. Because `MemberKey` is a total
-    /// overload identity there is no rendered `argSig` for producer and use site to
-    /// disagree on; the key `m` mints here is the same one an external entry / use site
-    /// mints from the same frozen signature by construction.
     let private collectInlineBodies
         (origin: OriginSource)
         (tast: FrozenPools)
@@ -182,7 +140,10 @@ module SymbolProviders =
         let values =
             [
                 for iv in tast.InlineTemplates ->
-                    KeyedInlineBody.under iv.Key (anchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs)
+                    {
+                        Key = iv.Key
+                        Body = anchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs
+                    }
             ]
 
         let members =
@@ -213,7 +174,7 @@ module SymbolProviders =
                                         m.MethodTypeParams.Length
                                         kind
 
-                                yield KeyedInlineBody.under key body
+                                yield { Key = key; Body = body }
                             | None -> ()
                     | _ -> ()
             ]
@@ -221,13 +182,7 @@ module SymbolProviders =
         values, members
 
     /// One pass over a manifest set's `inline-bodies`: the templates it publishes, and the
-    /// producer FILES they were drained from, retained.
-    ///
-    /// The sources are not a by-product. A drained body carries the producer's own token
-    /// indices, so without the `Lexed` they index the body has no readable
-    /// positions at all — the collection and the retention are one fact and are returned as
-    /// one. `Input` comes with them because a token holds an offset into the text, not the
-    /// text.
+    /// producer file they were declared in.
     type CollectedInlineBodies =
         {
             Values: KeyedInlineBody list
@@ -239,10 +194,6 @@ module SymbolProviders =
     /// and frozen once against `provider`. Emitted in manifest/decl order so a later
     /// body wins a clash downstream (`Map.ofList` / `byKey.[k] <-`).
     /// `target` selects per-target `inline-bodies-<t>` overrides.
-    ///
-    /// Every file that PARSES is retained, including one whose AST yields no publishable
-    /// templates: what makes a file an anchor domain is that it was parsed, not that this pass
-    /// happened to harvest something out of it.
     let inlineBodies
         (target: string option)
         (provider: IExternalSymbolProvider)

@@ -561,16 +561,14 @@ module ExprPayload =
     /// `TastPoolShapes.exprChildren` yields), then each segment's, with the dyn-hole presence
     /// flags saying which dimensions are there.
     ///
-    /// A hole is the one leaf that carries an anchor of its own, so `widenTok` is how the
-    /// stored index becomes whatever the rebuilding domain names positions by — `id` for a
-    /// tree that stays in the pool's own space, the drain's widening for one that leaves it.
+    /// A hole is the one leaf that carries an anchor of its own, and it keeps it: a rebuild
+    /// cannot re-axis a position, because it takes no mapping that could.
     let format
-        (widenTok: Anchor -> 'tok)
         (sink: FormatSinkShape)
         (segments: FormatSegShape[])
         (nextExpr: unit -> 'e)
-        : FormatSinkG<'e> * FormatSegG<FrozenType, 'tok, 'e>[] =
-        let spec = TastConvert.hole id widenTok
+        : FormatSinkG<'e> * FormatSegG<FrozenType, Anchor, 'e>[] =
+        let spec = TastConvert.hole id id
 
         let sink' =
             match sink with
