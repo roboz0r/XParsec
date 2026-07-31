@@ -18,17 +18,25 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // codegen contract (`SymbolProviders.inlineBodies`, which parses the `inline-bodies` files and
 // keeps them). The front-end-only providers the SA suite composes publish no bodies at all.
 
+/// The front end run up to (and including) inline expansion.
+type private Analysed =
+    {
+        /// The context the passes ran against, so a test may run a LATER pass over the same
+        /// state — which is the only way to ask what the table costs a pass downstream of it.
+        Ctx: PassContext
+        Expanded: InlineExpansion.Expanded
+        /// What THE EXPANSION reported, kept apart from whatever the passes before it found so
+        /// that a verdict about an expansion cannot be mistaken for one about the source that
+        /// reached it.
+        Diagnostics: Diagnostic list
+    }
+
 /// Run the front end up to (and including) inline expansion, and hand back the pass's own
-/// product — the flattened decls AND the table its edges named — paired with the diagnostics
-/// THE PASS reported, kept apart from whatever the passes before it found so that a verdict
-/// about an expansion cannot be mistaken for one about the source that reached it.
+/// product — the flattened decls AND the table its edges named.
 ///
 /// The prefix mirrors `Pipeline.analyseSemWithContextForCore` up to `Elaborate.run`, stopping
 /// where the table would otherwise be flattened away and discarded.
-let private expandedWith
-    (provider: IExternalSymbolProvider)
-    (input: string)
-    : InlineExpansion.Expanded * Diagnostic list =
+let private expandedWith (provider: IExternalSymbolProvider) (input: string) : Analysed =
     let lexed, file = parseFile input
     let ctx = PassContext(provider, Hashing.originSourceOfText input lexed)
     Desugar.run ctx file
@@ -40,16 +48,41 @@ let private expandedWith
     | [] ->
         let before = ctx.Diagnostics.Count
         let expanded = InlineExpansion.run ctx (Elaborate.elaborate ctx file)
-        expanded, [ for i in before .. ctx.Diagnostics.Count - 1 -> ctx.Diagnostics.[i] ]
+
+        {
+            Ctx = ctx
+            Expanded = expanded
+            Diagnostics = [ for i in before .. ctx.Diagnostics.Count - 1 -> ctx.Diagnostics.[i] ]
+        }
     | errors -> failtestf "analysis errors before expansion: %A" (errors |> List.map (fun d -> d.Message))
 
 let private expandedWithDiagnostics (input: string) : InlineExpansion.Expanded * Diagnostic list =
-    expandedWith jsProvider.Value input
+    let analysed = expandedWith jsProvider.Value input
+    analysed.Expanded, analysed.Diagnostics
 
 let private expandedFor (input: string) : InlineExpansion.Expanded =
     match expandedWithDiagnostics input with
     | expanded, [] -> expanded
     | _, ds -> failtestf "the expansion reported: %A" (ds |> List.map (fun d -> d.Message))
+
+/// How many of `input`'s bindings the escape analysis calls `HeapShared`, with the
+/// specialization table either handed to the pass or withheld from it. A fresh analysis each
+/// way: the pass writes its verdicts onto the context it was given.
+let private heapSharedCount (input: string) (walkTable: bool) : int =
+    let analysed = expandedWith jsProvider.Value input
+    let decls = EqArray.ofList [ for (d, _) in analysed.Expanded.Decls -> d ]
+
+    let table =
+        if walkTable then
+            EqArray.ofArray analysed.Expanded.Specializations
+        else
+            EqArray.empty
+
+    Regions.run analysed.Ctx decls table
+
+    analysed.Ctx.Bindings.Escape.AsDictionary()
+    |> Seq.filter (fun kv -> kv.Value = EscapeState.HeapShared)
+    |> Seq.length
 
 /// The file the harness above analyses `input` under. Off the same mint the harness uses, so
 /// a test naming it cannot drift from what the pass was handed.
@@ -356,7 +389,11 @@ let tests =
                 // The outlined half. `selfLoop`'s reduction is CLOSED, so its entry is shareable
                 // and interned; what stops the expansion is the reserved slot, and what the call
                 // that reaches it becomes is a back edge — leaving a finite, inspectable table.
-                let expanded, ds = expandedWith recursiveProducer.Value "let a = selfLoop 1\n"
+                let {
+                        Expanded = expanded
+                        Diagnostics = ds
+                    } =
+                    expandedWith recursiveProducer.Value "let a = selfLoop 1\n"
 
                 Expect.equal
                     (cyclicInlines ds)
@@ -387,7 +424,11 @@ let tests =
                 // operand is fused, so the entry is deliberately not shareable and no lookup will
                 // ever return it. Only the slot reservation — which covers every outlined entry,
                 // not just the shareable ones — keeps this finite.
-                let expanded, ds = expandedWith recursiveProducer.Value "let a = fusedLoop 1 2\n"
+                let {
+                        Expanded = expanded
+                        Diagnostics = ds
+                    } =
+                    expandedWith recursiveProducer.Value "let a = fusedLoop 1 2\n"
 
                 Expect.equal (cyclicInlines ds) [ "fusedLoop", [] ] "the fused path reaches the same verdict"
 
@@ -412,7 +453,10 @@ let tests =
                 // so the member reduction is OUTLINED: it holds a table slot, and the call that
                 // reaches it while it is in flight becomes a back edge rather than an
                 // un-expandable call left as written.
-                let expanded, ds =
+                let {
+                        Expanded = expanded
+                        Diagnostics = ds
+                    } =
                     expandedWith recursiveMemberProducer.Value "let a = [| 1; 2; 3 |]\nlet x = a.[1]\n"
 
                 Expect.equal
@@ -672,9 +716,9 @@ let tests =
                     "…and every unmarked one is past its end, so they are not its indices"
             }
 
-            test "a SHAREABLE entry marks nothing — which is what makes the mark well-defined" {
-                // Two sites at one grounding name ONE entry (asserted above), so "the caller" of
-                // anything inside it names no single file. `Peeled.isClosed` is what rules the
+            test "a SHAREABLE entry marks nothing — which is what makes sharing sound" {
+                // Two sites at one grounding name ONE entry (asserted above), so material fused
+                // from either would be evaluated at both. `Peeled.isClosed` is what rules the
                 // fusions out; this is that condition observed from the outside.
                 let expanded = expandedFor "let a = 1 + 2\nlet b = 30 + 40\n"
 
@@ -685,7 +729,7 @@ let tests =
 
                 Expect.isEmpty
                     (callerMarked (entryValue entry))
-                    "a closed reduction fuses nothing, so a shared entry is one anchor domain throughout"
+                    "a closed reduction fuses nothing, so a shared entry holds no site's operand"
             }
 
             test "the flattener unwraps every mark — no marker survives the pass" {
@@ -879,5 +923,19 @@ let tests =
                     (List.min (tokenIndices ownToks))
                     (int lexed.Tokens.Length)
                     "…and past the end of the CONSUMING file, so none of them is the caller's head token"
+            }
+
+            test "a capture WRITTEN inside an entry is seen only because the table is walked" {
+                // `(&&)`'s second operand is fused, so a lambda written in it lands in the ENTRY
+                // and nowhere in the decls. `acc` is then a mutable captured by a closure the
+                // decls do not contain — `HeapShared`, and the verdict `RefCellPromotion` runs on.
+                // Escape analysis handed only the decls answers about a program it has not read.
+                let src =
+                    "let f () =\n    let mutable acc = 0\n    true && (fun () -> acc > 0) ()\n"
+
+                Expect.isGreaterThan
+                    (heapSharedCount src true)
+                    (heapSharedCount src false)
+                    "the capture is inside the entry, so withholding the table is what loses it"
             }
         ]

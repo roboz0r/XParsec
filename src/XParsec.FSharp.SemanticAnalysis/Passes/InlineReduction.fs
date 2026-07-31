@@ -344,9 +344,11 @@ module InlineReduction =
     module internal Peeled =
 
         /// No call-site material was fused into the body, so the body is CLOSED over its
-        /// parameters and nothing in it belongs to this site. That is exactly the condition
-        /// under which two sites may share one specialization entry — and the condition under
-        /// which an entry's nodes all come from the file its `OriginFile` names.
+        /// parameters and nothing in it belongs to this site. THE condition under which two
+        /// sites may share one entry, and a question about VALUES and not positions: fused
+        /// material is one site's OPERAND, so a shared entry holding it would evaluate the
+        /// first site's argument at the second site's call. A fused node names the file it was
+        /// written in, so what sharing costs is not an anchor domain but the right answer.
         let isClosed (p: Peeled) : bool =
             p.Params |> List.forall (fun x -> x.Disposition = Disposition.Survive)
 

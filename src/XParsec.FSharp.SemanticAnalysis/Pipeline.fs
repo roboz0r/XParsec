@@ -143,10 +143,11 @@ module Pipeline =
         // typar-quantified `TastFileG<SemType>`, inline call sites already expanded.
         let tast0 = Elaborate.run ctx file
         // Escape analysis on the post-inline `TExpr` tree: elaboration has already
-        // expanded inline call sites, so the
-        // region graph is built over the closures codegen actually emits. Populates
-        // `ctx.Bindings.Escape` (keyed by binder `NodeKey`) for the next pass.
-        Regions.run ctx tast0.Decls
+        // resolved every inline call site, so the region graph is built over the closures
+        // codegen actually emits — the specialization table included, an outlined body being
+        // emitted code the decls alone do not reach. Populates `ctx.Bindings.Escape` (keyed
+        // by binder `NodeKey`) for the next pass.
+        Regions.run ctx tast0.Decls tast0.Specializations
         // Snapshot the closure stack/heap verdict (Axis 1 ∧ Axis 2) onto the
         // TastFile now that both escape side tables are populated — codegen has no
         // PassContext, so this is how the verdict reaches `discoverClosures`.

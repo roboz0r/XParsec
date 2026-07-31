@@ -264,6 +264,22 @@ module TPreambleEntryG =
         ]
 
 [<RequireQualifiedAccess>]
+module TSpecializationG =
+    /// An entry's binding: the binder its resolved body is stored under, and the abstraction a
+    /// call site applies. An entry is ALWAYS a `TDecl.Let` of lambdas (`TSpecializationG.Decl`),
+    /// so every consumer that takes a body apart asserts that through here rather than each in
+    /// its own words. The id is carried only to name the offender.
+    let binding
+        (spec: SpecializationId)
+        (entry: TSpecializationG<'ty, 'tok, 'id>)
+        : TPatG<'ty, 'tok, 'id> * TExprG<'ty, 'tok, 'id> =
+        match entry.Decl with
+        | TDeclG.Let(pat, value, _, _) -> pat, value
+        | other ->
+            let (SpecializationId i) = spec
+            failwithf "TSpecialization: specialization %d is not a `TDecl.Let`: %A" i other
+
+[<RequireQualifiedAccess>]
 module TastFileG =
     /// Key→value set equality for the two `IReadOnlyDictionary<SymbolKey,_>` fields.
     /// A `SymbolKey` is an identity (equatable, deliberately unordered), so the file

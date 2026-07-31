@@ -763,7 +763,12 @@ module Regions =
                     RegionRepr.StackOnlyEligible
             )
 
-    let run (ctx: PassContext) (decls: EqArray<TDecl>) : unit =
+    /// `specializations` is the unit's resolved-inline table, walked because an entry's body is
+    /// code this file emits and holds the call site's OWN fused material: a caller local
+    /// captured by a lambda fused into an inline body is a capture of THIS file's binding, and
+    /// an unwalked table is that capture unseen — a `let mutable` left unpromoted. An
+    /// `InlineCall` edge is the opaque call it looks like, so nothing else reaches an entry.
+    let run (ctx: PassContext) (decls: EqArray<TDecl>) (specializations: EqArray<TSpecialization>) : unit =
         let s: State =
             {
                 Graph = RegionGraph()
@@ -803,6 +808,13 @@ module Regions =
             )
         |> ignore
 
+        // Each entry as its OWN group, and after the module's: folding entries into `decls`
+        // would give an entry's bindings the module's group and its depth. `BindingRegions`
+        // outlives that group, so an entry capturing a module binding still resolves it.
+        for i = 0 to specializations.Length - 1 do
+            let binding = TSpecializationG.binding (SpecializationId i) specializations.[i]
+            withBindingGroup s ctx [ binding ] (fun () -> RegionId.Unknown) |> ignore
+
         let state = solve s.Graph
         let repr = solveRepr s.Graph state
 
@@ -829,6 +841,11 @@ module Regions =
     /// the other way round: what is filed is then a `BinderKey` by construction, and a
     /// non-binder region entry is simply never asked for (it was unreadable anyway — a
     /// wildcard can never be a closure's `SelfKey`).
+    ///
+    /// `decls` and NOT the specialization table `run` also walks: the emit-time expansion mints
+    /// a fresh binder for every node it copies, and this table crosses that expansion unremapped
+    /// (`FunVerdicts` is the one that does not, and pays for it with a derivation walk). A
+    /// verdict filed against an entry's own binder is therefore a verdict nothing can look up.
     let closureReprSnapshot (ctx: PassContext) (decls: EqArray<TDecl>) : Map<BinderKey, ClosureRepr> =
         Map.ofSeq (
             seq {

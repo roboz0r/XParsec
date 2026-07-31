@@ -149,16 +149,6 @@ module InlineSpecTable =
 
         found
 
-    /// The entry's abstraction, or a fault naming the entry that broke the invariant. An entry
-    /// is ALWAYS a `TDecl.Let` of lambdas (`TSpecializationG.Decl`); everything below reads it
-    /// through here so the invariant is asserted in one place.
-    let private specializationValue (spec: SpecializationId) (entry: TSpecialization) : TExpr =
-        match entry.Decl with
-        | TDecl.Let(_, value, _, _) -> value
-        | other ->
-            let (SpecializationId i) = spec
-            failwithf "InlineSpecTable: specialization %d is not a `TDecl.Let`: %A" i other
-
     /// Every specialization `e` NAMES, in walk order and with repeats — the graph's EDGE
     /// relation, read off a tree rather than stored. One reading, so the acyclicity check and
     /// the call-edge count below cannot disagree about what an edge is.
@@ -179,10 +169,10 @@ module InlineSpecTable =
 
         i
 
-    /// An entry's abstraction, reached by id — `specializationValue` with the bounds check the
-    /// id needs anyway.
+    /// An entry's abstraction, reached by id — the entry's own reading of its binding, with the
+    /// bounds check the id needs anyway.
     let private entryValue (entries: TSpecialization[]) (spec: SpecializationId) : TExpr =
-        specializationValue spec entries.[checkedSlot entries spec]
+        snd (TSpecializationG.binding spec entries.[checkedSlot entries spec])
 
     /// The first cycle in the specialization graph, as the entries ON it in call order (so a
     /// direct self-reference is a one-element list). `ValueNone` ⇒ the table is the DAG the
