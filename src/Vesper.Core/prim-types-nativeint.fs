@@ -2,8 +2,29 @@ namespace Vesper
 
 #nowarn "42"
 
-type nativeint = (# "native int" #)
-type unativeint = (# "unsigned native int" #)
+type nativeint =
+    (# "native int" #)
+    with
+        static member (&&&)(x: nativeint, y: nativeint) : nativeint = (# "and" x y : nativeint #)
+        static member (|||)(x: nativeint, y: nativeint) : nativeint = (# "or" x y : nativeint #)
+        static member (^^^)(x: nativeint, y: nativeint) : nativeint = (# "xor" x y : nativeint #)
+        static member (~~~)(value: nativeint) : nativeint = (# "not" value : nativeint #)
+        static member (<<<)(value: nativeint, shift: int) : nativeint = (# "shl" value shift : nativeint #)
+        static member (>>>)(value: nativeint, shift: int) : nativeint = (# "shr" value shift : nativeint #)
+    end
+
+type unativeint =
+    (# "unsigned native int" #)
+    with
+        static member (&&&)(x: unativeint, y: unativeint) : unativeint = (# "and" x y : unativeint #)
+        static member (|||)(x: unativeint, y: unativeint) : unativeint = (# "or" x y : unativeint #)
+        static member (^^^)(x: unativeint, y: unativeint) : unativeint = (# "xor" x y : unativeint #)
+        static member (~~~)(value: unativeint) : unativeint = (# "not" value : unativeint #)
+        static member (<<<)(value: unativeint, shift: int) : unativeint = (# "shl" value shift : unativeint #)
+        // Zero-fill, as at every other unsigned width. The clause list this replaces
+        // omitted `unativeint` and so sign-extended it.
+        static member (>>>)(value: unativeint, shift: int) : unativeint = (# "shr.un" value shift : unativeint #)
+    end
 type nativeptr<'T when 'T : unmanaged> = (# "native int" #)
 type voidptr = (# "void*" #)
 type ilsigptr<'T> = (# "!0*" #)

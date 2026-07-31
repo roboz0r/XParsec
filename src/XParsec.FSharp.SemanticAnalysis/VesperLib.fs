@@ -1420,29 +1420,37 @@ module VesperLib =
                     // interface `Class` `extractBodiedClassLike` registered. A non-intrinsic
                     // `extern` stays a plain Class.
                     if isIntrinsic then
-                        match ctx.IntrinsicReprs.TryGetValue short with
-                        | true, platform ->
-                            match kindTag with
-                            // `extern class with …` (obj/exn): a heritable PRIMITIVE.
-                            | ValueSome(ExternKind.Class _) ->
-                                ctx.PendingIntrinsicClasses.[compiled] <-
-                                    struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
-                            // `extern interface with …` (`disposable`/`equatable`/`comparable`):
-                            // republishes to an `IntrinsicInterface` (a `TyClass` constraint
-                            // reconciling to its BCL spelling via the platform face).
-                            | ValueSome(ExternKind.Interface _) ->
-                                ctx.PendingCapabilityInterfaces.[compiled] <-
-                                    struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
-                            // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound
-                            // member surface on an intrinsic. Re-registers the `Intrinsic`
-                            // shape the bodied-class-like extraction overwrote, so the
-                            // primitive keeps its `TyConst` identity at every use site. Its
-                            // members are already published (they ride their own table, not
-                            // the shape) and stay served through `TryLookupMember`. The
-                            // heritable case is the EXPLICIT `extern class` tag above, so
-                            // nothing untagged needs a class shape.
-                            | ValueNone -> registerIntrinsic ()
-                        | _ -> ()
+                        match kindTag with
+                        // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound
+                        // member surface on an intrinsic. Re-registers the `Intrinsic`
+                        // shape the bodied-class-like extraction overwrote, so the
+                        // primitive keeps its `TyConst` identity at every use site. Its
+                        // members are already published (they ride their own table, not
+                        // the shape) and stay served through `TryLookupMember`. The
+                        // heritable case is the EXPLICIT `extern class` tag below, so
+                        // nothing untagged needs a class shape.
+                        //
+                        // NOT gated on the compiling target's repr, unlike the two
+                        // republishes below, which need a `platform` value to carry.
+                        // Intrinsic-ness is a fact of the BASE `.fs`, so a primitive this
+                        // target omits (`nativeint` on JS, which declares the bitwise
+                        // family but has no JS repr) must still publish as an `Intrinsic`
+                        // with `platform = None` — that is what makes it unrepresentable
+                        // there rather than a silently opaque class.
+                        | ValueNone -> registerIntrinsic ()
+                        | ValueSome tag ->
+                            match ctx.IntrinsicReprs.TryGetValue short with
+                            | true, platform ->
+                                let canon = struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
+
+                                match tag with
+                                // `extern class with …` (obj/exn): a heritable PRIMITIVE.
+                                | ExternKind.Class _ -> ctx.PendingIntrinsicClasses.[compiled] <- canon
+                                // `extern interface with …` (`disposable`/`equatable`/`comparable`):
+                                // republishes to an `IntrinsicInterface` (a `TyClass` constraint
+                                // reconciling to its BCL spelling via the platform face).
+                                | ExternKind.Interface _ -> ctx.PendingCapabilityInterfaces.[compiled] <- canon
+                            | _ -> ()
                 | _ ->
                     // No member body. A primitive/capability anchor (`IntrinsicBaseReprs`)
                     // publishes as `Intrinsic`; an `extern` with no base companion repr is a

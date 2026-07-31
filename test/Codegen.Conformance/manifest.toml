@@ -163,6 +163,23 @@ path = "ops/arith-div-by-zero.fs"
 run = ["clr", "js"]
 faults = "attempted to divide by zero"
 
+# The bitwise family, now that each width declares `&&& ||| ^^^ ~~~ <<< >>>` on itself
+# rather than sharing one width-blind opcode. Every width in one program: what the two
+# backends must agree on is the per-width narrowing (`~~~` on an unsigned width, `>>>`
+# zero-filling vs sign-extending), and a matrix keyed by width could not say that the
+# widths must agree with EACH OTHER. Carries no `width`, so it contributes nothing to
+# the arithmetic-operator matrix — that matrix is about `+ - * / %`.
+[[program]]
+path = "ops/bitwise-widths.fs"
+run = ["clr", "js"]
+
+# The other half: a non-integral operand is REJECTED, on both backends, because `float`
+# declares no such member. Before the family was declared per width this compiled to CIL
+# `and` over two float64s and threw `InvalidProgramException` at run time.
+[[program]]
+path = "ops/bitwise-float.fs"
+diagnose = { clr = "does not support the operator", js = "does not support the operator" }
+
 # `nativeint` / `unativeint` have a CLR representation and no decided JS one. The
 # asymmetry is stated here rather than smuggled into a file header: JS must REJECT
 # these, and the message it owes is the platform-representation verdict — the type

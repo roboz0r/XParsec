@@ -932,28 +932,15 @@ module UnificationEngine =
                 OperatorData.OpModulus
             ]
 
-    // Bitwise AND/OR/XOR have the same `^T * ^T -> ^T` primitive shape as
-    // arithmetic; the shift operators differ — their second operand is `int32`,
-    // not `^T` (`op_LeftShift`/`op_RightShift`: `^T * int32 -> ^T`).
-    and private bitwiseBinaryOps =
-        Set.ofList
-            [
-                OperatorData.OpBitwiseAnd
-                OperatorData.OpBitwiseOr
-                OperatorData.OpExclusiveOr
-            ]
+    // The bitwise family (`&&& ||| ^^^ <<< >>> ~~~`) is NOT synthesised: every integral
+    // width declares it on the type (`prim-types-*.fsi`), so the lookup above answers and
+    // a non-integral operand is rejected as "does not support the operator". Synthesising
+    // it here admitted `float`/`decimal` — which then reached a width-blind `and` and
+    // emitted invalid IL.
 
-    and private shiftOps =
-        Set.ofList [ OperatorData.OpLeftShift; OperatorData.OpRightShift ]
-
-    // Unary `~-` / `~+` / `~~~` — one primitive operand, `^T -> ^T`.
+    // Unary `~-` / `~+` — one primitive operand, `^T -> ^T`.
     and private unaryPrimitiveOps =
-        Set.ofList
-            [
-                OperatorData.OpUnaryNegation
-                OperatorData.OpUnaryPlus
-                OperatorData.OpLogicalNot
-            ]
+        Set.ofList [ OperatorData.OpUnaryNegation; OperatorData.OpUnaryPlus ]
 
     and private equalityBinaryOps =
         Set.ofList [ OperatorData.OpEquality; OperatorData.OpInequality ]
@@ -988,17 +975,9 @@ module UnificationEngine =
             ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
         elif not (Set.contains primName numericPrimitives) then
             ValueNone
-        elif
-            argCount = 2
-            && (Set.contains memberName arithmeticBinaryOps
-                || Set.contains memberName bitwiseBinaryOps)
-        then
+        elif argCount = 2 && Set.contains memberName arithmeticBinaryOps then
             let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
             ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
-        elif argCount = 2 && Set.contains memberName shiftOps then
-            // `value: ^T -> shift: int32 -> ^T` — the shift amount is always int32.
-            let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; TyConst(RuntimeNames.intKey, EqArray.empty) ]), t))
         elif argCount = 1 && Set.contains memberName unaryPrimitiveOps then
             let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
             ValueSome(TyFun(t, t))
@@ -1007,6 +986,36 @@ module UnificationEngine =
             ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), TyConst(RuntimeNames.boolKey, EqArray.empty)))
         else
             ValueNone
+
+    /// The static member an INTRINSIC declares for `memberName`, from the two places a
+    /// primitive's operator surface can be stated: the name-keyed host, which holds the
+    /// declaration being compiled right now (Vesper.Core's own
+    /// `type int = (# … #) with static member (+)`), and the contract provider, which
+    /// holds it for everyone downstream. Deliberately the same pair, in the same order,
+    /// as the nominal arm's — an operator on `int` is found the way an operator on
+    /// `Vesper.Set` is, which is the whole point of declaring it.
+    and private tryDeclaredIntrinsicMember
+        (ctx: PassContext)
+        (key: SymbolKey)
+        (args: EqArray<SemType>)
+        (memberName: string)
+        : SemType voption =
+        let fromHost =
+            match ctx.Types.IntrinsicAbbrevHost.TryGetValue(SymbolKeyOps.intrinsicName key) with
+            | true, info ->
+                // Empty until `fillHostMembers` types them; a bound draining before
+                // that falls through to the provider and then the synthesis.
+                match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
+                | Some m -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) m.Type)
+                | None -> ValueNone
+            | false, _ -> ValueNone
+
+        match fromHost with
+        | ValueSome _ -> fromHost
+        | ValueNone ->
+            match ctx.Provider.TryLookupMember(key, memberName) with
+            | ValueSome m when m.IsStatic -> ValueSome(ExternalSymbols.openSignature m (EqArray.toArray args))
+            | _ -> ValueNone
 
     /// Build the expected trait signature in tupled or curried form,
     /// picking whichever matches the candidate's shape. F# accepts both
@@ -1057,10 +1066,17 @@ module UnificationEngine =
                 // to.
                 if not (ctx.Store.Srtp.IsSolved b) then
                     match resolveStep ctx.Store linkTarget with
-                    | TyConst(primKey, _) ->
+                    | TyConst(primKey, primArgs) ->
                         let primName = SymbolKeyOps.intrinsicName primKey
 
-                        match tryPrimitiveTraitCandidate b.MemberName primName b.ArgTypes.Length with
+                        // A declaration on the primitive wins; the operator-name synthesis
+                        // is the residue for primitives that have not stated one yet.
+                        let candidate =
+                            match tryDeclaredIntrinsicMember ctx primKey primArgs b.MemberName with
+                            | ValueSome _ as declared -> declared
+                            | ValueNone -> tryPrimitiveTraitCandidate b.MemberName primName b.ArgTypes.Length
+
+                        match candidate with
                         | ValueSome candTy ->
                             ctx.Store.Srtp.Solve b
                             unifySrtpAgainst ctx tok candTy b

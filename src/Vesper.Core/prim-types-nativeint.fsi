@@ -3,12 +3,38 @@ namespace Vesper
 /// <summary>An abbreviation for the CLI type <see cref="T:System.IntPtr"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type nativeint = extern
+type nativeint =
+    extern with
+
+    static member (&&&): x: nativeint * y: nativeint -> nativeint
+
+    static member (|||): x: nativeint * y: nativeint -> nativeint
+
+    static member (^^^): x: nativeint * y: nativeint -> nativeint
+
+    static member (~~~): value: nativeint -> nativeint
+
+    static member (<<<): value: nativeint * shift: int -> nativeint
+
+    static member (>>>): value: nativeint * shift: int -> nativeint
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.UIntPtr"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type unativeint = extern
+type unativeint =
+    extern with
+
+    static member (&&&): x: unativeint * y: unativeint -> unativeint
+
+    static member (|||): x: unativeint * y: unativeint -> unativeint
+
+    static member (^^^): x: unativeint * y: unativeint -> unativeint
+
+    static member (~~~): value: unativeint -> unativeint
+
+    static member (<<<): value: unativeint * shift: int -> unativeint
+
+    static member (>>>): value: unativeint * shift: int -> unativeint
 
 /// <summary>Represents an unmanaged pointer in F# code.</summary>
 ///

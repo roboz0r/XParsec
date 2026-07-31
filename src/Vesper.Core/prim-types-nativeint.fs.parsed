@@ -1,71 +1,549 @@
-namespace              'namespace'       KWNamespace         tok=   0  pos=   0
-                       'Vesper'          Identifier          tok=   2  pos=  10
+namespace                      'namespace'       KWNamespace         tok=   0  pos=   0
+                               'Vesper'          Identifier          tok=   2  pos=  10
   TypeDefn.Abbrev:
-    TypeName           'nativeint'       Identifier          tok=  14  pos=  37
-    =                  '='               OpEquality          tok=  16  pos=  47
+    TypeName                   'nativeint'       Identifier          tok=  14  pos=  37
+    =                          '='               OpEquality          tok=  16  pos=  47
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  18  pos=  49
-        StringLiteral  '"'               StringOpen          tok=  20  pos=  52
+        (#                     '(#'              KWLHashParen        tok=  19  pos=  53
+        StringLiteral          '"'               StringOpen          tok=  21  pos=  56
         Parts:
-          Text         'native int'      StringFragment      tok=  21  pos=  53
-                       '"'               StringClose         tok=  22  pos=  63
-        #)             '#)'              KWRHashParen        tok=  24  pos=  65
+          Text                 'native int'      StringFragment      tok=  22  pos=  57
+                               '"'               StringClose         tok=  23  pos=  67
+        #)                     '#)'              KWRHashParen        tok=  25  pos=  69
+    with                       'with'            KWWith              tok=  28  pos=  76
+      static                   'static'          KWStatic            tok=  31  pos=  89
+      member                   'member'          KWMember            tok=  33  pos=  96
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok=  35  pos= 103
+          SymbolicOp           '&&&'             op_BitwiseAnd       tok=  36  pos= 104
+                               ')'               KWRParen            tok=  37  pos= 107
+      Pats:
+        ParenBlock             '('               KWLParen            tok=  38  pos= 108
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'x'               Identifier          tok=  39  pos= 109
+              Colon            ':'               OpColon             tok=  40  pos= 110
+              NamedType:
+                Ident          'nativeint'       Identifier          tok=  42  pos= 112
+            ,                  ','               OpComma             tok=  43  pos= 121
+            Pat.Typed:
+              Pat.NamedSimple  'y'               Identifier          tok=  45  pos= 123
+              Colon            ':'               OpColon             tok=  46  pos= 124
+              NamedType:
+                Ident          'nativeint'       Identifier          tok=  48  pos= 126
+                               ')'               KWRParen            tok=  49  pos= 135
+      ReturnColon              ':'               OpColon             tok=  51  pos= 137
+      NamedType:
+        Ident                  'nativeint'       Identifier          tok=  53  pos= 139
+      =                        '='               OpEquality          tok=  55  pos= 149
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok=  57  pos= 151
+          StringLiteral        '"'               StringOpen          tok=  59  pos= 154
+          Parts:
+            Text               'and'             StringFragment      tok=  60  pos= 155
+                               '"'               StringClose         tok=  61  pos= 158
+          Arg:
+            Ident              'x'               Identifier          tok=  63  pos= 160
+          Arg:
+            Ident              'y'               Identifier          tok=  65  pos= 162
+          ILReturnType:
+            :                  ':'               OpColon             tok=  67  pos= 164
+            NamedType:
+              Ident            'nativeint'       Identifier          tok=  69  pos= 166
+          #)                   '#)'              KWRHashParen        tok=  71  pos= 176
+      static                   'static'          KWStatic            tok=  74  pos= 187
+      member                   'member'          KWMember            tok=  76  pos= 194
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok=  78  pos= 201
+          SymbolicOp           '|||'             op_BitwiseOr        tok=  79  pos= 202
+                               ')'               KWRParen            tok=  80  pos= 205
+      Pats:
+        ParenBlock             '('               KWLParen            tok=  81  pos= 206
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'x'               Identifier          tok=  82  pos= 207
+              Colon            ':'               OpColon             tok=  83  pos= 208
+              NamedType:
+                Ident          'nativeint'       Identifier          tok=  85  pos= 210
+            ,                  ','               OpComma             tok=  86  pos= 219
+            Pat.Typed:
+              Pat.NamedSimple  'y'               Identifier          tok=  88  pos= 221
+              Colon            ':'               OpColon             tok=  89  pos= 222
+              NamedType:
+                Ident          'nativeint'       Identifier          tok=  91  pos= 224
+                               ')'               KWRParen            tok=  92  pos= 233
+      ReturnColon              ':'               OpColon             tok=  94  pos= 235
+      NamedType:
+        Ident                  'nativeint'       Identifier          tok=  96  pos= 237
+      =                        '='               OpEquality          tok=  98  pos= 247
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 100  pos= 249
+          StringLiteral        '"'               StringOpen          tok= 102  pos= 252
+          Parts:
+            Text               'or'              StringFragment      tok= 103  pos= 253
+                               '"'               StringClose         tok= 104  pos= 255
+          Arg:
+            Ident              'x'               Identifier          tok= 106  pos= 257
+          Arg:
+            Ident              'y'               Identifier          tok= 108  pos= 259
+          ILReturnType:
+            :                  ':'               OpColon             tok= 110  pos= 261
+            NamedType:
+              Ident            'nativeint'       Identifier          tok= 112  pos= 263
+          #)                   '#)'              KWRHashParen        tok= 114  pos= 273
+      static                   'static'          KWStatic            tok= 117  pos= 284
+      member                   'member'          KWMember            tok= 119  pos= 291
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 121  pos= 298
+          SymbolicOp           '^^^'             op_ExclusiveOr      tok= 122  pos= 299
+                               ')'               KWRParen            tok= 123  pos= 302
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 124  pos= 303
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'x'               Identifier          tok= 125  pos= 304
+              Colon            ':'               OpColon             tok= 126  pos= 305
+              NamedType:
+                Ident          'nativeint'       Identifier          tok= 128  pos= 307
+            ,                  ','               OpComma             tok= 129  pos= 316
+            Pat.Typed:
+              Pat.NamedSimple  'y'               Identifier          tok= 131  pos= 318
+              Colon            ':'               OpColon             tok= 132  pos= 319
+              NamedType:
+                Ident          'nativeint'       Identifier          tok= 134  pos= 321
+                               ')'               KWRParen            tok= 135  pos= 330
+      ReturnColon              ':'               OpColon             tok= 137  pos= 332
+      NamedType:
+        Ident                  'nativeint'       Identifier          tok= 139  pos= 334
+      =                        '='               OpEquality          tok= 141  pos= 344
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 143  pos= 346
+          StringLiteral        '"'               StringOpen          tok= 145  pos= 349
+          Parts:
+            Text               'xor'             StringFragment      tok= 146  pos= 350
+                               '"'               StringClose         tok= 147  pos= 353
+          Arg:
+            Ident              'x'               Identifier          tok= 149  pos= 355
+          Arg:
+            Ident              'y'               Identifier          tok= 151  pos= 357
+          ILReturnType:
+            :                  ':'               OpColon             tok= 153  pos= 359
+            NamedType:
+              Ident            'nativeint'       Identifier          tok= 155  pos= 361
+          #)                   '#)'              KWRHashParen        tok= 157  pos= 371
+      static                   'static'          KWStatic            tok= 160  pos= 382
+      member                   'member'          KWMember            tok= 162  pos= 389
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 164  pos= 396
+          SymbolicOp           '~~~'             op_LogicalNot       tok= 165  pos= 397
+                               ')'               KWRParen            tok= 166  pos= 400
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 167  pos= 401
+          Pat.Typed:
+            Pat.NamedSimple    'value'           Identifier          tok= 168  pos= 402
+            Colon              ':'               OpColon             tok= 169  pos= 407
+            NamedType:
+              Ident            'nativeint'       Identifier          tok= 171  pos= 409
+                               ')'               KWRParen            tok= 172  pos= 418
+      ReturnColon              ':'               OpColon             tok= 174  pos= 420
+      NamedType:
+        Ident                  'nativeint'       Identifier          tok= 176  pos= 422
+      =                        '='               OpEquality          tok= 178  pos= 432
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 180  pos= 434
+          StringLiteral        '"'               StringOpen          tok= 182  pos= 437
+          Parts:
+            Text               'not'             StringFragment      tok= 183  pos= 438
+                               '"'               StringClose         tok= 184  pos= 441
+          Arg:
+            Ident              'value'           Identifier          tok= 186  pos= 443
+          ILReturnType:
+            :                  ':'               OpColon             tok= 188  pos= 449
+            NamedType:
+              Ident            'nativeint'       Identifier          tok= 190  pos= 451
+          #)                   '#)'              KWRHashParen        tok= 192  pos= 461
+      static                   'static'          KWStatic            tok= 195  pos= 472
+      member                   'member'          KWMember            tok= 197  pos= 479
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 199  pos= 486
+          SymbolicOp           '<<<'             op_LeftShift        tok= 200  pos= 487
+                               ')'               KWRParen            tok= 201  pos= 490
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 202  pos= 491
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'value'           Identifier          tok= 203  pos= 492
+              Colon            ':'               OpColon             tok= 204  pos= 497
+              NamedType:
+                Ident          'nativeint'       Identifier          tok= 206  pos= 499
+            ,                  ','               OpComma             tok= 207  pos= 508
+            Pat.Typed:
+              Pat.NamedSimple  'shift'           Identifier          tok= 209  pos= 510
+              Colon            ':'               OpColon             tok= 210  pos= 515
+              NamedType:
+                Ident          'int'             Identifier          tok= 212  pos= 517
+                               ')'               KWRParen            tok= 213  pos= 520
+      ReturnColon              ':'               OpColon             tok= 215  pos= 522
+      NamedType:
+        Ident                  'nativeint'       Identifier          tok= 217  pos= 524
+      =                        '='               OpEquality          tok= 219  pos= 534
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 221  pos= 536
+          StringLiteral        '"'               StringOpen          tok= 223  pos= 539
+          Parts:
+            Text               'shl'             StringFragment      tok= 224  pos= 540
+                               '"'               StringClose         tok= 225  pos= 543
+          Arg:
+            Ident              'value'           Identifier          tok= 227  pos= 545
+          Arg:
+            Ident              'shift'           Identifier          tok= 229  pos= 551
+          ILReturnType:
+            :                  ':'               OpColon             tok= 231  pos= 557
+            NamedType:
+              Ident            'nativeint'       Identifier          tok= 233  pos= 559
+          #)                   '#)'              KWRHashParen        tok= 235  pos= 569
+      static                   'static'          KWStatic            tok= 238  pos= 580
+      member                   'member'          KWMember            tok= 240  pos= 587
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 242  pos= 594
+          SymbolicOp           '>>>'             op_RightShift       tok= 243  pos= 595
+                               ')'               KWRParen            tok= 244  pos= 598
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 245  pos= 599
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'value'           Identifier          tok= 246  pos= 600
+              Colon            ':'               OpColon             tok= 247  pos= 605
+              NamedType:
+                Ident          'nativeint'       Identifier          tok= 249  pos= 607
+            ,                  ','               OpComma             tok= 250  pos= 616
+            Pat.Typed:
+              Pat.NamedSimple  'shift'           Identifier          tok= 252  pos= 618
+              Colon            ':'               OpColon             tok= 253  pos= 623
+              NamedType:
+                Ident          'int'             Identifier          tok= 255  pos= 625
+                               ')'               KWRParen            tok= 256  pos= 628
+      ReturnColon              ':'               OpColon             tok= 258  pos= 630
+      NamedType:
+        Ident                  'nativeint'       Identifier          tok= 260  pos= 632
+      =                        '='               OpEquality          tok= 262  pos= 642
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 264  pos= 644
+          StringLiteral        '"'               StringOpen          tok= 266  pos= 647
+          Parts:
+            Text               'shr'             StringFragment      tok= 267  pos= 648
+                               '"'               StringClose         tok= 268  pos= 651
+          Arg:
+            Ident              'value'           Identifier          tok= 270  pos= 653
+          Arg:
+            Ident              'shift'           Identifier          tok= 272  pos= 659
+          ILReturnType:
+            :                  ':'               OpColon             tok= 274  pos= 665
+            NamedType:
+              Ident            'nativeint'       Identifier          tok= 276  pos= 667
+          #)                   '#)'              KWRHashParen        tok= 278  pos= 677
+    end                        'end'             KWEnd               tok= 281  pos= 684
   TypeDefn.Abbrev:
-    TypeName           'unativeint'      Identifier          tok=  28  pos=  73
-    =                  '='               OpEquality          tok=  30  pos=  84
+    TypeName                   'unativeint'      Identifier          tok= 286  pos= 694
+    =                          '='               OpEquality          tok= 288  pos= 705
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  32  pos=  86
-        StringLiteral  '"'               StringOpen          tok=  34  pos=  89
+        (#                     '(#'              KWLHashParen        tok= 291  pos= 711
+        StringLiteral          '"'               StringOpen          tok= 293  pos= 714
         Parts:
-          Text         'unsigned n...'   StringFragment      tok=  35  pos=  90
-                       '"'               StringClose         tok=  36  pos= 109
-        #)             '#)'              KWRHashParen        tok=  38  pos= 111
+          Text                 'unsigned n...'   StringFragment      tok= 294  pos= 715
+                               '"'               StringClose         tok= 295  pos= 734
+        #)                     '#)'              KWRHashParen        tok= 297  pos= 736
+    with                       'with'            KWWith              tok= 300  pos= 743
+      static                   'static'          KWStatic            tok= 303  pos= 756
+      member                   'member'          KWMember            tok= 305  pos= 763
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 307  pos= 770
+          SymbolicOp           '&&&'             op_BitwiseAnd       tok= 308  pos= 771
+                               ')'               KWRParen            tok= 309  pos= 774
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 310  pos= 775
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'x'               Identifier          tok= 311  pos= 776
+              Colon            ':'               OpColon             tok= 312  pos= 777
+              NamedType:
+                Ident          'unativeint'      Identifier          tok= 314  pos= 779
+            ,                  ','               OpComma             tok= 315  pos= 789
+            Pat.Typed:
+              Pat.NamedSimple  'y'               Identifier          tok= 317  pos= 791
+              Colon            ':'               OpColon             tok= 318  pos= 792
+              NamedType:
+                Ident          'unativeint'      Identifier          tok= 320  pos= 794
+                               ')'               KWRParen            tok= 321  pos= 804
+      ReturnColon              ':'               OpColon             tok= 323  pos= 806
+      NamedType:
+        Ident                  'unativeint'      Identifier          tok= 325  pos= 808
+      =                        '='               OpEquality          tok= 327  pos= 819
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 329  pos= 821
+          StringLiteral        '"'               StringOpen          tok= 331  pos= 824
+          Parts:
+            Text               'and'             StringFragment      tok= 332  pos= 825
+                               '"'               StringClose         tok= 333  pos= 828
+          Arg:
+            Ident              'x'               Identifier          tok= 335  pos= 830
+          Arg:
+            Ident              'y'               Identifier          tok= 337  pos= 832
+          ILReturnType:
+            :                  ':'               OpColon             tok= 339  pos= 834
+            NamedType:
+              Ident            'unativeint'      Identifier          tok= 341  pos= 836
+          #)                   '#)'              KWRHashParen        tok= 343  pos= 847
+      static                   'static'          KWStatic            tok= 346  pos= 858
+      member                   'member'          KWMember            tok= 348  pos= 865
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 350  pos= 872
+          SymbolicOp           '|||'             op_BitwiseOr        tok= 351  pos= 873
+                               ')'               KWRParen            tok= 352  pos= 876
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 353  pos= 877
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'x'               Identifier          tok= 354  pos= 878
+              Colon            ':'               OpColon             tok= 355  pos= 879
+              NamedType:
+                Ident          'unativeint'      Identifier          tok= 357  pos= 881
+            ,                  ','               OpComma             tok= 358  pos= 891
+            Pat.Typed:
+              Pat.NamedSimple  'y'               Identifier          tok= 360  pos= 893
+              Colon            ':'               OpColon             tok= 361  pos= 894
+              NamedType:
+                Ident          'unativeint'      Identifier          tok= 363  pos= 896
+                               ')'               KWRParen            tok= 364  pos= 906
+      ReturnColon              ':'               OpColon             tok= 366  pos= 908
+      NamedType:
+        Ident                  'unativeint'      Identifier          tok= 368  pos= 910
+      =                        '='               OpEquality          tok= 370  pos= 921
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 372  pos= 923
+          StringLiteral        '"'               StringOpen          tok= 374  pos= 926
+          Parts:
+            Text               'or'              StringFragment      tok= 375  pos= 927
+                               '"'               StringClose         tok= 376  pos= 929
+          Arg:
+            Ident              'x'               Identifier          tok= 378  pos= 931
+          Arg:
+            Ident              'y'               Identifier          tok= 380  pos= 933
+          ILReturnType:
+            :                  ':'               OpColon             tok= 382  pos= 935
+            NamedType:
+              Ident            'unativeint'      Identifier          tok= 384  pos= 937
+          #)                   '#)'              KWRHashParen        tok= 386  pos= 948
+      static                   'static'          KWStatic            tok= 389  pos= 959
+      member                   'member'          KWMember            tok= 391  pos= 966
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 393  pos= 973
+          SymbolicOp           '^^^'             op_ExclusiveOr      tok= 394  pos= 974
+                               ')'               KWRParen            tok= 395  pos= 977
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 396  pos= 978
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'x'               Identifier          tok= 397  pos= 979
+              Colon            ':'               OpColon             tok= 398  pos= 980
+              NamedType:
+                Ident          'unativeint'      Identifier          tok= 400  pos= 982
+            ,                  ','               OpComma             tok= 401  pos= 992
+            Pat.Typed:
+              Pat.NamedSimple  'y'               Identifier          tok= 403  pos= 994
+              Colon            ':'               OpColon             tok= 404  pos= 995
+              NamedType:
+                Ident          'unativeint'      Identifier          tok= 406  pos= 997
+                               ')'               KWRParen            tok= 407  pos=1007
+      ReturnColon              ':'               OpColon             tok= 409  pos=1009
+      NamedType:
+        Ident                  'unativeint'      Identifier          tok= 411  pos=1011
+      =                        '='               OpEquality          tok= 413  pos=1022
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 415  pos=1024
+          StringLiteral        '"'               StringOpen          tok= 417  pos=1027
+          Parts:
+            Text               'xor'             StringFragment      tok= 418  pos=1028
+                               '"'               StringClose         tok= 419  pos=1031
+          Arg:
+            Ident              'x'               Identifier          tok= 421  pos=1033
+          Arg:
+            Ident              'y'               Identifier          tok= 423  pos=1035
+          ILReturnType:
+            :                  ':'               OpColon             tok= 425  pos=1037
+            NamedType:
+              Ident            'unativeint'      Identifier          tok= 427  pos=1039
+          #)                   '#)'              KWRHashParen        tok= 429  pos=1050
+      static                   'static'          KWStatic            tok= 432  pos=1061
+      member                   'member'          KWMember            tok= 434  pos=1068
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 436  pos=1075
+          SymbolicOp           '~~~'             op_LogicalNot       tok= 437  pos=1076
+                               ')'               KWRParen            tok= 438  pos=1079
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 439  pos=1080
+          Pat.Typed:
+            Pat.NamedSimple    'value'           Identifier          tok= 440  pos=1081
+            Colon              ':'               OpColon             tok= 441  pos=1086
+            NamedType:
+              Ident            'unativeint'      Identifier          tok= 443  pos=1088
+                               ')'               KWRParen            tok= 444  pos=1098
+      ReturnColon              ':'               OpColon             tok= 446  pos=1100
+      NamedType:
+        Ident                  'unativeint'      Identifier          tok= 448  pos=1102
+      =                        '='               OpEquality          tok= 450  pos=1113
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 452  pos=1115
+          StringLiteral        '"'               StringOpen          tok= 454  pos=1118
+          Parts:
+            Text               'not'             StringFragment      tok= 455  pos=1119
+                               '"'               StringClose         tok= 456  pos=1122
+          Arg:
+            Ident              'value'           Identifier          tok= 458  pos=1124
+          ILReturnType:
+            :                  ':'               OpColon             tok= 460  pos=1130
+            NamedType:
+              Ident            'unativeint'      Identifier          tok= 462  pos=1132
+          #)                   '#)'              KWRHashParen        tok= 464  pos=1143
+      static                   'static'          KWStatic            tok= 467  pos=1154
+      member                   'member'          KWMember            tok= 469  pos=1161
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 471  pos=1168
+          SymbolicOp           '<<<'             op_LeftShift        tok= 472  pos=1169
+                               ')'               KWRParen            tok= 473  pos=1172
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 474  pos=1173
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'value'           Identifier          tok= 475  pos=1174
+              Colon            ':'               OpColon             tok= 476  pos=1179
+              NamedType:
+                Ident          'unativeint'      Identifier          tok= 478  pos=1181
+            ,                  ','               OpComma             tok= 479  pos=1191
+            Pat.Typed:
+              Pat.NamedSimple  'shift'           Identifier          tok= 481  pos=1193
+              Colon            ':'               OpColon             tok= 482  pos=1198
+              NamedType:
+                Ident          'int'             Identifier          tok= 484  pos=1200
+                               ')'               KWRParen            tok= 485  pos=1203
+      ReturnColon              ':'               OpColon             tok= 487  pos=1205
+      NamedType:
+        Ident                  'unativeint'      Identifier          tok= 489  pos=1207
+      =                        '='               OpEquality          tok= 491  pos=1218
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 493  pos=1220
+          StringLiteral        '"'               StringOpen          tok= 495  pos=1223
+          Parts:
+            Text               'shl'             StringFragment      tok= 496  pos=1224
+                               '"'               StringClose         tok= 497  pos=1227
+          Arg:
+            Ident              'value'           Identifier          tok= 499  pos=1229
+          Arg:
+            Ident              'shift'           Identifier          tok= 501  pos=1235
+          ILReturnType:
+            :                  ':'               OpColon             tok= 503  pos=1241
+            NamedType:
+              Ident            'unativeint'      Identifier          tok= 505  pos=1243
+          #)                   '#)'              KWRHashParen        tok= 507  pos=1254
+      static                   'static'          KWStatic            tok= 516  pos=1408
+      member                   'member'          KWMember            tok= 518  pos=1415
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 520  pos=1422
+          SymbolicOp           '>>>'             op_RightShift       tok= 521  pos=1423
+                               ')'               KWRParen            tok= 522  pos=1426
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 523  pos=1427
+          Pat.Tuple:
+            Pat.Typed:
+              Pat.NamedSimple  'value'           Identifier          tok= 524  pos=1428
+              Colon            ':'               OpColon             tok= 525  pos=1433
+              NamedType:
+                Ident          'unativeint'      Identifier          tok= 527  pos=1435
+            ,                  ','               OpComma             tok= 528  pos=1445
+            Pat.Typed:
+              Pat.NamedSimple  'shift'           Identifier          tok= 530  pos=1447
+              Colon            ':'               OpColon             tok= 531  pos=1452
+              NamedType:
+                Ident          'int'             Identifier          tok= 533  pos=1454
+                               ')'               KWRParen            tok= 534  pos=1457
+      ReturnColon              ':'               OpColon             tok= 536  pos=1459
+      NamedType:
+        Ident                  'unativeint'      Identifier          tok= 538  pos=1461
+      =                        '='               OpEquality          tok= 540  pos=1472
+        ILIntrinsic:
+          (#                   '(#'              KWLHashParen        tok= 542  pos=1474
+          StringLiteral        '"'               StringOpen          tok= 544  pos=1477
+          Parts:
+            Text               'shr.un'          StringFragment      tok= 545  pos=1478
+                               '"'               StringClose         tok= 546  pos=1484
+          Arg:
+            Ident              'value'           Identifier          tok= 548  pos=1486
+          Arg:
+            Ident              'shift'           Identifier          tok= 550  pos=1492
+          ILReturnType:
+            :                  ':'               OpColon             tok= 552  pos=1498
+            NamedType:
+              Ident            'unativeint'      Identifier          tok= 554  pos=1500
+          #)                   '#)'              KWRHashParen        tok= 556  pos=1511
+    end                        'end'             KWEnd               tok= 559  pos=1518
   TypeDefn.Abbrev:
-    TypeName           'nativeptr'       Identifier          tok=  42  pos= 119
+    TypeName                   'nativeptr'       Identifier          tok= 563  pos=1527
     TyparDefns:
-      <                '<'               op_LessThan         tok=  43  pos= 128
+      <                        '<'               op_LessThan         tok= 564  pos=1536
       Typar.Named:
-                       ''T'              TypeParameter       tok=  44  pos= 129
-      when             'when'            KWWhen              tok=  46  pos= 132
+                               ''T'              TypeParameter       tok= 565  pos=1537
+      when                     'when'            KWWhen              tok= 567  pos=1540
       Constraint.Unmanaged:
         Typar.Named:
-                       ''T'              TypeParameter       tok=  48  pos= 137
-        :              ':'               OpColon             tok=  50  pos= 140
-        unmanaged      'unmanaged'       Identifier          tok=  52  pos= 142
-      >                '>'               op_GreaterThan      tok=  53  pos= 151
-    =                  '='               OpEquality          tok=  55  pos= 153
+                               ''T'              TypeParameter       tok= 569  pos=1545
+        :                      ':'               OpColon             tok= 571  pos=1548
+        unmanaged              'unmanaged'       Identifier          tok= 573  pos=1550
+      >                        '>'               op_GreaterThan      tok= 574  pos=1559
+    =                          '='               OpEquality          tok= 576  pos=1561
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  57  pos= 155
-        StringLiteral  '"'               StringOpen          tok=  59  pos= 158
+        (#                     '(#'              KWLHashParen        tok= 578  pos=1563
+        StringLiteral          '"'               StringOpen          tok= 580  pos=1566
         Parts:
-          Text         'native int'      StringFragment      tok=  60  pos= 159
-                       '"'               StringClose         tok=  61  pos= 169
-        #)             '#)'              KWRHashParen        tok=  63  pos= 171
+          Text                 'native int'      StringFragment      tok= 581  pos=1567
+                               '"'               StringClose         tok= 582  pos=1577
+        #)                     '#)'              KWRHashParen        tok= 584  pos=1579
   TypeDefn.Abbrev:
-    TypeName           'voidptr'         Identifier          tok=  67  pos= 179
-    =                  '='               OpEquality          tok=  69  pos= 187
+    TypeName                   'voidptr'         Identifier          tok= 588  pos=1587
+    =                          '='               OpEquality          tok= 590  pos=1595
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  71  pos= 189
-        StringLiteral  '"'               StringOpen          tok=  73  pos= 192
+        (#                     '(#'              KWLHashParen        tok= 592  pos=1597
+        StringLiteral          '"'               StringOpen          tok= 594  pos=1600
         Parts:
-          Text         'void*'           StringFragment      tok=  74  pos= 193
-                       '"'               StringClose         tok=  75  pos= 198
-        #)             '#)'              KWRHashParen        tok=  77  pos= 200
+          Text                 'void*'           StringFragment      tok= 595  pos=1601
+                               '"'               StringClose         tok= 596  pos=1606
+        #)                     '#)'              KWRHashParen        tok= 598  pos=1608
   TypeDefn.Abbrev:
-    TypeName           'ilsigptr'        Identifier          tok=  81  pos= 208
+    TypeName                   'ilsigptr'        Identifier          tok= 602  pos=1616
     TyparDefns:
-      <                '<'               op_LessThan         tok=  82  pos= 216
+      <                        '<'               op_LessThan         tok= 603  pos=1624
       Typar.Named:
-                       ''T'              TypeParameter       tok=  83  pos= 217
-      >                '>'               op_GreaterThan      tok=  84  pos= 219
-    =                  '='               OpEquality          tok=  86  pos= 221
+                               ''T'              TypeParameter       tok= 604  pos=1625
+      >                        '>'               op_GreaterThan      tok= 605  pos=1627
+    =                          '='               OpEquality          tok= 607  pos=1629
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  88  pos= 223
-        StringLiteral  '"'               StringOpen          tok=  90  pos= 226
+        (#                     '(#'              KWLHashParen        tok= 609  pos=1631
+        StringLiteral          '"'               StringOpen          tok= 611  pos=1634
         Parts:
-          Text         '!0*'             StringFragment      tok=  91  pos= 227
-                       '"'               StringClose         tok=  92  pos= 230
-        #)             '#)'              KWRHashParen        tok=  94  pos= 232
+          Text                 '!0*'             StringFragment      tok= 612  pos=1635
+                               '"'               StringClose         tok= 613  pos=1638
+        #)                     '#)'              KWRHashParen        tok= 615  pos=1640
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

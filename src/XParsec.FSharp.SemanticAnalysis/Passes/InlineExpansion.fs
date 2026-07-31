@@ -584,6 +584,41 @@ module InlineExpansion =
                                     // rebuilt marked — only a rewrite that consumes the node
                                     // consumes its mark.
                                     | ValueNone -> ValueSome(TastWalk.rebuildApp (walk markedHead) (walkedArgs ()))
+                            // A dispatched SRTP trait call — a static operator member whose
+                            // body the provider serves. The INTRINSIC
+                            // operator surface arrives here: `1 &&& 2` dispatches to
+                            // `Vesper.int`'s declared `(&&&)`, and a primitive has no type to
+                            // hang a method on, so its witness can only ever be spliced. A
+                            // nominal's operator (`Vesper.Set`'s `op_Addition`) serves no body
+                            // and falls through to the real call it is.
+                            //
+                            // Its arguments ARE the spine — a `StaticMethodCall` carries them
+                            // itself rather than through an `App` chain — and they line up with
+                            // the curried parameters `harvestMemberBody` wrapped the body in.
+                            | TExpr.StaticMethodCall(key, args, ty, tok) ->
+                                match lookupExternal tok (ValueSome key) with
+                                | ValueSome served ->
+                                    let call =
+                                        {
+                                            Template = TemplateId.Foreign served.Key
+                                            Tok = tok
+                                            Ty = ty
+                                            Spine =
+                                                [
+                                                    for a in EqArray.toList args ->
+                                                        a, TastWalk.exprTy a, TastWalk.exprTok a
+                                                ]
+                                            Walk = walk
+                                            Rebuild =
+                                                fun () -> TExpr.StaticMethodCall(key, EqArray.map walk args, ty, tok)
+                                        }
+
+                                    ValueSome(
+                                        expandingTemplate call (fun inFlight -> expandExternalCall inFlight served call)
+                                    )
+                                // No served body: a real static call. Default child recursion
+                                // walks the arguments.
+                                | ValueNone -> ValueNone
                             // A BARE (non-applied) reference to a LOCAL inline — the
                             // template used as a value. No spine, so no type argument is
                             // derivable and the body's typars stay abstract; it still

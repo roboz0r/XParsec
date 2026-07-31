@@ -113,27 +113,21 @@ module ArithmeticOperators =
 [<AutoOpen>]
 module BitwiseOperators =
 
-    /// Bitwise AND. No `conv.*` needed: in-range operands stay in range.
-    /// (`and` is a CIL mnemonic inside `(# … #)`, not an F# keyword.)
-    let inline (&&&) (x: ^T) (y: ^T) : ^T = (# "and" x y : ^T #)
+    // Each is the bare trait call. WHICH operand types support the operator, and the IL
+    // each one lowers to, are stated on the primitives themselves (`prim-types-*.fs`) —
+    // so there is no clause list here that could drift from that one, and a type that
+    // states no member (`float`) is rejected rather than handed a width-blind opcode.
+    let inline (&&&) (x: ^T) (y: ^T) : ^T = (^T: (static member (&&&): ^T * ^T -> ^T) (x, y))
 
-    let inline (|||) (x: ^T) (y: ^T) : ^T = (# "or" x y : ^T #)
+    let inline (|||) (x: ^T) (y: ^T) : ^T = (^T: (static member (|||): ^T * ^T -> ^T) (x, y))
 
-    let inline (^^^) (x: ^T) (y: ^T) : ^T = (# "xor" x y : ^T #)
+    let inline (^^^) (x: ^T) (y: ^T) : ^T = (^T: (static member (^^^): ^T * ^T -> ^T) (x, y))
 
-    /// Bitwise complement. Sub-int32 widths keep the meaningful low bits; no truncation needed.
-    let inline (~~~) (value: ^T) : ^T = (# "not" value : ^T #)
+    let inline (~~~) (value: ^T) : ^T = (^T: (static member (~~~): ^T -> ^T) value)
 
-    /// Left shift. `shl` is sign-agnostic.
-    let inline (<<<) (value: ^T) (shift: int32) : ^T = (# "shl" value shift : ^T #)
+    let inline (<<<) (value: ^T) (shift: int32) : ^T = (^T: (static member (<<<): ^T * int32 -> ^T) (value, shift))
 
-    /// Right shift. Base is signed `shr`; unsigned widths use `shr.un` (zero-fill).
-    let inline (>>>) (value: ^T) (shift: int32) : ^T =
-        (# "shr" value shift : ^T #)
-        when ^T: uint32 = (# "shr.un" value shift : uint32 #)
-        when ^T: uint64 = (# "shr.un" value shift : uint64 #)
-        when ^T: byte = (# "shr.un" value shift : byte #)
-        when ^T: uint16 = (# "shr.un" value shift : uint16 #)
+    let inline (>>>) (value: ^T) (shift: int32) : ^T = (^T: (static member (>>>): ^T * int32 -> ^T) (value, shift))
 
 [<AutoOpen>]
 module EqualityOperators =

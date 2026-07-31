@@ -125,6 +125,44 @@ let tests =
                     | None -> failtestf "no `idW` let decl found, decls: %A" tast.Decls
             }
 
+            // The SRTP arm reaches a DECLARED operator on an intrinsic. `widget` is not a
+            // numeric primitive, so the unifier's operator-name synthesis declines it
+            // outright — before this arm existed, `w + w` reported "widget has no
+            // built-in static member op_Addition". Resolving now can only mean the
+            // declaration on the type was found, which is what makes this a probe of the
+            // lookup rather than a restatement of the synthesis.
+            test "an operator declared on an intrinsic satisfies the SRTP bound" {
+                let source =
+                    "module Widgets\n\
+                     \n\
+                     type widget =\n\
+                     \x20   (# \"object\" #)\n\
+                     \x20   with\n\
+                     \x20       static member (+) (x: widget, y: widget) : widget = (# \"$0 + $1\" x y : widget #)\n\
+                     \x20   end\n\
+                     \n\
+                     let addW (a: widget) (b: widget) : widget = a + b\n"
+
+                let tast = analyse source
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let addWTy =
+                    EqArray.toList tast.Decls
+                    |> List.tryPick (fun d ->
+                        match d with
+                        | TDecl.Let(TPat.NamedSimple _, _, _, ty) -> Some ty
+                        | _ -> None
+                    )
+
+                // The bound dispatched to the declared `widget * widget -> widget`, so
+                // the result grounds as `widget` — not a parked TyVar.
+                match addWTy with
+                | Some(TyFun(TyConst _, TyFun(TyConst _, TyConst(k, _)))) ->
+                    Expect.equal (SymbolKeyOps.simpleName k) (DisplayName "widget") "addW returns widget"
+                | Some other -> failtestf "addW is not `widget -> widget -> widget`: %A" other
+                | None -> failtestf "no `addW` let decl found, decls: %A" tast.Decls
+            }
+
             // Guardrail: a transparent-alias abbrev with members (non-ILIntrinsic RHS)
             // is rejected with a diagnostic.
             test "a transparent-alias abbrev with members is rejected" {

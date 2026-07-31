@@ -234,16 +234,22 @@ module Inline =
             | _ -> false
         | _ -> false
 
-    /// The declaring `TypeKey` of a nominal (class / union / record) — the operand
-    /// shape that can carry a static operator member, and so the ONLY shape an SRTP
-    /// trait call can dispatch to. The single definition of "is a nominal operand";
-    /// `resolveTraitCall` alone consults it, and a receiver it declines becomes an
-    /// `UnresolvedTrait` — "this type does not support this operator".
-    let private nominalHeadKey (store: TypeStore) (t: SemType) : TypeKey voption =
+    /// The declaring `TypeKey` of an operand that can CARRY a static operator member,
+    /// and so the only shape an SRTP trait call can dispatch to. The single definition
+    /// of "is an operator host"; `resolveTraitCall` alone consults it, and a receiver it
+    /// declines becomes an `UnresolvedTrait` — "this type does not support this operator".
+    ///
+    /// An intrinsic qualifies on exactly the same footing as a nominal: `int` declares
+    /// `static member (&&&)` in its `.fsi` and the member is served by key like any
+    /// other. What differs is only the LOWERING — a primitive has no type to hang a
+    /// method on, so its witness is always a spliced inline body and never a call —
+    /// and lowering is not this function's question.
+    let private operatorHostKey (store: TypeStore) (t: SemType) : TypeKey voption =
         match UnionFind.headZonk store t with
         | TyClass(k, _)
         | TyUnion(k, _)
         | TyRecord(k, _) -> ValueSome k
+        | TyConst(SymbolKey.Type k, _) -> ValueSome k
         | _ -> ValueNone
 
     /// Build the typar-substituting mapper for one inline expansion. The
@@ -284,11 +290,11 @@ module Inline =
             | ValueNone -> TastWalk.mapExpr m defaultExpr
 
         // Resolve a `TraitCall` once the trait typars have been substituted and the
-        // receiver is a concrete nominal: rewrite it to a `StaticMethodCall` on that
-        // type's static operator member (class, union, OR record). Two miss cases record
-        // an `UnresolvedTrait` (reported by the caller at the call site) rather than mint a
-        // call: the receiver does not pin to a nominal at all (an unpinned `^T`, or a
-        // `TyConst` with no clause of its own), OR it pins to nominal `k` but `k` carries
+        // receiver is a concrete operator host: rewrite it to a `StaticMethodCall` on that
+        // type's static operator member (class, union, record, OR intrinsic). Two miss
+        // cases record an `UnresolvedTrait` (reported by the caller at the call site)
+        // rather than mint a call: the receiver does not pin to a host at all (an
+        // unpinned `^T`), OR it pins to host `k` but `k` carries
         // no such member — the honest "type does not support this operator" verdict, which
         // the total-key mint surfaces (the former placeholder minted a key for the absent
         // member and failed opaquely downstream). The result type is `sub ty` (`^T3`), NOT
@@ -311,7 +317,7 @@ module Inline =
 
                 ValueNone
 
-            match nominalHeadKey ctx.Store (sub recvTy) with
+            match operatorHostKey ctx.Store (sub recvTy) with
             | ValueSome k ->
                 // The total `MemberKey` freezes the resolved operator's real parameter
                 // signature; its `ArgSig.Length` still carries the operand arity codegen's

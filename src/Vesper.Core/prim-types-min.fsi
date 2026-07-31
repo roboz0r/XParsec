@@ -12,6 +12,22 @@ type int = extern with
     /// emitted.</summary>
     static member (+): x: int * y: int -> int
 
+    /// <summary>The bitwise family. Declaring it HERE is what rejects
+    /// <c>1.0 &amp;&amp;&amp; 2.0</c>: a type that states no such member does not support the
+    /// operator, and <c>float</c> states none.</summary>
+    static member (&&&): x: int * y: int -> int
+
+    static member (|||): x: int * y: int -> int
+
+    static member (^^^): x: int * y: int -> int
+
+    static member (~~~): value: int -> int
+
+    /// <summary>The shift amount is <c>int32</c> at every width, never the shifted type.</summary>
+    static member (<<<): value: int * shift: int -> int
+
+    static member (>>>): value: int * shift: int -> int
+
 /// <summary>An intrinsic boolean provided by the target.</summary>
 ///
 /// <category>Basic Types</category>

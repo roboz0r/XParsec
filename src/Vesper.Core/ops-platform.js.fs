@@ -134,31 +134,21 @@ module ArithmeticOperators =
 [<AutoOpen>]
 module BitwiseOperators =
 
-    /// Bitwise AND. JS `&` coerces a number operand to signed int32 and a BigInt
-    /// operand to its BigInt bitwise-and, so the single base covers both int32 and
-    /// int64 — the result of AND-ing two in-range operands stays in range.
-    let inline (&&&) (x: ^T) (y: ^T) : ^T = (# "$0 & $1" x y : ^T #)
+    // Bare trait calls, as in the CLR sibling: the admitted operand types and each
+    // one's JS template live on the primitives (`prim-types-*.js.fs`). The former
+    // single base here was width-BLIND — one `$0 & $1` for every operand — which is
+    // what the per-width masks now state instead.
+    let inline (&&&) (x: ^T) (y: ^T) : ^T = (^T: (static member (&&&): ^T * ^T -> ^T) (x, y))
 
-    let inline (|||) (x: ^T) (y: ^T) : ^T = (# "$0 | $1" x y : ^T #)
+    let inline (|||) (x: ^T) (y: ^T) : ^T = (^T: (static member (|||): ^T * ^T -> ^T) (x, y))
 
-    let inline (^^^) (x: ^T) (y: ^T) : ^T = (# "$0 ^ $1" x y : ^T #)
+    let inline (^^^) (x: ^T) (y: ^T) : ^T = (^T: (static member (^^^): ^T * ^T -> ^T) (x, y))
 
-    /// Bitwise complement. `~` on a number is int32 complement; on a BigInt it is
-    /// the BigInt complement (which `(&&&)`'s reasoning keeps in 64-bit range for
-    /// a wrapped int64 operand).
-    let inline (~~~) (value: ^T) : ^T = (# "~$0" value : ^T #)
+    let inline (~~~) (value: ^T) : ^T = (^T: (static member (~~~): ^T -> ^T) value)
 
-    /// Left shift by `shift` bits. JS `<<` on a number is the int32 shift; a BigInt
-    /// shift needs a BigInt shift amount, so int64 converts `$1` and wraps.
-    let inline (<<<) (value: ^T) (shift: int32) : ^T =
-        (# "$0 << $1" value shift : ^T #)
-        when ^T: int64 = (# "BigInt.asIntN(64, $0 << BigInt($1))" value shift : int64 #)
+    let inline (<<<) (value: ^T) (shift: int32) : ^T = (^T: (static member (<<<): ^T * int32 -> ^T) (value, shift))
 
-    /// Right shift by `shift` bits. The base is the arithmetic (sign-extending)
-    /// `>>`, correct for the signed widths; int64 shifts the BigInt and re-wraps.
-    let inline (>>>) (value: ^T) (shift: int32) : ^T =
-        (# "$0 >> $1" value shift : ^T #)
-        when ^T: int64 = (# "BigInt.asIntN(64, $0 >> BigInt($1))" value shift : int64 #)
+    let inline (>>>) (value: ^T) (shift: int32) : ^T = (^T: (static member (>>>): ^T * int32 -> ^T) (value, shift))
 
 [<AutoOpen>]
 module EqualityOperators =

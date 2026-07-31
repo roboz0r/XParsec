@@ -140,6 +140,21 @@ let tests =
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
 
+            // KEY AGREEMENT for the SRTP arm's provider route. When a consumer drains an
+            // `op_Addition` bound on `int`, it asks the provider under the key its
+            // `TyConst` payload carries — `RuntimeNames.intKey` — and nothing else. If the
+            // contract published that member under any other key the arm would miss
+            // SILENTLY and fall back to the operator-name synthesis, which answers
+            // identically for `int`. The masking only ends when the synthesis is deleted,
+            // by which time the miss is a cliff, so the agreement is pinned here instead.
+            test "the key a `TyConst int` carries resolves its declared op_Addition through the contract" {
+                let provider, _ = builtProvider.Value
+
+                match provider.TryLookupMember(RuntimeNames.intKey, "op_Addition") with
+                | ValueSome m -> Expect.isTrue m.IsStatic "the declared operator witness is static"
+                | ValueNone -> failtest "Vesper.int declares `static member (+)`, but not under its TyConst key"
+            }
+
             test "ctx.Intrinsics resolves each primitive from the contract to the static BuiltinTypes key" {
                 // The contract-sourced identity bag: each `ctx.Intrinsics.*` resolves its name
                 // through the provider's ambient `open Vesper` (no hardcoded namespace) and must

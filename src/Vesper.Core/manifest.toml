@@ -97,6 +97,14 @@ impl = [
 # are signature-only (`let inline` spliced at the use site, no emitted method), so
 # they are NOT a DLL compile target — distinct from `impl`.
 inline-bodies = [
+    # Also in `impl`, and necessarily in both: it BINDS the primitive reprs (impl) and
+    # CARRIES the operator members declared on them, whose `(# … #)` bodies are splice
+    # templates served by member key. A member on an intrinsic is never emitted — the
+    # primitive has no type to hang a method on — so the body can only reach a use site
+    # through this list.
+    "prim-types-min.fs",
+    "prim-types-int.fs",
+    "prim-types-nativeint.fs",
     "ops-platform.fs",
     "ops-std.fs",
     "int-comparison.fs",
@@ -108,6 +116,12 @@ inline-bodies = [
 # F#, no platform IL) is repeated unchanged; only `ops-platform.fs` diverges to
 # its `$N`-template sibling `ops-platform.js.fs`.
 inline-bodies-js = [
+    # The JS half of the primitives' operator member bodies — see the base list. There is
+    # no `prim-types-nativeint.js.fs`: JS has no nativeint repr, so the type is
+    # unrepresentable there and its operator declarations are unreachable rather than
+    # separately gated.
+    "prim-types-min.js.fs",
+    "prim-types-int.js.fs",
     "ops-platform.js.fs",
     "ops-std.fs",
     # The `undefined` VALUE (`let undefined = (# "undefined" #)`) — a zero-operand
