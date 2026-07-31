@@ -89,18 +89,16 @@ type ImportForm =
 ///
 /// Its POSITIONS, by contrast, are handed over as-is: every node still carries the index of
 /// the token that spells it in the PRODUCER's file. What the consumer lacks is not the indices
-/// but the `Lexed` they index, so they arrive intact rather than blanked, and
-/// a consumer must either name the producer file it reads them against
-/// (`OriginSources.tokenAt`, which is also where the file's content hash is checked) or move
-/// the body onto a position of its own (`InlineThaw.body`). WHICH of the two is available is
-/// `Origin` below.
+/// but the `Lexed` they index, so they arrive intact rather than blanked, and the consumer
+/// names the producer file it reads them against (`OriginSources.tokenAt`, which is also where
+/// the file's content hash is checked). `Origin` is what it names.
 ///
 /// `FrozenType`, not `SemType` — a `SemType.TyVar` is a mutable `UnionFind` cell, and
 /// an oracle that hands one out lets a consumer's inference reach back and mutate a
-/// producer's. The consumer THAWS the body at the splice (`InlineThaw.body`), minting
-/// its own cells by construction; that thaw is the one immutable→mutable transition,
-/// and it sits on the consumer's side of the seam. Do NOT re-widen this to `SemType`
-/// to make a splice site convenient — thaw is the seam.
+/// producer's. The consumer THAWS the body when it resolves it, minting its own cells by
+/// construction; that thaw is the one immutable→mutable transition, and it sits on the
+/// consumer's side of the seam. Do NOT re-widen this to `SemType` to make a consuming site
+/// convenient — thaw is the seam.
 type InlineBody =
     {
         Decl: Wire.TDecl
@@ -114,34 +112,22 @@ type InlineBody =
         /// which the file could be found again (the collection that parsed it is the only
         /// thing that ever held it). Carrying it here is what makes that unrepresentable.
         ///
-        /// `ValueNone` for a provider that retains none. Such a body has exactly ONE reading
-        /// available, the relocating `InlineThaw.body`, so it can be spliced but never left
-        /// behind an edge.
-        Origin: OriginSource voption
+        /// Mandatory, and that is what lets EVERY served body be left behind an edge: a body
+        /// whose anchors nothing could resolve would have to be moved onto its call site
+        /// instead, which is a second placement for the consumer to decide.
+        Origin: OriginSource
     }
 
 [<RequireQualifiedAccess>]
 module InlineBody =
 
-    /// A body whose producer file was NOT retained — the shape every provider that
-    /// reconstructs templates off a frozen unit publishes. Named so that "this provider
-    /// keeps no anchor domain" is a decision spelled once rather than a `ValueNone` repeated
-    /// at each construction site.
-    let unanchored (decl: Wire.TDecl) (paramAttrs: ParamAttrs[]) : InlineBody =
-        {
-            Decl = decl
-            ParamAttrs = paramAttrs
-            Origin = ValueNone
-        }
-
-    /// A body served WITH the producer file its anchors index — the shape a publisher that
-    /// still holds the parse its tree was frozen from owes its consumers. Both readings are
-    /// then available, so the body can be left behind an edge rather than only spliced.
+    /// A body served WITH the producer file its anchors index — the shape a publisher owes its
+    /// consumers, and the only shape there is.
     let anchoredIn (origin: OriginSource) (decl: Wire.TDecl) (paramAttrs: ParamAttrs[]) : InlineBody =
         {
             Decl = decl
             ParamAttrs = paramAttrs
-            Origin = ValueSome origin
+            Origin = origin
         }
 
 type ExternalSymbol =

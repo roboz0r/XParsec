@@ -157,11 +157,26 @@ module InlineExpand =
     /// SHARING, not about which file the node was written in (`Domain`): an entry's body is
     /// copied because two call sites of one entry must not share a binder and so must not
     /// share a node, where everything else keeps the very id the emitter's node-keyed tables
-    /// were built from. Material a `CallerExpr` marks appears once however the graph is
-    /// walked, so it stays in place whichever file wrote it.
+    /// were built from.
     type private Site =
         | InPlace
         | Copied of Copy
+
+    /// One entry the walk is currently INSIDE, and the site the material that called it was
+    /// being walked at.
+    ///
+    /// The two travel together because a `CallerExpr` pops both at once: the marked subtree is
+    /// the CALLER's, so it belongs to whatever the caller belonged to. That is `InPlace` only at
+    /// the outermost — where the caller is the file's own declarations — and is the enclosing
+    /// COPY wherever the calling body is itself an entry being copied. Popping the entry while
+    /// keeping the site would leave such a subtree's binder references naming the uncopied
+    /// body's binders, which nothing in the emitted tree declares.
+    [<NoEquality; NoComparison>]
+    type private Entered =
+        {
+            Spec: SpecializationId
+            CallerSite: Site
+        }
 
     /// The abstraction an entry's edge applies. An entry is ALWAYS a `TDecl.Let` of lambdas
     /// (`TSpecializationG.Decl`), asserted here so nothing below has to re-state it.
@@ -219,6 +234,14 @@ module InlineExpand =
         // Where `source` was written, filed against the node that lands in the tree — the copy
         // where one was taken, the node itself where it stays put. Nothing is filed for the
         // consuming unit's own material, and absence carries that meaning.
+        //
+        // That includes a COPY of the consuming unit's own material — a template of this file,
+        // whose entry keeps the positions it was written at. Deliberate: absence means "read the
+        // node's own anchor", which for such a copy is the call site it was moved onto, and
+        // attributing an inlined body to the call that asked for it is what a stack trace and a
+        // debugger want. Filing it would instead point every node at the template's definition,
+        // which is a different (and defensible) answer, so the choice is made here rather than
+        // inherited from the domain test.
         let record (domain: Domain) (source: TastAccessor.ExprId) (landed: TastAccessor.ExprId) =
             match domain with
             | Consuming -> ()
@@ -252,7 +275,7 @@ module InlineExpand =
 
         let rec go
             (domain: Domain)
-            (entered: SpecializationId list)
+            (entered: Entered list)
             (site: Site)
             (e: TastAccessor.ExprId)
             : TastAccessor.ExprId =
@@ -260,9 +283,10 @@ module InlineExpand =
             | ExprShape.InlineCall -> expandEdge domain entered site e
             | ExprShape.CallerExpr ->
                 // The marked subtree was written by the caller and MOVED into the entry, so it
-                // is not the entry's to copy: it stays where it is, keeping its own anchors,
-                // its own binders and its own node identity — which is what lets a node-keyed
-                // emit table (a lambda's value-struct verdict) still recognise it.
+                // is not the ENTRY's to copy: it belongs to whatever the caller belonged to, and
+                // is walked at the caller's own site — which keeps its node identity where that
+                // caller is the file's own declarations, and lets a node-keyed emit table (a
+                // lambda's value-struct verdict) still recognise it.
                 //
                 // Sound only because an entry that marks anything has exactly ONE call edge
                 // (`InlineSpecTable.miscountedFusedEntries`): the material appears once however
@@ -278,7 +302,7 @@ module InlineExpand =
                 // one specialization inside the first one's marked subtree — and without the
                 // pop the acyclicity assertion below convicts a legal program.
                 match entered with
-                | _ :: outer -> go caller outer InPlace (TastAccessor.exprChild e 0)
+                | frame :: outer -> go caller outer frame.CallerSite (TastAccessor.exprChild e 0)
                 | [] ->
                     failwith
                         "InlineExpand: a CallerExpr outside every entry — the node marks material moved INTO a body, so one must have been entered"
@@ -291,25 +315,34 @@ module InlineExpand =
 
         and copyNode
             (domain: Domain)
-            (entered: SpecializationId list)
+            (entered: Entered list)
             (copy: Copy)
             (e: TastAccessor.ExprId)
             : TastAccessor.ExprId =
-            // Patterns first: a binder is bound before any reference to it can be rewritten,
-            // and a use is always lexically inside its binder.
+            // EVERY binder this node introduces is bound before any child is copied: a use is
+            // always lexically inside its binder, so a child copied first would rewire a
+            // reference through a binding that does not exist yet and keep the ORIGINAL id —
+            // which resolves to nothing in the copy. Patterns are one such binder; a `ForTo`
+            // carries its loop variable on the PAYLOAD instead, and it binds the body just the
+            // same.
             let pats =
                 TastAccessor.exprPatChildren e |> Array.map (fun p -> (copyPat copy p).Id)
+
+            let loopVar =
+                match TastAccessor.exprKind e with
+                | ExprShape.ForTo -> ValueSome(bind copy (TastAccessor.exprForTo e).Var)
+                | _ -> ValueNone
 
             let kids =
                 TastAccessor.exprChildren e
                 |> Array.map (fun c -> (go domain entered (Copied copy) c).Id)
 
-            // The payload's own positions move with the node; the loop variable is a binder the
-            // payload carries rather than a pattern, so it freshens here alongside them.
+            // The payload's own positions move with the node; its loop variable is the binder
+            // taken above.
             let payload (p: ExprPayload) : ExprPayload =
-                match ExprPayload.mapToks (fun _ -> copy.At) p with
-                | ExprPayload.ForTo ft -> ExprPayload.ForTo {| ft with Var = bind copy ft.Var |}
-                | moved -> moved
+                match ExprPayload.mapToks (fun _ -> copy.At) p, loopVar with
+                | ExprPayload.ForTo ft, ValueSome v -> ExprPayload.ForTo {| ft with Var = v |}
+                | moved, _ -> moved
 
             let copied: TastAccessor.ExprId =
                 {
@@ -334,7 +367,7 @@ module InlineExpand =
 
         and expandEdge
             (domain: Domain)
-            (entered: SpecializationId list)
+            (entered: Entered list)
             (site: Site)
             (e: TastAccessor.ExprId)
             : TastAccessor.ExprId =
@@ -354,7 +387,7 @@ module InlineExpand =
                     stated
                     domain
 
-            if List.contains spec entered then
+            if entered |> List.exists (fun f -> f.Spec = spec) then
                 failwithf
                     "InlineExpand: specialization %A (%A) reaches itself — the table is acyclic by `InlineSpecTable.findCycle`, checked before anything walks it"
                     spec
@@ -378,7 +411,7 @@ module InlineExpand =
             let body =
                 go
                     (domainOf entry.Origin)
-                    (spec :: entered)
+                    ({ Spec = spec; CallerSite = site } :: entered)
                     (Copied
                         {
                             At = at

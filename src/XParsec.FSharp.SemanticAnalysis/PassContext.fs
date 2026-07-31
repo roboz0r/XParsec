@@ -859,10 +859,11 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     ///
     /// Recorded rather than derived later, because by the freeze there is nothing left that
     /// knows. The key's number is a character offset that merely happens to be a token
-    /// start; and the introducing NODE's token is only the name's until `Inline.spliceAt`
-    /// moves a spliced body onto its call site, after which it spells the call. A binder
-    /// with no entry is one no source writes — `Inline.freshen` mints those, and they are
-    /// named after their slot (`BinderNaming.Minted`).
+    /// start; and the introducing NODE's token is only the name's until a body is copied onto
+    /// a call site, after which it spells the call — which the emit-time expansion does to
+    /// every entry it places. A binder with no entry is one no source writes —
+    /// `Inline.freshen` mints those, and they are named after their slot
+    /// (`BinderNaming.Minted`).
     member val BinderSpellings = BinderTable<BinderSpelling>() with get
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of each of that construct's clauses (outer array in

@@ -60,7 +60,11 @@ module SymbolProviders =
     /// copied to wrap it — and the finished declaration is drained back to the DU because
     /// that is the form the package wire carries (a pool id is meaningless in the
     /// consumer's own pool).
-    let harvestMemberBody (m: TastAccessor.TypeMember) : InlineBody option =
+    ///
+    /// `origin` is the file the member's body was written in, which a member cannot say of
+    /// itself: it is a node, and only the collection that opened the pool knows which file the
+    /// pool is.
+    let harvestMemberBody (origin: OriginSource) (m: TastAccessor.TypeMember) : InlineBody option =
         match TastAccessor.exprKind m.Body with
         | ExprShape.ILIntrinsic ->
             let pool = m.Body.Pool
@@ -112,24 +116,17 @@ module SymbolProviders =
             // entry is `ParamAttrs.Default`.
             let paramAttrs = Array.create curried.Length ParamAttrs.Default
 
-            // Unanchored HERE: this function is handed a member, not a file, so it cannot
-            // name the domain its anchors index — `KeyedInlineBody.anchoredIn` does, at the
-            // collection that opened the pool. A hand-built fixture harvested directly (no
-            // producer file behind it) keeps `ValueNone` and is spliced rather than outlined.
-            Some(InlineBody.unanchored (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
+            Some(InlineBody.anchoredIn origin (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
         | _ -> None
 
     /// A published body under the identity it is served by. The `Wire.TInlineValue` shape,
     /// except that the body carries the producer file its anchors index — which is the whole
     /// reason this collection retains the parse at all.
     ///
-    /// Its representation is PRIVATE and `KeyedInlineBody.anchoredIn` is the only way to build
-    /// one, because the anchor domain is not a property of the KIND of body: a value template
-    /// and a harvested member body drained off one pool were written in one file, and a
-    /// collection that stamps the origin on one list and not another publishes indices the
-    /// consumer cannot read — silently, since an unanchored body is merely spliced onto its
-    /// call site rather than rejected. A record literal would let a list differ; requiring the
-    /// origin at the sole construction site means it cannot.
+    /// The anchor domain is not a property of the KIND of body — a value template and a
+    /// harvested member body drained off one pool were written in one file — and it is
+    /// `InlineBody.Origin`, required of every body, that keeps the two lists from being stamped
+    /// against different files.
     type KeyedInlineBody =
         private
             {
@@ -140,12 +137,8 @@ module SymbolProviders =
     [<RequireQualifiedAccess>]
     module KeyedInlineBody =
 
-        /// Publish `body` under `key`, in the producer file its anchors index.
-        let anchoredIn (origin: OriginSource) (key: SymbolKey) (body: InlineBody) : KeyedInlineBody =
-            {
-                Key = key
-                Body = { body with Origin = ValueSome origin }
-            }
+        /// Publish a body under the identity it is served by.
+        let under (key: SymbolKey) (body: InlineBody) : KeyedInlineBody = { Key = key; Body = body }
 
     /// A unit's published inline vocabulary, read off its FROZEN tree: its value templates and
     /// its harvested member bodies.
@@ -182,14 +175,14 @@ module SymbolProviders =
         // Every body this function publishes, whichever list it lands in, is drained off THIS
         // pool — which is `tast`, which is `origin` frozen. So the domain is a fact of the
         // call, fixed once here rather than restated per comprehension.
-        let published = KeyedInlineBody.anchoredIn origin
+        let anchored = InlineBody.anchoredIn origin
 
         // The published VALUE templates, drained off their own pool roots — the wire form
         // is DU-typed because a pool id means nothing in the consuming unit's pool.
         let values =
             [
                 for iv in tast.InlineTemplates ->
-                    published iv.Key (InlineBody.unanchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs)
+                    KeyedInlineBody.under iv.Key (anchored (TastPoolBuilder.declTree pool iv.Decl) iv.ParamAttrs)
             ]
 
         let members =
@@ -205,7 +198,7 @@ module SymbolProviders =
                         let tdecl = TastAccessor.declType d
 
                         for m in TTypeKindG.members tdecl.Kind do
-                            match harvestMemberBody m with
+                            match harvestMemberBody origin m with
                             | Some body ->
                                 let kind =
                                     match m.Kind with
@@ -220,7 +213,7 @@ module SymbolProviders =
                                         m.MethodTypeParams.Length
                                         kind
 
-                                yield published key body
+                                yield KeyedInlineBody.under key body
                             | None -> ()
                     | _ -> ()
             ]

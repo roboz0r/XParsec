@@ -221,14 +221,14 @@ let tests =
                         clean "isnull-string" "let f (s: string) = isNull s"
                     }
 
-                    // Root 4 — `InlineReduction.expandLocalAt` must always
+                    // Root 4 — resolving a local template must always
                     // `deriveInlineTypeArgs`. A generic `let inline` expanded with zero
                     // type args leaves the callee's generalised typars (e.g. `:?> 'T`
                     // result typar) free in the caller's frozen TAST: beta-reduction
                     // binds value params but not typars. Only triggers when the callee is
                     // `inline` AND generic — monomorphic locals derive `[||]` safely.
                     test
-                        "local generic `let inline` cast helper from a non-inline fn [root 4: expandLocalAt derives type args]" {
+                        "local generic `let inline` cast helper from a non-inline fn [root 4: a local template derives its type args]" {
                         clean
                             "inline-cast"
                             (String.concat

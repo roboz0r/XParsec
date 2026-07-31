@@ -214,10 +214,10 @@ let private checkValReprPatsAreSpineNodes (pools: FrozenPools) =
 // other and with the file's own tokens. Returns the count of written binders, so a test can
 // assert non-vacuous coverage.
 //
-// It is deliberately NOT "a binder is anchored where its introducing NODE sits". That held
-// only until `Inline.spliceAt` moved a spliced body onto its call site: the node then sits
-// at the call, while its binders — `freshen`-minted — are written nowhere at all. Asserting
-// the node form is what made deriving a name from a node's anchor look sound.
+// It is deliberately NOT "a binder is anchored where its introducing NODE sits". That holds
+// only until an inline body is copied onto its call site: the node then sits at the call,
+// while its binders — `freshen`-minted — are written nowhere at all. Asserting the node form
+// is what made deriving a name from a node's anchor look sound.
 let private checkBinderSpellings (src: string) (pools: FrozenPools) : int =
     let lexed, _ = parseFile src
     let mutable written = 0

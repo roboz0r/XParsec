@@ -34,27 +34,27 @@ let tests =
                     Expect.equal (out.Trim()) "42" "the mangled name binds and reads back"
             }
 
-            // A binder of a SPLICED body is named after its slot, never after where it
-            // sits. `Inline.spliceAt` moves an inlined body onto its call site, so the
+            // A binder of an EXPANDED body is named after its slot, never after where it
+            // sits. The emit-time expansion copies an inline body onto its call site, so the
             // introducing node's token spells the CALL — here the `byte` conversion the
-            // division is written under — while the binder itself is `freshen`-minted and
-            // the source writes it nowhere. Deriving the name from the node's anchor
-            // (rather than from a record made where the binder was minted) named every one
-            // of these after the call, which is how this test came to exist.
-            test "a spliced body's binder is named after its slot, not the call site" {
-                // `int (…)` splices a conversion whose lambda parameter is a freshened —
-                // hence minted — binder, and the splice puts it on the `int` call site. The
-                // lambda survives only over a division, whose operand the splice cannot
-                // duplicate; `emitFrozenJs` is the manifest-backed path `checkedDivisor`
-                // resolves through.
+            // division is written under — while the binder itself is minted and the source
+            // writes it nowhere. Deriving the name from the node's anchor (rather than from a
+            // record made where the binder was minted) named every one of these after the
+            // call, which is how this test came to exist.
+            test "an expanded body's binder is named after its slot, not the call site" {
+                // `int (…)` expands a conversion whose lambda parameter is a freshened —
+                // hence minted — binder, and the expansion puts it on the `int` call site.
+                // The lambda survives only over a division, whose operand the expansion
+                // cannot duplicate; `emitFrozenJs` is the manifest-backed path
+                // `checkedDivisor` resolves through.
                 let src = "printfn \"%d\" (int (200uy / 3uy))"
                 let js = emitFrozenJs "Conv" src (frozenOf src)
 
                 Expect.isFalse
                     (js.Contains "(int)")
-                    (sprintf "no binder is named after the call site it was spliced onto:\n%s" js)
+                    (sprintf "no binder is named after the call site it was copied onto:\n%s" js)
 
-                Expect.stringContains js "_s" "the spliced body's binder takes a slot name"
+                Expect.stringContains js "_s" "the expanded body's binder takes a slot name"
             }
 
             // An apostrophe is legal in an unquoted F# identifier and illegal in JS; it is

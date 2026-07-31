@@ -32,11 +32,16 @@ module InlineThaw =
     /// nothing else. That is what makes an `FTLocalTypar`'s body-relative `SchemeId` safe across
     /// units — it addresses nothing outside the body it arrived with.
     ///
-    /// `readAt` decides the body's POSITIONS, and that is the caller's choice rather than a fact
-    /// about the wire: a `Wire.TDecl` carries the producer's real token indices, which index the
-    /// producer's `Lexed` and not this unit's. Private, so a caller cannot invent a third
-    /// reading beyond the two exported below.
-    let private thawWith (store: TypeStore) (readAt: Anchor -> SyntaxToken) (decl: Wire.TDecl) : TDecl =
+    /// Realised WHERE IT WAS WRITTEN: every node keeps the producer's own token, read out of that
+    /// file's retained `Lexed`. There is no second reading — a `Wire.TDecl` carries the
+    /// producer's real token indices, and a thaw that moved them onto a consuming position would
+    /// be throwing away the only thing that tells a node of the body from a node of the file it
+    /// is consumed in.
+    ///
+    /// `origin` is checked against the retained source's content hash on every node, so a
+    /// producer edited since the body was built faults here rather than silently re-attributing
+    /// the whole body to whatever now sits at those indices.
+    let bodyAtOrigin (store: TypeStore) (sources: OriginSources) (origin: OriginFile) (decl: Wire.TDecl) : TDecl =
         let cache = Dictionary<TyparLeaf, SemType>()
 
         let mint (leaf: TyparLeaf) : SemType =
@@ -52,28 +57,5 @@ module InlineThaw =
                 (fun i -> mint (TyparLeaf.Declaring i))
                 (fun j -> mint (TyparLeaf.Method j))
                 (fun scheme k -> mint (TyparLeaf.Local(scheme, k))))
-            readAt
+            (OriginSources.tokenAt sources origin)
             decl
-
-    /// Realise a wire body AT A CALL SITE: every node takes `at`, the position an inlined body
-    /// means once it has been physically spliced. Taking the site as an ARGUMENT is what makes
-    /// "every node of a file anchors in that file" hold by construction for a splice — there is
-    /// no way to get a spliceable `TExpr` out of the wire without saying where it lands.
-    ///
-    /// The cost is that the producer's own positions are gone, and with them any way to tell a
-    /// node written in the consuming file from one that came from the body. That is what
-    /// `bodyAtOrigin` keeps.
-    let body (store: TypeStore) (at: SyntaxToken) (decl: Wire.TDecl) : TDecl =
-        thawWith store (fun (_: Anchor) -> at) decl
-
-    /// Realise a wire body WHERE IT WAS WRITTEN: every node keeps the producer's own token, read
-    /// out of that file's retained `Lexed`.
-    ///
-    /// For a body that is NOT physically spliced — one that stays a declaration of its own,
-    /// reached by an edge — so its nodes are never mixed into the consuming file's tree and its
-    /// indices never have to mean anything against this unit's tokens. `origin` is checked
-    /// against the retained source's content hash on every node, so a producer edited since the
-    /// body was built faults here rather than silently re-attributing the whole body to whatever
-    /// now sits at those indices.
-    let bodyAtOrigin (store: TypeStore) (sources: OriginSources) (origin: OriginFile) (decl: Wire.TDecl) : TDecl =
-        thawWith store (OriginSources.tokenAt sources origin) decl

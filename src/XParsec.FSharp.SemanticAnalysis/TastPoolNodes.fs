@@ -169,8 +169,8 @@ module Pooled =
 /// axis, the same integers against the same file, and what changes at the boundary is only that
 /// the consumer no longer holds the `Lexed` they index. Which file that is travels with the body
 /// (`ExternalSymbols.InlineBody.Origin`) and is required to read one at all
-/// (`OriginSources.tokenAt`), so a consumer either names the producer file the body came from or
-/// relocates the body onto a position of its own (`InlineThaw.body`).
+/// (`OriginSources.tokenAt`), so a consumer names the producer file the body came from — there
+/// is no second reading, and a body that could not name one could not be left behind an edge.
 module Wire =
     type TPat = TPatG<FrozenType, Anchor, NodeKey>
     type TExpr = TExprG<FrozenType, Anchor, NodeKey>

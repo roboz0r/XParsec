@@ -53,27 +53,26 @@ let private declType (tast: TastFile) : SemType =
 let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
+    let source = Hashing.originSourceOfText input lexed
     // The vocabulary is a pool root array; `declTree` drains a template to the DU form the
-    // cross-unit wire (and `InlineThaw.body`) speaks — the very path a provider serves it
-    // through.
-    let pools =
-        Pipeline.analyse realProvider.Value (Hashing.originSourceOfText input lexed) file
+    // cross-unit wire (and `InlineThaw`) speaks — the very path a provider serves it through.
+    let pools = Pipeline.analyse realProvider.Value source file
 
     let pool = TastPoolBuilder.openOver pools
 
     match List.ofArray pools.InlineTemplates with
     // Thaw into `ctx0.Store` — the SAME arena `Inline.inlineExpand ctx0` and
     // `Inline.quantifiedTypars` read the thawed roots' dense ids against.
-    | [ v ] -> ctx0.Store, InlineThaw.body ctx0.Store (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
+    | [ v ] -> ctx0.Store, thawPublished ctx0.Store source (TastPoolBuilder.declTree pool v.Decl)
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
 // ── the anchor domain a wire body carries ──────────────────────────────────────────────
 //
-// A drained body keeps the PRODUCER's token indices. Which file they index is not in them,
-// so a consumer either moves the body onto a position of its own (`InlineThaw.body`) or names
-// the producer file and reads them there (`InlineThaw.bodyAtOrigin`). The second is only sound
-// while that file still holds the text the indices were taken against — every index stays in
-// range across an edit, so nothing downstream could notice the difference.
+// A drained body keeps the PRODUCER's token indices. Which file they index is not in them, so a
+// consumer names the producer file and reads them there (`InlineThaw.bodyAtOrigin`) — the one
+// reading there is. It is sound only while that file still holds the text the indices were taken
+// against: every index stays in range across an edit, so nothing downstream could notice the
+// difference.
 
 let private producerSrc =
     "namespace Ns\n\nmodule M =\n    let inline sq x = x * x\n"
@@ -122,6 +121,31 @@ let private tokenIndices (toks: SyntaxToken list) : int list =
         | TokenIndex.Virtual -> -1
     )
 
+/// The abstraction of the entry `spec` names. EVERY inline call is outlined — a template of the
+/// file being compiled included — so what a use site expands TO is read off the table rather
+/// than out of the declaration the call sits in.
+let private entryValue (tast: TastFile) (spec: SpecializationId) : TExpr =
+    let (SpecializationId i) = spec
+
+    match tast.Specializations.[i].Decl with
+    | TDecl.Let(_, value, _, _) -> value
+    | other -> failwithf "an entry is a `TDecl.Let` of lambdas; got %A" other
+
+/// What a `do` declaration's inline call expanded to, with the entry's own abstraction peeled
+/// off. Peeled because the edge's arguments are positional against those leading lambdas: they
+/// are the reduction's surviving PARAMETERS, not a closure anything allocates.
+let private expandedCore (tast: TastFile) (d: TDecl) : string =
+    let rec peel (n: int) (e: TExpr) : TExpr =
+        match n, e with
+        | 0, _ -> e
+        | n, TExpr.Lambda(_, body, _, _) -> peel (n - 1) body
+        | _, other -> failwithf "the entry abstracts fewer parameters than its edge carries: %A" other
+
+    match d with
+    | TDecl.Expression(TExpr.InlineCall(spec = spec; args = args), _) ->
+        TastShape.prettyExpr (peel args.Length (entryValue tast spec))
+    | other -> failwithf "expected a `do` of one inline call; got %A" other
+
 /// The producer's sole published template, drained to the wire form a provider serves.
 let private publishedTemplate () : Wire.TDecl =
     let lexed, file = parseFile producerSrc
@@ -160,20 +184,6 @@ let tests =
                     "…and more than one of them, or a collapse onto a single token would be indistinguishable from preserving them"
 
                 Expect.equal atOrigin written "every node resolves to the exact token index it carries"
-            }
-
-            test "a wire body thawed at a call site collapses onto that one token" {
-                // The other reading of the same body, asserted alongside so the two are visibly
-                // a CHOICE the caller makes and not a property of the wire.
-                let lexed, _ = parseFile "let site = ()"
-
-                let collapsed =
-                    InlineThaw.body (TypeStore()) (spliceSite lexed) (publishedTemplate ())
-                    |> positions
-                    |> tokenIndices
-                    |> List.distinct
-
-                Expect.equal collapsed [ 0 ] "a spliced body sits at its call site and nowhere else"
             }
 
             test "a producer edited since the body was anchored FAULTS rather than re-attributing it" {
@@ -341,41 +351,45 @@ let tests =
                 Expect.throws (fun () -> Inline.inlineExpand ctx0 decl [||] |> ignore) "expects a TDecl.Let"
             }
 
-            test "`let inline succ x = x + 1 in succ 41` keeps the inline template and expands its use site" {
+            test "`let inline succ x = x + 1 in succ 41` keeps the inline template and outlines its use site" {
                 // At module level the parser lifts `let inline succ … in body`
                 // into a top-level inline binding followed by the body as its
                 // own expression — so the marker lands on a TDecl.Let. The
-                // template (decl 0) is retained verbatim, but the use site `succ
-                // 41` is expanded *pre-freeze* by `InlineExpansion`: the call
-                // beta-reduces to a `Let` binding the argument, with `succ`'s
-                // `x + 1` body inlined. The `op_Addition` head survives here
-                // because `realProvider` is a CONTRACT-only stack (`.fsi`
-                // signatures, no `.fs` inline bodies), so there is no `(+)` body
-                // to splice; a codegen provider serves one and it splices.
+                // template (decl 0) is retained verbatim, and the use site `succ
+                // 41` is resolved *pre-freeze* by `InlineExpansion` into an EDGE
+                // naming the entry `succ`'s resolved body went into. The
+                // `op_Addition` head survives inside that entry because
+                // `realProvider` is a CONTRACT-only stack (`.fsi` signatures, no
+                // `.fs` inline bodies), so there is no `(+)` body to resolve; a
+                // codegen provider serves one and it is outlined in turn.
                 let tast = analyse "let inline succ x = x + 1 in succ 41"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                match tast.Decls with
-                | EqList [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst(k1, _), TyConst(k2, _)))
-                           TDecl.Expression(TExpr.Let(TPat.NamedSimple _,
-                                                      TExpr.Const(TConstValue.Integral(IntWidth.Int32, 41L), _, _),
-                                                      TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
-                                                                          TExpr.Var _,
-                                                                          _,
-                                                                          _),
-                                                                TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L),
-                                                                            _,
-                                                                            _),
-                                                                _,
-                                                                _),
-                                                      _,
-                                                      _),
-                                            _) ] when
-                    SymbolKeyOps.simpleName k1 = DisplayName "int"
-                    && SymbolKeyOps.simpleName k2 = DisplayName "int"
-                    ->
-                    ()
-                | _ -> failtestf "unexpected shape: %A" tast.Decls
+                let edge =
+                    match tast.Decls with
+                    | EqList [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst(k1, _), TyConst(k2, _)))
+                               TDecl.Expression(e, _) ] when
+                        SymbolKeyOps.simpleName k1 = DisplayName "int"
+                        && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                        ->
+                        e
+                    | _ -> failtestf "unexpected shape: %A" tast.Decls
+
+                match edge with
+                | TExpr.InlineCall(
+                    spec = spec; args = EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 41L), _, _) ]) ->
+                    // The argument rides the EDGE and is bound by the emit-time expansion, so
+                    // the entry is `succ`'s body under the parameter it abstracts.
+                    match entryValue tast spec with
+                    | TExpr.Lambda(TPat.NamedSimple _,
+                                   TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _), TExpr.Var _, _, _),
+                                             TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _),
+                                             _,
+                                             _),
+                                   _,
+                                   _) -> ()
+                    | other -> failtestf "the entry is not `fun x -> x + 1`: %A" other
+                | other -> failtestf "the use site is not an edge carrying its one argument: %A" other
             }
 
             test "expanding the §C inline succ at its use site yields its int-typed body" {
@@ -487,29 +501,31 @@ let tests =
 
             test "a fully-applied inline lambda parameter is eliminated (no surviving closure)" {
                 // `apply` saturates `f` (one arg, arity 1), so the lambda is
-                // spliced in and beta-reduced — the expanded use has no `fun`.
+                // substituted at its use and beta-reduced — the reduction has no `fun` beyond
+                // the parameter its entry abstracts.
                 let tast =
                     analyse "let inline apply (f: int -> int) (x: int) = f x in apply (fun y -> y + 1) 41"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
-                let body = TastShape.prettyDecl tast.Decls.[1]
+                let body = expandedCore tast tast.Decls.[1]
                 Expect.isFalse (body.Contains "fun") (sprintf "no surviving closure: %s" body)
                 Expect.stringContains body "+ 1" "the inlined lambda body survives"
             }
 
             test "a doubly-applied inline lambda parameter is eliminated at both sites" {
                 // `twice f x = f (f x)`: both uses are saturated, so both copies
-                // of the lambda are spliced (each freshened) and no closure remains.
+                // of the lambda are substituted (each freshened) and no closure remains.
                 let tast =
                     analyse "let inline twice (f: int -> int) (x: int) = f (f x) in twice (fun y -> y + 1) 10"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
-                let body = TastShape.prettyDecl tast.Decls.[1]
+                let body = expandedCore tast tast.Decls.[1]
                 Expect.isFalse (body.Contains "fun") (sprintf "both closures eliminated: %s" body)
+                Expect.stringContains body "+ 1" "…and both copies of the lambda's body are there to show for it"
             }
 
             test "a published body's reference to a NON-inline module sibling is an External carrying its key" {
-                // The published body is spliced at a CONSUMER, where none of this unit's
+                // The published body is expanded at a CONSUMER, where none of this unit's
                 // binders exist. A module-level sibling — inline template or ordinary
                 // compiled value, it makes no difference — must therefore leave the unit
                 // as `External` + `SymbolKey`, never as a `Var` naming a binder only this
@@ -518,13 +534,9 @@ let tests =
                     "namespace Ns\n\nmodule M =\n    let k = 3\n    let inline addK x = x + k\n"
 
                 let lexed, file = parseFile input
-
-                let sem =
-                    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
-
-                let pools =
-                    Pipeline.analyse realProvider.Value (Hashing.originSourceOfText input lexed) file
-
+                let source = Hashing.originSourceOfText input lexed
+                let sem = Pipeline.analyseSem realProvider.Value source file
+                let pools = Pipeline.analyse realProvider.Value source file
                 let pool = TastPoolBuilder.openOver pools
 
                 // `k` is the module's first decl; its published identity is the one its
@@ -548,7 +560,7 @@ let tests =
 
                 let body =
                     match List.ofArray pools.InlineTemplates with
-                    | [ v ] -> InlineThaw.body (TypeStore()) (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
+                    | [ v ] -> thawPublished (TypeStore()) source (TastPoolBuilder.declTree pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 let refs = ResizeArray<string * SymbolKey>()
@@ -572,7 +584,7 @@ let tests =
 
                 Expect.contains refs ("k", expected) "the sibling reference is an External carrying `k`'s SymbolKey"
 
-                // The only `Var` left is the template's own parameter, which the splice
+                // The only `Var` left is the template's own parameter, which the expansion
                 // rebinds.
                 Expect.isFalse (vars.Contains kKey) "no residual Var naming `k`'s binder"
             }
@@ -585,13 +597,9 @@ let tests =
                 // identity to name.
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
                 let lexed, file = parseFile input
-
-                let sem =
-                    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
-
-                let _, pools =
-                    Pipeline.analyseWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
-
+                let source = Hashing.originSourceOfText input lexed
+                let sem = Pipeline.analyseSem realProvider.Value source file
+                let _, pools = Pipeline.analyseWithContext realProvider.Value source file
                 let frozen = TastUnpool.ofPools pools
 
                 Expect.isEmpty frozen.Diagnostics "no diagnostics — nothing is refused"
@@ -631,7 +639,7 @@ let tests =
 
                 let body =
                     match List.ofArray pools.InlineTemplates with
-                    | [ v ] -> InlineThaw.body (TypeStore()) (spliceSite lexed) (TastPoolBuilder.declTree pool v.Decl)
+                    | [ v ] -> thawPublished (TypeStore()) source (TastPoolBuilder.declTree pool v.Decl)
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 match body with

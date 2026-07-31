@@ -550,16 +550,15 @@ module TastPoolBuilder =
     ///
     /// The counter and the rename map are the BUILDER's, which is the largest scope either
     /// needs. Two drains that reach one binder must name it alike — they are two views of
-    /// the same definition site, and a consumer splicing both has to see that — and a
+    /// the same definition site, and a consumer expanding both has to see that — and a
     /// builder covers every drain of one pool. Two builders may hand out the same key, and
-    /// that is harmless: a drained body is renamed again by `Inline.spliceAt` against the
+    /// that is harmless: a drained body is renamed again by `Inline.freshen` against the
     /// CONSUMING unit's counter before it lands, so no two of them ever meet unfreshened.
     ///
     /// Its anchors are the PRODUCER's, passed through untouched — the rebuild takes no position
     /// mapping, so this cannot blank or rebase them, and nothing should: they are the only record
     /// of where the body was written. What they index is the file `origin` answers, which a
-    /// consumer must name to read one at all (`OriginSources.tokenAt`) unless it gives the body
-    /// a position of its own (`InlineThaw.body`).
+    /// consumer must name to read one at all (`OriginSources.tokenAt`).
     let declTree (b: PoolBuilder) (at: DeclPoolId) : Wire.TDecl =
         let rename (binder: BinderId) : NodeKey =
             match b.DrainedBinderKeys.TryGetValue binder with

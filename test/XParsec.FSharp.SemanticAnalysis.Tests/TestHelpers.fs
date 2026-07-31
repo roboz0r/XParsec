@@ -148,15 +148,11 @@ let parseRecoveredFile (input: string) : Lexed * ImplementationFile<SyntaxToken>
         | [] -> failwith "expected a parse that needed recovery; nothing was reported"
         | _ -> parsed.Lexed, parsed.File
 
-/// The call site a test lands a WIRE inline body on. `InlineThaw.body` takes one because a
-/// SPLICED body has to sit in the consuming file, and a wire tree's anchors index the
-/// producer's tokens. Where a thawed body sits is asserted only by the tests that are about
-/// exactly that, so elsewhere the consuming file's first token stands for the splice.
-let spliceSite (lexed: Lexed) : SyntaxToken =
-    {
-        PositionedToken = lexed.Tokens.[0<token>]
-        Index = TokenIndex.Regular 0<token>
-    }
+/// Realise a WIRE inline body against the file it was published from. A drained body carries
+/// the producer's own token indices, so the file is not decoration even for a test that asserts
+/// nothing about positions — it is what makes those indices readable at all.
+let thawPublished (store: TypeStore) (source: OriginSource) (decl: Wire.TDecl) : TDecl =
+    InlineThaw.bodyAtOrigin store (OriginSources.ofSeq [ source ]) source.File decl
 
 /// Lex + parse a signature (`.fsi`) source string and return Lexed + a
 /// SignatureFile. Raises on failure.

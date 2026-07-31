@@ -40,18 +40,16 @@ module InlineSpecTable =
         | Survive
 
     /// One curried parameter of an inline body paired with the argument the call site supplies
-    /// for it. A record because `AppTok` and `PatTok` are two DIFFERENT positions that are
-    /// equal in the common case — the application node the `let` lowers, and the template's own
-    /// parameter binder — and a tuple would let them be swapped silently.
+    /// for it.
     type InlineParam =
         {
             Key: NodeKey
             Ty: SemType
             /// The call-site argument. Unwalked in a peel; walked in a `Reduced`.
             Arg: TExpr
-            /// The application node that supplied `Arg`.
-            AppTok: SyntaxToken
-            /// The template's own binder for this parameter.
+            /// The template's own binder for this parameter — where an entry's abstraction is
+            /// anchored, the call site's own position belonging to the EDGE and not to the
+            /// parameter it applies.
             PatTok: SyntaxToken
             Disposition: Disposition
         }
@@ -99,8 +97,8 @@ module InlineSpecTable =
             /// reduction fused any call-site material, or when its type arguments are not
             /// ground — either way the entry belongs to this site rather than the template.
             Shareable: bool
-            /// The producer file the entry's nodes stay anchored in. Taken off the placement
-            /// that made the reduction outlined, so it cannot be paired with a spliced one.
+            /// The file the entry's nodes stay anchored in — the template's, which for a
+            /// template of this unit is the file being compiled.
             Origin: OriginFile
             /// The position, anchor domain and result type of the EDGE — the call site's, NOT
             /// `Site`'s and not anything read off the entry: a reused entry's types belong to
@@ -262,9 +260,6 @@ module InlineSpecTable =
             /// Producer files a served body arrived with, retained for the whole run so that an
             /// entry's foreign anchors stay readable.
             mutable Origins: OriginSources
-            /// One verdict per distinct cycle: a recursive binding called from N sites is ONE
-            /// broken binding, not N findings, and the chain names it exactly.
-            ReportedCycles: HashSet<string>
             Report: SyntaxToken -> Kind -> unit
             /// The run's binder counter, for the synthetic binder a built entry's `TDecl.Let`
             /// carries.
@@ -279,7 +274,6 @@ module InlineSpecTable =
                 Entries = ResizeArray()
                 Interned = Dictionary()
                 Origins = OriginSources.empty
-                ReportedCycles = HashSet()
                 Report = report
                 Mint = mint
             }
@@ -292,14 +286,6 @@ module InlineSpecTable =
         let retainOrigin (src: OriginSource) (t: SpecTable) : OriginSources =
             t.Origins <- OriginSources.add src t.Origins
             t.Origins
-
-        /// Report a cyclic inline once, however many calls close it.
-        let reportCycle (site: SyntaxToken) (chain: string list) (t: SpecTable) : unit =
-            match chain with
-            | binding :: via ->
-                if t.ReportedCycles.Add(String.concat " → " chain) then
-                    t.Report site (Kind.CyclicInline(binding, via))
-            | [] -> failwith "InlineExpansion: a cycle names at least the binding it closes on"
 
         /// The entry `grounding` already names, if a previous site interned one.
         ///
@@ -414,14 +400,13 @@ module InlineSpecTable =
             // anything starts substituting.
             match findCycle table with
             | ValueSome cycle ->
-                let slots = [ for SpecializationId i in cycle -> i ]
-
-                // The site of the entry the cycle CLOSES ON, which is a position in the file
-                // being compiled: an entry's own anchors index its producer's.
-                reportCycle
-                    t.Entries.[List.head slots].Site
-                    [ for i in slots -> Inline.servedName table.[i].Key.Template ]
-                    t
+                // Named in call order, so the verdict reads as the loop runs, and positioned at
+                // the entry the cycle CLOSES ON — a position in the file being compiled, where
+                // an entry's own anchors index the file its template was written in.
+                match cycle, [ for SpecializationId i in cycle -> Inline.servedName table.[i].Key.Template ] with
+                | SpecializationId closes :: _, binding :: via ->
+                    t.Report t.Entries.[closes].Site (Kind.CyclicInline(binding, via))
+                | _ -> failwith "InlineExpansion: a cycle names at least the binding it closes on"
             | ValueNone ->
                 // The half no single reduction can see: fused material belongs to the ONE site
                 // that wrote it, and an edge count is a fact about the finished graph.

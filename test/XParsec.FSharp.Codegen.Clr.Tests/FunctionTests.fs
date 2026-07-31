@@ -54,16 +54,15 @@ let tests =
 
             // ---- inline expansion --------------------
             yield
-                test "an inline binding keeps its template and expands its use site pre-freeze" {
-                    // the `let inline succ` template (decl 0)
-                    // is retained verbatim, but the use site `succ 41` is now
-                    // expanded *pre-freeze* by `InlineExpansion` — the call beta-
-                    // reduces to a `Let` binding the argument 41 over `succ`'s
-                    // `x + 1` body. (Previously this stayed an `App(Var, 41)` call
-                    // head for codegen to expand.) The `x + 1` body itself then
-                    // inline-expands (real `Vesper.Core` `(+)` → `ILIntrinsic "add"`),
-                    // so it is matched as `_`; the anchor here is the pre-freeze
-                    // beta-reduction of `succ 41` to a `Let` binding 41.
+                test "an inline binding keeps its template and outlines its use site pre-freeze" {
+                    // The `let inline succ` template (decl 0) is retained verbatim — it is
+                    // emitted as an ordinary function too — while the use site `succ 41` is
+                    // resolved *pre-freeze* by `InlineExpansion` into an EDGE naming the entry
+                    // its body went into, carrying the one argument that entry abstracts.
+                    // (Previously this stayed an `App(Var, 41)` call head for codegen to
+                    // expand.) The body behind the edge is matched as `_`: it inline-expands in
+                    // turn (real `Vesper.Core` `(+)` → `ILIntrinsic "add"`), and the anchor here
+                    // is that the call became an edge rather than staying an application.
                     let tast = analyse "let inline succ x = x + 1\nprintfn \"%d\" (succ 41)"
                     Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -75,11 +74,10 @@ let tests =
                         ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,
-                                           TExpr.Let(TPat.NamedSimple _,
-                                                     TExpr.Const(TConstValue.Integral(IntWidth.Int32, 41L), _, _),
-                                                     _,
-                                                     _,
-                                                     _)) ] -> ()
+                                           TExpr.InlineCall(
+                                               args = EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 41L),
+                                                                           _,
+                                                                           _) ])) ] -> ()
                         | other -> failtestf "unexpected segments: %A" other
                     | other -> failtestf "unexpected inline TAST: %A" other
                 }

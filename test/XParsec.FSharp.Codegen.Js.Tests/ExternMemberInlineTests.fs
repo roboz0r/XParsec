@@ -32,6 +32,19 @@ open XParsec.FSharp.Codegen.Js
 /// the same anchor a lowering's own minted node takes.
 let private dummyTok: Anchor = Anchor.nowhere
 
+/// …and so the file a harvest of it names is no file either. Every node anchors
+/// `Anchor.nowhere`, which `OriginSources.tokenAt` answers before it consults any retained
+/// source, so this is an identity and the text below is never read.
+let private nowhereSource: OriginSource =
+    {
+        File = OriginFile.nowhere
+        Input = ""
+        Lexed =
+            match Lexing.lexString "" with
+            | Result.Ok l -> l
+            | Result.Error e -> failwithf "lex failed: %A" e
+    }
+
 /// A provider carrying a `widget` `.fsi` contract whose `extern` intrinsic declares
 /// `members` — the member-bearing `Class` a concrete (non-interface) member surface
 /// registers. Returns the provider and the resolved shape key.
@@ -186,7 +199,7 @@ let tests =
             }
 
             test "harvestMemberBody mints a `this`-first curried inline TDecl.Let" {
-                match SymbolProviders.harvestMemberBody (pokeMember ()) with
+                match SymbolProviders.harvestMemberBody nowhereSource (pokeMember ()) with
                 | Some body ->
                     match body.Decl with
                     | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, thisTy, _), inner, _, _), true, declTy) ->
@@ -229,7 +242,7 @@ let tests =
                         ThisKey = ValueNone
                     }
 
-                match SymbolProviders.harvestMemberBody staticPoke with
+                match SymbolProviders.harvestMemberBody nowhereSource staticPoke with
                 | Some body ->
                     match body.Decl with
                     | TDeclG.Let(_,
@@ -262,7 +275,7 @@ let tests =
                     | ValueNone -> failtest "TryLookupMember(widget, Poke) missing — member capture failed"
 
                 let body =
-                    match SymbolProviders.harvestMemberBody (pokeMember ()) with
+                    match SymbolProviders.harvestMemberBody nowhereSource (pokeMember ()) with
                     | Some b -> b
                     | None -> failtest "harvestMemberBody returned None"
 
@@ -317,7 +330,7 @@ let tests =
 
                 // Each overload's OWN body, stored under its OWN key.
                 let bodyOf (template: string) (paramTy: FrozenType) =
-                    match SymbolProviders.harvestMemberBody (pokeMemberOf template paramTy) with
+                    match SymbolProviders.harvestMemberBody nowhereSource (pokeMemberOf template paramTy) with
                     | Some b -> b
                     | None -> failtest "harvestMemberBody returned None"
 
@@ -415,10 +428,8 @@ let tests =
                      \x20   end\n"
 
                 let lexed, file = TestHelpers.parseFile input
-
-                let tast =
-                    Pipeline.analyse TestHelpers.jsProvider.Value (Hashing.originSourceOfText input lexed) file
-
+                let source = Hashing.originSourceOfText input lexed
+                let tast = Pipeline.analyse TestHelpers.jsProvider.Value source file
                 let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 
                 Expect.isEmpty errors (sprintf "no analysis errors: %A" (errors |> List.map (fun d -> d.Message)))
@@ -435,7 +446,7 @@ let tests =
                                 let tdecl = TastAccessor.declType d
 
                                 for m in TTypeKindG.members tdecl.Kind do
-                                    match SymbolProviders.harvestMemberBody m with
+                                    match SymbolProviders.harvestMemberBody source m with
                                     | Some body -> yield m.Name, body
                                     | None -> ()
                             | _ -> ()

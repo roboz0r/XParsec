@@ -24,7 +24,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // 3. The body-local typar residue keeps its IDENTITY across freeze: each un-quantified
 //    root is attributed to the local scheme that BINDS it and freezes to
-//    `FTLocalTypar(scheme, index)`; `InlineThaw.body` mints one fresh cell per
+//    `FTLocalTypar(scheme, index)`; the thaw mints one fresh cell per
 //    `(scheme, index)` pair.
 //
 // 4. That identity is BODY-RELATIVE and survives two units minting the same `SchemeId` —
@@ -125,20 +125,22 @@ let private freezePools (src: string) : FrozenPools =
 /// inline vocabulary, which is what `ofPools` re-authors.
 let private freeze (src: string) : Pooled.TastFile = TastUnpool.ofPools (freezePools src)
 
-/// The call site a thaw lands its body on. `InlineThaw.body` takes one because a spliced body
-/// has to sit in the CONSUMING file, and a `Wire.TDecl`'s anchors index the producer's tokens.
-/// What these tests assert about a thawed body is its type CELLS and never where it sits,
-/// so one fixed real token stands for every splice.
-let private siteTok: SyntaxToken =
-    let lexed, _ = parseFile "let site = ()"
+/// The producer file a body frozen from `src` is anchored in. Rebuilt from the same text, and
+/// so the same identity the analysis stamped: an origin is derived from the content.
+let private sourceOf (src: string) : OriginSource =
+    let lexed, _ = parseFile src
+    Hashing.originSourceOfText src lexed
 
-    {
-        PositionedToken = lexed.Tokens.[0<token>]
-        Index = TokenIndex.Regular 0<token>
-    }
+/// Realise a wire body against the file it was frozen from — the one reading there is, a
+/// `Wire.TDecl`'s anchors indexing the producer's tokens. What these tests assert about a
+/// thawed body is its type CELLS and never where it sits; the file is here because without it
+/// those indices mean nothing.
+let private thawFrom (store: TypeStore) (src: string) (decl: Wire.TDecl) : TDecl =
+    let source = sourceOf src
+    InlineThaw.bodyAtOrigin store (OriginSources.ofSeq [ source ]) source.File decl
 
 /// The frozen `let` decl of a single-binding program, drained the way a provider serves a
-/// body (`declTree`) — the form `InlineThaw.body` takes.
+/// body (`declTree`) — the form `InlineThaw.bodyAtOrigin` takes.
 let private frozenLetDecl (src: string) : Wire.TDecl =
     let pools = freezePools src
     let pool = TastPoolBuilder.openOver pools
@@ -243,15 +245,14 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
     let pool = TastPoolBuilder.openOver unitA
 
     // Drained the way a provider serves a template — `declTree`, which re-mints the body's
-    // binders into the node space a consuming unit's splice speaks.
-    //
-    // UNANCHORED, so these bodies take the relocating thaw and are spliced physically: this
-    // fixture is about what survives the freeze/thaw seam, and an outlined body would put the
-    // shapes asserted below behind a specialization edge instead.
+    // binders into the node space a consuming unit's expansion speaks — and anchored in unit
+    // A's own file, which is what makes the indices those bodies carry readable at B.
+    let source = sourceOf unitASource
+
     let published =
         [
             for t in unitA.InlineTemplates ->
-                t.Key, InlineBody.unanchored (TastPoolBuilder.declTree pool t.Decl) t.ParamAttrs
+                t.Key, InlineBody.anchoredIn source (TastPoolBuilder.declTree pool t.Decl) t.ParamAttrs
         ]
 
     let bodies = dict published
@@ -294,13 +295,14 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
         | _ -> ValueNone
     )
 
-/// The constant a splice left behind at `let r = …`. `kindOf`'s clause bodies are bare
-/// `int` literals, so WHICH clause was selected is read straight off the spliced value.
+/// The constant the expansion resolved `let r = …` to. `kindOf`'s clause bodies are bare `int`
+/// literals, so WHICH clause was selected is read straight off the entry the call's edge names.
 ///
-/// The value is `let x = <arg> in <clause body>` — the inline's parameter beta-reduced to
-/// an ordinary `Let`, exactly as an in-unit splice lowers it. A call that did NOT splice
-/// leaves an `App` head instead, which reaches no `Const`, so this cannot pass by accident.
-let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
+/// Following the edge is the whole shape of the answer: the call becomes a `TExpr.InlineCall`
+/// naming an entry, and the entry is the resolved body under the lambdas the edge's arguments
+/// are positional against. A call that resolved nothing leaves an `App` head instead, which
+/// reaches no `Const`, so this cannot pass by accident.
+let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
     let lexed, file = parseFile src
 
     let tast =
@@ -310,9 +312,14 @@ let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int
 
     let rec result (e: Pooled.TExpr) : int64 =
         match e with
+        | TExprG.InlineCall(spec = SpecializationId i) ->
+            match tast.Specializations.[i].Decl with
+            | TDeclG.Let(_, value, _, _) -> result value
+            | other -> failtestf "an entry is a `TDecl.Let` of lambdas; got %A" other
+        | TExprG.Lambda(_, body, _, _)
         | TExprG.Let(_, _, body, _, _) -> result body
         | TExprG.Const(TConstValue.Integral(_, v), _, _) -> v
-        | other -> failtestf "expected `r` to reduce to a spliced constant, got %A" other
+        | other -> failtestf "expected `r` to reduce to a resolved constant, got %A" other
 
     match EqArray.tryLast tast.Decls with
     | ValueSome(TDeclG.Let(_, value, _, _)) -> result value
@@ -455,12 +462,12 @@ let tests =
                     "f's own type carries no local-typar residue — that is exactly why mkMethodQuantEnv cannot map it"
 
                 // One decl-scoped thaw: one fresh cell per distinct leaf, shared across every
-                // occurrence of it. `InlineThaw.body` mints on all three axes, so the expected count
+                // occurrence of it. The thaw mints on all three axes, so the expected count
                 // is every leaf the frozen decl names — not just the local ones.
                 let store = TypeStore()
 
                 let cells =
-                    InlineThaw.body store siteTok fDecl
+                    thawFrom store twoLocalSchemes fDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells
@@ -523,7 +530,7 @@ let tests =
                 // after the handle collapse — two units' cells are distinguishable only within a
                 // single id space. So route the consumer's own inference AND both thaws through
                 // ONE store: a leaf-keyed conflation would then surface as a REUSED (colliding)
-                // id rather than hide behind separate object identities. Each `InlineThaw.body` still
+                // id rather than hide behind separate object identities. Each thaw still
                 // builds its OWN decl-scoped cache (design constraint: one cache per thawed decl),
                 // so the two same-keyed thaws must still mint independent cells in that one store.
                 let ctx, tast = analyseWithCtx consumer
@@ -538,13 +545,13 @@ let tests =
                     |> distinctCells
 
                 let pCells =
-                    InlineThaw.body store siteTok pDecl
+                    thawFrom store producer pDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells
 
                 let cCells =
-                    InlineThaw.body store siteTok cDecl
+                    thawFrom store consumer cDecl
                     |> collectTys
                     |> List.collect (semRootsOf store)
                     |> distinctCells
@@ -571,38 +578,38 @@ let tests =
                     "the producer's thawed cells are fresh — none is a cell of the consumer's own inference state, colliding id notwithstanding"
             }
 
-            // ─── Cross-unit SPLICE: freeze in A, splice in B ────────────────────────────
+            // ─── Cross-unit EXPANSION: freeze in A, resolve in B ────────────────────────
             //
             // The property the whole channel exists for. Unit A is compiled, frozen, and
             // published as a provider over the SAME contract stack; unit B then resolves A's
-            // inline value BY KEY and splices its thawed body. Nothing B does can reach a cell
+            // inline value BY KEY and expands its thawed body. Nothing B does can reach a cell
             // of A's — A handed out `FrozenType` only.
 
 
-            test "cross-unit SPLICE: B resolves A's published inline BY KEY and splices the thawed body" {
+            test "cross-unit: B resolves A's published inline BY KEY and expands the thawed body" {
                 // Unit A is a real compilation, sharing B's `NodeKey` space (no file id).
                 let provider = publishing (kindOfUnit "Lib" "Kinds")
 
-                // Only a real splice can answer these: the clause conditions are resolved
+                // Only a real expansion can answer these: the clause conditions are resolved
                 // against the CALL-SITE operand type, in B, over cells B minted at thaw.
                 Expect.equal
-                    (splicedConst provider "open Lib\nlet r : int = Kinds.kindOf 5\n")
+                    (resolvedConst provider "open Lib\nlet r : int = Kinds.kindOf 5\n")
                     1L
                     "int operand selects the int clause"
 
                 Expect.equal
-                    (splicedConst provider "open Lib\nlet r : int = Kinds.kindOf 5.0\n")
+                    (resolvedConst provider "open Lib\nlet r : int = Kinds.kindOf 5.0\n")
                     2L
                     "float operand selects the float clause"
 
                 Expect.equal
-                    (splicedConst provider "open Lib\nlet r : int = Kinds.kindOf true\n")
+                    (resolvedConst provider "open Lib\nlet r : int = Kinds.kindOf true\n")
                     0L
                     "an operand no clause names falls to the `^T : ^T` catch-all"
             }
 
 
-            test "cross-unit splice ≡ in-unit splice, over COLLIDING NodeKeys" {
+            test "cross-unit expansion ≡ in-unit expansion, over COLLIDING NodeKeys" {
                 // A and B are compiled in the same `NodeKey` space, so A's body binders and
                 // B's own collide freely. If the thaw consulted any ambient unit state — or
                 // if its freshener cache were keyed by anything B also keys by — the
@@ -610,9 +617,11 @@ let tests =
                 let provider = publishing (kindOfUnit "AAA" "Kind1")
 
                 // The SAME program with the inline declared IN-unit: the reference answer
-                // the cross-unit splice must reproduce.
+                // the cross-unit expansion must reproduce. Both are outlined — a template of
+                // this file has an anchor domain to name like any other — so the two answers
+                // are read the same way, through the edge.
                 let inUnitAnswer =
-                    splicedConst
+                    resolvedConst
                         (ClrSymbolProviders.buildContract defaultManifests)
                         (String.concat
                             "\n"
@@ -626,8 +635,8 @@ let tests =
                             ])
 
                 Expect.equal
-                    (splicedConst provider "open AAA\nlet r : int = Kind1.kindOf 5.0\n")
+                    (resolvedConst provider "open AAA\nlet r : int = Kind1.kindOf 5.0\n")
                     inUnitAnswer
-                    "freeze-in-A / splice-in-B ≡ in-unit splice"
+                    "freeze-in-A / expand-in-B ≡ in-unit expansion"
             }
         ]

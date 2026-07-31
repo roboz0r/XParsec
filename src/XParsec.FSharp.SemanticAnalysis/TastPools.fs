@@ -59,8 +59,8 @@ module TastPools =
             /// Idempotent in the binder.
             ///
             /// The binder and NOTHING ELSE: how the source writes it is not a fact of the
-            /// walk, which sees only where a node ended up, and the two differ once
-            /// `Inline.spliceAt` has moved a body. `fill` joins the two by asking the
+            /// walk, which sees only where a node ended up, and the two differ once a body
+            /// has been copied onto a call site. `fill` joins the two by asking the
             /// binder's own spelling record.
             InternBinder: BinderKeyG<'id> -> BinderId
             /// How the walked tree's spelling of a position becomes the stored anchor. It
@@ -314,11 +314,11 @@ module TastPools =
         // A LIST, not a key→id map, because the key is one-to-MANY over this space and a map
         // could only keep one of the nodes. Two lambdas share a key whenever they share a
         // source token, which is routine in two ways: the published TEMPLATE is a second tree
-        // over the same source as the emitted function it was stashed from, and an inline
-        // splice moves a whole body onto the CALL SITE's one token (`Inline.spliceAt`), so
-        // every lambda in it lands on that token together. The verdict belongs to ALL of
-        // them; a map would have silently given it to whichever was pooled last, and left
-        // every other copy to emit as an ordinary heap closure.
+        // over the same source as the emitted function it was stashed from, and a resolved
+        // specialization entry is a third — an entry keeps the positions its template was
+        // written at, so its lambdas land on the template's own tokens. The verdict belongs to
+        // ALL of them; a map would have silently given it to whichever was pooled last, and
+        // left every other copy to emit as an ordinary heap closure.
         let lambdaSlots = ResizeArray<struct (ExprPoolId * LambdaKey)>()
 
         let internBinder (binder: BinderKeyG<'id>) : BinderId =

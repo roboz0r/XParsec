@@ -48,8 +48,8 @@ let inline (|EqList|) (xs: EqArray<'T>) : 'T list = EqArray.toList xs
 /// A frozen file's declarations as pool handles, with the specialization graph spliced —
 /// what `Layout.buildUnit` opens and expands before anything else, so a test that drives a
 /// lowering / discovery pass directly starts from the same representation the backend does.
-/// Placement is deferred to emission, so an inline body a test looks for is behind an edge
-/// until this runs.
+/// Placing a body is deferred to emission, so an inline body a test looks for is behind an
+/// edge until this runs.
 let pooledDecls (frozen: FrozenPools) : TastAccessor.DeclId list =
     let pool = TastPoolBuilder.openOver frozen
     (InlineExpand.expand pool (TastAccessor.roots pool |> List.ofArray)).Decls

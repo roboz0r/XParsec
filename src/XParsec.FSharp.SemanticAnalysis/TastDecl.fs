@@ -57,8 +57,8 @@ type BinderSite = { Binder: BinderKey; Tok: SyntaxToken }
 /// (`PassContext.BinderSpellings`), never recovered afterwards. Not recovered from the
 /// key, whose number is a character offset that only happens to be a token start —
 /// searching for a token there is a coincidence dressed as a lookup. And not read back off
-/// the introducing node either, because the two come apart: `Inline.spliceAt` moves a
-/// spliced body onto its CALL SITE, after which the node's own token spells something else
+/// the introducing node either, because the two come apart: the emit-time expansion copies an
+/// inline body onto its CALL SITE, after which the node's own token spells something else
 /// entirely.
 ///
 /// A binder with no spelling is one no source writes — a class's `this`/`base`, a binder

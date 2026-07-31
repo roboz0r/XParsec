@@ -11,15 +11,14 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // The way that stops being true is inline expansion: a body compiled from a library file
 // reaches a consumer's tree, and an anchor carried across from it names a position in the
 // wrong file — a number still in range, so it resolves to some OTHER token rather than
-// faulting. Two mechanisms close it, and this is the half that has to hold of the file's own
-// declarations: a body with no retained producer file is MOVED onto the call site
-// (`InlineThaw.body`), as are same-unit templates.
+// faulting. What closes it is that no body reaches the decls at all: every inline call is an
+// EDGE, and the body it names sits in the table.
 //
-// The specialization TABLE is the other half and is deliberately NOT checked here. An entry
-// keeps the anchors its body was written at, in the file its `OriginFile` names — that is the
-// whole point of deferring placement — so its columns are a different index space and are
-// asserted against their producer in `SpecializationTableTests`. The decls' own nodes,
-// including the `InlineCall` edges and the arguments riding them, are this file's.
+// That table is deliberately NOT checked here. An entry keeps the anchors its body was written
+// at, in the file its `OriginFile` names — that is the whole point of deferring placement — so
+// its columns are a different index space and are asserted against their producer in
+// `SpecializationTableTests`. The decls' own nodes, including the `InlineCall` edges and the
+// arguments riding them, are this file's.
 //
 // A library file is LONGER than any of these snippets, so an anchor that leaked out of an
 // entry lands past this file's tokens — which is what makes the in-range test discriminate

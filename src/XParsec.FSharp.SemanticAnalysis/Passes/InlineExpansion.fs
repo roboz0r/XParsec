@@ -6,30 +6,31 @@ open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 // The table this pass builds, and the parameter vocabulary its reductions classify into.
 open InlineSpecTable
-// One reduction: what a served body is, where it will live, and how a spine resolves against it.
+// One reduction: what a template body is, and how a call site's spine resolves against it.
 open InlineReduction
 
 // The pre-freeze inline-expansion pass. Runs after elaboration and before the typar freeze,
 // on the still `TyVar`-carrying `TExpr` tree, where `zonk` /
 // union-find are native. A saturated use of a local `let inline` — or of a cross-unit
 // `val inline` whose body the provider serves on the resolved entry
-// (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`) — is expanded + beta-reduced +
-// static-opt resolved here, so the frozen module decls reaching codegen carry no inline call
-// heads and no `StaticOptimization` nodes.
+// (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`) — is resolved and static-opt
+// selected here, so the frozen module decls reaching codegen carry no inline call heads and no
+// `StaticOptimization` nodes.
 //
-// What the walk LEAVES is a tree carrying edges — a `TExpr.InlineCall` per outlined call site
-// — and the table those edges name, which is a DAG: an entry's own body carries edges. The
-// edges SURVIVE the pass, and the freeze: placing the bodies is the backends' shared
-// emit-time expansion, which splices them as it emits and keeps a frame
-// chain naming the file each spliced node was written in. That is what deferral is for — a
-// body flattened here has one anchor domain (the call site's) and nothing to say where it
-// came from. What this pass owns is RESOLUTION, and what it hands out is the table.
+// What the walk LEAVES is a tree carrying edges — a `TExpr.InlineCall` per call site — and the
+// table those edges name, which is a DAG: an entry's own body carries edges. EVERY expandable
+// call becomes an edge, a same-unit template's included: its body is anchored in the file being
+// compiled and so has a domain to name like any other. The edges SURVIVE the pass, and the
+// freeze: placing the bodies is the backends' shared emit-time expansion, which copies them as
+// it emits and reads the file each copied node was written in off the node itself. That is what
+// deferral is for — a body flattened here has one anchor domain (the call site's) and nothing to
+// say where it came from. What this pass owns is RESOLUTION, and what it hands out is the table.
 //
 // The table itself — its slots, its reuse pool and its assertions — is `InlineSpecTable`; ONE
-// reduction — what a served body is, WHERE its nodes will live, how a call site's spine is
-// resolved against it and its parameters classified — is `InlineReduction`; the
-// `SemType`/`TExpr` questions a resolution asks are `Inline`'s. What is left here is the WALK:
-// which node is a call site, which chain it was written under, and where its body goes.
+// reduction — what a template body is, how a call site's spine is resolved against it and its
+// parameters classified — is `InlineReduction`; the `SemType`/`TExpr` questions a resolution
+// asks are `Inline`'s. What is left here is the WALK: which node is a call site and which chain
+// it was written under.
 //
 // Scope: EVERY module-level decl (`TDecl.Let` — `inline` or not — and
 // `TDecl.Expression`) AND every expression a `TDecl.Type` carries (member
@@ -63,10 +64,10 @@ module InlineExpansion =
 
     /// What one run of the pass produced.
     ///
-    /// `Decls` CARRY EDGES — a `TExpr.InlineCall` per outlined call site — and
-    /// `Specializations` is the table those edges name. Placement is deferred to emission,
-    /// which is what lets an entry's nodes keep the
-    /// anchors they were written at instead of collapsing onto their call sites.
+    /// `Decls` CARRY EDGES — a `TExpr.InlineCall` per call site — and `Specializations` is the
+    /// table those edges name. Placing a body is deferred to emission, which is what lets an
+    /// entry's nodes keep the anchors they were written at instead of collapsing onto their
+    /// call sites.
     ///
     /// A CYCLIC table is rejected with a diagnostic and nothing walks it: substituting bodies
     /// into bodies is exactly what a cycle makes non-terminating. That is safe because the
@@ -96,18 +97,44 @@ module InlineExpansion =
             | true, a -> a
             | _ -> [||]
 
-        // Local module-level `let inline` bindings, keyed by binder NodeKey. A `Var(k)`
-        // use of one of these is a local inline call site.
+        // The identity a SAME-UNIT template's entry is keyed by: the very `SymbolKey` the
+        // freeze publishes this same binding under (`ModuleBindingInfo.Key`), so one template
+        // has one identity whether the call that resolved it was written in this file or in a
+        // consumer of it. Every module-level binding that names something is registered — the
+        // freeze's own publish path reads the same table — so an absence here is a binding
+        // this pass should not have collected as a template.
+        let localTemplateKey (head: TPat) : SymbolKey =
+            match BinderKey.ofPat head with
+            | ValueSome bk ->
+                match ctx.Bindings.ModuleMembers.TryGetValue bk with
+                | true, info -> info.Key
+                | _ ->
+                    failwithf
+                        "InlineExpansion: the local inline bound at %A has no module-binding identity, so its specialization entry could name no template"
+                        (TastWalk.patTok head)
+            | ValueNone -> failwithf "InlineExpansion: a local inline's head is a named binder; got %A" head
+
+        // Local module-level `let inline` bindings, keyed by binder NodeKey and already in the
+        // form ONE reduction consumes. A `Var(k)` use of one of these is a local inline call
+        // site, and what it resolves to is a template of THIS file: its nodes are anchored
+        // here, which is why `ctx.Origin` is the whole of what tells it from a served one.
         //
-        // Off the INPUT decls, so a splice always takes the TEMPLATE — the body as
+        // Off the INPUT decls, so a reduction always takes the TEMPLATE — the body as
         // elaborated — never this pass's own walked rewrite of the same binding (which is
         // the ordinary function that binding also emits, already resolved against its
-        // definition site and so wrong to splice anywhere else).
-        let localInlines = Dictionary<NodeKey, TDecl>()
+        // definition site and so wrong to expand anywhere else).
+        let localInlines = Dictionary<NodeKey, TemplateBody>()
 
         for (d, _) in decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(b, _, _), _, true, _) -> localInlines.[b] <- d
+            | TDecl.Let(TPat.NamedSimple(b, _, _) as head, _, true, _) ->
+                localInlines.[b] <-
+                    {
+                        Key = localTemplateKey head
+                        Decl = d
+                        ParamAttrs = localParamAttrs b
+                        Origin = ctx.Origin
+                    }
             | _ -> ()
 
         // Only the degenerate empty-file case short-circuits. There is no "this provider
@@ -133,83 +160,51 @@ module InlineExpansion =
             // its own retained producer files and its own cycle bookkeeping.
             let specs = SpecTable.create (fun tok kind -> ctx.Report(tok, kind)) mint
 
-            // How a diagnostic spells a SAME-UNIT template, off the binder token that spells
-            // it: a local `let inline` has no key for `servedName` to take one from.
-            let localName (k: NodeKey) : string =
-                match localInlines.[k] with
-                | TDecl.Let(TPat.NamedSimple(_, _, tok), _, _, _) -> ctx.NameOf tok
-                | other -> failwithf "InlineExpansion: a local inline is a named `TDecl.Let`; got %A" other
-
-            // The provider seam and the three resolutions, bound to THIS run's context, table
+            // The provider seam and the two resolutions, bound to THIS run's context, table
             // and binder counter once, so that the call sites below read as what they are.
             // Each shadows the module-level function of the same name, which takes those first.
             let lookupExternal = lookupExternal ctx specs
             let resolveAt = resolveAt ctx mint
-            let expandLocalAt = expandLocalAt ctx mint
             let etaReify = etaReify ctx mint
 
             // The anchor domain of the material walked under a frame chain. The empty chain is
             // this unit's own decls, which is where every walk starts.
             let originOf = ExpansionFrame.originOf ctx.Origin
 
-            // THE protection against an inline binding that reaches itself. Such a binding cannot be
-            // expanded, and the compiler reports instead of substituting
-            // until stack overflow.
+            // THE protection against an inline binding that reaches itself. Such a binding cannot
+            // be expanded, and what stops the expansion here is that the call is answered from
+            // the frame — leaving a finite table for the acyclicity check to convict.
             //
-            // Every reduction enters through here, so no path can recurse by having been overlooked, and
-            // the answer is INSIDE it, so no call site can give a different one.
+            // Every reduction enters through here, so no path can recurse by having been
+            // overlooked, and the answer is INSIDE it, so no call site can give a different one.
             //
-            // A re-entered frame answers from its own `CycleReport`. A table reference carries
-            // `Spine` — the same list that expansion peeled its parameters from — so it and the
-            // entry agree on arity by construction.
+            // A re-entered frame is answered with an edge into the entry it reserved. The edge
+            // carries `Spine` — the same list that expansion peeled its parameters from — so it
+            // and the entry agree on arity by construction.
             let expandingTemplate (frames: ExpansionFrame list) (call: PendingCall) (fresh: Entering -> TExpr) : TExpr =
-                match frames |> List.tryFindIndex (fun f -> f.Template = call.Template) with
-                | Some i ->
+                match frames |> List.tryFind (fun f -> f.Template = call.Template) with
+                | Some reentered ->
                     // At most one frame can match: a template found on the chain is answered
-                    // rather than entered, so it is never on it twice. `frames` is innermost
-                    // first, so the re-entered frame CLOSES the prefix through `i`, and that
-                    // prefix reversed is the loop in call order — the binding that was re-entered,
-                    // then each binding it called, out to the call closing it.
-                    let chain = frames |> List.truncate (i + 1) |> List.rev
-                    let reentered = List.head chain
-
-                    match reentered.CycleReport with
-                    | CycleReport.FromTable spec ->
-                        TExpr.InlineCall(
-                            spec,
-                            EqArray.ofList [ for (a, _, _) in call.Spine -> call.Walk a ],
-                            originOf frames,
-                            call.Ty,
-                            call.Tok
-                        )
-                    | CycleReport.AtThisCall ->
-                        // Positioned at the OUTERMOST in-flight frame's site: a nested call's own
-                        // token is a node of a producer's body (or of a copy moved onto that outer
-                        // site), so the outermost frame's is the only one that names a place in
-                        // the file being compiled. The chain is what `Kind.CyclicInline` names.
-                        SpecTable.reportCycle (List.last frames).Site [ for f in chain -> f.Name ] specs
-                        call.Rebuild()
+                    // rather than entered, so it is never on it twice.
+                    TExpr.InlineCall(
+                        reentered.Spec,
+                        EqArray.ofList [ for (a, _, _) in call.Spine -> call.Walk a ],
+                        originOf frames,
+                        call.Ty,
+                        call.Tok
+                    )
                 | None ->
-                    // How a diagnostic spells the binding is a function of its IDENTITY alone, so
-                    // it is taken here rather than at each call site: no frame can come to be
-                    // named after a binding other than the one it expands.
-                    let name =
-                        match call.Template with
-                        | TemplateId.Local k -> localName k
-                        | TemplateId.Foreign key -> Inline.servedName key
-
                     fresh
                         {
                             Frame =
-                                fun placement cycleReport ->
+                                fun origin spec ->
                                     {
                                         Own =
                                             {
                                                 Template = call.Template
-                                                Name = name
                                                 Site = call.Tok
-                                                Origin = Placement.domain (originOf frames) placement
-                                                CycleReport = cycleReport
+                                                Origin = origin
+                                                Spec = spec
                                             }
                                         Caller = frames
                                     }
@@ -243,9 +238,11 @@ module InlineExpansion =
             //
             // In the walker's own `let rec` chain because it walks: every reduction resolves the
             // nested inline heads inside the body it is reducing.
-            let rec reduceClassified (placement: Placement) (inFlight: InFlight) (peeled: Peeled) : Reduced =
+            let rec reduceClassified (inFlight: InFlight) (peeled: Peeled) : Reduced =
                 // Every fusion below is the CALLER's material, so it is marked with the caller's
-                // domain and not this reduction's.
+                // domain and not this reduction's. Marked UNCONDITIONALLY, a trivial argument
+                // included: a uniform invariant is checkable where one that skips `Var`s and
+                // constants is not.
                 let caller = originOf inFlight.Caller
 
                 let fusedLambdas =
@@ -264,7 +261,7 @@ module InlineExpansion =
                 for p in fusedLambdas do
                     lambdaEnv.[p.Key] <-
                         {
-                            Body = Inline.underLambdas (Placement.fuse caller placement) p.Arg
+                            Body = Inline.underLambdas (TastWalk.callerExpr caller) p.Arg
                             CallerFrames = inFlight.Caller
                         }
 
@@ -286,10 +283,7 @@ module InlineExpansion =
                     | Disposition.FuseLambda -> ()
                     | Disposition.FuseAtMostOnce ->
                         body <-
-                            Inline.substituteVar
-                                p.Key
-                                (Placement.fuse caller placement (walkAt inFlight.Caller p.Arg))
-                                body
+                            Inline.substituteVar p.Key (TastWalk.callerExpr caller (walkAt inFlight.Caller p.Arg)) body
                     | Disposition.Survive ->
                         survivors.Add
                             { p with
@@ -303,10 +297,10 @@ module InlineExpansion =
                     Survivors = List.ofSeq survivors
                 }
 
-            // Expand ONE cross-unit APPLIED call site: an EDGE naming the resolved
-            // specialization when the served body has a producer file to be anchored in, and
-            // otherwise the physical form its thaw already committed to — a body the provider
-            // retained no file for cannot be an entry, there being no anchor domain to record.
+            // Expand ONE call site against ONE template: an EDGE naming the resolved
+            // specialization, whether the template is this file's own or another unit's. The two
+            // reach this by different lookups and are the same reduction thereafter — which is
+            // the whole reason `TemplateBody` says nothing about where its body came from.
             //
             // WHERE the call stands, WHAT it evaluates to and the spine its parameters are peeled
             // against are all read off `call` — the same record a re-entry reads — so the two
@@ -315,51 +309,34 @@ module InlineExpansion =
             // Resolution and classification run BEFORE the frame is pushed. Neither walks the
             // body, so nothing can re-enter in the meantime, and the frame is therefore built
             // with its re-entry answer already settled.
-            and expandExternalCall (entering: Entering) (served: ServedBody) (call: PendingCall) : TExpr =
-                let resolved = resolveAt call.Tok served.Decl call.Spine
-
-                // Read off the served body, ahead of the classification, so every fusion of one
-                // reduction agrees about which file its material ends up in — and matched ONCE
-                // below, so the origin an outlined reduction records is the very one that made
-                // it outlined.
-                let placement = Placement.ofOrigin served.Origin
+            and expandCall (entering: Entering) (template: TemplateBody) (call: PendingCall) : TExpr =
+                let resolved = resolveAt call.Tok template.Decl call.Spine
                 let caller = originOf entering.Caller
+                let peeled = classifyApplication caller template.ParamAttrs resolved.Body call.Spine
 
-                let peeled =
-                    classifyApplication caller placement served.ParamAttrs resolved.Body call.Spine
-
-                match placement with
-                | Placement.Spliced ->
-                    letBound (reduceClassified placement (entering.Frame placement CycleReport.AtThisCall) peeled)
-                | Placement.Outlined origin ->
-                    SpecTable.outline
-                        {
-                            Site = entering.Site
-                            Grounding =
-                                {
-                                    Key =
-                                        {
-                                            Template = served.Key
-                                            TypeArgs = EqArray.ofArray resolved.TypeArgs
-                                        }
-                                    Arity = List.length peeled.Params
-                                }
-                            Shareable =
-                                Peeled.isClosed peeled
-                                && resolved.TypeArgs |> Array.forall (SemTypeQuery.isGround ctx.Store)
-                            Origin = origin
-                            EdgeTok = call.Tok
-                            EdgeOrigin = caller
-                            EdgeTy = call.Ty
-                            ReuseArgs = fun () -> peeled.Params |> List.map (fun p -> walkAt entering.Caller p.Arg)
-                            Build =
-                                fun spec ->
-                                    reduceClassified
-                                        placement
-                                        (entering.Frame placement (CycleReport.FromTable spec))
-                                        peeled
-                        }
-                        specs
+                SpecTable.outline
+                    {
+                        Site = entering.Site
+                        Grounding =
+                            {
+                                Key =
+                                    {
+                                        Template = template.Key
+                                        TypeArgs = EqArray.ofArray resolved.TypeArgs
+                                    }
+                                Arity = List.length peeled.Params
+                            }
+                        Shareable =
+                            Peeled.isClosed peeled
+                            && resolved.TypeArgs |> Array.forall (SemTypeQuery.isGround ctx.Store)
+                        Origin = template.Origin
+                        EdgeTok = call.Tok
+                        EdgeOrigin = caller
+                        EdgeTy = call.Ty
+                        ReuseArgs = fun () -> peeled.Params |> List.map (fun p -> walkAt entering.Caller p.Arg)
+                        Build = fun spec -> reduceClassified (entering.Frame template.Origin spec) peeled
+                    }
+                    specs
 
             // The same entry-and-edge for a cross-unit NULLARY INTRINSIC used as a VALUE: the
             // degenerate reduction, at arity 0, with a body that is one node and no survivors.
@@ -458,13 +435,11 @@ module InlineExpansion =
                                     [ for (a, ty, tok) in spineArgs -> walk a, ty, tok ]
 
                                 // The fixed half of a gate answer for an applied call. `spine` is
-                                // what the callee's parameters are peeled against and `rebuild`
-                                // is the arm's own no-inline-body fallthrough — see `PendingCall`
-                                // for why those are two different shapes.
+                                // what the callee's parameters are peeled against — for a member
+                                // head that is not the spine the application was written with.
                                 let pendingApp
                                     (template: TemplateId)
                                     (spine: (TExpr * SemType * SyntaxToken) list)
-                                    (rebuild: unit -> TExpr)
                                     : PendingCall =
                                     {
                                         Template = template
@@ -472,7 +447,6 @@ module InlineExpansion =
                                         Ty = TastWalk.exprTy e
                                         Spine = spine
                                         Walk = walk
-                                        Rebuild = rebuild
                                     }
 
                                 // How a cross-unit head presents itself, taken ONCE so the
@@ -501,31 +475,15 @@ module InlineExpansion =
 
                                 match head with
                                 | TExpr.Var(k, _, _) when localInlines.ContainsKey k ->
+                                    let call = pendingApp (TemplateId.Local k) spineArgs
+
                                     ValueSome(
                                         expandingTemplate
-                                            (pendingApp
-                                                (TemplateId.Local k)
-                                                spineArgs
-                                                (fun () -> TastWalk.rebuildApp markedHead (walkedArgs ())))
-                                            (fun entering ->
-                                                letBound (
-                                                    reduceClassified
-                                                        // A same-unit template is MOVED onto the call
-                                                        // site, so its body and the arguments fused
-                                                        // into it are one anchor domain already.
-                                                        Placement.Spliced
-                                                        (entering.Frame Placement.Spliced CycleReport.AtThisCall)
-                                                        (classifyApplication
-                                                            (originOf entering.Caller)
-                                                            Placement.Spliced
-                                                            (localParamAttrs k)
-                                                            (expandLocalAt appTok localInlines.[k] spineArgs)
-                                                            spineArgs)
-                                                )
-                                            )
+                                            call
+                                            (fun entering -> expandCall entering localInlines.[k] call)
                                     )
                                 // A saturated use of an inline-first lambda
-                                // parameter: splice a fresh
+                                // parameter: substitute a fresh
                                 // copy of its bound lambda, beta-reduced against the
                                 // call args, and walk it (nested inline heads /
                                 // further lambda params resolve in the recursion).
@@ -533,14 +491,11 @@ module InlineExpansion =
                                 // use is saturated, so beta-reduction consumes exactly the
                                 // lambda's arity — no surviving closure.
                                 //
-                                // `freshen`, not `spliceAt`: what is copied is the CALL
-                                // SITE's own argument, written in THIS file, and the use it
-                                // is copied to is inside a body already moved onto that same
-                                // call site — so its tokens are already local, and its own
-                                // are the finer ones. They are also the anchor a
-                                // `FunVerdicts` entry for it is filed under, and
-                                // these copies are the only ones pooled: an inlined-away
-                                // parameter keeps no surviving `let`.
+                                // The copy keeps its OWN positions: what is copied is the CALL
+                                // SITE's own argument, and its tokens are strictly finer than
+                                // the call's. They are also the anchor a `FunVerdicts` entry
+                                // for it is filed under, and these copies are the only ones
+                                // pooled: an inlined-away parameter keeps no surviving `let`.
                                 | TExpr.Var(k, _, _) when lambdaEnv.ContainsKey k ->
                                     let fused = lambdaEnv.[k]
 
@@ -552,7 +507,7 @@ module InlineExpansion =
                                 | _ ->
                                     match externalHead with
                                     | ValueSome ext ->
-                                        match lookupExternal appTok ext.Key with
+                                        match lookupExternal ext.Key with
                                         // An external WITH an inline body ALWAYS expands —
                                         // no operand-groundness gate. An un-ground `^T`
                                         // simply selects no per-primitive
@@ -565,16 +520,10 @@ module InlineExpansion =
                                         | ValueSome served ->
                                             // The one record BOTH answers read, so a re-entry and
                                             // a fresh reduction cannot mint differing edges.
-                                            let call =
-                                                pendingApp
-                                                    (TemplateId.Foreign served.Key)
-                                                    ext.Spine
-                                                    (fun () -> TastWalk.rebuildApp (ext.RebuiltHead()) (walkedArgs ()))
+                                            let call = pendingApp (TemplateId.Foreign served.Key) ext.Spine
 
                                             ValueSome(
-                                                expandingTemplate
-                                                    call
-                                                    (fun entering -> expandExternalCall entering served call)
+                                                expandingTemplate call (fun entering -> expandCall entering served call)
                                             )
                                         // No inline body — a real cross-package call, or a real
                                         // CLR/JS method: keep the head, lower the args, exactly
@@ -623,32 +572,27 @@ module InlineExpansion =
                                 // walks the arguments.
                                 | ValueNone -> ValueNone
                             // A BARE (non-applied) reference to a LOCAL inline — the
-                            // template used as a value. No spine, so no type argument is
-                            // derivable and the body's typars stay abstract; it still
-                            // goes through `expandLocalAt` so its static-opt clauses resolve
-                            // and any trait call it cannot dispatch is REPORTED rather
-                            // than handed to a backend that has no arm for it.
+                            // template used as a value. The degenerate reduction, at arity 0:
+                            // no spine, so no type argument is derivable and the body's typars
+                            // stay abstract, but it is the SAME expansion as an applied site
+                            // (which is what a peel against no arguments comes to) and so
+                            // resolves its static-opt clauses and reports any trait call it
+                            // cannot dispatch rather than handing one to a backend with no arm.
                             | TExpr.Var(k, _, tok) when localInlines.ContainsKey k ->
+                                let call =
+                                    {
+                                        Template = TemplateId.Local k
+                                        Tok = tok
+                                        Ty = TastWalk.exprTy e
+                                        // No spine at all: a bare reference applies nothing, so
+                                        // the entry abstracts nothing and its edge carries no
+                                        // arguments.
+                                        Spine = []
+                                        Walk = walk
+                                    }
+
                                 ValueSome(
-                                    expandingTemplate
-                                        {
-                                            Template = TemplateId.Local k
-                                            Tok = tok
-                                            Ty = TastWalk.exprTy e
-                                            // No spine at all: a bare reference applies nothing,
-                                            // so an edge carries no arguments and there is nothing
-                                            // to leave unexpanded but the reference itself.
-                                            Spine = []
-                                            Walk = walk
-                                            Rebuild = fun () -> e
-                                        }
-                                        (fun entering ->
-                                            walkAt
-                                                (InFlight.frames (
-                                                    entering.Frame Placement.Spliced CycleReport.AtThisCall
-                                                ))
-                                                (expandLocalAt tok localInlines.[k] [])
-                                        )
+                                    expandingTemplate call (fun entering -> expandCall entering localInlines.[k] call)
                                 )
                             // A BARE (non-applied) reference to a cross-package `let`
                             // value whose body is a single zero-operand intrinsic
@@ -670,14 +614,14 @@ module InlineExpansion =
                             // ANY OTHER external of function type in value position is a
                             // function name used as a value (`List.fold (+) 0 xs`, or
                             // `List.fold` itself): eta-reify it into a closure and walk
-                            // the result, so the `App` arm above splices the body (when
+                            // the result, so the `App` arm above expands the body (when
                             // there is one) at the freshly-minted call head. This is the
                             // compiler's only eta — an inline-bodied external and a plain
                             // one take the SAME path, differing only in whether the `App`
-                            // finds a body to splice. An external of non-function type
+                            // finds a body to expand. An external of non-function type
                             // (`System.Int32.MaxValue`) etas to nothing and stays a leaf.
                             | TExpr.External(name, keyOpt, refTy, tok) ->
-                                let body = lookupExternal tok keyOpt
+                                let body = lookupExternal keyOpt
 
                                 match body with
                                 | ValueSome served ->
@@ -697,38 +641,32 @@ module InlineExpansion =
 
                                             TExpr.ILIntrinsic(op, groundedOperand, args, refTy, at)
 
-                                        match Placement.ofOrigin served.Origin with
-                                        // No retained producer file: the thaw already moved the
-                                        // node onto this reference, so it stands where it lands.
-                                        | Placement.Spliced -> ValueSome(grounded tok)
-                                        | Placement.Outlined origin ->
-                                            // In flight like every other served body, so the
-                                            // reservation has the one frame it publishes its slot
-                                            // on. The recursive answer is unreachable rather than
-                                            // absent — an intrinsic with no operands names nothing,
-                                            // so nothing inside it can lead back here — and going
-                                            // through the gate costs a line where a special case
-                                            // would cost the uniformity that makes the gate total.
-                                            ValueSome(
-                                                expandingTemplate
-                                                    {
-                                                        Template = TemplateId.Foreign served.Key
-                                                        Tok = tok
-                                                        Ty = refTy
-                                                        Spine = []
-                                                        Walk = walk
-                                                        Rebuild = fun () -> e
-                                                    }
-                                                    (fun entering ->
-                                                        outlineNullaryIntrinsic
-                                                            entering
-                                                            origin
-                                                            served.Key
-                                                            refTy
-                                                            tok
-                                                            (grounded intrinsicTok)
-                                                    )
-                                            )
+                                        // In flight like every other served body, so the
+                                        // reservation has the one frame it publishes its slot
+                                        // on. The recursive answer is unreachable rather than
+                                        // absent — an intrinsic with no operands names nothing,
+                                        // so nothing inside it can lead back here — and going
+                                        // through the gate costs a line where a special case
+                                        // would cost the uniformity that makes the gate total.
+                                        ValueSome(
+                                            expandingTemplate
+                                                {
+                                                    Template = TemplateId.Foreign served.Key
+                                                    Tok = tok
+                                                    Ty = refTy
+                                                    Spine = []
+                                                    Walk = walk
+                                                }
+                                                (fun entering ->
+                                                    outlineNullaryIntrinsic
+                                                        entering
+                                                        served.Origin
+                                                        served.Key
+                                                        refTy
+                                                        tok
+                                                        (grounded intrinsicTok)
+                                                )
+                                        )
                                     | _ -> etaReify body name keyOpt refTy tok |> ValueOption.map walk
                                 | ValueNone -> etaReify body name keyOpt refTy tok |> ValueOption.map walk
                             | _ -> ValueNone

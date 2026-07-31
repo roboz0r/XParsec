@@ -291,9 +291,10 @@ let tests =
 
             test "an inlined MEMBER body maps to the producer too, not to the indexing site" {
                 // The member half of the same claim. `a.[1]` is `'T[]`'s `get_Item`, harvested off
-                // `array-index-body.js.fs` rather than published as a `let inline`, and a body
-                // served without its producer file would be relocated onto this call site — where
-                // its `ldelem` would be attributed to the line that merely INDEXES the array.
+                // `array-index-body.js.fs` rather than published as a `let inline`, and what its
+                // nodes map to is the file the member was WRITTEN in — not the line that merely
+                // INDEXES the array, which is what the emit-time copy would otherwise attribute
+                // its `ldelem` to.
                 let input = "let read (a: int[]) (i: int) : int = a.[i]\n"
                 let m = decodeMap (compileMapped "Idx" input)
 

@@ -3,16 +3,16 @@ namespace XParsec.FSharp.SemanticAnalysis
 // Cross-type structural rebuild of the TAST term/declaration cluster: maps every embedded
 // `.ty` field through `f` and every POSITION through `fTok`, producing a tree at different
 // type parameters. This is the engine behind the genuine freeze
-// (`Freeze.run = TastConvert.file toFrozen id`), behind the thaw that lands a wire body on
-// its call site (`InlineThaw.body`), and behind the RELOCATION a splice performs
-// (`Inline.spliceAt`, which is this at `f = id`).
+// (`Freeze.run = TastConvert.file toFrozen id`) and behind the thaw that realises a wire body
+// in the consumer's type domain (`InlineThaw.bodyAtOrigin`, which reads each anchor against the
+// producer file it names).
 //
 // Distinct from `TastWalk`, whose `Mapper` is same-`'ty`, same-`'tok` (it rewrites a tree in
 // place with override hooks); this changes the type parameters and has no hooks, so it is a
 // separate, total functor. F#'s incomplete-match check fires here when the TAST grows a
-// case — the same enumeration guarantee `TastWalk` gives. Moving a whole tree onto one
-// position belongs HERE and not there: it is a change of axis, not a rewrite, and a hook
-// surface eight passes share should not carry one pass's concern.
+// case — the same enumeration guarantee `TastWalk` gives. Re-axising a whole tree belongs HERE
+// and not there: it is a change of axis, not a rewrite, and a hook surface eight passes share
+// should not carry one pass's concern.
 //
 // Two of the clusters take more than `'ty` and `'tok`: the type declaration is generic in
 // `('ty, 'tok, 'id, 'body)` and the compiled form in `('ty, 'pat, 'id)`. The tree-shaped

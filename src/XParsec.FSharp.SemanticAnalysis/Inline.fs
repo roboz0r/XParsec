@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes.UnificationEngineCore
 
 // Expanding one `inline` template at one call site: substituting the caller's types through
 // the body, selecting its `StaticOptimization` clauses, dispatching its `TraitCall`s, and the
-// tree surgery a splice needs (`freshen` / `relocate` / `betaReduce`).
+// tree surgery a reduction needs (`freshen` / `betaReduce`).
 //
 // Pre-freeze, so `zonk` and union-find are still native: every type question below is asked
 // THROUGH union-find, which is the substrate this side of the freeze and not a pass's
@@ -17,9 +17,9 @@ open XParsec.FSharp.SemanticAnalysis.Passes.UnificationEngineCore
 // By the time `inlineExpand` runs an inline binding's typars are free `TyVar` roots either
 // way: a SAME-unit template still holds the roots its generalised scheme quantified, and a
 // CROSS-unit one holds the roots the thaw just minted. `inlineExpand` substitutes those
-// roots to the caller's concrete types; `spliceAt` renames binders so independent call sites
-// do not alias each other's codegen local slots, and moves the copy onto the call site's
-// token. Argument (beta) reduction stays with the caller, which is what holds the spine.
+// roots to the caller's concrete types; `freshen` renames binders so independent call sites
+// do not alias each other's codegen local slots. Argument (beta) reduction stays with the
+// caller, which is what holds the spine.
 
 module Inline =
 
@@ -29,10 +29,9 @@ module Inline =
     /// (`op_Addition`).
     ///
     /// Reported as data, not as a message: the expander runs off the type-erased
-    /// `TastWalk.Mapper` surface with no `PassContext`, and it runs BEFORE `spliceAt`
-    /// moves the body onto the call site, so the tokens it can see still address the
-    /// library file — the caller owns both the wording and the call-site key the diagnostic
-    /// must be anchored at.
+    /// `TastWalk.Mapper` surface with no `PassContext`, and the tokens it can see are the
+    /// template's own and so address the library file — the caller owns both the wording and
+    /// the call-site key the diagnostic must be anchored at.
     /// Every expansion path returns these, so none can splice a body while quietly
     /// leaving an unresolvable trait call in it — neither backend has a `TraitCall` arm.
     type UnresolvedTrait =
@@ -266,7 +265,7 @@ module Inline =
     /// substituted, its `StaticOptimization` clauses resolved and its `TraitCall`s
     /// dispatched — paired with the trait calls that could NOT be dispatched, which the
     /// caller must report. The body still shares the template's NodeKeys and its
-    /// definition-site tokens (the caller runs `spliceAt` per expansion, and reduces the
+    /// definition-site tokens (the caller runs `freshen` per expansion, and reduces the
     /// resulting lambda against the actual arguments). Supplying fewer `typeArgs` than
     /// there are typars substitutes the leading ones and leaves the rest abstract.
     ///
@@ -307,10 +306,9 @@ module Inline =
     /// the binder (populating the map) before any reference to it. The caller
     /// owns `mint` so its counter is shared across every expansion in a build.
     ///
-    /// Positions are untouched — a copy of an expression that is ALREADY this file's (an
-    /// argument lambda duplicated at each of its uses inside the body it was passed to) is
-    /// written where it stands, so its own positions are the honest ones and are strictly
-    /// finer than the enclosing call's. Moving a tree is `relocate`.
+    /// Positions are untouched, and nothing here moves a tree: an inline body keeps the
+    /// positions it was WRITTEN at wherever it ends up, so a copy of one — like a copy of an
+    /// argument lambda duplicated at each of its uses — is honest about where it came from.
     let freshen (mint: unit -> NodeKey) (body: TExpr) : TExpr =
         let remap = Dictionary<NodeKey, NodeKey>()
 
@@ -361,19 +359,6 @@ module Inline =
             }
 
         TastWalk.mapExpr mapper body
-
-    /// Move a whole tree onto `at` — a change of the position axis, so it is the `'tok`
-    /// functor and nothing more (`TastConvert`). Not cosmetic: an inlined body's meaningful
-    /// source position IS the call site, which is what a diagnostic, a stack trace or a
-    /// source map wants, and a SAME-unit template's own positions are its definition site's,
-    /// shared by every expansion of it.
-    let relocate (at: SyntaxToken) (body: TExpr) : TExpr = TastConvert.expr id (fun _ -> at) body
-
-    /// Prepare an inline BODY for the call site at `at`: fresh binders, and every node moved
-    /// onto the call site's own token. THE entry point for putting a same-unit template into
-    /// a consuming tree. A body off the WIRE never comes through here — the thaw that realises
-    /// it relocates it in the same step.
-    let spliceAt (mint: unit -> NodeKey) (at: SyntaxToken) (body: TExpr) : TExpr = freshen mint body |> relocate at
 
     /// Beta-reduce a curried lambda against its spine args, lowering each application to a
     /// `TExpr.Let`. The lambda count must be at least the

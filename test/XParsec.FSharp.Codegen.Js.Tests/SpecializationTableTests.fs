@@ -362,26 +362,36 @@ let tests =
         "SpecializationTable"
         [
             test "a self-referential `let inline` is a verdict, not an exhausted stack" {
-                // A local template SPLICES, so there is no entry and no table: the guard that
-                // stops this is the in-flight frame, and what it produces has to be a diagnostic
-                // about the user's source — the expansion the program asks for does not exist.
-                let _, ds = expandedWithDiagnostics "let rec inline f x = f x\nlet a = f 1\n"
+                // A local template is outlined like any other, so what stops this is the slot
+                // its own expansion reserved: the call that reaches it while it is in flight
+                // becomes a back edge, leaving a finite table for the acyclicity check to
+                // convict. The verdict is about the user's source — the expansion the program
+                // asks for does not exist.
+                let expanded, ds = expandedWithDiagnostics "let rec inline f x = f x\nlet a = f 1\n"
 
                 Expect.equal
                     (cyclicInlines ds)
                     [ "f", [] ]
                     "`f` reaches itself directly, so the chain is the binding and nothing between"
+
+                Expect.isTrue
+                    (ValueOption.isSome (InlineSpecTable.findCycle expanded.Specializations))
+                    "…and the verdict came off a table that really is cyclic"
             }
 
             test "a MUTUALLY recursive pair is caught, and the verdict names the way round" {
                 let _, ds =
                     expandedWithDiagnostics "let rec inline f x = g x\nand inline g x = f x\nlet a = f 1\n"
 
-                // Each binding is separately unexpandable and each is reported where it is
-                // written, so the two rotations are two verdicts and not one repeated.
-                Expect.containsAll
+                // ONE verdict, not one per rotation: `g → f → g` is a single loop in the
+                // table, and the check names every binding on it in call order rather than
+                // reporting each binding's own way round separately. It closes on `g` because
+                // `g` is the first entry minted — an inline binding is walked as the ordinary
+                // function it also emits, so `f`'s own body reaches `g` before `let a = f 1`
+                // reaches anything.
+                Expect.equal
                     (cyclicInlines ds)
-                    [ "f", [ "g" ]; "g", [ "f" ] ]
+                    [ "g", [ "f" ] ]
                     "a → b → a is a cycle even though neither binding names itself"
             }
 
