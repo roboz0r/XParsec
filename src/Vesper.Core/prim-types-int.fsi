@@ -13,29 +13,29 @@ namespace Vesper
 type sbyte =
     extern with
 
-    static member (+): x: sbyte * y: sbyte -> sbyte
+    static member inline (+): x: sbyte * y: sbyte -> sbyte
 
-    static member (-): x: sbyte * y: sbyte -> sbyte
+    static member inline (-): x: sbyte * y: sbyte -> sbyte
 
-    static member ( * ): x: sbyte * y: sbyte -> sbyte
+    static member inline ( * ): x: sbyte * y: sbyte -> sbyte
 
-    static member (/): x: sbyte * y: sbyte -> sbyte
+    static member inline (/): x: sbyte * y: sbyte -> sbyte
 
-    static member (%): x: sbyte * y: sbyte -> sbyte
+    static member inline (%): x: sbyte * y: sbyte -> sbyte
 
-    static member (~-): n: sbyte -> sbyte
+    static member inline (~-): n: sbyte -> sbyte
 
-    static member (&&&): x: sbyte * y: sbyte -> sbyte
+    static member inline (&&&): x: sbyte * y: sbyte -> sbyte
 
-    static member (|||): x: sbyte * y: sbyte -> sbyte
+    static member inline (|||): x: sbyte * y: sbyte -> sbyte
 
-    static member (^^^): x: sbyte * y: sbyte -> sbyte
+    static member inline (^^^): x: sbyte * y: sbyte -> sbyte
 
-    static member (~~~): value: sbyte -> sbyte
+    static member inline (~~~): value: sbyte -> sbyte
 
-    static member (<<<): value: sbyte * shift: int -> sbyte
+    static member inline (<<<): value: sbyte * shift: int -> sbyte
 
-    static member (>>>): value: sbyte * shift: int -> sbyte
+    static member inline (>>>): value: sbyte * shift: int -> sbyte
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Byte"/>.</summary>
 ///
@@ -43,27 +43,27 @@ type sbyte =
 type byte =
     extern with
 
-    static member (+): x: byte * y: byte -> byte
+    static member inline (+): x: byte * y: byte -> byte
 
-    static member (-): x: byte * y: byte -> byte
+    static member inline (-): x: byte * y: byte -> byte
 
-    static member ( * ): x: byte * y: byte -> byte
+    static member inline ( * ): x: byte * y: byte -> byte
 
-    static member (/): x: byte * y: byte -> byte
+    static member inline (/): x: byte * y: byte -> byte
 
-    static member (%): x: byte * y: byte -> byte
+    static member inline (%): x: byte * y: byte -> byte
 
-    static member (&&&): x: byte * y: byte -> byte
+    static member inline (&&&): x: byte * y: byte -> byte
 
-    static member (|||): x: byte * y: byte -> byte
+    static member inline (|||): x: byte * y: byte -> byte
 
-    static member (^^^): x: byte * y: byte -> byte
+    static member inline (^^^): x: byte * y: byte -> byte
 
-    static member (~~~): value: byte -> byte
+    static member inline (~~~): value: byte -> byte
 
-    static member (<<<): value: byte * shift: int -> byte
+    static member inline (<<<): value: byte * shift: int -> byte
 
-    static member (>>>): value: byte * shift: int -> byte
+    static member inline (>>>): value: byte * shift: int -> byte
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.SByte"/>.</summary>
 ///
@@ -81,29 +81,29 @@ type uint8 = byte
 type int16 =
     extern with
 
-    static member (+): x: int16 * y: int16 -> int16
+    static member inline (+): x: int16 * y: int16 -> int16
 
-    static member (-): x: int16 * y: int16 -> int16
+    static member inline (-): x: int16 * y: int16 -> int16
 
-    static member ( * ): x: int16 * y: int16 -> int16
+    static member inline ( * ): x: int16 * y: int16 -> int16
 
-    static member (/): x: int16 * y: int16 -> int16
+    static member inline (/): x: int16 * y: int16 -> int16
 
-    static member (%): x: int16 * y: int16 -> int16
+    static member inline (%): x: int16 * y: int16 -> int16
 
-    static member (~-): n: int16 -> int16
+    static member inline (~-): n: int16 -> int16
 
-    static member (&&&): x: int16 * y: int16 -> int16
+    static member inline (&&&): x: int16 * y: int16 -> int16
 
-    static member (|||): x: int16 * y: int16 -> int16
+    static member inline (|||): x: int16 * y: int16 -> int16
 
-    static member (^^^): x: int16 * y: int16 -> int16
+    static member inline (^^^): x: int16 * y: int16 -> int16
 
-    static member (~~~): value: int16 -> int16
+    static member inline (~~~): value: int16 -> int16
 
-    static member (<<<): value: int16 * shift: int -> int16
+    static member inline (<<<): value: int16 * shift: int -> int16
 
-    static member (>>>): value: int16 * shift: int -> int16
+    static member inline (>>>): value: int16 * shift: int -> int16
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.UInt16"/>.</summary>
 ///
@@ -111,27 +111,27 @@ type int16 =
 type uint16 =
     extern with
 
-    static member (+): x: uint16 * y: uint16 -> uint16
+    static member inline (+): x: uint16 * y: uint16 -> uint16
 
-    static member (-): x: uint16 * y: uint16 -> uint16
+    static member inline (-): x: uint16 * y: uint16 -> uint16
 
-    static member ( * ): x: uint16 * y: uint16 -> uint16
+    static member inline ( * ): x: uint16 * y: uint16 -> uint16
 
-    static member (/): x: uint16 * y: uint16 -> uint16
+    static member inline (/): x: uint16 * y: uint16 -> uint16
 
-    static member (%): x: uint16 * y: uint16 -> uint16
+    static member inline (%): x: uint16 * y: uint16 -> uint16
 
-    static member (&&&): x: uint16 * y: uint16 -> uint16
+    static member inline (&&&): x: uint16 * y: uint16 -> uint16
 
-    static member (|||): x: uint16 * y: uint16 -> uint16
+    static member inline (|||): x: uint16 * y: uint16 -> uint16
 
-    static member (^^^): x: uint16 * y: uint16 -> uint16
+    static member inline (^^^): x: uint16 * y: uint16 -> uint16
 
-    static member (~~~): value: uint16 -> uint16
+    static member inline (~~~): value: uint16 -> uint16
 
-    static member (<<<): value: uint16 * shift: int -> uint16
+    static member inline (<<<): value: uint16 * shift: int -> uint16
 
-    static member (>>>): value: uint16 * shift: int -> uint16
+    static member inline (>>>): value: uint16 * shift: int -> uint16
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Int32"/>.</summary>
 ///
@@ -144,27 +144,27 @@ type int32 = int
 type uint32 =
     extern with
 
-    static member (+): x: uint32 * y: uint32 -> uint32
+    static member inline (+): x: uint32 * y: uint32 -> uint32
 
-    static member (-): x: uint32 * y: uint32 -> uint32
+    static member inline (-): x: uint32 * y: uint32 -> uint32
 
-    static member ( * ): x: uint32 * y: uint32 -> uint32
+    static member inline ( * ): x: uint32 * y: uint32 -> uint32
 
-    static member (/): x: uint32 * y: uint32 -> uint32
+    static member inline (/): x: uint32 * y: uint32 -> uint32
 
-    static member (%): x: uint32 * y: uint32 -> uint32
+    static member inline (%): x: uint32 * y: uint32 -> uint32
 
-    static member (&&&): x: uint32 * y: uint32 -> uint32
+    static member inline (&&&): x: uint32 * y: uint32 -> uint32
 
-    static member (|||): x: uint32 * y: uint32 -> uint32
+    static member inline (|||): x: uint32 * y: uint32 -> uint32
 
-    static member (^^^): x: uint32 * y: uint32 -> uint32
+    static member inline (^^^): x: uint32 * y: uint32 -> uint32
 
-    static member (~~~): value: uint32 -> uint32
+    static member inline (~~~): value: uint32 -> uint32
 
-    static member (<<<): value: uint32 * shift: int -> uint32
+    static member inline (<<<): value: uint32 * shift: int -> uint32
 
-    static member (>>>): value: uint32 * shift: int -> uint32
+    static member inline (>>>): value: uint32 * shift: int -> uint32
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Int64"/>.</summary>
 ///
@@ -172,29 +172,29 @@ type uint32 =
 type int64 =
     extern with
 
-    static member (+): x: int64 * y: int64 -> int64
+    static member inline (+): x: int64 * y: int64 -> int64
 
-    static member (-): x: int64 * y: int64 -> int64
+    static member inline (-): x: int64 * y: int64 -> int64
 
-    static member ( * ): x: int64 * y: int64 -> int64
+    static member inline ( * ): x: int64 * y: int64 -> int64
 
-    static member (/): x: int64 * y: int64 -> int64
+    static member inline (/): x: int64 * y: int64 -> int64
 
-    static member (%): x: int64 * y: int64 -> int64
+    static member inline (%): x: int64 * y: int64 -> int64
 
-    static member (~-): n: int64 -> int64
+    static member inline (~-): n: int64 -> int64
 
-    static member (&&&): x: int64 * y: int64 -> int64
+    static member inline (&&&): x: int64 * y: int64 -> int64
 
-    static member (|||): x: int64 * y: int64 -> int64
+    static member inline (|||): x: int64 * y: int64 -> int64
 
-    static member (^^^): x: int64 * y: int64 -> int64
+    static member inline (^^^): x: int64 * y: int64 -> int64
 
-    static member (~~~): value: int64 -> int64
+    static member inline (~~~): value: int64 -> int64
 
-    static member (<<<): value: int64 * shift: int -> int64
+    static member inline (<<<): value: int64 * shift: int -> int64
 
-    static member (>>>): value: int64 * shift: int -> int64
+    static member inline (>>>): value: int64 * shift: int -> int64
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.UInt64"/>.</summary>
 ///
@@ -202,27 +202,27 @@ type int64 =
 type uint64 =
     extern with
 
-    static member (+): x: uint64 * y: uint64 -> uint64
+    static member inline (+): x: uint64 * y: uint64 -> uint64
 
-    static member (-): x: uint64 * y: uint64 -> uint64
+    static member inline (-): x: uint64 * y: uint64 -> uint64
 
-    static member ( * ): x: uint64 * y: uint64 -> uint64
+    static member inline ( * ): x: uint64 * y: uint64 -> uint64
 
-    static member (/): x: uint64 * y: uint64 -> uint64
+    static member inline (/): x: uint64 * y: uint64 -> uint64
 
-    static member (%): x: uint64 * y: uint64 -> uint64
+    static member inline (%): x: uint64 * y: uint64 -> uint64
 
-    static member (&&&): x: uint64 * y: uint64 -> uint64
+    static member inline (&&&): x: uint64 * y: uint64 -> uint64
 
-    static member (|||): x: uint64 * y: uint64 -> uint64
+    static member inline (|||): x: uint64 * y: uint64 -> uint64
 
-    static member (^^^): x: uint64 * y: uint64 -> uint64
+    static member inline (^^^): x: uint64 * y: uint64 -> uint64
 
-    static member (~~~): value: uint64 -> uint64
+    static member inline (~~~): value: uint64 -> uint64
 
-    static member (<<<): value: uint64 * shift: int -> uint64
+    static member inline (<<<): value: uint64 * shift: int -> uint64
 
-    static member (>>>): value: uint64 * shift: int -> uint64
+    static member inline (>>>): value: uint64 * shift: int -> uint64
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.UInt32"/>.</summary>
 ///

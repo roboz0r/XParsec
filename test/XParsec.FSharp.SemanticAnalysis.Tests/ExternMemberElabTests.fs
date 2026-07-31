@@ -19,7 +19,7 @@ let private widgetSource =
      type widget =\n\
      \x20   (# \"object\" #)\n\
      \x20   with\n\
-     \x20       member _.Poke (x: int) : int = (# \"$0 + 1\" x : int #)\n\
+     \x20       member inline _.Poke (x: int) : int = (# \"$0 + 1\" x : int #)\n\
      \x20   end\n\
      \n\
      let idW (w: widget) : widget = w\n"
@@ -138,7 +138,7 @@ let tests =
                      type widget =\n\
                      \x20   (# \"object\" #)\n\
                      \x20   with\n\
-                     \x20       static member (+) (x: widget, y: widget) : widget = (# \"$0 + $1\" x y : widget #)\n\
+                     \x20       static member inline (+) (x: widget, y: widget) : widget = (# \"$0 + $1\" x y : widget #)\n\
                      \x20   end\n\
                      \n\
                      let addW (a: widget) (b: widget) : widget = a + b\n"
@@ -161,6 +161,29 @@ let tests =
                     Expect.equal (SymbolKeyOps.simpleName k) (DisplayName "widget") "addW returns widget"
                 | Some other -> failtestf "addW is not `widget -> widget -> widget`: %A" other
                 | None -> failtestf "no `addW` let decl found, decls: %A" tast.Decls
+            }
+
+            // The `.fs` half of the `member inline` constraint. The host has no
+            // representation in the output to hang a method on, so a member on it can only
+            // be spliced; without `inline` the use site would call a method that is never
+            // emitted. Its `.fsi` counterpart is asserted in `SignatureExtractorTests`.
+            test "a member on an intrinsic host must be declared inline" {
+                let bad =
+                    "module Widgets\n\
+                     \n\
+                     type widget =\n\
+                     \x20   (# \"object\" #)\n\
+                     \x20   with\n\
+                     \x20       member _.Poke (x: int) : int = (# \"$0 + 1\" x : int #)\n\
+                     \x20   end\n"
+
+                let tast = analyse bad
+
+                let diagnosed =
+                    tast.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "must be declared 'inline'")
+
+                Expect.isTrue diagnosed (sprintf "the member-inline diagnostic fired; got %A" tast.Diagnostics)
             }
 
             // Guardrail: a transparent-alias abbrev with members (non-ILIntrinsic RHS)

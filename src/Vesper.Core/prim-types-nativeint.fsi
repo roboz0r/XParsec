@@ -6,29 +6,29 @@ namespace Vesper
 type nativeint =
     extern with
 
-    static member (+): x: nativeint * y: nativeint -> nativeint
+    static member inline (+): x: nativeint * y: nativeint -> nativeint
 
-    static member (-): x: nativeint * y: nativeint -> nativeint
+    static member inline (-): x: nativeint * y: nativeint -> nativeint
 
-    static member ( * ): x: nativeint * y: nativeint -> nativeint
+    static member inline ( * ): x: nativeint * y: nativeint -> nativeint
 
-    static member (/): x: nativeint * y: nativeint -> nativeint
+    static member inline (/): x: nativeint * y: nativeint -> nativeint
 
-    static member (%): x: nativeint * y: nativeint -> nativeint
+    static member inline (%): x: nativeint * y: nativeint -> nativeint
 
-    static member (~-): n: nativeint -> nativeint
+    static member inline (~-): n: nativeint -> nativeint
 
-    static member (&&&): x: nativeint * y: nativeint -> nativeint
+    static member inline (&&&): x: nativeint * y: nativeint -> nativeint
 
-    static member (|||): x: nativeint * y: nativeint -> nativeint
+    static member inline (|||): x: nativeint * y: nativeint -> nativeint
 
-    static member (^^^): x: nativeint * y: nativeint -> nativeint
+    static member inline (^^^): x: nativeint * y: nativeint -> nativeint
 
-    static member (~~~): value: nativeint -> nativeint
+    static member inline (~~~): value: nativeint -> nativeint
 
-    static member (<<<): value: nativeint * shift: int -> nativeint
+    static member inline (<<<): value: nativeint * shift: int -> nativeint
 
-    static member (>>>): value: nativeint * shift: int -> nativeint
+    static member inline (>>>): value: nativeint * shift: int -> nativeint
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.UIntPtr"/>.</summary>
 ///
@@ -36,27 +36,27 @@ type nativeint =
 type unativeint =
     extern with
 
-    static member (+): x: unativeint * y: unativeint -> unativeint
+    static member inline (+): x: unativeint * y: unativeint -> unativeint
 
-    static member (-): x: unativeint * y: unativeint -> unativeint
+    static member inline (-): x: unativeint * y: unativeint -> unativeint
 
-    static member ( * ): x: unativeint * y: unativeint -> unativeint
+    static member inline ( * ): x: unativeint * y: unativeint -> unativeint
 
-    static member (/): x: unativeint * y: unativeint -> unativeint
+    static member inline (/): x: unativeint * y: unativeint -> unativeint
 
-    static member (%): x: unativeint * y: unativeint -> unativeint
+    static member inline (%): x: unativeint * y: unativeint -> unativeint
 
-    static member (&&&): x: unativeint * y: unativeint -> unativeint
+    static member inline (&&&): x: unativeint * y: unativeint -> unativeint
 
-    static member (|||): x: unativeint * y: unativeint -> unativeint
+    static member inline (|||): x: unativeint * y: unativeint -> unativeint
 
-    static member (^^^): x: unativeint * y: unativeint -> unativeint
+    static member inline (^^^): x: unativeint * y: unativeint -> unativeint
 
-    static member (~~~): value: unativeint -> unativeint
+    static member inline (~~~): value: unativeint -> unativeint
 
-    static member (<<<): value: unativeint * shift: int -> unativeint
+    static member inline (<<<): value: unativeint * shift: int -> unativeint
 
-    static member (>>>): value: unativeint * shift: int -> unativeint
+    static member inline (>>>): value: unativeint * shift: int -> unativeint
 
 /// <summary>Represents an unmanaged pointer in F# code.</summary>
 ///

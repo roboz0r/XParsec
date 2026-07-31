@@ -328,6 +328,7 @@ module FrozenCodecDecls =
         w.Write m.Name
         w.Write m.IsStatic
         writeAccessibility w m.Accessibility
+        w.Write m.IsInline
         writeTMemberKind w m.Kind
         w.Write m.IsOverride
         writeVOptionWith w writeBinderSlot m.ThisKey
@@ -350,6 +351,7 @@ module FrozenCodecDecls =
         let name = r.ReadString()
         let isStatic = r.ReadBoolean()
         let accessibility = readAccessibility r
+        let isInline = r.ReadBoolean()
         let kind = readTMemberKind r
         let isOverride = r.ReadBoolean()
         let thisKey = readVOptionWith r readBinderSlot
@@ -375,6 +377,7 @@ module FrozenCodecDecls =
             Name = name
             IsStatic = isStatic
             Accessibility = accessibility
+            IsInline = isInline
             Kind = kind
             IsOverride = isOverride
             ThisKey = thisKey

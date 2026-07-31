@@ -10,21 +10,21 @@ namespace Vesper
 type float32 =
     (# "number" #)
     with
-        static member (+)(x: float32, y: float32) : float32 = (# "Math.fround($0 + $1)" x y : float32 #)
-        static member (-)(x: float32, y: float32) : float32 = (# "Math.fround($0 - $1)" x y : float32 #)
-        static member ( * )(x: float32, y: float32) : float32 = (# "Math.fround($0 * $1)" x y : float32 #)
-        static member (/)(x: float32, y: float32) : float32 = (# "Math.fround($0 / $1)" x y : float32 #)
-        static member (%)(x: float32, y: float32) : float32 = (# "Math.fround($0 % $1)" x y : float32 #)
-        static member (~-)(n: float32) : float32 = (# "Math.fround(-$0)" n : float32 #)
+        static member inline (+)(x: float32, y: float32) : float32 = (# "Math.fround($0 + $1)" x y : float32 #)
+        static member inline (-)(x: float32, y: float32) : float32 = (# "Math.fround($0 - $1)" x y : float32 #)
+        static member inline ( * )(x: float32, y: float32) : float32 = (# "Math.fround($0 * $1)" x y : float32 #)
+        static member inline (/)(x: float32, y: float32) : float32 = (# "Math.fround($0 / $1)" x y : float32 #)
+        static member inline (%)(x: float32, y: float32) : float32 = (# "Math.fround($0 % $1)" x y : float32 #)
+        static member inline (~-)(n: float32) : float32 = (# "Math.fround(-$0)" n : float32 #)
     end
 
 type float =
     (# "number" #)
     with
-        static member (+)(x: float, y: float) : float = (# "$0 + $1" x y : float #)
-        static member (-)(x: float, y: float) : float = (# "$0 - $1" x y : float #)
-        static member ( * )(x: float, y: float) : float = (# "$0 * $1" x y : float #)
-        static member (/)(x: float, y: float) : float = (# "$0 / $1" x y : float #)
-        static member (%)(x: float, y: float) : float = (# "$0 % $1" x y : float #)
-        static member (~-)(n: float) : float = (# "-$0" n : float #)
+        static member inline (+)(x: float, y: float) : float = (# "$0 + $1" x y : float #)
+        static member inline (-)(x: float, y: float) : float = (# "$0 - $1" x y : float #)
+        static member inline ( * )(x: float, y: float) : float = (# "$0 * $1" x y : float #)
+        static member inline (/)(x: float, y: float) : float = (# "$0 / $1" x y : float #)
+        static member inline (%)(x: float, y: float) : float = (# "$0 % $1" x y : float #)
+        static member inline (~-)(n: float) : float = (# "-$0" n : float #)
     end

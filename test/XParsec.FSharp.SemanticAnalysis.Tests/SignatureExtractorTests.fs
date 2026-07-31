@@ -603,6 +603,51 @@ let tests =
                 | ValueNone -> failtestf "Dispose member surface was dropped; members: (key=%s)" key
             }
 
+            // The `.fsi` half of the `member inline` constraint. A primitive has no type in
+            // the output to hang a method on, so a member on one can ONLY be spliced — and
+            // the `.fsi` is the contract, so it states that rather than leaving a consumer
+            // to infer it from the paired `.fs`.
+            test "a concrete member on an intrinsic must be declared inline" {
+                let ctx = VesperLib.ExtractCtx.empty ()
+                // Intrinsic-ness is the BASE `.fs` repr marker, not the compiling target's.
+                ctx.IntrinsicBaseReprs.["widget"] <- "System.Widget"
+                ctx.IntrinsicReprs.["widget"] <- "System.Widget"
+
+                VesperLib.extractSymbols
+                    ctx
+                    (parseFsi
+                        "prim-types-widget.fsi"
+                        "namespace Vesper\n\ntype widget = extern with\n    member M : unit -> unit\n")
+
+                let diagnosed =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun (_, msg) -> msg.Contains "must be declared 'inline'")
+
+                Expect.isTrue
+                    diagnosed
+                    (sprintf "the member-inline diagnostic fired; got %A" (List.ofSeq ctx.Diagnostics))
+            }
+
+            // The carve-out. A capability's slots declare no body, so there is nothing to
+            // splice and nothing to mark — the rule is about members WITH a body.
+            test "an extern interface's abstract members do not want inline" {
+                let ctx = VesperLib.ExtractCtx.empty ()
+                ctx.IntrinsicBaseReprs.["disposable"] <- "System.IDisposable"
+                ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
+
+                VesperLib.extractSymbols
+                    ctx
+                    (parseFsi
+                        "capabilities.fsi"
+                        "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n")
+
+                let diagnosed =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun (_, msg) -> msg.Contains "must be declared 'inline'")
+
+                Expect.isFalse diagnosed "an all-abstract capability surface is exempt"
+            }
+
             test
                 "two-name capability interface: extern interface with abstract member + (# … #) repr → IntrinsicInterface carrying the platform name, NOT a reverse-canon entry" {
                 // A capability anchor whose `.fsi` declares an interface member surface AND
@@ -691,7 +736,7 @@ let tests =
                 let parsed =
                     parseFsi
                         "prim-types-widget.fsi"
-                        "namespace Vesper\n\ntype widget = extern with\n    member M : unit -> unit\n"
+                        "namespace Vesper\n\ntype widget = extern with\n    member inline M : unit -> unit\n"
 
                 VesperLib.extractSymbols ctx parsed
                 VesperLib.finalizeDeferred ctx

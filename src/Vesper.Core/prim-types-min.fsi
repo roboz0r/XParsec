@@ -10,35 +10,35 @@ type int = extern with
     /// rather than synthesising a candidate from an operator-name table. The body is the
     /// target's own in the paired <c>.fs</c>: it is spliced at the use site, never
     /// emitted.</summary>
-    static member (+): x: int * y: int -> int
+    static member inline (+): x: int * y: int -> int
 
-    static member (-): x: int * y: int -> int
+    static member inline (-): x: int * y: int -> int
 
-    static member ( * ): x: int * y: int -> int
+    static member inline ( * ): x: int * y: int -> int
 
-    static member (/): x: int * y: int -> int
+    static member inline (/): x: int * y: int -> int
 
-    static member (%): x: int * y: int -> int
+    static member inline (%): x: int * y: int -> int
 
     /// <summary>Unary negation, declared at the SIGNED widths only: a negated unsigned
     /// value has no answer its own width can hold.</summary>
-    static member (~-): n: int -> int
+    static member inline (~-): n: int -> int
 
     /// <summary>The bitwise family. Declaring it HERE is what rejects
     /// <c>1.0 &amp;&amp;&amp; 2.0</c>: a type that states no such member does not support the
     /// operator, and <c>float</c> states none.</summary>
-    static member (&&&): x: int * y: int -> int
+    static member inline (&&&): x: int * y: int -> int
 
-    static member (|||): x: int * y: int -> int
+    static member inline (|||): x: int * y: int -> int
 
-    static member (^^^): x: int * y: int -> int
+    static member inline (^^^): x: int * y: int -> int
 
-    static member (~~~): value: int -> int
+    static member inline (~~~): value: int -> int
 
     /// <summary>The shift amount is <c>int32</c> at every width, never the shifted type.</summary>
-    static member (<<<): value: int * shift: int -> int
+    static member inline (<<<): value: int * shift: int -> int
 
-    static member (>>>): value: int * shift: int -> int
+    static member inline (>>>): value: int * shift: int -> int
 
 /// <summary>An intrinsic boolean provided by the target.</summary>
 ///

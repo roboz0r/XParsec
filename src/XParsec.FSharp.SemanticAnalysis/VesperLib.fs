@@ -1284,6 +1284,26 @@ module VesperLib =
 
         extractTypeMembers ctx lexed input opens compiled arity typeName elements
 
+    /// A concrete member on an INTRINSIC `extern` type must be declared `inline`. The
+    /// primitive has no representation in the output to carry a method, so a use site can
+    /// only splice the body its sibling `.fs` gives it — and the `.fsi` is the contract,
+    /// so "spliced, never called" is stated there rather than inferred from the
+    /// implementation. Two carve-outs: an `abstract` slot declares no body (the shape of
+    /// a capability interface, `extern interface with abstract member …`), and a
+    /// NON-intrinsic `extern` is a real opaque type whose members are real calls.
+    let private requireInlineExternMembers
+        (ctx: ExtractCtx)
+        (file: LibFile)
+        (name: string)
+        (elems: TypeElementsSignature<SyntaxToken>)
+        : unit =
+        for e in elems do
+            match e with
+            | TypeSignatureElement.Member(inlineToken = ValueNone)
+            | TypeSignatureElement.StaticMember(inlineToken = ValueNone) ->
+                ctx.Diagnostics.Add(file, IntrinsicHost.memberNeedsInline name)
+            | _ -> ()
+
     let private extractTypeSig
         (ctx: ExtractCtx)
         (file: LibFile)
@@ -1406,6 +1426,9 @@ module VesperLib =
                         match kindTag with
                         | ValueSome(ExternKind.Interface _) -> true
                         | _ -> false
+
+                    if isIntrinsic then
+                        requireInlineExternMembers ctx file short elems
 
                     extractBodiedClassLike ctx lexed input opens compiled arity isInterface typeName elems
 

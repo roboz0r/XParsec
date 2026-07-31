@@ -340,21 +340,13 @@ and TTypeMemberG<'ty, 'id, 'body> =
         Name: string
         IsStatic: bool
         /// Declared accessibility of the member (`member private`, `member internal`,
-        /// or the public default). Carried physically on the member — not in
-        /// `TastFile.Accessibility`, which keys top-level entities — so the frozen
-        /// file→file projection (`FrozenSignature`) can honour member-level
-        /// accessibility and NOT leak a `member private` across the file boundary
-        /// (internal-or-better threshold: same-assembly visible, `Private` dropped).
+        /// or the public default).
         Accessibility: Accessibility
+        /// `true` when declared `member inline` / `static member inline`.
+        IsInline: bool
         Kind: TMemberKind
         /// `true` when declared with the `override`/`default` keyword — i.e. it
-        /// overrides a base virtual slot. For a class with no `inherit` clause
-        /// that base is `System.Object`, so an `override` `Equals`/`GetHashCode`/
-        /// `ToString` reuses the Object virtual slot and must emit *virtual*
-        /// (reusing the slot, no `NewSlot`); a plain `member` is non-virtual.
-        /// Without this the override emits `Public HideBySig` (non-virtual), so it
-        /// never replaces `Object.Equals` and — for a structural-equality interface
-        /// like `IStructuralEquatable` — the type fails to satisfy its slots.
+        /// overrides a base virtual slot.
         IsOverride: bool
         /// Instance members only; `ValueNone` for a static member.
         ThisKey: BinderKeyG<'id> voption
@@ -376,17 +368,7 @@ and TTypeMemberG<'ty, 'id, 'body> =
         ReturnTy: 'ty
         /// The member's *own* generic parameters (`member this.Map<'C> …`) — distinct from the declaring
         /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
-        /// (`"'C"`, for the `GenericParam` row) with the typar's *own* type: a
-        /// `TyVar root` at build time, flipped — like every other embedded type — by
-        /// `Elaborate.freezeTypars` / `TastConvert.file` to `TyTypar(Method, i)` then
-        /// `FTTypar(Method, i)`, exactly as the declaring type's typars ride the
-        /// `Declaring` axis; codegen's encoder resolves both axes by index
-        /// (`!!i` / `!i`) with no ambient window. This list feeds the `GenericParam`
-        /// rows and the `GENERIC` header arity (name = `fst`, arity = `.Length`).
-        /// Empty for a non-generic member. Rides `'ty` so the frozen tree carries no
-        /// union-find cell — the canonical ABI order is built once by
-        /// `GeneralizedTypars.canonical` in the side-table `Generalized` and
-        /// materialized here in that order.
+        /// (`"'C"`, for the `GenericParam` row) with the typar's *own* type.
         MethodTypeParams: EqArray<string * 'ty>
     }
 

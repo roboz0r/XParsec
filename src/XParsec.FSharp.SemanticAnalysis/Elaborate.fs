@@ -618,9 +618,11 @@ module Elaborate =
         let selfTy = host.MkSelfType EqArray.empty
 
         match el with
-        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; access = memberAccess; defn = d)) ->
+        | TypeDefnElement.Member(MemberDefn.Member(
+            staticToken = s; keyword = kw; inlineToken = inlineTok; access = memberAccess; defn = d)) ->
             let isStatic = s.IsSome
             let isOverride = isOverrideKeyword kw
+            let isInline = inlineTok.IsSome
             // Member-level accessibility rides `MemberDefn.Member.access` (`member
             // private this.M`), NOT the inner `Binding.access` (always `ValueNone` for a
             // member). An auto-property's own `member val private X` access takes
@@ -635,6 +637,7 @@ module Elaborate =
                             Name = n
                             IsStatic = isStatic
                             Accessibility = memberAccessibility
+                            IsInline = isInline
                             Kind = kind
                             IsOverride = isOverride
                             ThisKey = (if isStatic then ValueNone else ValueSome host.ThisKey)
@@ -658,6 +661,7 @@ module Elaborate =
                         Name = ctx.NameOf id
                         IsStatic = isStatic
                         Accessibility = autoPropertyAccess memberAccessibility acc
+                        IsInline = isInline
                         Kind = TMemberKind.Property
                         IsOverride = isOverride
                         ThisKey = (if isStatic then ValueNone else ValueSome host.ThisKey)
@@ -821,9 +825,11 @@ module Elaborate =
         let instanceRewrite = instanceFieldRewrite info classTy
 
         match el with
-        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; access = memberAccess; defn = d)) ->
+        | TypeDefnElement.Member(MemberDefn.Member(
+            staticToken = s; keyword = kw; inlineToken = inlineTok; access = memberAccess; defn = d)) ->
             let isStatic = s.IsSome
             let isOverride = isOverrideKeyword kw
+            let isInline = inlineTok.IsSome
             // Member-level accessibility (`member private this.M`) rides
             // `MemberDefn.Member.access`, not the inner `Binding.access`.
             let memberAccessibility = accessibilityOfToken memberAccess
@@ -906,6 +912,7 @@ module Elaborate =
                             Name = n
                             IsStatic = isStatic
                             Accessibility = memberAccessibility
+                            IsInline = isInline
                             Kind = kind
                             IsOverride = isOverride
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
@@ -927,6 +934,7 @@ module Elaborate =
                         Name = ctx.NameOf id
                         IsStatic = isStatic
                         Accessibility = autoPropertyAccess memberAccessibility acc
+                        IsInline = isInline
                         Kind = TMemberKind.Property
                         IsOverride = isOverride
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)

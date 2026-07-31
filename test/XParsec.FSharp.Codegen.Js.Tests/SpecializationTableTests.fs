@@ -222,7 +222,7 @@ type 'T ``[]`` =
 
     with
 
-        member this.get_Item(index: int) : 'T = (# "ldelem.any !0" type ('T) this (bounce this index) : 'T #)
+        member inline this.get_Item(index: int) : 'T = (# "ldelem.any !0" type ('T) this (bounce this index) : 'T #)
 
     end
 """

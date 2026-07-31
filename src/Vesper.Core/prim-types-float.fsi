@@ -9,17 +9,17 @@ namespace Vesper
 type float32 =
     extern with
 
-    static member (+): x: float32 * y: float32 -> float32
+    static member inline (+): x: float32 * y: float32 -> float32
 
-    static member (-): x: float32 * y: float32 -> float32
+    static member inline (-): x: float32 * y: float32 -> float32
 
-    static member ( * ): x: float32 * y: float32 -> float32
+    static member inline ( * ): x: float32 * y: float32 -> float32
 
-    static member (/): x: float32 * y: float32 -> float32
+    static member inline (/): x: float32 * y: float32 -> float32
 
-    static member (%): x: float32 * y: float32 -> float32
+    static member inline (%): x: float32 * y: float32 -> float32
 
-    static member (~-): n: float32 -> float32
+    static member inline (~-): n: float32 -> float32
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Double"/>.</summary>
 ///
@@ -27,17 +27,17 @@ type float32 =
 type float =
     extern with
 
-    static member (+): x: float * y: float -> float
+    static member inline (+): x: float * y: float -> float
 
-    static member (-): x: float * y: float -> float
+    static member inline (-): x: float * y: float -> float
 
-    static member ( * ): x: float * y: float -> float
+    static member inline ( * ): x: float * y: float -> float
 
-    static member (/): x: float * y: float -> float
+    static member inline (/): x: float * y: float -> float
 
-    static member (%): x: float * y: float -> float
+    static member inline (%): x: float * y: float -> float
 
-    static member (~-): n: float -> float
+    static member inline (~-): n: float -> float
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Single"/>. Identical to <see cref="T:Microsoft.FSharp.Core.float32"/>.</summary>
 ///

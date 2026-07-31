@@ -96,6 +96,17 @@ module MemberNoun =
         | MemberNoun.Operator -> "operator"
         | MemberNoun.Member -> "member"
 
+[<RequireQualifiedAccess>]
+module IntrinsicHost =
+
+    /// The `member inline` constraint, as a sentence. ONE rule declared in two syntaxes —
+    /// the `.fsi` contract and the `.fs` body — so it is worded once here rather than
+    /// twice, where the two spellings could drift into looking like two rules.
+    let memberNeedsInline (hostName: string) : string =
+        sprintf
+            "A member of intrinsic type '%s' must be declared 'inline': the type carries no method in the output, so a member body is spliced at the use site, never called"
+            hostName
+
 /// Which sort of type declares the cases a `NoCase` verdict is about — the only axis its
 /// producers differ on.
 [<RequireQualifiedAccess>]

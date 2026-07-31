@@ -1030,6 +1030,30 @@ module NameResolutionMemberRegistration =
 
             walk start
 
+    /// A bodied member of an intrinsic host must be declared `inline`. The host has no
+    /// representation in the output to hang a method on, so its body can only be spliced
+    /// into the caller; without `inline` the use site would elaborate to a call to a
+    /// method that is never emitted. Abstract slots declare no body and are exempt.
+    let private requireInlineMembers
+        (ctx: PassContext)
+        (hostName: string)
+        (elements: TypeDefnElement<SyntaxToken> seq)
+        : unit =
+        let diagnose (site: NodeSite) =
+            ctx.Report(site.Tok, Kind.Message(IntrinsicHost.memberNeedsInline hostName))
+
+        for el in elements do
+            match el with
+            | TypeDefnElement.Member(MemberDefn.Member(inlineToken = ValueSome _)) -> ()
+            | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
+                match d with
+                | MethodOrPropDefn.Method(defn = b)
+                | MethodOrPropDefn.Property(defn = b) -> diagnose (CstKeys.siteOfBinding b)
+                | MethodOrPropDefn.AutoProperty(ident = id)
+                | MethodOrPropDefn.PropertyWithGetSet(ident = id) -> diagnose (NodeSite.ofToken NodeKind.PatIdent id)
+                | MethodOrPropDefn.AbstractSignature _ -> ()
+            | _ -> ()
+
     /// Stamp augmentation members + `interface … with` impls onto an already-registered
     /// union or record. Must run after the type itself is registered; reads its
     /// `extensions.elements`. A v1 union/record has no primary ctor / `as` alias, so
@@ -1078,6 +1102,7 @@ module NameResolutionMemberRegistration =
         | TypeDefn.Abbrev(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
             match ctx.Types.IntrinsicAbbrevHost.TryGetValue id.Name with
             | true, info ->
+                requireInlineMembers ctx id.Name elems
                 let x = extract info.DeclSite.Key info.TypeParams elems
                 info.Members <- x.Members
                 info.InterfaceImpls <- x.InterfaceImpls

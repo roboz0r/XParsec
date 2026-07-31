@@ -7,4 +7,4 @@ namespace Widgets
 type widget = extern with
 
     /// `w.Poke x` splices to `x + 1` (the `.js.fs` body `(# "$0 + 1" x : int #)`).
-    member Poke: int -> int
+    member inline Poke: int -> int

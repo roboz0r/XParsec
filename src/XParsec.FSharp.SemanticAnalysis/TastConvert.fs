@@ -268,6 +268,7 @@ module TastConvert =
             Name = m.Name
             IsStatic = m.IsStatic
             Accessibility = m.Accessibility
+            IsInline = m.IsInline
             Kind = m.Kind
             IsOverride = m.IsOverride
             ThisKey = ValueOption.map slot m.ThisKey

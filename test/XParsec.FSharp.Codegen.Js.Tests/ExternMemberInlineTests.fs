@@ -94,9 +94,9 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * strin
 
     VesperLib.ExtractCtx.toProvider ctx, key
 
-/// The single-member contract: `member Poke : int -> int`.
+/// The single-member contract: `member inline Poke : int -> int`.
 let private widgetContract () : IExternalSymbolProvider * string =
-    widgetContractOf "    member Poke : int -> int\n"
+    widgetContractOf "    member inline Poke : int -> int\n"
 
 let private ftInt: FrozenType = toFrozen BuiltinTypes.tyInt
 
@@ -106,7 +106,7 @@ let private ftWidget: FrozenType =
     FTConst(RuntimeNames.opaqueKey "widget", EqArray.empty)
 
 /// A hand-built FROZEN `widget.Poke` member over one value parameter:
-/// `member _.Poke (x: 'paramTy) : int = (# template x : int #)`. Frozen because that is
+/// `member inline _.Poke (x: 'paramTy) : int = (# template x : int #)`. Frozen because that is
 /// what the lifting reads — a published inline body never carries a live inference cell.
 let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor.TypeMember =
     // The hand-built body is a node of no file, so it gets a pool of its own — the same
@@ -139,6 +139,7 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor
         Name = "Poke"
         IsStatic = false
         Accessibility = Accessibility.Public
+        IsInline = true
         Kind = TMemberKind.Method
         IsOverride = false
         ThisKey = ValueSome thisBinder
@@ -150,7 +151,7 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor
         MethodTypeParams = EqArray.empty
     }
 
-/// `member _.Poke (x: int) : int = (# "$0 + 1" x : int #)`.
+/// `member inline _.Poke (x: int) : int = (# "$0 + 1" x : int #)`.
 let private pokeMember () : TastAccessor.TypeMember = pokeMemberOf "$0 + 1" ftInt
 
 // ─── Stage 1c: end-to-end SPLICE proof over the loadable `widget` fixture ────
@@ -309,7 +310,7 @@ let tests =
             // would splice the `int` body into a `string` call.
             test "an OVERLOADED member's body is selected by the use site's exact MemberKey" {
                 let provider, key =
-                    widgetContractOf "    member Poke : int -> int\n    member Poke : string -> int\n"
+                    widgetContractOf "    member inline Poke : int -> int\n    member inline Poke : string -> int\n"
 
                 let declKey = SymbolKeyOps.qualifiedTypeKey key 0
 
@@ -427,7 +428,7 @@ let tests =
                      type widget =\n\
                      \x20   (# \"object\" #)\n\
                      \x20   with\n\
-                     \x20       member _.Poke (x: int) : int = (# \"$0 + 1\" x : int #)\n\
+                     \x20       member inline _.Poke (x: int) : int = (# \"$0 + 1\" x : int #)\n\
                      \x20   end\n"
 
                 let lexed, file = TestHelpers.parseFile input
