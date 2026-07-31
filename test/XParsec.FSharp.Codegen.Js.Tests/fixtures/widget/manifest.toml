@@ -1,14 +1,14 @@
 # widget — a minimal test-only fixture package that carries a concrete
 # `(# … #)`-bodied member on an intrinsic/`extern` type. It proves the W9 member-inline
 # SPLICE end-to-end: the `.fsi` is the consumer-side contract (a dual-faced Class +
-# `Poke` member), and the `.js.fs` companion is the harvest source whose member body the
+# `Poke` member), and the `.js.fs` companion is the body source whose member body the
 # codegen inline-body loader keys under the finalized member key. No `depends-on`: the
 # only external it names is the primitive `int`, resolved through whatever provider stack
 # the package is loaded into (the test stacks it ahead of `jsManifests`, which carry
 # Vesper.Core). Modeled on `src/Vesper.Core` / `src/Vesper.List`.
 
 # NAMESPACED (`Widgets`): the compiled name is `Widgets.widget`. The member-inline store
-# keys the harvested body by the QUALIFIED name (`SymbolKeyOps.qualifiedName tdecl.Key`),
+# keys the lifted body by the QUALIFIED name (`SymbolKeyOps.qualifiedName tdecl.Key`),
 # which is exactly what the provider's `TryLookupMember` matches — so a namespaced
 # intrinsic resolves end-to-end (this fixture is the regression guard for that keying).
 [core]
@@ -21,9 +21,9 @@ files = [
     "widget.fsi",
 ]
 
-# The JS-target harvest source: `type widget = (# "object" #) with member _.Poke …`.
+# The JS-target body source: `type widget = (# "object" #) with member _.Poke …`.
 # Read by the codegen inline-body loader (`resolveInlineBodies (Some "js")`), whose
-# `harvestMemberBody` mints the `this`-first inline body served under `Poke`'s key.
+# `liftMemberBody` mints the `this`-first inline body served under `Poke`'s key.
 inline-bodies-js = [
     "widget.js.fs",
 ]

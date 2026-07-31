@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr
 // T8 Step 1 — repr-encodability conformance.
 //
 // A Vesper primitive's CLR representation lives in ONE place, the `.fs` `(# … #)`
-// declaration (`type int = (# "System.Int32" #)`), harvested into the contract
+// declaration (`type int = (# "System.Int32" #)`), extracted into the contract
 // provider's forward `{ canon → platform-repr }` map. The IL encoder
 // (`ClrEncoder`'s scalar arm) turns that repr string into a value-type token via
 // `IntrinsicRepr.tryEncodeValueType`. Nothing structurally forces the two to agree:
@@ -17,7 +17,7 @@ open XParsec.FSharp.Codegen.Clr
 // representation …"` at the FIRST use site that encodes it — easy to miss.
 //
 // This pins the invariant up front: every DIRECTLY-ENCODABLE scalar primitive the
-// CLR contract harvests must be encodable by `IntrinsicRepr.isEncodableValueType`
+// CLR contract extracts must be encodable by `IntrinsicRepr.isEncodableValueType`
 // (the pure, encoder-free predicate single-sourced with `tryEncodeValueType`). The
 // two TypeRef-backed scalars (`decimal` → `System.Decimal`, `unit` →
 // `System.ValueTuple`) are asserted as the explicit exceptions the encoder handles
@@ -32,7 +32,7 @@ open XParsec.FSharp.Codegen.Clr
 // and structural (`'T[]`) intrinsics encode through other (nominal / SZArray) arms,
 // not this one, and are out of scope.
 
-/// The contract's harvested forward `{ canon → platform-repr }` map for the default
+/// The contract's extracted forward `{ canon → platform-repr }` map for the default
 /// CLR stack — the single source of each primitive's IL representation.
 let private forwardRepr =
     (ClrSymbolProviders.buildContract [ TestHelpers.vesperCoreManifest ]).IntrinsicForwardRepr
@@ -45,7 +45,7 @@ let private tryRepr (canon: string) : string option =
     | _ -> None
 
 /// The directly-encodable scalar value-type primitives, by their `.fsi` canon name.
-/// Each must harvest a repr `tryEncodeValueType` writes. (Aliases like `int32`/`uint`
+/// Each must extract a repr `tryEncodeValueType` writes. (Aliases like `int32`/`uint`
 /// are abbreviations that dealias to these, not intrinsics — they carry no own repr.)
 let private directScalarCanons =
     [
@@ -75,21 +75,21 @@ let tests =
     testList
         "IntrinsicReprConformance"
         [
-            test "every directly-encodable scalar primitive's harvested repr is encodable" {
+            test "every directly-encodable scalar primitive's extracted repr is encodable" {
                 for canon in directScalarCanons do
                     match tryRepr canon with
                     | Some repr ->
                         Expect.isTrue
                             (IntrinsicRepr.isEncodableValueType repr)
                             (sprintf
-                                "scalar primitive '%s' harvests repr '%s', which the IL encoder cannot encode"
+                                "scalar primitive '%s' extracts repr '%s', which the IL encoder cannot encode"
                                 canon
                                 repr)
                     | None ->
-                        failtestf "scalar primitive '%s' has no harvested CLR repr in the contract forward map" canon
+                        failtestf "scalar primitive '%s' has no extracted CLR repr in the contract forward map" canon
             }
 
-            test "the TypeRef-backed scalars are harvested but NOT direct value types" {
+            test "the TypeRef-backed scalars are extracted but NOT direct value types" {
                 // `decimal` / `unit` are the two scalars the encoder writes through a
                 // dedicated `TypeRef` arm (`eDecimal` / `eValueTuple`), so they are
                 // deliberately absent from `isEncodableValueType`. Pin the reprs (so a

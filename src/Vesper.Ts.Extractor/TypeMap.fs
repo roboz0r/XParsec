@@ -175,7 +175,7 @@ let rec mapType (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
     finally
         ctx.Depth.Value <- ctx.Depth.Value - 1
 
-/// Carry a structural/merged object as `Structural(printed, …)`: harvest its OWN
+/// Carry a structural/merged object as `Structural(printed, …)`: extract its OWN
 /// members as fields when `faithful`, else warn and carry OPAQUE (empty). A merged or
 /// anonymous member is SYNTHETIC (no single declaration node), so read its type via
 /// `getTypeOfSymbol` (`getTypeOfSymbolAtLocation` would need a declaration `declOf`
@@ -451,7 +451,7 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                         // properties and no index/call/construct signature) — which freezes to a
                         // resolvable nominal with member access. Everything else — an index
                         // signature, a call/construct signature, a tuple/array, `{}`, or a
-                        // non-object opaque form — stays OPAQUE: harvesting its partial members
+                        // non-object opaque form — stays OPAQUE: extracting its partial members
                         // would present a lossy type as complete AND explode the golden with
                         // members no consumer reads (a primitive/union base's inherited prototype
                         // members like `string | symbol`'s `toString`/`valueOf`/…).
@@ -479,7 +479,7 @@ let mapParam (ctx: MapCtx) (p: Ts.Symbol) : Schema.Param =
 [<RequireQualifiedAccess>]
 type SigAxis =
     /// A member METHOD: its own typars are the METHOD axis, and their authored
-    /// constraints (`<Key extends keyof Events>`) are harvested onto
+    /// constraints (`<Key extends keyof Events>`) are extracted onto
     /// `TypeParamBounds` — carried, never evaluated (design §"keyof …
     /// ground-EVALUATED"); the front end reads them at grounding.
     | MemberMethod
@@ -542,7 +542,7 @@ let mapSignature (ctx: MapCtx) (axis: SigAxis) (sg: Ts.Signature) : Schema.Signa
             // dead). Count as the ctor's method arity ONLY the own typars the declaring
             // axis does NOT already bind — 0 for every real class (byte-identical to the
             // former forced-empty rule), N for the constructor-interface idiom. Bounds
-            // stay `None` per slot (constructors carry no harvested constraints).
+            // stay `None` per slot (constructors carry no extracted constraints).
             let ownSyms = ownTyparSyms ()
 
             let freshCount =

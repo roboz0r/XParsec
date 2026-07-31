@@ -41,11 +41,11 @@ files-js = [
     "ops-platform-runtime.js.fsi",
     # JS-only absence-sentinel intrinsic type `undefined` — a distinct identity from
     # `unit`, no CLR analog (so never in base `files`). Its `.js.fs` companion is
-    # harvested as BOTH marker and platform face (no base/override split). (`null` is
+    # extracted as BOTH marker and platform face (no base/override split). (`null` is
     # NOT declared here: it is a reserved keyword and already distinct without an entry.)
     "prim-types-undefined.js.fsi",
     # JS-only opaque `dynamic` intrinsic type — the F#-side landing point for TS `any`,
-    # no CLR analog. Harvested (marker + `"any"` platform face) exactly like `undefined`.
+    # no CLR analog. Extracted (marker + `"any"` platform face) exactly like `undefined`.
     "prim-types-dynamic.js.fsi",
     # The `dynamic` operators — `retype`/`dynamic` (enter) and `(?)`/`(?<-)` (member
     # access, target-typed via `default ^TResult : dynamic`). Bodies in `ops-dynamic.js.fs`
@@ -55,18 +55,18 @@ files-js = [
     # accessor (W9 array-index READ migration). Declared in the GLOBAL namespace so its
     # member-contract key is bare — the array's canonical bare `TyConst` identity, spelled
     # `` ``[]`` `` (RuntimeNames.arrayContractName) — matching the receiver-side lookup and
-    # the harvest store. A SEPARATE contract entry from `prim-types-min.fsi`'s
+    # the inline-body store. A SEPARATE contract entry from `prim-types-min.fsi`'s
     # `type 'T[] = extern`, which stays the `Vesper.``[]``` `Intrinsic` shape untouched.
-    # Its `.js.fs` harvest source is
+    # Its `.js.fs` body source is
     # `array-index-body.js.fs` (deliberately a DIFFERENT base name so the intrinsic-repr
-    # companion harvest never treats it as the array's platform repr).
+    # companion extraction never treats it as the array's platform repr).
     "array-index.js.fsi",
 ]
 
 # Every `.fs` in the package is listed here (one source of truth, no orphaned
 # `.fs`). The intrinsic-only `prim-types-*.fs` / `capabilities.fs` bind
 # `(# "..." #)` reprs and emit NO IL: they register the per-target representation
-# (channel-1 / the provider harvest), not a TypeDef. The actual emitted members are
+# (channel-1 / the provider extraction), not a TypeDef. The actual emitted members are
 # `Fun`/`Fun2` + the primitive array/`unit` (prim-types-min), the captured-mutable
 # `Ref` (core-types), and the `%A` interfaces (structural-format). Order mirrors the
 # `.fsi` `files` order above. The inline-only operator bodies (`ops-*`,
@@ -134,7 +134,7 @@ inline-bodies-js = [
     # The `dynamic` operator bodies (`retype`/`dynamic`/`(?)`/`(?<-)`) — JS-only
     # (`$0[$1]` computed-member templates), spliced at each `?` use site.
     "ops-dynamic.js.fs",
-    # The array `get_Item` member body — harvested `this`-first (`harvestMemberBody`)
+    # The array `get_Item` member body — lifted `this`-first (`liftMemberBody`)
     # and served under the finalized member key so `arr.[i]` splices the `ldelem`
     # exactly as the free `GetArray` did. Companion of `array-index.js.fsi`.
     "array-index-body.js.fs",

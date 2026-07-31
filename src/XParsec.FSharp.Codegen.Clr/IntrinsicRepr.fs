@@ -6,8 +6,8 @@ open System.Reflection.Metadata.Ecma335
 /// This is pure System.Reflection.Metadata knowledge, NOT a Vesper repr table: the
 /// canon → platform mapping (`"int"` → `"System.Int32"`) lives in the `.fs` `(# … #)`
 /// declarations and is read through `ClrEnv.TryPrimitiveRepr` (own-file intrinsics →
-/// the provider's harvested forward `{canon → platform}` map). The metadata leaf
-/// canonicalizes the reverse direction through the harvested `{platform → canon}` map.
+/// the provider's extracted forward `{canon → platform}` map). The metadata leaf
+/// canonicalizes the reverse direction through the extracted `{platform → canon}` map.
 module IntrinsicRepr =
 
     /// The directly-encodable primitive value-type reprs, paired with the

@@ -14,7 +14,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // x))) = x`: a type reaches the blob ONLY as a row id now, so what has to survive is the
 // whole path through the file's tables and their row codec, not a structural writer.
 //
-// Data comes from two sources: the frozen conformance corpus (realistic breadth), harvested
+// Data comes from two sources: the frozen conformance corpus (realistic breadth), collected
 // from the leaf-bearing side tables + FrozenType child-walk of each `Frozen.TastFile` (no
 // full expr/decl tree walk — that arrives with the tree codec), and hand-built edge cases
 // that pin EVERY case shape the corpus may not exercise (an `FTOr` of several members, a
@@ -31,8 +31,8 @@ let private gated =
         | _ -> false
     )
 
-/// The deduped leaf values harvested from the corpus plus the hand-built edge cases.
-type private Harvest =
+/// The deduped leaf values collected from the corpus plus the hand-built edge cases.
+type private Collected =
     {
         FrozenTypes: FrozenType list
         SymbolKeys: SymbolKey list
@@ -41,7 +41,7 @@ type private Harvest =
         Anchors: Anchor list
     }
 
-let private collect () : Harvest =
+let private collect () : Collected =
     let fts = HashSet<FrozenType>(HashIdentity.Structural)
     let sks = HashSet<SymbolKey>(HashIdentity.Structural)
     let tks = HashSet<TypeKey>(HashIdentity.Structural)
@@ -79,7 +79,7 @@ let private collect () : Harvest =
                 visitFt p.WhenFalse
             | FTTypar _ -> ()
             // Its scheme id addresses nothing outside the body that carried it, so there is
-            // no leaf here to harvest into any of the key corpora.
+            // no leaf here to collect into any of the key corpora.
             | FTLocalTypar _ -> ()
             | FTUnknown _ -> ()
 
@@ -99,7 +99,7 @@ let private collect () : Harvest =
             | MemberKind.Method
             | MemberKind.Property -> ()
 
-    let harvestFile (file: Pooled.TastFile) =
+    let collectFile (file: Pooled.TastFile) =
         // A diagnostic's position, which can name a node the emittable tree does not
         // contain and so takes no pool id.
         for d in file.Diagnostics do
@@ -116,10 +116,10 @@ let private collect () : Harvest =
                 match c with
                 | FrozenConstraint.Coercion(_, target) -> visitFt target
 
-        // No `BindingValReprs` harvest: the DU carries none — a binding's source arity is
+        // No `BindingValReprs` pass: the DU carries none — a binding's source arity is
         // a PROJECTION of its lambda spine that `TastPools.toPools` derives off the
         // columns, so every type and slot it names is already reached by the spine walk
-        // this harvest runs.
+        // this walk runs.
 
         // Real frozen anchors, shallowly: the source anchor of each top-level decl body.
         for decl in file.Decls do
@@ -129,7 +129,7 @@ let private collect () : Harvest =
             | TDeclG.Type _ -> ()
 
     for p in gated do
-        harvestFile (TastUnpool.ofPools (frozenOfJs p.Source))
+        collectFile (TastUnpool.ofPools (frozenOfJs p.Source))
 
     // ── hand-built edge cases: pin every case shape regardless of the corpus ──
     let nsGlobal = NamespaceKey.Global
@@ -325,7 +325,7 @@ let private roundTrips (write: FrozenWriter -> 'a -> unit) (read: FrozenReader -
         read
         (FrozenCodecPrimitives.toBytes (FrozenTypeTableBuilder()) write x)
 
-/// The harvest interned into ONE file's tables, and the table those rows make after a trip
+/// The collected values interned into ONE file's tables, and the table those rows make after a trip
 /// through the row codec — the ids alongside, so each source value can be asked for back.
 type private Interned =
     {
@@ -336,10 +336,10 @@ type private Interned =
     }
 
 /// The whole path a type now takes to a blob and back: intern it into the file's tables,
-/// write the ROWS, read them, materialise the id. Interning every harvested value into ONE
+/// write the ROWS, read them, materialise the id. Interning every collected value into ONE
 /// builder is also what the freeze does — the corpus's types share their sub-types heavily,
 /// so this exercises rows that name rows, not just isolated values.
-let private intern (h: Harvest) : Interned =
+let private intern (h: Collected) : Interned =
     let builder = FrozenTypeTableBuilder()
     let typeIds = h.FrozenTypes |> List.map builder.Intern
     let symbolIds = h.SymbolKeys |> List.map builder.InternSymbol
@@ -563,9 +563,9 @@ let tests =
                         "anchor"
             }
 
-            // The harvest must actually reach the corpus, not just the edge cases —
+            // The collection must actually reach the corpus, not just the edge cases —
             // otherwise the gate would silently pass on an empty frozen file.
-            test "harvest exercises a non-trivial value set" {
+            test "collection exercises a non-trivial value set" {
                 Expect.isGreaterThan (List.length gated) 0 "gated programs"
                 Expect.isGreaterThan (List.length h.FrozenTypes) 20 "FrozenTypes"
                 Expect.isGreaterThan (List.length h.SymbolKeys) 5 "SymbolKeys"

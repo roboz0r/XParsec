@@ -290,7 +290,7 @@ let tests =
             }
 
             test "an inlined MEMBER body maps to the producer too, not to the indexing site" {
-                // The member half of the same claim. `a.[1]` is `'T[]`'s `get_Item`, harvested off
+                // The member half of the same claim. `a.[1]` is `'T[]`'s `get_Item`, lifted off
                 // `array-index-body.js.fs` rather than published as a `let inline`, and what its
                 // nodes map to is the file the member was WRITTEN in — not the line that merely
                 // INDEXES the array, which is what the emit-time copy would otherwise attribute

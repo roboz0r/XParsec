@@ -49,7 +49,7 @@ module VesperLibManifest =
     /// `.fsi` (extracted as the signature contract), but a package's per-target
     /// primitive companions (`prim-types-int.fs`) and operator bodies
     /// (`ops-platform.fs`) have no companion signature and route through
-    /// `FSharpAst.parse` so their reprs / bodies feed the intrinsic harvest and the
+    /// `FSharpAst.parse` so their reprs / bodies feed the intrinsic extraction and the
     /// cross-package inline-expansion pipeline.
     let parseFileFull (file: LibFile) : Result<ParsedFile, string> =
         let raw = File.ReadAllText file.Absolute

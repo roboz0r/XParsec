@@ -56,7 +56,7 @@ module OperatorNames =
         // (`OpDynamic` / `OpDynamicAssignment`), so `OperatorInfo.GetName` returns the
         // bare token name ("OpDynamic") rather than the compiled `op_*` form — map them
         // here (the single symbol→compiled-name authority) so the `(?)` / `(?<-)`
-        // binding heads in `ops-dynamic.js.fsi` harvest under the names the front end
+        // binding heads in `ops-dynamic.js.fsi` extract under the names the front end
         // resolves (`op_Dynamic` / `op_DynamicAssignment`). Never appear as a bare
         // `InfixApp` op (a `?` use site is `Expr.DynamicLookup`), so this is additive.
         | Token.OpDynamic -> ValueSome OperatorData.OpDynamic

@@ -748,7 +748,7 @@ module VesperLib =
     /// extractor below can populate `ctx.TypeShapes` against the same key.
     /// `ValueNone` indicates the declaration was malformed (no ident).
     /// The undotted short name of a `TypeName` (its last ident segment), or `""`
-    /// when it carries none. The key `ctx.IntrinsicReprs` is harvested under.
+    /// when it carries none. The key `ctx.IntrinsicReprs` is extracted under.
     let private shortNameOfTypeName (lexed: Lexed) (input: string) (typeName: TypeName<SyntaxToken>) : string =
         let (TypeName(_, _, _, ident, _, _)) = typeName
 
@@ -1350,7 +1350,7 @@ module VesperLib =
 
         | TypeSignature.Extern(typeName = typeName; kindTag = kindTag; members = members) ->
             // An `extern` type is either an intrinsic-repr primitive (its sibling
-            // `.fs` carries `type x = (# "<repr>" #)`, harvested into
+            // `.fs` carries `type x = (# "<repr>" #)`, extracted into
             // `ctx.IntrinsicReprs` before extraction) or an opaque abstract type
             // / real class with no `.fs` binding. The former publishes as a
             // NON-transparent `Intrinsic repr` (a use site resolves to the
@@ -1525,7 +1525,7 @@ module VesperLib =
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Opaque arity
 
-    /// Harvest the `open Foo.Bar` clauses from a flat element list. The
+    /// Collect the `open Foo.Bar` clauses from a flat element list. The
     /// caller prepends to its inherited list so a scope's own opens are
     /// tried *first* (newest-first) during resolution.
     let private collectOpens
@@ -1794,7 +1794,7 @@ module VesperLib =
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
     /// (`(# "System.Int32" #)` ⇒ `"System.Int32"`). Mirrors
     /// `NameResolution.TypeRegistration.ilIntrinsicString` for the extractor's
-    /// `.fs`-harvest path, where the consumer's `PassContext` is not in scope.
+    /// `.fs`-extraction path, where the consumer's `PassContext` is not in scope.
     let private ilIntrinsicReprString
         (lexed: Lexed)
         (input: string)
@@ -1815,12 +1815,12 @@ module VesperLib =
 
         sb.ToString()
 
-    /// Harvest the intrinsic-representation bindings from a parsed `.fs` companion
+    /// Extract the intrinsic-representation bindings from a parsed `.fs` companion
     /// (`type exn = (# "System.Exception" #)`) into `dest` (short name ⇒ repr).
     /// This is the `.fs` half of the `.fsi`/`.fs` pairing: the `.fsi` `type exn =
     /// extern` deliberately omits the repr, so the identity lives only here. Run
     /// BEFORE the `.fsi` extraction so the `extern` arm of `extractTypeSig` can
-    /// publish `ExternalTypeShape.Intrinsic`. The caller harvests the per-target
+    /// publish `ExternalTypeShape.Intrinsic`. The caller extracts the per-target
     /// `<base>.<target>.fs` ⇒ `IntrinsicReprs` (the `platform` face); the `canon`
     /// face is the `.fsi` name itself, so a target override repoints codegen WITHOUT
     /// moving the unifier's identity key.
@@ -1829,7 +1829,7 @@ module VesperLib =
     /// the `type <name> = (# "<repr>" #)` shape, and (b) the prim-types `.fs`
     /// carry cons-list augmentation members that trip unimplemented analysis
     /// paths (`CstKeys.firstTokenOfPat: TODO Cons`). A later binding wins a clash.
-    let harvestIntrinsicReprsInto
+    let extractIntrinsicReprsInto
         (dest: System.Collections.Generic.Dictionary<string, string>)
         (parsed: ParsedFile)
         : unit =

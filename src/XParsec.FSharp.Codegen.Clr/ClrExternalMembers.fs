@@ -557,7 +557,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Mint the `MemberRef` for the parameterless `.ctor()` of a HERITABLE external
     /// base class (`type X = (# class "System.Attribute" #)`), the chain target a
     /// derived class's primary `.ctor` calls. Minted DIRECTLY off the external
-    /// `TypeRef` rather than via `externalCtor`'s member harvest: a base ctor is often
+    /// `TypeRef` rather than via `externalCtor`'s member lookup: a base ctor is often
     /// `protected` (`System.Attribute::.ctor()`) and may not be surfaced, yet `call`ing
     /// it from a subclass ctor is legal. `ValueNone` ⇒ the key isn't an external class.
     let externalParameterlessBaseCtor (key: SymbolKey) : EntityHandle voption =

@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // identities under the conditional-fold membership test (directional `subsumes`),
 // even though `unit` and `undefined` are backend repr-coincident (both emit JS
 // `undefined`). `undefined` is a real JS-only intrinsic (`prim-types-undefined.js.fsi`,
-// harvested to `Intrinsic(canon="undefined", platform=Some "undefined")`), so
+// extracted to `Intrinsic(canon="undefined", platform=Some "undefined")`), so
 // `canonName` resolves it forward through the provider before the reverse-canon map can
 // collapse the shared `"undefined"` platform repr onto `unit`. Pinned with a ground
 // `check extends E ? int : bool` conditional (folds to the true branch iff

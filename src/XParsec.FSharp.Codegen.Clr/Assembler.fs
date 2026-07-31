@@ -87,7 +87,7 @@ type internal Assembler
 
     let provider =
         // Own-compilation intrinsics only; every other primitive's repr is read through the
-        // provider (`ClrEnv.TryPrimitiveRepr`), the single source of truth harvested
+        // provider (`ClrEnv.TryPrimitiveRepr`), the single source of truth extracted
         // from the dependency closure's `.fs`. No codegen-local repr table backs this up.
         ClrProvider(ctx, intrinsicReprKeys, references, symbols)
 

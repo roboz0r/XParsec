@@ -127,7 +127,7 @@ module Hashing =
     /// resolution)". They do. A dependency's `[core] inline-bodies` `.fs` files are re-parsed,
     /// re-analysed and their templates SPLICED INTO the consumer's tree before it is frozen
     /// (`SymbolProviders.inlineBodies`, folded onto the provider entry that owns each key),
-    /// and the `.fs` companion beside each `.fsi` is harvested for the intrinsic reprs that
+    /// and the `.fs` companion beside each `.fsi` is scanned for the intrinsic reprs that
     /// decide what a primitive resolves to. Editing either without touching an `.fsi` left
     /// this hash — and so the cache key — unmoved, and the store served a blob carrying the
     /// OLD inlined body.

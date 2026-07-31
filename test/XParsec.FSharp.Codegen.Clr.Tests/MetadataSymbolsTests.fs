@@ -5,8 +5,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 
 // The metadata leaf canonicalizes BCL primitives (`System.Int32 → int`) through the
-// harvested `{ platform → [canon] }` reverse map — the reverse face of Vesper.Core's
-// `type int = (# "System.Int32" #)`. Seed the test leaf with the REAL harvested map
+// extracted `{ platform → [canon] }` reverse map — the reverse face of Vesper.Core's
+// `type int = (# "System.Int32" #)`. Seed the test leaf with the REAL extracted map
 // (not a static table) so `String.Length`/`List.get_Item` present `int`, etc.
 let private reverseCanon =
     (ClrSymbolProviders.buildContract [ TestHelpers.vesperCoreManifest ]).IntrinsicReverseCanon

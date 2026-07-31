@@ -448,7 +448,7 @@ module InlineExpansion =
                     //
                     // Its arguments ARE the spine — a `StaticMethodCall` carries them itself rather
                     // than through an `App` chain — and they line up with the curried parameters
-                    // the harvested member body was wrapped in.
+                    // the lifted member body was wrapped in.
                     | TExpr.StaticMethodCall(key, args, ty, tok) ->
                         match lookupExternal x.Ctx x.Specs (ValueSome key) with
                         | ValueSome served ->

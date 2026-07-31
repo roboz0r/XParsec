@@ -7,13 +7,13 @@ open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The CROSS-target / CLR-repr half of the ops-platform harvest: a JS template absent
+// The CROSS-target / CLR-repr half of the ops-platform contract: a JS template absent
 // on CLR, and the CLR BCL primitive repr. Both need the BCL metadata leaf
 // (`ClrSymbolProviders`, which the JS-native contract has no equivalent of), so they
 // live here rather than in `Codegen.Js.Tests.OpsPlatformJsTests` (which keeps the
 // JS-target-only assertions and stays off the CLR backend).
 //
-// The body harvest itself (`InlineBodies.ilOpCodes`) is shared with that suite: both read
+// The body inspection itself (`InlineBodies.ilOpCodes`) is shared with that suite: both read
 // the same contract, only through a different symbol leaf.
 
 [<Tests>]

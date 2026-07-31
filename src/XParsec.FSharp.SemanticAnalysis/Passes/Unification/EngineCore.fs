@@ -668,7 +668,7 @@ module UnificationEngineCore =
                 // `TyClass`, exactly as they appear as a value's static type everywhere
                 // else (an interface is an `ExternalTypeShape.Class` with `IsInterface`)
                 // and exactly as the local branch above yields via `instantiateMember`.
-                // `n` is an already-qualified interface compiled name harvested off the
+                // `n` is an already-qualified interface compiled name read off the
                 // resolved shape — not a source spelling — so the mint from the name is the
                 // whole identity, and the surfaced supertype key compares EXACTLY EQUAL to
                 // the one a written `A<int>` annotation resolves to (`externalTypeKey` on a

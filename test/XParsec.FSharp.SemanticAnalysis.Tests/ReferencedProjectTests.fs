@@ -845,7 +845,7 @@ let tests =
                     test "a manifest declaring no per-target key participates in no target" {
                         // THE hole this narrowing closes. Such a manifest reports no suffixes,
                         // so `sourceInputs` names no `.js.fs` companion — and `declaredTarget`
-                        // is what stops the harvest probing one anyway.
+                        // is what stops the extraction probing one anyway.
                         let m =
                             loadOrFail (
                                 writeManifest "TargetBlind" "[core]\nnamespace = \"X\"\nfiles = [\"contract.fsi\"]\n"
@@ -904,7 +904,7 @@ let tests =
 
                     test "every real package's declared targets name their own companions" {
                         // The pairing across the shipped manifests, not a synthetic one: for
-                        // every target a package participates in, the companion the harvest
+                        // every target a package participates in, the companion the extraction
                         // would probe is a path `sourceInputs` folds.
                         for manifest in [ vesperCoreManifest; vesperListManifest ] do
                             let m = loadOrFail manifest

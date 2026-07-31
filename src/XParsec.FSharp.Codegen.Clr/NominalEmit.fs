@@ -487,7 +487,7 @@ module internal NominalEmit =
             //    args before the field stores.
             //  * `ExternalBase`, no args (`inherit Attribute`, `Attribute = (# class … #)`):
             //    chain to its parameterless `.ctor()` (minted directly off the external
-            //    `TypeRef` — a protected base ctor need not be in the member harvest)
+            //    `TypeRef` — a protected base ctor need not be in the surfaced member set)
             //    instead of `System.Object::.ctor`.
             //  * `inherit Base(args)` on a project-local base (`baseCtorCall`): chain to
             //    the parent's `.ctor` with the `inherit` args before the field stores —

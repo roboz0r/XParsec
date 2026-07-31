@@ -625,7 +625,7 @@ type internal ClrEnv
     /// Resolve a Vesper primitive's canon `SymbolKey` to its IL representation string,
     /// single-sourced from the `.fs` `(# … #)`: (1) this file's OWN intrinsics (`reprs` —
     /// the `.fs` being compiled, `TastFile.IntrinsicReprKeys`), then (2) the provider's
-    /// harvested forward `{ canon -> platform }` map (the dependency closure). No
+    /// extracted forward `{ canon -> platform }` map (the dependency closure). No
     /// hard-coded fallback. BOTH halves are addressed by the canon `SymbolKey` itself —
     /// codegen carries the open-resolved key on its `FTConst` node (opens are a
     /// name-resolution concern, already discharged), so there is no string round-trip and

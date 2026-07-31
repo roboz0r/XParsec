@@ -369,7 +369,7 @@ type RuntimeFormatState =
         | cf :: rest ->
             this.SemFrames <- rest
 
-            // Harvest the case's payload child `Doc`s (source order) from its
+            // Take the case's payload child `Doc`s (source order) from its
             // Collect layout frame, popped by hand.
             let kids =
                 match this.Frames with

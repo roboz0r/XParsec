@@ -682,10 +682,10 @@ module internal UnificationInferRecordAccess =
         // through the intrinsic array's `get_Item` member accessor — the member-inline
         // twin of the free `GetArray`. The receiver-side lookup key is the array's bare
         // member-contract identity, `RuntimeNames.arrayContractName` (see there for why
-        // it's the backtick-escaped `` ``[]`` `` and how the consumer/harvest/receiver
+        // it's the backtick-escaped `` ``[]`` `` and how the consumer/producer/receiver
         // keys agree). `TryLookupMember` lands the identical member the contract and the
-        // harvest store share, and Elaborate lowers it through
-        // `TExpr.ExternalMember(get_Item)` (whose harvested `ldelem` body splices to the
+        // inline-body store share, and Elaborate lowers it through
+        // `TExpr.ExternalMember(get_Item)` (whose lifted `ldelem` body splices to the
         // same `arr[i]`). A MISS — the contract half absent (a non-JS target, or a key
         // disagreement) — falls back to the free `GetArray` path UNCHANGED, so nothing
         // regresses if resolution doesn't hit.

@@ -92,7 +92,7 @@
     <!-- The free-fn-overload erase test builds a synthetic provider
          from an in-memory TS manifest via `Vesper.Ts.Manifest.Codec`/`Schema`. -->
     <ProjectReference Include="..\..\src\Vesper.Ts.Manifest.Schema\Vesper.Ts.Manifest.Schema.fsproj" />
-    <!-- The OpsPlatformJs tests build the JS-TARGET layer-1 harvest through the
+    <!-- The OpsPlatformJs tests build the JS-TARGET layer-1 contract stack through the
          JS-native contract (`Codegen.Js.JsNativeSymbols`), so no dependency on the CLR
          backend is needed. The cross-target / CLR-repr contrasts (which need the BCL
          metadata leaf) live in `Codegen.Clr.Tests.OpsPlatformClrTests` instead. -->

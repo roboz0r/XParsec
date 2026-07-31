@@ -237,7 +237,7 @@ module VesperLibTyparCapture =
         /// semantics the eager extraction had.
         member val DeferredVals = ResizeArray<DeferredVal>() with get
         /// Intrinsic-representation index: *short* type name -> the **platform** repr
-        /// string for the COMPILING target, harvested from the package's per-target
+        /// string for the COMPILING target, extracted from the package's per-target
         /// `.fs` companion (`prim-types-int.js.fs` ⇒ `"int" -> "number"` on JS; the base
         /// `.fs` itself on CLR, where it IS the platform repr). Populated BEFORE `.fsi`
         /// extraction so the `extern` arm of `extractTypeSig` can publish the `platform`
@@ -251,7 +251,7 @@ module VesperLibTyparCapture =
         /// port), so every extern stays a `Class` exactly as before.
         member val IntrinsicReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
         /// Primitive *marker* index: *short* type name -> its BASE `.fs` `(# … #)` repr,
-        /// harvested from the base companion regardless of target. The presence of a
+        /// extracted from the base companion regardless of target. The presence of a
         /// base repr is what makes an `extern` a primitive (publishes as `Intrinsic`,
         /// not an opaque `Class`); the per-target `IntrinsicReprs` then supplies the
         /// `platform` face (or `None` when this target ships no companion for it). Kept

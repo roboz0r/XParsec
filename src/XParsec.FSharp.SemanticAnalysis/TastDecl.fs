@@ -508,10 +508,10 @@ module TTypeKindG =
     /// The augmentation / instance members a type kind carries, uniform across the
     /// three member-bearing kinds (class / union / record). `Interface` (abstract,
     /// bodyless) and `Enum` (literal cases only) carry none. The single accessor for
-    /// "the members of a type declaration", shared by the member-inline harvest
+    /// "the members of a type declaration", shared by the member-inline lifting
     /// (`SymbolProviders.collectInlineBodies`) and `ConformanceTypars.bodyMembers` —
     /// so neither hard-codes a single kind and a `(# … #)` member on any host is
-    /// harvested, not silently dropped.
+    /// lifted, not silently dropped.
     let members (kind: TTypeKindG<'ty, 'tok, 'id, 'body>) : EqArray<TTypeMemberG<'ty, 'id, 'body>> =
         match kind with
         | TTypeKindG.Class c -> c.Members

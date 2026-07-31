@@ -26,7 +26,7 @@ type dynamic = (# "any" #)
 ```
 
 Modelled exactly like Wall 1's `undefined`: a JS-only intrinsic scoped to the
-manifest's `files-js` list, harvested (via the `files-<t>` companion harvest added in
+manifest's `files-js` list, extracted (via the `files-<t>` companion extraction added in
 Wall 1) as both marker and platform face. Canon identity `dynamic`; JS platform tag
 `"any"`. It carries **no special unifier behaviour** — it unifies with itself by name,
 like `int` or `string`, and with nothing else. There is deliberately **no `TyDynamic`

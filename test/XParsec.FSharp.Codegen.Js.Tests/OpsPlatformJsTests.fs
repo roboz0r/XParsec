@@ -7,12 +7,12 @@ open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// JS-TARGET layer-1 harvest, built through the JS-native contract (`JsNativeSymbols`)
+// JS-TARGET layer-1 contract stack, built through the JS-native contract (`JsNativeSymbols`)
 // — the leaf a real JS build uses, with no dependency on the CLR backend. The
 // CROSS-target contrasts (a JS template absent on CLR; the CLR BCL repr) need the BCL
 // metadata leaf and live in `Codegen.Clr.Tests.OpsPlatformClrTests`.
 //
-// The body harvest itself (`InlineBodies.ilOpCodes`) is shared with that suite: both read
+// The body inspection itself (`InlineBodies.ilOpCodes`) is shared with that suite: both read
 // the same contract, only through a different symbol leaf.
 
 [<Tests>]

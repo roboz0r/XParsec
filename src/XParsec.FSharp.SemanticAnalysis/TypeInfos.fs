@@ -422,7 +422,7 @@ type UnionTypeInfo
 /// identity), so each member's `ThisTy` is the intrinsic type, never a `TyClass`.
 /// Interface impls are out of scope for the intrinsic host (always empty). The
 /// surfaced `TDecl.Type(Class)` is an internal artifact consumed only by the
-/// member-inline harvest; it is never emitted.
+/// member-inline lifting; it is never emitted.
 [<Sealed>]
 type IntrinsicAbbrevInfo
     (name: string, typeParams: EqArray<string * TyVarId>, declSite: NodeSite, key: TypeKey, selfKey: SymbolKey) =
@@ -434,7 +434,7 @@ type IntrinsicAbbrevInfo
     /// The abbrev's INTRINSIC identity key (contract namespace, arity-suffixed),
     /// resolved through `TypeRegistry.intrinsicKeyOf` at registration —
     /// the SAME key a use-site (`Translate`) resolves the abbrev name to. Distinct
-    /// from `Key` (the local nominal claim, for the member-harvest host path — it is
+    /// from `Key` (the local nominal claim, for the member-lift host path — it is
     /// holder-homed, where this is namespace-homed):
     /// this is the `TyConst` key `MkSelfType` seeds onto each member's `ThisTy`, so
     /// a non-`Vesper` user intrinsic-abbrev's self-type cannot diverge from its
@@ -465,7 +465,7 @@ type IntrinsicAbbrevInfo
         member this.Members = this.Members
         // An intrinsic value repr is reference-neutral here; these verdicts are
         // unread for this host (it is never surfaced through the equality/comparison
-        // gate — the harvest reads only its members).
+        // gate — the lifting reads only its members).
         member _.EqualitySupport = EqualityVerdict.Reference
         member _.ComparisonSupport = ComparisonVerdict.NoComparison
         // The load-bearing choice: the member self-type is the abbrev's INTRINSIC

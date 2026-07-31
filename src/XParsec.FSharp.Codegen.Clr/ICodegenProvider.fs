@@ -460,7 +460,7 @@ type ICodegenProvider =
     /// class (`type X = (# class "System.Attribute" #)`, resolved to its external
     /// `TyClass`) — the chain target a derived class's primary `.ctor` calls instead
     /// of `System.Object::.ctor`. Minted directly off the external `TypeRef` (a
-    /// `protected` base ctor need not be in the member harvest). `ValueNone` ⇒ `key`
+    /// `protected` base ctor need not be in the surfaced member set). `ValueNone` ⇒ `key`
     /// did not resolve to an external class.
     abstract ExternalParameterlessBaseCtor: key: SymbolKey -> EntityHandle voption
 

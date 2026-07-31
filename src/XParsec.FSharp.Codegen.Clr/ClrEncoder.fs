@@ -31,7 +31,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let eVesperList1 = env.EVesperList1
     let eFSharpList1 = env.EFSharpList1
 
-    /// Single-sourced primitive repr (own intrinsics → provider-harvested `.fs`, no
+    /// Single-sourced primitive repr (own intrinsics → provider-extracted `.fs`, no
     /// fallback), as an active pattern over an `FTConst` canon key. See
     /// `ClrEnv.TryPrimitiveRepr`.
     let (|PrimitiveRepr|_|) (key: SymbolKey) = env.TryPrimitiveRepr key

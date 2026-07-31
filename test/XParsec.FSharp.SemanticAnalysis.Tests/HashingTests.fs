@@ -499,7 +499,7 @@ let tests =
 
                     test "an edited .fs companion beside a contract changes the signature hash" {
                         // Never named by the manifest — DERIVED from each `.fsi`
-                        // (`ReferencedProject.companionFs`) and harvested for the intrinsic
+                        // (`ReferencedProject.companionFs`) and scanned for the intrinsic
                         // reprs a consumer's primitives resolve through.
                         let root = freshRoot "companion-change"
 

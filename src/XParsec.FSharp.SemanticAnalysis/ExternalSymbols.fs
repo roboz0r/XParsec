@@ -474,7 +474,7 @@ type ExternalMember =
         /// non-interface producer (metadata, .fsi contract, JS-native, ctors) sets `false`.
         IsOptional: bool
         /// The member's splice TEMPLATE, when it has one — a concrete `(# … #)`-bodied
-        /// member, harvested `this`-first (`SymbolProviders.harvestMemberBody`) so it
+        /// member, lifted `this`-first (`SymbolProviders.liftMemberBody`) so it
         /// splices through the same path a `let inline` value does. `ValueNone` for a
         /// real callable. See `ExternalSymbol.InlineBody` for why it is folded here.
         ///
@@ -761,7 +761,7 @@ type IntrinsicShape =
 /// A **capability interface** (`disposable`/`equatable`/`comparable`) — an intrinsic
 /// whose identity axis is a `TyClass` CONSTRAINT rather than a `TyConst` value
 /// identity, so it earns its own case beside `Intrinsic` (an interface is excluded
-/// from the forward-repr harvest and the unrepresentability gate, and it resolves to
+/// from the forward-repr extraction and the unrepresentability gate, and it resolves to
 /// `TyClass` not `TyConst`). Minted ONLY on a target whose `.fs` binds the platform
 /// repr (CLR); on JS a capability surfaces as a plain single-faced interface `Class`.
 ///
@@ -870,7 +870,7 @@ type ExternalTypeShape =
     /// A capability interface (`disposable`/`equatable`/`comparable`): an intrinsic on
     /// the `TyClass`-constraint axis. A DISTINCT case from `Intrinsic` because an
     /// interface differs on identity (resolves to `TyClass`, not a `TyConst` value),
-    /// is excluded from the forward-repr harvest + the unrepresentability gate, and
+    /// is excluded from the forward-repr extraction + the unrepresentability gate, and
     /// carries a member surface + `Origin`. See `IntrinsicInterfaceShape`. CLR-only
     /// (a JS capability is a plain single-faced interface `Class`).
     | IntrinsicInterface of shape: IntrinsicInterfaceShape
@@ -1054,7 +1054,7 @@ type IExternalSymbolStore =
     /// concern, already discharged), and `TryLookupType` can't serve it because intrinsics
     /// are keyed there by qualified compiled name. On JS the codegen backend resolves reprs
     /// by its own path and never reads this axis, but the map is still POPULATED on the JS
-    /// contract stack (harvested from the `.js.fs` `(# … #)` bindings, exactly as on CLR):
+    /// contract stack (extracted from the `.js.fs` `(# … #)` bindings, exactly as on CLR):
     /// the JS front-end seams depend on it — `reprSiblings` (structural-width admission) and
     /// `Codegen.Js.NumberCovariance` (the covariant `number → float` target, asserted to
     /// repr to `number`) both read it. The intrinsic-carrying providers
@@ -1280,7 +1280,7 @@ module ExternalSymbols =
     /// (`Error` ⇒ `Vesper.Error`). The repr
     /// is a layer-2 name (`JsNativeSymbols.Error` on JS, `MetadataSymbols` on CLR) only
     /// in scope on the composite, so this resolves lazily there rather than at per-package
-    /// harvest. `ValueNone` when the repr is a JS *primitive tag* (`"number"`, `"boolean"`)
+    /// extraction. `ValueNone` when the repr is a JS *primitive tag* (`"number"`, `"boolean"`)
     /// that names no class — the caller emits the bare tag — or when no provider models it.
     /// Free function (not a new `IExternalSymbolProvider` member): it derives purely from
     /// the existing `TryLookupType` / `AmbientOpenPrefixes` window, so it adds no interface

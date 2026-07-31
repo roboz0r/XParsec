@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// Builds the symbol-resolution provider stack.
 module SymbolProviders =
 
-    /// Layer-2 tail FACTORY: given the harvested `{ platform-repr → [canon] }` reverse
+    /// Layer-2 tail FACTORY: given the extracted `{ platform-repr → [canon] }` reverse
     /// map (folded from the layer-1 providers' `IntrinsicReverseCanon`), produce the
     /// metadata leaf. A factory rather than a fixed list so the leaf can be seeded with
     /// the reverse map — it canonicalizes a BCL `System.Int32` to the Vesper `int`
@@ -54,7 +54,7 @@ module SymbolProviders =
     /// accessibility check F# spells FS1113 ("marked inline but its implementation makes
     /// use of an internal or private function which is not sufficiently accessible").
     ///
-    /// Harvested off the FROZEN member, so the published body is `FrozenType` like every
+    /// Lifted off the FROZEN member, so the published body is `FrozenType` like every
     /// other thing crossing the provider seam. The wrapping lambdas are minted into the
     /// pool the member's body already lives in — the body is spliced BY ID, so nothing is
     /// copied to wrap it — and the finished declaration is drained back to the DU because
@@ -64,14 +64,14 @@ module SymbolProviders =
     /// `origin` is the file the member's body was written in, which a member cannot say of
     /// itself: it is a node, and only the collection that opened the pool knows which file the
     /// pool is.
-    let harvestMemberBody (origin: OriginSource) (m: TastAccessor.TypeMember) : InlineBody option =
+    let liftMemberBody (origin: OriginSource) (m: TastAccessor.TypeMember) : InlineBody option =
         match TastAccessor.exprKind m.Body with
         | ExprShape.ILIntrinsic ->
             let pool = m.Body.Pool
             // EVERY node minted below takes this one anchor, so the wrapper adds no position
             // the body did not already have: the finished tree's anchor domain is exactly the
             // member body's own file, and nothing here can index a second one. That is what
-            // lets the collection stamp ONE origin over the whole harvested declaration.
+            // lets the collection stamp ONE origin over the whole lifted declaration.
             let bodyTok = TastAccessor.exprTok m.Body
 
             let curried =
@@ -126,7 +126,7 @@ module SymbolProviders =
         (tast: FrozenPools)
         : KeyedInlineBody list * KeyedInlineBody list =
         // The file's trees as columns, with an append-only overlay for the curried lambda
-        // chains `harvestMemberBody` wraps each harvested body in. The overlay is
+        // chains `liftMemberBody` wraps each lifted body in. The overlay is
         // discarded with this call: what leaves is the drained DU template, never an id.
         let pool = TastPoolBuilder.openOver tast
 
@@ -152,14 +152,14 @@ module SymbolProviders =
                     // A concrete `(# … #)`-bodied member on ANY member-bearing host
                     // (class / union / record — `TTypeKindG.members`) is a splice
                     // template. A member with a non-inline-IL body is a real callable and
-                    // is skipped by `harvestMemberBody`, so a union/record augmentation
+                    // is skipped by `liftMemberBody`, so a union/record augmentation
                     // with an ordinary member is unaffected.
                     match TastAccessor.declKind d with
                     | DeclShape.Type ->
                         let tdecl = TastAccessor.declType d
 
                         for m in TTypeKindG.members tdecl.Kind do
-                            match harvestMemberBody origin m with
+                            match liftMemberBody origin m with
                             | Some body ->
                                 let kind =
                                     match m.Kind with

@@ -24,7 +24,7 @@ module private MetadataMapping =
         else
             t.FullName
 
-    /// `reverseCanon` is the dynamically-harvested `{ platform-repr → [canon] }` map
+    /// `reverseCanon` is the dynamically-extracted `{ platform-repr → [canon] }` map
     /// (`System.Int32 → [int]`), folded from the layer-1 providers' `IntrinsicReverseCanon`
     /// — the reverse face of `type int = (# "System.Int32" #)`. It is what lets a BCL
     /// member's `System.Int32` parameter present as a Vesper `int` so semantic analysis
@@ -74,7 +74,7 @@ module private MetadataMapping =
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
             | "System.Void" -> Some(FTConst(RuntimeNames.unitKey, EqArray.empty))
-            // Canonicalize a BCL type with a harvested canon eagerly at surfacing —
+            // Canonicalize a BCL type with an extracted canon eagerly at surfacing —
             // both the sealed scalar leaves (`System.Int32 → int`) and the unsealed
             // subtype ROOTS (`System.Object → obj`, `System.Exception → exn`). The
             // roots' canon identities are now class-shaped (`IntrinsicClass` carries
@@ -261,7 +261,7 @@ module private MetadataMapping =
         SymbolKeyOps.typeKeyOfSegment holder t.Name
 
 /// `IExternalSymbolProvider` over reference assembly paths via a shared `MetadataLoadContext`.
-/// `reverseCanon` is the harvested `{ platform-repr → [canon] }` map (`System.Int32 → [int]`)
+/// `reverseCanon` is the extracted `{ platform-repr → [canon] }` map (`System.Int32 → [int]`)
 /// the leaf canonicalizes BCL primitive types through (see `MetadataMapping.tryBuildType`);
 /// `Map.empty` for a leaf with no Vesper.Core in scope (BCL types then stay nominal classes).
 type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyPaths: string seq) =
@@ -806,7 +806,7 @@ module MetadataSymbols =
             |> Array.toList
 
     /// Provider over an explicit reference-assembly path set, canonicalizing BCL
-    /// primitives through the harvested `{ platform-repr → canon }` map.
+    /// primitives through the extracted `{ platform-repr → canon }` map.
     let createWith (reverseCanon: Map<string, SymbolKey list>) (paths: string seq) : IExternalSymbolProvider =
         MetadataSymbolProvider(reverseCanon, paths) :> IExternalSymbolProvider
 
@@ -816,5 +816,5 @@ module MetadataSymbols =
 
     /// Process-wide provider over the host runtime's assemblies. A convenience for
     /// tests (`MetadataSymbolsTests`); production composes a per-compilation leaf
-    /// seeded with the harvested reverse map via `SymbolProviders`.
+    /// seeded with the extracted reverse map via `SymbolProviders`.
     let provider: IExternalSymbolProvider = create (runtimeAssemblyPaths ())

@@ -8,7 +8,7 @@
 /// the SRTP trait call, resolves no member, and becomes a compile error ("does not support
 /// the operator"). The declarations are target-neutral; what makes the two backends
 /// differ is representability, which is why this guard enumerates from the target's own
-/// repr harvest.
+/// repr extraction.
 ///
 /// The conformance corpus pins the BEHAVIOUR. What it cannot cheaply catch is a
 /// declaration ADDED for a width the manifest says must be rejected — the false-precision
@@ -21,7 +21,7 @@ namespace XParsec.FSharp.Codegen.Common.Tests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-/// Reading facts back off a spliced body. Shared because BOTH backend suites harvest the
+/// Reading facts back off a spliced body. Shared because BOTH backend suites read the
 /// same contract through their own symbol leaf — `Codegen.Clr.Tests` via
 /// `ClrSymbolProviders` (the BCL metadata leaf), `Codegen.Js.Tests` via `JsNativeSymbols`
 /// (the JS-native leaf, with no dependency on the CLR backend). The leaf differs; what is
@@ -134,7 +134,7 @@ module OperatorSurfaceParity =
     ///
     /// Two axes meet here and only one is per-target. The DECLARATION is target-neutral —
     /// `static member (+)` is written once, in the `.fsi`. What varies is
-    /// REPRESENTABILITY: `IntrinsicForwardRepr` is harvested from the target's own
+    /// REPRESENTABILITY: `IntrinsicForwardRepr` is extracted from the target's own
     /// `(# … #)` bindings, so a primitive the target has no repr for (`nativeint` on JS)
     /// is not in it at all and its declarations are unreachable rather than separately
     /// gated. Enumerating from that map is therefore what makes the two backends' answers

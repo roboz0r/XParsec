@@ -43,7 +43,7 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
 /// NOTHING on the ctx beforehand. Vals are stashed during extraction and built into
 /// `ctx.Symbols` only by the finalize pass, once the registry is complete — so a
 /// fixture that instead pins the PRE-finalize state, or that must seed
-/// `AmbientShapes` / the intrinsic repr harvest before extraction runs, spells the
+/// `AmbientShapes` / the intrinsic repr extraction before the `.fsi` walk runs, spells the
 /// steps out rather than coming through here.
 let extractFsi (relative: string) (input: string) : VesperLib.ExtractCtx =
     let ctx = VesperLib.ExtractCtx.empty ()
@@ -571,7 +571,7 @@ let tests =
                 // half of a BCL-free capability is therefore free; the per-target IDENTITY is
                 // supplied separately (a `.fs` `(# … #)` repr → an `IntrinsicInterface` on CLR, the
                 // `capabilities-compat.js.fsi` shim on JS — NOT a plain `.fs` abbreviation,
-                // which is harvested only for `(# … #)` while extraction runs only on `.fsi`).
+                // which is extracted only for `(# … #)` while the `.fsi` walk runs only on `.fsi`).
                 let ctx =
                     extractFsi
                         "capabilities.fsi"
@@ -616,7 +616,7 @@ let tests =
                 // canonicalizes to `TyConst` and guards interfaces out). This is the CLR
                 // build's shape; on JS the `.fs` omits the repr, so `CapabilityFace` is
                 // `ValueNone` and the canonical identity stands (see the compat-shim path).
-                // (Synthetic: the `(# … #)` repr is seeded directly into the harvest dicts,
+                // (Synthetic: the `(# … #)` repr is seeded directly into the repr dicts,
                 // mirroring the CLR build where the base `.fs` repr seeds both
                 // `IntrinsicBaseReprs` — the primitive marker that makes `isIntrinsic` true —
                 // and `IntrinsicReprs`, the platform face.)

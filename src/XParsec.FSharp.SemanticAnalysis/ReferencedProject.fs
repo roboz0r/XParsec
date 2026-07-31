@@ -129,7 +129,7 @@ module ReferencedProject =
     /// target suffix `js`. Nothing here touches the filesystem — a companion is a derived
     /// NAME, and whether it exists is the caller's question.
     ///
-    /// ONE derivation, deliberately: the intrinsic-repr harvest probes these paths
+    /// ONE derivation, deliberately: the intrinsic-repr extraction probes these paths
     /// (`baseFs` / `targetOverrideFs`) and `sourceInputs` must name a SUPERSET of them, or
     /// the compile cache's key would miss a file the build reads. Two copies of the rule is
     /// precisely how that coverage would rot.
@@ -137,7 +137,7 @@ module ReferencedProject =
     /// A superset and not the same set: `sourceInputs` is target-BLIND, so it derives a
     /// companion for every declared suffix, while a given build probes one target's. It also
     /// derives from every contract, including the per-target extras (`files-js`) whose
-    /// companion the harvest reaches by the BASE derivation — a `.js.fsi` shim's companion is
+    /// companion the extraction reaches by the BASE derivation — a `.js.fsi` shim's companion is
     /// `.js.fs`, so `companionFs None` already names it and `companionFs (Some "js")` yields
     /// a `.js.js.fs` that exists nowhere. Over-naming costs a rebuild; under-naming serves a
     /// wrong blob, which is why the asymmetry runs this way.
@@ -551,7 +551,7 @@ module ReferencedProject =
     /// before the file walk, since signature translation runs inside it.
     /// Returns per-file parse diagnostics alongside the provider (a file that
     /// fails to parse contributes no symbols but does not abort the build).
-    /// The `.fs` companion to harvest a contract `.fsi`'s intrinsic repr from, for
+    /// The `.fs` companion to extract a contract `.fsi`'s intrinsic repr from, for
     /// an optional backend target. A target's `<base>.<target>.fs` (`prim-types-exn.js.fs`,
     /// `exn → Error`) wins over the base `<base>.fs` (`exn → System.Exception`) when it
     /// exists — the intrinsic-repr analogue of the manifest's `inline-bodies-<t>`
@@ -564,7 +564,7 @@ module ReferencedProject =
 
     /// The per-target override companion (`prim-types-exn.fsi`, target `js` ⇒
     /// `prim-types-exn.js.fs`) — `Some` ONLY when a distinct file exists, so the
-    /// caller harvests the override without re-parsing the base as a fallback. `None`
+    /// caller extracts the override without re-parsing the base as a fallback. `None`
     /// on the base target (CLR) or when a primitive ships no companion for this target.
     ///
     /// The target is taken through `declaredTarget` FIRST: a manifest declaring no per-target
@@ -608,12 +608,12 @@ module ReferencedProject =
             // type by bare name (`Fun`2` / `Fun`3`), the way the consumer front end does.
             ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
 
-            // Pair `.fsi` extern + `.fs` `(# … #)`: harvest the intrinsic reprs
+            // Pair `.fsi` extern + `.fs` `(# … #)`: extract the intrinsic reprs
             // from each contract's sibling `.fs` companion FIRST, so the `extern`
             // arm of the `.fsi` extraction below publishes a matched primitive as
             // `ExternalTypeShape.Intrinsic` rather than an opaque `Class`. The `.fs`
             // is the only place the repr lives (the `.fsi` commits `type exn =
-            // extern`, no repr) — moved here from the codegen-layer harvest.
+            // extern`, no repr) — moved here from the codegen-layer extraction.
             //
             // Two repr faces:
             //  - the BASE `.fs` ⇒ `IntrinsicBaseReprs`: the primitive *marker* (its
@@ -627,7 +627,7 @@ module ReferencedProject =
             // with `platform = None` rather than falling back to a BCL repr that has no
             // JS runtime. The `canon` face is the `.fsi` name itself (set at the `extern`
             // arm), so the override never moves the unifier's identity key.
-            let harvestCompanion (dest: System.Collections.Generic.Dictionary<string, string>) (abs: string) =
+            let extractCompanion (dest: System.Collections.Generic.Dictionary<string, string>) (abs: string) =
                 let fsFile: VesperLib.LibFile =
                     {
                         Path =
@@ -640,19 +640,19 @@ module ReferencedProject =
 
                 match VesperLib.parseFileFull fsFile with
                 | Error _ -> ()
-                | Ok parsed -> VesperLib.harvestIntrinsicReprsInto dest parsed
+                | Ok parsed -> VesperLib.extractIntrinsicReprsInto dest parsed
 
             for rel in manifest.Files do
                 let baseAbs = baseFs dir rel
 
                 if File.Exists baseAbs then
-                    harvestCompanion ctx.IntrinsicBaseReprs baseAbs
+                    extractCompanion ctx.IntrinsicBaseReprs baseAbs
 
                     match targetOverrideFs manifest target dir rel with
-                    | Some overrideAbs -> harvestCompanion ctx.IntrinsicReprs overrideAbs
+                    | Some overrideAbs -> extractCompanion ctx.IntrinsicReprs overrideAbs
                     | None ->
                         // Base target (CLR), or no per-target companion: the base repr
-                        // IS the platform face. Reuse the just-harvested base marker
+                        // IS the platform face. Reuse the just-extracted base marker
                         // rather than re-parsing the file.
                         ()
 
@@ -667,12 +667,12 @@ module ReferencedProject =
                 let companionAbs = baseFs dir rel
 
                 if File.Exists companionAbs then
-                    harvestCompanion ctx.IntrinsicBaseReprs companionAbs
-                    harvestCompanion ctx.IntrinsicReprs companionAbs
+                    extractCompanion ctx.IntrinsicBaseReprs companionAbs
+                    extractCompanion ctx.IntrinsicReprs companionAbs
 
             // CLR (and any target whose primitive has no override): the base repr is the
             // platform face. Seed `IntrinsicReprs` from the base markers WITHOUT a
-            // second parse; a real per-target override (harvested above) already shadows
+            // second parse; a real per-target override (extracted above) already shadows
             // its entry, so this only fills the gaps.
             match target with
             | None ->
@@ -683,7 +683,7 @@ module ReferencedProject =
 
             // Base contract files, then this target's APPENDED shim files (`files-<t>`),
             // so a shim's RHS (`Vesper.disposable`) is already in the registry. Base / CLR
-            // appends nothing; harvest (above) is unaffected — a compat `.fsi` has no `.fs`.
+            // appends nothing; extraction (above) is unaffected — a compat `.fsi` has no `.fs`.
             for rel in manifest.Files @ resolveExtraFiles target manifest do
                 let file: VesperLib.LibFile =
                     {
@@ -756,7 +756,7 @@ module ReferencedProject =
         buildProviderWith None (fun _ -> ValueNone) [] manifestPath
         |> Result.map (fun bp -> bp.Provider, bp.Diagnostics)
 
-    /// A layer-2 metadata-tail factory: given the harvested `{ platform-repr →
+    /// A layer-2 metadata-tail factory: given the extracted `{ platform-repr →
     /// [canon] }` reverse map of the layer-1 providers composed so far, produce the
     /// trailing leaf providers. `composeOrdered` is leaf-AGNOSTIC — a backend injects
     /// its BCL `MetadataSymbols` / JS-native tail; an in-assembly caller that needs no
@@ -855,7 +855,7 @@ module ReferencedProject =
                 byPath.[key] <- bp.Provider
             | Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
 
-        // The final composite's leaf IS seeded with the full harvested reverse map, so a
+        // The final composite's leaf IS seeded with the full extracted reverse map, so a
         // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
         let builtList = List.ofSeq built
         ExternalSymbolProviders.composite (builtList @ metaTail (ExternalSymbolProviders.mergeReverseCanon builtList))

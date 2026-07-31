@@ -1634,7 +1634,7 @@ module Elaborate =
 
     /// Surface an inline intrinsic-abbrev host (`type X = (# … #) with member …`) as a
     /// `TDecl.Type` of kind `Class` from its `IntrinsicAbbrevInfo`. This decl is an
-    /// INTERNAL artifact consumed only by the member-inline harvest (a concrete
+    /// INTERNAL artifact consumed only by the member-inline lifting (a concrete
     /// `(# … #)`-bodied member becomes a `this`-first inline body); it is NEVER emitted,
     /// and the abbrev keeps its `TyConst` identity (it stays in `IntrinsicReprTypes`).
     /// Members surface through the shared host-member path (`elaborateHostMembers` →
@@ -1645,7 +1645,7 @@ module Elaborate =
     /// this decl still traverses (`Regions` / `RefCellPromotion` / `ResolvedTypes` /
     /// `PlatformTypes` run before emit): an empty-cases `Union` / empty-fields `Record`
     /// would route its members through those passes' union/record-specific branches
-    /// (e.g. `PlatformTypes`' `Record | Union` arm) for no gain. The harvest itself is
+    /// (e.g. `PlatformTypes`' `Record | Union` arm) for no gain. The lifting itself is
     /// kind-agnostic (`TTypeKindG.members`), so the choice is purely which container is
     /// safest to carry inert.
     let private tryIntrinsicAbbrevType
@@ -1698,7 +1698,7 @@ module Elaborate =
 
     /// Surface an interface-shaped, union, record, or class `TypeDefn` as a
     /// `TDecl.Type`. A plain abbreviation surfaces nothing; an inline intrinsic-abbrev
-    /// carrying a `with member …` augmentation surfaces its members (harvest-only).
+    /// carrying a `with member …` augmentation surfaces its members (lift-only).
     let private tryTypeDecl
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
@@ -1757,7 +1757,7 @@ module Elaborate =
             tryRecordType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Enum(typeName = tn; cases = cases) -> tryEnumType ctx c (typeNameSimple ctx tn) cases
         // A plain abbrev has no host in `IntrinsicAbbrevHost` and surfaces `None`; an
-        // inline intrinsic-abbrev with `with member …` surfaces its members (harvest-only).
+        // inline intrinsic-abbrev with `with member …` surfaces its members (lift-only).
         | TypeDefn.Abbrev(typeName = tn; extensions = ext) -> tryIntrinsicAbbrevType ctx ns (typeNameSimple ctx tn) ext
         | _ -> None
 

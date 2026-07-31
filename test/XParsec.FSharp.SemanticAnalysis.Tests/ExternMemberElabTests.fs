@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // The front end now ELABORATES an inline intrinsic-abbrev
 // augmentation `type X = (# "repr" #) with member _.M p = (# … #)` into a
-// harvestable `TDecl.Type(Class)` carrying `this`-first member bodies, while KEEPING
+// liftable `TDecl.Type(Class)` carrying `this`-first member bodies, while KEEPING
 // the abbrev's `TyConst` identity (it stays intrinsic at every other use site).
 
 let private analyse (input: string) : TastFile =

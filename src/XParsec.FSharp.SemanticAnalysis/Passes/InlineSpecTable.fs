@@ -345,7 +345,7 @@ module InlineSpecTable =
                         Origin = o.Origin
                         // The binder is unread — every consumer matches
                         // `TDecl.Let(_, value, _, _)` — so it is minted rather than
-                        // taken from anything, exactly as a harvested member body's is.
+                        // taken from anything, exactly as a lifted member body's is.
                         Decl =
                             TDecl.Let(TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value), value, true, declTy)
                     }

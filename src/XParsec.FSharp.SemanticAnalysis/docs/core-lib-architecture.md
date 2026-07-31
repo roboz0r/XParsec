@@ -243,7 +243,7 @@ Three distinct companion patterns coexist, and the distinction is load-bearing:
 - **`comparison.js.fs`** — a whole-file per-target re-authoring, selected by
   `inline-bodies-js`.
 
-**Intrinsic reprs are harvested from the `.fs` before the `.fsi` is walked**
+**Intrinsic reprs are extracted from the `.fs` before the `.fsi` is walked**
 (`buildProviderWith`, `ReferencedProject.fs:531-580`), because the `.fs` is the
 only place the repr lives — the `.fsi` commits `type exn = extern` and no repr.
 There are two faces:

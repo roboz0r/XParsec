@@ -17,14 +17,14 @@ open XParsec.FSharp.Codegen.Js
 // Elaboration RESOLVED the former blocker: the impl spelling
 // `type widget = (# "object" #) with member …` (a `TypeDefn.Abbrev` carrying
 // extensions) now ELABORATES to a real `TDecl.Type(Class)` whose members carry
-// `this`-first `(# … #)` bodies. The `harvest on real elaboration` test below
-// front-ends that impl string and runs the SAME harvest arm `collectInlineBodies`
-// uses, proving the harvest fires on genuine elaboration output.
+// `this`-first `(# … #)` bodies. The `lifting on real elaboration` test below
+// front-ends that impl string and runs the SAME lifting arm `collectInlineBodies`
+// uses, proving the lifting fires on genuine elaboration output.
 //
-// The key-agreement test still hand-builds the harvest input member and sources the
+// The key-agreement test still hand-builds the input member and sources the
 // FINALIZED key from a REAL loaded `.fsi` — wiring the FULL manifest path (a package
 // carrying BOTH the widget `.fsi` contract AND the widget `.fs` under
-// `inline-bodies-js`, so the harvested body reaches the use site through
+// `inline-bodies-js`, so the lifted body reaches the use site through
 // `TryLookupMember(...).InlineBody` end-to-end) is deferred as disproportionate for this
 // stage.
 
@@ -32,7 +32,7 @@ open XParsec.FSharp.Codegen.Js
 /// the same anchor a lowering's own minted node takes.
 let private dummyTok: Anchor = Anchor.nowhere
 
-/// …and so the file a harvest of it names is no file either. Every node anchors
+/// …and so the file a lift of it names is no file either. Every node anchors
 /// `Anchor.nowhere`, which `OriginSources.tokenAt` answers before it consults any retained
 /// source, so this is an identity and the text below is never read.
 let private nowhereSource: OriginSource =
@@ -107,10 +107,10 @@ let private ftWidget: FrozenType =
 
 /// A hand-built FROZEN `widget.Poke` member over one value parameter:
 /// `member _.Poke (x: 'paramTy) : int = (# template x : int #)`. Frozen because that is
-/// what the harvest reads — a published inline body never carries a live inference cell.
+/// what the lifting reads — a published inline body never carries a live inference cell.
 let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor.TypeMember =
     // The hand-built body is a node of no file, so it gets a pool of its own — the same
-    // zero-column shape an `.fsi`-minted `ValRepr`'s patterns take. `harvestMemberBody`
+    // zero-column shape an `.fsi`-minted `ValRepr`'s patterns take. `liftMemberBody`
     // mints its wrapping lambdas straight into it, and the member's definition sites are
     // this pool's own binders.
     let pool = TastPoolBuilder.openEmpty ()
@@ -156,7 +156,7 @@ let private pokeMember () : TastAccessor.TypeMember = pokeMemberOf "$0 + 1" ftIn
 // ─── Stage 1c: end-to-end SPLICE proof over the loadable `widget` fixture ────
 //
 // The fixture package (`fixtures/widget/`) carries BOTH the `.fsi` contract AND the
-// `.js.fs` harvest source under `inline-bodies-js`, so the JS-native provider closes
+// `.js.fs` body source under `inline-bodies-js`, so the JS-native provider closes
 // `TryLookupMember("widget","Poke").InlineBody` against real elaboration.
 // Stacked AHEAD of `jsManifests` (which carry Vesper.Core, so `int` resolves).
 
@@ -165,7 +165,7 @@ let private widgetManifest: string =
     System.IO.Path.Combine(__SOURCE_DIRECTORY__, "fixtures", "widget", "manifest.toml")
 
 /// The JS-native contract with the `widget` fixture layered ahead of the standard JS
-/// manifests — so widget's Class + `Poke` member AND the harvested member inline body
+/// manifests — so widget's Class + `Poke` member AND the lifted member inline body
 /// (keyed under the finalized member key) are all present. The WHOLE contract, because the
 /// spliced body's positions are readable only against this set's retained producer files:
 /// `widget.js.fs` is in this retention and in no other.
@@ -184,7 +184,7 @@ let tests =
         [
             // THE Stage 1c end-to-end assertion: a consumer call `w.Poke 41` on the
             // loadable fixture SPLICES its member body (`41 + 1`) — no `.Poke(` method
-            // call survives, and `widget`'s harvest-only `Class` decl never reaches emit.
+            // call survives, and `widget`'s lift-only `Class` decl never reaches emit.
             test "`w.Poke 41` splices to `41 + 1` end-to-end (no `.Poke`, no `class widget`)" {
                 let js = emitWidget "open Widgets\nlet usePoke (w: widget) : int = w.Poke 41\n"
 
@@ -195,14 +195,14 @@ let tests =
                 // No method call survived — the member was spliced, not called.
                 Expect.isFalse (js.Contains ".Poke") (sprintf "a `.Poke` method call leaked into emit:\n%s" js)
 
-                // The harvest-only `Class` decl (widget's `.js.fs` `TDecl.Type(Class)`) must
+                // The lift-only `Class` decl (widget's `.js.fs` `TDecl.Type(Class)`) must
                 // NEVER reach emit — it lives only in the inline-bodies file. Pins the
-                // 1b-elab flag that a harvest-only Class decl is not emitted.
+                // 1b-elab flag that a lift-only Class decl is not emitted.
                 Expect.isFalse (js.Contains "class widget") (sprintf "widget's Class decl leaked into emit:\n%s" js)
             }
 
-            test "harvestMemberBody mints a `this`-first curried inline TDecl.Let" {
-                match SymbolProviders.harvestMemberBody nowhereSource (pokeMember ()) with
+            test "liftMemberBody mints a `this`-first curried inline TDecl.Let" {
+                match SymbolProviders.liftMemberBody nowhereSource (pokeMember ()) with
                 | Some body ->
                     match body.Decl with
                     | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, thisTy, _), inner, _, _), true, declTy) ->
@@ -235,17 +235,17 @@ let tests =
                         // ParamAttrs aligned to curried position: leading `this` + value param.
                         Expect.equal body.ParamAttrs.Length 2 "two curried ParamAttrs (this + x)"
                     | other -> failtestf "expected a `this`-first curried inline lambda, got %A" other
-                | None -> failtest "harvestMemberBody returned None for an inline-IL member"
+                | None -> failtest "liftMemberBody returned None for an inline-IL member"
             }
 
-            test "a STATIC member harvests with no leading `this` param" {
+            test "a STATIC member lifts with no leading `this` param" {
                 let staticPoke =
                     { pokeMember () with
                         IsStatic = true
                         ThisKey = ValueNone
                     }
 
-                match SymbolProviders.harvestMemberBody nowhereSource staticPoke with
+                match SymbolProviders.liftMemberBody nowhereSource staticPoke with
                 | Some body ->
                     match body.Decl with
                     | TDeclG.Let(_,
@@ -262,7 +262,7 @@ let tests =
 
                         Expect.equal body.ParamAttrs.Length 1 "one curried ParamAttr (x only, no this)"
                     | other -> failtestf "expected `fun x -> (# … #)` with no `this`, got %A" other
-                | None -> failtest "harvestMemberBody returned None for a static inline-IL member"
+                | None -> failtest "liftMemberBody returned None for a static inline-IL member"
             }
 
             // THE load-bearing assertion: the member body stores under the FINALIZED
@@ -278,9 +278,9 @@ let tests =
                     | ValueNone -> failtest "TryLookupMember(widget, Poke) missing — member capture failed"
 
                 let body =
-                    match SymbolProviders.harvestMemberBody nowhereSource (pokeMember ()) with
+                    match SymbolProviders.liftMemberBody nowhereSource (pokeMember ()) with
                     | Some b -> b
-                    | None -> failtest "harvestMemberBody returned None"
+                    | None -> failtest "liftMemberBody returned None"
 
                 // Store under the FINALIZED member key (NEVER a hand-rolled MemberKey).
                 let byKey =
@@ -333,9 +333,9 @@ let tests =
 
                 // Each overload's OWN body, stored under its OWN key.
                 let bodyOf (template: string) (paramTy: FrozenType) =
-                    match SymbolProviders.harvestMemberBody nowhereSource (pokeMemberOf template paramTy) with
+                    match SymbolProviders.liftMemberBody nowhereSource (pokeMemberOf template paramTy) with
                     | Some b -> b
-                    | None -> failtest "harvestMemberBody returned None"
+                    | None -> failtest "liftMemberBody returned None"
 
                 let byKey =
                     System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
@@ -380,17 +380,17 @@ let tests =
                 | ValueNone -> failtest "TryLookupMember(widget, Poke) missed"
             }
 
-            // PRODUCER PIN (structural). Two same-name harvested member signatures that
+            // PRODUCER PIN (structural). Two same-name lifted member signatures that
             // differ only by parameter TYPE must mint two DISTINCT `MemberKey`s through the
             // exact logic `SymbolProviders.collectInlineBodies` performs (decl + name + kind
             // + structural `FrozenType` argSig + method-typar arity). Were they to collapse
             // to one key — the old `TryLookupMember` best-by-arity round-trip — the second
-            // harvested body would overwrite the first and one call site could never splice.
-            // Pinned STRUCTURALLY (hand-built harvested signatures) rather than via a real
+            // lifted body would overwrite the first and one call site could never splice.
+            // Pinned STRUCTURALLY (hand-built lifted signatures) rather than via a real
             // cross-file declaration because two `(# … #)`-bodied same-name overloads are not
             // DECLARABLE in one file today: local member overloading is unrepresentable (the
             // arity-only local key collides), the deferred follow-on this identity unblocks.
-            test "collectInlineBodies mints distinct keys for two distinct harvested overload signatures" {
+            test "collectInlineBodies mints distinct keys for two distinct lifted overload signatures" {
                 let declKey = SymbolKeyOps.qualifiedTypeKeyOf "widget" 0
 
                 // The exact per-member mint `collectInlineBodies` uses.
@@ -413,15 +413,15 @@ let tests =
 
                 byKey.[kInt] <- "int-body"
                 byKey.[kStr] <- "string-body"
-                Expect.equal byKey.Count 2 "both harvested bodies are retained under distinct keys"
+                Expect.equal byKey.Count 2 "both lifted bodies are retained under distinct keys"
                 Expect.equal byKey.[kInt] "int-body" "the int overload keeps its own body"
                 Expect.equal byKey.[kStr] "string-body" "the string overload keeps its own body"
             }
 
             // THE end-to-end assertion: front-end the impl `.fs` spelling and run the
-            // harvest arm `collectInlineBodies` uses over the REAL elaborated + FROZEN
+            // lifting arm `collectInlineBodies` uses over the REAL elaborated + FROZEN
             // `TDecl.Type(Class)`.
-            test "harvest fires on real elaboration of `type widget = (# … #) with member …`" {
+            test "lifting fires on real elaboration of `type widget = (# … #) with member …`" {
                 let input =
                     "module Widgets\n\n\
                      type widget =\n\
@@ -438,10 +438,10 @@ let tests =
                 Expect.isEmpty errors (sprintf "no analysis errors: %A" (errors |> List.map (fun d -> d.Message)))
 
                 // Replicate `SymbolProviders.collectInlineBodies`'s `DeclShape.Type` arm
-                // exactly: for each member-bearing decl, harvest each member.
+                // exactly: for each member-bearing decl, lift each member.
                 let pool = TastPoolBuilder.openOver tast
 
-                let harvested =
+                let lifted =
                     [
                         for d in TastAccessor.roots pool do
                             match TastAccessor.declKind d with
@@ -449,13 +449,13 @@ let tests =
                                 let tdecl = TastAccessor.declType d
 
                                 for m in TTypeKindG.members tdecl.Kind do
-                                    match SymbolProviders.harvestMemberBody source m with
+                                    match SymbolProviders.liftMemberBody source m with
                                     | Some body -> yield m.Name, body
                                     | None -> ()
                             | _ -> ()
                     ]
 
-                match harvested |> List.tryFind (fun (name, _) -> name = "Poke") with
+                match lifted |> List.tryFind (fun (name, _) -> name = "Poke") with
                 | Some(_, body) ->
                     match body.Decl with
                     | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, FTConst(key, _), _), _, _, _), true, _) when
@@ -463,6 +463,6 @@ let tests =
                         ->
                         ()
                     | other -> failtestf "expected a `this : widget`-first inline lambda, got %A" other
-                | None -> failtestf "harvest produced no Poke body; harvested: %A" (harvested |> List.map fst)
+                | None -> failtestf "lifting produced no Poke body; lifted: %A" (lifted |> List.map fst)
             }
         ]

@@ -2,11 +2,11 @@ namespace Widgets
 
 #nowarn "42"
 
-// The JS-target harvest source for the `widget.fsi` contract. `widget` binds the
+// The JS-target body source for the `widget.fsi` contract. `widget` binds the
 // `(# "object" #)` intrinsic repr and carries a concrete `Poke` member whose body is a
 // single inline-IL template (`$0` ← `this`… no: `$0` ← the value param `x`). The member
 // is NOT emitted as a class method: this file is loaded ONLY as `inline-bodies-js`, so
-// `harvestMemberBody` mints a `this`-first inline body served under the finalized member
+// `liftMemberBody` mints a `this`-first inline body served under the finalized member
 // key and the consumer's `InlineExpansion` splices it at each `w.Poke a` use site.
 
 type widget =

@@ -155,7 +155,7 @@ module RuntimeNames =
     /// ESCAPED name can carry no `` `N `` (the backticks are the escape), so `SymbolKeyOps`
     /// holds it at arity 0 and renders it verbatim — the array's member store/contract key
     /// is the bare `` ``[]`` ``, NOT `arrayName`'s clean `"[]"` nor `"[]`1"`. Both the
-    /// consumer-contract half and the harvest-store
+    /// consumer-contract half and the inline-body-store
     /// half derive this SAME string from the identical source spelling, so they agree by
     /// construction; the receiver-side `TyConst("[]")` indexer lookup
     /// (`inferIndexedLookup`) must translate to THIS string to meet them. Single-sourced

@@ -16,7 +16,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 /// The array's member-contract key — the double-backtick-escaped `arrayName 1`
 /// (`` ``[]`` ``), the SAME ordinal string the receiver-side lookup, the consumer
-/// contract, and the harvest store all pass to `TryLookupMember`.
+/// contract, and the inline-body store all pass to `TryLookupMember`.
 let private arrayMemberKey: string = RuntimeNames.arrayContractName
 
 [<Tests>]
@@ -26,7 +26,7 @@ let tests =
         [
             // KEY-AGREEMENT PROBE: over the REAL loaded JS-native contract stack, the
             // array's `get_Item` member (a) resolves under the bare key `` ``[]`` `` from the
-            // `array-index.js.fsi` contract half, AND (b) its harvested inline body rides
+            // `array-index.js.fsi` contract half, AND (b) its lifted inline body rides
             // THAT VERY ENTRY (`mem.InlineBody`). Store key == lookup key: both are the
             // finalized `SymbolKey` that `TryLookupMember("``[]``", "get_Item")` returns. A
             // disagreement here is exactly the silent-`GetArray`-fallback bug this stage
@@ -44,7 +44,7 @@ let tests =
 
                 Expect.isTrue
                     mem.InlineBody.IsSome
-                    "the `get_Item` entry carries NO inline body — the harvest store key DISAGREES with the lookup key"
+                    "the `get_Item` entry carries NO inline body — the inline-body store key DISAGREES with the lookup key"
             }
 
             // RESOLVER-PATH PROOF: front-end an `arr.[i]` read and assert Unification

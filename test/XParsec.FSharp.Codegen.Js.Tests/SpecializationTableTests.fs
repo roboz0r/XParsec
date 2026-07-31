@@ -165,7 +165,7 @@ module Probe =
 /// minted from the survivors of the very peel it belongs to.
 ///
 /// `'T[]`'s `get_Item` is OVERRIDDEN rather than a fresh type declared: a member inline body is
-/// harvested only off a `(# … #)`-rooted member (`SymbolProviders.harvestMemberBody`), and such
+/// lifted only off a `(# … #)`-rooted member (`SymbolProviders.liftMemberBody`), and such
 /// a body cannot name its own type's member — within its declaring file that call is not
 /// external at all. Reaching the member through `bounce`, whose own file sees the array type as
 /// a foreign one, is what makes the reference keyed. Bodies are keyed and a later manifest wins,
@@ -199,7 +199,7 @@ module Bounce =
 """
 
         // The array type is FOREIGN here, so `a.[i]` is a keyed member reference — the same
-        // `MemberKey` the body below is harvested under.
+        // `MemberKey` the body below is lifted under.
         write
             "bounce.fs"
             """namespace CycleMember
@@ -458,7 +458,7 @@ let tests =
                 // `get_Item`, whose reduction peels `this :: [index]`; its body reaches the same
                 // member through `bounce`, and THAT call is answered rather than expanded.
                 //
-                // A harvested member body is served with its producer file
+                // A lifted member body is served with its producer file
                 // (`SymbolProviders.collectInlineBodies` anchors both halves of what it drains),
                 // so the member reduction is OUTLINED: it holds a table slot, and the call that
                 // reaches it while it is in flight becomes a back edge rather than an
