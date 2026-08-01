@@ -381,7 +381,12 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  let depDlls = depArtifacts |> List.choose (fun art -> art.OutputPath)
                  let depManifests = manifest.DependsOn |> List.map srcManifest
 
-                 let provider = ClrSymbolProviders.buildContract depManifests
+                 // The package NAMES ITSELF as self, so a BCL signature presents the
+                 // primitives this very compilation declares as its own canon identities
+                 // — `prim-types-string.fs`'s `System.String.Concat(x, y)` takes two
+                 // `Vesper.string`s and must find the `(String, String)` overload.
+                 let provider =
+                     ClrSymbolProviders.buildContractForSelf (Some manifestPath) None depManifests
 
                  let dir = IO.Path.GetDirectoryName manifestPath
 

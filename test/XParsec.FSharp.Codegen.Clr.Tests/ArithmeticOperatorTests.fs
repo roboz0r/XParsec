@@ -9,32 +9,27 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // The arithmetic / unary-negation operator family (`+ - * / %`, `~-`) is sourced
 // from the `Vesper.Core/ops-platform.fs` contract bodies. Each binary body carries
 // the three typars its `.fsi` publishes (`x: ^T1 -> y: ^T2 -> ^T3`, support set
-// `(^T1 or ^T2)`) and is an F# static-optimization whose *base* is the SRTP TRAIT
-// CALL — a user type dispatches to its own `static member (+)` — and whose
-// `when ^T1 : … and ^T2 : … and ^T3 : …` clauses carry ONE clause per supported
-// primitive, each with that primitive's own IL. Those clauses return DIFFERENT types
-// (`byte` / `int16` / …) than the declared `^T3`, which only type-checks because
-// `inferLibraryOnlyStaticOptimization` no longer cross-unifies clause bodies.
+// `(^T1 or ^T2)`) and IS the bare SRTP TRAIT CALL: a user type dispatches to its own
+// `static member (+)`, and so does a primitive — every supported width states the
+// operator on itself in `prim-types-*.fsi`, `string` included, with the IL beside it
+// in the per-target `.fs`.
 //
-// The consequence these tests have to hold down: NO primitive rides the base. A
-// primitive whose clause is missing falls to the trait call, fails to resolve (it is
-// not a nominal), and becomes a compile ERROR — so the per-width coverage is not
-// decoration, it is the enumeration of the supported set. That set is
-// `RuntimeNames.numericTypeNames` (what `Engine.tryPrimitiveTraitCandidate`
-// synthesises an arithmetic trait candidate for) minus `decimal`, plus `string` for
-// `(+)`.
+// The consequence these tests have to hold down: nothing rides a raw-IL base. An
+// operand type that declares no such member fails to resolve (it is not a nominal)
+// and becomes a compile ERROR — so the declared set IS the supported set, stated in
+// one place rather than mirrored in a clause list.
 //
 // The per-(operator, width) BEHAVIOURAL rows do not live here. They are the shared
 // backend conformance corpus (`test/Codegen.Conformance/ops/arith-*.fs`), which every
 // backend is pointed at, judged against a golden rather than against a `=` it is
 // itself under test for. What remains here is what a corpus program cannot say — the
 // Layer-2/3 anchors that prove *which* emission path fired:
-//   - the opcode table is the complete clause enumeration, read straight off the
+//   - the opcode table is the complete width enumeration, read straight off the
 //     spliced body — it reaches the widths whose LITERALS the front end cannot yet
 //     represent, which no behavioural row can;
 //   - the freeze test proves the bodies are collected as cross-package inlines and
-//     that the static-opt BASE is the trait call;
-//   - the diagnostic tests prove an operand the clause list does NOT cover (`decimal`,
+//     are the trait call;
+//   - the diagnostic tests prove an operand that declares no such member (`decimal`,
 //     an unpinned class typar) is REJECTED rather than emitted as garbage IL;
 //   - the no-dependency test proves primitive arithmetic pins no FSharp.Core.
 
@@ -154,8 +149,8 @@ let tests =
                 // Every arithmetic body IS the SRTP trait call — an operand type either
                 // declares the member or does not support the operator. Nothing rides a
                 // raw-IL base, which is what makes an unsupported operand diagnose.
-                // Binary ops abstract twice, `~-` once. `(+)` is the one still wrapped in
-                // a static-opt: its lone `string` clause (see `prim-types-string.fsi`).
+                // Binary ops abstract twice, `~-` once; none is wrapped in a static-opt
+                // any more, and the arm that unwraps one is what would notice a relapse.
                 let rec traitBase (e: Wire.TExpr) : Wire.TExpr =
                     match e with
                     | TExprG.Lambda(_, b, _, _) -> traitBase b
@@ -172,10 +167,10 @@ let tests =
                     | other -> failtestf "%s should freeze as an inline `let`, got %A" name other
             }
 
-            // Every width states its own `(+)` on the type, so the operator itself no
-            // longer names any. `string` alone still needs a clause, and its declaration
-            // being absent is what this pins — the `.fsi` remark says why.
-            test "only `string` still rides a clause on `+`; every numeric width declares its own" {
+            // Every width states its own `(+)` on the type, so the operator itself names
+            // none. `string` is the last one to move across, and its `(+)` — a BCL CALL
+            // where the numeric widths' are mnemonics — is what this pins.
+            test "every width supporting `+` declares it on the type, `string` included" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
 
                 let declares (width: string) (op: string) =
@@ -187,7 +182,12 @@ let tests =
                     for op in [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ] do
                         Expect.isTrue (declares width op) (sprintf "%s declares %s" width op)
 
-                Expect.isFalse (declares "string" "op_Addition") "string's `(+)` is still the operator's own clause"
+                Expect.isTrue (declares "string" "op_Addition") "string declares op_Addition"
+
+                // Concatenation and nothing else: the other five are meaningless on it,
+                // and a declaration is the only thing that would make one compile.
+                for op in [ "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ] do
+                    Expect.isFalse (declares "string" op) (sprintf "string declares no %s" op)
             }
 
             // A HETEROGENEOUS user operator (`Vec2 * int -> Vec2`): the contract's

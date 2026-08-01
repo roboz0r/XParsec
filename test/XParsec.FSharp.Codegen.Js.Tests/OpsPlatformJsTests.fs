@@ -26,7 +26,6 @@ let tests =
             OperatorSurfaceParity.tests
                 "js"
                 (JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ])
-                (JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ])
 
             // The operators themselves are still `let inline` values in the collection —
             // now bare trait calls, with the per-width IL on the primitives.

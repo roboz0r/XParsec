@@ -8,12 +8,9 @@ type char = extern
 /// <summary>An abbreviation for the CLI type <see cref="T:System.String"/>.</summary>
 ///
 /// <category>Basic Types</category>
-///
-/// <remarks>Declares NO <c>(+)</c> yet, unlike every numeric width — concatenation is
-/// still the one surviving clause on the operator itself. The reason it could not move
-/// (a BCL CALL body, where the numeric widths' are mnemonics, and the
-/// <c>{ platform -&gt; canon }</c> map that presents a <c>System.String</c> PARAMETER as a
-/// Vesper <c>string</c> being absent inside Core's own compile) is FIXED: a compilation
-/// now names its own package, whose reverse axis seeds the metadata leaf. Moving the
-/// declaration here is outstanding work, not a blocked case.</remarks>
-type string = extern
+type string = extern with
+
+    /// <summary>Concatenation — the one non-numeric operand the arithmetic family
+    /// admits, and the only member here whose body is a BCL CALL rather than a
+    /// mnemonic. Spliced at the use site like every other width's.</summary>
+    static member inline (+): x: string * y: string -> string

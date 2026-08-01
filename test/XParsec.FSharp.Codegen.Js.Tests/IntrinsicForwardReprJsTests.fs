@@ -43,6 +43,16 @@ let tests =
 
             test "`bool` reprs to `boolean`" { Expect.equal (tryRepr "bool") (Some "boolean") "bool -> boolean" }
 
+            // A primitive whose JS type name is spelled like its own canon. The axis once
+            // dropped these, reading the coincidence of two different string axes — a
+            // source spelling and a platform type name — as "no repr on this target"; the
+            // effect was a `bigint` literal rendered without its `n` suffix, and `string`
+            // invisible to every consumer that enumerates primitives from this map.
+            test "a primitive reprs to its own spelling like any other" {
+                for canon, repr in [ "string", "string"; "bigint", "bigint"; "undefined", "undefined" ] do
+                    Expect.equal (tryRepr canon) (Some repr) (sprintf "canon '%s' must extract JS repr '%s'" canon repr)
+            }
+
             test "`float` reprs to `number` — the covariant target's licensing datum" {
                 // The exact fact the G1 covariant relocation asserts at construction:
                 // naming `float` as `number`'s covariant value-read target is only sound

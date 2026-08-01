@@ -432,8 +432,12 @@ module VesperLibTyparCapture =
             // `MetadataSymbols.tryBuildType` (eager canonicalization) — and so the
             // multi-canon entries drive `numericFamilyOr`'s JS `number` widening. Built
             // from the published `Intrinsic` shapes — the same source the forward
-            // `canon` axis reads — so the two can never drift. The guard skips a
-            // degenerate `canon = platform` entry (a primitive with no `.fs` repr).
+            // `canon` axis reads. The `platform <> canon.Name` guard is NOT a fact about the
+            // primitive (see the forward axis, which no longer carries it); it survives here
+            // because this map's consumer, `Engine.intrinsicUnionOf`, fires on a platform name
+            // with ≥2 canons, so admitting JS `string`/`undefined` would newly synthesise
+            // `char | string` and `unit | undefined`. That is a front-end semantics change to
+            // measure, not to make in passing.
             // A capability INTERFACE (`disposable`) is deliberately NOT emitted here: it
             // resolves to a `TyClass` constraint, not a `TyConst` value identity, so its only
             // possible reverse consumer is `MetadataSymbols.tryBuildType` — which must NOT
@@ -464,18 +468,21 @@ module VesperLibTyparCapture =
                 |> Seq.map (fun (platform, xs) -> platform, xs |> Seq.map snd |> Seq.distinct |> List.ofSeq)
                 |> Map.ofSeq
 
-            // Forward intrinsic axis `{ canon -> platform-repr }` — the mirror of
-            // `intrinsicReverse`, from the SAME published `Intrinsic` shapes so the two
-            // can't drift. Codegen reads it to resolve a primitive canon (`int`) to its
+            // Forward intrinsic axis `{ canon -> platform-repr }`, from the SAME published
+            // `Intrinsic` shapes `intrinsicReverse` reads — but not its mirror; see the
+            // guard note below. Codegen reads it to resolve a primitive canon (`int`) to its
             // `.fs` repr (`System.Int32`) — the single source of a primitive's repr.
             // Only `Intrinsic` (scalar/structural primitives) carry a codegen repr;
             // capability platform interfaces are reconciliation-only (reverse) and are
-            // encoded as classes, so they are NOT included here. The `platform <> canon` guard
-            // mirrors `intrinsicReverse`: a degenerate self-map (a primitive with no
-            // distinct `.fs` repr) is no codegen repr at all, so it must stay absent here
-            // too — included, it would route the canon into the value-type encoder
-            // (`ClrEncoder` `PrimitiveRepr` arm) and fail, where its absence falls the
-            // name through to nominal encoding.
+            // encoded as classes, so they are NOT included here.
+            //
+            // NO `platform <> canon.Name` guard, unlike `intrinsicReverse`: the two are
+            // different string axes (a source spelling and a platform type name), so their
+            // coincidence is not a fact about the primitive. On JS `string`, `bigint` and
+            // `undefined` all repr to their own spelling and are as represented as any
+            // other; dropping them made the axis mean "no repr on this target" and "repr
+            // happens to be spelled like the canon" at once, and the second reading is what
+            // rendered a `bigint` literal without its `n` suffix.
             let intrinsicForward =
                 // `SymbolKey` is equatable-but-not-comparable, so the canon-keyed forward
                 // axis is a read-only `Dictionary`, not a `Map`.
@@ -491,7 +498,7 @@ module VesperLibTyparCapture =
                                                                Canon = canon
                                                                Platform = Some platform
                                                            }
-                                                  } when platform <> canon.Name -> d.[SymbolKey.Type canon] <- platform
+                                                  } -> d.[SymbolKey.Type canon] <- platform
                     | _ -> ()
 
                 d :> System.Collections.Generic.IReadOnlyDictionary<_, _>

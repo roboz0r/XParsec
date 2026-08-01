@@ -54,48 +54,6 @@ module InlineBodies =
 
         List.ofSeq acc
 
-    /// The primitive widths this body's static-optimization clauses select on. Once the
-    /// definition of an operator's support set, now its dwindling residue: every numeric
-    /// width states its own member instead, and `string`'s `(+)` is the last clause left
-    /// (`prim-types-string.fsi` says why). Empties out, and this goes with it.
-    ///
-    /// Each `when ^T1 : byte and ^T2 : byte and ^T3 : byte` clause carries one
-    /// `TyconEquals` constraint per typar, all naming the same primitive, so a clause
-    /// contributes one width however many typars its operator publishes. The width is the
-    /// required type's bare intrinsic name — the same thing a clause is SELECTED by, and
-    /// for the same reason it needs no canonicalisation: an intrinsic abbreviation
-    /// (`int32`, `single`) is expanded at name resolution, so a clause's required type is
-    /// already canonical by the time it is frozen into the body.
-    let clauseWidths (body: InlineBody) : Set<string> =
-        let acc = ResizeArray<string>()
-
-        let widthOf (t: FrozenType) =
-            match t with
-            | FTConst(key, _) -> Some(SymbolKeyOps.intrinsicName key)
-            // A clause gated on a typar (`when ^T : ^T`, the user catch-all) or on a
-            // structural type pins no width; the arithmetic contract writes neither.
-            | _ -> None
-
-        let rec walkExpr (e: Wire.TExpr) =
-            match e with
-            | TExprG.StaticOptimization(clauses, _, _, _) ->
-                for c in clauses do
-                    for k in c.Constraints do
-                        match k with
-                        | TStaticOptConstraintG.TyconEquals(_, required) ->
-                            match widthOf required with
-                            | Some w -> acc.Add w
-                            | None -> ()
-                        | TStaticOptConstraintG.IsStruct _ -> ()
-            | TExprG.Lambda(_, b, _, _) -> walkExpr b
-            | _ -> ()
-
-        match body.Decl with
-        | TDeclG.Let(_, v, _, _) -> walkExpr v
-        | _ -> ()
-
-        Set.ofSeq acc
-
     /// The spliced body of ONE primitive's operator member, as this contract serves it —
     /// the per-width template that used to be a clause on the operator. A member on an
     /// intrinsic is never emitted, so this body is the only artifact the width's
@@ -129,24 +87,6 @@ module OperatorSurfaceParity =
     /// The manifest's `operators` default: a program's obligations are about every
     /// arithmetic operator unless it narrows them.
     let private allOperators = operators |> List.map fst |> Set.ofList
-
-    /// The primitives that DECLARE `compiled` as a static member on this contract.
-    ///
-    /// Two axes meet here and only one is per-target. The DECLARATION is target-neutral —
-    /// `static member (+)` is written once, in the `.fsi`. What varies is
-    /// REPRESENTABILITY: `IntrinsicForwardRepr` is extracted from the target's own
-    /// `(# … #)` bindings, so a primitive the target has no repr for (`nativeint` on JS)
-    /// is not in it at all and its declarations are unreachable rather than separately
-    /// gated. Enumerating from that map is therefore what makes the two backends' answers
-    /// differ, and it is the ONE mechanism by which target-dependence enters.
-    let private widthsDeclaring (provider: IExternalSymbolProvider) (compiled: string) : Set<string> =
-        set
-            [
-                for kv in provider.IntrinsicForwardRepr do
-                    match provider.TryLookupMember(kv.Key, compiled) with
-                    | ValueSome m when m.IsStatic -> yield SymbolKeyOps.intrinsicName kv.Key
-                    | _ -> ()
-            ]
 
     /// What the manifest owes for ONE (width, operator) pair, merged over every program
     /// that names it.
@@ -203,11 +143,28 @@ module OperatorSurfaceParity =
                 )
         )
 
+    /// The primitives that DECLARE `compiled` as a static member on this contract.
+    ///
+    /// Two axes meet here and only one is per-target. The DECLARATION is target-neutral —
+    /// `static member (+)` is written once, in the `.fsi`. What varies is
+    /// REPRESENTABILITY: `IntrinsicForwardRepr` is extracted from the target's own
+    /// `(# … #)` bindings, so a primitive the target has no repr for (`nativeint` on JS)
+    /// is not in it at all and its declarations are unreachable rather than separately
+    /// gated. Enumerating from that map is therefore what makes the two backends' answers
+    /// differ, and it is the ONE mechanism by which target-dependence enters.
+    let private widthsDeclaring (provider: IExternalSymbolProvider) (compiled: string) : Set<string> =
+        set
+            [
+                for kv in provider.IntrinsicForwardRepr do
+                    match provider.TryLookupMember(kv.Key, compiled) with
+                    | ValueSome m when m.IsStatic -> yield SymbolKeyOps.intrinsicName kv.Key
+                    | _ -> ()
+            ]
+
     /// One backend's operator surface against the matrix. `provider` is that backend's
-    /// contract as its own symbol leaf resolves it, `bodies` the operator inlines from the
-    /// same manifest — a width is supported if it DECLARES the member or if the operator
-    /// still carries a clause for it, and the second term is a residue on its way out.
-    let tests (backendName: string) (provider: IExternalSymbolProvider) (bodies: Map<string, InlineBody>) : Test =
+    /// contract as its own symbol leaf resolves it: a width is supported iff it DECLARES
+    /// the member. There is no second term — no operator carries a clause list any more.
+    let tests (backendName: string) (provider: IExternalSymbolProvider) : Test =
         testList
             (sprintf "Operator surface parity (%s)" backendName)
             [
@@ -231,12 +188,7 @@ module OperatorSurfaceParity =
 
                 for symbol, compiled in operators do
                     test symbol {
-                        let clauses =
-                            match Map.tryFind compiled bodies with
-                            | Some b -> InlineBodies.clauseWidths b
-                            | None -> failtestf "the %s contract publishes no `%s` inline body" backendName compiled
-
-                        let actual = Set.union (widthsDeclaring provider compiled) clauses
+                        let actual = widthsDeclaring provider compiled
 
                         // This operator's column of the matrix: what each width owes for it.
                         let column =

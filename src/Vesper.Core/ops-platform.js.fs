@@ -10,13 +10,7 @@ module ArithmeticOperators =
     // The three typars are the `.fsi`'s (`(^T1 or ^T2)` support set), so a heterogeneous
     // user operator keeps its operand types distinct through the splice.
 
-    /// Carries the same lone `string` clause as the CLR sibling — not because JS needs
-    /// one (its `+` already concatenates) but because the `.fsi` is target-neutral: the
-    /// declaration that would replace both cannot be written until the CLR body can move
-    /// (see `prim-types-string.fsi`).
-    let inline (+) (x: ^T1) (y: ^T2) : ^T3 =
-        ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
-        when ^T1: string and ^T2: string and ^T3: string = (# "$0 + $1" x y : string #)
+    let inline (+) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
 
     let inline (-) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
 

@@ -13,15 +13,7 @@ module ArithmeticOperators =
     // The three typars are the `.fsi`'s (`(^T1 or ^T2)` support set), so a heterogeneous
     // user operator keeps its operand types distinct through the splice.
 
-    /// `string` is the family's one surviving clause: every numeric width states its own
-    /// `(+)` on the type, but concatenation cannot yet — see the remark on `type string`
-    /// in `prim-types-string.fsi`. The `(# "" … #)` coercions bridge the free typars ↔
-    /// `string` (the clause must type-check while they are unpinned; selected only when
-    /// `string`).
-    let inline (+) (x: ^T1) (y: ^T2) : ^T3 =
-        ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
-        when ^T1: string and ^T2: string and ^T3: string =
-            (# "" (System.String.Concat((# "" x: string #), (# "" y: string #))) : ^T3 #)
+    let inline (+) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
 
     let inline (-) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
 

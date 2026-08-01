@@ -962,18 +962,7 @@ module UnificationEngine =
     and private comparisonBinaryOps = Set.union equalityBinaryOps orderingBinaryOps
 
     and private tryPrimitiveTraitCandidate (memberName: string) (primName: string) (argCount: int) : SemType voption =
-        if primName = "string" && memberName = OperatorData.OpAddition && argCount = 2 then
-            // String concatenation: `string * string -> string`. `string` is not a
-            // numeric primitive, but the `(+)` inline's `when ^T : string` clause
-            // makes `string + string` valid (codegen lowers it to
-            // `System.String.Concat`). Resolve the
-            // SRTP trait here so a `(+)`-on-string bound discharges cleanly instead of
-            // erroring "string has no op_Addition" — the spurious diagnostic that
-            // surfaced compiling `structural-printer.fs` (the first library to use
-            // string `+`; bare programs emit it too but never gate on diagnostics).
-            let t = TyConst(RuntimeNames.stringKey, EqArray.empty)
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
-        elif not (Set.contains primName numericPrimitives) then
+        if not (Set.contains primName numericPrimitives) then
             ValueNone
         elif argCount = 2 && Set.contains memberName arithmeticBinaryOps then
             let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
