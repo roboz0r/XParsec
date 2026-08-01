@@ -106,6 +106,8 @@ inline-bodies = [
     "prim-types-int.fs",
     "prim-types-float.fs",
     "prim-types-string.fs",
+    "prim-types-decimal.fs",
+    "prim-types-bigint.fs",
     "prim-types-nativeint.fs",
     "ops-platform.fs",
     "ops-std.fs",
@@ -126,6 +128,7 @@ inline-bodies-js = [
     "prim-types-int.js.fs",
     "prim-types-float.js.fs",
     "prim-types-string.js.fs",
+    "prim-types-bigint.js.fs",
     "ops-platform.js.fs",
     "ops-std.fs",
     # The `undefined` VALUE (`let undefined = (# "undefined" #)`) — a zero-operand

@@ -663,7 +663,6 @@ type internal ClrEnv
     member _.EFormatter = eFormatter
     member _.EStructuralFormattable() = eStructuralFormattable ()
     member _.EFormatSink() = eFormatSink ()
-    member _.EDecimal = eDecimal
     member _.EException = eException
     member _.EEqualityComparer1 = eEqualityComparer1
     member _.EHashCode = eHashCode

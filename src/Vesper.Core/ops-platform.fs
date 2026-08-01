@@ -127,6 +127,11 @@ module Operators =
     /// `int` abbreviation of `int32`.
     let inline int (value: ^T) : int = int32 value
 
+    /// Widen an `int32` to arbitrary precision. No mnemonic: `BigInteger` is not a CIL
+    /// primitive, so the widening is a BCL call. `op_Implicit` and not a non-special-name
+    /// sibling — unlike the arithmetic operators, the BCL offers none for the widening.
+    let inline bigint (value: int32) : bigint = System.Numerics.BigInteger.op_Implicit(value)
+
     /// Indexed array read — desugaring target for `arr.[i]`.
     /// The `ldelem.any` mnemonic lives in this per-target file.
     let inline GetArray (array: 'T[]) (index: int) : 'T = (# "ldelem.any !0" type ('T) array index : 'T #)

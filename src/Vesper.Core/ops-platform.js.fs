@@ -111,6 +111,10 @@ module Operators =
     /// `int` abbreviation of `int32`.
     let inline int (value: ^T) : int = int32 value
 
+    /// Widen an `int32` to arbitrary precision. `number` and `bigint` are disjoint JS
+    /// types that no operator mixes, so the widening is the explicit `BigInt(…)`.
+    let inline bigint (value: int32) : bigint = (# "BigInt($0)" value : bigint #)
+
     /// Indexed array read — desugaring target for `arr.[i]`. The `ldelem.any`
     /// mnemonic is target-neutral (Elaborate drops the element-type operand on JS); the
     /// JS backend emits the computed member read `arr[i]`. Identical to the CLR body.

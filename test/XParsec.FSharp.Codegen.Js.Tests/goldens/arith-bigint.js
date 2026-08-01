@@ -1,0 +1,12 @@
+const a = (BigInt((1000000007)));
+const b = (BigInt((1000000009)));
+const big = ((a) * (b));
+console.log(String(big));
+console.log(String(((big) * (big))));
+console.log(String((((BigInt((6)))) + ((BigInt((7)))))));
+console.log(String((((BigInt((6)))) - ((BigInt((7)))))));
+console.log(String((((BigInt((20)))) / ((BigInt((6)))))));
+console.log(String((((BigInt((20)))) % ((BigInt((6)))))));
+console.log(String((((BigInt((-20)))) / ((BigInt((6)))))));
+console.log(String((((BigInt((-20)))) % ((BigInt((6)))))));
+console.log(String((-((BigInt((5)))))));

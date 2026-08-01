@@ -25,7 +25,6 @@ type internal ClrEncoder(env: ClrEnv) =
     let eTextWriter = env.ETextWriter
     let eFormatter = env.EFormatter
     let eHashCode = env.EHashCode
-    let eDecimal = env.EDecimal
     let eFun2 = env.EFun2
     let ePrintfFormat4 = env.EPrintfFormat4
     let eVesperList1 = env.EVesperList1
@@ -118,25 +117,23 @@ type internal ClrEncoder(env: ClrEnv) =
 
             if IntrinsicRepr.tryEncodeValueType te repr then
                 ()
-            elif repr = "System.Decimal" then
-                te.Type(eDecimal.Value, true)
             elif repr = "System.ValueTuple" then
                 // `unit` — the zero-field BCL struct; a value type with no external ref of its own.
                 te.Type(eValueTuple.Value, true)
             else
-                // A REFERENCE-class intrinsic (`exn` → `System.Exception`): its repr is not a
-                // value-type primitive but a heritable BCL class. Encode a class `TypeRef` to
-                // the platform type, exactly as an `FTClass` external would — this is the
-                // `extends`/parameter/field token for `inherit exn`, `new exn`, etc. (`obj`
-                // never reaches here — its `ELEMENT_TYPE_OBJECT` arm precedes `PrimitiveRepr`.)
-                // GUARDED to reference classes: a VALUE-type repr with no dedicated arm above
-                // must fail loudly here — encoded as `class X` it would only die at JIT time
-                // with a signature mismatch, far from the cause (no silent mis-emit).
+                // An intrinsic whose repr is a BCL TYPE rather than a primitive — a heritable
+                // class (`exn` → `System.Exception`) or a struct (`bigint` →
+                // `System.Numerics.BigInteger`). Encode a `TypeRef` to the platform type
+                // exactly as an `FTClass` external would, carrying the repr's OWN value-ness:
+                // a value type encoded as `class X` would only die at JIT time with a
+                // signature mismatch, far from the cause. (`obj` never reaches here — its
+                // `ELEMENT_TYPE_OBJECT` arm precedes `PrimitiveRepr`.)
                 let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
 
                 match externalClassRef platformKey with
-                | ValueSome tref when not (externalIsValueType platformKey) -> te.Type(tref, false)
-                | _ -> failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
+                | ValueSome tref -> te.Type(tref, externalIsValueType platformKey)
+                | ValueNone ->
+                    failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         // The array intrinsic `[]<elem>` (`'T[]`) → an SZArray (rank-1 vector) of
         // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
         | FTArray elem -> encodeType (te.SZArray()) elem

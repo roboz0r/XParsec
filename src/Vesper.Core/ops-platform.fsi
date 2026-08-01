@@ -350,6 +350,17 @@ module Operators =
         /// <returns>The converted <c>int32</c>.</returns>
         val inline int: value: ^T -> int
 
+        /// <summary>Convert an <c>int32</c> to <c>bigint</c> (mirroring FSharp.Core's
+        /// <c>ToBigInt</c>). Concrete in its source width where the other conversions are
+        /// polymorphic: widening to arbitrary precision cannot lose anything, so there is
+        /// nothing per-width to say, and <c>int32</c> is the only width with a literal to
+        /// widen FROM.</summary>
+        ///
+        /// <param name="value">The input value.</param>
+        ///
+        /// <returns>The converted <c>bigint</c>.</returns>
+        val inline bigint: value: int32 -> bigint
+
         /// <summary>Indexed read of a single-dimensional, zero-based array — the
         /// lowering target the front end desugars <c>arr.[i]</c> to (mirroring F#'s
         /// <c>IntrinsicFunctions.GetArray</c>).</summary>

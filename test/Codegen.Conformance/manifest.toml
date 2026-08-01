@@ -40,19 +40,21 @@
 # alone: `byte` supports `+` on both backends and `~-` on NEITHER (negating an unsigned
 # value has no answer the width can hold, and F# defines none — FSharp.Core's
 # `UnaryNegationDynamic` lists the signed widths only). A matrix keyed by width alone
-# could not say that, and would silently demand a `~-` clause of every width it demanded
-# a `+` clause of — which is exactly how the unsigned `~-` clauses came to exist,
+# could not say that, and would silently demand a `~-` declaration of every width it demanded
+# a `+` declaration of — which is exactly how the unsigned `~-` clauses came to exist,
 # answering 56 on JS and -200 on the CLR with no program looking at either.
 #
-# For each (width, operator) a program names: a backend that must `run` it MUST carry a
-# `TExpr.StaticOptimization` clause for that width on that operator in its
-# `ops-platform*.fs`; a backend that must `diagnose` it must carry NONE. That is the whole
-# definition of "which types support which arithmetic on this target" — a width with no
-# clause falls to the SRTP trait call, fails to resolve, and is a compile error — and it
-# is checked mechanically (`XParsec.FSharp.Codegen.Common.Tests.OperatorClauseParity`), so
-# a clause ADDED for a pair that must be rejected is caught without anyone having to think
-# to write a program for it. A pair the manifest never names is a clause nothing judges,
-# and fails the same guard.
+# For each (width, operator) a program names: a backend that must `run` it MUST have that
+# width DECLARE the operator (`static member (+)` on `prim-types-*.fsi`, with the body in
+# the per-target `.fs`); a backend that must `diagnose` it must have none. That is the whole
+# definition of "which types support which arithmetic on this target" — a width that
+# declares nothing falls to the SRTP trait call, resolves no member, and is a compile error
+# — and it is checked mechanically
+# (`XParsec.FSharp.Codegen.Common.Tests.OperatorSurfaceParity`), so a declaration ADDED for
+# a pair that must be rejected is caught without anyone having to think to write a program
+# for it. A pair the manifest never names is a declaration nothing judges, and fails the
+# same guard. The two backends read the SAME declarations; what makes their answers differ
+# is representability alone (`decimal` has no JS repr).
 #
 # A program about no single width simply OMITS `width` and contributes nothing to the
 # matrix: `arith-unsigned-div.fs` spans every unsigned width, `arith-negate.fs` every
@@ -199,17 +201,24 @@ diagnose = { js = "no representation on the target platform" }
 width = "unativeint"
 operators = ["+", "-", "*", "/", "%"]
 
-# `decimal` is rejected by BOTH backends — neither contract carries a clause for it, so `+`
-# falls to the trait call and fails to resolve. It runs nowhere, and so carries no golden.
-# Naming it is what gives the clause-set guard something to check: a width the manifest
-# never mentions is a width the guard cannot see, so a `decimal` clause added later would
-# emit arithmetic no golden judges. The two backends reject it for DIFFERENT reasons (the
-# CLR has the type but no clause; JS has no repr for it at all), which is what a per-backend
-# `diagnose` is for.
+# `decimal` is the width the two backends differ on for the plan's ONE reason: the CLR has a
+# repr for it and JS has none, so the same six declarations on `prim-types-decimal.fsi` are
+# reachable there and unreachable here. It is also the only width whose bodies are BCL CALLS
+# (`Decimal.Add`, …) — no CIL mnemonic adds two decimals — so its golden is what judges that
+# a spliced call answers as a spliced opcode does.
 [[program]]
 path = "ops/arith-decimal.fs"
-diagnose = { clr = "does not support the operator", js = "no representation on the target platform" }
+run = ["clr"]
+diagnose = { js = "no representation on the target platform" }
 width = "decimal"
+
+# `bigint` is the other non-CIL-primitive width, and the one both backends represent — the
+# BCL `BigInteger` and the JS `BigInt` primitive. It is the only width in this matrix with
+# no bound to wrap to, so its golden is the one that goes past 2^64 and stays exact.
+[[program]]
+path = "ops/arith-bigint.fs"
+run = ["clr", "js"]
+width = "bigint"
 
 # ---------------------------------------------------------------------------------------
 # THE CLASS PREAMBLE — instance `let` / `do` in a type definition.

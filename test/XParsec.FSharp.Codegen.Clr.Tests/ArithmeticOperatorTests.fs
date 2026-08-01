@@ -11,8 +11,9 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // the three typars its `.fsi` publishes (`x: ^T1 -> y: ^T2 -> ^T3`, support set
 // `(^T1 or ^T2)`) and IS the bare SRTP TRAIT CALL: a user type dispatches to its own
 // `static member (+)`, and so does a primitive — every supported width states the
-// operator on itself in `prim-types-*.fsi`, `string` included, with the IL beside it
-// in the per-target `.fs`.
+// operator on itself in `prim-types-*.fsi`, `string` and `decimal` included, with the
+// body beside it in the per-target `.fs`: a mnemonic for the CIL widths, a BCL call for
+// the two that are not CIL primitives.
 //
 // The consequence these tests have to hold down: nothing rides a raw-IL base. An
 // operand type that declares no such member fails to resolve (it is not a nominal)
@@ -29,17 +30,16 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //     represent, which no behavioural row can;
 //   - the freeze test proves the bodies are collected as cross-package inlines and
 //     are the trait call;
-//   - the diagnostic tests prove an operand that declares no such member (`decimal`,
+//   - the diagnostic tests prove an operand that declares no such member (`char`,
 //     an unpinned class typar) is REJECTED rather than emitted as garbage IL;
 //   - the no-dependency test proves primitive arithmetic pins no FSharp.Core.
 
-/// The inline-IL opcodes the spliced operator body leaves behind for one operand
-/// type, outermost first (`byte`'s `+` is `conv.u1` over `add`) — a direct read of
-/// WHICH static-opt clause the operand selected. This is how the widths with no
+/// Names `pick` reads off the analysed tree, outermost first — a direct read of what one
+/// operand type's declared operator body splices to. This is how the widths with no
 /// literal support (`uint64` / `nativeint` / `unativeint` fold to a `TConstValue.Int`;
 /// a negative `sbyte` / `int16` literal does not project at all) still get pinned:
 /// annotated parameters need no literal.
-let private opcodesOf (src: string) : string list =
+let private splicedNames (pick: TExpr -> string voption) (src: string) : string list =
     let tast = analyse src
 
     Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) (sprintf "no errors for: %s" src)
@@ -50,24 +50,46 @@ let private opcodesOf (src: string) : string list =
         { TastWalk.identityIter with
             VisitExpr =
                 fun _ e ->
-                    match e with
-                    | TExpr.ILIntrinsic(opCode, _, _, _, _) -> acc.Add opCode
-                    | _ -> ()
+                    match pick e with
+                    | ValueSome name -> acc.Add name
+                    | ValueNone -> ()
 
                     true
         }
 
     // The entries as well as the decls: a resolved operator body is no longer spliced into
-    // the consuming tree, so the clause the operand selected sits in the specialization
-    // table with an edge in its place.
+    // the consuming tree, so the width's own body sits in the specialization table with an
+    // edge in its place.
     iterFileExprs it tast
 
     List.ofSeq acc
 
+/// The inline-IL opcodes the spliced body leaves behind (`byte`'s `+` is `conv.u1` over
+/// `add`) — the whole body of a width that IS a CIL primitive.
+let private opcodesOf: string -> string list =
+    splicedNames (fun e ->
+        match e with
+        | TExpr.ILIntrinsic(opCode, _, _, _, _) -> ValueSome opCode
+        | _ -> ValueNone
+    )
+
+/// The external statics the spliced body NAMES — the whole body of a width that is not a
+/// CIL primitive (`decimal`, `string`), where no mnemonic exists to carry the operation.
+let private externalCallsOf: string -> string list =
+    splicedNames (fun e ->
+        match e with
+        | TExpr.ExternalMember(ValueNone, key, memberName, MemberStorage.Method, _, _) ->
+            let decl = SymbolKeyOps.declTypeKeyOf "an external static in a spliced body" key
+            ValueSome(SymbolKeyOps.typeMetaName decl + "." + memberName)
+        | _ -> ValueNone
+    )
+
 /// `let f (a: T) (b: T) = a <op> b` — the ground binary use site whose splice
-/// `opcodesOf` reads.
-let private binaryOpcodes (ty: string) (op: string) : string list =
-    opcodesOf (String.concat "" [ "let f (a: "; ty; ") (b: "; ty; ") = a "; op; " b" ])
+/// `opcodesOf` / `externalCallsOf` reads.
+let private binarySource (ty: string) (op: string) : string =
+    String.concat "" [ "let f (a: "; ty; ") (b: "; ty; ") = a "; op; " b" ]
+
+let private binaryOpcodes (ty: string) (op: string) : string list = opcodesOf (binarySource ty op)
 
 [<Tests>]
 let tests =
@@ -168,9 +190,9 @@ let tests =
             }
 
             // Every width states its own `(+)` on the type, so the operator itself names
-            // none. `string` is the last one to move across, and its `(+)` — a BCL CALL
-            // where the numeric widths' are mnemonics — is what this pins.
-            test "every width supporting `+` declares it on the type, `string` included" {
+            // none — `string`, `decimal` and `bigint` included, whose `(+)` is a BCL CALL
+            // where the numeric widths' is a mnemonic.
+            test "every width supporting `+` declares it on the type, the non-CIL widths included" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
 
                 let declares (width: string) (op: string) =
@@ -178,7 +200,19 @@ let tests =
                     | ValueSome m -> m.IsStatic
                     | ValueNone -> false
 
-                for width in [ "int"; "byte"; "sbyte"; "int16"; "uint16"; "uint32"; "int64"; "uint64" ] do
+                for width in
+                    [
+                        "int"
+                        "byte"
+                        "sbyte"
+                        "int16"
+                        "uint16"
+                        "uint32"
+                        "int64"
+                        "uint64"
+                        "decimal"
+                        "bigint"
+                    ] do
                     for op in [ "op_Addition"; "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ] do
                         Expect.isTrue (declares width op) (sprintf "%s declares %s" width op)
 
@@ -189,6 +223,35 @@ let tests =
                 for op in [ "op_Subtraction"; "op_Multiply"; "op_Division"; "op_Modulus" ] do
                     Expect.isFalse (declares "string" op) (sprintf "string declares no %s" op)
             }
+
+            // The two widths that are not CIL primitives: there is no mnemonic to read, so
+            // the whole body is a call to the BCL sibling. Named `Add`, not `op_Addition` —
+            // the BCL's operator methods are `SpecialName`, which the eager metadata walk
+            // filters out.
+            for width, declaring in [ "decimal", "System.Decimal"; "bigint", "System.Numerics.BigInteger" ] do
+                test (sprintf "%s's operators splice a BCL call, and no opcode" width) {
+                    for op, method in
+                        [
+                            "+", "Add"
+                            "-", "Subtract"
+                            "*", "Multiply"
+                            "/", "Divide"
+                            "%", "Remainder"
+                        ] do
+                        let src = binarySource width op
+
+                        Expect.equal
+                            (externalCallsOf src)
+                            [ declaring + "." + method ]
+                            (sprintf "%s %s calls %s.%s" width op declaring method)
+
+                        Expect.isEmpty (opcodesOf src) (sprintf "%s %s rides no mnemonic" width op)
+
+                    Expect.equal
+                        (externalCallsOf (sprintf "let f (a: %s) = -a" width))
+                        [ declaring + ".Negate" ]
+                        (sprintf "%s ~- calls %s.Negate" width declaring)
+                }
 
             // A HETEROGENEOUS user operator (`Vec2 * int -> Vec2`): the contract's
             // `(^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3)` admits distinct
@@ -238,13 +301,13 @@ let tests =
             // ---- The trait-call base's own contract: an operand it cannot dispatch
             // to is a DIAGNOSTIC, never emitted IL.
 
-            // `decimal` is a `TyConst`, not a nominal, and CIL `add` on a
-            // `System.Decimal` is garbage — so it carries no clause and is rejected
-            // until one calling `Decimal::op_Addition` lands.
-            test "decimal arithmetic diagnoses (no clause, and not a nominal)" {
-                failsWith "The type 'decimal' does not support the operator '+'" "let x = 1.5M + 2.5M\nignore x"
+            // `char` is a `TyConst`, not a nominal, and declares no arithmetic — so `+` on
+            // it resolves no member and is a compile error rather than CIL `add` on two
+            // char slots.
+            test "char arithmetic diagnoses (declares no member, and not a nominal)" {
+                failsWith "The type 'char' does not support the operator '+'" "let x = 'a' + 'b'\nignore x"
 
-                failsWith "The type 'decimal' does not support the operator '*'" "let x = 1.5M * 2.5M\nignore x"
+                failsWith "The type 'char' does not support the operator '*'" "let x = 'a' * 'b'\nignore x"
             }
 
             // A CLASS typar is quantified at the type, so no use site and no `default`
@@ -273,12 +336,12 @@ let tests =
             // one expansion entry point every path goes through.
             test "an unresolvable trait call in a LOCAL inline diagnoses (it does not crash the emitter)" {
                 failsWith
-                    "The type 'decimal' does not support the operator '+'"
+                    "The type 'char' does not support the operator '+'"
                     (String.concat
                         "\n"
                         [
                             "let inline plus (a: ^T) (b: ^T) : ^T = ((^T or ^T): (static member (+): ^T * ^T -> ^T) (a, b))"
-                            "let z = plus 1.5M 2.5M"
+                            "let z = plus 'a' 'b'"
                             "ignore z"
                         ])
             }
