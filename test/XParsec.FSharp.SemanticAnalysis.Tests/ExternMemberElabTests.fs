@@ -186,6 +186,52 @@ let tests =
                 Expect.isTrue diagnosed (sprintf "the member-inline diagnostic fired; got %A" tast.Diagnostics)
             }
 
+            // The parser gives `override`/`default` no `inline` token at all, so asking a
+            // member on a table-less host to be inline is a remedy it cannot take.
+            test "an override on an intrinsic host is rejected outright, not asked for inline" {
+                let bad =
+                    "module Widgets\n\
+                     \n\
+                     type widget =\n\
+                     \x20   (# \"object\" #)\n\
+                     \x20   with\n\
+                     \x20       override _.Poke (x: int) : int = (# \"$0 + 1\" x : int #)\n\
+                     \x20   end\n"
+
+                let tast = analyse bad
+                let messages = [ for d in tast.Diagnostics -> d.Message ]
+
+                Expect.isTrue
+                    (messages
+                     |> List.exists (fun m -> m.Contains "cannot declare an 'override' or 'default' member"))
+                    (sprintf "the override diagnostic fired; got %A" messages)
+
+                Expect.isFalse
+                    (messages |> List.exists (fun m -> m.Contains "must be declared 'inline'"))
+                    "an override is not asked to be inline — the parser gives it no inline token"
+            }
+
+            // A secondary constructor's body must be emitted as a real `.ctor`, which needs
+            // a type in the output; `inline` cannot splice it away.
+            test "a secondary constructor on an intrinsic host is rejected" {
+                let bad =
+                    "module Widgets\n\
+                     \n\
+                     type widget =\n\
+                     \x20   (# \"object\" #)\n\
+                     \x20   with\n\
+                     \x20       new (x: int) = x\n\
+                     \x20   end\n"
+
+                let tast = analyse bad
+
+                let diagnosed =
+                    tast.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "cannot declare a constructor with a body")
+
+                Expect.isTrue diagnosed (sprintf "the constructor diagnostic fired; got %A" tast.Diagnostics)
+            }
+
             // Guardrail: a transparent-alias abbrev with members (non-ILIntrinsic RHS)
             // is rejected with a diagnostic.
             test "a transparent-alias abbrev with members is rejected" {

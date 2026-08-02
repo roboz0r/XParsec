@@ -1286,9 +1286,11 @@ module VesperLib =
     /// primitive has no representation in the output to carry a method, so a use site can
     /// only splice the body its sibling `.fs` gives it — and the `.fsi` is the contract,
     /// so "spliced, never called" is stated there rather than inferred from the
-    /// implementation. Two carve-outs: an `abstract` slot declares no body (the shape of
-    /// a capability interface, `extern interface with abstract member …`), and a
-    /// NON-intrinsic `extern` is a real opaque type whose members are real calls.
+    /// implementation. A NON-intrinsic `extern` is a real opaque type whose members are
+    /// real calls, so it never reaches here.
+    ///
+    /// Every element is enumerated: a tenth CST case must be classified here rather than
+    /// silently joining the exempt set.
     let private requireInlineExternMembers
         (ctx: ExtractCtx)
         (file: LibFile)
@@ -1300,7 +1302,19 @@ module VesperLib =
             | TypeSignatureElement.Member(inlineToken = ValueNone)
             | TypeSignatureElement.StaticMember(inlineToken = ValueNone) ->
                 ctx.Diagnostics.Add(file, IntrinsicHost.memberNeedsInline name)
-            | _ -> ()
+            | TypeSignatureElement.Override _
+            | TypeSignatureElement.Default _ ->
+                ctx.Diagnostics.Add(file, IntrinsicHost.cannotDeclare name IntrinsicHost.Construct.Override)
+            | TypeSignatureElement.Member _
+            | TypeSignatureElement.StaticMember _
+            // `abstract` declares a slot and `val` storage — neither is a body. `new` on a
+            // heritable primitive (`obj`/`exn`) names a target-provided constructor;
+            // `inherit` and `interface` are not member declarations at all.
+            | TypeSignatureElement.Abstract _
+            | TypeSignatureElement.Value _
+            | TypeSignatureElement.Constructor _
+            | TypeSignatureElement.Inherit _
+            | TypeSignatureElement.Interface _ -> ()
 
     let private extractTypeSig
         (ctx: ExtractCtx)

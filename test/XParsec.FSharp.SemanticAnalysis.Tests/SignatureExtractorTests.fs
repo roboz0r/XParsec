@@ -648,6 +648,53 @@ let tests =
                 Expect.isFalse diagnosed "an all-abstract capability surface is exempt"
             }
 
+            // `override`/`default` have no `inline` slot in the signature grammar, so on a
+            // host that publishes no method table neither the slot nor the remedy exists.
+            test "an override on an intrinsic is rejected outright, not asked for inline" {
+                let ctx = VesperLib.ExtractCtx.empty ()
+                ctx.IntrinsicBaseReprs.["widget"] <- "System.Widget"
+                ctx.IntrinsicReprs.["widget"] <- "System.Widget"
+
+                VesperLib.extractSymbols
+                    ctx
+                    (parseFsi
+                        "prim-types-widget.fsi"
+                        "namespace Vesper\n\ntype widget = extern with\n    override M : unit -> unit\n")
+
+                let messages = [ for (_, msg) in ctx.Diagnostics -> msg ]
+
+                Expect.isTrue
+                    (messages
+                     |> List.exists (fun m -> m.Contains "cannot declare an 'override' or 'default' member"))
+                    (sprintf "the override diagnostic fired; got %A" messages)
+
+                Expect.isFalse
+                    (messages |> List.exists (fun m -> m.Contains "must be declared 'inline'"))
+                    "an override is not asked to be inline — the grammar gives it no inline slot"
+            }
+
+            // The carve-out a heritable primitive needs: `new: unit -> obj` NAMES a
+            // target-provided constructor, so there is no body to splice.
+            test "a heritable primitive's constructor signature is exempt" {
+                let ctx = VesperLib.ExtractCtx.empty ()
+                ctx.IntrinsicBaseReprs.["obj"] <- "System.Object"
+                ctx.IntrinsicReprs.["obj"] <- "System.Object"
+
+                VesperLib.extractSymbols
+                    ctx
+                    (parseFsi
+                        "prim-types-object.fsi"
+                        "namespace Vesper\n\ntype obj = extern class with\n    new: unit -> obj\n")
+
+                let diagnosed =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun (_, msg) ->
+                        msg.Contains "must be declared 'inline'" || msg.Contains "cannot declare"
+                    )
+
+                Expect.isFalse diagnosed (sprintf "a `new:` sig is exempt; got %A" (List.ofSeq ctx.Diagnostics))
+            }
+
             test
                 "two-name capability interface: extern interface with abstract member + (# … #) repr → IntrinsicInterface carrying the platform name, NOT a reverse-canon entry" {
                 // A capability anchor whose `.fsi` declares an interface member surface AND

@@ -1033,26 +1033,51 @@ module NameResolutionMemberRegistration =
     /// A bodied member of an intrinsic host must be declared `inline`. The host has no
     /// representation in the output to hang a method on, so its body can only be spliced
     /// into the caller; without `inline` the use site would elaborate to a call to a
-    /// method that is never emitted. Abstract slots declare no body and are exempt.
+    /// method that is never emitted.
+    ///
+    /// Every element is enumerated: a new CST case must be classified here rather than
+    /// silently joining the exempt set.
     let private requireInlineMembers
         (ctx: PassContext)
         (hostName: string)
         (elements: TypeDefnElement<SyntaxToken> seq)
         : unit =
-        let diagnose (site: NodeSite) =
-            ctx.Report(site.Tok, Kind.Message(IntrinsicHost.memberNeedsInline hostName))
+        let diagnose (tok: SyntaxToken) (message: string) = ctx.Report(tok, Kind.Message message)
+
+        // `ValueNone` for an `abstract` slot — it declares no body, so there is nothing
+        // to splice and nothing to mark.
+        let bodyTok (d: MethodOrPropDefn<SyntaxToken>) : SyntaxToken voption =
+            match d with
+            | MethodOrPropDefn.Method(defn = b)
+            | MethodOrPropDefn.Property(defn = b) -> ValueSome (CstKeys.siteOfBinding b).Tok
+            | MethodOrPropDefn.AutoProperty(ident = id)
+            | MethodOrPropDefn.PropertyWithGetSet(ident = id) -> ValueSome id
+            | MethodOrPropDefn.AbstractSignature _ -> ValueNone
 
         for el in elements do
             match el with
-            | TypeDefnElement.Member(MemberDefn.Member(inlineToken = ValueSome _)) -> ()
-            | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
-                match d with
-                | MethodOrPropDefn.Method(defn = b)
-                | MethodOrPropDefn.Property(defn = b) -> diagnose (CstKeys.siteOfBinding b)
-                | MethodOrPropDefn.AutoProperty(ident = id)
-                | MethodOrPropDefn.PropertyWithGetSet(ident = id) -> diagnose (NodeSite.ofToken NodeKind.PatIdent id)
-                | MethodOrPropDefn.AbstractSignature _ -> ()
-            | _ -> ()
+            | TypeDefnElement.Member(MemberDefn.Member(keyword = kw; inlineToken = inl; defn = d)) ->
+                match bodyTok d with
+                | ValueNone -> ()
+                | ValueSome tok ->
+                    match kw with
+                    // `inline` is no remedy here: the host publishes no method table, so
+                    // there is no slot to override.
+                    | MemberKeyword.Override _
+                    | MemberKeyword.Default _ ->
+                        diagnose tok (IntrinsicHost.cannotDeclare hostName IntrinsicHost.Construct.Override)
+                    | MemberKeyword.Member _
+                    | MemberKeyword.Abstract _ ->
+                        if inl.IsNone then
+                            diagnose tok (IntrinsicHost.memberNeedsInline hostName)
+            | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = newTok)) ->
+                diagnose newTok (IntrinsicHost.cannotDeclare hostName IntrinsicHost.Construct.Constructor)
+            // `val` declares storage, not a body; `interface`/`inherit` are not member
+            // declarations.
+            | TypeDefnElement.Member(MemberDefn.Value _)
+            | TypeDefnElement.InterfaceImpl _
+            | TypeDefnElement.InterfaceSpec _
+            | TypeDefnElement.Inherit _ -> ()
 
     /// Stamp augmentation members + `interface … with` impls onto an already-registered
     /// union or record. Must run after the type itself is registered; reads its
@@ -1095,10 +1120,9 @@ module NameResolutionMemberRegistration =
         // stamp its augmentation members + `ThisKey` exactly as the union/record
         // arms do. The host is present in `IntrinsicAbbrevHost` only for an
         // ILIntrinsic RHS (a transparent-alias abbrev with members was rejected
-        // at registration), so this arm fires only for the sanctioned host. No
-        // `interface … with` on the intrinsic host (out of scope) — the extracted
-        // `InterfaceImpls` are always empty. An intrinsic binding is non-generic in
-        // practice and its host table is name-keyed, so the name off the claim addresses it.
+        // at registration), so this arm fires only for the sanctioned host. An intrinsic
+        // binding is non-generic in practice and its host table is name-keyed, so the name
+        // off the claim addresses it.
         | TypeDefn.Abbrev(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
             match ctx.Types.IntrinsicAbbrevHost.TryGetValue id.Name with
             | true, info ->

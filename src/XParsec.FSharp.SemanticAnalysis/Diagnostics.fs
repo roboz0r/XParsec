@@ -99,6 +99,18 @@ module MemberNoun =
 [<RequireQualifiedAccess>]
 module IntrinsicHost =
 
+    /// A construct that needs a real type in the output to live on, so no spelling of it
+    /// is admissible on an intrinsic host.
+    [<RequireQualifiedAccess>]
+    type Construct =
+        /// The grammar gives `override`/`default` no `inline` slot, and an intrinsic
+        /// publishes no method table to hold the overridden one.
+        | Override
+        /// A secondary constructor carries a body that must be emitted as a real `.ctor`.
+        /// Distinct from a `.fsi` `new: … -> T` on a heritable primitive, which merely
+        /// NAMES a target-provided constructor.
+        | Constructor
+
     /// The `member inline` constraint, as a sentence. ONE rule declared in two syntaxes —
     /// the `.fsi` contract and the `.fs` body — so it is worded once here rather than
     /// twice, where the two spellings could drift into looking like two rules.
@@ -106,6 +118,19 @@ module IntrinsicHost =
         sprintf
             "A member of intrinsic type '%s' must be declared 'inline': the type carries no method in the output, so a member body is spliced at the use site, never called"
             hostName
+
+    /// The same rule where `inline` is not even a remedy — the construct is unspellable
+    /// on a host with no output representation.
+    let cannotDeclare (hostName: string) (construct: Construct) : string =
+        let what =
+            match construct with
+            | Construct.Override -> "an 'override' or 'default' member"
+            | Construct.Constructor -> "a constructor with a body"
+
+        sprintf
+            "Intrinsic type '%s' cannot declare %s: the type carries no representation in the output, so only a spliced 'member inline' is admissible on it"
+            hostName
+            what
 
 /// Which sort of type declares the cases a `NoCase` verdict is about — the only axis its
 /// producers differ on.
