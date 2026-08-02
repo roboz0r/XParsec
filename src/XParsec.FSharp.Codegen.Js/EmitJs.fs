@@ -119,6 +119,19 @@ module EmitJs =
                     // sequence evaluates `value` then yields `body` (JS has no let-expression).
                     | PatShape.Wildcard when isPureValue l.Value -> buildExpr ctx l.Body
                     | PatShape.Wildcard -> JsExpr.Sequence([ buildExpr ctx l.Value; buildExpr ctx l.Body ], loc)
+                    // A destructuring `let (a, b) = value in body` — the same IIFE, its
+                    // arrow parameter the array destructuring a tuple parameter already
+                    // takes, so the value is read once and each leaf binds positionally.
+                    | PatShape.Tuple ->
+                        JsExpr.Call(
+                            JsExpr.Arrow(
+                                [ lambdaParamName ctx.Pool l.Binding ],
+                                JsFnBody.Expr(buildExpr ctx l.Body),
+                                ValueNone
+                            ),
+                            [ buildExpr ctx l.Value ],
+                            loc
+                        )
                     | _ -> failwithf "EmitJs: unsupported expression %A" e
 
         // Anonymous lambda — no binder key, so no self-tail-call analysis applies.

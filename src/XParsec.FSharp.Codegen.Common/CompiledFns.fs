@@ -60,16 +60,18 @@ module CompiledFns =
         | _ -> ValueNone
 
     /// The push plan for a TUPLED member call's ONE argument, opened to the `arity` positions
-    /// the member's key declares. A tuple VALUE rather than a literal is read positionally —
-    /// the same second chance a compiled function's tupled group argument gets, so `M t` and
-    /// `M(a, b)` both reach the same N-parameter member ref.
+    /// the member's key declares.
+    ///
+    /// The argument is ALWAYS openable: Elaborate destructures a tuple VALUE (`M t`) into the
+    /// literal tuple a syntactic `M(a, b)` writes, against this same key, so both spellings
+    /// reach the same N-parameter member ref by the same route. Anything else here is a
+    /// malformed node, not a call anyone could write — a member's positional read never has to
+    /// second-guess the argument's shape.
     let tupledMemberPlan (what: string) (arity: int) (arg: TastAccessor.ExprId) : FlatStep list =
         match SymbolKeyOps.openTupledArg tupleElemsOf arity arg with
         | ValueSome opened -> [ for a in opened -> FlatStep.Arg a ]
         | ValueNone ->
-            match TastAccessor.exprTy arg with
-            | FTTuple elems when elems.Length = arity -> [ FlatStep.TupleValue(arg, EqArray.toList elems) ]
-            | other -> failwithf "%s expects %d tupled arguments but its argument is typed %A" what arity other
+            failwithf "%s expects %d tupled arguments but its argument is typed %A" what arity (TastAccessor.exprTy arg)
 
     /// Flatten a saturated call's LEADING arguments (one per SOURCE group) into the
     /// backend-neutral push plan: a lone `()` group contributes nothing; a `GSimple` /

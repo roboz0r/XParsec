@@ -129,6 +129,9 @@ module internal ElaborateApply =
             // reads each obj parameter off the head's function type (`currTy`) instead.
             let externalDom = externalHeadDom ctx (CstKeys.ofExpr fn) result
             let mutable isFirst = true
+            // The member's own argument is the FIRST one; residual application applies to
+            // its RESULT, so the opened `let`s wrap the whole spine and keep it outermost.
+            let mutable opened = []
 
             for a in args do
                 let argT = translateExpr ctx a
@@ -141,6 +144,19 @@ module internal ElaborateApply =
                             "Elaborate.translateApp: expected function type for application, got %A (Unification bug or free TypeVar)"
                             currTy
 
+                // A tuple-VALUED argument at a multi-parameter member is opened to one
+                // expression per declared parameter before anything reads it positionally.
+                let argT =
+                    if isFirst then
+                        match openTupledMemberArg ctx result argT with
+                        | ValueSome o ->
+                            result <- o.Head
+                            opened <- o.Binds
+                            o.Arg
+                        | ValueNone -> argT
+                    else
+                        argT
+
                 // Box a value / open-typar argument flowing into an `obj` parameter —
                 // the implicit upcast made explicit.
                 let argT =
@@ -152,7 +168,7 @@ module internal ElaborateApply =
                 currTy <- resTy
                 isFirst <- false
 
-            result
+            wrapOpenedBinds opened result
 
     /// A residual single application (an external .NET method reached as a
     /// folded LongIdent, a local function value, a top-level `let f (x: obj)`
@@ -189,12 +205,19 @@ module internal ElaborateApply =
                     | TyFun(p, _) -> ValueSome p
                     | _ -> ValueNone
 
+            // See `translateApp`: a tuple-VALUED argument opens to one expression per
+            // declared parameter, and the receiver binds ahead of it.
+            let opened, fnT, argT =
+                match openTupledMemberArg ctx fnT argT with
+                | ValueSome o -> o.Binds, o.Head, o.Arg
+                | ValueNone -> [], fnT, argT
+
             let argT =
                 match paramTy with
                 | ValueSome p -> wrapObjArg ctx.Store p argT
                 | ValueNone -> argT
 
-            TExpr.App(fnT, argT, ty, tok)
+            wrapOpenedBinds opened (TExpr.App(fnT, argT, ty, tok))
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
     /// member-trait call (the static-opt BASE of a `let inline` arithmetic operator,

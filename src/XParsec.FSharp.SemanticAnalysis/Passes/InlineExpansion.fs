@@ -183,8 +183,8 @@ module InlineExpansion =
     /// Any residual over-application (`w.M(a, b) c`) rides through untouched: it applies to the
     /// member's RESULT, so it is already one argument per curried parameter.
     ///
-    /// `ValueNone` is a tuple VALUE, whose elements are not expressions the lift's parameters
-    /// could be bound to. A backend reads such a value positionally; a splice cannot.
+    /// `ValueNone` is an argument that is not the literal tuple its arity needs. Elaborate opens
+    /// a tuple VALUE (`w.M t`) into one, so a call written in source never lands here.
     let private untupleMemberArgs
         (key: SymbolKey)
         (memberName: string)
@@ -262,11 +262,13 @@ module InlineExpansion =
                 // head to a name-keyed raw-IL fallback, turning a structural `=` into a reference
                 // `ceq`.
                 | ValueSome served, ValueSome opened -> CallHead.Template(TemplateId.Foreign served.Key, served, opened)
-                // A body to splice and no parameters to splice it against. Falling back to the
-                // call would emit a member ref for a body that has no method behind it.
+                // A body to splice and no parameters to splice it against. Elaborate opens every
+                // member argument to the width its key declares, so this is a malformed node,
+                // not a call anyone could write; falling back to the call would emit a member
+                // ref for a body that has no method behind it.
                 | ValueSome served, ValueNone ->
                     failwithf
-                        "InlineExpansion: the spliced member %A takes a tuple VALUE where its parameters need elements"
+                        "InlineExpansion: the spliced member %A was applied to an argument its declared parameters cannot be bound to"
                         served.Key
                 | ValueNone, _ -> CallHead.Opaque ext.RebuiltHead
             | ValueNone -> CallHead.Opaque(fun () -> walk markedHead)

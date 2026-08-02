@@ -246,6 +246,89 @@ module internal ElaborateResolve =
                 }
             )
 
+    // --- Tuple-VALUED argument at a multi-parameter member ------------------
+    //
+    // A member is TUPLED — one argument whatever its parameter count — and overload
+    // resolution reads that argument's TYPE, so a tuple VALUE selects a 2-parameter
+    // member exactly as a literal `(3, 4)` does. Its elements are then not expressions,
+    // which is what a spliced `member inline` body needs one of per parameter.
+
+    /// The `let`s an opened call now sits inside (outermost first), and its rewritten
+    /// head + argument.
+    [<NoEquality; NoComparison>]
+    type OpenedTupledCall =
+        {
+            Binds: (TPat * TExpr) list
+            Head: TExpr
+            Arg: TExpr
+        }
+
+    /// `w.M t` ⟶ `let r = w in let (a, b) = t in r.M(a, b)`. `t` binds once, so it is
+    /// evaluated once; the receiver binds FIRST, because an instance member evaluates it
+    /// before its argument and the argument's `let` would otherwise hoist above it.
+    ///
+    /// `ValueNone` leaves the call alone: a non-method head, a value member (empty
+    /// `ArgSig`), arity 1, an argument the source already opened, or one whose type is
+    /// not the tuple its arity needs.
+    let openTupledMemberArg (ctx: PassContext) (head: TExpr) (arg: TExpr) : OpenedTupledCall voption =
+        match head with
+        | TExpr.ExternalMember(receiver, key, name, MemberStorage.Method, memberTy, memberTok) ->
+            let arity = SymbolKeyOps.memberArity (sprintf "Elaborate: member '%s'" name) key
+
+            let argTy = Unification.zonk ctx.Store (TastWalk.exprTy arg)
+
+            match arg, argTy with
+            | TExpr.Tuple _, _ -> ValueNone
+            | _, TyTuple elemTys when arity >= 2 && elemTys.Length = arity ->
+                let argTok = TastWalk.exprTok arg
+
+                let elems = [ for elemTy in EqArray.toList elemTys -> ctx.NewSynthBinder(), elemTy ]
+
+                let tuplePat =
+                    TPat.Tuple(
+                        EqArray.ofSeq (seq { for (k, ty) in elems -> TPat.NamedSimple(k, ty, argTok) }),
+                        argTy,
+                        argTok
+                    )
+
+                let recvBind, head' =
+                    match receiver with
+                    | ValueSome r ->
+                        let rKey = ctx.NewSynthBinder()
+                        let rTy = TastWalk.exprTy r
+
+                        [ TPat.NamedSimple(rKey, rTy, memberTok), r ],
+                        TExpr.ExternalMember(
+                            ValueSome(TExpr.Var(rKey, rTy, memberTok)),
+                            key,
+                            name,
+                            MemberStorage.Method,
+                            memberTy,
+                            memberTok
+                        )
+                    | ValueNone -> [], head
+
+                ValueSome
+                    {
+                        Binds = recvBind @ [ tuplePat, arg ]
+                        Head = head'
+                        Arg =
+                            TExpr.Tuple(
+                                EqArray.ofSeq (seq { for (k, ty) in elems -> TExpr.Var(k, ty, argTok) }),
+                                argTy,
+                                argTok
+                            )
+                    }
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// Wrap a call in the `let`s `openTupledMemberArg` produced, outermost first.
+    let wrapOpenedBinds (binds: (TPat * TExpr) list) (call: TExpr) : TExpr =
+        List.foldBack
+            (fun (pat, value) body -> TExpr.Let(pat, value, body, TastWalk.exprTy body, TastWalk.patTok pat))
+            binds
+            call
+
     /// The declared parameter SemType (the `obj`-slot model) for an external
     /// method call, read from the `ResolvedExternalMember.Signature` Unification
     /// recorded at `fnKey` — a method's `TyFun(param → … → ret)` domain, fed

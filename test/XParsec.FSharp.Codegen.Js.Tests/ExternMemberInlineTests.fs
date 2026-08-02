@@ -237,21 +237,28 @@ let tests =
                 Expect.equal (js.Split("=>").Length - 1) 1 (sprintf "a curried remnant survived the splice:\n%s" js)
             }
 
-            // The one argument shape that does NOT open. A backend reads such a value
-            // positionally, but a splice needs elements to bind its parameters to and there
-            // is no method behind this body to fall back to — so it is rejected outright.
-            test "`w.Poke2 t` at a tuple VALUE is rejected rather than mis-spliced" {
-                let source =
-                    "open Widgets\nlet useP2v (w: widget) : int =\n\x20   let t = (3, 4)\n\x20   w.Poke2 t\n"
+            // A tuple VALUE selects the same 2-parameter member a literal does, and the
+            // splice needs one EXPRESSION per parameter. Elaborate normalises it to
+            // `let (a, b) = t in w.Poke2(a, b)`, so the same body splices — the tuple is
+            // destructured once, at the call site, and no `.Poke2` survives.
+            test "`w.Poke2 t` at a tuple VALUE destructures and splices the same body" {
+                let js =
+                    emitWidget "open Widgets\nlet useP2v (w: widget) : int =\n\x20   let t = (3, 4)\n\x20   w.Poke2 t\n"
 
-                Expect.throwsC
-                    (fun () -> emitWidget source |> ignore)
-                    (fun e ->
-                        Expect.stringContains
-                            e.Message
-                            "takes a tuple VALUE"
-                            (sprintf "expected the un-openable-argument rejection, got: %s" e.Message)
-                    )
+                // The elements reach the template's `$0`/`$1` through the destructuring's
+                // own binders, so the spliced body is an addition of the two of them.
+                Expect.isTrue
+                    (System.Text.RegularExpressions.Regex.IsMatch(js, @"\(\w+\) \+ \(\w+\)"))
+                    (sprintf "expected the spliced `$0 + $1` body over the destructured elements, got:\n%s" js)
+
+                Expect.isFalse (js.Contains ".Poke2") (sprintf "a `.Poke2` method call leaked into emit:\n%s" js)
+
+                // `t` is read ONCE — the destructuring binds it, the elements are read off
+                // the binding.
+                Expect.equal
+                    (js.Split("[3, 4]").Length - 1)
+                    1
+                    (sprintf "the tuple must be built once, not per element:\n%s" js)
             }
 
             // The same arity, STATIC: no receiver occupies curried position 0, so the

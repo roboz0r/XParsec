@@ -42,6 +42,21 @@ let tests =
                     Expect.equal out "9\n7" "tuple pattern indexes elements; constant element refutes"
             }
 
+            // A destructuring `let` has no JS statement form, so it lowers to the same IIFE
+            // any other let-expression takes — its arrow parameter carrying the array
+            // destructuring a tuple PARAMETER already binds by. The value is read once.
+            test "a destructuring `let (a, b) = p` binds both elements" {
+                match
+                    runJs
+                        "tuple-let-destructure"
+                        "let f (p: int * int) =\n    let (a, b) = p\n    a + b\nprintfn \"%d\" (f (4, 5))"
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "9" "both destructured binders are in scope in the body"
+            }
+
             test "a nested tuple param destructures recursively (((a,b),c) → a+b+c)" {
                 match runJs "tuple-nested" "let f ((a, b), c) = a + b + c\nprintfn \"%d\" (f ((1, 2), 3))" with
                 | None -> skiptest "node not found on PATH"

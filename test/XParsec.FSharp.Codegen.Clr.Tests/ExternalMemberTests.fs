@@ -418,8 +418,9 @@ let tests =
             }
 
             // Overload resolution reads the argument's TYPE, so a tuple-VALUED expression
-            // selects the same 2-parameter overload a syntactic `("a", "b")` does. The emit
-            // therefore cannot assume a literal tuple; it reads the value positionally.
+            // selects the same 2-parameter overload a syntactic `("a", "b")` does. Elaborate
+            // destructures it to one expression per declared parameter, so the emit sees the
+            // same literal-tuple argument either spelling produces.
             test "a tuple-VALUED argument at a 2-param external method emits + runs" {
                 let src =
                     String.concat "\n" [ "let t = (\"a\", \"b\")"; "printfn \"%s\" (System.String.Concat t)" ]
@@ -429,6 +430,32 @@ let tests =
 
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "ab" "String.Concat t = \"ab\""
+            }
+
+            // The destructuring Elaborate synthesises for a tuple-VALUED argument must not
+            // reorder the call: an instance member evaluates its RECEIVER first, and the
+            // argument exactly once. Both operands announce themselves, so the printed
+            // order IS the evaluation order and a duplicated argument would say `A` twice.
+            test "an instance member keeps receiver-before-argument order over a tuple VALUE" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open System.Text"
+                            "let recv () : StringBuilder ="
+                            "    printfn \"R\""
+                            "    StringBuilder(\"xy\")"
+                            "let arg () : string * string ="
+                            "    printfn \"A\""
+                            "    (\"x\", \"z\")"
+                            "printfn \"%s\" ((recv ()).Replace(arg ()).ToString())"
+                        ]
+
+                let _, artifact = compileSource "P4ExternalTupleValueOrder" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "R\nA\nzy" "receiver, then argument, then `zy`"
             }
 
             // The short-name form (under its `open`) emits and runs identically —

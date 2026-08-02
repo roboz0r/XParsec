@@ -577,6 +577,9 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     // provider-fallback by `subsumes.canonKey`, `translateType`, and codegen.
     let types = PassContextTypes.empty ()
 
+    // Uniqueness counter behind `NewSynthBinder`; per file, like the metavar arena.
+    let mutable synthBinders = 0
+
     /// The **store view** (`SymbolKey → payload`) of the external-symbol contract —
     /// the default view every downstream pass (Unification, Elaborate, InlineExpansion,
     /// codegen) speaks once identity is already resolved. Narrowed from the full
@@ -882,6 +885,15 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// Mint a fresh metavar through this file's arena — the `ctx`-level construction
     /// seam every inference / name-resolution site routes through.
     member this.NewTypeVar() : TyVarId = this.Store.NewTypeVar()
+
+    /// Mint a binder key for a node Elaborate synthesises — the binder axis' `NewTypeVar`.
+    /// The key names no source position, which is what lets one construct mint several
+    /// (a destructured tupled argument mints one binder per element). The binder stays
+    /// unspelled, so a backend names it after its slot.
+    member _.NewSynthBinder() : NodeKey =
+        let k = NodeKey.ofSyntheticCounter synthBinders NodeKind.SynthElaborateBinder
+        synthBinders <- synthBinders + 1
+        k
 
     /// Current let-depth (Rémy's levels). Push on entering a binding group's
     /// RHSes, pop after typing them; generalisation uses the pre-push value as

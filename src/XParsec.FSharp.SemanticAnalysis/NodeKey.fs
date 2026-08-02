@@ -136,6 +136,11 @@ type NodeKind =
     /// nth binder and a freshen's nth binder be one key. They meet — an unpooled body is
     /// freshened at the splice — so that must be unrepresentable rather than merely unlikely.
     | SynthUnpooledBinder = 1008us
+    /// Binder Elaborate MINTS for a node it synthesises — the receiver and per-element
+    /// binders a tupled member call's destructured argument needs. Counter-minted
+    /// (`PassContext.NewSynthBinder`), because one construct mints several and an offset
+    /// cannot tell them apart; its own kind, so no other counter's nth binder aliases it.
+    | SynthElaborateBinder = 1009us
 
 [<Struct>]
 type NodeKey =
