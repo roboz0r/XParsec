@@ -773,18 +773,16 @@ type IntrinsicShape =
 /// total and removes the two-polarity hazard of sharing the scalar's optional field.
 ///
 /// - `Canon` — the platform-INVARIANT `.fsi` short-name identity (`Vesper.disposable`):
-///   the reconciliation / capability-matching key (`resolveAnchor`'s `CanonKey`) and the
-///   pre-split namespace `stampType` homes the `Origin` on. NOT the value-resolution key.
+///   the reconciliation / capability-matching key (`resolveAnchor`'s `CanonKey`), and where
+///   the capability's declaring namespace lives. NOT the value-resolution key.
 /// - `Platform` — the `.fs` `(# … #)` BCL repr (`"System.IDisposable"`), driving CLR
 ///   reconciliation + the `ClrEnv` InterfaceImpl redirect.
 /// - `TyparArity` — the type's generic parameter count (`equatable<'T>` = 1).
 /// - `Members` — the abstract member surface (`Dispose`), read by
 ///   `Unification.checkInterfaceConformance`. Populated at finalize (after the
 ///   deferred member loop) via the `PendingCapabilityInterfaces` republish.
-/// - `Origin` — the manifest home (assembly + namespace), stamped by
-///   `ExternalSymbolProviders.stack`'s `stampType` exactly as a `Class`'s is. The VALUE
-///   resolution key uses THIS (`externalTypeKey Origin`) for its namespace; `Canon` is the
-///   reconciliation/capability-matching key only.
+/// - `Origin` — the home assembly, stamped by `ExternalSymbolProviders.stack`'s `stampType`
+///   exactly as a `Class`'s is.
 type IntrinsicInterfaceShape =
     {
         /// A `TypeKey` — a capability is a nominal INTERFACE type; no other kind can name

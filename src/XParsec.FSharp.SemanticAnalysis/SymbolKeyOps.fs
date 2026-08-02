@@ -533,7 +533,10 @@ module SymbolKeyOps =
     /// `origin` supplies it only for a BARE `compiled`. Taking the namespace from the
     /// name it belongs to cannot mis-cut — a package-BLANKET origin (`Vesper`) stripped
     /// off the compiled name mis-cut `Vesper.Collections.seq` into `ns = "Vesper"` /
-    /// `name = "Collections.seq"` and broke capability-key matching.
+    /// `name = "Collections.seq"` and broke capability-key matching. No origin carries a
+    /// blanket namespace any more: a contract package registers every symbol under the
+    /// compiled name its FILE's `namespace` header qualifies, so a bare `compiled` from one
+    /// means the global namespace — which is what its origin says.
     let externalTypeKeyOf (origin: SymbolOrigin) (compiled: string) (arity: int) : TypeKey =
         if compiled.IndexOf '.' >= 0 then
             qualifiedTypeKeyOf compiled arity

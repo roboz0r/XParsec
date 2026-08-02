@@ -45,18 +45,42 @@ module RuntimeNames =
     // locally (self-hosting `Vesper.List` / `Vesper.Core`) or resolved through a package
     // reference.
 
+    /// The namespace the built-in intrinsics and language singletons are declared in —
+    /// the `namespace Vesper` of `prim-types-*.fsi` / `core-types.fsi`. The single literal
+    /// backing the canonical `*Key` constants and `primitiveKey` below.
+    [<Literal>]
+    let private intrinsicNamespace = "Vesper"
+
+    /// The namespace the collection singletons are declared in — the
+    /// `namespace Vesper.Collections` of `Vesper.List` / `Vesper.Seq` / `Vesper.Array`.
+    [<Literal>]
+    let private collectionsNamespace = "Vesper.Collections"
+
+    /// The implicit prelude: the namespaces whose contents resolve UNQUALIFIED in every
+    /// compilation, ahead of nothing and behind every explicit `open`. `int` and `seq` are
+    /// declared directly in a namespace (not in an `[<AutoOpen>]` module), so without these
+    /// two prefixes no bare primitive resolves at all.
+    ///
+    /// A fixed pair, deliberately: the prelude is a LANGUAGE fact, not per-package
+    /// configuration. It was formerly each referenced package's `[core] namespace`, which
+    /// made the prelude a property of whatever happened to be referenced, could not describe
+    /// a package that declares several namespaces (`Vesper.Core` declares three), and drifted
+    /// silently from the `namespace` headers it claimed to name. A package's OWN
+    /// `[<AutoOpen>]` modules still contribute, ahead of these.
+    let preludeNamespaces: string list = [ intrinsicNamespace; collectionsNamespace ]
+
     /// Canonical identity for the Vesper cons-list `List` union at arity 1, matching the
     /// locally compiled `UnionTypeInfo.TypeKey`. The producers' canonical key. A `TypeKey`,
     /// not a `SymbolKey`, because the nominal heads it stamps (`TyUnion`/`FTUnion`) are.
     let vesperListKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity "Vesper.Collections" "List" 1
+        SymbolKeyOps.typeKeyOfArity collectionsNamespace "List" 1
 
     /// The cons-list's lowercase `list` abbreviation (`` and 'T list = List<'T> ``, arity 1)
     /// — the cons-list's *second* accepted nominal form, sharing the union's namespace.
     /// Recogniser-only (no producer mints the abbreviation; `isVesperListKey` matches it
     /// alongside `vesperListKey`), hence `private`.
     let private vesperListAbbrevKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity "Vesper.Collections" "list" 1
+        SymbolKeyOps.typeKeyOfArity collectionsNamespace "list" 1
 
     /// Canonical identity for FSharp.Core's `list` — the non-retargeted default
     /// `ElaborateExpr` / `Unification` fall back to. Arity 1; never project-local.
@@ -65,7 +89,7 @@ module RuntimeNames =
 
     /// Canonical identity for the heap ref-cell record (`Ref<'T>`, arity 1), matching the
     /// locally compiled `Vesper.Core` `RecordTypeInfo.TypeKey`.
-    let vesperRefKey: TypeKey = SymbolKeyOps.typeKeyOfArity "Vesper" "Ref" 1
+    let vesperRefKey: TypeKey = SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Ref" 1
 
     /// Canonical identity for the `%A` structural-format interface
     /// `Vesper.IStructuralFormattable` (non-generic) — the `InterfaceImpl` the
@@ -75,12 +99,12 @@ module RuntimeNames =
     /// `Vesper.Core`, a `TypeRef` through Core's `AssemblyRef` downstream — so nothing
     /// asks "am I Core?".
     let structuralFormattableKey: TypeKey =
-        SymbolKeyOps.typeKeyOf "Vesper" "IStructuralFormattable"
+        SymbolKeyOps.typeKeyOf intrinsicNamespace "IStructuralFormattable"
 
     /// Canonical identity for `Vesper.IFormatSink` (non-generic) — the parameter type of
     /// the synthesised `Format`. Resolved local-or-external exactly as
     /// [`structuralFormattableKey`].
-    let formatSinkKey: TypeKey = SymbolKeyOps.typeKeyOf "Vesper" "IFormatSink"
+    let formatSinkKey: TypeKey = SymbolKeyOps.typeKeyOf intrinsicNamespace "IFormatSink"
 
     /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>` (arity 4) —
     /// the type a format literal freezes to (`PrintfSpec.printfFormatName`). The FSharp.Core
@@ -94,7 +118,7 @@ module RuntimeNames =
     /// machinery synthesises (`printfFormatName`). `isPrintfFormatKey` recognises both
     /// keys so a bound/ascribed format is seen as a `PrintfFormat` at every seam.
     let vesperPrintfFormatKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity "Vesper" "PrintfFormat" 4
+        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "PrintfFormat" 4
 
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
@@ -411,16 +435,12 @@ module RuntimeNames =
     let referencePrimitiveNames: Set<string> =
         Set.ofList [ "bool"; "char"; "string"; "unit"; "obj"; "voidptr"; "exn" ]
 
-    /// The declaring namespace every built-in intrinsic identity carries — the
-    /// `namespace Vesper` of `prim-types-*.fs`. Rides in the intrinsic's `SymbolKey`
-    /// so its identity is qualified like every nominal — codegen matches THAT key, never a
-    /// bare name. PRIVATE: the single literal backing the
-    /// canonical `*Key` constants + `primitiveKey` below. An intrinsic's identity is
-    /// otherwise CONTRACT-sourced (`TypeRegistry.intrinsicKeyOf` from the declaring
-    /// `namespace`; the extractor's qualified `compiled` name) — never classified from
-    /// a hardcoded front-end name set (the deleted shadow set).
-    [<Literal>]
-    let private intrinsicNamespace = "Vesper"
+    // `intrinsicNamespace` (top of module) is the declaring namespace every built-in
+    // intrinsic identity carries. It rides in the intrinsic's `SymbolKey` so its identity is
+    // qualified like every nominal — codegen matches THAT key, never a bare name. An
+    // intrinsic's identity is otherwise CONTRACT-sourced (`TypeRegistry.intrinsicKeyOf` from
+    // the declaring `namespace`; the extractor's qualified `compiled` name) — never
+    // classified from a hardcoded front-end name set (the deleted shadow set).
 
     /// Mint the canonical identity for a primitive whose name is KNOWN to name an
     /// intrinsic AT THE CALL SITE — authored verbatim as one of the `*Key` constants

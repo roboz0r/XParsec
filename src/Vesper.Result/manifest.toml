@@ -1,6 +1,5 @@
 [core]
 name = "Vesper.Result"
-namespace = "Vesper"
 description = "The result type and the Result module."
 depends-on = ["Vesper.Core"]
 

@@ -117,8 +117,8 @@ module Hashing =
 
     /// Derive one referenced project's SIGNATURE hash from its `manifest.toml` — the value
     /// that must change whenever anything about the dependency changes a consumer's compiled
-    /// output. A dependency exposes itself through its identity (assembly name + namespace,
-    /// which the consumer's minted keys carry), the manifest that says which files play which
+    /// output. A dependency exposes itself through its identity (its assembly name, which the
+    /// consumer's minted keys carry), the manifest that says which files play which
     /// role, and the CONTENTS of every source file it names.
     ///
     /// **Contract `.fsi` bytes alone are not enough, and assuming they were is a stale hit.**
@@ -163,8 +163,8 @@ module Hashing =
             // against the bytes that follow (see `appendLengthPrefixed`). NOT redundant with
             // the manifest bytes below: `Name` falls back to the manifest's DIRECTORY name
             // when the file declares none, so it is the one piece of a package's identity
-            // that need not appear in the file. `Namespace` is not folded separately for the
-            // opposite reason — it is required in the manifest, so the bytes already carry it.
+            // that need not appear in the file. The namespaces its symbols live in need no
+            // fold of their own — they are `namespace` headers in the source bytes below.
             appendLengthPrefixed hasher (Encoding.UTF8.GetBytes manifest.Name)
 
             // The manifest's OWN bytes: which files it names, under which key, in which order,

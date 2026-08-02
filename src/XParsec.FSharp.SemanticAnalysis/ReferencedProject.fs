@@ -5,10 +5,14 @@ open XParsec.Toml
 
 /// Layer 1 of the symbol-resolution stack: a
 /// *referenced project*, declared by its `manifest.toml`. A package's `[core]`
-/// table names the namespace and lists its contract `.fsi` files in compile
+/// table lists its contract `.fsi` files in compile
 /// order; this module parses each into one accumulating `ExtractCtx` (reusing
 /// `VesperLib`'s extractor) and exposes the result as an `IExternalSymbolProvider`
-/// whose symbols carry the package `Origin` (assembly simple name + namespace).
+/// whose symbols carry the package's home assembly.
+///
+/// A manifest declares no namespace: a symbol's namespace is its FILE's `namespace`
+/// header, which the extractor already reads into every key it mints, and a package
+/// may declare as many as it has files (`Vesper.Core` declares three).
 ///
 /// The `.fsi` is the *target-agnostic contract* (`type int = extern`); the
 /// matching `.fs` is the *per-target binding* (`type int = (# "System.Int32" #)`).
@@ -25,9 +29,6 @@ module ReferencedProject =
             /// `Vesper.Core`/`Vesper.Printf` omit `name`; the dir name is the
             /// package identity in both cases.
             Name: string
-            /// `[core] namespace` — the namespace the package's symbols live in
-            /// (and the implicit auto-open prefix for short-name resolution).
-            Namespace: string
             /// Other packages this one depends on (`[core] depends-on`) — the
             /// package names whose DLLs/contracts must be built/referenced first.
             /// Drives the package-build harness's recursive dependency resolution.
@@ -269,10 +270,9 @@ module ReferencedProject =
         match Map.tryFind "core" doc |> Option.bind asTable with
         | None -> Error "manifest.toml: missing [core] table"
         | Some core ->
-            match findString core "namespace", findStringList core "files" with
-            | None, _ -> Error "manifest.toml: [core] missing `namespace`"
-            | _, None -> Error "manifest.toml: [core] missing `files = [...]`"
-            | Some ns, Some files ->
+            match findStringList core "files" with
+            | None -> Error "manifest.toml: [core] missing `files = [...]`"
+            | Some files ->
                 // The directory name *is* the package identity — it is what a
                 // sibling's `depends-on` resolves against (`dependencyManifestPath`)
                 // and what `buildClosure` would otherwise report via `Name`. If an
@@ -295,7 +295,6 @@ module ReferencedProject =
                     Ok
                         {
                             Name = nameOpt |> Option.defaultValue dirName
-                            Namespace = ns
                             DependsOn = findStringList core "depends-on" |> Option.defaultValue []
                             Files = files
                             Impl = impl
@@ -523,10 +522,10 @@ module ReferencedProject =
             acc
 
     /// Wrap the extractor's provider so (a) every resolved descriptor carries
-    /// the package `Origin` (the extractor records `SymbolOrigin.Empty`; the
-    /// manifest knows the assembly + namespace),
+    /// the package's home assembly (the extractor records `SymbolOrigin.Empty` — it
+    /// knows the namespace it extracted from, not which assembly it will be read as),
     /// and (b) the package's implicit prelude — its `[<AutoOpen>]` modules plus
-    /// the namespace itself — is surfaced as `IAmbientOpenScope`. Short-name
+    /// `RuntimeNames.preludeNamespaces` — is surfaced as `IAmbientOpenScope`. Short-name
     /// resolution is *not* a provider-internal retry any more: the pipeline
     /// seeds these `ambient` prefixes into the open scope and probes them
     /// BEHIND explicit `open`s, so an explicit `open` can shadow a prelude
@@ -534,12 +533,8 @@ module ReferencedProject =
     /// composition / stamping / `IAmbientOpenScope` plumbing is the shared
     /// `ExternalSymbolProviders.stack` primitive — `wrap` is a 1-source instantiation
     /// of it with origin stamping.
-    let private wrap
-        (origin: SymbolOrigin)
-        (ambient: string list)
-        (inner: IExternalSymbolProvider)
-        : IExternalSymbolProvider =
-        ExternalSymbolProviders.stack (ValueSome origin) ambient [ inner ]
+    let private wrap (home: Origin) (ambient: string list) (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
+        ExternalSymbolProviders.stack (ValueSome home) ambient [ inner ]
 
     /// Stand up a referenced project (layer 1) from its `manifest.toml`, with
     /// read access to its dependencies' already-built type shapes
@@ -699,22 +694,14 @@ module ReferencedProject =
                 | Error e -> ctx.Diagnostics.Add(file, e)
                 | Ok parsed -> VesperLib.extractSymbols ctx parsed
 
-            let origin: SymbolOrigin =
-                {
-                    Home = Origin.InAssembly(AssemblyName manifest.Name)
-                    Namespace = SymbolKeyOps.namespaceKey manifest.Namespace
-                }
+            let home = Origin.InAssembly(AssemblyName manifest.Name)
 
             // The contract's implicit prelude: its `[<AutoOpen>]` modules (most
-            // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the package
-            // namespace itself (`Vesper`, so `int` finds `Vesper.int`). Both are
-            // probed behind explicit `open`s.
-            let ambient =
-                List.ofSeq ctx.AutoOpenPrefixes
-                @ (if manifest.Namespace.Length > 0 then
-                       [ manifest.Namespace ]
-                   else
-                       [])
+            // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the language prelude
+            // (`Vesper`, so `int` finds `Vesper.int`). Both are probed behind explicit
+            // `open`s. The prelude is fixed, not manifest-declared — see
+            // `RuntimeNames.preludeNamespaces`.
+            let ambient = List.ofSeq ctx.AutoOpenPrefixes @ RuntimeNames.preludeNamespaces
 
             // The nominal types this package declares (own shapes only — `shapeOf`
             // consults dependency `AmbientShapes` as a fallback but never inserts them
@@ -740,7 +727,7 @@ module ReferencedProject =
 
             Ok
                 {
-                    Provider = wrap origin ambient (VesperLib.ExtractCtx.toProvider ctx)
+                    Provider = wrap home ambient (VesperLib.ExtractCtx.toProvider ctx)
                     Diagnostics = List.ofSeq ctx.Diagnostics
                     HomeAssembly = manifest.Name
                     DeclaredTypeNames = declaredTypeNames

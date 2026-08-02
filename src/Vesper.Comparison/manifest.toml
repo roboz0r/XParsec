@@ -1,6 +1,5 @@
 [core]
 name = "Vesper.Comparison"
-namespace = "Vesper"
 description = "The ordering operators (< > <= >=)."
 depends-on = ["Vesper.Core"]
 

@@ -115,10 +115,7 @@ let tests =
                 let fsiPath = Path.Combine(pkgDir, "extra.fsi")
                 let manifestPath = Path.Combine(pkgDir, "manifest.toml")
 
-                File.WriteAllText(
-                    manifestPath,
-                    "[core]\nname = \"Extra\"\nnamespace = \"Extra\"\nfiles = [\"extra.fsi\"]\n"
-                )
+                File.WriteAllText(manifestPath, "[core]\nname = \"Extra\"\nfiles = [\"extra.fsi\"]\n")
 
                 let contract (marker: string) : string =
                     sprintf "namespace Extra\n\nmodule ExtraContract =\n\n    /// %s\n    val extraMarker: int\n" marker
@@ -183,7 +180,7 @@ let tests =
 
                 File.WriteAllText(
                     manifestPath,
-                    "[core]\nname = \"Inl\"\nnamespace = \"Inl\"\nfiles = [\"inl.fsi\"]\ninline-bodies = [\"ops.fs\"]\n"
+                    "[core]\nname = \"Inl\"\nfiles = [\"inl.fsi\"]\ninline-bodies = [\"ops.fs\"]\n"
                 )
 
                 File.WriteAllText(

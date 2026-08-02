@@ -34,7 +34,7 @@ let private writePackage (root: string) (pkg: string) (contract: string) : strin
     Directory.CreateDirectory dir |> ignore
     File.WriteAllText(Path.Combine(dir, "contract.fsi"), contract)
     let manifestPath = Path.Combine(dir, "manifest.toml")
-    File.WriteAllText(manifestPath, "[core]\nnamespace = \"Test\"\nfiles = [\"contract.fsi\"]\n")
+    File.WriteAllText(manifestPath, "[core]\nfiles = [\"contract.fsi\"]\n")
     manifestPath
 
 /// The flexible sibling of `writePackage`: an explicit manifest body plus an explicit set of
@@ -295,7 +295,7 @@ let tests =
                         writePackageFiles
                             root
                             "Dep"
-                            "[core]\nnamespace = \"Dep\"\nfiles = [\"dep.fsi\"]\n"
+                            "[core]\nfiles = [\"dep.fsi\"]\n"
                             [ "dep.fsi", "type d = extern\n" ]
                         |> ignore
 
@@ -303,7 +303,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Root"
-                                "[core]\nnamespace = \"Root\"\nfiles = [\"root.fsi\"]\ndepends-on = [\"Dep\"]\n"
+                                "[core]\nfiles = [\"root.fsi\"]\ndepends-on = [\"Dep\"]\n"
                                 [ "root.fsi", "type r = extern\n" ]
 
                         let inputs =
@@ -470,7 +470,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nnamespace = \"Test\"\nfiles = [\"contract.fsi\"]\ninline-bodies = [\"ops.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\ninline-bodies = [\"ops.fs\"]\n"
                                 [
                                     "contract.fsi", "val inline f: int -> int\n"
                                     "ops.fs", "let inline f x = x + 1\n"
@@ -489,7 +489,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nnamespace = \"Test\"\nfiles = [\"contract.fsi\"]\nimpl = [\"body.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"body.fs\"]\n"
                                 [ "contract.fsi", "val f: int -> int\n"; "body.fs", "let f x = x\n" ]
 
                         let struct (before, after) = hashAcrossWrite manifest "body.fs" "let f x = x + 1\n"
@@ -507,7 +507,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nnamespace = \"Test\"\nfiles = [\"contract.fsi\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\n"
                                 [ "contract.fsi", "type a = extern\n"; "contract.fs", "type a = (# \"A\" #)\n" ]
 
                         let struct (before, after) =
@@ -525,7 +525,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nnamespace = \"Test\"\nfiles = [\"contract.fsi\"]\nfiles-js = [\"shim.js.fsi\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\nfiles-js = [\"shim.js.fsi\"]\n"
                                 [ "contract.fsi", "type a = extern\n"; "shim.js.fsi", "type b = extern\n" ]
 
                         let struct (before, after) =
@@ -544,7 +544,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nnamespace = \"Test\"\nfiles = [\"contract.fsi\"]\nfiles-js = [\"shim.js.fsi\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\nfiles-js = [\"shim.js.fsi\"]\n"
                                 [
                                     "contract.fsi", "type a = extern\n"
                                     "shim.js.fsi", "type b = extern\n"
@@ -566,14 +566,11 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nnamespace = \"Test\"\nfiles = [\"a.fsi\", \"b.fsi\"]\n"
+                                "[core]\nfiles = [\"a.fsi\", \"b.fsi\"]\n"
                                 [ "a.fsi", "type a = extern\n"; "b.fsi", "type b = extern\n" ]
 
                         let struct (before, after) =
-                            hashAcrossWrite
-                                manifest
-                                "manifest.toml"
-                                "[core]\nnamespace = \"Test\"\nfiles = [\"b.fsi\", \"a.fsi\"]\n"
+                            hashAcrossWrite manifest "manifest.toml" "[core]\nfiles = [\"b.fsi\", \"a.fsi\"]\n"
 
                         Expect.notEqual before after "compile order is part of the signature"
                     }
@@ -587,7 +584,7 @@ let tests =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nnamespace = \"Test\"\nfiles = [\"contract.fsi\"]\nimpl = [\"body.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"body.fs\"]\n"
                                 [ "contract.fsi", "type a = extern\n" ]
 
                         let struct (before, after) = hashAcrossWrite manifest "body.fs" ""

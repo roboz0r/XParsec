@@ -1,6 +1,5 @@
 [core]
 name = "Vesper.Seq"
-namespace = "Vesper.Collections"
 description = "The Seq module over seq<'T> (fold, reduce, truncate, toArray)."
 depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison"]
 

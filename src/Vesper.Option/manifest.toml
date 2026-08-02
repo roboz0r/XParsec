@@ -1,6 +1,5 @@
 [core]
 name = "Vesper.Option"
-namespace = "Vesper"
 description = "The option type and the Option module."
 depends-on = ["Vesper.Core"]
 

@@ -70,14 +70,7 @@ let private producerFs =
 /// `name` is omitted so it defaults to the directory name (`loadManifest` requires
 /// the two match); the consumer references the producer DLL by that same name.
 let private producerManifestToml =
-    String.concat
-        "\n"
-        [
-            "[core]"
-            "namespace = \"Vesper\""
-            "files = [\"producer.fsi\"]"
-            "impl = [\"producer.fs\"]"
-        ]
+    String.concat "\n" [ "[core]"; "files = [\"producer.fsi\"]"; "impl = [\"producer.fs\"]" ]
 
 /// `tmp/EscapeProducer/` — the directory name IS the producer package / assembly
 /// name (so the `.fsi`-recorded home assembly matches the emitted DLL's identity).

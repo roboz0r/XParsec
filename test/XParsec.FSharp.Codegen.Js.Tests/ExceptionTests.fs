@@ -90,9 +90,12 @@ let tests =
                     Expect.equal out "7" "the non-raising branch evaluates normally"
             }
 
+            // `open System` is required for the bare spelling: `Vesper.Exceptions` declares
+            // its roots in `namespace System`, and only the language prelude
+            // (`RuntimeNames.preludeNamespaces`) is implicitly open.
             test "a constructed exception lowers to `new Error(message)` (exn repr from contract)" {
                 let src =
-                    emitJs "let f (b: bool) = if b then 7 else raise (InvalidOperationException \"boom\")"
+                    emitJs "open System\nlet f (b: bool) = if b then 7 else raise (InvalidOperationException \"boom\")"
 
                 Expect.stringContains src "new Error(" "the exception lowers to `new Error` (exn → Error)"
             }
@@ -100,7 +103,7 @@ let tests =
             test "a different exception type also resolves through the contract chain" {
                 // Every exception in the contract erases to the one `exn` root — not a per-name special case.
                 let src =
-                    emitJs "let f (b: bool) = if b then 7 else raise (ArgumentException \"bad\")"
+                    emitJs "open System\nlet f (b: bool) = if b then 7 else raise (ArgumentException \"bad\")"
 
                 Expect.stringContains src "new Error(" "ArgumentException erases to the `exn` root too"
                 Expect.isFalse (src.Contains "ArgumentException") "the BCL name does not leak into the output"
@@ -124,7 +127,8 @@ let tests =
                 match
                     runJs
                         "exn-catch-error"
-                        ("let f (b: bool) = if b then 7 else raise (InvalidOperationException \"kaboom\")\n"
+                        ("open System\n"
+                         + "let f (b: bool) = if b then 7 else raise (InvalidOperationException \"kaboom\")\n"
                          + "let g () = (# \"(() => { try { return $0; } catch (e) { console.log(e.message); return 0; } })()\" (f false) : int #)\n"
                          + "printfn \"%d\" (g ())")
                 with

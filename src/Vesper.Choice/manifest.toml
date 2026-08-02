@@ -1,6 +1,5 @@
 [core]
 name = "Vesper.Choice"
-namespace = "Vesper"
 description = "The Choice<'T1, 'T2> two-way disjoint union type."
 depends-on = ["Vesper.Core"]
 

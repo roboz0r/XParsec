@@ -391,7 +391,7 @@ let structTests =
 
                 System.IO.File.WriteAllText(
                     manifestPath,
-                    "[core]\nname = \"Vesper.PointPkg\"\nnamespace = \"Vesper\"\ndepends-on = []\nfiles = [\"point.fsi\"]\n"
+                    "[core]\nname = \"Vesper.PointPkg\"\ndepends-on = []\nfiles = [\"point.fsi\"]\n"
                 )
 
                 System.IO.File.WriteAllText(

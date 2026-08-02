@@ -7,13 +7,14 @@
 # the package is loaded into (the test stacks it ahead of `jsManifests`, which carry
 # Vesper.Core). Modeled on `src/Vesper.Core` / `src/Vesper.List`.
 
-# NAMESPACED (`Widgets`): the compiled name is `Widgets.widget`. The member-inline store
-# keys the lifted body by the QUALIFIED name (`SymbolKeyOps.qualifiedName tdecl.Key`),
-# which is exactly what the provider's `TryLookupMember` matches — so a namespaced
-# intrinsic resolves end-to-end (this fixture is the regression guard for that keying).
+# NAMESPACED: `widget.fsi` declares `namespace Widgets`, so the compiled name is
+# `Widgets.widget`. The member-inline store keys the lifted body by the QUALIFIED name
+# (`SymbolKeyOps.qualifiedName tdecl.Key`), which is exactly what the provider's
+# `TryLookupMember` matches — so a namespaced intrinsic resolves end-to-end (this fixture
+# is the regression guard for that keying). `Widgets` is not in the implicit prelude, so
+# the consumer snippets `open Widgets` like any other namespace.
 [core]
 name = "widget"
-namespace = "Widgets"
 description = "Test fixture: a `(# … #)`-bodied member (`Poke`) on an `extern` type."
 
 # The front-end symbol contract: `widget` with `Poke`, and `gadget` with `Bump`.

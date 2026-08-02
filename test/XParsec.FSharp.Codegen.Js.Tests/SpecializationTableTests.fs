@@ -123,7 +123,6 @@ let private recursiveProducer: Lazy<IExternalSymbolProvider> =
             "manifest.toml"
             """[core]
 name = "Cycle.Probe"
-namespace = "CycleProbe"
 description = "Inline bodies that call themselves, for the acyclicity check."
 files = ["probe.fsi"]
 impl = []
@@ -180,7 +179,6 @@ let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =
             "manifest.toml"
             """[core]
 name = "Cycle.Member"
-namespace = "CycleMember"
 description = "A member inline body that reaches itself, for the back edge's arity."
 files = ["bounce.fsi"]
 impl = []

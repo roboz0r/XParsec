@@ -1,5 +1,4 @@
 [core]
-namespace = "Vesper"
 description = "Minimal language fundamentals: the primitive types, Fun, Ref, capabilities, and the operators."
 
 # .fsi files in compile order — fed to the parser one at a time, accumulating

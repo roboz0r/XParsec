@@ -1,6 +1,5 @@
 [core]
 name = "Vesper.Set"
-namespace = "Vesper.Collections"
 description = "The immutable AVL-tree set type and the Set module (FSharp.Core verbatim)."
 
 depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Array", "Vesper.Seq", "Vesper.Choice", "Vesper.Option", "Vesper.Comparison", "Vesper.Printf"]

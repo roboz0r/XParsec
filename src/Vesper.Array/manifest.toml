@@ -1,6 +1,5 @@
 [core]
 name = "Vesper.Array"
-namespace = "Vesper.Collections"
 description = "The Array module over the intrinsic 'T[] type (zeroCreate, get/set, map/iter/fold, ...)."
 depends-on = ["Vesper.Core"]
 

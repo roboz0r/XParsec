@@ -1,5 +1,4 @@
 [core]
-namespace = "Vesper"
 description = "printf / printfn / sprintf and the write-through format handler."
 
 # Depends on Vesper.Core for the language primitives (`string`, `uint`, `char[]`,

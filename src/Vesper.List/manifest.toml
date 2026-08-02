@@ -1,6 +1,5 @@
 [core]
 name = "Vesper.List"
-namespace = "Vesper.Collections"
 description = "The immutable cons-list type and the List module."
 
 # `Vesper.Core` alone, though the `list.fsi` contract also names `int option` (in

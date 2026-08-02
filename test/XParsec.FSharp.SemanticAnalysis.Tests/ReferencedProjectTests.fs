@@ -55,10 +55,7 @@ let private writeSyntheticManifest (name: string) (dependsOn: string list) : str
     let deps = dependsOn |> List.map (sprintf "\"%s\"") |> String.concat ", "
     let path = Path.Combine(dir, "manifest.toml")
 
-    File.WriteAllText(
-        path,
-        sprintf "[core]\nname = \"%s\"\nnamespace = \"%s\"\ndepends-on = [%s]\nfiles = []\n" name name deps
-    )
+    File.WriteAllText(path, sprintf "[core]\nname = \"%s\"\ndepends-on = [%s]\nfiles = []\n" name deps)
 
     path
 
@@ -71,7 +68,7 @@ let private writeSyntheticPackageWithType (name: string) (ns: string) (fsiBody: 
     File.WriteAllText(Path.Combine(dir, "contract.fsi"), sprintf "namespace %s\n%s\n" ns fsiBody)
     let path = Path.Combine(dir, "manifest.toml")
 
-    File.WriteAllText(path, sprintf "[core]\nname = \"%s\"\nnamespace = \"%s\"\nfiles = [\"contract.fsi\"]\n" name ns)
+    File.WriteAllText(path, sprintf "[core]\nname = \"%s\"\nfiles = [\"contract.fsi\"]\n" name)
 
     path
 
@@ -96,14 +93,13 @@ let tests =
     testList
         "ReferencedProject"
         [
-            test "manifest parses: name, namespace, files in compile order" {
+            test "manifest parses: name and files in compile order" {
                 match ReferencedProject.loadManifest vesperCoreManifest with
                 | Result.Error e -> failtestf "loadManifest failed: %s" e
                 | Result.Ok m ->
                     // `Vesper.Core`'s `[core]` carries no `name`, so it falls back
                     // to the directory name.
                     Expect.equal m.Name "Vesper.Core" "assembly name from dir"
-                    Expect.equal m.Namespace "Vesper" "namespace from [core]"
                     Expect.isNonEmpty m.Files "files listed"
                     Expect.equal (List.head m.Files) "prim-types-min.fsi" "compile order: prim-types-min first"
             }
@@ -191,8 +187,8 @@ let tests =
                 // exact string a metadata interface name reconciles against.
                 // UNLIKE `exn`, reconciliation rides the `Id` platform name, NOT a reverse-canon
                 // entry (asserted absent below). The `seq` / `enumerator` cluster's canon carries
-                // the SUB-namespace (`Vesper.Collections`, not the manifest's `Vesper`), so its
-                // origin-homed value key matches the resolved `CanonKey`.
+                // the namespace its own `.fsi` declares (`Vesper.Collections`, not the `Vesper`
+                // its package siblings sit in), so its value key matches the resolved `CanonKey`.
                 let provider, _ = builtProvider.Value
 
                 let expectCapability (lookup: string) (canonKey: SymbolKey) (platformExpected: string) =
@@ -350,16 +346,19 @@ let tests =
                 // only needs it to resolve with the package `Origin`.
                 // Generic compiled names are arity-suffixed (`Fun`2`), matching the
                 // emitted metadata name (`Vesper.Fun`2`) and the consumer's probe.
-                match provider.TryLookupType "Vesper.Fun`2" |> ExternalSymbols.typeShapeOf with
-                | ValueSome(ExternalTypeShape.Class info) ->
+                match provider.TryLookupType "Vesper.Fun`2" with
+                | ValueSome(struct (key, ExternalTypeShape.Class info)) ->
                     Expect.equal info.TyparArity 2 "Fun has two typars"
 
+                    // The HOME is what the package wrapper stamps; the NAMESPACE rides the
+                    // registered key, sourced from the `.fsi`'s own `namespace` header (no
+                    // manifest declares one).
                     Expect.equal
                         info.Origin.Home.AssemblyOption
                         (ValueSome "Vesper.Core")
                         "origin assembly = Vesper.Core"
 
-                    Expect.equal info.Origin.Namespace.Dotted "Vesper" "origin namespace = Vesper"
+                    Expect.equal key.Namespace.Dotted "Vesper" "key namespace = Vesper, from the file header"
                 | other -> failtestf "expected Vesper.Fun as Class shape, got %A" other
             }
 
@@ -371,18 +370,23 @@ let tests =
                 Expect.isTrue (provider.TryLookupType "int" |> ValueOption.isNone) "bare int is a provider miss"
             }
 
-            test "the contract surfaces its [<AutoOpen>] modules + namespace as the ambient prefix set" {
+            test "the contract surfaces its [<AutoOpen>] modules + the language prelude as the ambient prefix set" {
                 let provider, _ = builtProvider.Value
                 let prefixes = provider.AmbientOpenPrefixes
-                // `ops-platform.fsi`'s `[<AutoOpen>]` operator modules, plus
-                // the package namespace as the trailing implicit prefix.
+                // `ops-platform.fsi`'s `[<AutoOpen>]` operator modules, plus the fixed
+                // prelude as the trailing implicit prefixes. The prelude is a language
+                // constant, not a manifest declaration — a package that declares no
+                // `Vesper.Collections` type still carries the prefix (it resolves nothing).
                 Expect.isTrue
                     (List.contains "Vesper.ArithmeticOperators" prefixes)
                     "ArithmeticOperators auto-open surfaced"
 
                 Expect.isTrue (List.contains "Vesper.Operators" prefixes) "Operators (hash) auto-open surfaced"
-                Expect.isTrue (List.contains "Vesper" prefixes) "namespace surfaced as the trailing prefix"
-                Expect.equal (List.last prefixes) "Vesper" "namespace is last (probed after the AutoOpen modules)"
+
+                Expect.equal
+                    (prefixes |> List.skip (prefixes.Length - RuntimeNames.preludeNamespaces.Length))
+                    RuntimeNames.preludeNamespaces
+                    "the prelude is the tail (probed after the AutoOpen modules)"
             }
 
             test "an unknown type misses" {
@@ -657,7 +661,7 @@ let tests =
                         let dir = Path.Combine(tmpSrc, "DivergeDir")
                         Directory.CreateDirectory dir |> ignore
                         let path = Path.Combine(dir, "manifest.toml")
-                        File.WriteAllText(path, "[core]\nname = \"Mismatch\"\nnamespace = \"X\"\nfiles = []\n")
+                        File.WriteAllText(path, "[core]\nname = \"Mismatch\"\nfiles = []\n")
 
                         match ReferencedProject.loadManifest path with
                         | Result.Ok m -> failtestf "expected a name/dir mismatch error, got Ok %A" m
@@ -670,7 +674,7 @@ let tests =
                         let dir = Path.Combine(tmpSrc, "NoName")
                         Directory.CreateDirectory dir |> ignore
                         let path = Path.Combine(dir, "manifest.toml")
-                        File.WriteAllText(path, "[core]\nnamespace = \"X\"\nfiles = []\n")
+                        File.WriteAllText(path, "[core]\nfiles = []\n")
 
                         match ReferencedProject.loadManifest path with
                         | Result.Ok m -> Expect.equal m.Name "NoName" "name falls back to directory name"
@@ -694,7 +698,6 @@ let tests =
                         File.WriteAllText(
                             path,
                             "[core]\n\
-                             namespace = \"X\"\n\
                              files = [\"contract.fsi\"]\n\
                              impl = [\"ops.fs\"]\n\
                              impl-js = [\"ops.js.fs\"]\n\
@@ -766,7 +769,6 @@ let tests =
                         File.WriteAllText(
                             path,
                             "[core]\n\
-                             namespace = \"X\"\n\
                              files = []\n\
                              runtime-js = [\"asset.mjs\"]\n"
                         )
@@ -801,7 +803,7 @@ let tests =
                         let dir = Path.Combine(tmpSrc, "NoOverrides")
                         Directory.CreateDirectory dir |> ignore
                         let path = Path.Combine(dir, "manifest.toml")
-                        File.WriteAllText(path, "[core]\nnamespace = \"X\"\nfiles = []\nimpl = [\"ops.fs\"]\n")
+                        File.WriteAllText(path, "[core]\nfiles = []\nimpl = [\"ops.fs\"]\n")
 
                         match ReferencedProject.loadManifest path with
                         | Result.Error e -> failtestf "loadManifest failed: %s" e
@@ -842,9 +844,7 @@ let tests =
                         // so `sourceInputs` names no `.js.fs` companion — and `declaredTarget`
                         // is what stops the extraction probing one anyway.
                         let m =
-                            loadOrFail (
-                                writeManifest "TargetBlind" "[core]\nnamespace = \"X\"\nfiles = [\"contract.fsi\"]\n"
-                            )
+                            loadOrFail (writeManifest "TargetBlind" "[core]\nfiles = [\"contract.fsi\"]\n")
 
                         Expect.isEmpty (ReferencedProject.targetSuffixes m) "no per-target key ⇒ no suffix"
 
@@ -863,7 +863,7 @@ let tests =
                             loadOrFail (
                                 writeManifest
                                     "TargetAware"
-                                    "[core]\nnamespace = \"X\"\nfiles = [\"contract.fsi\"]\nimpl-js = [\"ops.js.fs\"]\n"
+                                    "[core]\nfiles = [\"contract.fsi\"]\nimpl-js = [\"ops.js.fs\"]\n"
                             )
 
                         Expect.equal
@@ -884,7 +884,7 @@ let tests =
                             loadOrFail (
                                 writeManifest
                                     "RuntimeOnly"
-                                    "[core]\nnamespace = \"X\"\nfiles = [\"contract.fsi\"]\nruntime-js = [\"x.mjs\"]\n"
+                                    "[core]\nfiles = [\"contract.fsi\"]\nruntime-js = [\"x.mjs\"]\n"
                             )
 
                         Expect.equal

@@ -306,13 +306,18 @@ module ExternalSymbolProviders =
     /// The single provider-shim primitive: first-hit-wins composition over
     /// `sources`, surfacing `ambient` via `AmbientOpenPrefixes`, optionally
     /// rewriting every resolved `ExternalSymbol` / `ExternalTypeShape` /
-    /// `ExternalMember` to carry `stampOrigin`'s `SymbolOrigin`. `composite`
+    /// `ExternalMember` to carry `stampHome` as its `SymbolOrigin.Home`. `composite`
     /// and `ReferencedProject.wrap` both layer on top of this — one TryLookup*
     /// fall-through, one ambient surface, one place to keep the shape
     /// switch in `TryLookupType` honest when a new `ExternalTypeShape` case
     /// learns to carry its `Origin`.
+    ///
+    /// The HOME is the whole of what a wrapper supplies: an assembly is a property of the
+    /// package that answered, so a wrapper knows it and the leaf does not. The origin's
+    /// NAMESPACE is not — a package declares as many namespaces as its files do, so it is
+    /// the leaf's to record, and stamping would flatten them all onto one blanket.
     let stack
-        (stampOrigin: SymbolOrigin voption)
+        (stampHome: Origin voption)
         (ambient: string list)
         (sources: IExternalSymbolProvider list)
         : IExternalSymbolProvider =
@@ -346,41 +351,42 @@ module ExternalSymbolProviders =
         // built in full, and the package's home assembly is not part of it. The wrapper
         // supplies the home on the resolved shape's `Origin` — the one channel by which
         // an assembly reaches a backend.
+        let inline home (origin: SymbolOrigin) (h: Origin) = { origin with Home = h }
+
         let stampSymbol =
-            match stampOrigin with
+            match stampHome with
             | ValueNone -> id
-            | ValueSome o -> fun (s: ExternalSymbol) -> { s with Origin = o }
+            | ValueSome h -> fun (s: ExternalSymbol) -> { s with Origin = home s.Origin h }
 
         let stampMember =
-            match stampOrigin with
+            match stampHome with
             | ValueNone -> id
-            | ValueSome o -> fun (m: ExternalMember) -> { m with Origin = o }
+            | ValueSome h -> fun (m: ExternalMember) -> { m with Origin = home m.Origin h }
 
         // The single place that decides which `ExternalTypeShape` cases carry
         // their `Origin`. Class/Record/Union do today; Abbrev doesn't (its
         // cross-package emit path lands later, with the same shape). Extend
         // this match — not three call sites — when a new case learns origin.
         //
-        // The origin is a PACKAGE fact (home assembly + manifest namespace); a type's own
-        // identity lives in its key, which this never rewrites.
+        // The home is a PACKAGE fact; a type's own identity lives in its key, which this
+        // never rewrites. (A capability `IntrinsicInterface` additionally carries its
+        // declaring namespace on `Canon`, so nothing here needs to supply one.)
         let stampType (shape: ExternalTypeShape) : ExternalTypeShape =
-            match stampOrigin with
+            match stampHome with
             | ValueNone -> shape
-            | ValueSome o ->
+            | ValueSome h ->
                 match shape with
-                | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
-                | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
-                | ExternalTypeShape.Union(arity, cases, ifaces, _) -> ExternalTypeShape.Union(arity, cases, ifaces, o)
-                | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
-                // Origin-stamped like a `Class` (the extractor left it `Empty`), but its
-                // namespace comes from its authoritative canonical key (`Vesper.Collections`
-                // for `seq`; `disposable` et al. already sit directly in `Vesper`), which is
-                // where the capability's identity is; the home stays the package's.
-                | ExternalTypeShape.IntrinsicInterface s ->
-                    ExternalTypeShape.IntrinsicInterface
-                        { s with
-                            Origin = { o with Namespace = s.Canon.Namespace }
+                | ExternalTypeShape.Class info ->
+                    ExternalTypeShape.Class
+                        { info with
+                            Origin = home info.Origin h
                         }
+                | ExternalTypeShape.Record(arity, fields, o) -> ExternalTypeShape.Record(arity, fields, home o h)
+                | ExternalTypeShape.Union(arity, cases, ifaces, o) ->
+                    ExternalTypeShape.Union(arity, cases, ifaces, home o h)
+                | ExternalTypeShape.Enum(cases, o) -> ExternalTypeShape.Enum(cases, home o h)
+                | ExternalTypeShape.IntrinsicInterface s ->
+                    ExternalTypeShape.IntrinsicInterface { s with Origin = home s.Origin h }
                 | ExternalTypeShape.Abbrev _
                 // An intrinsic carries no `Origin` (its identity is the canon, and its
                 // representation is target-dependent), so origin stamping leaves it unchanged.
@@ -393,18 +399,18 @@ module ExternalSymbolProviders =
         // origin so the union-case's origin agrees with what `TryLookupType`
         // would report for the same union.
         let stampUnionCase =
-            match stampOrigin with
+            match stampHome with
             | ValueNone -> id
-            | ValueSome o -> fun (uc: ExternalUnionCase) -> { uc with Origin = o }
+            | ValueSome h -> fun (uc: ExternalUnionCase) -> { uc with Origin = home uc.Origin h }
 
         // Same as `stampUnionCase` for the reverse FIELD index: a candidate is looked up
         // off a `Record` shape the extractor recorded with `SymbolOrigin.Empty`, so re-home
         // it onto the package origin — its origin must agree with what `TryLookupType`
         // reports for the same record.
         let stampRecordCandidate =
-            match stampOrigin with
+            match stampHome with
             | ValueNone -> id
-            | ValueSome o -> fun (c: ExternalRecordCandidate) -> { c with Origin = o }
+            | ValueSome h -> fun (c: ExternalRecordCandidate) -> { c with Origin = home c.Origin h }
 
         { new IExternalSymbolProvider
 
@@ -465,7 +471,7 @@ module ExternalSymbolProviders =
                       result <- sources.[i].TryLookupMembers(key, memberName)
                       i <- i + 1
 
-                  match stampOrigin with
+                  match stampHome with
                   | ValueNone -> result
                   | ValueSome _ -> result |> Array.map stampMember
 
@@ -502,11 +508,16 @@ module ExternalSymbolProviders =
     /// first-hit-wins ordering as lookups). Providers without an implicit
     /// prelude (inline test fakes) return `[]` and contribute
     /// nothing.
+    ///
+    /// Deduplicated keeping the FIRST sighting, which preserves that order: every package
+    /// contributes the same `RuntimeNames.preludeNamespaces` tail, and re-probing one
+    /// prefix once per referenced package is pure work on the miss path.
     let private collectAmbient (sources: IExternalSymbolProvider seq) : string list =
         [
             for s in sources do
                 yield! s.AmbientOpenPrefixes
         ]
+        |> List.distinct
 
     /// First-hit-wins down the list; `[]` ⇒ `nullProvider`, a singleton ⇒ that
     /// provider unwrapped. Priority encodes shadowing among *external* sources

@@ -1,5 +1,4 @@
 [core]
-namespace = "System"
 description = "Common BCL exception roots as Vesper contract types inheriting exn."
 depends-on = ["Vesper.Core"]
 
