@@ -221,6 +221,36 @@ let tests =
                 Expect.isFalse (js.Contains ".Poke") (sprintf "a `.Poke` method call leaked into emit:\n%s" js)
             }
 
+            // TWO parameters — the arity at which the call site's ONE tupled argument stops
+            // coinciding with the curried parameter it is peeled against. Left tupled, the
+            // whole tuple lands in `a`, `b` is never supplied, and the emit is a partial
+            // application standing where the signature promises an `int`.
+            test "`w.Poke2(3, 4)` splices to `3 + 4` — the tupled argument opens to both parameters" {
+                let js = emitWidget "open Widgets\nlet useP2 (w: widget) : int = w.Poke2(3, 4)\n"
+
+                Expect.stringContains js "(3) + (4)" (sprintf "expected the spliced `(3) + (4)` body, got:\n%s" js)
+                Expect.isFalse (js.Contains ".Poke2") (sprintf "a `.Poke2` method call leaked into emit:\n%s" js)
+
+                // The consumer's own `(w) =>` is the ONLY arrow the snippet may emit: an
+                // unsupplied curried parameter survives as a lambda, which is exactly the
+                // shape the tupled peel leaves behind.
+                Expect.equal (js.Split("=>").Length - 1) 1 (sprintf "a curried remnant survived the splice:\n%s" js)
+            }
+
+            // The same arity, STATIC: no receiver occupies curried position 0, so the
+            // untupled arguments land at a different offset. Its body is itself a
+            // two-parameter instance call, so one use site untuples twice.
+            test "`gadget.Bump2(w, 41)` untuples a STATIC two-parameter member, twice over" {
+                let js =
+                    emitWidget "open Widgets\nlet useB2 (w: widget) : int = gadget.Bump2(w, 41)\n"
+
+                Expect.stringContains js "(41) + (7)" (sprintf "expected the twice-spliced `(41) + (7)`, got:\n%s" js)
+                Expect.isFalse (js.Contains ".Bump2") (sprintf "a `.Bump2` method call leaked into emit:\n%s" js)
+                Expect.isFalse (js.Contains ".Poke2") (sprintf "a `.Poke2` method call leaked into emit:\n%s" js)
+
+                Expect.equal (js.Split("=>").Length - 1) 1 (sprintf "a curried remnant survived the splice:\n%s" js)
+            }
+
             test "liftMemberBody mints a `this`-first curried inline TDecl.Let" {
                 match SymbolProviders.liftMemberBody nowhereSource (pokeMember ()) with
                 | Some body ->

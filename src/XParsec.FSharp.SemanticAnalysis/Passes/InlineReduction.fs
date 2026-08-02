@@ -243,7 +243,10 @@ module InlineReduction =
             /// `ValueNone` is a genuine "carries no inline body", never a missed lookup — see
             /// `lookupExternal`. A member head is always keyed.
             Key: SymbolKey voption
-            Args: (TExpr * SemType * SyntaxToken) list
+            /// A thunk: a member's arguments are the call's ONE tupled argument OPENED to the
+            /// declared parameters, which only a head with a body to peel has any use for — and
+            /// only such a head may be rejected for not carrying the tuple that opening needs.
+            Args: unit -> (TExpr * SemType * SyntaxToken) list
             /// A thunk: the walk a member head needs is wasted on any answer that expands the
             /// call, which is every answer but the rebuild.
             RebuiltHead: unit -> TExpr

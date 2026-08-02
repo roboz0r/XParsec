@@ -422,6 +422,17 @@ module SymbolKeyOps =
     /// every backend's "which type declares this member?" read takes.
     let declTypeKeyOf (what: string) (k: SymbolKey) : TypeKey = (asMemberKey what k).Decl
 
+    /// How many value parameters a member position's key DECLARES — its `ArgSig` width.
+    ///
+    /// THE tupled-call width. A member is tupled (.NET convention), so a call applies ONE
+    /// argument whatever the parameter count, and this is the number of positions that one
+    /// argument opens to: the count a lifted `member inline` body curries by after `this`, and
+    /// the count an emitted member ref flattens its argument list to. AUTHORITATIVE over the
+    /// argument expression's surface shape — a genuine single `(int * int)` parameter is 1,
+    /// not a flattened 2. Stated once so a splice and an emit of the same call cannot
+    /// disagree about its arity.
+    let memberArity (what: string) (k: SymbolKey) : int = (asMemberKey what k).ArgSig.Length
+
     // --- Generic `SymbolKey` projection ----------------------------------------------
     //
     // These operate on any `SymbolKey` (decompose / mint); they have nothing to do

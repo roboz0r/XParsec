@@ -9,6 +9,10 @@ type widget = extern with
     /// `w.Poke x` splices to `x + 1` (the `.js.fs` body `(# "$0 + 1" x : int #)`).
     member inline Poke: int -> int
 
+    /// TWO parameters: the call site applies ONE tupled argument while the lift curries
+    /// one lambda per parameter, so this is the member that pins the untupling.
+    member inline Poke2: a: int * b: int -> int
+
 /// A second intrinsic/`extern` host whose one member has a body that is NOT inline IL —
 /// it is a keyed call to `widget.Poke`, foreign to `gadget.js.fs`. `inline` on the
 /// declaration is the whole reason its body publishes; nothing about the body's shape is.
@@ -17,3 +21,7 @@ type gadget =
 
     /// `gadget.Bump w` splices to `w.Poke 41`, which splices in turn.
     static member inline Bump: w: widget -> int
+
+    /// The STATIC two-parameter case: a static member has no receiver to occupy curried
+    /// position 0, so it untuples against a different curried offset than an instance one.
+    static member inline Bump2: w: widget * n: int -> int

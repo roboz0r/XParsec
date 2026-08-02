@@ -136,12 +136,11 @@ module JsExternalMembers =
 
     // ---- The attached-member arity contract -----------------------------------
 
-    /// The parameter count of an external attached member, from its key's `argSig`.
-    /// AUTHORITATIVE over the argument expression's surface shape — a genuine single
-    /// `(int * int)` parameter is `argCount = 1`, not a flattened 2-param call (the same
-    /// reason the CLR `ExternalMember` arm reads `argSig`, not `memberTy`).
+    /// The parameter count of an external attached member — the SHARED tupled-call width, so
+    /// this flatten and the pre-freeze splice of the same member open its one argument to the
+    /// same number of positions.
     let memberArgCount (key: SymbolKey) (memberName: string) : int =
-        (SymbolKeyOps.asMemberKey (sprintf "EmitJs: attached member '%s'" memberName) key).ArgSig.Length
+        SymbolKeyOps.memberArity (sprintf "EmitJs: attached member '%s'" memberName) key
 
     /// `recv.<member>` — the shared attached-member access shape. A manifest
     /// Property read IS this bare Member node (a JS DATA property, not a zero-arg

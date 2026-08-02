@@ -7,11 +7,6 @@ namespace Widgets
 // the call stays a keyed external reference rather than resolving to a local member.
 // Publishing it is decided by `inline` on the declaration alone; the lifting reads no
 // body shape.
-//
-// ONE parameter, because a lifted body is CURRIED and a direct static-member call site
-// carries its arguments as one TUPLE — an unrelated arity mismatch that bites an
-// inline-IL body identically. A primitive's tupled operator escapes it by arriving as a
-// trait call, whose arguments are carried individually.
 
 type gadget =
     (# "object" #)
@@ -19,5 +14,10 @@ type gadget =
     with
 
         static member inline Bump(w: widget) : int = w.Poke 41
+
+        // A STATIC member binds no `this`, so its curried parameters start at position 0
+        // — the offset the call site's untupled arguments have to land on. Its own body
+        // is a TWO-parameter instance call, so one use site untuples twice.
+        static member inline Bump2(w: widget, n: int) : int = w.Poke2(n, 7)
 
     end

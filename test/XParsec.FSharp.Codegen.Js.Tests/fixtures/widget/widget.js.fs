@@ -16,4 +16,6 @@ type widget =
 
         member inline _.Poke(x: int) : int = (# "$0 + 1" x : int #)
 
+        member inline _.Poke2(a: int, b: int) : int = (# "$0 + $1" a b : int #)
+
     end

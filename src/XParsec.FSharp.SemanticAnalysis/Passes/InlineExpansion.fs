@@ -170,6 +170,49 @@ module InlineExpansion =
             )
         | ValueNone -> fresh ()
 
+    /// A member call's applied arguments OPENED to the parameters the lifted body curried.
+    ///
+    /// A member is TUPLED, so a call applies exactly ONE argument whatever the parameter count,
+    /// while the lift wraps one lambda per parameter. At one parameter the tuple degenerates to
+    /// the value itself and the two coincide; at two or more the whole tuple lands in the first
+    /// parameter and the rest are never supplied, leaving a partial application standing where a
+    /// value belongs. The declared width — the key's own `ArgSig`, which is the very list the
+    /// lift curried by — is what says how many positions to open it to.
+    ///
+    /// Only a METHOD is tupled this way. A value member (a function-valued property) applies its
+    /// arguments to the value it READS, and its empty `ArgSig` says nothing about them.
+    ///
+    /// Any residual over-application (`w.M(a, b) c`) rides through untouched: it applies to the
+    /// member's RESULT, so it is already one argument per curried parameter.
+    let private untupleMemberArgs
+        (key: SymbolKey)
+        (memberName: string)
+        (storage: MemberStorage)
+        (args: (TExpr * SemType * SyntaxToken) list)
+        : (TExpr * SemType * SyntaxToken) list =
+        match storage, args with
+        | MemberStorage.Method, (arg, _, _) :: rest ->
+            match SymbolKeyOps.memberArity (sprintf "InlineExpansion: member '%s'" memberName) key with
+            // The lone `unit` a no-parameter call applies binds nothing — the lift wrapped no
+            // lambda for it.
+            | 0 -> rest
+            | 1 -> args
+            | arity ->
+                match arg with
+                | TExpr.Tuple(items, _, _) when items.Length = arity ->
+                    [
+                        for it in EqArray.toList items -> it, TastWalk.exprTy it, TastWalk.exprTok it
+                    ]
+                    @ rest
+                | other ->
+                    failwithf
+                        "InlineExpansion: the spliced member '%s' declares %d parameters, so its call site carries a literal %d-tuple; got %A"
+                        memberName
+                        arity
+                        arity
+                        other
+        | _ -> args
+
     /// What THIS call head resolves to — the one dispatch of the application rule, so a head
     /// shape cannot be claimed by two answers or fall between them.
     let private callHead
@@ -195,17 +238,20 @@ module InlineExpansion =
                     ValueSome
                         {
                             Key = keyOpt
-                            Args = args
+                            Args = fun () -> args
                             RebuiltHead = fun () -> markedHead
                         }
-                | TExpr.ExternalMember(receiver, key, _, _, _, memberTok) ->
+                | TExpr.ExternalMember(receiver, key, memberName, storage, _, memberTok) ->
                     ValueSome
                         {
                             Key = ValueSome key
                             Args =
-                                match receiver with
-                                | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: args
-                                | ValueNone -> args
+                                fun () ->
+                                    let opened = untupleMemberArgs key memberName storage args
+
+                                    match receiver with
+                                    | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: opened
+                                    | ValueNone -> opened
                             RebuiltHead = fun () -> walk markedHead
                         }
                 | _ -> ValueNone
@@ -219,7 +265,7 @@ module InlineExpansion =
                 // (`EqualityComparer<^T>.Default.Equals` for `=`). Declining instead routed the
                 // head to a name-keyed raw-IL fallback, turning a structural `=` into a reference
                 // `ceq`.
-                | ValueSome served -> CallHead.Template(TemplateId.Foreign served.Key, served, ext.Args)
+                | ValueSome served -> CallHead.Template(TemplateId.Foreign served.Key, served, ext.Args())
                 | ValueNone -> CallHead.Opaque ext.RebuiltHead
             | ValueNone -> CallHead.Opaque(fun () -> walk markedHead)
 
