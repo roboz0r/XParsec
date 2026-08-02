@@ -422,16 +422,26 @@ module SymbolKeyOps =
     /// every backend's "which type declares this member?" read takes.
     let declTypeKeyOf (what: string) (k: SymbolKey) : TypeKey = (asMemberKey what k).Decl
 
-    /// How many value parameters a member position's key DECLARES — its `ArgSig` width.
-    ///
-    /// THE tupled-call width. A member is tupled (.NET convention), so a call applies ONE
-    /// argument whatever the parameter count, and this is the number of positions that one
-    /// argument opens to: the count a lifted `member inline` body curries by after `this`, and
-    /// the count an emitted member ref flattens its argument list to. AUTHORITATIVE over the
-    /// argument expression's surface shape — a genuine single `(int * int)` parameter is 1,
-    /// not a flattened 2. Stated once so a splice and an emit of the same call cannot
-    /// disagree about its arity.
+    /// How many value parameters a member position's key DECLARES — its `ArgSig` width, and
+    /// so the width `openTupledArg` opens that member's one argument to.
     let memberArity (what: string) (k: SymbolKey) : int = (asMemberKey what k).ArgSig.Length
+
+    /// A tupled member's ONE argument opened to the `arity` positions it declares: none at 0
+    /// (the applied `unit` binds nothing), the argument itself at 1, a tuple's elements at
+    /// `arity` ≥ 2. `asTuple` recognises a tuple in the caller's representation — an
+    /// expression tree, a `FrozenType` signature slot.
+    ///
+    /// The width is the DECLARED one, never the argument's surface shape: a genuine single
+    /// `(int * int)` parameter has arity 1 and stays one position. `ValueNone` is an argument
+    /// that is not the tuple its arity needs; what that means is the caller's to say.
+    let openTupledArg (asTuple: 'a -> 'a list voption) (arity: int) (arg: 'a) : 'a list voption =
+        match arity with
+        | 0 -> ValueSome []
+        | 1 -> ValueSome [ arg ]
+        | n ->
+            match asTuple arg with
+            | ValueSome elems when List.length elems = n -> ValueSome elems
+            | _ -> ValueNone
 
     // --- Generic `SymbolKey` projection ----------------------------------------------
     //

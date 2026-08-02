@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open JsEmitHelpers
 
 /// The EXTERNAL-member lowering cluster — everything the walker keys off the
@@ -157,9 +158,9 @@ module JsExternalMembers =
     /// to the member's JS positional arguments. An external method is tupled, so an
     /// escaped `box.get` value is a one-parameter `arg -> ret`: the one wrapper param is
     /// DROPPED for a 0-param (`unit`) member, passed straight for 1, or spread
-    /// element-wise (`argVar[j]`) for a ≥2-param (tupled) member. Parallels the
-    /// applied-call flatten (`attachedMemberArgs`), reading a JS array rather than a
-    /// `TExpr` tuple.
+    /// element-wise (`argVar[j]`) for a ≥2-param (tupled) member. `argVar` is a JS array
+    /// with no expression behind it, so there is no literal tuple to recognise — this
+    /// opens by INDEX at every position, which is why it does not share the arity open.
     let attachedForwardArgs (argVar: JsExpr) (argCount: int) : JsExpr list =
         if argCount = 0 then
             []
@@ -167,30 +168,6 @@ module JsExternalMembers =
             [ argVar ]
         else
             [ for j in 0 .. argCount - 1 -> JsFlatFns.indexMember argVar j ]
-
-    /// Flatten a native attached-member call's tupled argument (one `App` per .NET
-    /// convention) into its JS positional arguments: dropped for a 0-param (`unit`)
-    /// member (`recv.get()`, not `recv.get(undefined)`), the lone value for 1, or the
-    /// literal tuple's elements for ≥2. Mirrors the CLR `ExternalMember` arg push.
-    let attachedMemberArgs
-        (build: TastAccessor.ExprId -> JsExpr)
-        (argCount: int)
-        (argExpr: TastAccessor.ExprId)
-        : JsExpr list =
-        if argCount = 0 then
-            []
-        elif argCount = 1 then
-            [ build argExpr ]
-        else
-            let elems = TastAccessor.exprChildren argExpr
-
-            match TastAccessor.exprKind argExpr with
-            | ExprShape.Tuple when elems.Length = argCount -> [ for el in elems -> build el ]
-            | _ ->
-                failwithf
-                    "EmitJs: external attached member expects %d tupled arguments but the argument is not a literal %d-tuple"
-                    argCount
-                    argCount
 
     // ---- The lowerings ---------------------------------------------------------
 
@@ -200,13 +177,12 @@ module JsExternalMembers =
     /// into ONE `receiver.member(args)`; it is NOT a receiver-first free-fn
     /// import (the form Vesper's OWN runtimes emit as a tree-shaking optimisation).
     /// The member is tupled (.NET convention): it consumes the FIRST argument
-    /// as its argument list — the key's `argSig` length drives the
-    /// flatten (0 → drop the lone `unit`, 1 → the value, ≥2 → spread the literal
-    /// tuple), mirroring the CLR `ExternalMember` arg push — and any residual
+    /// as its argument list, opened to the key's `argSig` width — and any residual
     /// over-application folds on as unary calls. `ValueNone` for every other head:
     /// the `App` arm falls through to the flat-call / curried dispatch.
     let tryAttachedCall
         (provider: IExternalSymbolProvider)
+        (pool: PoolBuilder)
         (build: TastAccessor.ExprId -> JsExpr)
         (head: TastAccessor.ExprId)
         (appArgs: (TastAccessor.ExprId * FrozenType * Anchor) list)
@@ -220,15 +196,27 @@ module JsExternalMembers =
             ->
             match appArgs with
             | (argExpr, _, _) :: rest ->
-                let call =
-                    attachedCall
-                        (build recv)
-                        em.MemberName
-                        (attachedMemberArgs build (memberArgCount em.Key em.MemberName) argExpr)
-                        loc
+                let args, argSpills =
+                    CompiledFns.tupledMemberPlan
+                        (sprintf "EmitJs: external attached member '%s'" em.MemberName)
+                        (memberArgCount em.Key em.MemberName)
+                        argExpr
+                    |> JsFlatFns.renderFlatSteps pool build
+
+                // A spill hoists the argument out of the call, so the receiver hoists with it
+                // (ahead of it) or the two swap evaluation order.
+                let recvJs, spills =
+                    match argSpills with
+                    | [] -> build recv, []
+                    | _ ->
+                        let tmp = freshTemp pool "_recv"
+                        JsExpr.Identifier(tmp, ValueNone), (tmp, build recv) :: argSpills
+
+                let call = attachedCall recvJs em.MemberName args loc
 
                 rest
                 |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) call
+                |> fun folded -> JsFlatFns.wrapSpills spills folded loc
                 |> ValueSome
             | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 argument
         | _ -> ValueNone

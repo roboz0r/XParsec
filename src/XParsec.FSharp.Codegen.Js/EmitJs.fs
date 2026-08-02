@@ -143,7 +143,7 @@ module EmitJs =
             let folded =
                 match tryCapabilityCall ctx.Capabilities ctx.Imports (buildExpr ctx) head appArgs loc with
                 | ValueSome call -> ValueSome call
-                | ValueNone -> JsExternalMembers.tryAttachedCall ctx.Provider (buildExpr ctx) head appArgs loc
+                | ValueNone -> JsExternalMembers.tryAttachedCall ctx.Provider ctx.Pool (buildExpr ctx) head appArgs loc
 
             match folded with
             | ValueSome call -> call

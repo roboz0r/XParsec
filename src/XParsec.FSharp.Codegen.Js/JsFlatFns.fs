@@ -58,22 +58,19 @@ module JsFlatFns =
             | ValueNone -> ValueNone
         | ValueNone -> ValueNone
 
-    /// Flatten a saturated call's LEADING arguments (one per source group) to the
-    /// flat compiled argument list, rendering each `CompiledFns.flattenPlan` step: a
-    /// scalar `Arg` built directly; a `TupleLiteral`'s elements built element-wise; a
-    /// `TupleValue` read positionally — a pure value inline (`v[j]`), an impure one
-    /// spilled to a temporary (returned in the snd; the caller binds it via `wrapSpills`
-    /// so it evaluates exactly once).
-    let flattenGroupArgs
+    /// Render a `CompiledFns.FlatStep` list as the flat JS argument list: a scalar `Arg`
+    /// built directly; a `TupleLiteral`'s elements built element-wise; a `TupleValue` read
+    /// positionally — a pure value inline (`v[j]`), an impure one spilled to a temporary
+    /// (returned in the snd; the caller binds it via `wrapSpills` so it evaluates once).
+    let renderFlatSteps
         (pool: PoolBuilder)
         (build: TastAccessor.ExprId -> JsExpr)
-        (groups: TastAccessor.ArgGroup list)
-        (leadingArgs: TastAccessor.ExprId list)
+        (steps: CompiledFns.FlatStep list)
         : JsExpr list * (string * JsExpr) list =
         let flat = ResizeArray<JsExpr>()
         let spills = ResizeArray<string * JsExpr>()
 
-        for step in CompiledFns.flattenPlan groups leadingArgs do
+        for step in steps do
             match step with
             | CompiledFns.FlatStep.Arg a -> flat.Add(build a)
             | CompiledFns.FlatStep.TupleLiteral elems ->
@@ -96,9 +93,20 @@ module JsFlatFns =
 
         List.ofSeq flat, List.ofSeq spills
 
+    /// Flatten a saturated call's LEADING arguments (one per source group) to the flat
+    /// compiled argument list. The lone-unit-erase / literal-vs-value tuple dispatch is
+    /// `CompiledFns.flattenPlan`'s, shared with the CLR backend.
+    let flattenGroupArgs
+        (pool: PoolBuilder)
+        (build: TastAccessor.ExprId -> JsExpr)
+        (groups: TastAccessor.ArgGroup list)
+        (leadingArgs: TastAccessor.ExprId list)
+        : JsExpr list * (string * JsExpr) list =
+        CompiledFns.flattenPlan groups leadingArgs |> renderFlatSteps pool build
+
     /// Wrap a flat call in an IIFE binding each spilled tuple value once, so an impure
     /// tuple argument flattened to N reads is still evaluated exactly once.
-    let private wrapSpills (spills: (string * JsExpr) list) (call: JsExpr) (loc: JsLoc voption) : JsExpr =
+    let wrapSpills (spills: (string * JsExpr) list) (call: JsExpr) (loc: JsLoc voption) : JsExpr =
         match spills with
         | [] -> call
         | _ ->

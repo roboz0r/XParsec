@@ -237,6 +237,23 @@ let tests =
                 Expect.equal (js.Split("=>").Length - 1) 1 (sprintf "a curried remnant survived the splice:\n%s" js)
             }
 
+            // The one argument shape that does NOT open. A backend reads such a value
+            // positionally, but a splice needs elements to bind its parameters to and there
+            // is no method behind this body to fall back to — so it is rejected outright.
+            test "`w.Poke2 t` at a tuple VALUE is rejected rather than mis-spliced" {
+                let source =
+                    "open Widgets\nlet useP2v (w: widget) : int =\n\x20   let t = (3, 4)\n\x20   w.Poke2 t\n"
+
+                Expect.throwsC
+                    (fun () -> emitWidget source |> ignore)
+                    (fun e ->
+                        Expect.stringContains
+                            e.Message
+                            "takes a tuple VALUE"
+                            (sprintf "expected the un-openable-argument rejection, got: %s" e.Message)
+                    )
+            }
+
             // The same arity, STATIC: no receiver occupies curried position 0, so the
             // untupled arguments land at a different offset. Its body is itself a
             // two-parameter instance call, so one use site untuples twice.

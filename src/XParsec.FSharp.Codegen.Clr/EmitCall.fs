@@ -87,24 +87,15 @@ module EmitCall =
             | None -> false
         | _ -> false
 
-    /// Flatten a saturated call's leading arguments (one per SOURCE group) to its
-    /// pushed CLR values, returning each pushed value's actual type in order (for
-    /// generic-instantiation matching; an external recipe call ignores them). The
-    /// lone-unit-erase / literal-vs-value tuple dispatch is `CompiledFns.flattenPlan`'s
-    /// (shared with the JS backend); this interprets each `FlatStep` as IL: a scalar
-    /// arg pushed raw (the `obj` box is an explicit `Upcast` node from Elaborate), a tuple
-    /// literal's elements pushed directly, a tuple value spilled to a local then each
+    /// Push one `CompiledFns.FlatStep` as IL, returning each pushed value's actual type in
+    /// order (for generic-instantiation matching; an external recipe call ignores them): a
+    /// scalar arg pushed raw (the `obj` box is an explicit `Upcast` node from Elaborate), a
+    /// tuple literal's elements pushed directly, a tuple value spilled to a local then each
     /// `ValueTuple` `Item` field read (left-to-right order preserved).
-    let private flattenGroupPushes
-        (recur: Recur)
-        (env: EmitEnv)
-        (b: IlBuilder)
-        (groups: TastAccessor.ArgGroup list)
-        (leading: (TastAccessor.ExprId * FrozenType * Anchor) list)
-        : FrozenType list =
+    let private pushFlatSteps (recur: Recur) (env: EmitEnv) (b: IlBuilder) (steps: CompiledFns.FlatStep list) =
         let actualTys = ResizeArray<FrozenType>()
 
-        for step in CompiledFns.flattenPlan groups (leading |> List.map (fun (a, _, _) -> a)) do
+        for step in steps do
             match step with
             | CompiledFns.FlatStep.Arg a ->
                 actualTys.Add(typeOfExpr a)
@@ -128,6 +119,19 @@ module EmitCall =
                 )
 
         List.ofSeq actualTys
+
+    /// Flatten a saturated call's leading arguments (one per SOURCE group) to its pushed CLR
+    /// values. The lone-unit-erase / literal-vs-value tuple dispatch is
+    /// `CompiledFns.flattenPlan`'s, shared with the JS backend.
+    let private flattenGroupPushes
+        (recur: Recur)
+        (env: EmitEnv)
+        (b: IlBuilder)
+        (groups: TastAccessor.ArgGroup list)
+        (leading: (TastAccessor.ExprId * FrozenType * Anchor) list)
+        : FrozenType list =
+        CompiledFns.flattenPlan groups (leading |> List.map (fun (a, _, _) -> a))
+        |> pushFlatSteps recur env b
 
     /// Lower an `App` chain. The head dispatch is shape-by-shape:
     /// - an `External` node (compiled name + key) — a provider-resolved call. The
@@ -350,15 +354,9 @@ module EmitCall =
             // only) beneath the arguments, then `call` (static) / `callvirt`
             // (instance) the keyed member ref. A .NET method is tupled
             // (`m(a, b)` = one application to `(a, b)`), so the call consumes a
-            // single argument — the argument list — and the parameter count
-            // comes from the chosen key's `argSig` length (authoritative: `memberTy`
-            // alone can't tell a flattened 2-param method from a genuine single
-            // `(int*int)` param). A literal `Tuple` argument is pushed
-            // element-wise (no tuple object is constructed).
+            // single argument — the argument list — opened to the declared width.
             let isStatic = ValueOption.isNone receiver
-
-            let argCount =
-                (SymbolKeyOps.asMemberKey "Emit: external member call" key).ArgSig.Length
+            let argCount = SymbolKeyOps.memberArity "Emit: external member call" key
 
             // The method consumes one argument (its argument list); any
             // remainder is further application of the result (rare).
@@ -392,34 +390,15 @@ module EmitCall =
             | ValueSome r -> recur env b r
             | ValueNone -> ()
 
+            // The value→`obj` box for an `obj` parameter is an explicit `Upcast` node from
+            // Elaborate (which wraps the tuple element-wise), so each element pushes raw.
             let pushedArgs =
                 match argList with
                 | ValueNone -> 0 // no argument supplied (a 0-param method)
                 | ValueSome(argExpr, _, _) ->
-                    if argCount >= 2 then
-                        // A multi-param .NET method is tupled; its arguments are
-                        // pushed element-wise. The value→`obj` box for an `obj`
-                        // parameter is an explicit `Upcast` node from Elaborate (which
-                        // wraps the tuple element-wise), so push each element raw.
-                        match TastAccessor.exprKind argExpr with
-                        | ExprShape.Tuple when (TastAccessor.exprChildren argExpr).Length = argCount ->
-                            for el in TastAccessor.exprChildren argExpr do
-                                recur env b el
-
-                            argCount
-                        | _ ->
-                            failwithf
-                                "Emit: external member '%s' expects %d tupled arguments but the argument is not a literal %d-tuple"
-                                name
-                                argCount
-                                argCount
-                    elif argCount = 1 then
-                        recur env b argExpr
-                        1
-                    else
-                        // argCount = 0: a `unit → ret` method; the lone arg is
-                        // `()`, which has no IL value to push.
-                        0
+                    CompiledFns.tupledMemberPlan (sprintf "Emit: external member '%s'" name) argCount argExpr
+                    |> pushFlatSteps recur env b
+                    |> List.length
 
             let handle =
                 match receiver with

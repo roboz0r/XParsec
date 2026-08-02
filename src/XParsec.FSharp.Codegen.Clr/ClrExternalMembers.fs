@@ -50,6 +50,20 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// compilation.
     let externalMemberCache = Dictionary<ExternalMemberCacheKey, EntityHandle>()
 
+    /// The `.NET`-tupled `Parameters` slot of a member's open signature template opened back to
+    /// one `FrozenType` per declared parameter. The producers fold `ArgSig` INTO that slot, so a
+    /// mismatch here is a malformed provider entry, not a call the user could write.
+    let openParams (what: string) (argSigLen: int) (paramsT: FrozenType) : FrozenType list =
+        let asTuple t =
+            match t with
+            | FTTuple elems -> ValueSome(EqArray.toList elems)
+            | _ -> ValueNone
+
+        match SymbolKeyOps.openTupledArg asTuple argSigLen paramsT with
+        | ValueSome ps -> ps
+        | ValueNone ->
+            failwithf "ClrProvider: %s declares %d parameters but its signature slot is %A" what argSigLen paramsT
+
     /// Build the member-ref signature blob (property getter, or tupled-flattened method with the BCL
     /// `void`-return fix) directly from the member's open `FrozenType` signature template:
     /// `paramsT` is the .NET-tupled argument slot and `retT` the
@@ -82,15 +96,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     (fun (_: ParametersEncoder) -> ())
                 )
         else
-            // A .NET method of arity ≥ 2 is modelled tupled (`(p1*…*pN) → ret`), so the single
-            // `Parameters` template is the argument `FTTuple` — flatten it back to N parameters, driven
-            // by the chosen key's `argSig` length (authoritative: a genuine single `(int*int)` param has
-            // argSig length 1 and stays one parameter). Arity ≤ 1 / `unit` unchanged.
             let paramTys =
-                match paramsT with
-                | FTUnit -> []
-                | FTTuple elems when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
-                | p -> [ p ]
+                openParams (sprintf "external member '%s'" memberName) argSigLen paramsT
 
             BlobEncoder(s)
                 .MethodSignature(genericParameterCount = methodTyparArity, isInstanceMethod = not isStatic)
@@ -487,21 +494,17 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match symbols.TryLookupCtor(key, chosen, List.length argTypes) with
         | ValueNone -> ValueNone
         | ValueSome chosenCtor ->
-            let argSigLen = chosenCtor.Key.ArgSig.Length
-
             match externalClassRef key with
             | ValueNone -> ValueNone
             | ValueSome tref ->
                 let parent = externalTypeSpec key tref tyArgs
 
-                // The ctor's parameters in their *open* (`FTTypar(Declaring, i)`) form, read off the
-                // descriptor template's single tupled `Parameters` slot and flattened by the chosen key's
-                // `argSig` length, exactly as `mintMemberRef` does.
+                // The ctor's parameters in their *open* (`FTTypar(Declaring, i)`) form.
                 let paramTys =
-                    match chosenCtor.Signature.Parameters with
-                    | FTUnit -> []
-                    | FTTuple elems when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
-                    | p -> [ p ]
+                    openParams
+                        (sprintf "ctor of '%s'" (SymbolKeyOps.typeMetaName chosenCtor.Key.Decl))
+                        chosenCtor.Key.ArgSig.Length
+                        chosenCtor.Signature.Parameters
 
                 let s = BlobBuilder()
 

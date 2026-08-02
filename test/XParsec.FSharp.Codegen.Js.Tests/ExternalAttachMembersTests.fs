@@ -38,6 +38,7 @@ let private boxManifest: Schema.PackageManifest =
                     [
                         method' "get" (sig0 intT)
                         method' "set" (sig1 "x" intT unitT)
+                        method' "addTo" (sig2 "a" intT "b" intT unitT)
                         property' "value" intT
                     ],
                     [],
@@ -63,6 +64,7 @@ let private boxRuntime =
             "    _v: 0,"
             "    get() { return this._v; },"
             "    set(x) { this._v = x; },"
+            "    addTo(a, b) { this._v = a + b; },"
             "    get value() { return this._v; },"
             "  };"
             "}"
@@ -157,6 +159,37 @@ let tests =
                         "boxlib.mjs", boxRuntime
                     ]
                     "9"
+            }
+
+            // Overload resolution reads the argument's TYPE, so a tuple-valued expression
+            // reaches the same 2-parameter member a literal `(11, 20)` does. Spread either
+            // way, or `addTo` sees one array where it declares two numbers.
+            test "a 2-param attached member spreads a tuple VALUE as well as a literal" {
+                let program =
+                    String.concat
+                        "\n"
+                        [
+                            "let b = makeBox()"
+                            "let t = (11, 20)"
+                            "let u = b.addTo t"
+                            "let result = b.get()"
+                            ""
+                        ]
+
+                let js = emitBox program
+
+                Expect.isFalse
+                    (js.Contains ".addTo(t)")
+                    (sprintf "the tuple must not be passed as ONE argument, got:\n%s" js)
+
+                expectNodeOutput
+                    "attach-tuple-value"
+                    [
+                        "harness.mjs", resultHarness
+                        "box-program.mjs", js
+                        "boxlib.mjs", boxRuntime
+                    ]
+                    "31"
             }
 
             test "a Property member lowers to a plain receiver.prop READ (no call)" {

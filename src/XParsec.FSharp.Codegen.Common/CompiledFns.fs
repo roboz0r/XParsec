@@ -53,6 +53,24 @@ module CompiledFns =
         /// value through an IIFE). Both decide how from `elemTys`/the value itself.
         | TupleValue of value: TastAccessor.ExprId * elemTys: FrozenType list
 
+    /// A literal `Tuple` node's elements, for the shared arity-driven open.
+    let private tupleElemsOf (a: TastAccessor.ExprId) : TastAccessor.ExprId list voption =
+        match TastAccessor.exprKind a with
+        | ExprShape.Tuple -> ValueSome(List.ofArray (TastAccessor.exprChildren a))
+        | _ -> ValueNone
+
+    /// The push plan for a TUPLED member call's ONE argument, opened to the `arity` positions
+    /// the member's key declares. A tuple VALUE rather than a literal is read positionally —
+    /// the same second chance a compiled function's tupled group argument gets, so `M t` and
+    /// `M(a, b)` both reach the same N-parameter member ref.
+    let tupledMemberPlan (what: string) (arity: int) (arg: TastAccessor.ExprId) : FlatStep list =
+        match SymbolKeyOps.openTupledArg tupleElemsOf arity arg with
+        | ValueSome opened -> [ for a in opened -> FlatStep.Arg a ]
+        | ValueNone ->
+            match TastAccessor.exprTy arg with
+            | FTTuple elems when elems.Length = arity -> [ FlatStep.TupleValue(arg, EqArray.toList elems) ]
+            | other -> failwithf "%s expects %d tupled arguments but its argument is typed %A" what arity other
+
     /// Flatten a saturated call's LEADING arguments (one per SOURCE group) into the
     /// backend-neutral push plan: a lone `()` group contributes nothing; a `GSimple` /
     /// non-lone `GUnit` one `Arg`; a `GTuple` either a `TupleLiteral` (its argument is a

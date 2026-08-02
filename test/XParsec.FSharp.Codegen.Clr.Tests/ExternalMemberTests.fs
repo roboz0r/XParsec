@@ -417,6 +417,20 @@ let tests =
                 Expect.equal (output.Replace("\r", "").Trim()) "ab" "String.Concat(\"a\", \"b\") = \"ab\""
             }
 
+            // Overload resolution reads the argument's TYPE, so a tuple-VALUED expression
+            // selects the same 2-parameter overload a syntactic `("a", "b")` does. The emit
+            // therefore cannot assume a literal tuple; it reads the value positionally.
+            test "a tuple-VALUED argument at a 2-param external method emits + runs" {
+                let src =
+                    String.concat "\n" [ "let t = (\"a\", \"b\")"; "printfn \"%s\" (System.String.Concat t)" ]
+
+                let _, artifact = compileSource "P4ExternalConcatTupleVar" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "ab" "String.Concat t = \"ab\""
+            }
+
             // The short-name form (under its `open`) emits and runs identically —
             // open-resolution (P3.5) feeds the same keyed node into P4.
             test "the short-name form under `open` emits and runs" {

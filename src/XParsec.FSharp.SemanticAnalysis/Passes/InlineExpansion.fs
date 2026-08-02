@@ -173,45 +173,41 @@ module InlineExpansion =
     /// A member call's applied arguments OPENED to the parameters the lifted body curried.
     ///
     /// A member is TUPLED, so a call applies exactly ONE argument whatever the parameter count,
-    /// while the lift wraps one lambda per parameter. At one parameter the tuple degenerates to
-    /// the value itself and the two coincide; at two or more the whole tuple lands in the first
-    /// parameter and the rest are never supplied, leaving a partial application standing where a
-    /// value belongs. The declared width — the key's own `ArgSig`, which is the very list the
-    /// lift curried by — is what says how many positions to open it to.
+    /// while the lift wraps one lambda per parameter: at two or more the whole tuple would land
+    /// in the first parameter and the rest never be supplied, leaving a partial application
+    /// standing where a value belongs.
     ///
     /// Only a METHOD is tupled this way. A value member (a function-valued property) applies its
     /// arguments to the value it READS, and its empty `ArgSig` says nothing about them.
     ///
     /// Any residual over-application (`w.M(a, b) c`) rides through untouched: it applies to the
     /// member's RESULT, so it is already one argument per curried parameter.
+    ///
+    /// `ValueNone` is a tuple VALUE, whose elements are not expressions the lift's parameters
+    /// could be bound to. A backend reads such a value positionally; a splice cannot.
     let private untupleMemberArgs
         (key: SymbolKey)
         (memberName: string)
         (storage: MemberStorage)
         (args: (TExpr * SemType * SyntaxToken) list)
-        : (TExpr * SemType * SyntaxToken) list =
-        match storage, args with
-        | MemberStorage.Method, (arg, _, _) :: rest ->
-            match SymbolKeyOps.memberArity (sprintf "InlineExpansion: member '%s'" memberName) key with
-            // The lone `unit` a no-parameter call applies binds nothing — the lift wrapped no
-            // lambda for it.
-            | 0 -> rest
-            | 1 -> args
-            | arity ->
-                match arg with
-                | TExpr.Tuple(items, _, _) when items.Length = arity ->
+        : (TExpr * SemType * SyntaxToken) list voption =
+        let asTuple (arg: TExpr, _, _) =
+            match arg with
+            | TExpr.Tuple(items, _, _) ->
+                ValueSome
                     [
                         for it in EqArray.toList items -> it, TastWalk.exprTy it, TastWalk.exprTok it
                     ]
-                    @ rest
-                | other ->
-                    failwithf
-                        "InlineExpansion: the spliced member '%s' declares %d parameters, so its call site carries a literal %d-tuple; got %A"
-                        memberName
-                        arity
-                        arity
-                        other
-        | _ -> args
+            | _ -> ValueNone
+
+        match storage, args with
+        | MemberStorage.Method, first :: rest ->
+            let arity =
+                SymbolKeyOps.memberArity (sprintf "InlineExpansion: member '%s'" memberName) key
+
+            SymbolKeyOps.openTupledArg asTuple arity first
+            |> ValueOption.map (fun opened -> opened @ rest)
+        | _ -> ValueSome args
 
     /// What THIS call head resolves to — the one dispatch of the application rule, so a head
     /// shape cannot be claimed by two answers or fall between them.
@@ -238,7 +234,7 @@ module InlineExpansion =
                     ValueSome
                         {
                             Key = keyOpt
-                            Args = fun () -> args
+                            Args = ValueSome args
                             RebuiltHead = fun () -> markedHead
                         }
                 | TExpr.ExternalMember(receiver, key, memberName, storage, _, memberTok) ->
@@ -246,27 +242,33 @@ module InlineExpansion =
                         {
                             Key = ValueSome key
                             Args =
-                                fun () ->
-                                    let opened = untupleMemberArgs key memberName storage args
-
+                                untupleMemberArgs key memberName storage args
+                                |> ValueOption.map (fun opened ->
                                     match receiver with
                                     | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: opened
                                     | ValueNone -> opened
+                                )
                             RebuiltHead = fun () -> walk markedHead
                         }
                 | _ -> ValueNone
 
             match external with
             | ValueSome ext ->
-                match lookupExternal x.Ctx x.Specs ext.Key with
+                match lookupExternal x.Ctx x.Specs ext.Key, ext.Args with
                 // An external WITH an inline body ALWAYS expands — no operand-groundness gate. An
                 // un-ground `^T` simply selects no per-primitive `StaticOptimization` clause and
                 // falls to the body's BASE, which is where the safe generic default lives
                 // (`EqualityComparer<^T>.Default.Equals` for `=`). Declining instead routed the
                 // head to a name-keyed raw-IL fallback, turning a structural `=` into a reference
                 // `ceq`.
-                | ValueSome served -> CallHead.Template(TemplateId.Foreign served.Key, served, ext.Args())
-                | ValueNone -> CallHead.Opaque ext.RebuiltHead
+                | ValueSome served, ValueSome opened -> CallHead.Template(TemplateId.Foreign served.Key, served, opened)
+                // A body to splice and no parameters to splice it against. Falling back to the
+                // call would emit a member ref for a body that has no method behind it.
+                | ValueSome served, ValueNone ->
+                    failwithf
+                        "InlineExpansion: the spliced member %A takes a tuple VALUE where its parameters need elements"
+                        served.Key
+                | ValueNone, _ -> CallHead.Opaque ext.RebuiltHead
             | ValueNone -> CallHead.Opaque(fun () -> walk markedHead)
 
     /// The same entry-and-edge as an applied call for a cross-file NULLARY INTRINSIC used as a
