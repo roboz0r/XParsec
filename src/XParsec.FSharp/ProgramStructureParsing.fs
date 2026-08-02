@@ -56,8 +56,11 @@ module FSharpAst =
     /// We also check that the reader is indeed at EOF to avoid accepting spurious tokens after a successful parse.
     let private pEof = nextSyntaxTokenIsLMsg Token.EOF "Expected end of file" .>> eof
 
+    // Plain `choice`, not the config-shadowed `choiceL`: this runs once per file, so
+    // collapsing its alternatives to a label saves nothing measurable and made the
+    // reported error differ between Debug and Release.
     let private pNormal =
-        choiceL
+        choice
             [
                 ImplementationFile.parse .>> pEof |>> FSharpAst.ImplementationFile
                 Expr.parse .>> pEof
@@ -67,7 +70,6 @@ module FSharpAst =
                     )
                 )
             ]
-            "FSharpAst"
 
     /// Skips all remaining non-EOF tokens, collecting them into a list.
     let private skipToEof (reader: Reader<PositionedToken, ParseState, _>) =
