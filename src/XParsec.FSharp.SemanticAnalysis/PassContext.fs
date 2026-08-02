@@ -667,9 +667,9 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val IntrinsicCanonCache = Dictionary<SymbolKey, SymbolKey>() with get
 
     /// The reverse intrinsic axis `{ platform-repr -> canon }`: a platform runtime
-    /// name (`"number"`) -> the `.fsi` canon identities sharing that repr. Its sole
-    /// unify-time reader is `numericFamilyOr` (the JS `number`-family contravariant
-    /// widening, keyed on the MULTI-canon entries) — the single-canon BCL
+    /// name (`"number"`) -> the `.fsi` canon identities sharing that repr. Its
+    /// unify-time readers ask a FAMILY question and so key on the MULTI-canon
+    /// entries (the JS `number` family) — the single-canon BCL
     /// reconciliation (`"System.Exception"` -> `exn`) that `canonKey` used to read
     /// from here now happens eagerly at resolution (`MetadataSymbols.tryBuildType`),
     /// so no BCL name reaches the unifier. Merges the provider's

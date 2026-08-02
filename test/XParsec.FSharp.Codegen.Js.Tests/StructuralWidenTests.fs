@@ -82,4 +82,22 @@ let tests =
 
                 Expect.isNonEmpty errs "an `int` field cannot satisfy a `string` member"
             }
+
+            // Sharing a platform repr is NOT membership of a coercion family: `char` and
+            // `string` are both JS strings, `int` and `float` are both JS numbers, yet only
+            // the latter pair is a family the target admits either way round.
+            test "a `char` field does not satisfy a `string` member" {
+                let errs =
+                    analyseErrors "type Cfg = { retries: int; label: char }\nconfigure { retries = 1; label = 'x' }\n"
+
+                Expect.isNonEmpty errs "a `char` field cannot satisfy a `string` member"
+            }
+
+            test "a `string` field does not satisfy a `number` member" {
+                let errs =
+                    analyseErrors
+                        "type Cfg = { retries: string; label: string }\nconfigure { retries = \"1\"; label = \"x\" }\n"
+
+                Expect.isNonEmpty errs "a `string` field cannot satisfy a `number` member"
+            }
         ]

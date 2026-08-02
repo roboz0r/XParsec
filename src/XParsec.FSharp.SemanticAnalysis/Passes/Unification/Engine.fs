@@ -215,24 +215,27 @@ module UnificationEngine =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// Two intrinsic canons are REPR-SIBLINGS iff they share a forward platform repr
-    /// (`IntrinsicForwardRepr[a] = IntrinsicForwardRepr[b]`). On JS this fires exactly on
-    /// the numeric family (all `→ "number"`) and extends automatically to any future
-    /// shared-repr family; on CLR each canon reprs distinctly, so it never fires. Purely
-    /// data-driven off the forward intrinsic axis — it names no concrete type, the
+    /// Two intrinsic canons are REPR-SIBLINGS iff some platform repr names BOTH of them —
+    /// the same FAMILY question `numericFamilyOr` asks, off the same reverse axis, so the
+    /// two seams cannot disagree. On JS this fires exactly on the numeric family
+    /// (`"number"` -> int/float/float32) and extends automatically to any future
+    /// multi-canon family; on CLR each canon reprs distinctly, so it never fires.
+    ///
+    /// NOT a forward-repr comparison: "what does this canon repr to" is a different
+    /// question, and two canons can share a repr without being interchangeable (JS `char`
+    /// and `string` are both `"string"`). Data-driven, so it names no concrete type — the
     /// int/float/float32 = `number` relation lives in `Vesper.Core`'s `.js.fs` bindings
-    /// (the JS backend owns assignability / intrinsic repr). Used by the structural-width admission
-    /// so an `int` record field satisfies a `float` (`number`-repr'd) interface member: a
-    /// plain `subsumes` sees `int`≁`float`, but they carry the same runtime repr, so the
-    /// value flows. Confined to that seam, never a general `subsumes`/`unify` edge.
+    /// (the JS backend owns assignability / intrinsic repr). Used by the structural-width
+    /// admission so an `int` record field satisfies a `float` (`number`-repr'd) interface
+    /// member, which a plain `subsumes` refuses. Confined to that seam, never a general
+    /// `subsumes`/`unify` edge.
     let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
         match resolveStep ctx.Store a, resolveStep ctx.Store b with
         | TyConst(k1, a1), TyConst(k2, a2) when a1.Length = 0 && a2.Length = 0 ->
-            let fwd = ctx.Provider.IntrinsicForwardRepr
-
-            match fwd.TryGetValue k1, fwd.TryGetValue k2 with
-            | (true, r1), (true, r2) -> r1 = r2
-            | _ -> false
+            // Keyed by platform repr, so a canon has no direct entry — scan. The axis holds
+            // one entry per target primitive and only a `subsumes` MISS reaches here.
+            ctx.IntrinsicReverseCanon.Value.Values
+            |> Seq.exists (fun canons -> List.contains k1 canons && List.contains k2 canons)
         | _ -> false
 
     /// Structural inflow admission (G1): a Vesper RECORD satisfies an EXTERNAL interface
@@ -276,9 +279,8 @@ module UnificationEngine =
                                 // Realise the member NORMALLY — a covariant interface
                                 // `number` value member reads as `float` (the provider's
                                 // resolved signature). An `int` record field satisfies it
-                                // not by `subsumes` (int ≁ float) but because the two are
-                                // REPR-SIBLINGS (both carry JS repr `number`), so the value
-                                // flows at this width seam.
+                                // not by `subsumes` (int ≁ float) but as a REPR-SIBLING of
+                                // the `number` family, so the value flows at this seam.
                                 let expectedTy =
                                     ExternalSymbols.instantiateSignature ctx.Store m declArgs ctx.CurrentLevel
 

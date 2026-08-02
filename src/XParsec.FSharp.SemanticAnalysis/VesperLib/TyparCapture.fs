@@ -430,14 +430,13 @@ module VesperLibTyparCapture =
             // so a metadata BCL/native runtime name (`System.Exception`) reconciles
             // back to the front-end identity (`exn`) at RESOLUTION — in
             // `MetadataSymbols.tryBuildType` (eager canonicalization) — and so the
-            // multi-canon entries drive `numericFamilyOr`'s JS `number` widening. Built
-            // from the published `Intrinsic` shapes — the same source the forward
-            // `canon` axis reads. The `platform <> canon.Name` guard is NOT a fact about the
-            // primitive (see the forward axis, which no longer carries it); it survives here
-            // because this map's consumer, `Engine.intrinsicUnionOf`, fires on a platform name
-            // with ≥2 canons, so admitting JS `string`/`undefined` would newly synthesise
-            // `char | string` and `unit | undefined`. That is a front-end semantics change to
-            // measure, not to make in passing.
+            // multi-canon entries drive the unifier's JS `number` widening. Built
+            // from the published `Intrinsic` shapes.
+            //
+            // This axis answers "which canons are one FAMILY on this target", so the
+            // `platform <> canon.Name` guard is load-bearing: a self-named primitive joining
+            // its own repr's entry would make JS `char`/`string` and `unit`/`undefined`
+            // families, mutually admissible wherever a family widens. They are not.
             // A capability INTERFACE (`disposable`) is deliberately NOT emitted here: it
             // resolves to a `TyClass` constraint, not a `TyConst` value identity, so its only
             // possible reverse consumer is `MetadataSymbols.tryBuildType` — which must NOT
@@ -468,21 +467,16 @@ module VesperLibTyparCapture =
                 |> Seq.map (fun (platform, xs) -> platform, xs |> Seq.map snd |> Seq.distinct |> List.ofSeq)
                 |> Map.ofSeq
 
-            // Forward intrinsic axis `{ canon -> platform-repr }`, from the SAME published
-            // `Intrinsic` shapes `intrinsicReverse` reads — but not its mirror; see the
-            // guard note below. Codegen reads it to resolve a primitive canon (`int`) to its
-            // `.fs` repr (`System.Int32`) — the single source of a primitive's repr.
-            // Only `Intrinsic` (scalar/structural primitives) carry a codegen repr;
-            // capability platform interfaces are reconciliation-only (reverse) and are
-            // encoded as classes, so they are NOT included here.
+            // Forward intrinsic axis `{ canon -> platform-repr }`. Codegen reads it to
+            // resolve a primitive canon (`int`) to its `.fs` repr (`System.Int32`) — the
+            // single source of a primitive's repr. Only `Intrinsic` (scalar/structural
+            // primitives) carry a codegen repr; capability platform interfaces are
+            // reconciliation-only and are encoded as classes, so they are NOT included here.
             //
-            // NO `platform <> canon.Name` guard, unlike `intrinsicReverse`: the two are
-            // different string axes (a source spelling and a platform type name), so their
-            // coincidence is not a fact about the primitive. On JS `string`, `bigint` and
-            // `undefined` all repr to their own spelling and are as represented as any
-            // other; dropping them made the axis mean "no repr on this target" and "repr
-            // happens to be spelled like the canon" at once, and the second reading is what
-            // rendered a `bigint` literal without its `n` suffix.
+            // Total over the published `Intrinsic` shapes: a canon and a platform type name
+            // are different string axes, so their coincidence is not a fact about the
+            // primitive. JS `string`/`bigint`/`undefined` are as represented as any other;
+            // dropping `bigint` printed it with JS's `n` suffix, which the CLR does not.
             let intrinsicForward =
                 // `SymbolKey` is equatable-but-not-comparable, so the canon-keyed forward
                 // axis is a read-only `Dictionary`, not a `Map`.
