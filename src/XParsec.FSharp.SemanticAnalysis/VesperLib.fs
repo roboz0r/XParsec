@@ -964,8 +964,7 @@ module VesperLib =
                     // GADT-syntax nullary (`([]): 'T list`): the explicit return
                     // type is the declaring union and carries no field, so it
                     // models exactly as an ordinary nullary case. A true
-                    // type-refining return type is out of scope — the same stance
-                    // the front-end's `TypeRegistration.inspectCaseData` takes.
+                    // type-refining return type is out of scope.
                     match caseName ident with
                     | ValueNone -> err <- Some "unnamed case"
                     | ValueSome n ->
@@ -975,8 +974,7 @@ module VesperLib =
                 | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(specs, _))) ->
                     // GADT-syntax n-ary (`(::): Head: 'T * Tail: 'T list -> 'T list`):
                     // the fields are the signature's args; the return type names the
-                    // declaring union and is ignored (true type-refining GADTs are
-                    // out of scope, exactly as in the front-end).
+                    // declaring union and is ignored.
                     match caseName ident with
                     | ValueNone -> err <- Some "unnamed case"
                     | ValueSome n ->

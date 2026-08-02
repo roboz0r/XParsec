@@ -41,6 +41,7 @@ type sbyte =
         static member inline (%)(x: sbyte, y: sbyte) : sbyte =
             (# "($0 % $1) << 24 >> 24" x (checkedDivisor y) : sbyte #)
 
+        static member inline (~+)(value: sbyte) : sbyte = value
         static member inline (~-)(n: sbyte) : sbyte = (# "(-$0) << 24 >> 24" n : sbyte #)
         static member inline (&&&)(x: sbyte, y: sbyte) : sbyte = (# "$0 & $1" x y : sbyte #)
         static member inline (|||)(x: sbyte, y: sbyte) : sbyte = (# "$0 | $1" x y : sbyte #)
@@ -58,6 +59,7 @@ type byte =
         static member inline ( * )(x: byte, y: byte) : byte = (# "($0 * $1) & 0xFF" x y : byte #)
         static member inline (/)(x: byte, y: byte) : byte = (# "($0 / $1) & 0xFF" x (checkedDivisor y) : byte #)
         static member inline (%)(x: byte, y: byte) : byte = (# "($0 % $1) & 0xFF" x (checkedDivisor y) : byte #)
+        static member inline (~+)(value: byte) : byte = value
         static member inline (&&&)(x: byte, y: byte) : byte = (# "$0 & $1" x y : byte #)
         static member inline (|||)(x: byte, y: byte) : byte = (# "$0 | $1" x y : byte #)
         static member inline (^^^)(x: byte, y: byte) : byte = (# "$0 ^ $1" x y : byte #)
@@ -79,6 +81,7 @@ type int16 =
         static member inline (%)(x: int16, y: int16) : int16 =
             (# "($0 % $1) << 16 >> 16" x (checkedDivisor y) : int16 #)
 
+        static member inline (~+)(value: int16) : int16 = value
         static member inline (~-)(n: int16) : int16 = (# "(-$0) << 16 >> 16" n : int16 #)
         static member inline (&&&)(x: int16, y: int16) : int16 = (# "$0 & $1" x y : int16 #)
         static member inline (|||)(x: int16, y: int16) : int16 = (# "$0 | $1" x y : int16 #)
@@ -101,6 +104,7 @@ type uint16 =
         static member inline (%)(x: uint16, y: uint16) : uint16 =
             (# "($0 % $1) & 0xFFFF" x (checkedDivisor y) : uint16 #)
 
+        static member inline (~+)(value: uint16) : uint16 = value
         static member inline (&&&)(x: uint16, y: uint16) : uint16 = (# "$0 & $1" x y : uint16 #)
         static member inline (|||)(x: uint16, y: uint16) : uint16 = (# "$0 | $1" x y : uint16 #)
         static member inline (^^^)(x: uint16, y: uint16) : uint16 = (# "$0 ^ $1" x y : uint16 #)
@@ -117,6 +121,7 @@ type uint32 =
         static member inline ( * )(x: uint32, y: uint32) : uint32 = (# "Math.imul($0, $1) >>> 0" x y : uint32 #)
         static member inline (/)(x: uint32, y: uint32) : uint32 = (# "($0 / $1) >>> 0" x (checkedDivisor y) : uint32 #)
         static member inline (%)(x: uint32, y: uint32) : uint32 = (# "($0 % $1) >>> 0" x (checkedDivisor y) : uint32 #)
+        static member inline (~+)(value: uint32) : uint32 = value
         // Every one of these reads back through `>>> 0`: JS bitwise answers SIGNED int32,
         // so the top-bit-set results are negative without it.
         static member inline (&&&)(x: uint32, y: uint32) : uint32 = (# "($0 & $1) >>> 0" x y : uint32 #)
@@ -142,6 +147,7 @@ type int64 =
         static member inline (%)(x: int64, y: int64) : int64 =
             (# "BigInt.asIntN(64, $0 % $1)" x (checkedDivisor y) : int64 #)
 
+        static member inline (~+)(value: int64) : int64 = value
         static member inline (~-)(n: int64) : int64 = (# "BigInt.asIntN(64, -$0)" n : int64 #)
         static member inline (&&&)(x: int64, y: int64) : int64 = (# "$0 & $1" x y : int64 #)
         static member inline (|||)(x: int64, y: int64) : int64 = (# "$0 | $1" x y : int64 #)
@@ -168,6 +174,7 @@ type uint64 =
         static member inline (%)(x: uint64, y: uint64) : uint64 =
             (# "BigInt.asUintN(64, $0 % $1)" x (checkedDivisor y) : uint64 #)
 
+        static member inline (~+)(value: uint64) : uint64 = value
         static member inline (&&&)(x: uint64, y: uint64) : uint64 = (# "$0 & $1" x y : uint64 #)
         static member inline (|||)(x: uint64, y: uint64) : uint64 = (# "$0 | $1" x y : uint64 #)
         static member inline (^^^)(x: uint64, y: uint64) : uint64 = (# "$0 ^ $1" x y : uint64 #)

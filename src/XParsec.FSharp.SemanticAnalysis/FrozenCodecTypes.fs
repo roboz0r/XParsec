@@ -290,11 +290,6 @@ module FrozenCodecTypes =
             FrozenConstraint.Coercion(typarIndex, target)
         | b -> failwithf "FrozenCodec: unknown FrozenConstraint tag %d" b
 
-    /// The wire form is the binding's `Key` and nothing else — the record's two fields ARE
-    /// that key's two components, so storing the key keeps `ModuleBindingInfo.Key` the one
-    /// place the identity is derived, on the wire as much as in memory. It also rides the
-    /// symbol intern table, which already carries a `Binding` key held by either shape of
-    /// `ModuleHolder`.
     let writeModuleBindingInfo (w: FrozenWriter) (m: ModuleBindingInfo) = writeSymbolRef w m.Key
 
     let readModuleBindingInfo (r: FrozenReader) : ModuleBindingInfo =

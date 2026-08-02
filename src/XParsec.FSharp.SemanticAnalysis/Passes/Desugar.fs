@@ -43,14 +43,15 @@ module Desugar =
         | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) -> OperatorNames.ofParenSymbolic (nameOf tok) tok
         | _ -> ValueNone
 
-    /// Token.OpSubtraction is used by both binary `a - b` (InfixApp) and
-    /// unary `-x` (PrefixApp). The PrefixApp form maps to op_UnaryNegation.
+    /// Token.OpSubtraction / OpAddition are used by both the binary form (`a - b`,
+    /// InfixApp) and the unary one (`-x`, PrefixApp); the PrefixApp forms map to
+    /// op_UnaryNegation / op_UnaryPlus. The spellings `~-` / `~+` never reach here — they
+    /// lex to a generic operator token and appear only as binding heads / values.
     let private prefixOpName (t: Token) : string voption =
         match t with
         | Token.OpSubtraction -> ValueSome OperatorData.OpUnaryNegation
-        // `~~~x` (bitwise complement) lexes to the distinct `OpLogicalNot`
-        // (wellKnownOps); `~-`/`~+` only appear as binding heads / values today,
-        // not as their own prefix use site (`-x` is `OpSubtraction`).
+        | Token.OpAddition -> ValueSome OperatorData.OpUnaryPlus
+        // `~~~x` (bitwise complement) lexes to the distinct `OpLogicalNot` (wellKnownOps).
         | Token.OpLogicalNot -> ValueSome OperatorData.OpLogicalNot
         // `&local` is the managed address-of (byref): its prefix compiled name is
         // `op_AddressOf`. Unlike the other prefix ops it has no provider symbol —

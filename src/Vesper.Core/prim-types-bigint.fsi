@@ -17,4 +17,6 @@ type bigint =
 
     static member inline (%): x: bigint * y: bigint -> bigint
 
+    static member inline (~+): value: bigint -> bigint
+
     static member inline (~-): n: bigint -> bigint

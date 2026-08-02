@@ -1,7 +1,8 @@
 namespace Vesper
 
-// Each width states its own operator surface — the arithmetic family (`+ - * / %`), the
-// bitwise family (`&&& ||| ^^^ ~~~ <<< >>>`), and, at the signed widths only, `~-`. The
+// Each width states its own operator surface — the arithmetic family (`+ - * / %` and the
+// identity `~+`), the bitwise family (`&&& ||| ^^^ ~~~ <<< >>>`), and `~-` at the signed
+// widths only (a negated unsigned value has no answer its own width can hold). The
 // list is the contract: an operand type that states no member does not support the
 // operator, which is what makes `1.0 &&& 2.0` an error rather than garbage IL. The bodies
 // are the target's own, in the paired `.fs` — a member on an intrinsic is spliced at the
@@ -22,6 +23,8 @@ type sbyte =
     static member inline (/): x: sbyte * y: sbyte -> sbyte
 
     static member inline (%): x: sbyte * y: sbyte -> sbyte
+
+    static member inline (~+): value: sbyte -> sbyte
 
     static member inline (~-): n: sbyte -> sbyte
 
@@ -52,6 +55,8 @@ type byte =
     static member inline (/): x: byte * y: byte -> byte
 
     static member inline (%): x: byte * y: byte -> byte
+
+    static member inline (~+): value: byte -> byte
 
     static member inline (&&&): x: byte * y: byte -> byte
 
@@ -91,6 +96,8 @@ type int16 =
 
     static member inline (%): x: int16 * y: int16 -> int16
 
+    static member inline (~+): value: int16 -> int16
+
     static member inline (~-): n: int16 -> int16
 
     static member inline (&&&): x: int16 * y: int16 -> int16
@@ -120,6 +127,8 @@ type uint16 =
     static member inline (/): x: uint16 * y: uint16 -> uint16
 
     static member inline (%): x: uint16 * y: uint16 -> uint16
+
+    static member inline (~+): value: uint16 -> uint16
 
     static member inline (&&&): x: uint16 * y: uint16 -> uint16
 
@@ -154,6 +163,8 @@ type uint32 =
 
     static member inline (%): x: uint32 * y: uint32 -> uint32
 
+    static member inline (~+): value: uint32 -> uint32
+
     static member inline (&&&): x: uint32 * y: uint32 -> uint32
 
     static member inline (|||): x: uint32 * y: uint32 -> uint32
@@ -181,6 +192,8 @@ type int64 =
     static member inline (/): x: int64 * y: int64 -> int64
 
     static member inline (%): x: int64 * y: int64 -> int64
+
+    static member inline (~+): value: int64 -> int64
 
     static member inline (~-): n: int64 -> int64
 
@@ -211,6 +224,8 @@ type uint64 =
     static member inline (/): x: uint64 * y: uint64 -> uint64
 
     static member inline (%): x: uint64 * y: uint64 -> uint64
+
+    static member inline (~+): value: uint64 -> uint64
 
     static member inline (&&&): x: uint64 * y: uint64 -> uint64
 

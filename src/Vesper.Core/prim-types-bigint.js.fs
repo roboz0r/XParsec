@@ -14,5 +14,6 @@ type bigint =
         static member inline ( * )(x: bigint, y: bigint) : bigint = (# "$0 * $1" x y : bigint #)
         static member inline (/)(x: bigint, y: bigint) : bigint = (# "$0 / $1" x y : bigint #)
         static member inline (%)(x: bigint, y: bigint) : bigint = (# "$0 % $1" x y : bigint #)
+        static member inline (~+)(value: bigint) : bigint = value
         static member inline (~-)(n: bigint) : bigint = (# "-$0" n : bigint #)
     end

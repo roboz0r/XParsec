@@ -16,4 +16,6 @@ type decimal =
 
     static member inline (%): x: decimal * y: decimal -> decimal
 
+    static member inline (~+): value: decimal -> decimal
+
     static member inline (~-): n: decimal -> decimal

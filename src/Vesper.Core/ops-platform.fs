@@ -24,20 +24,12 @@ module ArithmeticOperators =
 
     let inline (%) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (%): ^T1 * ^T2 -> ^T3) (x, y))
 
-    /// Overloaded unary negation. Declared only at the signed widths, so `-a` on an
-    /// unsigned one is the ordinary "does not support the operator" rejection.
     let inline (~-) (n: ^T) : ^T = (^T: (static member (~-): ^T -> ^T) n)
-
-    /// Overloaded unary plus — identity.
-    let inline (~+) (value: ^T) : ^T = value
+    let inline (~+) (value: ^T) : ^T = (^T: (static member (~+): ^T -> ^T) value)
 
 [<AutoOpen>]
 module BitwiseOperators =
 
-    // Each is the bare trait call. WHICH operand types support the operator, and the IL
-    // each one lowers to, are stated on the primitives themselves (`prim-types-*.fs`) —
-    // so there is no clause list here that could drift from that one, and a type that
-    // states no member (`float`) is rejected rather than handed a width-blind opcode.
     let inline (&&&) (x: ^T) (y: ^T) : ^T = (^T: (static member (&&&): ^T * ^T -> ^T) (x, y))
 
     let inline (|||) (x: ^T) (y: ^T) : ^T = (^T: (static member (|||): ^T * ^T -> ^T) (x, y))

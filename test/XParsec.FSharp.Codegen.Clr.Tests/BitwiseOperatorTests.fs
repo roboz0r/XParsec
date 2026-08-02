@@ -7,12 +7,11 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The bitwise operator family (`&&& ||| ^^^ <<< >>> ~~~`) sourced from the
-// `Vesper.Core/ops-platform.fs` contract bodies. Binding heads needed the
-// source-text fallback in `Desugar.opPatCompiledName` (the parenthesised ops lex
-// to generic tokens); use sites resolve to their distinct `Token` enums and were
-// wired into `Desugar.infixOpName` + `Unification.tryPrimitiveTraitCandidate`
-// (the `bitwiseBinaryOps` / `shiftOps` sets). `>>>` is a static-opt (signed `shr`
-// base + unsigned `shr.un` clauses); the rest are single-IL bodies.
+// `Vesper.Core/ops-platform.fs` contract bodies, each of which is the bare trait call.
+// Binding heads need the source-text fallback in `Desugar.opPatCompiledName` (the
+// parenthesised ops lex to generic tokens); use sites resolve to their distinct `Token`
+// enums. Which widths support the family, and the IL each one lowers to, are stated on
+// the primitives themselves (`prim-types-*.fsi`/`.fs`).
 
 [<Tests>]
 let tests =
@@ -82,11 +81,10 @@ let tests =
                 Expect.equal (output.Trim()) "13" "(13 &&& 11) ||| 4 = 13"
             }
 
-            // A *deferred* operand pins the *contract-surface* resolution path, not
-            // the ground SRTP-synthesis fast path the cases above exercise: in a
+            // A *deferred* operand pins the *contract-surface* resolution path: in a
             // generalisable local function the shift/bitwise operands are still
-            // unsolved typars when the infix is typed, so `inferInfix` falls past
-            // `tryPrimitiveTraitCandidate` to `OpenScope.tryResolve` on the compiled
+            // unsolved typars when the infix is typed, so `inferInfix` reaches
+            // `OpenScope.tryResolve` on the compiled
             // op name. That lookup missed entirely until the contract extractor
             // mapped the *parenthesised* binding heads `(<<<)` / `(&&&)` (which lex
             // to generic operator tokens, not the distinct enum) to their compiled

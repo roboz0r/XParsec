@@ -298,8 +298,7 @@ module TastNodeViews =
         }
 
     /// The format cluster with its sub-expressions held as handles — the `'e`
-    /// instantiation of the one sink / segment / dyn-hole shape, so a formatter replays
-    /// the same records here as in the tree domain.
+    /// instantiation of the one sink / segment / dyn-hole shape.
     type FormatSink = FormatSinkG<ExprId>
     type FormatSeg = FormatSegG<FrozenType, Anchor, ExprId>
     type DynFormatHole = DynFormatHoleG<FrozenType, Anchor, ExprId>

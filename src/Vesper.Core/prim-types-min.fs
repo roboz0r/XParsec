@@ -10,6 +10,8 @@ type int =
         static member inline ( * )(x: int, y: int) : int = (# "mul" x y : int #)
         static member inline (/)(x: int, y: int) : int = (# "div" x y : int #)
         static member inline (%)(x: int, y: int) : int = (# "rem" x y : int #)
+        // Prefix plus is the identity at every width: no mnemonic, no target dialect.
+        static member inline (~+)(value: int) : int = value
         static member inline (~-)(n: int) : int = (# "neg" n : int #)
         static member inline (&&&)(x: int, y: int) : int = (# "and" x y : int #)
         static member inline (|||)(x: int, y: int) : int = (# "or" x y : int #)

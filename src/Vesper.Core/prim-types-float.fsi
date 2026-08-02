@@ -19,6 +19,8 @@ type float32 =
 
     static member inline (%): x: float32 * y: float32 -> float32
 
+    static member inline (~+): value: float32 -> float32
+
     static member inline (~-): n: float32 -> float32
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Double"/>.</summary>
@@ -36,6 +38,8 @@ type float =
     static member inline (/): x: float * y: float -> float
 
     static member inline (%): x: float * y: float -> float
+
+    static member inline (~+): value: float -> float
 
     static member inline (~-): n: float -> float
 

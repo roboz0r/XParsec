@@ -18,6 +18,9 @@ type int =
         // wraps it, and reads the operand once.
         static member inline (/)(x: int, y: int) : int = (# "($0 / $1) | 0" x (checkedDivisor y) : int #)
         static member inline (%)(x: int, y: int) : int = (# "($0 % $1) | 0" x (checkedDivisor y) : int #)
+        // The identity, so no template and nothing to mask — the one member here whose
+        // body is the same on both targets.
+        static member inline (~+)(value: int) : int = value
         // The mask is the whole point here: `-(Int32.MinValue)` overflows to itself.
         static member inline (~-)(n: int) : int = (# "(-$0) | 0" n : int #)
         // The JS bitwise operators already coerce to signed int32 and answer in it, so

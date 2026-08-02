@@ -3,39 +3,23 @@ namespace Vesper
 [<AutoOpen>]
 module ArithmeticOperators =
 
-    // Bare trait calls, as in the CLR sibling: the admitted operand types and each one's
-    // JS template live on the primitives (`prim-types-*.js.fs`), which is where the
-    // per-width masks, `Math.imul` and the `checkedDivisor` guard now are.
-    //
-    // The three typars are the `.fsi`'s (`(^T1 or ^T2)` support set), so a heterogeneous
-    // user operator keeps its operand types distinct through the splice.
-
     let inline (+) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
 
     let inline (-) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
 
-    /// Written `( * )` (spaces required — `(*` opens a block comment).
     let inline ( * ) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3) (x, y))
 
     let inline (/) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (/): ^T1 * ^T2 -> ^T3) (x, y))
 
     let inline (%) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (%): ^T1 * ^T2 -> ^T3) (x, y))
 
-    /// Overloaded unary negation. Declared only at the signed widths, so `-a` on an
-    /// unsigned one is the ordinary "does not support the operator" rejection.
     let inline (~-) (n: ^T) : ^T = (^T: (static member (~-): ^T -> ^T) n)
 
-    /// Overloaded unary plus — the identity. No template: it just yields its
-    /// operand (target-neutral, identical to the CLR body).
-    let inline (~+) (value: ^T) : ^T = value
+    let inline (~+) (value: ^T) : ^T = (^T: (static member (~+): ^T -> ^T) value)
 
 [<AutoOpen>]
 module BitwiseOperators =
 
-    // Bare trait calls, as in the CLR sibling: the admitted operand types and each
-    // one's JS template live on the primitives (`prim-types-*.js.fs`). The former
-    // single base here was width-BLIND — one `$0 & $1` for every operand — which is
-    // what the per-width masks now state instead.
     let inline (&&&) (x: ^T) (y: ^T) : ^T = (^T: (static member (&&&): ^T * ^T -> ^T) (x, y))
 
     let inline (|||) (x: ^T) (y: ^T) : ^T = (^T: (static member (|||): ^T * ^T -> ^T) (x, y))
@@ -51,12 +35,6 @@ module BitwiseOperators =
 [<AutoOpen>]
 module EqualityOperators =
 
-    /// Structural equality. A primitive operand lowers to a JS strict `===`
-    /// through its `when ^T : …` clause (BigInt / number / boolean / string `===`
-    /// are all value comparisons); an aggregate operand delegates to
-    /// `structuralEquals`, the non-inline `Vesper.Core` runtime entry the backend
-    /// imports from `Vesper.Core.mjs` through the ordinary external-call path — no
-    /// bare-name template token. So a program over primitives pulls in no import.
     let inline (=) (x: ^T) (y: ^T) : bool =
         structuralEquals x y
         when ^T: int = (# "$0 === $1" x y : bool #)
@@ -66,9 +44,6 @@ module EqualityOperators =
         when ^T: bool = (# "$0 === $1" x y : bool #)
         when ^T: char = (# "$0 === $1" x y : bool #)
 
-    /// Structural inequality — the negation of `(=)`. Each primitive form is a
-    /// strict `!==`; the base negates the `structuralEquals` runtime call (wrapped
-    /// in a `!$0` template because `not` is defined later in this file).
     let inline (<>) (x: ^T) (y: ^T) : bool =
         (# "!$0" (structuralEquals x y) : bool #)
         when ^T: int = (# "$0 !== $1" x y : bool #)

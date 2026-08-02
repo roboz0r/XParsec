@@ -82,6 +82,7 @@ module OperatorSurfaceParity =
             "/", "op_Division"
             "%", "op_Modulus"
             "~-", "op_UnaryNegation"
+            "~+", "op_UnaryPlus"
         ]
 
     /// The manifest's `operators` default: a program's obligations are about every

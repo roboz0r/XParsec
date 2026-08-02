@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The arithmetic / unary-negation operator family (`+ - * / %`, `~-`) is sourced
+// The arithmetic operator family (`+ - * / %`, `~-`, `~+`) is sourced
 // from the `Vesper.Core/ops-platform.fs` contract bodies. Each binary body carries
 // the three typars its `.fsi` publishes (`x: ^T1 -> y: ^T2 -> ^T3`, support set
 // `(^T1 or ^T2)`) and IS the bare SRTP TRAIT CALL: a user type dispatches to its own
@@ -152,7 +152,33 @@ let tests =
                         (sprintf "let f (a: %s) = -a" ty)
             }
 
-            test "arithmetic + unary-neg bindings freeze from Vesper.Core and are collected as cross-package inlines" {
+            // `~+` is the identity, and is still a DECLARED member at every numeric width:
+            // the operator's constraint is what admits the operand, so `+x` on a type that
+            // declares none is the same rejection `-x` on an unsigned width is. Its body
+            // carries no opcode — the splice is the operand itself.
+            test "prefix plus is the identity and leaves no opcode, at every numeric width" {
+                for ty in
+                    [
+                        "int"
+                        "byte"
+                        "sbyte"
+                        "int16"
+                        "uint16"
+                        "uint32"
+                        "int64"
+                        "uint64"
+                        "float"
+                    ] do
+                    Expect.isEmpty
+                        (opcodesOf (sprintf "let f (a: %s) = +a" ty))
+                        (sprintf "%s ~+ splices its operand and nothing else" ty)
+
+                runs "42" "let f (a: int) = +a\nprintfn \"%d\" (f 42)"
+
+                failsWith "The type 'char' does not support the operator '~+'" "let f (a: char) = +a\nignore f"
+            }
+
+            test "arithmetic + unary bindings freeze from Vesper.Core and are collected as cross-package inlines" {
                 let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
 
                 let arithmeticOps =
@@ -163,6 +189,7 @@ let tests =
                         "op_Division"
                         "op_Modulus"
                         "op_UnaryNegation"
+                        "op_UnaryPlus"
                     ]
 
                 for name in arithmeticOps do
@@ -171,7 +198,7 @@ let tests =
                 // Every arithmetic body IS the SRTP trait call — an operand type either
                 // declares the member or does not support the operator. Nothing rides a
                 // raw-IL base, which is what makes an unsupported operand diagnose.
-                // Binary ops abstract twice, `~-` once; none is wrapped in a static-opt
+                // Binary ops abstract twice, `~-` / `~+` once; none is wrapped in a static-opt
                 // any more, and the arm that unwraps one is what would notice a relapse.
                 let rec traitBase (e: Wire.TExpr) : Wire.TExpr =
                     match e with

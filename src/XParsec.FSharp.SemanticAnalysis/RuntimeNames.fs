@@ -363,9 +363,8 @@ module RuntimeNames =
     /// a consumer depending on how a type was written or resolved.
     ///
     /// The single source the consumers that classify a primitive by name share, so a
-    /// new numeric type is added in one place instead of drifting across four
+    /// new numeric type is added in one place instead of drifting across three
     /// independently-maintained lists (the prior state — each had its own gaps):
-    ///   * the unifier's SRTP-arithmetic synthesis (`Engine.numericPrimitives`);
     ///   * the `%A` faithfulness gate (`ElaborateExpr.structuredArgFaithful`, ∪ string/char/bool);
     ///   * the codegen value-type predicate (`EmitPattern.isValueType`, ∪ bool/char);
     ///   * the front-end primitive recogniser (`TypeTranslate.isPrimitiveName`) and the

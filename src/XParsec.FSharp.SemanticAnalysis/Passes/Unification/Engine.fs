@@ -915,74 +915,6 @@ module UnificationEngine =
 
         walk t
 
-    /// SRTP arithmetic dispatch on numeric primitives. For `op_Addition`
-    /// etc. on `int` the candidate "static member" type is `int * int ->
-    /// int`; we synthesise it here so the unifier doesn't need to know
-    /// which provider declared the primitive. The numeric name set is the
-    /// shared `RuntimeNames.numericTypeNames` (one place to grow).
-    and private numericPrimitives = RuntimeNames.numericTypeNames
-
-    and private arithmeticBinaryOps =
-        Set.ofList
-            [
-                OperatorData.OpAddition
-                OperatorData.OpSubtraction
-                OperatorData.OpMultiply
-                OperatorData.OpDivision
-                OperatorData.OpModulus
-            ]
-
-    // The bitwise family (`&&& ||| ^^^ <<< >>> ~~~`) is NOT synthesised: every integral
-    // width declares it on the type (`prim-types-*.fsi`), so the lookup above answers and
-    // a non-integral operand is rejected as "does not support the operator". Synthesising
-    // it here admitted `float`/`decimal` — which then reached a width-blind `and` and
-    // emitted invalid IL.
-
-    // Unary `~-` / `~+` — one primitive operand, `^T -> ^T`.
-    and private unaryPrimitiveOps =
-        Set.ofList [ OperatorData.OpUnaryNegation; OperatorData.OpUnaryPlus ]
-
-    and private equalityBinaryOps =
-        Set.ofList [ OperatorData.OpEquality; OperatorData.OpInequality ]
-
-    and private orderingBinaryOps =
-        Set.ofList
-            [
-                OperatorData.OpLessThan
-                OperatorData.OpGreaterThan
-                OperatorData.OpLessThanOrEqual
-                OperatorData.OpGreaterThanOrEqual
-            ]
-
-    // Equality stays in Vesper.Core, ordering in Vesper.Comparison. Both families
-    // synthesise the same primitive trait shape (`prim*prim → bool`), so
-    // `tryPrimitiveTraitCandidate` checks the union; the split is what lets the
-    // decline-fallthrough diverge by family once the .fsi contracts become the live
-    // provider (today they resolve identically).
-    and private comparisonBinaryOps = Set.union equalityBinaryOps orderingBinaryOps
-
-    and private tryPrimitiveTraitCandidate (memberName: string) (primName: string) (argCount: int) : SemType voption =
-        if not (Set.contains primName numericPrimitives) then
-            ValueNone
-        elif argCount = 2 && Set.contains memberName arithmeticBinaryOps then
-            let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
-        elif argCount = 1 && Set.contains memberName unaryPrimitiveOps then
-            let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
-            ValueSome(TyFun(t, t))
-        elif argCount = 2 && Set.contains memberName comparisonBinaryOps then
-            let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), TyConst(RuntimeNames.boolKey, EqArray.empty)))
-        else
-            ValueNone
-
-    /// The static member an INTRINSIC declares for `memberName`, from the two places a
-    /// primitive's operator surface can be stated: the name-keyed host, which holds the
-    /// declaration being compiled right now (Vesper.Core's own
-    /// `type int = (# … #) with static member (+)`), and the contract provider, which
-    /// holds it for everyone downstream. Deliberately the same pair, in the same order,
-    /// as the nominal arm's — an operator on `int` is found the way an operator on
-    /// `Vesper.Set` is, which is the whole point of declaring it.
     and private tryDeclaredIntrinsicMember
         (ctx: PassContext)
         (key: SymbolKey)
@@ -992,8 +924,6 @@ module UnificationEngine =
         let fromHost =
             match ctx.Types.IntrinsicAbbrevHost.TryGetValue(SymbolKeyOps.intrinsicName key) with
             | true, info ->
-                // Empty until `fillHostMembers` types them; a bound discharging before
-                // that falls through to the provider and then the synthesis.
                 match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
                 | Some m -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) m.Type)
                 | None -> ValueNone
@@ -1056,20 +986,13 @@ module UnificationEngine =
                 if not (ctx.Store.Srtp.IsSolved b) then
                     match resolveStep ctx.Store linkTarget with
                     | TyConst(primKey, primArgs) ->
-                        let primName = SymbolKeyOps.intrinsicName primKey
-
-                        // A declaration on the primitive wins; the operator-name synthesis
-                        // is the residue for primitives that have not stated one yet.
-                        let candidate =
-                            match tryDeclaredIntrinsicMember ctx primKey primArgs b.MemberName with
-                            | ValueSome _ as declared -> declared
-                            | ValueNone -> tryPrimitiveTraitCandidate b.MemberName primName b.ArgTypes.Length
-
-                        match candidate with
+                        match tryDeclaredIntrinsicMember ctx primKey primArgs b.MemberName with
                         | ValueSome candTy ->
                             ctx.Store.Srtp.Solve b
                             unifySrtpAgainst ctx tok candTy b
                         | ValueNone ->
+                            let primName = SymbolKeyOps.intrinsicName primKey
+
                             ctx.Report(tok, Kind.NoMember(primName, MemberNoun.BuiltInStaticMember, b.MemberName))
 
                             ctx.Store.Srtp.Solve b

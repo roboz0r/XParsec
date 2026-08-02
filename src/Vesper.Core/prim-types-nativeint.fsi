@@ -16,6 +16,8 @@ type nativeint =
 
     static member inline (%): x: nativeint * y: nativeint -> nativeint
 
+    static member inline (~+): value: nativeint -> nativeint
+
     static member inline (~-): n: nativeint -> nativeint
 
     static member inline (&&&): x: nativeint * y: nativeint -> nativeint
@@ -45,6 +47,8 @@ type unativeint =
     static member inline (/): x: unativeint * y: unativeint -> unativeint
 
     static member inline (%): x: unativeint * y: unativeint -> unativeint
+
+    static member inline (~+): value: unativeint -> unativeint
 
     static member inline (&&&): x: unativeint * y: unativeint -> unativeint
 

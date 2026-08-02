@@ -1487,13 +1487,6 @@ module Elaborate =
                     }
                 )
 
-            // The preambles. `translateBinding` — not `translateExpr` on the initialiser —
-            // is what makes `let f x = …` the function value it is. A reference to an
-            // earlier binder is rewritten to the field it lowers to, exactly as in a member
-            // body; the instance sequence additionally sees the ctor params (it runs inside
-            // the primary ctor). Both sequences ride the class's declaring typars as `TyVar`
-            // roots, which the decl-wide `freezeTypars` cuts — so a generic class's
-            // preamble needs no special case.
             let staticRewrite = staticFieldRewrite info
             let instanceRewrite = instanceFieldRewrite info selfTy
 

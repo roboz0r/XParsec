@@ -113,14 +113,30 @@ namespace               'namespace'       KWNamespace         tok=   0  pos=   0
           inline        'inline'          KWInline            tok= 177  pos= 570
           ParenOp:
                         '('               KWLParen            tok= 179  pos= 577
-            SymbolicOp  '~-'              op_UnaryNegation    tok= 180  pos= 578
+            SymbolicOp  '~+'              op_UnaryPlus        tok= 180  pos= 578
                         ')'               KWRParen            tok= 181  pos= 580
           :             ':'               OpColon             tok= 182  pos= 581
-          arg           'n'               Identifier          tok= 184  pos= 583
-          :             ':'               OpColon             tok= 185  pos= 584
+          arg           'value'           Identifier          tok= 184  pos= 583
+          :             ':'               OpColon             tok= 185  pos= 588
           NamedType:
-            Ident       'bigint'          Identifier          tok= 187  pos= 586
-          ->            '->'              OpArrowRight        tok= 189  pos= 593
+            Ident       'bigint'          Identifier          tok= 187  pos= 590
+          ->            '->'              OpArrowRight        tok= 189  pos= 597
           NamedType:
-            Ident       'bigint'          Identifier          tok= 191  pos= 596
-      end               <virt>            KWEnd               tok=virt  pos= 603
+            Ident       'bigint'          Identifier          tok= 191  pos= 600
+        StaticMember:
+          static        'static'          KWStatic            tok= 195  pos= 612
+          member        'member'          KWMember            tok= 197  pos= 619
+          inline        'inline'          KWInline            tok= 199  pos= 626
+          ParenOp:
+                        '('               KWLParen            tok= 201  pos= 633
+            SymbolicOp  '~-'              op_UnaryNegation    tok= 202  pos= 634
+                        ')'               KWRParen            tok= 203  pos= 636
+          :             ':'               OpColon             tok= 204  pos= 637
+          arg           'n'               Identifier          tok= 206  pos= 639
+          :             ':'               OpColon             tok= 207  pos= 640
+          NamedType:
+            Ident       'bigint'          Identifier          tok= 209  pos= 642
+          ->            '->'              OpArrowRight        tok= 211  pos= 649
+          NamedType:
+            Ident       'bigint'          Identifier          tok= 213  pos= 652
+      end               <virt>            KWEnd               tok=virt  pos= 659

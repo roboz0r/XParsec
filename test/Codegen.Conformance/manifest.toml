@@ -34,7 +34,7 @@
 #
 #   width     — the primitive this program is about.
 #   operators — which arithmetic operators the program's obligations are about. The
-#               default is all of them (`+ - * / % ~-`).
+#               default is all of them (`+ - * / % ~- ~+`).
 #
 # The two together are the key. Support is a property of the PAIR, never of the width
 # alone: `byte` supports `+` on both backends and `~-` on NEITHER (negating an unsigned
@@ -72,12 +72,13 @@ width = "int64"
 
 # The UNSIGNED widths carry the five BINARY operators and no `~-` — see
 # `ops/arith-negate-unsigned.fs`, which pins the rejection. Their `operators` narrowing is
-# what stops the guard demanding a negation clause nothing could judge.
+# what stops the guard demanding a negation clause nothing could judge. `~+` IS in their
+# list: unlike negation, the identity has an answer at an unsigned width.
 [[program]]
 path = "ops/arith-byte.fs"
 run = ["clr", "js"]
 width = "byte"
-operators = ["+", "-", "*", "/", "%"]
+operators = ["+", "-", "*", "/", "%", "~+"]
 
 [[program]]
 path = "ops/arith-sbyte.fs"
@@ -93,19 +94,19 @@ width = "int16"
 path = "ops/arith-uint16.fs"
 run = ["clr", "js"]
 width = "uint16"
-operators = ["+", "-", "*", "/", "%"]
+operators = ["+", "-", "*", "/", "%", "~+"]
 
 [[program]]
 path = "ops/arith-uint32.fs"
 run = ["clr", "js"]
 width = "uint32"
-operators = ["+", "-", "*", "/", "%"]
+operators = ["+", "-", "*", "/", "%", "~+"]
 
 [[program]]
 path = "ops/arith-uint64.fs"
 run = ["clr", "js"]
 width = "uint64"
-operators = ["+", "-", "*", "/", "%"]
+operators = ["+", "-", "*", "/", "%", "~+"]
 
 # The truncation probe: a uint64 LITERAL at or above 2^32. Both backends must carry the
 # magnitude the width promises — the literal's own model has to be 64-bit, not merely its
@@ -115,7 +116,7 @@ operators = ["+", "-", "*", "/", "%"]
 path = "ops/arith-uint64-wide.fs"
 run = ["clr", "js"]
 width = "uint64"
-operators = ["+", "-", "*", "/", "%"]
+operators = ["+", "-", "*", "/", "%", "~+"]
 
 [[program]]
 path = "ops/arith-float.fs"
@@ -145,6 +146,13 @@ run = ["clr", "js"]
 # for the signed widths, by taking the `operators` default.
 [[program]]
 path = "ops/arith-negate.fs"
+run = ["clr", "js"]
+
+# Prefix plus at a spread of widths, the unsigned ones included — the identity, so what
+# the two backends must agree on is that each width's operand comes back unchanged and at
+# its own magnitude. Spans several widths, so it carries no `width`.
+[[program]]
+path = "ops/arith-unary-plus.fs"
 run = ["clr", "js"]
 
 # …and the other half of that statement: `~-` on an UNSIGNED width is rejected, on both
@@ -199,7 +207,7 @@ path = "ops/arith-unativeint.fs"
 run = ["clr"]
 diagnose = { js = "no representation on the target platform" }
 width = "unativeint"
-operators = ["+", "-", "*", "/", "%"]
+operators = ["+", "-", "*", "/", "%", "~+"]
 
 # `decimal` is the width the two backends differ on for the plan's ONE reason: the CLR has a
 # repr for it and JS has none, so the same six declarations on `prim-types-decimal.fsi` are

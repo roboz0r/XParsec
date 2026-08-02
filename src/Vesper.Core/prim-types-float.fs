@@ -2,11 +2,6 @@ namespace Vesper
 
 #nowarn "42"
 
-// The float mnemonics are the plain ones at both widths: CIL `add`/`sub`/`mul`/`div`/`rem`
-// are IEEE operations when their operands are float32/float64, so neither width needs a
-// `conv.*` and neither division needs an unsigned form. `rem` is the IEEE truncated
-// remainder, which is F#'s `%`.
-
 type float32 =
     (# "System.Single" #)
     with
@@ -15,6 +10,7 @@ type float32 =
         static member inline ( * )(x: float32, y: float32) : float32 = (# "mul" x y : float32 #)
         static member inline (/)(x: float32, y: float32) : float32 = (# "div" x y : float32 #)
         static member inline (%)(x: float32, y: float32) : float32 = (# "rem" x y : float32 #)
+        static member inline (~+)(value: float32) : float32 = value
         static member inline (~-)(n: float32) : float32 = (# "neg" n : float32 #)
     end
 
@@ -26,6 +22,7 @@ type float =
         static member inline ( * )(x: float, y: float) : float = (# "mul" x y : float #)
         static member inline (/)(x: float, y: float) : float = (# "div" x y : float #)
         static member inline (%)(x: float, y: float) : float = (# "rem" x y : float #)
+        static member inline (~+)(value: float) : float = value
         static member inline (~-)(n: float) : float = (# "neg" n : float #)
     end
 type single = float32

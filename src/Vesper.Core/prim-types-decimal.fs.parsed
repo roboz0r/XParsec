@@ -1,248 +1,266 @@
 namespace                      'namespace'       KWNamespace         tok=   0  pos=   0
                                'Vesper'          Identifier          tok=   2  pos=  10
   TypeDefn.Abbrev:
-    TypeName                   'decimal'         Identifier          tok=  27  pos= 443
-    =                          '='               OpEquality          tok=  29  pos= 451
+    TypeName                   'decimal'         Identifier          tok=   7  pos=  23
+    =                          '='               OpEquality          tok=   9  pos=  31
       ILIntrinsic:
-        (#                     '(#'              KWLHashParen        tok=  32  pos= 457
-        StringLiteral          '"'               StringOpen          tok=  34  pos= 460
+        (#                     '(#'              KWLHashParen        tok=  12  pos=  37
+        StringLiteral          '"'               StringOpen          tok=  14  pos=  40
         Parts:
-          Text                 'System.Dec...'   StringFragment      tok=  35  pos= 461
-                               '"'               StringClose         tok=  36  pos= 475
-        #)                     '#)'              KWRHashParen        tok=  38  pos= 477
-    with                       'with'            KWWith              tok=  41  pos= 484
-      static                   'static'          KWStatic            tok=  44  pos= 497
-      member                   'member'          KWMember            tok=  46  pos= 504
-      inline                   'inline'          KWInline            tok=  48  pos= 511
+          Text                 'System.Dec...'   StringFragment      tok=  15  pos=  41
+                               '"'               StringClose         tok=  16  pos=  55
+        #)                     '#)'              KWRHashParen        tok=  18  pos=  57
+    with                       'with'            KWWith              tok=  21  pos=  64
+      static                   'static'          KWStatic            tok=  24  pos=  77
+      member                   'member'          KWMember            tok=  26  pos=  84
+      inline                   'inline'          KWInline            tok=  28  pos=  91
       Pat.Op:
         ParenOp:
-                               '('               KWLParen            tok=  50  pos= 518
-          SymbolicOp           '+'               op_Addition         tok=  51  pos= 519
-                               ')'               KWRParen            tok=  52  pos= 520
+                               '('               KWLParen            tok=  30  pos=  98
+          SymbolicOp           '+'               op_Addition         tok=  31  pos=  99
+                               ')'               KWRParen            tok=  32  pos= 100
       Pats:
-        ParenBlock             '('               KWLParen            tok=  53  pos= 521
+        ParenBlock             '('               KWLParen            tok=  33  pos= 101
           Pat.Tuple:
             Pat.Typed:
-              Pat.NamedSimple  'x'               Identifier          tok=  54  pos= 522
-              Colon            ':'               OpColon             tok=  55  pos= 523
+              Pat.NamedSimple  'x'               Identifier          tok=  34  pos= 102
+              Colon            ':'               OpColon             tok=  35  pos= 103
               NamedType:
-                Ident          'decimal'         Identifier          tok=  57  pos= 525
-            ,                  ','               OpComma             tok=  58  pos= 532
+                Ident          'decimal'         Identifier          tok=  37  pos= 105
+            ,                  ','               OpComma             tok=  38  pos= 112
             Pat.Typed:
-              Pat.NamedSimple  'y'               Identifier          tok=  60  pos= 534
-              Colon            ':'               OpColon             tok=  61  pos= 535
+              Pat.NamedSimple  'y'               Identifier          tok=  40  pos= 114
+              Colon            ':'               OpColon             tok=  41  pos= 115
               NamedType:
-                Ident          'decimal'         Identifier          tok=  63  pos= 537
-                               ')'               KWRParen            tok=  64  pos= 544
-      ReturnColon              ':'               OpColon             tok=  66  pos= 546
+                Ident          'decimal'         Identifier          tok=  43  pos= 117
+                               ')'               KWRParen            tok=  44  pos= 124
+      ReturnColon              ':'               OpColon             tok=  46  pos= 126
       NamedType:
-        Ident                  'decimal'         Identifier          tok=  68  pos= 548
-      =                        '='               OpEquality          tok=  70  pos= 556
+        Ident                  'decimal'         Identifier          tok=  48  pos= 128
+      =                        '='               OpEquality          tok=  50  pos= 136
         HighPrecedenceApp:
           Func:
             LongIdentOrOp:
               LongIdent:
-                               'System'          Identifier          tok=  72  pos= 558
-                               'Decimal'         Identifier          tok=  74  pos= 565
-                               'Add'             Identifier          tok=  76  pos= 573
-          (                    '('               KWLParen            tok=  77  pos= 576
+                               'System'          Identifier          tok=  52  pos= 138
+                               'Decimal'         Identifier          tok=  54  pos= 145
+                               'Add'             Identifier          tok=  56  pos= 153
+          (                    '('               KWLParen            tok=  57  pos= 156
           Arg:
             Tuple:
-              Ident            'x'               Identifier          tok=  78  pos= 577
-              Ident            'y'               Identifier          tok=  81  pos= 580
-                               ')'               KWRParen            tok=  82  pos= 581
-      static                   'static'          KWStatic            tok=  85  pos= 591
-      member                   'member'          KWMember            tok=  87  pos= 598
-      inline                   'inline'          KWInline            tok=  89  pos= 605
+              Ident            'x'               Identifier          tok=  58  pos= 157
+              Ident            'y'               Identifier          tok=  61  pos= 160
+                               ')'               KWRParen            tok=  62  pos= 161
+      static                   'static'          KWStatic            tok=  65  pos= 171
+      member                   'member'          KWMember            tok=  67  pos= 178
+      inline                   'inline'          KWInline            tok=  69  pos= 185
       Pat.Op:
         ParenOp:
-                               '('               KWLParen            tok=  91  pos= 612
-          SymbolicOp           '-'               op_Subtraction      tok=  92  pos= 613
-                               ')'               KWRParen            tok=  93  pos= 614
+                               '('               KWLParen            tok=  71  pos= 192
+          SymbolicOp           '-'               op_Subtraction      tok=  72  pos= 193
+                               ')'               KWRParen            tok=  73  pos= 194
       Pats:
-        ParenBlock             '('               KWLParen            tok=  94  pos= 615
+        ParenBlock             '('               KWLParen            tok=  74  pos= 195
           Pat.Tuple:
             Pat.Typed:
-              Pat.NamedSimple  'x'               Identifier          tok=  95  pos= 616
-              Colon            ':'               OpColon             tok=  96  pos= 617
+              Pat.NamedSimple  'x'               Identifier          tok=  75  pos= 196
+              Colon            ':'               OpColon             tok=  76  pos= 197
               NamedType:
-                Ident          'decimal'         Identifier          tok=  98  pos= 619
-            ,                  ','               OpComma             tok=  99  pos= 626
+                Ident          'decimal'         Identifier          tok=  78  pos= 199
+            ,                  ','               OpComma             tok=  79  pos= 206
             Pat.Typed:
-              Pat.NamedSimple  'y'               Identifier          tok= 101  pos= 628
-              Colon            ':'               OpColon             tok= 102  pos= 629
+              Pat.NamedSimple  'y'               Identifier          tok=  81  pos= 208
+              Colon            ':'               OpColon             tok=  82  pos= 209
               NamedType:
-                Ident          'decimal'         Identifier          tok= 104  pos= 631
-                               ')'               KWRParen            tok= 105  pos= 638
-      ReturnColon              ':'               OpColon             tok= 107  pos= 640
+                Ident          'decimal'         Identifier          tok=  84  pos= 211
+                               ')'               KWRParen            tok=  85  pos= 218
+      ReturnColon              ':'               OpColon             tok=  87  pos= 220
       NamedType:
-        Ident                  'decimal'         Identifier          tok= 109  pos= 642
-      =                        '='               OpEquality          tok= 111  pos= 650
+        Ident                  'decimal'         Identifier          tok=  89  pos= 222
+      =                        '='               OpEquality          tok=  91  pos= 230
         HighPrecedenceApp:
           Func:
             LongIdentOrOp:
               LongIdent:
-                               'System'          Identifier          tok= 113  pos= 652
-                               'Decimal'         Identifier          tok= 115  pos= 659
-                               'Subtract'        Identifier          tok= 117  pos= 667
-          (                    '('               KWLParen            tok= 118  pos= 675
+                               'System'          Identifier          tok=  93  pos= 232
+                               'Decimal'         Identifier          tok=  95  pos= 239
+                               'Subtract'        Identifier          tok=  97  pos= 247
+          (                    '('               KWLParen            tok=  98  pos= 255
           Arg:
             Tuple:
-              Ident            'x'               Identifier          tok= 119  pos= 676
-              Ident            'y'               Identifier          tok= 122  pos= 679
-                               ')'               KWRParen            tok= 123  pos= 680
-      static                   'static'          KWStatic            tok= 126  pos= 690
-      member                   'member'          KWMember            tok= 128  pos= 697
-      inline                   'inline'          KWInline            tok= 130  pos= 704
+              Ident            'x'               Identifier          tok=  99  pos= 256
+              Ident            'y'               Identifier          tok= 102  pos= 259
+                               ')'               KWRParen            tok= 103  pos= 260
+      static                   'static'          KWStatic            tok= 106  pos= 270
+      member                   'member'          KWMember            tok= 108  pos= 277
+      inline                   'inline'          KWInline            tok= 110  pos= 284
       Pat.Op:
         ParenOp:
-                               '('               KWLParen            tok= 132  pos= 711
-          SymbolicOp           '*'               OpMultiply          tok= 134  pos= 713
-                               ')'               KWRParen            tok= 136  pos= 715
+                               '('               KWLParen            tok= 112  pos= 291
+          SymbolicOp           '*'               OpMultiply          tok= 114  pos= 293
+                               ')'               KWRParen            tok= 116  pos= 295
       Pats:
-        ParenBlock             '('               KWLParen            tok= 137  pos= 716
+        ParenBlock             '('               KWLParen            tok= 117  pos= 296
           Pat.Tuple:
             Pat.Typed:
-              Pat.NamedSimple  'x'               Identifier          tok= 138  pos= 717
-              Colon            ':'               OpColon             tok= 139  pos= 718
+              Pat.NamedSimple  'x'               Identifier          tok= 118  pos= 297
+              Colon            ':'               OpColon             tok= 119  pos= 298
               NamedType:
-                Ident          'decimal'         Identifier          tok= 141  pos= 720
-            ,                  ','               OpComma             tok= 142  pos= 727
+                Ident          'decimal'         Identifier          tok= 121  pos= 300
+            ,                  ','               OpComma             tok= 122  pos= 307
             Pat.Typed:
-              Pat.NamedSimple  'y'               Identifier          tok= 144  pos= 729
-              Colon            ':'               OpColon             tok= 145  pos= 730
+              Pat.NamedSimple  'y'               Identifier          tok= 124  pos= 309
+              Colon            ':'               OpColon             tok= 125  pos= 310
               NamedType:
-                Ident          'decimal'         Identifier          tok= 147  pos= 732
-                               ')'               KWRParen            tok= 148  pos= 739
-      ReturnColon              ':'               OpColon             tok= 150  pos= 741
+                Ident          'decimal'         Identifier          tok= 127  pos= 312
+                               ')'               KWRParen            tok= 128  pos= 319
+      ReturnColon              ':'               OpColon             tok= 130  pos= 321
       NamedType:
-        Ident                  'decimal'         Identifier          tok= 152  pos= 743
-      =                        '='               OpEquality          tok= 154  pos= 751
+        Ident                  'decimal'         Identifier          tok= 132  pos= 323
+      =                        '='               OpEquality          tok= 134  pos= 331
         HighPrecedenceApp:
           Func:
             LongIdentOrOp:
               LongIdent:
-                               'System'          Identifier          tok= 156  pos= 753
-                               'Decimal'         Identifier          tok= 158  pos= 760
-                               'Multiply'        Identifier          tok= 160  pos= 768
-          (                    '('               KWLParen            tok= 161  pos= 776
+                               'System'          Identifier          tok= 136  pos= 333
+                               'Decimal'         Identifier          tok= 138  pos= 340
+                               'Multiply'        Identifier          tok= 140  pos= 348
+          (                    '('               KWLParen            tok= 141  pos= 356
           Arg:
             Tuple:
-              Ident            'x'               Identifier          tok= 162  pos= 777
-              Ident            'y'               Identifier          tok= 165  pos= 780
-                               ')'               KWRParen            tok= 166  pos= 781
-      static                   'static'          KWStatic            tok= 169  pos= 791
-      member                   'member'          KWMember            tok= 171  pos= 798
-      inline                   'inline'          KWInline            tok= 173  pos= 805
+              Ident            'x'               Identifier          tok= 142  pos= 357
+              Ident            'y'               Identifier          tok= 145  pos= 360
+                               ')'               KWRParen            tok= 146  pos= 361
+      static                   'static'          KWStatic            tok= 149  pos= 371
+      member                   'member'          KWMember            tok= 151  pos= 378
+      inline                   'inline'          KWInline            tok= 153  pos= 385
       Pat.Op:
         ParenOp:
-                               '('               KWLParen            tok= 175  pos= 812
-          SymbolicOp           '/'               OpDivision          tok= 176  pos= 813
-                               ')'               KWRParen            tok= 177  pos= 814
+                               '('               KWLParen            tok= 155  pos= 392
+          SymbolicOp           '/'               OpDivision          tok= 156  pos= 393
+                               ')'               KWRParen            tok= 157  pos= 394
       Pats:
-        ParenBlock             '('               KWLParen            tok= 178  pos= 815
+        ParenBlock             '('               KWLParen            tok= 158  pos= 395
           Pat.Tuple:
             Pat.Typed:
-              Pat.NamedSimple  'x'               Identifier          tok= 179  pos= 816
-              Colon            ':'               OpColon             tok= 180  pos= 817
+              Pat.NamedSimple  'x'               Identifier          tok= 159  pos= 396
+              Colon            ':'               OpColon             tok= 160  pos= 397
               NamedType:
-                Ident          'decimal'         Identifier          tok= 182  pos= 819
-            ,                  ','               OpComma             tok= 183  pos= 826
+                Ident          'decimal'         Identifier          tok= 162  pos= 399
+            ,                  ','               OpComma             tok= 163  pos= 406
             Pat.Typed:
-              Pat.NamedSimple  'y'               Identifier          tok= 185  pos= 828
-              Colon            ':'               OpColon             tok= 186  pos= 829
+              Pat.NamedSimple  'y'               Identifier          tok= 165  pos= 408
+              Colon            ':'               OpColon             tok= 166  pos= 409
               NamedType:
-                Ident          'decimal'         Identifier          tok= 188  pos= 831
-                               ')'               KWRParen            tok= 189  pos= 838
-      ReturnColon              ':'               OpColon             tok= 191  pos= 840
+                Ident          'decimal'         Identifier          tok= 168  pos= 411
+                               ')'               KWRParen            tok= 169  pos= 418
+      ReturnColon              ':'               OpColon             tok= 171  pos= 420
       NamedType:
-        Ident                  'decimal'         Identifier          tok= 193  pos= 842
-      =                        '='               OpEquality          tok= 195  pos= 850
+        Ident                  'decimal'         Identifier          tok= 173  pos= 422
+      =                        '='               OpEquality          tok= 175  pos= 430
         HighPrecedenceApp:
           Func:
             LongIdentOrOp:
               LongIdent:
-                               'System'          Identifier          tok= 197  pos= 852
-                               'Decimal'         Identifier          tok= 199  pos= 859
-                               'Divide'          Identifier          tok= 201  pos= 867
-          (                    '('               KWLParen            tok= 202  pos= 873
+                               'System'          Identifier          tok= 177  pos= 432
+                               'Decimal'         Identifier          tok= 179  pos= 439
+                               'Divide'          Identifier          tok= 181  pos= 447
+          (                    '('               KWLParen            tok= 182  pos= 453
           Arg:
             Tuple:
-              Ident            'x'               Identifier          tok= 203  pos= 874
-              Ident            'y'               Identifier          tok= 206  pos= 877
-                               ')'               KWRParen            tok= 207  pos= 878
-      static                   'static'          KWStatic            tok= 210  pos= 888
-      member                   'member'          KWMember            tok= 212  pos= 895
-      inline                   'inline'          KWInline            tok= 214  pos= 902
+              Ident            'x'               Identifier          tok= 183  pos= 454
+              Ident            'y'               Identifier          tok= 186  pos= 457
+                               ')'               KWRParen            tok= 187  pos= 458
+      static                   'static'          KWStatic            tok= 190  pos= 468
+      member                   'member'          KWMember            tok= 192  pos= 475
+      inline                   'inline'          KWInline            tok= 194  pos= 482
       Pat.Op:
         ParenOp:
-                               '('               KWLParen            tok= 216  pos= 909
-          SymbolicOp           '%'               op_Modulus          tok= 217  pos= 910
-                               ')'               KWRParen            tok= 218  pos= 911
+                               '('               KWLParen            tok= 196  pos= 489
+          SymbolicOp           '%'               op_Modulus          tok= 197  pos= 490
+                               ')'               KWRParen            tok= 198  pos= 491
       Pats:
-        ParenBlock             '('               KWLParen            tok= 219  pos= 912
+        ParenBlock             '('               KWLParen            tok= 199  pos= 492
           Pat.Tuple:
             Pat.Typed:
-              Pat.NamedSimple  'x'               Identifier          tok= 220  pos= 913
-              Colon            ':'               OpColon             tok= 221  pos= 914
+              Pat.NamedSimple  'x'               Identifier          tok= 200  pos= 493
+              Colon            ':'               OpColon             tok= 201  pos= 494
               NamedType:
-                Ident          'decimal'         Identifier          tok= 223  pos= 916
-            ,                  ','               OpComma             tok= 224  pos= 923
+                Ident          'decimal'         Identifier          tok= 203  pos= 496
+            ,                  ','               OpComma             tok= 204  pos= 503
             Pat.Typed:
-              Pat.NamedSimple  'y'               Identifier          tok= 226  pos= 925
-              Colon            ':'               OpColon             tok= 227  pos= 926
+              Pat.NamedSimple  'y'               Identifier          tok= 206  pos= 505
+              Colon            ':'               OpColon             tok= 207  pos= 506
               NamedType:
-                Ident          'decimal'         Identifier          tok= 229  pos= 928
-                               ')'               KWRParen            tok= 230  pos= 935
-      ReturnColon              ':'               OpColon             tok= 232  pos= 937
+                Ident          'decimal'         Identifier          tok= 209  pos= 508
+                               ')'               KWRParen            tok= 210  pos= 515
+      ReturnColon              ':'               OpColon             tok= 212  pos= 517
       NamedType:
-        Ident                  'decimal'         Identifier          tok= 234  pos= 939
-      =                        '='               OpEquality          tok= 236  pos= 947
+        Ident                  'decimal'         Identifier          tok= 214  pos= 519
+      =                        '='               OpEquality          tok= 216  pos= 527
         HighPrecedenceApp:
           Func:
             LongIdentOrOp:
               LongIdent:
-                               'System'          Identifier          tok= 238  pos= 949
-                               'Decimal'         Identifier          tok= 240  pos= 956
-                               'Remainder'       Identifier          tok= 242  pos= 964
-          (                    '('               KWLParen            tok= 243  pos= 973
+                               'System'          Identifier          tok= 218  pos= 529
+                               'Decimal'         Identifier          tok= 220  pos= 536
+                               'Remainder'       Identifier          tok= 222  pos= 544
+          (                    '('               KWLParen            tok= 223  pos= 553
           Arg:
             Tuple:
-              Ident            'x'               Identifier          tok= 244  pos= 974
-              Ident            'y'               Identifier          tok= 247  pos= 977
-                               ')'               KWRParen            tok= 248  pos= 978
-      static                   'static'          KWStatic            tok= 251  pos= 988
-      member                   'member'          KWMember            tok= 253  pos= 995
-      inline                   'inline'          KWInline            tok= 255  pos=1002
+              Ident            'x'               Identifier          tok= 224  pos= 554
+              Ident            'y'               Identifier          tok= 227  pos= 557
+                               ')'               KWRParen            tok= 228  pos= 558
+      static                   'static'          KWStatic            tok= 231  pos= 568
+      member                   'member'          KWMember            tok= 233  pos= 575
+      inline                   'inline'          KWInline            tok= 235  pos= 582
       Pat.Op:
         ParenOp:
-                               '('               KWLParen            tok= 257  pos=1009
-          SymbolicOp           '~-'              op_UnaryNegation    tok= 258  pos=1010
-                               ')'               KWRParen            tok= 259  pos=1012
+                               '('               KWLParen            tok= 237  pos= 589
+          SymbolicOp           '~+'              op_UnaryPlus        tok= 238  pos= 590
+                               ')'               KWRParen            tok= 239  pos= 592
       Pats:
-        ParenBlock             '('               KWLParen            tok= 260  pos=1013
+        ParenBlock             '('               KWLParen            tok= 240  pos= 593
           Pat.Typed:
-            Pat.NamedSimple    'n'               Identifier          tok= 261  pos=1014
-            Colon              ':'               OpColon             tok= 262  pos=1015
+            Pat.NamedSimple    'value'           Identifier          tok= 241  pos= 594
+            Colon              ':'               OpColon             tok= 242  pos= 599
             NamedType:
-              Ident            'decimal'         Identifier          tok= 264  pos=1017
-                               ')'               KWRParen            tok= 265  pos=1024
-      ReturnColon              ':'               OpColon             tok= 267  pos=1026
+              Ident            'decimal'         Identifier          tok= 244  pos= 601
+                               ')'               KWRParen            tok= 245  pos= 608
+      ReturnColon              ':'               OpColon             tok= 247  pos= 610
       NamedType:
-        Ident                  'decimal'         Identifier          tok= 269  pos=1028
-      =                        '='               OpEquality          tok= 271  pos=1036
+        Ident                  'decimal'         Identifier          tok= 249  pos= 612
+      =                        '='               OpEquality          tok= 251  pos= 620
+        Ident                  'value'           Identifier          tok= 253  pos= 622
+      static                   'static'          KWStatic            tok= 256  pos= 636
+      member                   'member'          KWMember            tok= 258  pos= 643
+      inline                   'inline'          KWInline            tok= 260  pos= 650
+      Pat.Op:
+        ParenOp:
+                               '('               KWLParen            tok= 262  pos= 657
+          SymbolicOp           '~-'              op_UnaryNegation    tok= 263  pos= 658
+                               ')'               KWRParen            tok= 264  pos= 660
+      Pats:
+        ParenBlock             '('               KWLParen            tok= 265  pos= 661
+          Pat.Typed:
+            Pat.NamedSimple    'n'               Identifier          tok= 266  pos= 662
+            Colon              ':'               OpColon             tok= 267  pos= 663
+            NamedType:
+              Ident            'decimal'         Identifier          tok= 269  pos= 665
+                               ')'               KWRParen            tok= 270  pos= 672
+      ReturnColon              ':'               OpColon             tok= 272  pos= 674
+      NamedType:
+        Ident                  'decimal'         Identifier          tok= 274  pos= 676
+      =                        '='               OpEquality          tok= 276  pos= 684
         HighPrecedenceApp:
           Func:
             LongIdentOrOp:
               LongIdent:
-                               'System'          Identifier          tok= 273  pos=1038
-                               'Decimal'         Identifier          tok= 275  pos=1045
-                               'Negate'          Identifier          tok= 277  pos=1053
-          (                    '('               KWLParen            tok= 278  pos=1059
+                               'System'          Identifier          tok= 278  pos= 686
+                               'Decimal'         Identifier          tok= 280  pos= 693
+                               'Negate'          Identifier          tok= 282  pos= 701
+          (                    '('               KWLParen            tok= 283  pos= 707
           Arg:
-            Ident              'n'               Identifier          tok= 279  pos=1060
-                               ')'               KWRParen            tok= 280  pos=1061
-    end                        'end'             KWEnd               tok= 283  pos=1067
----
-WarnDirectives:
-  #nowarn 42 (Ln 2)
+            Ident              'n'               Identifier          tok= 284  pos= 708
+                               ')'               KWRParen            tok= 285  pos= 709
+    end                        'end'             KWEnd               tok= 288  pos= 715

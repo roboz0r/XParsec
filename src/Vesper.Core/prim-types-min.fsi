@@ -20,6 +20,12 @@ type int = extern with
 
     static member inline (%): x: int * y: int -> int
 
+    /// <summary>Prefix plus — the identity, and declared at every numeric width
+    /// (unlike <c>(~-)</c>, nothing about it is signed). The declaration is what admits
+    /// the operand: <c>+x</c> is the same member lookup as <c>x + y</c>, so a type that
+    /// states none does not support it.</summary>
+    static member inline (~+): value: int -> int
+
     /// <summary>Unary negation, declared at the SIGNED widths only: a negated unsigned
     /// value has no answer its own width can hold.</summary>
     static member inline (~-): n: int -> int
