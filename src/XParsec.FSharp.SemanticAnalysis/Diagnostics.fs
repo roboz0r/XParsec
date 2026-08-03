@@ -166,6 +166,9 @@ type ConformanceVerdict =
     | StaleSigOnly of name: string
     /// Declared `sig-only`, but it names no contract `.fsi` in the package at all.
     | UnknownSigOnly of name: string
+    /// Declared `impl-only`, but the target compiles no such contract-less body — the name
+    /// is a typo, or the `.fsi` it disclaims has since appeared.
+    | UnknownImplOnly of name: string
     /// The contract or its companion failed to parse, so that pair could not be conformed.
     | PairParseFailure of sigFile: string * detail: string
 
@@ -182,7 +185,8 @@ module ConformanceVerdict =
         | ConformanceVerdict.ModulePairingMismatch _ -> DiagCode.Vesper "V241"
         | ConformanceVerdict.ImplWithoutContract _ -> DiagCode.Vesper "V242"
         | ConformanceVerdict.StaleSigOnly _
-        | ConformanceVerdict.UnknownSigOnly _ -> DiagCode.Vesper "V243"
+        | ConformanceVerdict.UnknownSigOnly _
+        | ConformanceVerdict.UnknownImplOnly _ -> DiagCode.Vesper "V243"
         | ConformanceVerdict.PairParseFailure _ -> DiagCode.Vesper "V244"
 
     let describe (v: ConformanceVerdict) : string =
@@ -207,6 +211,10 @@ module ConformanceVerdict =
                 name
         | ConformanceVerdict.UnknownSigOnly name ->
             sprintf "`sig-only` names '%s', which is not a contract `.fsi` in this package" name
+        | ConformanceVerdict.UnknownImplOnly name ->
+            sprintf
+                "`impl-only` names '%s', which this target does not compile as a contract-less body — remove it, or implement the `.fsi` it now has"
+                name
         | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
             sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail
 

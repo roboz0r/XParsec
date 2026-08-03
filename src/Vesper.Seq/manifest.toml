@@ -3,13 +3,22 @@ name = "Vesper.Seq"
 description = "The Seq module over seq<'T> (fold, reduce, truncate, toArray)."
 depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison"]
 
-# Contract `.fsi` files in compile order.
+# Contract `.fsi` files in compile order, on EVERY target.
 files = [
     "seq.fsi",
-    "struct-seq.fsi",
 ]
 
 [targets.clr]
+# CLR-only CONTRACT, appended after `[core] files`. `struct-seq.fsi` names the NON-generic
+# `System.Collections.IEnumerable` / `IEnumerator` (which the JS capability compat shim
+# does not map — it maps only the generic ones), and every type in it is `[<Struct>]`
+# because its whole point is zero-allocation by-value chaining. `[<Struct>]` is erased on
+# JS, so a JS port would first have to decide what this file is FOR once by-value chaining
+# is not a thing the target has.
+files = [
+    "struct-seq.fsi",
+]
+
 # CLR-bound: `IEnumerable` / `IEnumerator` / `System.Linq`. No JS body ships yet.
 impl = [
     "seq.clr.fs",

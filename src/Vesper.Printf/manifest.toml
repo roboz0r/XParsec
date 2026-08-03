@@ -7,14 +7,12 @@ description = "printf / printfn / sprintf and the write-through format handler."
 # stack.
 depends-on = ["Vesper.Core", "Vesper.List"]
 
-# .fsi files in compile order. printf-format (PrintfFormat type) before printf
-# (its signatures reference PrintfFormat); formatter is independent.
-# structural-printer (the `%A` engine contract) before formatter, mirroring the impl
-# order: `Formatter.AppendStructured` calls `StructuralPrinter.Print`.
+# .fsi files in compile order, on EVERY target. printf-format (PrintfFormat type)
+# before printf (its signatures reference PrintfFormat). The `%A` engine contract
+# (structural-printer) and the write-through handler (formatter) are CLR-only — see
+# [targets.clr].
 files = [
     "printf-format.fsi",
-    "structural-printer.fsi",
-    "formatter.fsi",
     "printf.fsi",
 ]
 
@@ -32,6 +30,24 @@ sig-only = [
 ]
 
 [targets.clr]
+# CLR-only CONTRACTS, appended after `[core] files` — structural-printer before formatter,
+# mirroring the impl order (`Formatter.AppendStructured` calls `StructuralPrinter.Print`).
+#
+#   - `formatter.fsi` names `TextWriter` / `StringBuilder` / `IsByRefLike` and declares three
+#     constructor overloads, which the JS backend refuses; and printf on JS never routes
+#     through `Formatter` at all (it is front-end special-cased into `Format` nodes). A JS
+#     port would first have to decide what a stack-only write-through handler even means
+#     without a byref-like struct or a `TextWriter`.
+#   - `structural-printer.fsi` is the CLR `%A` engine's surface: an interface-dispatching
+#     `RuntimeFormatState` sink plus a `StructuralPrinter` class. JS's `%A` is a wholly
+#     different artifact (`structural-printer.js.fs`, a free-function `structuralFormat`
+#     the backend imports), so a JS port of THIS contract would first have to decide
+#     whether the two engines should share a surface at all.
+files = [
+    "structural-printer.fsi",
+    "formatter.fsi",
+]
+
 # The `.fs` compiled into Vesper.Printf.dll by this repo's own backend. CLR-bound:
 # `Span` / `ArrayPool` / `Globalization`. The `%A` structural engine
 # (`structural-printer.clr.fs`) BEFORE the write-through format handler (`formatter.clr.fs`) —
@@ -50,6 +66,14 @@ impl = [
 # implements no printf `.fsi`: printf is front-end special-cased on JS (lowered to
 # `Format` nodes, never inline-spliced).
 impl = [
+    "structural-printer.js.fs",
+]
+
+# ...and it implements no `.fsi`: its published surface (`structuralFormat`,
+# `float32ToString`) IS its contract, imported directly by the backend's `%A` holes. Named
+# here so the stem rule never marries it to the CLR `structural-printer.fsi`, whose
+# `RuntimeFormatState` / `StructuralPrinter` it deliberately does not implement.
+impl-only = [
     "structural-printer.js.fs",
 ]
 

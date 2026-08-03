@@ -699,11 +699,13 @@ let tests =
                              files = [\"contract.fsi\"]\n\
                              impl = [\"ops.fs\"]\n\
                              sig-only = [\"contract.fsi\"]\n\
+                             impl-only = [\"ops.fs\"]\n\
                              \n\
                              [targets.js]\n\
                              files = [\"shim.js.fsi\"]\n\
                              impl = [\"ops.js.fs\"]\n\
                              sig-only = [\"shim.js.fsi\"]\n\
+                             impl-only = [\"ops.js.fs\"]\n\
                              runtime = [\"runtime.mjs\"]\n"
                         )
 
@@ -720,6 +722,7 @@ let tests =
                                 Files = [ "shim.js.fsi" ]
                                 Impl = [ "ops.js.fs" ]
                                 SigOnly = [ "shim.js.fsi" ]
+                                ImplOnly = [ "ops.js.fs" ]
                                 Runtime = [ "runtime.mjs" ]
                             }
                             "every [targets.js] list captured"
@@ -740,6 +743,11 @@ let tests =
                             (ReferencedProject.resolveSigOnly "js" withTargets)
                             [ "contract.fsi"; "shim.js.fsi" ]
                             "shared exemptions first, then the target's"
+
+                        Expect.equal
+                            (ReferencedProject.resolveImplOnly "js" withTargets)
+                            [ "ops.fs"; "ops.js.fs" ]
+                            "shared contract-less bodies first, then the target's"
                     }
 
                     // An undeclared target contributes nothing, so it resolves to exactly

@@ -4,12 +4,22 @@ description = "The immutable AVL-tree set type and the Set module (FSharp.Core v
 
 depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Array", "Vesper.Seq", "Vesper.Choice", "Vesper.Option", "Vesper.Comparison", "Vesper.Printf"]
 
-# Contract `.fsi` files in compile order (one, today).
+# Contract `.fsi` files shared by EVERY target: none. The whole package is CLR-only today
+# — see [targets.clr].
+files = []
+
+[targets.clr]
+# CLR-only CONTRACT. `set.fsi` is 954 lines over a 1145-line AVL tree ported verbatim from
+# FSharp.Core, and the CONTRACT itself — not merely the impl — names
+# `System.Collections.IEnumerable`, `System.Collections.IStructuralEquatable`,
+# `ReadOnlySpan<'T>`, `[<CollectionBuilder(typeof<Set>, "Create")>]` and `[<ScopedRef>]`.
+# A JS port would first have to decide what each of those means there, which is a larger
+# question than whether the tree compiles; and nothing else in the tree waits on Set (it
+# sits at the bottom of the dependency graph).
 files = [
     "set.fsi",
 ]
 
-[targets.clr]
 # CLR-bound: `System.Collections{,.Generic}` and `System.Text`. No JS body ships yet.
 impl = [
     "set.clr.fs",

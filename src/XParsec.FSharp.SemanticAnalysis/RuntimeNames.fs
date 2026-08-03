@@ -181,7 +181,7 @@ module RuntimeNames =
 
     /// The rank-1 array's identity as the VesperLib contract extractor AND the self-host
     /// front end SPELL it in a member-bearing declaration (`array-index.js.fsi` /
-    /// `array-index-body.js.fs`) — the double-backtick-escaped `arrayName 1`, i.e.
+    /// `array-index.js.fs`) — the double-backtick-escaped `arrayName 1`, i.e.
     /// `` ``[]`` ``. F# requires the `[]` type name be written backtick-escaped (`[]` is
     /// not a bare identifier); `VesperLib.nameOfTok` preserves that RAW token, and an
     /// ESCAPED name can carry no `` `N `` (the backticks are the escape), so `SymbolKeyOps`

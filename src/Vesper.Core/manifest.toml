@@ -122,9 +122,10 @@ impl = [
     "ops-dynamic.js.fs",
     # The array `get_Item` member body — lifted `this`-first and served under the
     # finalized member key so `arr.[i]` splices the `ldelem` exactly as the free
-    # `GetArray` did. Companion of `array-index.js.fsi`; deliberately a DIFFERENT base
-    # name so the intrinsic-repr extraction never treats it as the array's platform repr.
-    "array-index-body.js.fs",
+    # `GetArray` did. The companion of `array-index.js.fsi`, and named to pair with it:
+    # the intrinsic-repr extraction reads every listed body regardless of name, so the
+    # bare `` `[]` `` repr is bound from here either way.
+    "array-index.js.fs",
 ]
 
 # Hand-authored JS runtime *asset*: the structural core (`equals` / `structuralHash`) the

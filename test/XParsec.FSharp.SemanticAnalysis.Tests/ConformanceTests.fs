@@ -346,8 +346,28 @@ let private unrepresentableOf (outcome: ConformancePass.PackageOutcome) : (strin
             | ConformancePass.PairOutcome.Unrepresentable(sigFile, types) -> yield sigFile, types
             | ConformancePass.PairOutcome.Paired _
             | ConformancePass.PairOutcome.SigOnly _
+            | ConformancePass.PairOutcome.RuntimeServed _
             | ConformancePass.PairOutcome.ParseFailed _ -> ()
     ]
+
+/// The contracts a target accepts because the committed runtime asset exports every value
+/// they declare, with the asset and the values named.
+let private runtimeServedOf (outcome: ConformancePass.PackageOutcome) : (string * string * string list) list =
+    [
+        for p in outcome.Pairs do
+            match p with
+            | ConformancePass.PairOutcome.RuntimeServed(sigFile, asset, values) -> yield sigFile, asset, values
+            | ConformancePass.PairOutcome.Paired _
+            | ConformancePass.PairOutcome.SigOnly _
+            | ConformancePass.PairOutcome.Unrepresentable _
+            | ConformancePass.PairOutcome.ParseFailed _ -> ()
+    ]
+
+let private manifestOf (package: string) : string =
+    packageManifests
+    |> List.tryFind (fun (p, _) -> p = package)
+    |> Option.map snd
+    |> Option.defaultWith (fun () -> failtestf "%s manifest not found" package)
 
 [<Tests>]
 let jsPackageConformanceTests =
@@ -355,14 +375,8 @@ let jsPackageConformanceTests =
         "PackageConformanceJs"
         [
             test "js: prim-types-nativeint.fsi is accepted as unrepresentable, naming all five types" {
-                let core =
-                    packageManifests
-                    |> List.tryFind (fun (p, _) -> p = "Vesper.Core")
-                    |> Option.map snd
-                    |> Option.defaultWith (fun () -> failtest "Vesper.Core manifest not found")
-
                 match
-                    unrepresentableOf (outcomeFor "js" core)
+                    unrepresentableOf (outcomeFor "js" (manifestOf "Vesper.Core"))
                     |> List.tryFind (fun (f, _) -> f.Contains "nativeint")
                 with
                 | None -> failtest "prim-types-nativeint.fsi must be Unrepresentable on js"
@@ -377,17 +391,15 @@ let jsPackageConformanceTests =
                 // `core-types.fsi` declares records/unions and ships no JS body yet. Absence
                 // there is missing work, not a statement that JS cannot represent them —
                 // exactly the split that keeps a forgotten `.fs` from reading as polite.
-                let core =
-                    packageManifests
-                    |> List.tryFind (fun (p, _) -> p = "Vesper.Core")
-                    |> Option.map snd
-                    |> Option.defaultWith (fun () -> failtest "Vesper.Core manifest not found")
-
-                let outcome = outcomeFor "js" core
+                let outcome = outcomeFor "js" (manifestOf "Vesper.Core")
 
                 Expect.isFalse
                     (unrepresentableOf outcome |> List.exists (fun (f, _) -> f = "core-types.fsi"))
                     "a body-bearing contract is never accepted as unrepresentable"
+
+                Expect.isFalse
+                    (runtimeServedOf outcome |> List.exists (fun (f, _, _) -> f = "core-types.fsi"))
+                    "nor as served by the runtime asset — an asset export is a value, never a type"
 
                 Expect.stringContains
                     (ConformancePass.enforce outcome
@@ -413,6 +425,109 @@ let jsPackageConformanceTests =
                         Expect.isFalse
                             (outcome.SigOnlyExemptions.Contains sigFile)
                             (sprintf "%s: %s is accepted by DERIVATION, not by a `sig-only` key" package sigFile)
+            }
+
+            test "js: the hard-error set is exactly the un-ported library surface" {
+                // The JS port's remaining work, enumerated. Every entry is a `.fs` that has
+                // not been written (or a codegen feature that is not there); nothing here is
+                // a machinery artifact. Shrinking this list IS the port, so it is pinned
+                // rather than counted — an entry that vanishes without the corresponding
+                // source appearing means the pass stopped asking, and a NEW entry means a
+                // contract lost its body.
+                let expected =
+                    [
+                        "Vesper.Array: the signature file 'array.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
+                        "Vesper.Core: prim-types-min.fsi: type '``[]``' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
+                        "Vesper.Core: prim-types-min.fsi: type 'Fun' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
+                        "Vesper.Core: prim-types-object.fsi: type 'obj' disagrees on heritability across the pair: one side marks it a heritable external base ('extern class' / '(# class … #)'), the other an opaque value repr"
+                        "Vesper.Core: the signature file 'compiler-attributes.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
+                        "Vesper.Core: the signature file 'core-types.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
+                        "Vesper.Core: the signature file 'structural-format.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
+                        "Vesper.Core: ops-platform.fsi: value 'ignore' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
+                        "Vesper.Core: ops-platform.fsi: value 'isNull' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
+                        "Vesper.Core: ops-platform.fsi: value 'box' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
+                        "Vesper.Core: ops-platform.fsi: value 'invalidArg' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
+                        "Vesper.Core: the signature file 'int-comparison.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
+                        "Vesper.List: list.fsi: value 'ofSeq' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
+                        "Vesper.List: list.fsi: value 'toSeq' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
+                        "Vesper.Seq: the signature file 'seq.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
+                    ]
+
+                let actual =
+                    [
+                        for _, manifestPath in packageManifests do
+                            for d in ConformancePass.enforce (outcomeFor "js" manifestPath) -> d.Message
+                    ]
+
+                Expect.equal actual expected "the js hard-error set"
+            }
+
+            test "js: a contract is runtime-served only when the asset exports every val it declares" {
+                // The bodies of these two contracts live in the committed `.mjs`, not in a
+                // `.fs`, so no `.fs` is owed. The verdict is CHECKED against the asset: the
+                // negative control is `int-comparison.fsi`, which is equally all-`val` in a
+                // package that equally ships an asset, and stays a hard error purely because
+                // `Vesper.Core.mjs` exports no `<`/`>`/`<=`/`>=`.
+                Expect.equal
+                    (runtimeServedOf (outcomeFor "js" (manifestOf "Vesper.Core")))
+                    [
+                        "ops-platform-runtime.js.fsi",
+                        "Vesper.Core.mjs",
+                        [ "structuralEquals"; "structuralHash"; "checkedDivisor" ]
+                    ]
+                    "Vesper.Core: the equality/divisor runtime, and not int-comparison.fsi"
+
+                Expect.equal
+                    (runtimeServedOf (outcomeFor "js" (manifestOf "Vesper.Comparison")))
+                    [
+                        "comparison-runtime.js.fsi", "Vesper.Comparison.mjs", [ "structuralCompare" ]
+                    ]
+                    "Vesper.Comparison: the ordering runtime"
+            }
+
+            test "js: capabilities-compat.js.fsi is accepted as pure abbreviation, naming no extern" {
+                // Five transparent abbreviations and nothing else. F# needs no `.fs` for an
+                // abbreviation, so the contract owes no body — and it says so with an EMPTY
+                // extern list, which is what distinguishes it from the nativeint family.
+                match
+                    unrepresentableOf (outcomeFor "js" (manifestOf "Vesper.Core"))
+                    |> List.tryFind (fun (f, _) -> f = "capabilities-compat.js.fsi")
+                with
+                | None -> failtest "capabilities-compat.js.fsi must owe no `.fs` on js"
+                | Some(_, types) -> Expect.isEmpty types "it declares no extern — every declaration is an abbreviation"
+            }
+
+            test "js: array-index.js.fsi PAIRS with its body rather than being waved through" {
+                // Both halves of the old two-way bug: the `.fsi` was accepted as owing no
+                // body (though its body exists) while the body was reported as contract-less.
+                // The stem now names one pair, and it conforms — `extern` ↔ `(# "!0[]" #)`.
+                let paired =
+                    [
+                        for p in (outcomeFor "js" (manifestOf "Vesper.Core")).Pairs do
+                            match p with
+                            | ConformancePass.PairOutcome.Paired r when r.SigFile = "array-index.js.fsi" -> yield r
+                            | _ -> ()
+                    ]
+
+                match paired with
+                | [ r ] ->
+                    Expect.equal r.ImplFile "array-index.js.fs" "paired with its body"
+                    Expect.isEmpty r.Errors "the array's extern and its intrinsic repr conform"
+                | _ -> failtest "array-index.js.fsi must pair with array-index.js.fs"
+            }
+
+            test "js: a contract-less body is declared, not inferred, and raises nothing" {
+                // `structural-printer.js.fs` is a standalone `%A` engine whose published
+                // surface IS its contract. Declared `impl-only`, so it neither pairs with the
+                // CLR `structural-printer.fsi` nor counts as an orphaned body.
+                let outcome = outcomeFor "js" (manifestOf "Vesper.Printf")
+
+                Expect.equal
+                    (List.ofSeq outcome.ImplOnlyDeclarations)
+                    [ "structural-printer.js.fs" ]
+                    "the one body that implements no contract"
+
+                Expect.isEmpty (ConformancePass.enforce outcome) "Vesper.Printf conforms on js"
             }
 
             test "no manifest carries a target-specific `sig-only` list" {
@@ -444,6 +559,7 @@ let private mkOutcome
         Package = "Test"
         Pairs = pairs
         ImplOnly = []
+        ImplOnlyDeclarations = Set.empty
         SigOnlyExemptions = sigOnly
     }
 
@@ -517,6 +633,60 @@ let enforcementTests =
 
                 Expect.equal (List.length errors) 1 "one hygiene error"
                 Expect.equal errors.Head.Code (DiagCode.Vesper "V243") "stale exemption"
+            }
+
+            test "a contract-less .fs → V242, unless the manifest declares it `impl-only`" {
+                // F# requires no `.fsi`, but a Vesper package publishes a contract surface —
+                // so an undeclared body with none is the hard error, and the declaration is
+                // what turns it into a statement.
+                let orphaned =
+                    { mkOutcome [] Set.empty with
+                        ImplOnly = [ "engine.js.fs" ]
+                    }
+
+                let errors = ConformancePass.enforce orphaned
+                Expect.equal (List.length errors) 1 "one hard error"
+                Expect.equal errors.Head.Code (DiagCode.Vesper "V242") "the contract-less-body family"
+
+                Expect.isEmpty
+                    (ConformancePass.enforce
+                        { orphaned with
+                            ImplOnlyDeclarations = Set.ofList [ "engine.js.fs" ]
+                        })
+                    "a declared contract-less body conforms"
+            }
+
+            test "an `impl-only` naming a body the target does not compile → V243 hygiene error" {
+                // The mirror of a stale `sig-only`: the declaration outlived the file, or the
+                // `.fsi` it disclaims came back (in which case that contract's own V240 fires
+                // alongside).
+                let errors =
+                    ConformancePass.enforce
+                        { mkOutcome [] Set.empty with
+                            ImplOnlyDeclarations = Set.ofList [ "gone.js.fs" ]
+                        }
+
+                Expect.equal (List.length errors) 1 "one hygiene error"
+                Expect.equal errors.Head.Code (DiagCode.Vesper "V243") "stale/unknown declaration"
+                Expect.stringContains errors.Head.Message "gone.js.fs" "names the dangling declaration"
+            }
+
+            test "a RuntimeServed .fsi → no error, with no exemption declared" {
+                // The fourth verdict: the bodies are the committed runtime asset's exports,
+                // checked against the asset, so the absent `.fs` is correct rather than
+                // waived.
+                let outcome =
+                    mkOutcome
+                        [
+                            ConformancePass.PairOutcome.RuntimeServed(
+                                "ops-platform-runtime.js.fsi",
+                                "Vesper.Core.mjs",
+                                [ "structuralEquals" ]
+                            )
+                        ]
+                        Set.empty
+
+                Expect.isEmpty (ConformancePass.enforce outcome) "a runtime-served contract conforms"
             }
 
             test "a parse failure is a per-contract V244 error, not an abort that masks the rest" {

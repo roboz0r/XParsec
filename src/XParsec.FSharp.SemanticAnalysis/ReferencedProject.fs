@@ -38,10 +38,21 @@ module ReferencedProject =
             /// conformance pass accepts a `SigOnly` `.fsi` listed here; one NOT listed is
             /// the FS0240 analogue — a hard error.
             SigOnly: string list
+            /// `.fs` bodies that implement NO contract (`[core] impl-only`) — F# requires no
+            /// `.fsi`, and such a body publishes its whole public surface. Naming one here
+            /// keeps the stem rule from marrying it to a same-stemmed `.fsi` it does not
+            /// implement; the mirror of `SigOnly`.
+            ImplOnly: string list
         }
 
     module SharedLists =
-        let empty: SharedLists = { Files = []; Impl = []; SigOnly = [] }
+        let empty: SharedLists =
+            {
+                Files = []
+                Impl = []
+                SigOnly = []
+                ImplOnly = []
+            }
 
     /// One `[targets.<t>]` table. Every list here is APPENDED to its `SharedLists` peer —
     /// uniformly, with no REPLACE anywhere, because no target overrides a base that was
@@ -55,6 +66,8 @@ module ReferencedProject =
             Impl: string list
             /// Target-only impl-free contract exemptions, after the shared ones.
             SigOnly: string list
+            /// Target-only contract-less bodies, after the shared ones.
+            ImplOnly: string list
             /// Hand-authored runtime *asset* modules — NOT `.fsi`/`.fs` sources the front
             /// end parses, but platform-support artifacts (the JS `.mjs`) the backend
             /// ships beside its output and resolves via `runtimeModules`.
@@ -67,6 +80,7 @@ module ReferencedProject =
                 Files = []
                 Impl = []
                 SigOnly = []
+                ImplOnly = []
                 Runtime = []
             }
 
@@ -129,6 +143,10 @@ module ReferencedProject =
     let resolveSigOnly (target: string) (m: Manifest) : string list =
         m.Shared.SigOnly @ (listsFor target m).SigOnly
 
+    /// The contract-less `.fs` bodies for `target`. Shared, then the target's own.
+    let resolveImplOnly (target: string) (m: Manifest) : string list =
+        m.Shared.ImplOnly @ (listsFor target m).ImplOnly
+
     /// The runtime *asset* modules for `target`. No shared peer: a runtime asset is
     /// inherently target-specific (the CLR builds a DLL rather than committing one).
     let resolveRuntime (target: string) (m: Manifest) : string list = (listsFor target m).Runtime
@@ -172,11 +190,13 @@ module ReferencedProject =
             yield! m.Shared.Files
             yield! m.Shared.Impl
             yield! m.Shared.SigOnly
+            yield! m.Shared.ImplOnly
 
             for KeyValue(_, t) in m.Targets do
                 yield! t.Files
                 yield! t.Impl
                 yield! t.SigOnly
+                yield! t.ImplOnly
         ]
         |> List.distinct
 
@@ -184,10 +204,19 @@ module ReferencedProject =
     /// key (`impl-js`, `inline-bodies`) would otherwise be read as silence, and a stale
     /// manifest would resolve to a plausible wrong file set — silently losing splice sources.
     let private coreKeys =
-        set [ "name"; "description"; "depends-on"; "files"; "impl"; "sig-only" ]
+        set
+            [
+                "name"
+                "description"
+                "depends-on"
+                "files"
+                "impl"
+                "sig-only"
+                "impl-only"
+            ]
 
     /// The keys a `[targets.<t>]` table may carry — same rule, same reason.
-    let private targetKeys = set [ "files"; "impl"; "sig-only"; "runtime" ]
+    let private targetKeys = set [ "files"; "impl"; "sig-only"; "impl-only"; "runtime" ]
 
     let private unknownKey (tableName: string) (allowed: Set<string>) (t: TomlTable) : string option =
         t
@@ -224,6 +253,7 @@ module ReferencedProject =
                                     Files = list "files"
                                     Impl = list "impl"
                                     SigOnly = list "sig-only"
+                                    ImplOnly = list "impl-only"
                                     Runtime = list "runtime"
                                 }
                                 map
@@ -274,6 +304,7 @@ module ReferencedProject =
                                         Files = files
                                         Impl = findStringList core "impl" |> Option.defaultValue []
                                         SigOnly = findStringList core "sig-only" |> Option.defaultValue []
+                                        ImplOnly = findStringList core "impl-only" |> Option.defaultValue []
                                     }
                                 Targets = targets
                             }

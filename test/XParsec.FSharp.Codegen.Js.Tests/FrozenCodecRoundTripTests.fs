@@ -439,6 +439,7 @@ let tests =
                         ConformanceVerdict.ImplWithoutContract "a.fs"
                         ConformanceVerdict.StaleSigOnly "list.fsi"
                         ConformanceVerdict.UnknownSigOnly "gone.fsi"
+                        ConformanceVerdict.UnknownImplOnly "gone.js.fs"
                         ConformanceVerdict.PairParseFailure("a.fsi", "unexpected token")
                     ]
 

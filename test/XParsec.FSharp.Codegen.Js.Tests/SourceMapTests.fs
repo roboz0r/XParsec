@@ -291,7 +291,7 @@ let tests =
 
             test "an inlined MEMBER body maps to the producer too, not to the indexing site" {
                 // The member half of the same claim. `a.[1]` is `'T[]`'s `get_Item`, lifted off
-                // `array-index-body.js.fs` rather than published as a `let inline`, and what its
+                // `array-index.js.fs` rather than published as a `let inline`, and what its
                 // nodes map to is the file the member was WRITTEN in — not the line that merely
                 // INDEXES the array, which is what the emit-time copy would otherwise attribute
                 // its `ldelem` to.
@@ -300,12 +300,12 @@ let tests =
 
                 Expect.contains
                     m.Sources
-                    "Vesper.Core/array-index-body.js.fs"
+                    "Vesper.Core/array-index.js.fs"
                     "the file the member was written in is published beside the caller's"
 
                 let fromMember =
                     m.Segments
-                    |> List.filter (fun s -> m.Sources.[s.SrcIndex] = "Vesper.Core/array-index-body.js.fs")
+                    |> List.filter (fun s -> m.Sources.[s.SrcIndex] = "Vesper.Core/array-index.js.fs")
 
                 Expect.isNonEmpty fromMember "the emitted index expression comes from the member body"
 

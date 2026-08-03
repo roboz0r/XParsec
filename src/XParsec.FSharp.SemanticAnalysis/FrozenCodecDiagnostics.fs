@@ -94,6 +94,9 @@ module FrozenCodecDiagnostics =
             w.Write 6uy
             w.Write sigFile
             w.Write detail
+        | ConformanceVerdict.UnknownImplOnly name ->
+            w.Write 7uy
+            w.Write name
 
     let private readConformanceVerdict (r: FrozenReader) : ConformanceVerdict =
         match r.ReadByte() with
@@ -112,6 +115,7 @@ module FrozenCodecDiagnostics =
         | 6uy ->
             let sigFile = r.ReadString()
             ConformanceVerdict.PairParseFailure(sigFile, r.ReadString())
+        | 7uy -> ConformanceVerdict.UnknownImplOnly(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown ConformanceVerdict tag %d" b
 
     /// `Token` is a `uint16`-backed enum, so it rides as its own representation — including
