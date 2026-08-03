@@ -160,7 +160,7 @@ let tests =
                     JsNativeSymbols.jsNativeInlineOriginsFor Target.Js [ vesperCoreManifest ]
                     |> OriginSources.toList
 
-                Expect.isNonEmpty origins "the JS `inline-bodies` files are retained, not dropped after the parse"
+                Expect.isNonEmpty origins "the JS `impl` files are retained, not dropped after the parse"
 
                 Expect.isTrue
                     (origins |> List.exists (fun s -> s.File.Path.Relative.Contains "ops-platform"))

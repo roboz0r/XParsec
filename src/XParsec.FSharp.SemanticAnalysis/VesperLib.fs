@@ -1397,13 +1397,13 @@ module VesperLib =
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 let short = shortNameOfTypeName lexed input typeName
-                let isIntrinsic = ctx.IntrinsicBaseReprs.ContainsKey short
+                let isIntrinsic = ctx.IntrinsicMarkers.Contains short
 
                 // `short` (the `.fsi` name) is the platform-invariant `canon` key;
-                // intrinsic-ness is decided by the BASE `.fs` companion
-                // (`IntrinsicBaseReprs`), so a target that omits a primitive's repr still
-                // publishes it as an `Intrinsic` with `platform = None`. The `platform` name
-                // is the compiling target's `(# … #)` repr (`IntrinsicReprs`).
+                // intrinsic-ness is decided TARGET-BLIND (`IntrinsicMarkers`), so a target
+                // that omits a primitive's repr still publishes it as an `Intrinsic` with
+                // `platform = None`. The `platform` name is the compiling target's
+                // `(# … #)` repr (`IntrinsicReprs`).
                 // `arity` rides along (the structural constructors `'T []`/`byref` are
                 // intrinsics of arity ≥ 1); `PlatformTypes` treats `platform = None` as
                 // fatal only when `arity = 0`.
@@ -1486,7 +1486,7 @@ module VesperLib =
                                 | ExternKind.Interface _ -> ctx.PendingCapabilityInterfaces.[compiled] <- canon
                             | _ -> ()
                 | _ ->
-                    // No member body. A primitive/capability anchor (`IntrinsicBaseReprs`)
+                    // No member body. A primitive/capability anchor (`IntrinsicMarkers`)
                     // publishes as `Intrinsic`; an `extern` with no base companion repr is a
                     // real opaque `Class`.
                     if isIntrinsic then

@@ -27,16 +27,10 @@ module ReferencedProject =
         {
             /// Target-neutral contract `.fsi` files in compile order (`[core] files`).
             Files: string list
-            /// Target-neutral `.fs` bodies compiled into the package DLL (`[core] impl`).
+            /// Target-neutral `.fs` bodies compiled into the package DLL, and the splice
+            /// sources those same bodies publish (`[core] impl`). ONE list: whether a
+            /// declaration is emitted or spliced is read off the declaration, never listed.
             Impl: string list
-            /// Target-neutral `.fs` bodies whose module-level `let inline` bindings are
-            /// spliced across the package boundary (`[core] inline-bodies`). Absent
-            /// EVERYWHERE in a manifest means "the impl files are themselves the splice
-            /// source"; the two lists diverge only where the CLR backend cannot yet
-            /// COMPILE a splice source (Vesper.Core's operator files: the emitter cannot
-            /// reference `Vesper.Fun` from inside the assembly that defines it, and a
-            /// prior file's type abbreviations are not exported to a later one).
-            InlineBodies: string list
             /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`)
             /// — a front-end intrinsic lowered inline (`printf.fsi`), an
             /// FSharp.Core-interop type whose self-host is sequenced later
@@ -47,13 +41,7 @@ module ReferencedProject =
         }
 
     module SharedLists =
-        let empty: SharedLists =
-            {
-                Files = []
-                Impl = []
-                InlineBodies = []
-                SigOnly = []
-            }
+        let empty: SharedLists = { Files = []; Impl = []; SigOnly = [] }
 
     /// One `[targets.<t>]` table. Every list here is APPENDED to its `SharedLists` peer —
     /// uniformly, with no REPLACE anywhere, because no target overrides a base that was
@@ -65,8 +53,6 @@ module ReferencedProject =
             Files: string list
             /// Target-only `.fs` bodies, after the shared ones.
             Impl: string list
-            /// Target-only splice sources, after the shared ones.
-            InlineBodies: string list
             /// Target-only impl-free contract exemptions, after the shared ones.
             SigOnly: string list
             /// Hand-authored runtime *asset* modules — NOT `.fsi`/`.fs` sources the front
@@ -80,7 +66,6 @@ module ReferencedProject =
             {
                 Files = []
                 Impl = []
-                InlineBodies = []
                 SigOnly = []
                 Runtime = []
             }
@@ -134,25 +119,11 @@ module ReferencedProject =
     let resolveFiles (target: string) (m: Manifest) : string list =
         m.Shared.Files @ (listsFor target m).Files
 
-    /// The `.fs` bodies the package DLL compiles for `target`. Shared, then the target's own.
+    /// The `.fs` bodies for `target`: what the package DLL compiles AND what it publishes
+    /// as splice sources. Shared, then the target's own. There is no second list and no key
+    /// meaning "compile but do not splice" — emission is decided per declaration.
     let resolveImpl (target: string) (m: Manifest) : string list =
         m.Shared.Impl @ (listsFor target m).Impl
-
-    /// The `.fs` bodies whose `let inline` templates are spliced across the package
-    /// boundary for `target`. A manifest that names NO splice source anywhere says the
-    /// impl files ARE the splice source — the common case — so the fallback is on the
-    /// whole manifest, never per target (a target that deliberately splices nothing then
-    /// says so with an explicit empty list, which is indistinguishable from silence and is
-    /// why the fallback cannot be per-target).
-    let resolveInlineBodies (target: string) (m: Manifest) : string list =
-        let declared =
-            not (List.isEmpty m.Shared.InlineBodies)
-            || m.Targets |> Map.exists (fun _ t -> not (List.isEmpty t.InlineBodies))
-
-        if declared then
-            m.Shared.InlineBodies @ (listsFor target m).InlineBodies
-        else
-            resolveImpl target m
 
     /// The impl-free contract exemptions for `target`. Shared, then the target's own.
     let resolveSigOnly (target: string) (m: Manifest) : string list =
@@ -200,35 +171,23 @@ module ReferencedProject =
         [
             yield! m.Shared.Files
             yield! m.Shared.Impl
-            yield! m.Shared.InlineBodies
             yield! m.Shared.SigOnly
 
             for KeyValue(_, t) in m.Targets do
                 yield! t.Files
                 yield! t.Impl
-                yield! t.InlineBodies
                 yield! t.SigOnly
         ]
         |> List.distinct
 
-    /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: the old
-    /// schema's dashed-suffix keys (`impl-js`, `inline-bodies`) would otherwise be read as
-    /// silence, and a stale manifest would resolve to a plausible wrong file set.
+    /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: a retired
+    /// key (`impl-js`, `inline-bodies`) would otherwise be read as silence, and a stale
+    /// manifest would resolve to a plausible wrong file set — silently losing splice sources.
     let private coreKeys =
-        set
-            [
-                "name"
-                "description"
-                "depends-on"
-                "files"
-                "impl"
-                "inline-bodies"
-                "sig-only"
-            ]
+        set [ "name"; "description"; "depends-on"; "files"; "impl"; "sig-only" ]
 
     /// The keys a `[targets.<t>]` table may carry — same rule, same reason.
-    let private targetKeys =
-        set [ "files"; "impl"; "inline-bodies"; "sig-only"; "runtime" ]
+    let private targetKeys = set [ "files"; "impl"; "sig-only"; "runtime" ]
 
     let private unknownKey (tableName: string) (allowed: Set<string>) (t: TomlTable) : string option =
         t
@@ -264,7 +223,6 @@ module ReferencedProject =
                                 {
                                     Files = list "files"
                                     Impl = list "impl"
-                                    InlineBodies = list "inline-bodies"
                                     SigOnly = list "sig-only"
                                     Runtime = list "runtime"
                                 }
@@ -315,7 +273,6 @@ module ReferencedProject =
                                     {
                                         Files = files
                                         Impl = findStringList core "impl" |> Option.defaultValue []
-                                        InlineBodies = findStringList core "inline-bodies" |> Option.defaultValue []
                                         SigOnly = findStringList core "sig-only" |> Option.defaultValue []
                                     }
                                 Targets = targets
@@ -592,40 +549,27 @@ module ReferencedProject =
             // than an opaque `Class`. The `.fs` is the only place the repr lives (the
             // `.fsi` commits `type exn = extern`, no repr).
             //
-            // Two repr tables, filled from two different body sets:
-            //  - `IntrinsicBaseReprs`, the primitive *marker*: every target's `impl`. A
-            //    primitive is a primitive of the language on every target, so `decimal`
-            //    (which ships no JS repr) still publishes as an `Intrinsic` with
-            //    `platform = None` there rather than as a silently opaque class. Only key
-            //    PRESENCE is read, so a key several targets bind is not a conflict. A
-            //    SPLICE-only body does not mark: it publishes members onto a contract some
-            //    `impl` decides the species of.
-            //  - `IntrinsicReprs`, the `platform` name: THIS target's bodies, spliced ones
-            //    included (`prim-types-int.js.fs` ⇒ `number`).
+            // Two tables, filled from two different body sets:
+            //  - `IntrinsicMarkers`, the primitive *marker* SET: every body any target
+            //    names. A primitive is a primitive of the language on every target, so
+            //    `decimal` (which ships no JS repr) still publishes as an `Intrinsic` with
+            //    `platform = None` there rather than as a silently opaque class. `int` is
+            //    bound by both `prim-types-int.fs` and `prim-types-int.js.fs`; a set has no
+            //    value for the second to disagree with.
+            //  - `IntrinsicReprs`, the `platform` name: THIS target's bodies
+            //    (`prim-types-int.js.fs` ⇒ `number`).
             // `canon` is the `.fsi` name itself (set at the `extern` arm), so a target's
             // repr never moves the unifier's identity key.
-            let targetBodies =
-                resolveImpl target manifest @ resolveInlineBodies target manifest |> Set.ofList
+            let targetBodies = resolveImpl target manifest |> Set.ofList
 
             let everyBody =
                 [
                     yield! manifest.Shared.Impl
-                    yield! manifest.Shared.InlineBodies
 
                     for KeyValue(_, t) in manifest.Targets do
                         yield! t.Impl
-                        yield! t.InlineBodies
                 ]
                 |> List.distinct
-
-            let markers =
-                [
-                    yield! manifest.Shared.Impl
-
-                    for KeyValue(_, t) in manifest.Targets do
-                        yield! t.Impl
-                ]
-                |> Set.ofList
 
             for rel in everyBody do
                 let abs = Path.Combine(dir, rel)
@@ -652,8 +596,7 @@ module ReferencedProject =
                         VesperLib.extractIntrinsicReprsInto reprs parsed
 
                         for KeyValue(k, v) in reprs do
-                            if markers.Contains rel then
-                                ctx.IntrinsicBaseReprs.[k] <- v
+                            ctx.IntrinsicMarkers.Add k |> ignore
 
                             if targetBodies.Contains rel then
                                 ctx.IntrinsicReprs.[k] <- v

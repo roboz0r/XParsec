@@ -609,8 +609,8 @@ let tests =
             // to infer it from the paired `.fs`.
             test "a concrete member on an intrinsic must be declared inline" {
                 let ctx = VesperLib.ExtractCtx.empty ()
-                // Intrinsic-ness is the BASE `.fs` repr marker, not the compiling target's.
-                ctx.IntrinsicBaseReprs.["widget"] <- "System.Widget"
+                // Intrinsic-ness is the target-blind marker, not the compiling target's repr.
+                ctx.IntrinsicMarkers.Add "widget" |> ignore
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 VesperLib.extractSymbols
@@ -632,7 +632,7 @@ let tests =
             // splice and nothing to mark — the rule is about members WITH a body.
             test "an extern interface's abstract members do not want inline" {
                 let ctx = VesperLib.ExtractCtx.empty ()
-                ctx.IntrinsicBaseReprs.["disposable"] <- "System.IDisposable"
+                ctx.IntrinsicMarkers.Add "disposable" |> ignore
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
                 VesperLib.extractSymbols
@@ -652,7 +652,7 @@ let tests =
             // host that publishes no method table neither the slot nor the remedy exists.
             test "an override on an intrinsic is rejected outright, not asked for inline" {
                 let ctx = VesperLib.ExtractCtx.empty ()
-                ctx.IntrinsicBaseReprs.["widget"] <- "System.Widget"
+                ctx.IntrinsicMarkers.Add "widget" |> ignore
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 VesperLib.extractSymbols
@@ -677,7 +677,7 @@ let tests =
             // target-provided constructor, so there is no body to splice.
             test "a heritable primitive's constructor signature is exempt" {
                 let ctx = VesperLib.ExtractCtx.empty ()
-                ctx.IntrinsicBaseReprs.["obj"] <- "System.Object"
+                ctx.IntrinsicMarkers.Add "obj" |> ignore
                 ctx.IntrinsicReprs.["obj"] <- "System.Object"
 
                 VesperLib.extractSymbols
@@ -707,12 +707,10 @@ let tests =
                 // canonicalizes to `TyConst` and guards interfaces out). This is the CLR build's
                 // shape; on JS the `.fs` omits the repr and the canonical identity stands alone
                 // (see the compat-shim path).
-                // (Synthetic: the `(# … #)` repr is seeded directly into the repr dicts,
-                // mirroring the CLR build where the base `.fs` repr seeds both
-                // `IntrinsicBaseReprs` — the primitive marker that makes `isIntrinsic` true —
-                // and `IntrinsicReprs`, the platform name.)
+                // (Synthetic: mirroring the CLR build, where a `.fs` `(# … #)` both marks the
+                // name a primitive and supplies the platform repr.)
                 let ctx = VesperLib.ExtractCtx.empty ()
-                ctx.IntrinsicBaseReprs.["disposable"] <- "System.IDisposable"
+                ctx.IntrinsicMarkers.Add "disposable" |> ignore
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
                 let parsed =
@@ -776,7 +774,7 @@ let tests =
                 // INTERFACE (all-abstract body) republishes to an `IntrinsicInterface`.
                 let ctx = VesperLib.ExtractCtx.empty ()
                 // `isIntrinsic` is decided by the BASE repr marker (the primitive's `.fs`).
-                ctx.IntrinsicBaseReprs.["widget"] <- "System.Widget"
+                ctx.IntrinsicMarkers.Add "widget" |> ignore
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 // A CONCRETE instance member (`member M`), NOT `abstract member`.

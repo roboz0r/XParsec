@@ -35,9 +35,11 @@ files = [
 # whole sequence, in `files` order.
 
 [targets.clr]
-# Compiled into Vesper.Core.dll, in `files` order. The intrinsic-only `prim-types-*` /
-# `capabilities` files emit NO IL: they register the per-target representation (the
-# provider extraction), not a TypeDef.
+# Compiled into Vesper.Core.dll AND published as the CLR splice sources, in `files` order.
+# The intrinsic-only `prim-types-*` / `capabilities` files emit NO IL: they register the
+# per-target representation (the provider extraction), not a TypeDef. They still carry the
+# operator members declared on the primitives — a member on an intrinsic has no type to hang
+# a method on, so its `(# … #)` body reaches a use site only by being spliced.
 impl = [
     "prim-types-min.fs",
     "prim-types-int.fs",
@@ -54,25 +56,6 @@ impl = [
     "core-types.fs",
     "capabilities.fs",
     "structural-format.fs",
-    "ops-platform.fs",
-    "ops-std.fs",
-    "int-comparison.fs",
-]
-
-# The splice sources — every entry is also in `impl`, and necessarily in both. The
-# `prim-types-*` files BIND the primitive reprs and CARRY the operator members declared on
-# them: a member on an intrinsic is never emitted (the primitive has no type to hang a
-# method on), so its `(# … #)` body reaches a use site only through this list. The `ops-*` /
-# `int-comparison` files compile into the DLL AND publish their `let inline` bodies, the way
-# any `inline` declaration is both callable and spliceable.
-inline-bodies = [
-    "prim-types-min.fs",
-    "prim-types-int.fs",
-    "prim-types-float.fs",
-    "prim-types-string.fs",
-    "prim-types-decimal.fs",
-    "prim-types-bigint.fs",
-    "prim-types-nativeint.fs",
     "ops-platform.fs",
     "ops-std.fs",
     "int-comparison.fs",
@@ -109,20 +92,16 @@ files = [
     "array-index.js.fsi",
 ]
 
-# The JS-ONLY primitives. Their contracts have no CLR analog, so no other target's `impl`
-# publishes them as intrinsics — these files are both the marker and the JS platform face.
-impl = [
-    "prim-types-undefined.js.fs",
-    "prim-types-dynamic.js.fs",
-]
-
-# The JS splice sources. No JS library build of Vesper.Core exists yet (the JS runtime is
-# the committed `Vesper.Core.mjs` asset), so everything else is splice-only.
+# The JS bodies: the platform reprs and the spliced operator templates. No JS library build
+# of Vesper.Core exists yet (the JS runtime is the committed `Vesper.Core.mjs` asset), so
+# nothing here is compiled today — the list is read as the splice source and as the
+# intrinsic-repr binding. `ops-std.fs` is the CLR-named neutral file, repeated per target
+# rather than shared, for the declaration-order reason in the `[core]` comment.
 # There is no `prim-types-nativeint.js.fs`: JS has no nativeint repr, so
 # the type is unrepresentable there and its operator declarations are unreachable rather
 # than separately gated. Likewise decimal / nd-array / attr / capabilities ship no JS body
 # — they stay `Intrinsic` with no platform name.
-inline-bodies = [
+impl = [
     "prim-types-min.js.fs",
     "prim-types-int.js.fs",
     "prim-types-float.js.fs",

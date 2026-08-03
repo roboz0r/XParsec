@@ -703,7 +703,6 @@ let tests =
                              [targets.js]\n\
                              files = [\"shim.js.fsi\"]\n\
                              impl = [\"ops.js.fs\"]\n\
-                             inline-bodies = [\"splice.js.fs\"]\n\
                              sig-only = [\"shim.js.fsi\"]\n\
                              runtime = [\"runtime.mjs\"]\n"
                         )
@@ -720,7 +719,6 @@ let tests =
                             {
                                 Files = [ "shim.js.fsi" ]
                                 Impl = [ "ops.js.fs" ]
-                                InlineBodies = [ "splice.js.fs" ]
                                 SigOnly = [ "shim.js.fsi" ]
                                 Runtime = [ "runtime.mjs" ]
                             }
@@ -742,32 +740,6 @@ let tests =
                             (ReferencedProject.resolveSigOnly "js" withTargets)
                             [ "contract.fsi"; "shim.js.fsi" ]
                             "shared exemptions first, then the target's"
-
-                        Expect.equal
-                            (ReferencedProject.resolveInlineBodies "js" withTargets)
-                            [ "splice.js.fs" ]
-                            "a declared splice source replaces nothing — the shared list is empty"
-                    }
-
-                    // The fallback is on the WHOLE manifest, not per target: a package that
-                    // names no splice source anywhere splices what it compiles.
-                    test "a manifest naming no splice source splices its impl" {
-                        let dir = Path.Combine(tmpSrc, "SpliceDefault")
-                        Directory.CreateDirectory dir |> ignore
-                        let path = Path.Combine(dir, "manifest.toml")
-
-                        File.WriteAllText(
-                            path,
-                            "[core]\nfiles = []\nimpl = [\"ops.fs\"]\n\n[targets.js]\nimpl = [\"ops.js.fs\"]\n"
-                        )
-
-                        match ReferencedProject.loadManifest path with
-                        | Result.Error e -> failtestf "loadManifest failed: %s" e
-                        | Result.Ok m ->
-                            Expect.equal
-                                (ReferencedProject.resolveInlineBodies "js" m)
-                                [ "ops.fs"; "ops.js.fs" ]
-                                "no inline-bodies anywhere ⇒ the impl IS the splice source"
                     }
 
                     // An undeclared target contributes nothing, so it resolves to exactly
@@ -890,6 +862,28 @@ let tests =
                             Expect.stringContains e "runtime-js" "the error names the offending key"
                             Expect.stringContains e "targets.js" "and the target table it was found in"
                     }
+
+                    // `impl` is the ONE list — compiled and spliced. A manifest still naming
+                    // the retired second list must fail loudly: read as silence it would
+                    // resolve to an impl that quietly drops every splice source it named.
+                    test "the retired `inline-bodies` key is rejected, not ignored" {
+                        let write (name: string) (body: string) =
+                            let dir = Path.Combine(tmpSrc, name)
+                            Directory.CreateDirectory dir |> ignore
+                            let path = Path.Combine(dir, "manifest.toml")
+                            File.WriteAllText(path, body)
+                            path
+
+                        for name, body in
+                            [
+                                "RetiredCore", "[core]\nfiles = []\ninline-bodies = [\"ops.fs\"]\n"
+                                "RetiredTarget", "[core]\nfiles = []\n\n[targets.js]\ninline-bodies = [\"ops.js.fs\"]\n"
+                            ] do
+                            match ReferencedProject.loadManifest (write name body) with
+                            | Result.Ok m -> failtestf "%s: expected an unknown-key error, got Ok %A" name m
+                            | Result.Error e ->
+                                Expect.stringContains e "inline-bodies" "the error names the retired key"
+                    }
                 ]
 
             // The compile cache's key folds `sourceInputs`, and the provider build reads
@@ -927,7 +921,6 @@ let tests =
                                      [targets.js]\n\
                                      files = [\"shim.js.fsi\"]\n\
                                      impl = [\"ops.js.fs\"]\n\
-                                     inline-bodies = [\"splice.js.fs\"]\n\
                                      runtime = [\"x.mjs\"]\n"
                             )
 
@@ -935,15 +928,7 @@ let tests =
 
                         Expect.equal
                             (List.sort inputs)
-                            (List.sort
-                                [
-                                    "contract.fsi"
-                                    "ops.fs"
-                                    "ops.clr.fs"
-                                    "shim.js.fsi"
-                                    "ops.js.fs"
-                                    "splice.js.fs"
-                                ])
+                            (List.sort [ "contract.fsi"; "ops.fs"; "ops.clr.fs"; "shim.js.fsi"; "ops.js.fs" ])
                             "every target's lists unioned, deduplicated"
 
                         Expect.isFalse (List.contains "x.mjs" inputs) "a runtime asset is not a parsed source"
@@ -969,10 +954,7 @@ let tests =
                             let inputs = ReferencedProject.sourceInputs m
 
                             for t in m.Targets |> Map.toList |> List.map fst do
-                                for rel in
-                                    ReferencedProject.resolveImpl t m
-                                    @ ReferencedProject.resolveInlineBodies t m
-                                    @ ReferencedProject.resolveFiles t m do
+                                for rel in ReferencedProject.resolveImpl t m @ ReferencedProject.resolveFiles t m do
                                     Expect.contains inputs rel (sprintf "%s: %s's %s is folded" m.Name t rel)
                     }
                 ]

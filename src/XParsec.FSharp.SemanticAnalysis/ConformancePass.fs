@@ -17,10 +17,10 @@ open XParsec.FSharp.Parser
 // Pairing follows the F#-faithful rules (see the T8 plan "Name resolution"):
 //  - KEY: the manifest's own pairing stem (`ReferencedProject.pairingStem`), so
 //    `prim-types-int.js.fs` pairs with `prim-types-int.fsi`.
-//  - The impl candidate set for target T is `resolveImpl T ∪ resolveInlineBodies T` — a
-//    `.fsi` pairs only with a `.fs` the manifest actually compiles or splices for that
-//    target. A `.fsi` with no such `.fs` is impl-free (an exemption candidate; Step 5
-//    turns an un-exempted one into an FS0240-style hard error).
+//  - The impl candidate set for target T is `resolveImpl T` — a `.fsi` pairs only with a
+//    `.fs` the manifest names for that target. A `.fsi` with no such `.fs` is impl-free
+//    (an exemption candidate; Step 5 turns an un-exempted one into an FS0240-style hard
+//    error).
 //  - GUARD: a paired `.fsi`/`.fs` must agree on their leading `module`/`namespace`
 //    declaration — what FS0240's message is really about (F# correlates files by
 //    `QualifiedNameOfFile`). A disagreement means the stem rule paired two unrelated
@@ -135,12 +135,9 @@ module ConformancePass =
         | Ok m ->
             let dir = Path.GetDirectoryName manifestPath
 
-            // The impl candidate set: every `.fs` the manifest names for this target,
-            // compiled or spliced. A `.fsi` pairs only with a `.fs` that is in it.
-            let implFiles =
-                ReferencedProject.resolveImpl target m
-                @ ReferencedProject.resolveInlineBodies target m
-                |> List.distinct
+            // The impl candidate set: every `.fs` the manifest names for this target. A
+            // `.fsi` pairs only with a `.fs` that is in it.
+            let implFiles = ReferencedProject.resolveImpl target m |> List.distinct
 
             let sigFiles = ReferencedProject.resolveFiles target m
 

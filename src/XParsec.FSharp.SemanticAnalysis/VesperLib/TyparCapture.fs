@@ -242,21 +242,21 @@ module VesperLibTyparCapture =
         /// `.fs` itself on CLR, where it IS the platform repr). Populated BEFORE `.fsi`
         /// extraction so the `extern` arm of `extractTypeSig` can publish the `platform`
         /// name of an `ExternalTypeShape.Intrinsic(short, arity, platform)`. A primitive
-        /// ABSENT here on a non-base target (e.g. `decimal` on JS — no `.js.fs`) still
-        /// publishes as an `Intrinsic` (gated on `IntrinsicBaseReprs` below) but with
+        /// ABSENT here for a target (e.g. `decimal` on JS — no `.js.fs`) still
+        /// publishes as an `Intrinsic` (gated on `IntrinsicMarkers` below) but with
         /// `platform = None` ("no representation on this target" — fatal only for a nullary
         /// scalar; a generic constructor like `'T []` is representable structurally). Empty
         /// for callers with no `.fs` companions (a signature-only FSharp.Core port), so
         /// every extern stays a `Class`.
         member val IntrinsicReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
-        /// Primitive *marker* index: *short* type name -> its BASE `.fs` `(# … #)` repr,
-        /// extracted from the base companion regardless of target. The presence of a
-        /// base repr is what makes an `extern` a primitive (publishes as `Intrinsic`,
-        /// not an opaque `Class`); the per-target `IntrinsicReprs` then supplies the
-        /// `platform` name (or `None` when this target ships no companion for it). Kept
-        /// SEPARATE from `IntrinsicReprs` so a target that omits a primitive does not
-        /// demote it to a `Class` and lose its `canon` identity in the unifier.
-        member val IntrinsicBaseReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
+        /// Primitive *marker* set: the *short* type names some target's `.fs` binds a
+        /// `(# … #)` repr for, target-blind. MEMBERSHIP is what makes an `extern` a
+        /// primitive (publishes as `Intrinsic`, not an opaque `Class`); the per-target
+        /// `IntrinsicReprs` then supplies the `platform` name (or `None` when this target
+        /// ships no companion for it). A SET, not a repr map, because every target binds
+        /// its own repr for the same name — there is no target-blind repr to pick, and a
+        /// map would invite reading one target's answer as the language's.
+        member val IntrinsicMarkers = HashSet<string>(StringComparer.Ordinal) with get
 
         /// The heritable primitives (`extern class with …`: `obj`/`exn`) awaiting their
         /// one-shot finalize-time republish as an `Intrinsic` with a class surface:

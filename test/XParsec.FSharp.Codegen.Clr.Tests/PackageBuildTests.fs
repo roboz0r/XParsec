@@ -16,9 +16,8 @@ let tests =
     testList
         "PackageBuild"
         [
-            // Vesper.Core has no dependencies; its `impl` is the prim-types/`Ref`
-            // compile target (the operator inline bodies live in `inline-bodies`,
-            // not the DLL). Built through `buildContract []` — no `MockBuiltins`.
+            // Vesper.Core has no dependencies; its `impl` is the whole compile target.
+            // Built through `buildContract []` — no `MockBuiltins`.
             test "buildPackage Vesper.Core builds a BCL-only DLL with Fun`2 + Ref`1" {
                 let asm, artifact = (buildPackage "Vesper.Core").Value
 

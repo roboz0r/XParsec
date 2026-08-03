@@ -15,7 +15,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 //
 // Here rather than in the SemanticAnalysis suite because a served body only carries an anchor
 // domain when the provider RETAINED the producer file, and the only stack that does is the
-// codegen contract (`SymbolProviders.inlineBodies`, which parses the `inline-bodies` files and
+// codegen contract (`SymbolProviders.inlineBodies`, which parses the `impl` files and
 // keeps them). The front-end-only providers the SA suite composes publish no bodies at all.
 
 /// The front end run up to (and including) inline expansion.

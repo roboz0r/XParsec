@@ -190,10 +190,9 @@ module SymbolProviders =
             Origins: OriginSources
         }
 
-    /// Load cross-package inline bodies from manifests' `inline-bodies` files (which
-    /// default to `impl`). Type-checked and frozen once against `provider`. Emitted in
-    /// manifest/decl order so a later body wins a clash downstream
-    /// (`Map.ofList` / `byKey.[k] <-`).
+    /// Load cross-package inline bodies from manifests' `impl` files. Type-checked and
+    /// frozen once against `provider`. Emitted in manifest/decl order so a later body wins
+    /// a clash downstream (`Map.ofList` / `byKey.[k] <-`).
     let inlineBodies
         (target: string)
         (provider: IExternalSymbolProvider)
@@ -210,7 +209,7 @@ module SymbolProviders =
             | Result.Ok manifest ->
                 let dir = Path.GetDirectoryName manifestPath
 
-                for rel in ReferencedProject.resolveInlineBodies target manifest do
+                for rel in ReferencedProject.resolveImpl target manifest do
                     let file: VesperLib.LibFile =
                         {
                             Path =
