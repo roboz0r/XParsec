@@ -70,6 +70,21 @@ module Operators =
     /// false`; the JS template is the direct operator.)
     let inline not (value: bool) : bool = (# "!$0" value : bool #)
 
+    /// Discard a value. `void` is JS's own discard operator and it yields
+    /// `undefined`, which IS the `unit` repr — so the operand is still evaluated
+    /// for its effects. (The CLR body is the bare `()`.)
+    let inline ignore (value: 'T) : unit = (# "void $0" value : unit #)
+
+    /// Test whether a reference is `null`. STRICT `===`, not the nullish `==`:
+    /// `undefined` is a separate type here with its own value, and `null` alone is the
+    /// JS default of a reference type, so the two stay distinguishable.
+    let inline isNull (value: 'T when 'T: null) : bool = (# "$0 === null" value : bool #)
+
+    /// Box a value to `obj`. JS has no unboxed representation to move — every value
+    /// already sits where an `unknown` can hold it — so this is the erasing identity
+    /// cast, not the CLR's allocating `box`.
+    let inline box (value: 'T) : obj = (# "" value : obj #)
+
     /// Convert to `uint32`. The JS idiom `$0 >>> 0` coerces any number to a
     /// 32-bit *unsigned* integer (zero-fill right shift by 0), the counterpart of
     /// the CLR `conv.u4` / sign-only reinterpret.
@@ -124,6 +139,12 @@ module Operators =
     /// thrown `Error`'s `.message`, surfaced by Node as the uncaught-error text.
     let inline failwith (message: string) : 'T =
         (# "(() => { throw new Error($0); })()" message : 'T #)
+
+    /// Raise an argument error. Every exception erases to a JS `Error`, so the
+    /// argument name survives only in the text — folded in with the BCL's own
+    /// `ArgumentException` wording so both targets report the same message.
+    let inline invalidArg (argumentName: string) (message: string) : 'T =
+        failwith (message + " (Parameter '" + argumentName + "')")
 
 /// String indexing intrinsics — see `ops-platform.fsi`.
 [<AutoOpen>]

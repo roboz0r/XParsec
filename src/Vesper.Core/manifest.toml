@@ -111,6 +111,7 @@ impl = [
     "prim-types-bigint.js.fs",
     "ops-platform.js.fs",
     "ops-std.fs",
+    "int-comparison.js.fs",
     # The `undefined` VALUE (`let undefined = (# "undefined" #)`) — a zero-operand
     # intrinsic the JS backend treats as a compile-time alias (spliced at each use, no
     # `const undefined = undefined` definition).

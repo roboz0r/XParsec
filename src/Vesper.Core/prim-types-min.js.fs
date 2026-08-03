@@ -34,3 +34,7 @@ type int =
     end
 type bool = (# "boolean" #)
 type unit = (# "undefined" #)
+// `!0[]` is the element-type placeholder the CLR uses; the JS backend reads the
+// repr as the marker that arrays ARE representable here, not as emitted text.
+type 'T ``[]`` = (# "!0[]" #)
+type 'T array = 'T[]

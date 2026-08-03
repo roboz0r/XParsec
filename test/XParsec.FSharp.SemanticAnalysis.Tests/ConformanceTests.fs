@@ -369,6 +369,29 @@ let private manifestOf (package: string) : string =
     |> Option.map snd
     |> Option.defaultWith (fun () -> failtestf "%s manifest not found" package)
 
+/// Materialise a one-contract package — a manifest, a contract declaring the single `val`
+/// `served`, and a committed runtime asset exporting `exportedAs` — and run the js pass
+/// over it. The export NAME is the only variable, so the two verdicts this produces differ
+/// in nothing else.
+let private runtimeAssetOutcome (exportedAs: string) : ConformancePass.PackageOutcome =
+    let dir =
+        Path.Combine(Path.GetTempPath(), "vesper.runtime-served." + System.Guid.NewGuid().ToString("N"))
+
+    Directory.CreateDirectory dir |> ignore
+
+    try
+        File.WriteAllText(
+            Path.Combine(dir, "manifest.toml"),
+            "[core]\nfiles = [\"served.fsi\"]\n\n[targets.js]\nruntime = [\"Asset.mjs\"]\n"
+        )
+
+        File.WriteAllText(Path.Combine(dir, "served.fsi"), "namespace V\n\nval served: int -> int\n")
+        File.WriteAllText(Path.Combine(dir, "Asset.mjs"), sprintf "export const %s = (x) => x;\n" exportedAs)
+
+        outcomeFor "js" (Path.Combine(dir, "manifest.toml"))
+    finally
+        Directory.Delete(dir, true)
+
 [<Tests>]
 let jsPackageConformanceTests =
     testList
@@ -437,17 +460,11 @@ let jsPackageConformanceTests =
                 let expected =
                     [
                         "Vesper.Array: the signature file 'array.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
-                        "Vesper.Core: prim-types-min.fsi: type '``[]``' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
                         "Vesper.Core: prim-types-min.fsi: type 'Fun' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
                         "Vesper.Core: prim-types-object.fsi: type 'obj' disagrees on heritability across the pair: one side marks it a heritable external base ('extern class' / '(# class … #)'), the other an opaque value repr"
                         "Vesper.Core: the signature file 'compiler-attributes.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                         "Vesper.Core: the signature file 'core-types.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                         "Vesper.Core: the signature file 'structural-format.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
-                        "Vesper.Core: ops-platform.fsi: value 'ignore' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
-                        "Vesper.Core: ops-platform.fsi: value 'isNull' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
-                        "Vesper.Core: ops-platform.fsi: value 'box' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
-                        "Vesper.Core: ops-platform.fsi: value 'invalidArg' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
-                        "Vesper.Core: the signature file 'int-comparison.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                         "Vesper.List: list.fsi: value 'ofSeq' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
                         "Vesper.List: list.fsi: value 'toSeq' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
                         "Vesper.Seq: the signature file 'seq.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
@@ -464,10 +481,9 @@ let jsPackageConformanceTests =
 
             test "js: a contract is runtime-served only when the asset exports every val it declares" {
                 // The bodies of these two contracts live in the committed `.mjs`, not in a
-                // `.fs`, so no `.fs` is owed. The verdict is CHECKED against the asset: the
-                // negative control is `int-comparison.fsi`, which is equally all-`val` in a
-                // package that equally ships an asset, and stays a hard error purely because
-                // `Vesper.Core.mjs` exports no `<`/`>`/`<=`/`>=`.
+                // `.fs`, so no `.fs` is owed. That the verdict is CHECKED against the asset —
+                // and not merely asserted from the manifest's `runtime` key — is pinned
+                // directly by the synthetic-package pair below.
                 Expect.equal
                     (runtimeServedOf (outcomeFor "js" (manifestOf "Vesper.Core")))
                     [
@@ -483,6 +499,30 @@ let jsPackageConformanceTests =
                         "comparison-runtime.js.fsi", "Vesper.Comparison.mjs", [ "structuralCompare" ]
                     ]
                     "Vesper.Comparison: the ordering runtime"
+            }
+
+            test "js: rename the asset's export and the contract owes a `.fs` again" {
+                // The rule's negative half, pinned on a synthetic package so it cannot be
+                // retired by porting a library file: the whole difference between the two
+                // runs is one identifier in the `.mjs`. Nothing else guards a hand-authored
+                // asset — its consumers are Node tests that skip when node is absent.
+                let served = runtimeAssetOutcome "served"
+
+                Expect.equal
+                    (runtimeServedOf served)
+                    [ "served.fsi", "Asset.mjs", [ "served" ] ]
+                    "the asset exports the declared val, so no `.fs` is owed"
+
+                Expect.isEmpty (ConformancePass.enforce served) "and nothing is enforced about it"
+
+                let renamed = runtimeAssetOutcome "servedRenamed"
+
+                Expect.isEmpty (runtimeServedOf renamed) "a renamed export serves nothing"
+
+                let errors = ConformancePass.enforce renamed |> List.map (fun d -> d.Message)
+
+                Expect.equal (List.length errors) 1 "the contract is a hard error again"
+                Expect.stringContains errors.Head "served.fsi" "naming the contract whose export vanished"
             }
 
             test "js: capabilities-compat.js.fsi is accepted as pure abbreviation, naming no extern" {

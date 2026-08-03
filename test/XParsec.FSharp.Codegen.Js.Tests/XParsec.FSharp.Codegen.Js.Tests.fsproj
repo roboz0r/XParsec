@@ -29,6 +29,7 @@
     <Compile Include="StructuralFormatTests.fs" />
     <Compile Include="MemberEmissionTests.fs" />
     <Compile Include="ExceptionTests.fs" />
+    <Compile Include="CoreOpBodiesJsTests.fs" />
     <Compile Include="ArrayLoopTests.fs" />
     <Compile Include="UseTests.fs" />
     <Compile Include="TryFinallyTests.fs" />

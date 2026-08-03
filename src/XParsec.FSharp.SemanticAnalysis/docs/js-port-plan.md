@@ -7,10 +7,10 @@ running `ConformancePass.checkManifest "js"` + `ConformancePass.enforce` over al
 `src/Vesper.*` manifests. Where I could not establish something I say so rather than
 estimating.
 
-**T1 and T2 have landed.** The run is at **15** errors, down from 24. The error set is now
-pinned by a committed test rather than a throwaway one — `ConformanceTests.fs`'s
-*"js: the hard-error set is exactly the un-ported library surface"* — so every tranche
-below has to shrink that list to be believed.
+**T1, T2 and T3's Kind B half have landed.** The run is at **9** errors, down from 24. The
+error set is now pinned by a committed test rather than a throwaway one —
+`ConformanceTests.fs`'s *"js: the hard-error set is exactly the un-ported library surface"*
+— so every tranche below has to shrink that list to be believed.
 
 ---
 
@@ -35,12 +35,12 @@ CLR-first would hit the expensive end before proving the design.
 
 ## 0. The number
 
-**15 hard conformance errors on `js`, across 4 of the 11 packages. 0 on `clr`.**
-(Was 24 across 7 before T1 + T2.)
+**9 hard conformance errors on `js`, across 4 of the 11 packages. 0 on `clr`.**
+(Was 24 across 7 before T1 + T2 + T3's Kind B half.)
 
 | package | js errors | was | clr errors |
 |---|---|---|---|
-| Vesper.Core | 11 | 14 | 0 |
+| Vesper.Core | 5 | 14 | 0 |
 | Vesper.List | 2 | 2 | 0 |
 | Vesper.Array | 1 | 1 | 0 |
 | Vesper.Seq | 1 | 2 | 0 |
@@ -78,30 +78,37 @@ the manifest. What the pass now concludes, and why:
 **What did NOT change, deliberately.** `ImplWithoutContract` (V242) is still a hard error
 for an *undeclared* contract-less body, and the `Unrepresentable` counterweight still
 refuses anything body-bearing: `core-types.fsi`, `structural-format.fsi` and
-`compiler-attributes.fsi` remain V240, and `int-comparison.fsi` — all `val`s, in a package
-that *does* ship a runtime asset — stays V240 purely because `Vesper.Core.mjs` exports no
-`<`/`>`/`<=`/`>=`. That is the negative control for A2/A3 and is pinned as one.
+`compiler-attributes.fsi` remain V240.
 
-### Kind B — genuinely missing library source, writable today (10 errors)
+`int-comparison.fsi` used to be A2/A3's negative control — all `val`s, in a package that
+ships an asset, a hard error purely because `Vesper.Core.mjs` exports no `<`/`>`/`<=`/`>=`.
+B6 gave it a body, so that control is gone. It is replaced by a stronger one:
+`ConformanceTests.fs`'s *"js: rename the asset's export and the contract owes a `.fs`
+again"* materialises a one-contract package twice, changing only the exported identifier in
+the `.mjs`, and asserts `RuntimeServed` then V240. Both polarities, on ground no library
+port can retire.
+
+### Kind B — genuinely missing library source, writable today (4 errors left of 10)
 
 No compiler feature needed. This is F#-writing work.
 
 | # | file to write / extend | missing declarations | size |
 |---|---|---|---|
-| B1 | `Vesper.Core/prim-types-min.js.fs` | `type 'T ``[]`` = (# … #)` + `type 'T array = 'T[]` (CLR does it at `prim-types-min.clr.fs:26-27`) | ~2 lines, but see caveat below |
-| B2–B5 | `Vesper.Core/ops-platform.js.fs` | `ignore`, `isNull`, `box`, `invalidArg` (CLR bodies at `ops-platform.clr.fs:81,84,88,151`). JS: `()`, `(# "$0 === null" #)`, identity, a `throw new Error` template like the existing `failwith` at `ops-platform.js.fs:125` | ~10 lines |
-| B6 | `Vesper.Core/int-comparison.js.fs` (new) | `IntComparison.(<) (>) (<=) (>=)` — `(# "$0 < $1" x y : bool #)` etc. Direct analogue of `comparison.js.fs` | ~11 lines |
+| B1 ✅ | `Vesper.Core/prim-types-min.js.fs` | *done.* `type 'T ``[]`` = (# "!0[]" #)` + `type 'T array = 'T[]`, mirroring `prim-types-min.clr.fs:26-27`. The caveat below resolved: inert |
+| B2–B5 ✅ | `Vesper.Core/ops-platform.js.fs` | *done.* `ignore` = `(# "void $0" #)` (JS's own discard, so the operand is still evaluated — the CLR's bare `()` says nothing about that); `isNull` = `(# "$0 === null" #)`, STRICT, `undefined` being a separate type here with its own value; `box` = the erasing `(# "" #)`, JS having nothing unboxed to move; `invalidArg` = `failwith` over the BCL's own `"{message} (Parameter '{name}')"` text, every exception erasing to `Error` |
+| B6 ✅ | `Vesper.Core/int-comparison.js.fs` | *done.* `IntComparison.(<) (>) (<=) (>=)` as the native relational operators |
 | B7–B8 | `Vesper.List/list.js.fs` | `ofSeq`, `toSeq`. Both already work as written in `list.clr.fs:103-111` — `toSeq` is a `:> seq<'T>` upcast (node-tested on JS, `ForInTests.fs:159/183`), `ofSeq` is `for x in source` over a `seq<'T>` (`ForInTests.fs:130`) | ~8 lines — and see §3, this is subsumed by the `list.fs` merge |
 | B9 | `Vesper.Array/array.js.fs` (new) | the whole `Array` module: `zeroCreate length isEmpty get set create init copy append rev map mapi iter iteri fold foldBack` (16 `val`s, `array.fsi`). Only `zeroCreate` is intrinsic on CLR (`newarr`); on JS it is `new Array($0).fill(…)`. The rest are ordinary loops | ~100 lines |
 | B10 | `Vesper.Seq/seq.js.fs` (new) | `Seq.fold reduce truncate toArray` (4 `val`s). `fold`/`reduce` in `seq.clr.fs` are already target-neutral (`for … in`, `Unchecked.defaultof`, `invalidArg`). Only `truncate` (`Enumerable.Take`) and `toArray` (`ResizeArray`) are BCL. **But `truncate` returns a `seq<'T>` and `seq { }` does not exist** — see the sizing note in T6 | ~40 lines + a design call |
 
-**B1 caveat.** `PlatformTypes.fs:26` states the rule: *"a target that CAN represent a
-structural constructor (`'T []`) says so by binding its repr"*. Arrays plainly work on JS
-today, so a repr is already bound — but under the **bare/global** key (`array-index.js.fsi`
-+ `array-index-body.js.fs`, deliberately in `namespace global`), not under
-`Vesper.``[]```. Binding `Vesper.``[]``` in `prim-types-min.js.fs` mirrors the CLR exactly
-and should be inert, but I did not verify that it doesn't collide with the global entry in
-the intrinsic-repr extraction. Treat B1 as "2 lines plus one experiment".
+**B1 caveat — settled, it is inert.** `PlatformTypes.fs:26` states the rule: *"a target that
+CAN represent a structural constructor (`'T []`) says so by binding its repr"*. There is no
+collision to have: `IntrinsicMarkers`/`IntrinsicReprs` are keyed by the declaration's SHORT
+name (`ReferencedProject.fs:629-633`, read at `VesperLib.fs:1409`), so the bare/global
+`array-index.js.fs` entry and the `Vesper`-namespaced `prim-types-min.js.fs` one are the
+same key with the same value — which is also why arrays were never `Unsupported` on JS
+before B1 landed. The `.fs` addition registers no type either; both `.fsi` files already
+declare `` `[]` ``.
 
 ### Kind C — blocked on a compiler/codegen feature, or on a scope decision (8 errors)
 
@@ -132,7 +139,7 @@ decide first.
 
 | | count | what it is |
 |---|---|---|
-| **Writable now** (Kind B) | 10 | ~170 lines of F#. An afternoon or two |
+| **Writable now** (Kind B) | 4 | B7–B10. ~150 lines of F#. B1–B6 ✅ |
 | ~~Machinery, no library source~~ (Kind A) | ~~6~~ ✅ | done — `ConformancePass` + the manifest schema's `impl-only` key |
 | ~~Manifest scope statement~~ (C6, C7, C8) | ~~3~~ ✅ | done — 4 `.fsi` moved to `[targets.clr] files` |
 | **Probably writable, unverified** (C1, C4, C5) | 3 | likely just `[targets.js] impl` entries + the 4 `Fun` interfaces. Must be compiled to know |
@@ -342,17 +349,18 @@ Each leaves the tree green and moves the JS error count down monotonically.
 |---|---|---|---|---|
 | **T1** ✅ | **Statement of scope.** `formatter.fsi`, `struct-seq.fsi`, `set.fsi` (and `structural-printer.fsi`, for A5–A6) moved to `[targets.clr] files`, each with a comment saying what a JS port would have to decide first | C6, C7, C8 | −3 (→21) | done |
 | **T2** ✅ | **Conformance machinery.** One rule replaces three guards: *a contract owes a `.fs` unless every declaration in it is satisfied without one* — `extern`/abbreviation always, a `val` exactly when the `runtime` asset exports it (`RuntimeServed`, which IS §4's export-presence check). `array-index-body.js.fs` renamed to pair with its contract; a new `impl-only` manifest key withholds a contract-less body from pairing | A1–A6 | −6 (→15) | done |
-| **T3** | **Vesper.Core, the writable half.** `` `[]` `` repr + the 4 `Fun` interfaces in `prim-types-min.js.fs`; `ignore`/`isNull`/`box`/`invalidArg` in `ops-platform.js.fs`; new `int-comparison.js.fs`; add `core-types.fs` and `structural-format.fs` to `[targets.js] impl` and see whether they compile | B1–B6, C1, C4, C5 | −8 (→7) | ~30 lines of new F#, plus the compile-and-see on the two neutral bodies. Half a day if C4/C5 just work; a day if `Curried`/`Flattened` surface a codegen gap |
-| **T4** | **`list.fs` merge.** Fold `list.js.fs` back into a neutral `list.fs` (restoring `IsEmpty`/`Head`/`Tail`, `toSeq`, `ofSeq`, the explicit `disposable` impl, and — if `[<Struct>]` holds on a `val`-form class — the struct attribute). Delete `list.js.fs`; one shared `impl`. Regenerate `Vesper.List.mjs` (the byte-identity test will insist) | B7, B8, + the `7e994a93` revert | −2 (→5) | ~1 day; the risk is entirely in `[<Struct>]` on a `val`-form class |
-| **T5** | **Vesper.Array.** New `array.js.fs`: 16 functions, only `zeroCreate` non-obvious | B9 | −1 (→4) | ~100 lines, half a day |
-| **T6** | **Vesper.Seq.** New `seq.js.fs`: 4 functions. `fold`/`reduce`/`toArray` are straightforward. **`truncate` is the one real decision** — see below | B10 | −1 (→3) | ~40 lines + a design call; ~1 day |
-| **T7** | **The two remaining architectural items.** `obj`'s heritability on JS (C2); `compiler-attributes.fsi` (C3) — which is either "implement `extends`/`super` on JS" or "these are CLR-only marker types". I recommend the latter and deferring the former | C2, C3 | −3 (→0) | unbounded; scope it separately once T1–T6 are in |
+| **T3a** ✅ | **Vesper.Core, the writable half.** `` `[]` `` repr in `prim-types-min.js.fs`; `ignore`/`isNull`/`box`/`invalidArg` in `ops-platform.js.fs`; new `int-comparison.js.fs`. Each body node-tested (`CoreOpBodiesJsTests.fs`), not merely conformed | B1–B6 | −6 (→9) | done |
+| **T3b** | **The compile-and-see remainder.** The 4 `Fun` interfaces in `prim-types-min.js.fs`; add `core-types.fs` and `structural-format.fs` to `[targets.js] impl` and see whether they compile | C1, C4, C5 | −3 (→6) | half a day if C4/C5 just work; a day if `Curried`/`Flattened` surface a codegen gap |
+| **T4** | **`list.fs` merge.** Fold `list.js.fs` back into a neutral `list.fs` (restoring `IsEmpty`/`Head`/`Tail`, `toSeq`, `ofSeq`, the explicit `disposable` impl, and — if `[<Struct>]` holds on a `val`-form class — the struct attribute). Delete `list.js.fs`; one shared `impl`. Regenerate `Vesper.List.mjs` (the byte-identity test will insist) | B7, B8, + the `7e994a93` revert | −2 (→4) | ~1 day; the risk is entirely in `[<Struct>]` on a `val`-form class |
+| **T5** | **Vesper.Array.** New `array.js.fs`: 16 functions, only `zeroCreate` non-obvious | B9 | −1 (→3) | ~100 lines, half a day |
+| **T6** | **Vesper.Seq.** New `seq.js.fs`: 4 functions. `fold`/`reduce`/`toArray` are straightforward. **`truncate` is the one real decision** — see below | B10 | −1 (→2) | ~40 lines + a design call; ~1 day |
+| **T7** | **The two remaining architectural items.** `obj`'s heritability on JS (C2); `compiler-attributes.fsi` (C3) — which is either "implement `extends`/`super` on JS" or "these are CLR-only marker types". I recommend the latter and deferring the former | C2, C3 | −2 (→0) | unbounded; scope it separately once T1–T6 are in |
 
-After T6 the JS run is at **3 errors, all of them named architectural questions** rather
+After T6 the JS run is at **2 errors, both of them named architectural questions** rather
 than missing work. That is a good place to stop and re-decide.
 
-T1 + T2 landed together. **T3 is the next move**, and every tranche after it must shrink
-the pinned error list in `ConformanceTests.fs` — that list is now the count.
+T1 + T2 landed together, then T3a. **T3b is the next move**, and every tranche after it
+must shrink the pinned error list in `ConformanceTests.fs` — that list is now the count.
 
 ### T6's decision: `Seq.truncate` with no sequence expressions
 
@@ -425,10 +433,10 @@ Adjacent facts that shape the port:
 
 ## 9. Corrections to the inventory I was handed
 
-- ✅ `prim-types-min.js.fs` binds no `` `[]` `` or `Fun` — confirmed.
+- ✅ `prim-types-min.js.fs` binds no `` `[]` `` or `Fun` — confirmed; `` `[]` `` now bound (B1), `Fun` still open (C1).
 - ✅ `obj`'s JS repr is untagged where the contract says `extern class` — confirmed.
-- ✅ `ops-platform.js.fs` lacks `ignore`/`isNull`/`box`/`invalidArg` — confirmed, exactly those four.
-- ✅ `compiler-attributes.fsi`, `core-types.fsi`, `structural-format.fsi`, `int-comparison.fsi` have no JS body — confirmed.
+- ✅ `ops-platform.js.fs` lacks `ignore`/`isNull`/`box`/`invalidArg` — confirmed, exactly those four; all four now written (B2–B5).
+- ✅ `compiler-attributes.fsi`, `core-types.fsi`, `structural-format.fsi`, `int-comparison.fsi` have no JS body — confirmed; `int-comparison` now has one (B6).
 - ❌ `capabilities-compat.js.fsi` and `ops-platform-runtime.js.fsi` "are JS-only contracts served by the `.mjs` runtime" — the *characterisation* was right, but they were **not accepted**: both were live V240 hard errors. And they are not the same case as each other — one is pure abbreviations, the other is genuinely runtime-served. Both now have their own verdict (A1, A2).
 - ❌ `array-index-body.js.fs` "deliberately has no `.fsi`" — it deliberately had a *differently named* `.fsi` (`array-index.js.fsi`), for a reason that did not hold. Renamed; they pair (A4).
 - ❌ `comparison-runtime.js.fsi` was listed alongside `array.fsi`/`seq.fsi`/`set.fsi` as "no JS implementation". It is not missing work — it is the `Vesper.Comparison.mjs`-served twin of `ops-platform-runtime.js.fsi` (A3).
