@@ -18,7 +18,7 @@ module internal ElaboratePatterns =
     /// `[]`/`h :: t` pattern, or `::` construction targets. Mirrors the
     /// case-by-arity resolution in `translateListLikeLiteral`: a program-declared
     /// list union (its nullary case = the empty terminator, its single binary case
-    /// = cons) drives its own factories. For the self-host `list.clr.fs` and the
+    /// = cons) drives its own factories. For the self-host `list.fs` and the
     /// external Vesper list (whose `[]`/`::` cases register / compile as
     /// `Empty`/`Cons`) this returns `("Cons", "Empty")`; the FSharp.Core fallback
     /// keeps `("Cons", "Nil")`.

@@ -3,7 +3,7 @@ name = "Vesper.List"
 description = "The immutable cons-list type and the List module."
 
 # `Vesper.Core` alone, though the `list.fsi` contract also names `int option` (in
-# `List.GetSlice`): the compiled impl (`list.clr.fs`) does not, so `depends-on` tracks
+# `List.GetSlice`): the compiled impl (`list.fs`) does not, so `depends-on` tracks
 # the BUILD dependency only. Vesper.Option returns here if `GetSlice` is implemented.
 depends-on = ["Vesper.Core"]
 
@@ -12,27 +12,16 @@ files = [
     "list.fsi",
 ]
 
-[targets.clr]
-# `list.clr.fs` is the compiled impl in the verbatim `[]`/`::` operator-case form. CLR-bound
-# despite naming no `System.` type: `interface seq<'T>` and `toSeq`/`ofSeq` bind it to the
-# BCL `seq` contract, which is exactly what `list.js.fs` exists to strip. Factoring the
-# `seq` leg out of the contract would make the package genuinely neutral, and both target
-# lists would then drop it for a single shared `list.fs`.
+# Target-NEUTRAL: the verbatim `[]`/`::` operator-case cons-list, no inline IL and no
+# BCL name. `seq` is a CAPABILITY, not a BCL binding — an interface on CLR, an emitted
+# `[Symbol.iterator]` on JS — so `interface seq<'T>` and `toSeq`/`ofSeq` bind this file
+# to neither target.
 impl = [
-    "list.clr.fs",
+    "list.fs",
 ]
 
 [targets.js]
-# The subset of `list.clr.fs` the JS backend can compile (the cons-list type's cases without
-# member methods + the `isEmpty`/`length`/`head`/`tail`/`map`/`append`/`rev` module
-# functions, `head`/`tail` raising via `failwith`) — metadata-free, so the JS inline-body
-# analysis stays self-contained. Compiled in library mode it GENERATES the `runtime`
-# asset below, replacing the hand-authored one.
-impl = [
-    "list.js.fs",
-]
-
-# JS runtime *asset*: the cons-list module functions (`List.length`/`map`/…) the JS
-# backend imports and ships beside its output. GENERATED from `list.js.fs`, not
-# hand-authored; regenerable via the codegen-js test suite.
+# JS runtime *asset*: the cons-list module functions (`List.length`/`map`/…) and the
+# type's lifted member accessors the JS backend imports and ships beside its output.
+# GENERATED from `list.fs`, not hand-authored; regenerable via the codegen-js test suite.
 runtime = ["Vesper.List.mjs"]

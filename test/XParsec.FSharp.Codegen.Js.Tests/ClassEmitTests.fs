@@ -353,11 +353,56 @@ let tests =
                     )
             }
 
-            // JS has ONE constructor per class. On the `val`-form class the positional field ctor
-            // IS the lowering of its field-initialising `new(…) = { … }` (and `Vesper.List`'s
-            // enumerator relies on that) — but where a PRIMARY ctor already owns the one JS
-            // constructor, a `new(…)` overload has nowhere to go: a call at its arity would land
-            // in the primary with the wrong arguments.
+            // A `val`-form class's `new(…) = { … }` names its OWN parameters and stores. A
+            // positional ctor over the declared fields would take the wrong arity here, so
+            // every field the ctor initialises itself would arrive `undefined` — silently, for
+            // any field whose default happens to be falsy.
+            test "a `val`-form class's explicit ctor keeps its own arity, not the field count" {
+                let src =
+                    emitJs (
+                        lines
+                            [
+                                "type Counter ="
+                                "    val mutable Cur : int"
+                                "    val mutable Started : bool"
+                                "    new(cur: int) = { Cur = cur; Started = false }"
+                                "    member this.Sum = this.Cur"
+                                "let c = Counter(7)"
+                                "printfn \"%d\" c.Sum"
+                            ]
+                    )
+
+                Expect.stringContains src "constructor(cur)" "the ctor's own single parameter"
+                Expect.stringContains src "this.Started = false;" "the initialiser the source wrote, not a parameter"
+                Expect.isFalse (src.Contains "constructor(Cur, Started)") "not positional over the declared fields"
+            }
+
+            test "a `val`-form class's explicitly initialised field is a real value under Node" {
+                match
+                    runJs
+                        "class-val-form-ctor"
+                        (lines
+                            [
+                                "type Counter ="
+                                "    val mutable Cur : int"
+                                "    val mutable Started : bool"
+                                "    new(cur: int) = { Cur = cur; Started = false }"
+                                "    member this.Report = this.Cur"
+                                "let c = Counter(7)"
+                                "printfn \"%d\" c.Report"
+                                "printfn \"%b\" c.Started"
+                            ])
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "7\nfalse" "`Started` is `false`, not an absent property printing as undefined"
+            }
+
+            // JS has ONE constructor per class. A `val`-form class's single `new(…) = { … }` is
+            // emitted as written; a SECOND arity — here a primary ctor plus a `new(…)` — has
+            // nowhere to go, and a call at that arity would land in the survivor with the
+            // wrong arguments.
             test "a secondary constructor alongside a primary one fails loudly on the JS target" {
                 let compile () =
                     emitJs (
@@ -376,7 +421,7 @@ let tests =
                     (fun ex ->
                         Expect.stringContains
                             ex.Message
-                            "secondary constructor overloads are not yet supported"
+                            "declares 2 constructors; a JS class has exactly one"
                             "the failure names the unsupported feature rather than dropping it"
                     )
             }

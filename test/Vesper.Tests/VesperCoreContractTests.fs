@@ -44,7 +44,7 @@ let private contractFiles =
 /// Impl `.fs` files — our-backend target source, one companion per `prim-types-*`
 /// contract (each binds its extern types to `(# "..." #)` intrinsics).
 /// `ops-platform.clr.fs` carries the `hash` inline body the codegen inline-body
-/// loader reads. The cons-list (`list.clr.fs`) moved to
+/// loader reads. The cons-list (`list.fs`) moved to
 /// the standalone `Vesper.List` package (one package per type) — see
 /// `vesperListContractTests` below.
 let private implFiles =
@@ -178,7 +178,7 @@ let vesperListContractTests =
         "VesperListContract"
         [
             test "Parsing list.fsi" { testParseSignatureFile (listPath "list.fsi") }
-            test "Parsing list.clr.fs" { testParseFile (listPath "list.clr.fs") }
+            test "Parsing list.fs" { testParseFile (listPath "list.fs") }
         ]
 
 /// Vesper.Set — standalone package (one package per type). Both `set.fsi`

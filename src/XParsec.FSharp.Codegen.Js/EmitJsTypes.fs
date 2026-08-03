@@ -109,14 +109,24 @@ module EmitJsTypes =
             Entries: TastAccessor.PreambleEntry list
         }
 
-    /// One locally-emitted class awaiting body emission: its name + ctor `fields`, its
+    /// How a type's single JS constructor is formed. `Positional` names each
+    /// declaration-order field as a parameter — a record, or a class whose primary
+    /// ctor params ARE its fields. `Explicit` is the `val`-form class's own
+    /// `new(args) = { f = e; … }`: its parameter list and its stores are what the
+    /// source wrote, and neither has to match the field list.
+    [<RequireQualifiedAccess>]
+    type PendingCtor =
+        | Positional of fields: string list
+        | Explicit of TastAccessor.SecondaryCtor
+
+    /// One locally-emitted class awaiting body emission: its name + `Ctor` shape, its
     /// instance `Preamble` (`ValueNone` for a record, which has none), and its
     /// partitioned members to ATTACH (bodies built later with the full `WalkCtx`,
     /// since `collectTypes` runs before the ctx exists).
     type PendingClass =
         {
             Name: string
-            Fields: string list
+            Ctor: PendingCtor
             Preamble: ClassPreamble voption
             /// `static let` / `static do` entries in declaration order, initialising the
             /// class's static backing fields (`ClassName.field`) at module load. Empty
@@ -332,7 +342,7 @@ module EmitJsTypes =
                         // No interface impls → a record is one plain class with no
                         // methods; emit directly (no ctx needed). Augmentation members
                         // ride as free receiver-first functions.
-                        ordered.Add(JsStatement.Class(info.Name, info.Fields, [], [], exportTypes))
+                        ordered.Add(JsStatement.Class(info.Name, JsCtor.positional info.Fields [], [], exportTypes))
                         addMembers td.Name recMembers
                     else
                         // The record carries interface impls. A record is a single JS
@@ -347,7 +357,7 @@ module EmitJsTypes =
                         pendingClasses.Add
                             {
                                 Name = info.Name
-                                Fields = info.Fields
+                                Ctor = PendingCtor.Positional info.Fields
                                 Preamble = ValueNone
                                 StaticPreamble = []
                                 Members = parts
@@ -395,37 +405,46 @@ module EmitJsTypes =
 
                     // Class shapes this lowering does not model are REJECTED here, never dropped:
                     // the emitter reads only `CtorParams` / `Fields` / `Members` /
-                    // `InstancePreamble` / `StaticPreamble`, so admitting one would compile to a
-                    // program that silently disagrees with the CLR backend on the same source.
+                    // `SecondaryCtors` / `InstancePreamble` / `StaticPreamble`, so admitting one
+                    // would compile to a program that silently disagrees with the CLR backend on
+                    // the same source.
                     //  * `inherit` — no `extends` / `super(...)` is emitted, so the base ctor
                     //    (and its `do`) never runs and the base's members are absent from the
                     //    prototype.
-                    //  * a secondary `new(...)` on a class that ALSO has a primary ctor — the one
-                    //    JS constructor emitted is the primary's positional one, so a call at the
-                    //    secondary's arity would silently land there with the wrong arguments.
-                    //    (On the `val`-form class — no primary ctor — the positional field ctor
-                    //    below IS the lowering of its field-initialising `new(…) = { … }`, which
-                    //    is why that shape is admitted.)
+                    //  * more than one `new(...)` — a JS class has exactly one constructor, so
+                    //    every overload but one would be unreachable, and a call at its arity
+                    //    would silently land in the survivor with the wrong arguments.
                     if cls.BaseType.IsSome || cls.BaseCtorCall.IsSome then
                         failwithf
                             "EmitJs: class '%s' declares an `inherit` clause; class inheritance is not yet supported on the JS target"
                             td.Name
 
-                    if cls.HasPrimaryCtor && not cls.SecondaryCtors.IsEmpty then
+                    // The primary ctor's params ARE its fields, so a secondary alongside it is a
+                    // second arity; on the `val`-field form the secondaries are the ONLY ctors.
+                    let ctorArities = (if cls.HasPrimaryCtor then 1 else 0) + cls.SecondaryCtors.Length
+
+                    if ctorArities > 1 then
                         failwithf
-                            "EmitJs: class '%s' declares a secondary constructor alongside its primary one; secondary constructor overloads are not yet supported on the JS target"
+                            "EmitJs: class '%s' declares %d constructors; a JS class has exactly one, so constructor overloads are not supported on the JS target"
                             td.Name
+                            ctorArities
 
-                    // The class's positional ctor stores each declared field. Use
-                    // `CtorParams` when present (primary-ctor parameters that become
-                    // fields); fall back to `Fields` (the `val`-field form).
-                    let fieldNames =
-                        let ctorFields = [ for f in cls.CtorParams -> f.Name ]
+                    // A `val`-form class's `new(args) = { f = e; … }` is emitted as written —
+                    // its own params, its own stores. Everything else (a record-like primary
+                    // ctor, or a field-only class with no `new` at all) is positional over the
+                    // declared fields.
+                    let ctor =
+                        match List.ofSeq cls.SecondaryCtors with
+                        | [ sc ] -> PendingCtor.Explicit sc
+                        | _ ->
+                            let ctorFields = [ for f in cls.CtorParams -> f.Name ]
 
-                        if List.isEmpty ctorFields then
-                            [ for f in cls.Fields -> f.Name ]
-                        else
-                            ctorFields
+                            PendingCtor.Positional(
+                                if List.isEmpty ctorFields then
+                                    [ for f in cls.Fields -> f.Name ]
+                                else
+                                    ctorFields
+                            )
 
                     // Split members into attached dispatch slots, free receiver-first
                     // functions, and enumerable-capability iterator impls (interface-impl
@@ -447,7 +466,7 @@ module EmitJsTypes =
                     pendingClasses.Add
                         {
                             Name = td.Name
-                            Fields = fieldNames
+                            Ctor = ctor
                             Preamble = preamble
                             StaticPreamble = [ for entry in cls.StaticPreamble -> entry ]
                             Members = parts

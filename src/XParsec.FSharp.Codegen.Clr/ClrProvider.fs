@@ -385,7 +385,7 @@ type ClrProvider
                 | "Nil" -> ValueSome(recipes.EmitListNil(elem ()))
                 | _ -> ValueNone
             elif RuntimeNames.isVesperListKey key then
-                // `Empty` (the `[]` operator case) is the empty terminator post-`list.clr.fs`
+                // `Empty` (the `[]` operator case) is the empty terminator post-`list.fs`
                 // cutover; `Cons` the binary case.
                 match caseName with
                 | "Cons" -> ValueSome(recipes.EmitVesperListCons(elem ()))

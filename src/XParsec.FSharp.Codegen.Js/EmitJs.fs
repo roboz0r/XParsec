@@ -1001,6 +1001,22 @@ module EmitJs =
                 | TPreambleEntryG.Do e -> yield! buildStatements ctx e
         ]
 
+    /// A `val`-form class's explicit `new(args) = let … in { f = e; … }` → the JS
+    /// constructor it IS: the ctor's own parameters, its `let`s as `const` locals, then
+    /// one `this.f = e` store per field initialiser. Fields the source leaves out stay
+    /// absent — F# zero-initialises them, and naming them here would need a per-field
+    /// default this backend has no source for.
+    let private emitExplicitCtor (ctx: WalkCtx) (sc: TastAccessor.SecondaryCtor) : JsCtor =
+        {
+            Params = [ for (pk, _) in sc.Params -> binderNameOf ctx.Pool (BinderKey.identity pk) ]
+            Body =
+                [
+                    for l in sc.Lets ->
+                        JsStatement.Const(binderNameOf ctx.Pool (BinderKey.identity l.Binder), buildExpr ctx l.Init)
+                    for fi in sc.FieldInits -> JsStatement.FieldStore(fi.Field, buildExpr ctx fi.Init)
+                ]
+        }
+
     /// A class's `static let` / `static do` preamble → module-load statements that
     /// initialise the class's static backing fields. A `static let x = init` stores
     /// `ClassName.x = init`; the read/write sites resolve the same `ClassName.x` slot
@@ -1113,15 +1129,20 @@ module EmitJs =
         let classDecls =
             [
                 for pc in collected.PendingClasses ->
-                    let ctorBody =
+                    let preamble =
                         match pc.Preamble with
                         | ValueSome p -> emitInstancePreamble ctx p
                         | ValueNone -> []
 
+                    let ctor =
+                        match pc.Ctor with
+                        | EmitJsTypes.PendingCtor.Positional fields -> JsCtor.positional fields preamble
+                        // A class with no primary ctor can carry no instance preamble.
+                        | EmitJsTypes.PendingCtor.Explicit sc -> emitExplicitCtor ctx sc
+
                     JsStatement.Class(
                         pc.Name,
-                        pc.Fields,
-                        ctorBody,
+                        ctor,
                         EmitJsMembers.emitCapabilityMethods buildExpr ctx pc.Members,
                         ctx.ExportTopLevel
                     )

@@ -134,7 +134,7 @@ module Operators =
     /// `raise (new System.Exception(message))`; JS has no `System.Exception`, so
     /// this throws a native `new Error($0)` directly — self-contained, needing
     /// neither the `raise` chain nor external-`new` (the same FFI-throw shape
-    /// `option.js.fs` / `list.js.fs` inlined by hand, now the library body so a
+    /// the data packages' bodies once inlined by hand, now the library body so a
     /// `failwith` use site lowers with no per-call template). The message is the
     /// thrown `Error`'s `.message`, surfaced by Node as the uncaught-error text.
     let inline failwith (message: string) : 'T =

@@ -310,7 +310,7 @@ let tests =
             test
                 "Vesper.List.dll exports List`1 (Cons/Empty + IsEmpty/Head/Tail) and ListModule::fold (its own package)" {
                 // The cons-list is its own package: forcing the lazy compiles
-                // `src/Vesper.List/list.clr.fs` into a standalone Vesper.List.dll and loads it.
+                // `src/Vesper.List/list.fs` into a standalone Vesper.List.dll and loads it.
                 let listPath = vesperListDll.Value
                 let listAsm = Assembly.LoadFrom listPath
 
@@ -358,7 +358,7 @@ let tests =
             }
 
             // `List<'T>` authors ONLY the platform-agnostic iteration capability
-            // (`interface seq<'T>` / `interface enumerator<'T>`, `src/Vesper.List/list.clr.fs`):
+            // (`interface seq<'T>` / `interface enumerator<'T>`, `src/Vesper.List/list.fs`):
             // it never writes `IEnumerable`, `IEnumerator`, `object Current`, or `Reset`.
             // The CLR backend synthesises those BCL co-slots during capability
             // reconciliation, so a plain BCL consumer — this test host, holding nothing but

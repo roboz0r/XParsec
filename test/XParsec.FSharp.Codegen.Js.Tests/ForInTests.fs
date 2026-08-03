@@ -203,7 +203,7 @@ let tests =
 
             // §14.6 capstone (W1+W3): a BARE cons-list `[1;2;3]` — NO `:> seq` upcast —
             // iterates over the REAL `Vesper.List` JS runtime. `runJs` materialises the
-            // committed `Vesper.List.mjs` (regenerated from `list.js.fs`, now carrying the
+            // committed `Vesper.List.mjs` (regenerated from `list.fs`, now carrying the
             // base-class `*[Symbol.iterator]()` adapter over its `ListEnumerator` cursor)
             // beside the program, so the emitted `for…of` over the list drives the list's
             // own iterator under Node.

@@ -125,21 +125,15 @@ and [<RequireQualifiedAccess>] JsStatement =
     | Continue
     /// `target = value;` — param-shadow mutation in a self-tail-call.
     | Assign of target: string * value: JsExpr
-    /// A record's or class's emitted JS class: one positional constructor storing
-    /// each declaration-order field into the like-named property, then running
-    /// `ctorBody` (a class's instance preamble — its `let` field stores and `do`
-    /// effects, in declaration order; a record passes `[]`), plus any `methods`
+    /// `this.<field> = <value>;` — a constructor's field store.
+    | FieldStore of field: string * value: JsExpr
+    /// A record's or class's emitted JS class: its single `ctor`, plus any `methods`
     /// attached as instance methods on the class (a record passes `[]`).
     /// Attached methods carry the runtime dispatch slots of a custom-equality /
     /// custom-comparison class (`Equals`/`CompareTo`/`GetHashCode`), bodied with
     /// the receiver bound to JS `this`. `export` is set in library mode so a
     /// consumer can `import` the class rather than re-emit it.
-    | Class of
-        name: string *
-        fields: string list *
-        ctorBody: JsStatement list *
-        methods: JsClassMethod list *
-        export: bool
+    | Class of name: string * ctor: JsCtor * methods: JsClassMethod list * export: bool
     /// A union's emitted JS classes: a `baseName` base class (`tag` + `cases()` + a
     /// non-enumerable `$type` brand getter returning `brand`, the type's qualified name)
     /// plus one `extends`-subclass per case carrying its named fields after `super(tag)`.
@@ -202,6 +196,35 @@ and JsClassMethod =
         Body: JsStatement list
         Generator: bool
     }
+
+/// The one JS constructor an emitted class gets: `constructor(Params) { Body }`.
+/// `Params` and `Body` are the constructor's OWN, never derived from the field list:
+/// a `val`-form class's `new(args) = { f = e; … }` need not take one parameter per
+/// field, and deriving them would leave the unnamed fields `undefined` at every site.
+and JsCtor =
+    {
+        Params: string list
+        Body: JsStatement list
+    }
+
+/// The shapes a `JsCtor` is built in.
+[<RequireQualifiedAccess>]
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module JsCtor =
+
+    /// The shape a record, a union base/case, and a primary-ctor class share: each
+    /// declaration-order field is a like-named parameter stored into its property.
+    /// `tail` runs after the stores (a class's instance preamble, whose initialisers
+    /// read the parameters back through `this`).
+    let positional (fields: string list) (tail: JsStatement list) : JsCtor =
+        {
+            Params = fields
+            Body =
+                [
+                    for f in fields -> JsStatement.FieldStore(f, JsExpr.Identifier(f, ValueNone))
+                ]
+                @ tail
+        }
 
 /// `Program` with `sourceType: "module"` (ESM output).
 type JsProgram = { Body: JsStatement list }

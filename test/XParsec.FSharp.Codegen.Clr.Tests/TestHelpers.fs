@@ -213,7 +213,7 @@ let vesperCoreDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
          corePath)
 
-/// Compile `Vesper.List.dll` from `src/Vesper.List/list.clr.fs` — the
+/// Compile `Vesper.List.dll` from `src/Vesper.List/list.fs` — the
 /// `Vesper.Collections.List\`1` cons-list (`Cons`/`Empty` + `IsEmpty`/`Head`/`Tail`)
 /// **and** the `Vesper.Collections.ListModule::fold` static method
 /// (`fold` is compiled into the DLL now) — as its own package,
@@ -234,8 +234,8 @@ let vesperListDll: Lazy<string> =
                  References = [ vesperCoreDll.Value ]
              }
 
-         let src = IO.File.ReadAllText(vesperListSource "list.clr.fs")
-         // Vesper.List's compiled impl is `list.clr.fs` (post-cutover): the verbatim
+         let src = IO.File.ReadAllText(vesperListSource "list.fs")
+         // Vesper.List's compiled impl is `list.fs` (post-cutover): the verbatim
          // `[]`/`::` cons-list. A `[1; 2; 3]` consumer literal binds to it by arity
          // (nullary terminator + binary cons), not by case name, so the driver
          // stack is unaffected by the `Nil`/`Cons` → `Empty`/`Cons` rename. It uses
@@ -1376,7 +1376,7 @@ let typeChecksArray (src: string) : unit =
 // ---- Vesper.Seq wrappers -----------------------------------------------------
 // A driver's `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)` (a
 // real BCL `IEnumerable<int>`) — the Vesper cons-list declares `IEnumerable<'T>`
-// in its `.fsi` but does not implement it in `list.clr.fs`, so a list value is not a
+// in its `.fsi` but does not implement it in `list.fs`, so a list value is not a
 // runtime seq. `Range` sidesteps that entirely.
 
 let runsSeq (expected: string) (src: string) : unit =

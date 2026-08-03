@@ -7,7 +7,7 @@ running `ConformancePass.checkManifest "js"` + `ConformancePass.enforce` over al
 `src/Vesper.*` manifests. Where I could not establish something I say so rather than
 estimating.
 
-**T1, T2 and T3's Kind B half have landed.** The run is at **9** errors, down from 24. The
+**T1, T2, T3's Kind B half and T4 have landed.** The run is at **7** errors, down from 24. The
 error set is now pinned by a committed test rather than a throwaway one —
 `ConformanceTests.fs`'s *"js: the hard-error set is exactly the un-ported library surface"*
 — so every tranche below has to shrink that list to be believed.
@@ -35,15 +35,15 @@ CLR-first would hit the expensive end before proving the design.
 
 ## 0. The number
 
-**9 hard conformance errors on `js`, across 4 of the 11 packages. 0 on `clr`.**
-(Was 24 across 7 before T1 + T2 + T3's Kind B half.)
+**7 hard conformance errors on `js`, across 3 of the 11 packages. 0 on `clr`.**
+(Was 24 across 7 before T1 + T2 + T3's Kind B half + T4.)
 
 | package | js errors | was | clr errors |
 |---|---|---|---|
 | Vesper.Core | 5 | 14 | 0 |
-| Vesper.List | 2 | 2 | 0 |
 | Vesper.Array | 1 | 1 | 0 |
 | Vesper.Seq | 1 | 2 | 0 |
+| Vesper.List | 0 | 2 | 0 |
 | Vesper.Printf | 0 | 3 | 0 |
 | Vesper.Comparison | 0 | 1 | 0 |
 | Vesper.Set | 0 | 1 | 0 |
@@ -88,7 +88,7 @@ again"* materialises a one-contract package twice, changing only the exported id
 the `.mjs`, and asserts `RuntimeServed` then V240. Both polarities, on ground no library
 port can retire.
 
-### Kind B — genuinely missing library source, writable today (4 errors left of 10)
+### Kind B — genuinely missing library source, writable today (2 errors left of 10)
 
 No compiler feature needed. This is F#-writing work.
 
@@ -97,7 +97,7 @@ No compiler feature needed. This is F#-writing work.
 | B1 ✅ | `Vesper.Core/prim-types-min.js.fs` | *done.* `type 'T ``[]`` = (# "!0[]" #)` + `type 'T array = 'T[]`, mirroring `prim-types-min.clr.fs:26-27`. The caveat below resolved: inert |
 | B2–B5 ✅ | `Vesper.Core/ops-platform.js.fs` | *done.* `ignore` = `(# "void $0" #)` (JS's own discard, so the operand is still evaluated — the CLR's bare `()` says nothing about that); `isNull` = `(# "$0 === null" #)`, STRICT, `undefined` being a separate type here with its own value; `box` = the erasing `(# "" #)`, JS having nothing unboxed to move; `invalidArg` = `failwith` over the BCL's own `"{message} (Parameter '{name}')"` text, every exception erasing to `Error` |
 | B6 ✅ | `Vesper.Core/int-comparison.js.fs` | *done.* `IntComparison.(<) (>) (<=) (>=)` as the native relational operators |
-| B7–B8 | `Vesper.List/list.js.fs` | `ofSeq`, `toSeq`. Both already work as written in `list.clr.fs:103-111` — `toSeq` is a `:> seq<'T>` upcast (node-tested on JS, `ForInTests.fs:159/183`), `ofSeq` is `for x in source` over a `seq<'T>` (`ForInTests.fs:130`) | ~8 lines — and see §3, this is subsumed by the `list.fs` merge |
+| B7–B8 ✅ | `Vesper.List/list.fs` | *done,* subsumed by the merge (§3). `toSeq` is a `:> seq<'T>` upcast, which erases on JS (`export const toSeq = (list) => list` — the cons-list IS iterable); `ofSeq` is `for x in source`. Both node-tested on the generated asset (`ListTests.fs`) |
 | B9 | `Vesper.Array/array.js.fs` (new) | the whole `Array` module: `zeroCreate length isEmpty get set create init copy append rev map mapi iter iteri fold foldBack` (16 `val`s, `array.fsi`). Only `zeroCreate` is intrinsic on CLR (`newarr`); on JS it is `new Array($0).fill(…)`. The rest are ordinary loops | ~100 lines |
 | B10 | `Vesper.Seq/seq.js.fs` (new) | `Seq.fold reduce truncate toArray` (4 `val`s). `fold`/`reduce` in `seq.clr.fs` are already target-neutral (`for … in`, `Unchecked.defaultof`, `invalidArg`). Only `truncate` (`Enumerable.Take`) and `toArray` (`ResizeArray`) are BCL. **But `truncate` returns a `seq<'T>` and `seq { }` does not exist** — see the sizing note in T6 | ~40 lines + a design call |
 
@@ -139,7 +139,7 @@ decide first.
 
 | | count | what it is |
 |---|---|---|
-| **Writable now** (Kind B) | 4 | B7–B10. ~150 lines of F#. B1–B6 ✅ |
+| **Writable now** (Kind B) | 2 | B9–B10. ~140 lines of F#. B1–B8 ✅ |
 | ~~Machinery, no library source~~ (Kind A) | ~~6~~ ✅ | done — `ConformancePass` + the manifest schema's `impl-only` key |
 | ~~Manifest scope statement~~ (C6, C7, C8) | ~~3~~ ✅ | done — 4 `.fsi` moved to `[targets.clr] files` |
 | **Probably writable, unverified** (C1, C4, C5) | 3 | likely just `[targets.js] impl` entries + the 4 `Fun` interfaces. Must be compiled to know |
@@ -175,50 +175,55 @@ I verified the JS lowering is real and complete, not aspirational:
   JS anchors are symbols living in the backend. Its `Unrepresentable` verdict is exactly
   right.
 
-### Consequence 1 — `list.clr.fs` should go back to `list.fs`
+### Consequence 1 — `list.clr.fs` went back to `list.fs` ✅ (T4)
 
 `7e994a93` renamed it on the grounds that *"`interface seq<'T>` and `toSeq`/`ofSeq` bind it
 to the BCL `seq` contract, which is exactly what `list.js.fs` exists to strip"*. Both halves
-are false:
+were false:
 
-- `list.clr.fs` contains **no `System.` text and no inline IL** (verified by grep) — it
-  passes the commit's own neutrality test.
-- `list.js.fs` does **not** strip the `seq` leg. It has `interface seq<'T>` with a full
-  `ListEnumerator` (`list.js.fs:13-46`). The two files' seq legs are the same leg.
+- `list.clr.fs` contained **no `System.` text and no inline IL** — it passed the commit's
+  own neutrality test.
+- `list.js.fs` did **not** strip the `seq` leg. It had `interface seq<'T>` with a full
+  `ListEnumerator`. The two files' seq legs were the same leg.
 
-The actual deltas between `list.clr.fs` and `list.js.fs` are four, and three are already
-non-issues:
+`list.js.fs` is deleted and `src/Vesper.List/manifest.toml` carries one shared
+`[core] impl = ["list.fs"]`. The four deltas were all non-issues:
 
 | delta | status |
 |---|---|
-| `member this.IsEmpty` / `.Head` / `.Tail` on `List<'T>` (CLR only) | **not a gap.** A union's augmentation members emit as *lifted receiver-first free functions* (`EmitJsTypes.fs:372,384` → `EmitJsMembers.fs:138-167`), pinned for a union at `MemberEmissionTests.fs:47` (`const Lst__get_IsEmpty = (`, `const Lst__AddHead = (`) with Node E2E at `:73,89,104,114`. Real instance: `Vesper.Option.mjs:24,34,43` exports `Option__get_Value` / `Option__get_IsSome` / `Option__get_IsNone` from `option.fs`'s members. The comment at `list.js.fs:11-12` is **stale** — the accessor isn't a `.Head` property, but a use site still resolves |
+| `member this.IsEmpty` / `.Head` / `.Tail` on `List<'T>` (CLR only) | **not a gap.** A union's augmentation members emit as *lifted receiver-first free functions*, so the merged body exports `List__get_Length` / `_IsEmpty` / `_Head` / `_Tail` — node-tested on the generated asset (`ListTests.fs`) |
 | `[<NoEquality; NoComparison; Struct>]` on `ListEnumerator` (CLR only) | `[<Struct>]` is **erased** on JS (`EmitJsTypes.fs:319-321`; `ClassValueKind` is read nowhere in the JS backend), so the attribute is harmless. `[<Struct>]` *records* are conformance-tested on both targets; a `[<Struct>]` `val`-form class has no test but reduces to the same reference object |
 | explicit `interface Vesper.disposable with member Dispose() = ()` (CLR only) | supported on JS (`[Symbol.dispose]`, `ManualEnumerationTests.fs:100/114`) |
 | `toSeq` / `ofSeq` (CLR only) | B7/B8 above; both constructs node-tested on JS |
 
-**Two things the merge must fix, found while auditing the emitter — both live today:**
+**Two live emitter bugs found while auditing — both fixed with the merge:**
 
-- **The explicit `new(…) = { … }` body is discarded.** The emitter always writes a
-  *positional* ctor over the declared fields in declaration order (`EmitJsTypes.fs:419-428`,
-  comment at `:406-408`). `list.js.fs:22-26` declares two `val mutable` fields and
-  `new(s) = { cursor = s; started = false }`; `Vesper.List.mjs:2-6` emits
-  `constructor(cursor, started)` and the call site at `:51` is `new ListEnumerator(_s0)`, so
-  **`started` is `undefined`**. It happens to work only because `undefined` is falsy. Any
-  `val`-form type whose `new` arity ≠ field count miscompiles silently. Either the merged
-  `list.fs` keeps the arities aligned, or the emitter learns the `new` body — pick
-  deliberately, don't inherit the accident.
-- **`list.fsi:28-40` declares `member Length / IsEmpty / Head / Tail / Item` on `List<'T>`
-  and `list.js.fs` implements none of them.** Conformance doesn't catch it (the pass checks
-  type and `val` presence, not members), and `Vesper.List.mjs` exports no such function, so a
-  JS program writing `xs.Head` fails at codegen or emits an import of an export that does not
-  exist. The manifest says so out loud: *"the cons-list type's cases **without member
-  methods**"*. Restoring the members as part of the merge closes this too.
+- **The explicit `new(…) = { … }` body was discarded** — the emitter always wrote a
+  *positional* ctor over the declared fields, so `new(s) = { cursor = s; started = false }`
+  emitted `constructor(cursor, started)` against the call site `new ListEnumerator(_s0)` and
+  `started` arrived `undefined`, working only by falsiness. **Fixed in the emitter, not in
+  the source:** a `val`-form class's single `new` is lowered as written (`JsCtor`,
+  `PendingCtor.Explicit`), so its parameter list and its stores are the ones the source
+  names. More than one constructor arity on a class is now a loud failure — a JS class has
+  exactly one constructor, so the second was already unreachable.
+- **`list.fsi` declares `member Length / IsEmpty / Head / Tail / Item` on `List<'T>` and no
+  `.fs` implemented them.** Conformance does not catch it (the pass checks type and `val`
+  presence, not members). The merged `list.fs` implements `Length` / `IsEmpty` / `Head` /
+  `Tail`, and they now reach `Vesper.List.mjs` as lifted free functions. **`Item` is still
+  absent, and is not library work:** it is an INDEXED property, which nothing in the front
+  end can define — `get_Item` is resolved only on EXTERNAL receivers
+  (`InferRecordAccess.fs:573,680`), there is no `IsIndexed` on the member node, and no
+  Vesper source anywhere declares one. `Empty` / `Cons` / `GetSlice` / `GetReverseIndex` are
+  likewise contract-only on both targets.
 
-**Plan item:** merge `list.js.fs` back into a single neutral `list.fs`, delete
-`list.js.fs`, and drop `[targets.clr] impl` / `[targets.js] impl` from
-`src/Vesper.List/manifest.toml` in favour of a shared `impl = ["list.fs"]`. This closes
-B7/B8 for free. Regenerate `Vesper.List.mjs` (see §4 — it is byte-checked, so the suite
-will tell you).
+**Member-level conformance — assessed, NOT taken.** It is not a few lines. The pass reads
+the raw CST and extracts only module-level types + `val`s (`Conformance.fs:398-400` says so);
+a member rung needs a `MemberDecl` extractor over the member lists of all twelve
+`TypeSignature` shapes and all twelve `TypeDefn` shapes, a per-TYPE pairing (member names
+only collide within their type), a new `ConformanceError` case, and a decision about the
+kinds no `.fs` can satisfy — `static member Empty`, indexed properties, `[<Experimental>]`
+slots. It would light up on both targets at once, `set.fsi` alone contributing hundreds. It
+is its own tranche.
 
 ### Consequence 2 — `seq.clr.fs` and `struct-seq.clr.fs`: the renames were *right*, for a different reason
 
@@ -243,7 +248,7 @@ Verified against the tests, not the manifest comments.
 
 | asset | actually | generated from | drift detected? | load-bearing for the port? |
 |---|---|---|---|---|
-| `Vesper.List.mjs` | **generated** (claim true) | `list.js.fs` | **yes** — full byte compare every run, `ListTests.fs:176-186` | yes, but it regenerates itself |
+| `Vesper.List.mjs` | **generated** (claim true) | `list.fs` | **yes** — full byte compare every run, `ListTests.fs` | yes, but it regenerates itself |
 | `Vesper.Option.mjs` | **generated** (claim true) | `option.fs` | **yes** — `OptionTests.fs:117-127` | yes, self-maintaining |
 | `Vesper.Printf.mjs` | **generated** (claim true) | `structural-printer.js.fs` | **yes** — `StructuralPrinterTests.fs:39-49` | yes, self-maintaining |
 | `Vesper.Core.mjs` | **hand-authored** | — | **no** | **critically** — 4 exports: `checkedDivisor` (every integral `/` and `%`), `structuralEquals` / `structuralHash` (every `=` / `<>` / `hash`), `enumeratorOf` (every `for … in`) |
@@ -350,8 +355,8 @@ Each leaves the tree green and moves the JS error count down monotonically.
 | **T1** ✅ | **Statement of scope.** `formatter.fsi`, `struct-seq.fsi`, `set.fsi` (and `structural-printer.fsi`, for A5–A6) moved to `[targets.clr] files`, each with a comment saying what a JS port would have to decide first | C6, C7, C8 | −3 (→21) | done |
 | **T2** ✅ | **Conformance machinery.** One rule replaces three guards: *a contract owes a `.fs` unless every declaration in it is satisfied without one* — `extern`/abbreviation always, a `val` exactly when the `runtime` asset exports it (`RuntimeServed`, which IS §4's export-presence check). `array-index-body.js.fs` renamed to pair with its contract; a new `impl-only` manifest key withholds a contract-less body from pairing | A1–A6 | −6 (→15) | done |
 | **T3a** ✅ | **Vesper.Core, the writable half.** `` `[]` `` repr in `prim-types-min.js.fs`; `ignore`/`isNull`/`box`/`invalidArg` in `ops-platform.js.fs`; new `int-comparison.js.fs`. Each body node-tested (`CoreOpBodiesJsTests.fs`), not merely conformed | B1–B6 | −6 (→9) | done |
-| **T3b** | **The compile-and-see remainder.** The 4 `Fun` interfaces in `prim-types-min.js.fs`; add `core-types.fs` and `structural-format.fs` to `[targets.js] impl` and see whether they compile | C1, C4, C5 | −3 (→6) | half a day if C4/C5 just work; a day if `Curried`/`Flattened` surface a codegen gap |
-| **T4** | **`list.fs` merge.** Fold `list.js.fs` back into a neutral `list.fs` (restoring `IsEmpty`/`Head`/`Tail`, `toSeq`, `ofSeq`, the explicit `disposable` impl, and — if `[<Struct>]` holds on a `val`-form class — the struct attribute). Delete `list.js.fs`; one shared `impl`. Regenerate `Vesper.List.mjs` (the byte-identity test will insist) | B7, B8, + the `7e994a93` revert | −2 (→4) | ~1 day; the risk is entirely in `[<Struct>]` on a `val`-form class |
+| **T4** ✅ | **`list.fs` merge.** Folded `list.js.fs` back into the neutral `list.fs` (`Length`/`IsEmpty`/`Head`/`Tail`, `toSeq`, `ofSeq`, the explicit `disposable` impl, and `[<Struct>]`, which holds — it is erased). `list.js.fs` deleted; one shared `[core] impl`. `Vesper.List.mjs` regenerated. Plus the two emitter bugs above | B7, B8, + the `7e994a93` revert | −2 (→7) | done |
+| **T3b** | **The compile-and-see remainder.** The 4 `Fun` interfaces in `prim-types-min.js.fs`; add `core-types.fs` and `structural-format.fs` to `[targets.js] impl` and see whether they compile | C1, C4, C5 | −3 (→4) | half a day if C4/C5 just work; a day if `Curried`/`Flattened` surface a codegen gap |
 | **T5** | **Vesper.Array.** New `array.js.fs`: 16 functions, only `zeroCreate` non-obvious | B9 | −1 (→3) | ~100 lines, half a day |
 | **T6** | **Vesper.Seq.** New `seq.js.fs`: 4 functions. `fold`/`reduce`/`toArray` are straightforward. **`truncate` is the one real decision** — see below | B10 | −1 (→2) | ~40 lines + a design call; ~1 day |
 | **T7** | **The two remaining architectural items.** `obj`'s heritability on JS (C2); `compiler-attributes.fsi` (C3) — which is either "implement `extends`/`super` on JS" or "these are CLR-only marker types". I recommend the latter and deferring the former | C2, C3 | −2 (→0) | unbounded; scope it separately once T1–T6 are in |
@@ -359,8 +364,8 @@ Each leaves the tree green and moves the JS error count down monotonically.
 After T6 the JS run is at **2 errors, both of them named architectural questions** rather
 than missing work. That is a good place to stop and re-decide.
 
-T1 + T2 landed together, then T3a. **T3b is the next move**, and every tranche after it
-must shrink the pinned error list in `ConformanceTests.fs` — that list is now the count.
+T1 + T2 landed together, then T3a, then T4. **T3b is the next move**, and every tranche
+after it must shrink the pinned error list in `ConformanceTests.fs` — that list is the count.
 
 ### T6's decision: `Seq.truncate` with no sequence expressions
 
@@ -443,9 +448,9 @@ Adjacent facts that shape the port:
 - ❌ "`structural-printer.fsi`'s `RuntimeFormatState`/`StructuralPrinter` are absent from `structural-printer.js.fs`" — true as stated but misleading. `structural-printer.js.fs` is a complete, generated, byte-checked, node-tested JS `%A` engine that implements a *different* surface (`structuralFormat`). It was not an incomplete port of that contract; the two were mispaired by the stem rule (A5–A6).
 - ❌ `formatter.fsi` was omitted from the Printf line — it was a third live error there (C6).
 - ❌ (already known) `ops-platform.fsi` mentions `nativeint`: it does not. Zero occurrences.
-- ➕ Not in the handed-over inventory at all: `list.js.fs` **already implements
-  `interface seq<'T>`**, which falsifies the stated reason both for its existence and for
-  the `list.fs` → `list.clr.fs` rename (§3).
+- ➕ Not in the handed-over inventory at all: `list.js.fs` **already implemented
+  `interface seq<'T>`**, which falsified the stated reason both for its existence and for
+  the `list.fs` → `list.clr.fs` rename. Both are undone (§3).
 
 ---
 

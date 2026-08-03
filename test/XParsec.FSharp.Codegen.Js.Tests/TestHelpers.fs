@@ -29,7 +29,7 @@ let srcManifest (pkg: string) : string =
 /// `src/Vesper.Core/manifest.toml`.
 let vesperCoreManifest: string = srcManifest "Vesper.Core"
 
-/// A file beside a package's `manifest.toml` (e.g. `srcFile "Vesper.List" "list.js.fs"`).
+/// A file beside a package's `manifest.toml` (e.g. `srcFile "Vesper.List" "list.fs"`).
 let srcFile (pkg: string) (file: string) : string =
     IO.Path.Combine(IO.Path.GetDirectoryName(srcManifest pkg), file)
 
@@ -206,7 +206,7 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPoo
     Freeze.run ctx tast
 
 /// Compile a package impl in library mode to runtime-module source text (strips
-/// sourceMappingURL). `sourceFile` is the Vesper source basename (`list.js.fs`),
+/// sourceMappingURL). `sourceFile` is the Vesper source basename (`list.fs`),
 /// recorded both in the source map and in the emitted `// Generated from …` header.
 /// The impl is analysed against the same contract it is emitted through, so a body spliced
 /// out of a dependency resolves against the file it was written in.

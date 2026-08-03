@@ -4,6 +4,11 @@ type List<'T> =
     | ([]): 'T list
     | (::): Head: 'T * Tail: 'T list -> 'T list
 
+    member this.Length =
+        match this with
+        | [] -> 0
+        | _ :: t -> 1 + t.Length
+
     member this.IsEmpty =
         match this with
         | [] -> true

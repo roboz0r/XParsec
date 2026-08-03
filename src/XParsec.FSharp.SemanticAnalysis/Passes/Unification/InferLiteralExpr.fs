@@ -41,7 +41,7 @@ module internal UnificationInferLiteralExpr =
 
     /// The list type a `[…]` literal carries. Two cases:
     ///   1. A program that declares its own `'T list` abbreviation (the self-host
-    ///      shape — `list.clr.fs`'s `and 'T list = List<'T>`) resolves eagerly to its
+    ///      shape — `list.fs`'s `and 'T list = List<'T>`) resolves eagerly to its
     ///      RHS union.
     ///   2. A bare program (R3): the container is left *flexible* — a fresh
     ///      `TypeVar` registered in `ctx.ListLiterals`. This is the consumer-driven

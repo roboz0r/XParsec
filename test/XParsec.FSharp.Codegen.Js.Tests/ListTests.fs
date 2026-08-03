@@ -10,8 +10,8 @@ let private generated: Lazy<string> =
         compileLibrary
             coreDepsJsContract.Value
             "Vesper.List"
-            "list.js.fs"
-            (IO.File.ReadAllText(srcFile "Vesper.List" "list.js.fs"))
+            "list.fs"
+            (IO.File.ReadAllText(srcFile "Vesper.List" "list.fs"))
 
 /// Normalise line endings so a CRLF checkout still matches the printer's `\n` output.
 let private lf (s: string) : string = s.Replace("\r\n", "\n")
@@ -151,7 +151,7 @@ let tests =
 
             // ---- the Vesper.List runtime module (generated in library mode) ----
 
-            test "the generated module exports the subset functions" {
+            test "the generated module exports every module function list.fsi declares" {
                 let src = generated.Value
 
                 for name in
@@ -165,12 +165,40 @@ let tests =
                         "filter"
                         "append"
                         "rev"
+                        "ofSeq"
+                        "toSeq"
                     ] do
                     Expect.stringContains src (sprintf "export const %s = " name) (sprintf "exports %s" name)
 
                 // The cons-list classes are emitted into the module itself — no runtime import.
                 Expect.stringContains src "class List_Cons extends List" "emits the cons subclass"
-                Expect.isFalse (src.Contains "import ") "the subset imports nothing"
+                Expect.isFalse (src.Contains "import ") "the module imports nothing"
+            }
+
+            test "the generated module exports the type's members as lifted free functions" {
+                // `list.fsi` declares them on `List<'T>`; a union's augmentation members emit
+                // receiver-first, so a use site resolves to these names or to nothing at all.
+                let src = generated.Value
+
+                for name in [ "Length"; "IsEmpty"; "Head"; "Tail" ] do
+                    Expect.stringContains
+                        src
+                        (sprintf "export const List__get_%s = " name)
+                        (sprintf "exports the %s accessor" name)
+            }
+
+            test "the enumerator's own `new(s) = { … }` is the emitted constructor" {
+                // The ctor takes ONE parameter and sets `started` itself. A positional ctor over
+                // the two declared fields would leave `started` undefined at the single call
+                // site `new ListEnumerator(<list>)` — passing only by falsiness.
+                let src = lf generated.Value
+
+                Expect.stringContains
+                    src
+                    (String.concat "\n" [ "constructor(s) {"; "    this.cursor = s;"; "    this.started = false;" ])
+                    "the explicit field-init body, not a positional ctor over cursor/started"
+
+                Expect.isFalse (src.Contains "constructor(cursor, started)") "no positional ctor over the fields"
             }
 
             test "the committed Vesper.List.mjs matches the generated source (regenerable)" {
@@ -231,5 +259,40 @@ let tests =
                                 "The input list was empty."
                             ])
                         "length/head/isEmpty/rev/map/append/fold/filter + empty-list throw"
+            }
+
+            test "the type's members, the enumerator and ofSeq/toSeq run under Node" {
+                // The merged body's non-module half: the lifted member accessors, the
+                // `ListEnumerator` the `[Symbol.iterator]` adapter drives (whose `started`
+                // must be a real `false`, not an absent property), and the seq round trip.
+                let driver =
+                    String.concat
+                        "\n"
+                        [
+                            "import { List_Cons, List_Empty, ListEnumerator, List__get_Length, List__get_IsEmpty, List__get_Head, List__get_Tail, ofSeq, toSeq, length, head } from \"./Vesper.List.mjs\";"
+                            "const xs = new List_Cons(1, new List_Cons(2, new List_Cons(3, new List_Empty())));"
+                            "console.log(List__get_Length(xs));"
+                            "console.log(List__get_IsEmpty(xs), List__get_IsEmpty(new List_Empty()));"
+                            "console.log(List__get_Head(xs));"
+                            "console.log(List__get_Head(List__get_Tail(xs)));"
+                            // The ctor's own arity: one argument, `started` initialised here.
+                            "const e = new ListEnumerator(xs);"
+                            "console.log(e.started === false);"
+                            "const walked = []; while (e.MoveNext()) walked.push(e.Current());"
+                            "console.log(walked.join(\",\"));"
+                            // `interface seq<'T>` on the union base ⇒ the list IS iterable.
+                            "console.log([...toSeq(xs)].join(\",\"));"
+                            "console.log(length(ofSeq([4, 5, 6])), head(ofSeq([4, 5, 6])));"
+                        ]
+
+                match runNodeFiles "list-members-node" [ "driver.mjs", driver; "Vesper.List.mjs", generated.Value ] with
+                | None -> skiptest "node is not installed"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "driver exited non-zero: %s" out)
+
+                    Expect.equal
+                        out
+                        (String.concat "\n" [ "3"; "false true"; "1"; "2"; "true"; "1,2,3"; "1,2,3"; "3 4" ])
+                        "Length/IsEmpty/Head/Tail, the cursor walk, iteration and ofSeq/toSeq"
             }
         ]

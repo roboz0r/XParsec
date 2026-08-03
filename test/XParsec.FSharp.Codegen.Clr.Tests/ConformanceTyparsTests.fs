@@ -25,12 +25,12 @@ let tests =
     testList
         "ConformanceTypars.Clr"
         [
-            test "Vesper.List: list.clr.fs generic module functions conform to list.fsi typar order" {
-                // Analyse `list.clr.fs` through the real frozen self-host pipeline against its
+            test "Vesper.List: list.fs generic module functions conform to list.fsi typar order" {
+                // Analyse `list.fs` through the real frozen self-host pipeline against its
                 // DEPENDENCY contract only (Core; the self-manifest is excluded — the
                 // package is defining its own types here), exactly as `buildPackage` /
                 // `vesperListDll` do.
-                let src = File.ReadAllText(vesperListSource "list.clr.fs")
+                let src = File.ReadAllText(vesperListSource "list.fs")
                 let analysisProvider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
                 let lexed, file = parseFile src
 
@@ -41,7 +41,7 @@ let tests =
                         (Hashing.originSourceOfText src lexed)
                         file
 
-                Expect.isEmpty tast.Residue.Diagnostics "list.clr.fs analyses cleanly"
+                Expect.isEmpty tast.Residue.Diagnostics "list.fs analyses cleanly"
 
                 // The LOOKUP provider DOES include `list.fsi` (the published contract), so
                 // `List.fold` / `List.map` / `List.append` / … resolve to their declared
@@ -52,7 +52,7 @@ let tests =
 
                 let mismatches = ConformanceTypars.checkFile contract tast
 
-                Expect.isEmpty mismatches (sprintf "list.clr.fs conforms to list.fsi typar order; got %A" mismatches)
+                Expect.isEmpty mismatches (sprintf "list.fs conforms to list.fsi typar order; got %A" mismatches)
             }
 
             // T8 Step 6 — generic type MEMBER conformance against a REAL extracted `.fsi`.

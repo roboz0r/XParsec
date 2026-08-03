@@ -465,8 +465,6 @@ let jsPackageConformanceTests =
                         "Vesper.Core: the signature file 'compiler-attributes.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                         "Vesper.Core: the signature file 'core-types.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                         "Vesper.Core: the signature file 'structural-format.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
-                        "Vesper.List: list.fsi: value 'ofSeq' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
-                        "Vesper.List: list.fsi: value 'toSeq' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
                         "Vesper.Seq: the signature file 'seq.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                     ]
 

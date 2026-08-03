@@ -15,7 +15,7 @@ module internal UnificationInferPat =
 
     /// The `'T list` type carrying `elemTy`, resolved exactly like a `[…]`
     /// literal (`Unification.listLiteralTy`): a program that declares its own
-    /// `'T list` abbreviation (the self-host `list.clr.fs`) expands eagerly to the
+    /// `'T list` abbreviation (the self-host `list.fs`) expands eagerly to the
     /// union RHS; a bare program leaves the container flexible (a fresh TyVar
     /// registered in `ctx.ListLiterals`) for consumer-driven resolution.
     let private consListTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =

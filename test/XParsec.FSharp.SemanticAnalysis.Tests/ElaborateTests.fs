@@ -650,10 +650,10 @@ let listAbbrevTests =
     testList
         "ListAbbrev"
         [
-            // The verbatim `list.clr.fs` shape: the abbreviation's RHS references
+            // The verbatim `list.fs` shape: the abbreviation's RHS references
             // the union it shares an `and` group with, and the union's `Tail`
             // field references back through the `'T list` abbreviation.
-            test "`and 'T list = List<'T>` type-checks with the verbatim list.clr.fs case shape" {
+            test "`and 'T list = List<'T>` type-checks with the verbatim list.fs case shape" {
                 let src =
                     String.concat
                         "\n"
