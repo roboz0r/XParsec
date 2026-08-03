@@ -94,10 +94,10 @@ module Codegen =
     /// extra wiring here: the fact rides the resolved symbol (`ExternalSymbol.ImportForm`,
     /// stamped by the TS-manifest provider) and is read at the `JsImports.addRef` site.
     let compileWith (contract: SymbolProviders.Contract) (project: JsProjectInfo) (tast: FrozenPools) : JsArtifact =
-        // Resolve `runtime-js` assets from the CONTRACT's manifest set; only the referenced
-        // subset is materialised. `"js"` is the JS backend's target suffix.
+        // Resolve `[targets.js] runtime` assets from the CONTRACT's manifest set; only the
+        // referenced subset is materialised.
         let runtimeAssets =
-            ReferencedProject.runtimeModules "js" contract.ManifestPaths
+            ReferencedProject.runtimeModules Target.Js contract.ManifestPaths
             |> Map.map (fun _ (fileName, source) -> { FileName = fileName; Source = source })
 
         // A node's anchor is an index into the file's token table, so a map needs the table

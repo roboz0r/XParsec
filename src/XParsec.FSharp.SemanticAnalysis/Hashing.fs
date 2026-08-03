@@ -124,7 +124,7 @@ module Hashing =
     /// **Contract `.fsi` bytes alone are not enough, and assuming they were is a stale hit.**
     /// This fold used to cover `manifest.Files` only, on the premise that the hash could be
     /// "invariant to its implementation `.fs` bodies (which do not affect a consumer's
-    /// resolution)". They do. A dependency's `[core] inline-bodies` `.fs` files are re-parsed,
+    /// resolution)". They do. A dependency's `impl` `.fs` files are re-parsed,
     /// re-analysed and their templates SPLICED INTO the consumer's tree before it is frozen
     /// (`SymbolProviders.inlineBodies`, folded onto the provider entry that owns each key),
     /// and the `.fs` companion beside each `.fsi` is scanned for the intrinsic reprs that
@@ -205,10 +205,9 @@ module Hashing =
             /// (`Pipeline.analyseFor`'s first argument). A blob frozen under one home
             /// assembly names its own symbols differently from one frozen under another.
             HomeAssembly: string
-            /// The backend target suffix selecting per-target manifest lists
-            /// (`inline-bodies-js`, `files-js`), or `None` for the base/CLR resolution.
-            /// Two targets over one manifest set are two different providers.
-            Target: string option
+            /// The backend target selecting the `[targets.<t>]` manifest lists. Two
+            /// targets over one manifest set are two different providers.
+            Target: string
             /// The compilation's own reference assemblies — the metadata leaf under the
             /// contract stack, so they decide what a BCL name resolves to.
             ReferenceAssemblies: string list
@@ -257,8 +256,7 @@ module Hashing =
     let private environmentHash (inputs: CompilationInputs) : InputHash =
         let hasher = XxHash128()
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes inputs.HomeAssembly)
-        appendPresence hasher inputs.Target.IsSome
-        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes(defaultArg inputs.Target ""))
+        appendLengthPrefixed hasher (Encoding.UTF8.GetBytes inputs.Target)
 
         // The self manifest's ROLE. Its CONTENTS are folded by `compilationDigest` through
         // the same `dependencySignatureHash` a reference gets — which is why the role has to

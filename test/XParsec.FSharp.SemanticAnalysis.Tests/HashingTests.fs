@@ -70,7 +70,7 @@ let private hashAcrossWrite (manifestPath: string) (rel: string) (contents: stri
 let private compilation: Hashing.CompilationInputs =
     {
         HomeAssembly = "Consumer"
-        Target = None
+        Target = "clr"
         ReferenceAssemblies = []
         Manifests = []
         SelfManifest = None
@@ -379,12 +379,12 @@ let tests =
                             "the home assembly is a determinant of the frozen tree"
                     }
 
-                    test "the target suffix changes the key" {
-                        // A target selects the per-target manifest lists (`inline-bodies-js`,
-                        // `files-js`), so two targets over one manifest set are two providers.
+                    test "the target changes the key" {
+                        // A target selects the `[targets.<t>]` manifest lists, so two targets
+                        // over one manifest set are two providers.
                         Expect.notEqual
                             (keyUnder compilation)
-                            (keyUnder { compilation with Target = Some "js" })
+                            (keyUnder { compilation with Target = "js" })
                             "the target is a determinant of the provider, hence of the tree"
                     }
 
@@ -461,16 +461,16 @@ let tests =
                 "dependencySignatureHash covers every source the provider build reads"
                 [
                     test "an edited cross-package inline body changes the signature hash" {
-                        // THE regression. `[core] inline-bodies` bodies are re-analysed and
-                        // spliced into the CONSUMER pre-freeze, so editing one changes what the
-                        // consumer emits while touching no `.fsi`.
+                        // THE regression. `impl` bodies are re-analysed and spliced into the
+                        // CONSUMER pre-freeze, so editing one changes what the consumer emits
+                        // while touching no `.fsi`.
                         let root = freshRoot "inline-bodies-change"
 
                         let manifest =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\ninline-bodies = [\"ops.fs\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"ops.fs\"]\n"
                                 [
                                     "contract.fsi", "val inline f: int -> int\n"
                                     "ops.fs", "let inline f x = x + 1\n"
@@ -497,17 +497,17 @@ let tests =
                         Expect.notEqual before after "an impl file is a source the build reads"
                     }
 
-                    test "an edited .fs companion beside a contract changes the signature hash" {
-                        // Never named by the manifest — DERIVED from each `.fsi`
-                        // (`ReferencedProject.companionFs`) and scanned for the intrinsic
-                        // reprs a consumer's primitives resolve through.
+                    test "an edited intrinsic-repr body changes the signature hash" {
+                        // The `.fs` beside a contract is scanned for the intrinsic reprs a
+                        // consumer's primitives resolve through, so it moves the resolution
+                        // without touching the `.fsi`.
                         let root = freshRoot "companion-change"
 
                         let manifest =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\nimpl = [\"contract.fs\"]\n"
                                 [ "contract.fsi", "type a = extern\n"; "contract.fs", "type a = (# \"A\" #)\n" ]
 
                         let struct (before, after) =
@@ -517,15 +517,15 @@ let tests =
                     }
 
                     test "an edited per-target extra contract changes the signature hash" {
-                        // `files-<t>` APPENDS to the contract surface, so it is contract the
-                        // base `files` fold never saw.
+                        // `[targets.<t>] files` APPENDS to the contract surface, so it is
+                        // contract the shared `files` fold never saw.
                         let root = freshRoot "files-target-change"
 
                         let manifest =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\nfiles-js = [\"shim.js.fsi\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\n\n[targets.js]\nfiles = [\"shim.js.fsi\"]\n"
                                 [ "contract.fsi", "type a = extern\n"; "shim.js.fsi", "type b = extern\n" ]
 
                         let struct (before, after) =
@@ -534,27 +534,26 @@ let tests =
                         Expect.notEqual before after "a per-target extra contract is contract surface"
                     }
 
-                    test "an edited per-target companion changes the signature hash" {
-                        // The suffix comes from `files-js`; `contract.js.fs` is named by NEITHER
-                        // list — it is the target companion of `contract.fsi`, which is why
-                        // `targetSuffixes` has to sweep every per-target key.
+                    test "an edited per-target body changes the signature hash" {
+                        // TARGET-BLIND: the key is folded with no target in hand, so a
+                        // `[targets.js]` body moves a CLR consumer's key too. Over-folding
+                        // costs a rebuild; under-folding serves a wrong blob.
                         let root = freshRoot "target-companion-change"
 
                         let manifest =
                             writePackageFiles
                                 root
                                 "Pkg"
-                                "[core]\nfiles = [\"contract.fsi\"]\nfiles-js = [\"shim.js.fsi\"]\n"
+                                "[core]\nfiles = [\"contract.fsi\"]\n\n[targets.js]\nimpl = [\"contract.js.fs\"]\n"
                                 [
                                     "contract.fsi", "type a = extern\n"
-                                    "shim.js.fsi", "type b = extern\n"
                                     "contract.js.fs", "type a = (# \"number\" #)\n"
                                 ]
 
                         let struct (before, after) =
                             hashAcrossWrite manifest "contract.js.fs" "type a = (# \"bigint\" #)\n"
 
-                        Expect.notEqual before after "a target companion is a source the build reads"
+                        Expect.notEqual before after "a target body is a source the build reads"
                     }
 
                     test "reordering the manifest's file list changes the signature hash" {

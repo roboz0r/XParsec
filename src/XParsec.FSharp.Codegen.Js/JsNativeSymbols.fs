@@ -242,11 +242,11 @@ module JsNativeSymbols =
     /// resolve symbols and nothing else (analysis, introspection); a caller that EMITS takes
     /// the contract, because a source map's positions are only readable against the anchor
     /// domain of the same collection the provider serves bodies from.
-    let jsNativeContractFor (target: string option) (manifestPaths: string list) : SymbolProviders.Contract =
+    let jsNativeContractFor (target: string) (manifestPaths: string list) : SymbolProviders.Contract =
         SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths
 
     /// The JS-native contract provider, for a caller that only RESOLVES symbols.
-    let buildJsNativeContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
+    let buildJsNativeContractFor (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
         (jsNativeContractFor target manifestPaths).Provider
 
     /// The raw cross-package inline-body map for the JS-native contract — introspection
@@ -254,7 +254,7 @@ module JsNativeSymbols =
     /// `buildJsNativeContractFor`). The JS-side counterpart of the (CLR-side)
     /// `ClrSymbolProviders.contractInlineBodiesFor`. JS-target only: the JS-native leaf
     /// resolves no BCL types, so it cannot build the CLR (`target = None`) collection.
-    let jsNativeInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
+    let jsNativeInlineBodiesFor (target: string) (manifestPaths: string list) : Map<string, InlineBody> =
         (jsNativeContractFor target manifestPaths).BodiesByName
 
     /// The producer files the JS-native contract's inline bodies were unpooled from, retained so
@@ -262,5 +262,5 @@ module JsNativeSymbols =
     /// introspection seam for the RETENTION itself (`OpsPlatformJsTests` checks each retained
     /// file against the disk it claims to describe); a compile never takes this alone, since a
     /// body's positions are readable only against the collection that served the body.
-    let jsNativeInlineOriginsFor (target: string option) (manifestPaths: string list) : OriginSources =
+    let jsNativeInlineOriginsFor (target: string) (manifestPaths: string list) : OriginSources =
         (jsNativeContractFor target manifestPaths).Origins

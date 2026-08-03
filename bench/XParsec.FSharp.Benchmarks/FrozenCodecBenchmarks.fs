@@ -66,6 +66,7 @@ module XParsec.FSharp.Benchmarks.FrozenCodecBenchmarks
 open BenchmarkDotNet.Attributes
 
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Benchmarks.SemanticAnalysisFixtures
 
 [<MemoryDiagnoser>]
@@ -91,7 +92,7 @@ type FrozenCodecBenchmarks() =
     let keyInputs: Hashing.CompilationInputs =
         {
             HomeAssembly = "Bench"
-            Target = None
+            Target = Target.Clr
             ReferenceAssemblies = []
             Manifests = [ manifestPath "Vesper.Set" ]
             SelfManifest = None

@@ -23,13 +23,13 @@ let tests =
         [
             // The declared operator surface IS the CLR's arithmetic-support definition;
             // the manifest states the same matrix. The contract is the one a CLR build
-            // resolves against — target `None`.
-            OperatorSurfaceParity.tests "clr" (ClrSymbolProviders.buildContractFor None [ vesperCoreManifest ])
+            // resolves against.
+            OperatorSurfaceParity.tests "clr" (ClrSymbolProviders.buildContractFor Target.Clr [ vesperCoreManifest ])
 
             test "target selection swaps in the JS bodies (Math.imul present for js, absent for clr)" {
-                let js = ClrSymbolProviders.buildContractFor (Some Target.Js) [ vesperCoreManifest ]
+                let js = ClrSymbolProviders.buildContractFor Target.Js [ vesperCoreManifest ]
 
-                let clr = ClrSymbolProviders.buildContractFor None [ vesperCoreManifest ]
+                let clr = ClrSymbolProviders.buildContractFor Target.Clr [ vesperCoreManifest ]
 
                 // `int`'s own `( * )` — the per-width body that used to be the operator's
                 // int32 clause, now served by member key off the primitive.
@@ -48,7 +48,7 @@ let tests =
             }
 
             test "CLR target: canon is the `.fsi` name, platform is the BCL repr" {
-                let clr = ClrSymbolProviders.buildContractFor None [ vesperCoreManifest ]
+                let clr = ClrSymbolProviders.buildContractFor Target.Clr [ vesperCoreManifest ]
 
                 match clr.TryLookupType "Vesper.int" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Intrinsic {

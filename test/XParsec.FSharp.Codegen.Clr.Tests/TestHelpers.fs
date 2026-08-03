@@ -187,7 +187,7 @@ let vesperCoreDll: Lazy<string> =
          // primitive reprs (`string`, …) resolve from Core's own `.fs`.
          let implFiles =
              match ReferencedProject.loadManifest vesperCoreManifest with
-             | Ok m -> ReferencedProject.resolveImpl None m
+             | Ok m -> ReferencedProject.resolveImpl Target.Clr m
              | Error e -> failwithf "vesperCoreDll: cannot load Vesper.Core manifest: %s" e
 
          let files =
@@ -201,7 +201,7 @@ let vesperCoreDll: Lazy<string> =
          // as it does in a consumer's. Built through the production driver seam, so the
          // fixture cannot drift from what `buildPackage "Vesper.Core"` does.
          let provider =
-             ClrSymbolProviders.buildContractForSelf (Some vesperCoreManifest) None []
+             ClrSymbolProviders.buildContractForSelf (Some vesperCoreManifest) Target.Clr []
 
          let artifact =
              match ClrDriver.compileAssemblyWith Pipeline.analyseFor [] provider project files with
@@ -358,7 +358,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // contract binding with no implementation (and not declared `sig-only`
                  // in the manifest) is an FS0240-style error — no codegen substitution
                  // may stand in for a missing `.fs`.
-                 match ConformancePass.checkManifest None manifestPath with
+                 match ConformancePass.checkManifest Target.Clr manifestPath with
                  | Result.Error e -> failwithf "buildPackage %s: conformance: %s" pkg e
                  | Result.Ok outcome ->
                      match ConformancePass.enforce outcome with
@@ -386,9 +386,10 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // — `prim-types-string.fs`'s `System.String.Concat(x, y)` takes two
                  // `Vesper.string`s and must find the `(String, String)` overload.
                  let provider =
-                     ClrSymbolProviders.buildContractForSelf (Some manifestPath) None depManifests
+                     ClrSymbolProviders.buildContractForSelf (Some manifestPath) Target.Clr depManifests
 
                  let dir = IO.Path.GetDirectoryName manifestPath
+                 let implRels = ReferencedProject.resolveImpl Target.Clr manifest
 
                  // Each `impl` file is analysed as its OWN file through the shared multi-file
                  // seam (`ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost`) rather
@@ -398,7 +399,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // package that doesn't type-check hasn't built), returning `Error` rather than
                  // emitting a degraded DLL.
                  let files =
-                     manifest.Impl
+                     implRels
                      |> List.map (fun rel ->
                          let p = IO.Path.Combine(dir, rel)
                          p, IO.File.ReadAllText p
@@ -427,9 +428,8 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
 
-                 // A contract-only package (`impl = []`: Vesper.Comparison, whose
-                 // operators are inlined) compiles to an *empty* DLL here — it carries
-                 // no runtime types. `Vesper.Printf` is a special case: its runtime
+                 // A package with no bodies for this target compiles to an *empty* DLL
+                 // here — it carries no runtime types. `Vesper.Printf` is a special case: its runtime
                  // peer — the Vesper-compiled `Vesper.Formatter` (`formatter.fs`) and
                  // `StructuralPrinter` (`structural-printer.fs`, the `%A` engine), plus
                  // the printf module surface — is loaded separately into the Default ALC
@@ -441,7 +441,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                  // to the Default ALC copy. The on-disk path stays in `References` for
                  // emit-time identity. (The `buildsBclOnly "Vesper.Printf"` test only
                  // needs the build to succeed; it does not drive the emitted handler.)
-                 if List.isEmpty manifest.Impl || manifest.Name = "Vesper.Printf" then
+                 if List.isEmpty implRels || manifest.Name = "Vesper.Printf" then
                      let throwaway = AssemblyLoadContext("xparsec-contract-only", isCollectible = true)
 
                      throwaway.LoadFromStream ms, artifact

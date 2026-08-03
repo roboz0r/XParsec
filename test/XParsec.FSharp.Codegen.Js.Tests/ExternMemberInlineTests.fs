@@ -178,7 +178,7 @@ let private widgetManifest: string =
 /// spliced body's positions are readable only against this set's retained producer files:
 /// `widget.js.fs` is in this retention and in no other.
 let private widgetFixtureContract: Lazy<SymbolProviders.Contract> =
-    lazy JsNativeSymbols.jsNativeContractFor (Some Target.Js) (widgetManifest :: TestHelpers.jsManifests)
+    lazy JsNativeSymbols.jsNativeContractFor Target.Js (widgetManifest :: TestHelpers.jsManifests)
 
 /// Emit a consumer snippet through the widget-inclusive contract. No runtime module is
 /// injected: `widget`'s member is fully spliced, so the emitted `usePoke` imports nothing.

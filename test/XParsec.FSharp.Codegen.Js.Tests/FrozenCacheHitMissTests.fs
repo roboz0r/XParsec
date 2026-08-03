@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Js.Tests.FrozenCacheHitMissTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
@@ -31,7 +32,7 @@ let private conformanceDigest =
     Hashing.compilationDigest
         {
             HomeAssembly = "Conformance"
-            Target = Some "js"
+            Target = Target.Js
             ReferenceAssemblies = []
             Manifests = []
             SelfManifest = None

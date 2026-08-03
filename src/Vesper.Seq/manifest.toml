@@ -9,7 +9,8 @@ files = [
     "struct-seq.fsi",
 ]
 
-# Runtime impl `.fs` files (our-backend target source).
+[targets.clr]
+# CLR-bound: `IEnumerable` / `IEnumerator` / `System.Linq`. No JS body ships yet.
 impl = [
     "seq.fs",
     "struct-seq.fs",

@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.SelfPackageReverseCanonTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
@@ -29,7 +30,7 @@ module ConcatProbe =
     let private coreFilesPlusProbe () =
         let implFiles =
             match ReferencedProject.loadManifest vesperCoreManifest with
-            | Ok m -> ReferencedProject.resolveImpl None m
+            | Ok m -> ReferencedProject.resolveImpl Target.Clr m
             | Error e -> failwithf "cannot load Vesper.Core manifest: %s" e
 
         (implFiles
@@ -40,7 +41,7 @@ module ConcatProbe =
         ClrDriver.compileAssemblyWith
             Pipeline.analyseFor
             []
-            (ClrSymbolProviders.buildContractForSelf selfManifest None [])
+            (ClrSymbolProviders.buildContractForSelf selfManifest Target.Clr [])
             (ProjectInfo.library "Vesper.Core")
             (coreFilesPlusProbe ())
 
@@ -73,7 +74,8 @@ module ConcatProbe =
                 // that motivated it; `int`/`obj`/`exn` ride the same map and are asserted
                 // here so a partial seed cannot pass.
                 test "the self axis is the axis a consumer of the package sees" {
-                    let selfAxis = ClrSymbolProviders.selfReverseCanon None (Some vesperCoreManifest)
+                    let selfAxis =
+                        ClrSymbolProviders.selfReverseCanon Target.Clr (Some vesperCoreManifest)
 
                     let consumerAxis =
                         (ClrSymbolProviders.buildContract [ vesperCoreManifest ]).IntrinsicReverseCanon

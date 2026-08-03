@@ -8,33 +8,27 @@ files = [
     "comparison.fsi",
 ]
 
-# JS-only contract files, APPENDED to `files` for the JS target. `structuralCompare` is
-# a JS runtime entry (the `< > <= >=` aggregate bases delegate to it for non-primitive
-# operands, body in `Vesper.Comparison.mjs`); it has no CLR `.fs` body, so it is NOT in
-# the CLR contract.
-files-js = [
-    "comparison-runtime.js.fsi",
-]
-
-# No `impl`: the four ordering operators are signature-only (`let inline` over
-# static-optimized inline IL, spliced at each use site), so the package emits no
-# runtime DLL — `comparison.fs` is purely an inline-body source.
-impl = []
-
-# Per-target `.fs` body the codegen inline-body loader reads across the package
-# boundary: the static-optimization over
-# inline IL for each of the four bare ordering operators.
-inline-bodies = [
+[targets.clr]
+# Every declaration is `inline` (a static optimization over inline IL for each of the four
+# bare ordering operators), so this compiles to an empty DLL and splices at each use site.
+# The file declares no types, so naming it here publishes no intrinsic marker.
+impl = [
     "comparison.fs",
 ]
 
-# JS-target override (mirrors Vesper.Core's `inline-bodies-js` / `runtime-js`): the
-# operator bodies re-authored as `$N`-template JS, and the structural comparator their
-# aggregate bases import. See `Vesper.Comparison.mjs` for the wiring.
-inline-bodies-js = [
+[targets.js]
+# JS-only contract, appended to `files`. `structuralCompare` is a JS runtime entry (the
+# `< > <= >=` aggregate bases delegate to it for non-primitive operands, body in
+# `Vesper.Comparison.mjs`); it has no CLR `.fs` body, so it is NOT in the shared contract.
+files = [
+    "comparison-runtime.js.fsi",
+]
+
+# The operator bodies re-authored as `$N`-template JS.
+impl = [
     "comparison.js.fs",
 ]
 
-runtime-js = [
+runtime = [
     "Vesper.Comparison.mjs",
 ]

@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 
 /// A single CLR compilation's inputs, MSBuild-shaped: a future `dotnet build`
 /// integration hands us these already resolved.
@@ -58,6 +59,13 @@ module ClrDriver =
     let private blockingErrors (tast: FrozenPools) : Diagnostic list =
         Diagnostic.errors tast.Residue.Diagnostics
 
+    /// ONE binding for the provider build and for the cache digest, because
+    /// `buildContractWithRefs` selects the per-target manifest lists with it and a digest
+    /// naming a different one would let two targets' trees alias in the store. They are
+    /// computed in different functions, which is what makes sharing the binding
+    /// load-bearing rather than tidy.
+    let private clrTarget: string = Target.Clr
+
     /// Compile `source` to an in-memory PE artifact against the compilation's own
     /// reference set. Front end: `Pipeline.analyseFor` — the frozen production
     /// entry. A driver program is an FSharp.Core-front-end CONSUMER of the Vesper
@@ -70,7 +78,11 @@ module ClrDriver =
         | Error diagnostics -> Error diagnostics
         | Ok parsed ->
             let provider =
-                ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences None inputs.Manifests
+                ClrSymbolProviders.buildContractWithRefs
+                    inputs.SelfManifest
+                    inputs.BclReferences
+                    clrTarget
+                    inputs.Manifests
 
             let tast =
                 Pipeline.analyseFor
@@ -82,13 +94,6 @@ module ClrDriver =
             match blockingErrors tast with
             | [] -> Ok(Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project tast)
             | errors -> Error errors
-
-    /// The CLR target suffix: none. ONE binding for the provider build and for the cache
-    /// digest, because `buildContractWithRefs` selects the per-target manifest lists with it
-    /// and a digest naming a different one would let two targets' trees alias in the store.
-    /// They are computed in two different functions now, which is what makes sharing the
-    /// binding load-bearing rather than tidy.
-    let private clrTarget: string option = None
 
     /// This compilation's cache digest — everything a cached front end depends on EXCEPT one
     /// file's text. Fold it once and hand it to `compileCachedWith` for every file of the
@@ -250,7 +255,7 @@ module ClrDriver =
         (files: (string * string) list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
         let provider =
-            ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences None inputs.Manifests
+            ClrSymbolProviders.buildContractWithRefs inputs.SelfManifest inputs.BclReferences clrTarget inputs.Manifests
 
         compileAssemblyWith Pipeline.analyseFor inputs.BclReferences provider inputs.Project files
 

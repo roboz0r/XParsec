@@ -15,13 +15,12 @@ open XParsec.FSharp.Parser
 // longer be silently omitted from a hand-maintained list.
 //
 // Pairing follows the F#-faithful rules (see the T8 plan "Name resolution"):
-//  - KEY: filename stem (`foo.fsi` ↔ `foo.fs`), with the per-target `.<t>.fs`
-//    override preferred over the base `.fs` (mirrors
-//    `ReferencedProject.targetOverrideFs`).
-//  - The impl candidate set for target T is `resolveImpl T ∪ resolveInlineBodies T`
-//    — a `.fsi` pairs only with a `.fs` the manifest actually compiles/splices for
-//    that target. A `.fsi` with no such `.fs` is impl-free (an exemption candidate;
-//    Step 5 turns an un-exempted one into an FS0240-style hard error).
+//  - KEY: the manifest's own pairing stem (`ReferencedProject.pairingStem`), so
+//    `prim-types-int.js.fs` pairs with `prim-types-int.fsi`.
+//  - The impl candidate set for target T is `resolveImpl T ∪ resolveInlineBodies T` — a
+//    `.fsi` pairs only with a `.fs` the manifest actually compiles or splices for that
+//    target. A `.fsi` with no such `.fs` is impl-free (an exemption candidate; Step 5
+//    turns an un-exempted one into an FS0240-style hard error).
 //  - GUARD: a paired `.fsi`/`.fs` must agree on their leading `module`/`namespace`
 //    declaration — what FS0240's message is really about (F# correlates files by
 //    `QualifiedNameOfFile`). A disagreement means the stem rule paired two unrelated
@@ -126,49 +125,32 @@ module ConformancePass =
             }
 
     /// Conform every `.fsi` in a package manifest against its `.fs` companion for
-    /// `target` (the base/CLR pairing is `None`). Returns `Error` ONLY when the package
+    /// `target`. Returns `Error` ONLY when the package
     /// is wholly un-checkable — a malformed/absent manifest. A per-file parse failure is
     /// collected as a `PairOutcome.ParseFailed` verdict (so one bad file does not mask
     /// the others' drift); `enforce` promotes it to a hard error alongside the rest.
-    let checkManifest (target: string option) (manifestPath: string) : Result<PackageOutcome, string> =
+    let checkManifest (target: string) (manifestPath: string) : Result<PackageOutcome, string> =
         match ReferencedProject.loadManifest manifestPath with
         | Error e -> Error e
         | Ok m ->
             let dir = Path.GetDirectoryName manifestPath
 
-            // The impl candidate set: everything the manifest compiles or splices for
-            // this target. A `.fsi` pairs only with a `.fs` that is actually in it.
+            // The impl candidate set: every `.fs` the manifest names for this target,
+            // compiled or spliced. A `.fsi` pairs only with a `.fs` that is in it.
             let implFiles =
                 ReferencedProject.resolveImpl target m
                 @ ReferencedProject.resolveInlineBodies target m
                 |> List.distinct
 
-            let implSet = Set.ofList implFiles
+            let sigFiles = ReferencedProject.resolveFiles target m
 
-            let sigFiles = m.Files @ ReferencedProject.resolveExtraFiles target m
+            let stem = ReferencedProject.pairingStem m
 
-            // `foo.fsi` → its companion `.fs` in the impl set: prefer the per-target
-            // `foo.<t>.fs` override, else the base `foo.fs`; `None` = impl-free.
-            // TODO(T8/JS-conformance): the stem surgery here and in `implStem` below is
-            // asymmetric for multi-suffix files. A base `foo.fsi` strips ".fsi" cleanly,
-            // but a `files-js` runtime contract `foo.js.fsi` yields stem `foo.js`, so for
-            // `target = Some "js"` `companionOf` probes the nonsensical `foo.js.js.fs`
-            // and `implStem` strips a trailing `.js` from impls — the two sides will not
-            // agree. Not exercised today (the pass is only invoked with `target = None`),
-            // but when JS conformance lands the `.fsi`↔`.fs` pairing should stop being
-            // inferred from filename string surgery and instead be made explicit in the
-            // manifest (an explicit sig→impl mapping, or a normalised stem the manifest
-            // format records once), so a `.<target>.fsi`/`.<target>.fs` pair is paired by
-            // declaration rather than by guessing suffix boundaries.
-            let companionOf (fsiRel: string) : string option =
-                let stem = fsiRel.Substring(0, fsiRel.Length - 4) // strip ".fsi"
+            // The manifest's own pairing rule, so this pass checks the very pairs the
+            // provider build extracts from. A later impl wins a stem clash.
+            let implByStem = implFiles |> List.map (fun f -> stem f, f) |> Map.ofList
 
-                let candidates =
-                    match target with
-                    | Some t -> [ stem + "." + t + ".fs"; stem + ".fs" ]
-                    | None -> [ stem + ".fs" ]
-
-                candidates |> List.tryFind implSet.Contains
+            let companionOf (fsiRel: string) : string option = Map.tryFind (stem fsiRel) implByStem
 
             let outcome (fsiRel: string) : PairOutcome =
                 match companionOf fsiRel with
@@ -229,25 +211,10 @@ module ConformancePass =
 
             let pairs = sigFiles |> List.map outcome
 
-            // `.fs` files with no `.fsi` contract. Strip `.fs`, then a trailing
-            // `.<target>` segment (`ops-platform.js.fs` → `ops-platform`), and compare
-            // against the contract stems.
-            let fsiStems =
-                sigFiles |> List.map (fun s -> s.Substring(0, s.Length - 4)) |> Set.ofList
+            // `.fs` files with no `.fsi` contract — a body with no published surface.
+            let fsiStems = sigFiles |> List.map stem |> Set.ofList
 
-            let implStem (implRel: string) =
-                let noFs =
-                    if implRel.EndsWith ".fs" then
-                        implRel.Substring(0, implRel.Length - 3)
-                    else
-                        implRel
-
-                match target with
-                | Some t when noFs.EndsWith("." + t) -> noFs.Substring(0, noFs.Length - t.Length - 1)
-                | _ -> noFs
-
-            let implOnly =
-                implFiles |> List.filter (fun f -> not (fsiStems.Contains(implStem f)))
+            let implOnly = implFiles |> List.filter (fun f -> not (fsiStems.Contains(stem f)))
 
             // A per-file parse failure is a `PairOutcome.ParseFailed` verdict (surfaced
             // by `enforce`), NOT an `Error`: the pass still reports every other contract's

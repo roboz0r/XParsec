@@ -34,7 +34,7 @@ let realProvider: Lazy<IExternalSymbolProvider> =
     lazy
         [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison"; "Vesper.Printf" ]
         |> List.map srcManifest
-        |> ReferencedProject.composeContract ReferencedProject.noMetaTail None
+        |> ReferencedProject.composeContract ReferencedProject.noMetaTail "clr"
 
 // The nominal `SemType` cases now carry a
 // `SymbolKey`, but tests construct and assert them by *string* name. These shadow

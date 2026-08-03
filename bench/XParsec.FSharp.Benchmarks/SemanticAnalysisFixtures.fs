@@ -12,6 +12,7 @@ module XParsec.FSharp.Benchmarks.SemanticAnalysisFixtures
 
 open System.IO
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr
 
 /// repo `src/` dir, resolved from this bench file (`bench/XParsec.FSharp.Benchmarks`).
@@ -55,7 +56,7 @@ let packageStage (pkg: string) : Stage =
     let dir = Path.GetDirectoryName(manifestPath pkg)
 
     let files =
-        ReferencedProject.resolveImpl None m
+        ReferencedProject.resolveImpl Target.Clr m
         |> List.map (fun rel ->
             let abs = Path.Combine(dir, rel)
             abs, File.ReadAllText abs

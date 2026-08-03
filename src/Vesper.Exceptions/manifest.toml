@@ -6,10 +6,10 @@ files = [
     "exceptions.fsi",
 ]
 
-# Impl-free on CLR: the exception mechanism is BCL-resolved (`System.Private.CoreLib`),
-# and the JS representation comes via `prim-types-exn`, not a base `.fs`. The
-# conformance pass (T8 Step 5) accepts this exemption; an un-listed `.fsi`-without-`.fs`
-# would be an FS0240 hard error.
+# Impl-free on every target: the exception mechanism is BCL-resolved
+# (`System.Private.CoreLib`), and the JS representation comes via `prim-types-exn`, not a
+# `.fs` here. The conformance pass accepts this exemption; an un-listed
+# `.fsi`-without-`.fs` would be an FS0240 hard error.
 sig-only = [
     "exceptions.fsi",
 ]

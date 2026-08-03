@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.MetadataSymbolsTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr
 
 // The metadata leaf canonicalizes BCL primitives (`System.Int32 → int`) through the
@@ -288,10 +289,14 @@ let tests =
                 Expect.isTrue (List.length withoutLinq < List.length full) "host TPA carries System.Linq.dll"
 
                 let fullProvider =
-                    ClrSymbolProviders.buildContractWithRefs None full None [ TestHelpers.vesperCoreManifest ]
+                    ClrSymbolProviders.buildContractWithRefs None full Target.Clr [ TestHelpers.vesperCoreManifest ]
 
                 let limited =
-                    ClrSymbolProviders.buildContractWithRefs None withoutLinq None [ TestHelpers.vesperCoreManifest ]
+                    ClrSymbolProviders.buildContractWithRefs
+                        None
+                        withoutLinq
+                        Target.Clr
+                        [ TestHelpers.vesperCoreManifest ]
 
                 Expect.isTrue
                     (fullProvider.TryLookupType "System.Linq.Enumerable" |> ValueOption.isSome)

@@ -12,38 +12,27 @@ files = [
     "list.fsi",
 ]
 
-# Runtime impl `.fs` files (our-backend target source). `list.fs` is the compiled
-# impl in the verbatim `[]`/`::` operator-case form — the cutover target that the
-# old `list-min.fs` (named `Nil`/`Cons` cases) was a placeholder for, now buildable
-# because the front end lowers cons patterns/construction (vesper-lib-test-plan
-# "list.fs cutover"). `list-min.fs` was removed once the cutover landed.
+[targets.clr]
+# `list.fs` is the compiled impl in the verbatim `[]`/`::` operator-case form. CLR-bound
+# despite naming no `System.` type: `interface seq<'T>` and `toSeq`/`ofSeq` bind it to the
+# BCL `seq` contract, which is exactly what `list.js.fs` exists to strip. Factoring the
+# `seq` leg out of the contract would make the package genuinely neutral, and both target
+# lists would then drop it for a single shared `list.fs`.
 impl = [
     "list.fs",
 ]
 
-# JS-target impl override, selected by the
-# backend via `ReferencedProject.resolveImpl (Some "js")`. `list.js.fs` is the
-# subset of `list.fs` the JS backend can compile (the cons-list type's cases without
+[targets.js]
+# The subset of `list.fs` the JS backend can compile (the cons-list type's cases without
 # member methods + the `isEmpty`/`length`/`head`/`tail`/`map`/`append`/`rev` module
-# functions, `head`/`tail` raising via `failwith`); compiled in library
-# mode it GENERATES the `runtime-js` `Vesper.List.mjs` below, replacing the
-# hand-authored asset. The CLR backend keeps building the full `list.fs` (base `impl`).
-impl-js = [
+# functions, `head`/`tail` raising via `failwith`) — metadata-free, so the JS inline-body
+# analysis stays self-contained. Compiled in library mode it GENERATES the `runtime`
+# asset below, replacing the hand-authored one.
+impl = [
     "list.js.fs",
 ]
 
-# JS-target inline-body source. Without this, `resolveInlineBodies (Some "js")` falls
-# back to the base `inline-bodies` (= `impl` = `list.fs`), whose `toSeq` leg pulls in
-# `System.Collections.Generic.IEnumerable<_>` — unresolvable under a BCL-free JS
-# provider. `list.js.fs` is the metadata-free subset, so
-# the JS inline-body analysis stays self-contained.
-inline-bodies-js = [
-    "list.js.fs",
-]
-
-# JS runtime *asset*: the cons-list module functions
-# (`List.length`/`map`/…) the JS backend imports and ships beside its output, read
-# via `ReferencedProject.runtimeModules`. GENERATED from `list.js.fs` (Phase 3) by
-# the JS backend, not hand-authored; regenerable via the codegen-js test suite. See
-# Vesper.Core's `runtime-js` note for the platform-support-asset pattern.
-runtime-js = ["Vesper.List.mjs"]
+# JS runtime *asset*: the cons-list module functions (`List.length`/`map`/…) the JS
+# backend imports and ships beside its output. GENERATED from `list.js.fs`, not
+# hand-authored; regenerable via the codegen-js test suite.
+runtime = ["Vesper.List.mjs"]

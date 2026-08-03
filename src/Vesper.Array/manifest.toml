@@ -8,7 +8,8 @@ files = [
     "array.fsi",
 ]
 
-# Runtime impl `.fs` files (our-backend target source).
+[targets.clr]
+# CLR-bound: `zeroCreate`'s `newarr` inline IL. No JS body ships yet.
 impl = [
     "array.fs",
 ]

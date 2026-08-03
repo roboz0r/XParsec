@@ -87,7 +87,7 @@ let jsManifests: string list =
 /// handed a provider from one manifest set and an anchor domain from another emits a source map
 /// that attributes producer code to a consuming line, in range and wrong.
 let jsContract: Lazy<SymbolProviders.Contract> =
-    lazy JsNativeSymbols.jsNativeContractFor (Some Target.Js) jsManifests
+    lazy JsNativeSymbols.jsNativeContractFor Target.Js jsManifests
 
 /// `jsContract`'s provider, for the front-end helpers — analysis resolves symbols and reads no
 /// position. A PROJECTION of the contract, never a second build.
@@ -188,7 +188,7 @@ let emitJsLibrary (input: string) : string =
 /// Deps-only JS contract for compiling a package impl (the package's own contract is absent, to
 /// avoid colliding with the in-file types the impl declares).
 let coreDepsJsContract: Lazy<SymbolProviders.Contract> =
-    lazy JsNativeSymbols.jsNativeContractFor (Some Target.Js) [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
+    lazy JsNativeSymbols.jsNativeContractFor Target.Js [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
 
 /// Front-end + freeze a JS-target package impl. The provider carries only the package's
 /// dependencies — the impl's own in-file types are the resolution authority.

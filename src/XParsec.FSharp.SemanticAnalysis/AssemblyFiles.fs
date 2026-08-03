@@ -85,6 +85,35 @@ module AssemblyFiles =
     type AnalyseFile =
         string -> IExternalSymbolProvider -> OriginSource -> ImplementationFile<SyntaxToken> -> FrozenPools
 
+    /// The namespaces a file DECLARES. F# implicitly opens a file's own `namespace N` over
+    /// its body, and a PRIOR file's namespace-direct declarations are reachable through
+    /// that — including by the provider-layer probes (intrinsic resolution) that never see
+    /// the file's local scope.
+    let private declaredNamespaces
+        (lexed: Lexed)
+        (input: string)
+        (file: ImplementationFile<SyntaxToken>)
+        : string list =
+        let identText (tok: SyntaxToken) =
+            match tok.Index with
+            | TokenIndex.Regular iT -> lexed.GetTokenString(iT, input)
+            | TokenIndex.Virtual -> ""
+
+        match file with
+        | ImplementationFile.Namespaces groups ->
+            [
+                for g in groups do
+                    match g with
+                    | NamespaceDeclGroup.Named(longIdent = li) ->
+                        let path = li.Idents |> Seq.map identText |> String.concat "."
+
+                        if path.Length > 0 then
+                            yield path
+                    | NamespaceDeclGroup.Global _ -> ()
+            ]
+            |> List.distinct
+        | _ -> []
+
     /// Analyse a multi-file assembly in manifest order through a chosen front end. Each
     /// file resolves the ones BEFORE it — the prior file views composed nearest-first,
     /// then the external provider last — so a name a nearer file re-declares shadows a
@@ -119,8 +148,21 @@ module AssemblyFiles =
                 let composed =
                     ExternalSymbolProviders.composite ((List.rev priorViews) @ [ external ])
 
+                // This file's own `namespace N` ahead of whatever prelude the external
+                // surface already carries, so `N.bool` declared by a prior file answers a
+                // bare `bool`. Without it a self-host package's operator bodies cannot
+                // name a primitive an earlier file of the SAME package declares.
+                let scoped =
+                    match declaredNamespaces parsed.Lexed source parsed.File with
+                    | [] -> composed
+                    | ns ->
+                        ExternalSymbolProviders.stack
+                            ValueNone
+                            (ns @ composed.AmbientOpenPrefixes |> List.distinct)
+                            [ composed ]
+
                 let origin = fileSource assemblyName path source parsed.Lexed
-                let frozen = analyse assemblyName composed origin parsed.File
+                let frozen = analyse assemblyName scoped origin parsed.File
                 let view = FrozenSignature.toProvider assemblyName origin frozen
 
                 // Push this file's view so LATER files can resolve its exports. It rides

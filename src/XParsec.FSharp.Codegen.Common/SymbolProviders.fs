@@ -30,8 +30,8 @@ module SymbolProviders =
     /// FACTORY. Common names no concrete leaf — the CLR backend injects its BCL
     /// `MetadataSymbols` tail (`ClrSymbolProviders.bclMetaTail`), the JS backend its
     /// JS-native tail. Uncached.
-    let buildWith (metaTail: MetaTailFactory) (manifestPaths: string list) : IExternalSymbolProvider =
-        ReferencedProject.composeContract metaTail None manifestPaths
+    let buildWith (metaTail: MetaTailFactory) (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
+        ReferencedProject.composeContract metaTail target manifestPaths
 
     /// Mint the `this`-first inline `TDecl.Let` for a concrete `member inline` — the
     /// member-sourced twin of the `let inline` value case. An accessor
@@ -181,8 +181,8 @@ module SymbolProviders =
 
         values, members
 
-    /// One pass over a manifest set's `inline-bodies`: the templates it publishes, and the
-    /// producer file they were declared in.
+    /// One pass over a manifest set's splice sources: the templates they publish, and the
+    /// producer file each was declared in.
     type CollectedInlineBodies =
         {
             Values: KeyedInlineBody list
@@ -190,12 +190,12 @@ module SymbolProviders =
             Origins: OriginSources
         }
 
-    /// Load cross-package inline bodies from manifests' `impl` files. Type-checked
-    /// and frozen once against `provider`. Emitted in manifest/decl order so a later
-    /// body wins a clash downstream (`Map.ofList` / `byKey.[k] <-`).
-    /// `target` selects per-target `inline-bodies-<t>` overrides.
+    /// Load cross-package inline bodies from manifests' `inline-bodies` files (which
+    /// default to `impl`). Type-checked and frozen once against `provider`. Emitted in
+    /// manifest/decl order so a later body wins a clash downstream
+    /// (`Map.ofList` / `byKey.[k] <-`).
     let inlineBodies
-        (target: string option)
+        (target: string)
         (provider: IExternalSymbolProvider)
         (manifestPaths: string list)
         : CollectedInlineBodies =
@@ -276,7 +276,7 @@ module SymbolProviders =
     type Contract =
         {
             /// The normalised manifest paths this contract was built from — the set whose
-            /// per-target runtime ASSETS (`ReferencedProject.runtimeModules`) back the imports
+            /// per-target runtime ASSETS (`runtimeModules`) back the imports
             /// of a program compiled against it. Held so the assets and the symbols a program
             /// resolves cannot be drawn from two different manifest sets.
             ManifestPaths: string list
@@ -315,15 +315,14 @@ module SymbolProviders =
     let private buildContractCached
         (cacheTag: string)
         (metaTail: MetaTailFactory)
-        (target: string option)
+        (target: string)
         (manifestPaths: string list)
         : Contract =
         let normalised = manifestPaths |> List.map Path.GetFullPath
         // The target AND the metadata-layer tag are part of the cache identity: the JS
-        // and CLR collections of the same set freeze different `inline-bodies`, and a
+        // and CLR collections of the same set freeze different `impl` bodies, and a
         // backend (`cacheTag = "jsnative"`) composes a different layer-2 provider.
-        let key =
-            cacheTag + "|" + (defaultArg target "") + "|" + String.concat ";" normalised
+        let key = cacheTag + "|" + target + "|" + String.concat ";" normalised
 
         contractCache
             .GetOrAdd(
@@ -383,7 +382,7 @@ module SymbolProviders =
     let buildContractWith
         (cacheTag: string)
         (metaTail: MetaTailFactory)
-        (target: string option)
+        (target: string)
         (manifestPaths: string list)
         : Contract =
         buildContractCached cacheTag metaTail target manifestPaths
@@ -394,7 +393,7 @@ module SymbolProviders =
     let buildContractWithMetadata
         (cacheTag: string)
         (metaTail: IExternalSymbolProvider list)
-        (target: string option)
+        (target: string)
         (manifestPaths: string list)
         : IExternalSymbolProvider =
         (buildContractCached cacheTag (fun _ -> metaTail) target manifestPaths).Provider

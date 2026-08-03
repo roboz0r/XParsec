@@ -8,7 +8,7 @@ files = [
     "choice.fsi",
 ]
 
-# Runtime impl `.fs` files (our-backend target source).
+# Target-NEUTRAL: pure data, no inline IL and no BCL name.
 impl = [
     "choice.fs",
 ]

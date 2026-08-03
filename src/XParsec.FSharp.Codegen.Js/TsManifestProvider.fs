@@ -286,7 +286,7 @@ module TsManifestProvider =
     /// contracts. `manifestPaths` are the `.fsi` package manifests; `tsManifestPaths`
     /// are the extractor's JSON outputs.
     let buildContractFor
-        (target: string option)
+        (target: string)
         (manifestPaths: string list)
         (tsManifestPaths: string list)
         : IExternalSymbolProvider =

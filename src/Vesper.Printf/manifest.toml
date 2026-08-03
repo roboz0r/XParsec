@@ -9,8 +9,8 @@ depends-on = ["Vesper.Core", "Vesper.List"]
 
 # .fsi files in compile order. printf-format (PrintfFormat type) before printf
 # (its signatures reference PrintfFormat); formatter is independent.
-# structural-printer (the `%A` engine contract) before formatter, mirroring `impl`:
-# `Formatter.AppendStructured` calls `StructuralPrinter.Print`.
+# structural-printer (the `%A` engine contract) before formatter, mirroring the impl
+# order: `Formatter.AppendStructured` calls `StructuralPrinter.Print`.
 files = [
     "printf-format.fsi",
     "structural-printer.fsi",
@@ -18,20 +18,8 @@ files = [
     "printf.fsi",
 ]
 
-# The `.fs` compiled into Vesper.Printf.dll by this repo's own backend. Both halves
-# of the printf stack are Vesper-compiled: the `%A` structural engine
-# (`structural-printer.fs`) BEFORE the write-through format handler
-# (`formatter.fs`) — a single-package compile is declaration-ordered, so
-# `StructuralPrinter` must precede `Formatter.AppendStructured`'s call to
-# `StructuralPrinter.Print`.
-impl = [
-    "structural-printer.fs",
-    "formatter.fs",
-]
-
-# Contracts that are DELIBERATELY impl-free on the CLR target — the conformance
-# pass (T8 Step 5) accepts these and turns any OTHER `.fsi`-without-`.fs` into an
-# FS0240 hard error.
+# Contracts that are DELIBERATELY impl-free on every target — the conformance pass
+# accepts these and turns any OTHER `.fsi`-without-`.fs` into an FS0240 hard error.
 #   - printf/printfn/sprintf are front-end intrinsics, lowered inline to
 #     `Formatter`/`Format` on the happy path (like the operators), so there is no
 #     `.fs` body.
@@ -43,21 +31,31 @@ sig-only = [
     "printf-format.fsi",
 ]
 
-# JS-target inline-body source: none. The printf family is front-end special-cased on
-# JS (lowered to `Format` nodes, not inline-spliced), and `formatter.fs` pulls in
-# `System.Span`/`ArrayPool` — unresolvable under a BCL-free JS provider.
-# An explicit empty override keeps `resolveInlineBodies
-# (Some "js")` from falling back to the BCL-heavy base `impl`.
-inline-bodies-js = []
+[targets.clr]
+# The `.fs` compiled into Vesper.Printf.dll by this repo's own backend. CLR-bound:
+# `Span` / `ArrayPool` / `Globalization`. The `%A` structural engine
+# (`structural-printer.fs`) BEFORE the write-through format handler (`formatter.fs`) —
+# a single-package compile is declaration-ordered, so `StructuralPrinter` must precede
+# `Formatter.AppendStructured`'s call to `StructuralPrinter.Print`. Deliberately NOT
+# shared: a JS provider resolves none of what these name.
+impl = [
+    "structural-printer.fs",
+    "formatter.fs",
+]
 
-# JS-target runtime asset: the committed `%A` structural formatter (`Vesper.Printf.mjs`),
-# the JS analogue of the Vesper.Printf CLR DLL. The backend's `%A` (`Structured`) format
-# holes import `structuralFormat` from here. GENERATED from
-# `structural-printer.js.fs` (incl. surface-B width breaking) by the JS backend in library mode — the shape-keyed, Wadler-`Doc`-laid-out
-# successor to the hand-authored asset (regenerable via the codegen-js test suite,
-# `StructuralPrinterTests`). It is NOT compiled
-# from the printf `.fsi` contract (printf is front-end special-cased, lowered to `Format`
-# nodes), so unlike Vesper.List it needs no `impl-js`/`inline-bodies-js` wiring — the source
-# is a standalone runtime-asset, distinct from the CLR `structural-printer.fs`
-# (interface-dispatch + BCL-heavy, a genuinely different artifact).
-runtime-js = ["Vesper.Printf.mjs"]
+[targets.js]
+# The standalone JS `%A` engine (incl. surface-B width breaking) — the shape-keyed,
+# Wadler-`Doc`-laid-out successor to the hand-authored asset, and a genuinely different
+# artifact from the CLR `structural-printer.fs` (interface-dispatch + BCL-heavy). It
+# implements no printf `.fsi`: printf is front-end special-cased on JS (lowered to
+# `Format` nodes, never inline-spliced).
+impl = [
+    "structural-printer.js.fs",
+]
+
+# JS-target runtime asset: the committed `%A` structural formatter, the JS analogue of
+# the Vesper.Printf CLR DLL. The backend's `%A` (`Structured`) format holes import
+# `structuralFormat` from here. GENERATED from `structural-printer.js.fs` by the JS
+# backend in library mode; regenerable via the codegen-js test suite
+# (`StructuralPrinterTests`).
+runtime = ["Vesper.Printf.mjs"]

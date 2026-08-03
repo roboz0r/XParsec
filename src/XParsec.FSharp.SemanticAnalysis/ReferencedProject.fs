@@ -20,8 +20,74 @@ open XParsec.Toml
 /// not a resolution failure here.
 module ReferencedProject =
 
-    /// A parsed package `manifest.toml`'s `[core]` table. Mirrors the schema used
-    /// across `src/Vesper.*` (and consumed today by the parser golden tests).
+    /// The `[core]` lists — what a package declares once for EVERY target. No `Runtime`
+    /// field: a runtime asset is a per-target artifact, and a record that cannot spell a
+    /// shared one says so better than a conventionally-empty field would.
+    type SharedLists =
+        {
+            /// Target-neutral contract `.fsi` files in compile order (`[core] files`).
+            Files: string list
+            /// Target-neutral `.fs` bodies compiled into the package DLL (`[core] impl`).
+            Impl: string list
+            /// Target-neutral `.fs` bodies whose module-level `let inline` bindings are
+            /// spliced across the package boundary (`[core] inline-bodies`). Absent
+            /// EVERYWHERE in a manifest means "the impl files are themselves the splice
+            /// source"; the two lists diverge only where the CLR backend cannot yet
+            /// COMPILE a splice source (Vesper.Core's operator files: the emitter cannot
+            /// reference `Vesper.Fun` from inside the assembly that defines it, and a
+            /// prior file's type abbreviations are not exported to a later one).
+            InlineBodies: string list
+            /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`)
+            /// — a front-end intrinsic lowered inline (`printf.fsi`), an
+            /// FSharp.Core-interop type whose self-host is sequenced later
+            /// (`printf-format.fsi`), or a BCL-resolved contract (`exceptions.fsi`). The
+            /// conformance pass accepts a `SigOnly` `.fsi` listed here; one NOT listed is
+            /// the FS0240 analogue — a hard error.
+            SigOnly: string list
+        }
+
+    module SharedLists =
+        let empty: SharedLists =
+            {
+                Files = []
+                Impl = []
+                InlineBodies = []
+                SigOnly = []
+            }
+
+    /// One `[targets.<t>]` table. Every list here is APPENDED to its `SharedLists` peer —
+    /// uniformly, with no REPLACE anywhere, because no target overrides a base that was
+    /// secretly another target's.
+    type TargetLists =
+        {
+            /// Target-only EXTRA contracts, after the shared ones (the JS capability
+            /// compat shim, the JS-only `undefined`/`dynamic` intrinsics).
+            Files: string list
+            /// Target-only `.fs` bodies, after the shared ones.
+            Impl: string list
+            /// Target-only splice sources, after the shared ones.
+            InlineBodies: string list
+            /// Target-only impl-free contract exemptions, after the shared ones.
+            SigOnly: string list
+            /// Hand-authored runtime *asset* modules — NOT `.fsi`/`.fs` sources the front
+            /// end parses, but platform-support artifacts (the JS `.mjs`) the backend
+            /// ships beside its output and resolves via `runtimeModules`.
+            Runtime: string list
+        }
+
+    module TargetLists =
+        let empty: TargetLists =
+            {
+                Files = []
+                Impl = []
+                InlineBodies = []
+                SigOnly = []
+                Runtime = []
+            }
+
+    /// A parsed package `manifest.toml`: the `[core]` table's target-neutral lists plus
+    /// one `[targets.<t>]` table per target the package participates in. The CLR is an
+    /// ordinary key here, not an unnamed base.
     type Manifest =
         {
             /// Package / assembly simple name — `[core] name` when present, else
@@ -33,59 +99,10 @@ module ReferencedProject =
             /// package names whose DLLs/contracts must be built/referenced first.
             /// Drives the package-build harness's recursive dependency resolution.
             DependsOn: string list
-            /// Contract `.fsi` files in compile order (`[core] files`).
-            Files: string list
-            /// The `.fs` files compiled into the package DLL (`[core] impl`) — the
-            /// compile target. For most packages these are also the inline-body
-            /// source (see `InlineBodies`); they diverge for signature-only operator
-            /// packages (Vesper.Core's DLL is the prim-types/`Ref` bodies, its inline
-            /// bodies live in `ops-platform.fs`; Vesper.Comparison has no DLL at all).
-            Impl: string list
-            /// The `.fs` files whose module-level `let inline` bindings are spliced
-            /// across the package boundary at consumer use sites (`[core]
-            /// inline-bodies`), consumed by `SymbolProviders.inlineBodies`. Defaults
-            /// to `Impl` when the key is absent — the common case where the impl
-            /// files are themselves the inline-body source.
-            InlineBodies: string list
-            /// Per-target `impl` overrides: every `impl-<t>` key (e.g. `impl-js`),
-            /// keyed by the bare suffix `<t>` ("js"). SemanticAnalysis stores these
-            /// inertly and never enumerates target names — each *backend* asks for
-            /// its own suffix via `resolveImpl`, falling back to the base `Impl` when
-            /// absent. A target's `.fs` bodies diverge from the CLR ones only where
-            /// they carry platform IL (Vesper.Core / .Comparison / .Array); the rest
-            /// of the library is target-neutral and needs no override.
-            ImplOverrides: Map<string, string list>
-            /// Per-target `inline-bodies` overrides: every `inline-bodies-<t>` key,
-            /// keyed by the bare suffix `<t>`. Mirror of `ImplOverrides` for the
-            /// inline-splice source; resolved by `resolveInlineBodies`, falling back
-            /// to the base `InlineBodies`.
-            InlineBodiesOverrides: Map<string, string list>
-            /// Per-target EXTRA contract `.fsi` files APPENDED to `Files` for a target
-            /// (`files-<t>`), keyed by suffix. Unlike `ImplOverrides` (which REPLACE), these
-            /// APPEND after the base contract. Used by the JS capability compat shim
-            /// (`capabilities-compat.js.fsi`). Resolved by `resolveExtraFiles`.
-            FilesOverrides: Map<string, string list>
-            /// Per-target runtime *asset* modules: every `runtime-<t>` key (e.g.
-            /// `runtime-js`), keyed by the bare suffix `<t>`. Unlike `Impl` /
-            /// `InlineBodies` these are NOT `.fsi`/`.fs` sources the front end parses
-            /// — they are hand-authored platform-support artifacts (the JS `.mjs`
-            /// runtime, the analogue of Vesper.Printf's committed DLL) the backend
-            /// ships beside its output and resolves via `runtimeModules`. There is no
-            /// base `runtime` key (a runtime asset is inherently target-specific), so
-            /// an absent key yields nothing (`resolveRuntime`).
-            RuntimeOverrides: Map<string, string list>
-            /// Contract `.fsi` files that are DELIBERATELY impl-free on the base
-            /// (CLR) target (`[core] sig-only`) — a front-end intrinsic lowered
-            /// inline (`printf.fsi`), an FSharp.Core-interop type whose self-host is
-            /// sequenced later (`printf-format.fsi`), or a per-target/BCL-resolved
-            /// contract (`exceptions.fsi`). The conformance pass treats a `SigOnly`
-            /// `.fsi` listed here as an accepted exemption; one NOT listed is the
-            /// FS0240 analogue — a hard error (T8 Step 5). Per-target overrides
-            /// (`sig-only-<t>`) REPLACE the base, like `impl`.
-            SigOnly: string list
-            /// Per-target `sig-only` overrides, keyed by suffix; resolved by
-            /// `resolveSigOnly`, falling back to the base `SigOnly`.
-            SigOnlyOverrides: Map<string, string list>
+            Shared: SharedLists
+            /// `[targets.<t>]` by target name. The keys ARE the target set this package
+            /// participates in — there is no registry of target names elsewhere.
+            Targets: Map<string, TargetLists>
         }
 
     let private asString (v: TomlValue) : string option =
@@ -107,212 +124,203 @@ module ReferencedProject =
         | Some(TomlValue.Array xs) -> xs |> List.choose asString |> Some
         | _ -> None
 
-    /// Collect every `<prefix>-<t>` key from a `[core]` table into a
-    /// `suffix -> string list` map (`impl-js` -> "js"). Target-agnostic: the parser
-    /// records whatever suffixes are present without knowing the target set.
-    let private collectOverrides (core: TomlTable) (prefix: string) : Map<string, string list> =
-        let dash = prefix + "-"
+    /// The `[targets.<t>]` table for `target`, or an all-empty one — a target a manifest
+    /// says nothing about contributes nothing, so it resolves to exactly the shared lists.
+    let private listsFor (target: string) (m: Manifest) : TargetLists =
+        m.Targets |> Map.tryFind target |> Option.defaultValue TargetLists.empty
 
-        core
+    /// The contract `.fsi` files for `target`: shared first (so a target extra may name a
+    /// type the shared contract declares), then the target's own.
+    let resolveFiles (target: string) (m: Manifest) : string list =
+        m.Shared.Files @ (listsFor target m).Files
+
+    /// The `.fs` bodies the package DLL compiles for `target`. Shared, then the target's own.
+    let resolveImpl (target: string) (m: Manifest) : string list =
+        m.Shared.Impl @ (listsFor target m).Impl
+
+    /// The `.fs` bodies whose `let inline` templates are spliced across the package
+    /// boundary for `target`. A manifest that names NO splice source anywhere says the
+    /// impl files ARE the splice source — the common case — so the fallback is on the
+    /// whole manifest, never per target (a target that deliberately splices nothing then
+    /// says so with an explicit empty list, which is indistinguishable from silence and is
+    /// why the fallback cannot be per-target).
+    let resolveInlineBodies (target: string) (m: Manifest) : string list =
+        let declared =
+            not (List.isEmpty m.Shared.InlineBodies)
+            || m.Targets |> Map.exists (fun _ t -> not (List.isEmpty t.InlineBodies))
+
+        if declared then
+            m.Shared.InlineBodies @ (listsFor target m).InlineBodies
+        else
+            resolveImpl target m
+
+    /// The impl-free contract exemptions for `target`. Shared, then the target's own.
+    let resolveSigOnly (target: string) (m: Manifest) : string list =
+        m.Shared.SigOnly @ (listsFor target m).SigOnly
+
+    /// The runtime *asset* modules for `target`. No shared peer: a runtime asset is
+    /// inherently target-specific (the CLR builds a DLL rather than committing one).
+    let resolveRuntime (target: string) (m: Manifest) : string list = (listsFor target m).Runtime
+
+    /// The pairing key of a manifest-listed source: its name minus the extension, minus a
+    /// trailing `.<t>` segment for a target this manifest declares. `prim-types-int.js.fs`,
+    /// `prim-types-int.fs` and `prim-types-int.fsi` all key on `prim-types-int`.
+    ///
+    /// ONE rule, shared by the conformance pass and the intrinsic-repr extraction: the two
+    /// pair the same `.fsi` with the same `.fs`, or one of them is checking a pair the other
+    /// never built.
+    let pairingStem (m: Manifest) (rel: string) : string =
+        let noExt = Path.ChangeExtension(rel, null)
+
+        m.Targets
         |> Map.toSeq
-        |> Seq.choose (fun (key, value) ->
-            if key.StartsWith dash then
-                match value with
-                | TomlValue.Array xs -> Some(key.Substring dash.Length, xs |> List.choose asString)
-                | _ -> None
+        |> Seq.tryPick (fun (t, _) ->
+            let suffix = "." + t
+
+            if noExt.EndsWith(suffix, System.StringComparison.Ordinal) then
+                Some(noExt.Substring(0, noExt.Length - suffix.Length))
             else
                 None
         )
-        |> Map.ofSeq
-
-    /// The `.fs` companion an `.fsi` implies, RELATIVE to the manifest's directory:
-    /// `prim-types-exn.fsi` ⇒ `prim-types-exn.fs` on the base, `prim-types-exn.js.fs` for
-    /// target suffix `js`. Nothing here touches the filesystem — a companion is a derived
-    /// NAME, and whether it exists is the caller's question.
-    ///
-    /// ONE derivation, deliberately: the intrinsic-repr extraction probes these paths
-    /// (`baseFs` / `targetOverrideFs`) and `sourceInputs` must name a SUPERSET of them, or
-    /// the compile cache's key would miss a file the build reads. Two copies of the rule is
-    /// precisely how that coverage would rot.
-    ///
-    /// A superset and not the same set: `sourceInputs` is target-BLIND, so it derives a
-    /// companion for every declared suffix, while a given build probes one target's. It also
-    /// derives from every contract, including the per-target extras (`files-js`) whose
-    /// companion the extraction reaches by the BASE derivation — a `.js.fsi` shim's companion is
-    /// `.js.fs`, so `companionFs None` already names it and `companionFs (Some "js")` yields
-    /// a `.js.js.fs` that exists nowhere. Over-naming costs a rebuild; under-naming serves a
-    /// wrong blob, which is why the asymmetry runs this way.
-    let companionFs (target: string option) (fsiRel: string) : string =
-        match target with
-        | Some t -> Path.ChangeExtension(fsiRel, t + ".fs")
-        | None -> Path.ChangeExtension(fsiRel, ".fs")
-
-    /// Every target suffix this manifest mentions under ANY per-target key (`impl-js`,
-    /// `files-js`, `runtime-js`, …). There is no registry of target names — SemanticAnalysis
-    /// stores overrides inertly and never enumerates targets (`ImplOverrides`) — so the
-    /// manifest's own keys are the only enumeration there is.
-    ///
-    /// `RuntimeOverrides` contributes a SUFFIX even though its files are not sources: a
-    /// package may declare `runtime-js` and no other per-target key while still shipping
-    /// `.js.fs` companions, and a suffix missed here is a companion `sourceInputs` never names.
-    ///
-    /// This list is not merely the hash's coverage set — it is what a manifest PARTICIPATES
-    /// in at all, and `declaredTarget` is what makes that true rather than hoped for.
-    let targetSuffixes (m: Manifest) : string list =
-        [
-            m.ImplOverrides
-            m.InlineBodiesOverrides
-            m.FilesOverrides
-            m.SigOnlyOverrides
-            m.RuntimeOverrides
-        ]
-        |> List.collect (Map.toList >> List.map fst)
-        |> List.distinct
-
-    /// `target`, narrowed to `None` unless this manifest declares at least one per-target key
-    /// for it. A manifest that mentions a target NOWHERE has no per-target anything, so it
-    /// resolves exactly as the base does.
-    ///
-    /// This exists to make one coverage argument unnecessary. The per-target companion probe
-    /// (`targetOverrideFs`) is handed the DRIVER's target, which every manifest in the closure
-    /// receives regardless of what it declares; `sourceInputs` names companions only for the
-    /// suffixes `targetSuffixes` reports. Without this narrowing those two sets differ for a
-    /// manifest that ships a `<contract>.<t>.fs` and declares no `<key>-<t>` — the build reads
-    /// a file the cache key never names, which is a stale hit. Narrowing the PROBE makes the
-    /// two sets the same set by construction, rather than a pair that has to be kept in step.
-    let declaredTarget (target: string option) (m: Manifest) : string option =
-        match target with
-        | Some t when List.contains t (targetSuffixes m) -> Some t
-        | _ -> None
+        |> Option.defaultValue noExt
 
     /// Every path the provider build may READ for this manifest, relative to the manifest's
     /// own directory — and so the coverage set the compile cache's dependency hash folds
     /// (`Hashing.dependencySignatureHash`). A path named here need not exist; the hash
     /// records its absence.
     ///
-    /// TARGET-BLIND, and that is the point: every target's lists UNIONED, never `resolve*`'s
-    /// selection for one. The cache key is computed with no target in hand, and the two
-    /// errors are not symmetric — folding too much costs a rebuild when an unrelated target
-    /// changes, folding too little serves a WRONG blob. So the REPLACE-vs-APPEND distinction
-    /// the `resolve*` helpers draw does not apply here: a union is right for both.
+    /// TARGET-BLIND: every target's lists UNIONED, never `resolve*`'s selection for one. The
+    /// cache key is computed with no target in hand, and the two errors are not symmetric —
+    /// folding too much costs a rebuild when an unrelated target changes, folding too little
+    /// serves a WRONG blob.
     ///
-    /// `RuntimeOverrides`' files are the one deliberate omission. A runtime asset (the JS
-    /// `.mjs`) is shipped beside the backend's output and is never parsed, so it determines
-    /// no frozen tree; only its suffix counts (`targetSuffixes`).
+    /// `Runtime` is the one deliberate omission. A runtime asset (the JS `.mjs`) is shipped
+    /// beside the backend's output and is never parsed, so it determines no frozen tree.
     let sourceInputs (m: Manifest) : string list =
-        let union (baseList: string list) (overrides: Map<string, string list>) =
-            baseList @ (overrides |> Map.toList |> List.collect snd)
-
-        // The contract surface, base + per-target extras — also what the companion probe
-        // iterates, which is why it is named once and reused.
-        let contracts = union m.Files m.FilesOverrides
-
         [
-            yield! contracts
-            yield! union m.Impl m.ImplOverrides
-            yield! union m.InlineBodies m.InlineBodiesOverrides
-            yield! union m.SigOnly m.SigOnlyOverrides
+            yield! m.Shared.Files
+            yield! m.Shared.Impl
+            yield! m.Shared.InlineBodies
+            yield! m.Shared.SigOnly
 
-            for fsi in contracts do
-                yield companionFs None fsi
-
-                for t in targetSuffixes m do
-                    yield companionFs (Some t) fsi
+            for KeyValue(_, t) in m.Targets do
+                yield! t.Files
+                yield! t.Impl
+                yield! t.InlineBodies
+                yield! t.SigOnly
         ]
         |> List.distinct
 
-    /// Resolve the `impl` file list for an optional target suffix: the target's
-    /// override if present, else the base `impl`. `None` (and any suffix with no
-    /// override) yields the base list — the CLR path is `resolveImpl None`.
-    let resolveImpl (target: string option) (m: Manifest) : string list =
-        match target with
-        | Some t -> m.ImplOverrides |> Map.tryFind t |> Option.defaultValue m.Impl
-        | None -> m.Impl
+    /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: the old
+    /// schema's dashed-suffix keys (`impl-js`, `inline-bodies`) would otherwise be read as
+    /// silence, and a stale manifest would resolve to a plausible wrong file set.
+    let private coreKeys =
+        set
+            [
+                "name"
+                "description"
+                "depends-on"
+                "files"
+                "impl"
+                "inline-bodies"
+                "sig-only"
+            ]
 
-    /// Resolve the `inline-bodies` file list for an optional target suffix; mirror
-    /// of `resolveImpl`. The future JS backend calls `resolveInlineBodies (Some "js")`;
-    /// the CLR backend keeps reading `m.InlineBodies` (i.e. `resolveInlineBodies None`).
-    let resolveInlineBodies (target: string option) (m: Manifest) : string list =
-        match target with
-        | Some t -> m.InlineBodiesOverrides |> Map.tryFind t |> Option.defaultValue m.InlineBodies
-        | None -> m.InlineBodies
+    /// The keys a `[targets.<t>]` table may carry — same rule, same reason.
+    let private targetKeys =
+        set [ "files"; "impl"; "inline-bodies"; "sig-only"; "runtime" ]
 
-    /// Resolve the per-target EXTRA `.fsi` files appended to `Files` (`files-<t>`).
-    /// APPEND semantics (contrast `resolveImpl`'s REPLACE), so a shim may reference a
-    /// base-declared type — the JS compat abbreviations name `Vesper.disposable` from
-    /// the base `capabilities.fsi`. `None` / no `files-<t>` key appends nothing.
-    let resolveExtraFiles (target: string option) (m: Manifest) : string list =
-        match target with
-        | Some t -> m.FilesOverrides |> Map.tryFind t |> Option.defaultValue []
-        | None -> []
+    let private unknownKey (tableName: string) (allowed: Set<string>) (t: TomlTable) : string option =
+        t
+        |> Map.toSeq
+        |> Seq.map fst
+        |> Seq.tryFind (allowed.Contains >> not)
+        |> Option.map (fun key ->
+            sprintf
+                "manifest.toml: [%s] unknown key `%s` (expected one of: %s)"
+                tableName
+                key
+                (allowed |> Set.toList |> String.concat ", ")
+        )
 
-    /// Resolve the `runtime-<t>` asset-module file list for a target suffix. Unlike
-    /// `resolveImpl` / `resolveInlineBodies` there is NO base list — a runtime asset
-    /// (the JS `.mjs`) is inherently target-specific — so an absent key (or `None`)
-    /// yields the empty list.
-    let resolveRuntime (target: string option) (m: Manifest) : string list =
-        match target with
-        | Some t -> m.RuntimeOverrides |> Map.tryFind t |> Option.defaultValue []
-        | None -> []
+    let private parseTargets (targets: TomlTable) : Result<Map<string, TargetLists>, string> =
+        (Ok Map.empty, targets |> Map.toList)
+        ||> List.fold (fun acc (name, value) ->
+            match acc with
+            | Error e -> Error e
+            | Ok map ->
+                match asTable value with
+                | None -> Error(sprintf "manifest.toml: [targets.%s] must be a table" name)
+                | Some t ->
+                    match unknownKey ("targets." + name) targetKeys t with
+                    | Some e -> Error e
+                    | None ->
+                        let list key =
+                            findStringList t key |> Option.defaultValue []
 
-    /// Resolve the `sig-only` impl-free exemption `.fsi` list for a target suffix;
-    /// mirror of `resolveImpl` (REPLACE). The conformance pass (`ConformancePass.enforce`)
-    /// reads this to distinguish a legitimately impl-free contract from a missing
-    /// implementation (the FS0240 hard error).
-    let resolveSigOnly (target: string option) (m: Manifest) : string list =
-        match target with
-        | Some t -> m.SigOnlyOverrides |> Map.tryFind t |> Option.defaultValue m.SigOnly
-        | None -> m.SigOnly
+                        Ok(
+                            Map.add
+                                name
+                                {
+                                    Files = list "files"
+                                    Impl = list "impl"
+                                    InlineBodies = list "inline-bodies"
+                                    SigOnly = list "sig-only"
+                                    Runtime = list "runtime"
+                                }
+                                map
+                        )
+        )
 
     /// Parse a package `manifest.toml` document. `dirName` is the manifest's
     /// directory name, used as the assembly name when `[core]` carries no `name`.
     let parseManifest (dirName: string) (doc: TomlDocument) : Result<Manifest, string> =
+        let targetsTable =
+            Map.tryFind "targets" doc
+            |> Option.bind asTable
+            |> Option.defaultValue Map.empty
+
         match Map.tryFind "core" doc |> Option.bind asTable with
         | None -> Error "manifest.toml: missing [core] table"
         | Some core ->
-            match findStringList core "files" with
-            | None -> Error "manifest.toml: [core] missing `files = [...]`"
-            | Some files ->
-                // The directory name *is* the package identity — it is what a
-                // sibling's `depends-on` resolves against (`dependencyManifestPath`)
-                // and what `buildClosure` would otherwise report via `Name`. If an
-                // explicit `[core] name` diverged from the directory, a `depends-on`
-                // would be resolved by directory but reported by `Name` (and a
-                // `depends-on` written against `Name` would silently miss). Reject
-                // the divergence at parse time so the two identities can't drift
-                // unnoticed; an omitted `name` trivially matches via the fallback.
-                match findString core "name" with
-                | Some explicit when explicit <> dirName ->
-                    Error(
-                        sprintf
-                            "manifest.toml: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity that `depends-on` resolves against"
-                            explicit
-                            dirName
-                    )
-                | nameOpt ->
-                    let impl = findStringList core "impl" |> Option.defaultValue []
-
-                    Ok
-                        {
-                            Name = nameOpt |> Option.defaultValue dirName
-                            DependsOn = findStringList core "depends-on" |> Option.defaultValue []
-                            Files = files
-                            Impl = impl
-                            // `inline-bodies` defaults to the impl files: the common case
-                            // is that a package's implementation *is* its inline-body
-                            // source. Operator packages override it (their DLL compile
-                            // target and inline-splice source differ).
-                            InlineBodies = findStringList core "inline-bodies" |> Option.defaultValue impl
-                            // Per-target overrides are inert here: any `impl-<t>` /
-                            // `inline-bodies-<t>` key is captured by suffix and resolved
-                            // by the *backend* (`resolveImpl`/`resolveInlineBodies`).
-                            ImplOverrides = collectOverrides core "impl"
-                            InlineBodiesOverrides = collectOverrides core "inline-bodies"
-                            FilesOverrides = collectOverrides core "files"
-                            RuntimeOverrides = collectOverrides core "runtime"
-                            SigOnly = findStringList core "sig-only" |> Option.defaultValue []
-                            SigOnlyOverrides = collectOverrides core "sig-only"
-                        }
+            match unknownKey "core" coreKeys core with
+            | Some e -> Error e
+            | None ->
+                match findStringList core "files" with
+                | None -> Error "manifest.toml: [core] missing `files = [...]`"
+                | Some files ->
+                    // The directory name *is* the package identity — it is what a
+                    // sibling's `depends-on` resolves against (`dependencyManifestPath`)
+                    // and what `buildClosure` would otherwise report via `Name`. If an
+                    // explicit `[core] name` diverged from the directory, a `depends-on`
+                    // would be resolved by directory but reported by `Name` (and a
+                    // `depends-on` written against `Name` would silently miss). Reject
+                    // the divergence at parse time so the two identities can't drift
+                    // unnoticed; an omitted `name` trivially matches via the fallback.
+                    match findString core "name" with
+                    | Some explicit when explicit <> dirName ->
+                        Error(
+                            sprintf
+                                "manifest.toml: [core] name \"%s\" must match the package directory name \"%s\" — the directory name is the package identity that `depends-on` resolves against"
+                                explicit
+                                dirName
+                        )
+                    | nameOpt ->
+                        parseTargets targetsTable
+                        |> Result.map (fun targets ->
+                            {
+                                Name = nameOpt |> Option.defaultValue dirName
+                                DependsOn = findStringList core "depends-on" |> Option.defaultValue []
+                                Shared =
+                                    {
+                                        Files = files
+                                        Impl = findStringList core "impl" |> Option.defaultValue []
+                                        InlineBodies = findStringList core "inline-bodies" |> Option.defaultValue []
+                                        SigOnly = findStringList core "sig-only" |> Option.defaultValue []
+                                    }
+                                Targets = targets
+                            }
+                        )
 
     /// Read + parse the manifest at `manifestPath` (the path to a `manifest.toml`).
     let loadManifest (manifestPath: string) : Result<Manifest, string> =
@@ -491,12 +499,12 @@ module ReferencedProject =
 
             Ok(ordered, lookup)
 
-    /// Resolve the per-target runtime *asset* modules (`runtime-<t>`) for a manifest
-    /// set, closed over `depends-on`, reading each file's contents from disk. Maps
+    /// Resolve the per-target runtime *asset* modules (`[targets.<t>] runtime`) for a
+    /// manifest set, closed over `depends-on`, reading each file's contents from disk. Maps
     /// each package/assembly name (`Manifest.Name`) to its `(fileName, source)` —
     /// the hand-authored platform-support module (the JS `.mjs`) the backend
     /// materialises beside the output and imports by `./<fileName>`. A package with
-    /// no `runtime-<t>` key contributes nothing; one module per package (only the
+    /// no `runtime` key for the target contributes nothing; one module per package (only the
     /// first listed is taken — the import specifier keys one file per assembly); a
     /// later package wins a name clash. This is the seam Route B (a backend-compiled
     /// runtime, the `--compiling-fslib` bootstrap) later slots into — it generates
@@ -511,7 +519,7 @@ module ReferencedProject =
                 match loadManifest manifestPath with
                 | Error _ -> ()
                 | Ok manifest ->
-                    match resolveRuntime (Some target) manifest with
+                    match resolveRuntime target manifest with
                     | rel :: _ ->
                         let abs = Path.Combine(Path.GetDirectoryName manifestPath, rel)
 
@@ -546,32 +554,7 @@ module ReferencedProject =
     /// before the file walk, since signature translation runs inside it.
     /// Returns per-file parse diagnostics alongside the provider (a file that
     /// fails to parse contributes no symbols but does not abort the build).
-    /// The `.fs` companion to extract a contract `.fsi`'s intrinsic repr from, for
-    /// an optional backend target. A target's `<base>.<target>.fs` (`prim-types-exn.js.fs`,
-    /// `exn → Error`) wins over the base `<base>.fs` (`exn → System.Exception`) when it
-    /// exists — the intrinsic-repr analogue of the manifest's `inline-bodies-<t>`
-    /// override. `None`, or a target with no override file,
-    /// falls back to the base companion.
-    /// The base `.fs` companion (`prim-types-exn.fsi` ⇒ `prim-types-exn.fs`) — the
-    /// primitive *marker* + the CLR platform repr.
-    let private baseFs (dir: string) (fsiRel: string) : string =
-        Path.Combine(dir, companionFs None fsiRel)
-
-    /// The per-target override companion (`prim-types-exn.fsi`, target `js` ⇒
-    /// `prim-types-exn.js.fs`) — `Some` ONLY when a distinct file exists, so the
-    /// caller extracts the override without re-parsing the base as a fallback. `None`
-    /// on the base target (CLR) or when a primitive ships no companion for this target.
     ///
-    /// The target is taken through `declaredTarget` FIRST: a manifest declaring no per-target
-    /// key for it participates in no target, and so probes no companion the compile cache's
-    /// key does not already name. That is the whole of why this takes a `Manifest`.
-    let private targetOverrideFs (m: Manifest) (target: string option) (dir: string) (fsiRel: string) : string option =
-        match declaredTarget target m with
-        | Some t ->
-            let abs = Path.Combine(dir, companionFs (Some t) fsiRel)
-            if File.Exists abs then Some abs else None
-        | None -> None
-
     /// A package built by `buildProviderWith`, plus the census the composition-time
     /// duplicate sweep reads. `DeclaredTypeNames` are the qualified compiled names of the
     /// NOMINAL types this package OWNS (Class/Record/Union/Enum — the shapes that mint a
@@ -587,7 +570,7 @@ module ReferencedProject =
         }
 
     let buildProviderWith
-        (target: string option)
+        (target: string)
         (ambientShapes: string -> ExternalTypeShape voption)
         (dependencyAmbientPrefixes: string list)
         (manifestPath: string)
@@ -603,83 +586,81 @@ module ReferencedProject =
             // type by bare name (`Fun`2` / `Fun`3`), the way the consumer front end does.
             ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
 
-            // Pair `.fsi` extern + `.fs` `(# … #)`: extract the intrinsic reprs
-            // from each contract's sibling `.fs` companion FIRST, so the `extern`
-            // arm of the `.fsi` extraction below publishes a matched primitive as
-            // `ExternalTypeShape.Intrinsic` rather than an opaque `Class`. The `.fs`
-            // is the only place the repr lives (the `.fsi` commits `type exn =
-            // extern`, no repr) — moved here from the codegen-layer extraction.
+            // Pair `.fsi` extern + `.fs` `(# … #)`: extract the intrinsic reprs from the
+            // manifest's `.fs` bodies FIRST, so the `extern` arm of the `.fsi` extraction
+            // below publishes a matched primitive as `ExternalTypeShape.Intrinsic` rather
+            // than an opaque `Class`. The `.fs` is the only place the repr lives (the
+            // `.fsi` commits `type exn = extern`, no repr).
             //
-            // Two repr tables:
-            //  - the BASE `.fs` ⇒ `IntrinsicBaseReprs`: the primitive *marker* (its
-            //    presence is what publishes the `extern` as an `Intrinsic`, not a
-            //    `Class`) and, on CLR, the platform repr itself.
-            //  - the per-target `<base>.<target>.fs` override ⇒ `IntrinsicReprs`: the
-            //    `platform` name for THIS target (`prim-types-int.js.fs` ⇒ `number`).
-            //    On CLR there is no override, so the base repr also feeds `IntrinsicReprs`.
-            // A primitive the target OMITS (`decimal` ships no `.js.fs`) is in
-            // `IntrinsicBaseReprs` but NOT `IntrinsicReprs`, so it stays an `Intrinsic`
-            // with `platform = None` rather than falling back to a BCL repr that has no
-            // JS runtime. `canon` is the `.fsi` name itself (set at the `extern` arm), so
-            // the override never moves the unifier's identity key.
-            let extractCompanion (dest: System.Collections.Generic.Dictionary<string, string>) (abs: string) =
-                let fsFile: VesperLib.LibFile =
-                    {
-                        Path =
-                            {
-                                BucketName = manifest.Name
-                                Relative = Path.GetFileName abs
-                            }
-                        Absolute = abs
-                    }
+            // Two repr tables, filled from two different body sets:
+            //  - `IntrinsicBaseReprs`, the primitive *marker*: every target's `impl`. A
+            //    primitive is a primitive of the language on every target, so `decimal`
+            //    (which ships no JS repr) still publishes as an `Intrinsic` with
+            //    `platform = None` there rather than as a silently opaque class. Only key
+            //    PRESENCE is read, so a key several targets bind is not a conflict. A
+            //    SPLICE-only body does not mark: it publishes members onto a contract some
+            //    `impl` decides the species of.
+            //  - `IntrinsicReprs`, the `platform` name: THIS target's bodies, spliced ones
+            //    included (`prim-types-int.js.fs` ⇒ `number`).
+            // `canon` is the `.fsi` name itself (set at the `extern` arm), so a target's
+            // repr never moves the unifier's identity key.
+            let targetBodies =
+                resolveImpl target manifest @ resolveInlineBodies target manifest |> Set.ofList
 
-                match VesperLib.parseFileFull fsFile with
-                | Error _ -> ()
-                | Ok parsed -> VesperLib.extractIntrinsicReprsInto dest parsed
+            let everyBody =
+                [
+                    yield! manifest.Shared.Impl
+                    yield! manifest.Shared.InlineBodies
 
-            for rel in manifest.Files do
-                let baseAbs = baseFs dir rel
+                    for KeyValue(_, t) in manifest.Targets do
+                        yield! t.Impl
+                        yield! t.InlineBodies
+                ]
+                |> List.distinct
 
-                if File.Exists baseAbs then
-                    extractCompanion ctx.IntrinsicBaseReprs baseAbs
+            let markers =
+                [
+                    yield! manifest.Shared.Impl
 
-                    match targetOverrideFs manifest target dir rel with
-                    | Some overrideAbs -> extractCompanion ctx.IntrinsicReprs overrideAbs
-                    | None ->
-                        // Base target (CLR), or no per-target companion: the base repr
-                        // IS the platform name. Reuse the just-extracted base marker
-                        // rather than re-parsing the file.
-                        ()
+                    for KeyValue(_, t) in manifest.Targets do
+                        yield! t.Impl
+                ]
+                |> Set.ofList
 
-            // Target-only EXTRA contracts (`files-<t>`) may declare an intrinsic that
-            // exists ONLY on that target (`undefined`/`null` — JS-only, no CLR analog and
-            // so no base `.fs`). Such a type has no base/override split: its single
-            // `<base>.<t>.fs` companion is BOTH the marker (→ `IntrinsicBaseReprs`, so the
-            // `extern` publishes as an `Intrinsic` not an opaque `Class`) AND the JS
-            // platform name (→ `IntrinsicReprs`). `File.Exists` skips a shim `.fsi` with
-            // no `.fs` companion (`capabilities-compat.js.fsi`, `ops-platform-runtime.js.fsi`).
-            for rel in resolveExtraFiles target manifest do
-                let companionAbs = baseFs dir rel
+            for rel in everyBody do
+                let abs = Path.Combine(dir, rel)
 
-                if File.Exists companionAbs then
-                    extractCompanion ctx.IntrinsicBaseReprs companionAbs
-                    extractCompanion ctx.IntrinsicReprs companionAbs
+                if File.Exists abs then
+                    let fsFile: VesperLib.LibFile =
+                        {
+                            Path =
+                                {
+                                    BucketName = manifest.Name
+                                    Relative = rel
+                                }
+                            Absolute = abs
+                        }
 
-            // CLR (and any target whose primitive has no override): the base repr is the
-            // platform name. Seed `IntrinsicReprs` from the base markers WITHOUT a
-            // second parse; a real per-target override (extracted above) already shadows
-            // its entry, so this only fills the gaps.
-            match target with
-            | None ->
-                for KeyValue(k, v) in ctx.IntrinsicBaseReprs do
-                    if not (ctx.IntrinsicReprs.ContainsKey k) then
-                        ctx.IntrinsicReprs.[k] <- v
-            | Some _ -> ()
+                    match VesperLib.parseFileFull fsFile with
+                    | Error _ -> ()
+                    | Ok parsed ->
+                        // ONE parse feeds both tables — a second read is a second answer
+                        // for what the file says.
+                        let reprs =
+                            System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
 
-            // Base contract files, then this target's APPENDED shim files (`files-<t>`),
-            // so a shim's RHS (`Vesper.disposable`) is already in the registry. Base / CLR
-            // appends nothing; extraction (above) is unaffected — a compat `.fsi` has no `.fs`.
-            for rel in manifest.Files @ resolveExtraFiles target manifest do
+                        VesperLib.extractIntrinsicReprsInto reprs parsed
+
+                        for KeyValue(k, v) in reprs do
+                            if markers.Contains rel then
+                                ctx.IntrinsicBaseReprs.[k] <- v
+
+                            if targetBodies.Contains rel then
+                                ctx.IntrinsicReprs.[k] <- v
+
+            // Shared contracts, then this target's APPENDED extras, so an extra's RHS
+            // (`Vesper.disposable`) is already in the registry.
+            for rel in resolveFiles target manifest do
                 let file: VesperLib.LibFile =
                     {
                         Path =
@@ -738,9 +719,10 @@ module ReferencedProject =
     /// a package with no `depends-on`, and the entry point tests build a single
     /// package from. Dependency-aware composition uses `composeOrdered`.
     let buildProvider
+        (target: string)
         (manifestPath: string)
         : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
-        buildProviderWith None (fun _ -> ValueNone) [] manifestPath
+        buildProviderWith target (fun _ -> ValueNone) [] manifestPath
         |> Result.map (fun bp -> bp.Provider, bp.Diagnostics)
 
     /// A layer-2 metadata-tail factory: given the extracted `{ platform-repr →
@@ -766,7 +748,7 @@ module ReferencedProject =
     /// the ambient-shape loop at a call site.
     let composeOrdered
         (metaTail: MetaTailFactory)
-        (target: string option)
+        (target: string)
         (orderedManifestPaths: string list)
         (transitiveDeps: string -> string list)
         : IExternalSymbolProvider =
@@ -854,25 +836,27 @@ module ReferencedProject =
     /// `composeOrdered` directly to avoid ordering twice.
     let composeContract
         (metaTail: MetaTailFactory)
-        (target: string option)
+        (target: string)
         (manifestPaths: string list)
         : IExternalSymbolProvider =
         match buildClosureWithDeps manifestPaths with
         | Ok(ordered, transitiveDeps) -> composeOrdered metaTail target ordered transitiveDeps
         | Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
-    /// Lazy cache keyed by the (normalised) manifest path so repeated callers
+    /// Lazy cache keyed by target + (normalised) manifest path so repeated callers
     /// parse a package's `.fsi` set at most once. Mirrors `VesperLib.defaultProvider`.
     let private cached =
         System.Collections.Concurrent.ConcurrentDictionary<
-            string,
+            string * string,
             Lazy<Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string>>
          >(
-            System.StringComparer.Ordinal
+            HashIdentity.Structural
         )
 
-    /// Production-path entry point: caches `buildProvider` per manifest path.
+    /// Production-path entry point: caches `buildProvider` per target + manifest path.
     /// Tests that need a fresh provider should call `buildProvider`.
-    let provider (manifestPath: string) : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
-        let normalised = Path.GetFullPath manifestPath
-        cached.GetOrAdd(normalised, (fun p -> lazy (buildProvider p))).Value
+    let provider
+        (target: string)
+        (manifestPath: string)
+        : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
+        cached.GetOrAdd((target, Path.GetFullPath manifestPath), (fun (t, p) -> lazy (buildProvider t p))).Value

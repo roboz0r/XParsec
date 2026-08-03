@@ -259,7 +259,7 @@ let tests =
 //
 // The pairing is no longer a hand-maintained file list: `ConformancePass.checkManifest`
 // reads each `Vesper.*/manifest.toml` and derives the `.fsi`↔`.fs` pairs from it
-// (stem rule + the `resolveImpl ∪ resolveInlineBodies` impl set), so a newly-added
+// (the manifest's own pairing stem over the resolved `impl` set), so a newly-added
 // `.fsi`/`.fs` is conformance-checked automatically and can no longer be silently
 // dropped from a curated list. The packages themselves are discovered from the
 // source tree for the same reason.
@@ -276,9 +276,9 @@ let tests =
 //
 // The conformance check is codegen-independent (CST-level, not rung-gated), so it
 // runs on all the Vesper.* packages — Set included — and is the cheapest way to
-// catch `.fsi`/`.fs` drift the parser alone can't see. The CLR pairing is `None`;
-// JS-only contracts (`capabilities-compat.js.fsi`, appended via `files-js`) are not
-// in the CLR file set, so they need no CLR exemption.
+// catch `.fsi`/`.fs` drift the parser alone can't see. Only the CLR target is driven;
+// JS-only contracts (`[targets.js] files`) are not in the CLR file set, so they need
+// no CLR exemption.
 
 let private vesperSrcDir = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src")
 
@@ -294,7 +294,7 @@ let private packageManifests: (string * string) list =
 /// Run the manifest-driven pass for a package, failing the test on a manifest /
 /// parse error (the pass returns `Error`).
 let private outcomeFor (manifestPath: string) : ConformancePass.PackageOutcome =
-    match ConformancePass.checkManifest None manifestPath with
+    match ConformancePass.checkManifest "clr" manifestPath with
     | Ok o -> o
     | Error e ->
         failtestf "checkManifest failed for %s: %s" manifestPath e

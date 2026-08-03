@@ -158,30 +158,22 @@ let tests =
 
             test "a changed dependency INLINE BODY misses" {
                 // The sibling of the test above, for the input that used to be invisible to the
-                // key. A `[core] inline-bodies` `.fs` is not contract — it is not in `files` — but
-                // its bodies are re-analysed and SPLICED into the consumer before the consumer is
-                // frozen, so its bytes are a compile determinant. Hashing the `.fsi` set alone
-                // left the key unmoved and served a blob carrying the OLD body.
+                // key. An `impl` `.fs` is not contract — it is not in `files` — but its bodies
+                // are re-analysed and SPLICED into the consumer before the consumer is frozen,
+                // so its bytes are a compile determinant. Hashing the `.fsi` set alone left the
+                // key unmoved and served a blob carrying the OLD body.
                 //
                 // The program here does not reference the body, so the emitted assembly is
                 // identical either way — which is the point: the cache cannot know that, so it
                 // must MISS. Asserting the miss rather than the output is what makes this a gate
                 // on the key and not on codegen.
-                // The body is `ops.fs`, NOT `inl.fs`: a file named `inl.fs` would also be the
-                // derived `.fs` companion of `inl.fsi`, so the test would pass on companion
-                // coverage alone and prove nothing about the `inline-bodies` list. `ops.fs` is
-                // reachable only through that list — the same split Vesper.Core has between its
-                // impl and its `ops-platform.fs` inline bodies.
                 let root = tmpDir "frozen-cache-inline-body-inval"
                 let pkgDir = Path.Combine(root, "Inl")
                 Directory.CreateDirectory pkgDir |> ignore
                 let fsPath = Path.Combine(pkgDir, "ops.fs")
                 let manifestPath = Path.Combine(pkgDir, "manifest.toml")
 
-                File.WriteAllText(
-                    manifestPath,
-                    "[core]\nname = \"Inl\"\nfiles = [\"inl.fsi\"]\ninline-bodies = [\"ops.fs\"]\n"
-                )
+                File.WriteAllText(manifestPath, "[core]\nname = \"Inl\"\nfiles = [\"inl.fsi\"]\nimpl = [\"ops.fs\"]\n")
 
                 File.WriteAllText(
                     Path.Combine(pkgDir, "inl.fsi"),

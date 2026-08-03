@@ -125,9 +125,7 @@ let private recursiveProducer: Lazy<IExternalSymbolProvider> =
 name = "Cycle.Probe"
 description = "Inline bodies that call themselves, for the acyclicity check."
 files = ["probe.fsi"]
-impl = []
-inline-bodies = ["probe.fs"]
-inline-bodies-js = ["probe.fs"]
+impl = ["probe.fs"]
 """
 
         write
@@ -153,7 +151,7 @@ module Probe =
 """
 
         JsNativeSymbols.buildJsNativeContractFor
-            (Some Target.Js)
+            Target.Js
             (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
 
 /// A synthetic producer whose recursion closes on a MEMBER, which is the one head whose
@@ -181,9 +179,7 @@ let private recursiveMemberProducer: Lazy<IExternalSymbolProvider> =
 name = "Cycle.Member"
 description = "A member inline body that reaches itself, for the back edge's arity."
 files = ["bounce.fsi"]
-impl = []
-inline-bodies = ["bounce.fs", "array-cycle.js.fs"]
-inline-bodies-js = ["bounce.fs", "array-cycle.js.fs"]
+impl = ["bounce.fs", "array-cycle.js.fs"]
 """
 
         write
@@ -225,7 +221,7 @@ type 'T ``[]`` =
 """
 
         JsNativeSymbols.buildJsNativeContractFor
-            (Some Target.Js)
+            Target.Js
             (jsManifests @ [ System.IO.Path.Combine(dir, "manifest.toml") ])
 
 /// Every `InlineCall` edge in `e`, as the slot it names and the number of arguments it carries.

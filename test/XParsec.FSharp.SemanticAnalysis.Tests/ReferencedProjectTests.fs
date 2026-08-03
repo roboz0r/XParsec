@@ -75,17 +75,17 @@ let private writeSyntheticPackageWithType (name: string) (ns: string) (fsiBody: 
 /// Build the manifest provider once for the run.
 let private builtProvider =
     lazy
-        (match ReferencedProject.buildProvider vesperCoreManifest with
+        (match ReferencedProject.buildProvider "clr" vesperCoreManifest with
          | Result.Error e -> failwithf "buildProvider failed: %s" e
          | Result.Ok(provider, diags) -> provider, diags)
 
 /// The same `Vesper.Core` contract built for the JS target — no `.js.fs` capability
-/// reprs, plus the `files-js` compat shim (`capabilities-compat.js.fsi`) appended. The
-/// fixture for the canon-only-capability + BCL-compat-shim assertions.
+/// reprs, plus the `[targets.js] files` compat shim (`capabilities-compat.js.fsi`)
+/// appended. The fixture for the canon-only-capability + BCL-compat-shim assertions.
 let private builtProviderJs =
     lazy
-        (match ReferencedProject.buildProviderWith (Some "js") (fun _ -> ValueNone) [] vesperCoreManifest with
-         | Result.Error e -> failwithf "buildProviderWith (Some js) failed: %s" e
+        (match ReferencedProject.buildProviderWith "js" (fun _ -> ValueNone) [] vesperCoreManifest with
+         | Result.Error e -> failwithf "buildProviderWith js failed: %s" e
          | Result.Ok bp -> bp.Provider, bp.Diagnostics)
 
 [<Tests>]
@@ -100,8 +100,8 @@ let tests =
                     // `Vesper.Core`'s `[core]` carries no `name`, so it falls back
                     // to the directory name.
                     Expect.equal m.Name "Vesper.Core" "assembly name from dir"
-                    Expect.isNonEmpty m.Files "files listed"
-                    Expect.equal (List.head m.Files) "prim-types-min.fsi" "compile order: prim-types-min first"
+                    Expect.isNonEmpty m.Shared.Files "files listed"
+                    Expect.equal (List.head m.Shared.Files) "prim-types-min.fsi" "compile order: prim-types-min first"
             }
 
             test "every listed .fsi parses (no file-level diagnostics)" {
@@ -625,7 +625,7 @@ let tests =
 
                         let caught =
                             try
-                                ReferencedProject.composeContract ReferencedProject.noMetaTail None [ a; b ]
+                                ReferencedProject.composeContract ReferencedProject.noMetaTail "clr" [ a; b ]
                                 |> ignore
 
                                 None
@@ -646,7 +646,7 @@ let tests =
                         let a =
                             writeSyntheticPackageWithType "SoloPkg" "Solo" "type Thing =\n    | A\n    | B"
 
-                        ReferencedProject.composeContract ReferencedProject.noMetaTail None [ a ]
+                        ReferencedProject.composeContract ReferencedProject.noMetaTail "clr" [ a ]
                         |> ignore
                     }
 
@@ -682,16 +682,14 @@ let tests =
                     }
                 ]
 
-            // Per-target `impl-<t>` / `inline-bodies-<t>` overrides (codegen-js
-            // step F0): the manifest parse captures them inertly by suffix; the
-            // *backend* selects via `resolveImpl` / `resolveInlineBodies`. The
-            // `.fsi` contract (`files`) is shared and never overridden.
+            // `[targets.<t>]` peers: every list INHERITS the `[core]` one and APPENDS to
+            // it, uniformly, with no REPLACE anywhere. The CLR is an ordinary target key.
             testList
-                "per-target overrides"
+                "per-target lists"
                 [
-                    // A manifest carrying both a base and a `js` override for each key.
-                    let withOverrides =
-                        let dir = Path.Combine(tmpSrc, "TargetOverrides")
+                    // A manifest carrying shared lists and a `js` table for each key.
+                    let withTargets =
+                        let dir = Path.Combine(tmpSrc, "TargetLists")
                         Directory.CreateDirectory dir |> ignore
                         let path = Path.Combine(dir, "manifest.toml")
 
@@ -700,61 +698,121 @@ let tests =
                             "[core]\n\
                              files = [\"contract.fsi\"]\n\
                              impl = [\"ops.fs\"]\n\
-                             impl-js = [\"ops.js.fs\"]\n\
-                             inline-bodies = [\"ops.fs\"]\n\
-                             inline-bodies-js = [\"ops.js.fs\"]\n\
-                             runtime-js = [\"runtime.mjs\"]\n"
+                             sig-only = [\"contract.fsi\"]\n\
+                             \n\
+                             [targets.js]\n\
+                             files = [\"shim.js.fsi\"]\n\
+                             impl = [\"ops.js.fs\"]\n\
+                             inline-bodies = [\"splice.js.fs\"]\n\
+                             sig-only = [\"shim.js.fsi\"]\n\
+                             runtime = [\"runtime.mjs\"]\n"
                         )
 
                         match ReferencedProject.loadManifest path with
                         | Result.Ok m -> m
                         | Result.Error e -> failwithf "loadManifest failed: %s" e
 
-                    test "overrides are captured by bare suffix" {
-                        Expect.equal
-                            (withOverrides.ImplOverrides |> Map.tryFind "js")
-                            (Some [ "ops.js.fs" ])
-                            "impl-js captured under \"js\""
+                    test "a [targets.<t>] table is captured under its bare name" {
+                        Expect.equal (withTargets.Targets |> Map.toList |> List.map fst) [ "js" ] "one declared target"
 
                         Expect.equal
-                            (withOverrides.InlineBodiesOverrides |> Map.tryFind "js")
-                            (Some [ "ops.js.fs" ])
-                            "inline-bodies-js captured under \"js\""
-
-                        // `runtime-js` (the platform-support `.mjs` asset) is captured
-                        // the same way — by bare suffix, with no base `runtime` key.
-                        Expect.equal
-                            (withOverrides.RuntimeOverrides |> Map.tryFind "js")
-                            (Some [ "runtime.mjs" ])
-                            "runtime-js captured under \"js\""
+                            (withTargets.Targets.["js"])
+                            {
+                                Files = [ "shim.js.fsi" ]
+                                Impl = [ "ops.js.fs" ]
+                                InlineBodies = [ "splice.js.fs" ]
+                                SigOnly = [ "shim.js.fsi" ]
+                                Runtime = [ "runtime.mjs" ]
+                            }
+                            "every [targets.js] list captured"
                     }
 
-                    test "resolveImpl/resolveInlineBodies pick the override for a known target" {
+                    test "every resolver inherits the shared list and appends the target's" {
                         Expect.equal
-                            (ReferencedProject.resolveImpl (Some "js") withOverrides)
-                            [ "ops.js.fs" ]
-                            "js impl override selected"
+                            (ReferencedProject.resolveFiles "js" withTargets)
+                            [ "contract.fsi"; "shim.js.fsi" ]
+                            "shared contract first, then the target's extras"
 
                         Expect.equal
-                            (ReferencedProject.resolveInlineBodies (Some "js") withOverrides)
-                            [ "ops.js.fs" ]
-                            "js inline-bodies override selected"
+                            (ReferencedProject.resolveImpl "js" withTargets)
+                            [ "ops.fs"; "ops.js.fs" ]
+                            "shared impl first, then the target's"
+
+                        Expect.equal
+                            (ReferencedProject.resolveSigOnly "js" withTargets)
+                            [ "contract.fsi"; "shim.js.fsi" ]
+                            "shared exemptions first, then the target's"
+
+                        Expect.equal
+                            (ReferencedProject.resolveInlineBodies "js" withTargets)
+                            [ "splice.js.fs" ]
+                            "a declared splice source replaces nothing — the shared list is empty"
                     }
 
-                    // `resolveRuntime` has NO base list (a runtime asset is inherently
-                    // target-specific), so `None` and any target without the key yield
-                    // the empty list — unlike `resolveImpl`/`resolveInlineBodies`.
-                    test "resolveRuntime selects the target asset, empty for None / unknown" {
+                    // The fallback is on the WHOLE manifest, not per target: a package that
+                    // names no splice source anywhere splices what it compiles.
+                    test "a manifest naming no splice source splices its impl" {
+                        let dir = Path.Combine(tmpSrc, "SpliceDefault")
+                        Directory.CreateDirectory dir |> ignore
+                        let path = Path.Combine(dir, "manifest.toml")
+
+                        File.WriteAllText(
+                            path,
+                            "[core]\nfiles = []\nimpl = [\"ops.fs\"]\n\n[targets.js]\nimpl = [\"ops.js.fs\"]\n"
+                        )
+
+                        match ReferencedProject.loadManifest path with
+                        | Result.Error e -> failtestf "loadManifest failed: %s" e
+                        | Result.Ok m ->
+                            Expect.equal
+                                (ReferencedProject.resolveInlineBodies "js" m)
+                                [ "ops.fs"; "ops.js.fs" ]
+                                "no inline-bodies anywhere ⇒ the impl IS the splice source"
+                    }
+
+                    // An undeclared target contributes nothing, so it resolves to exactly
+                    // the shared lists — the same rule, not a fallback arm.
+                    test "an undeclared target resolves to the shared lists alone" {
                         Expect.equal
-                            (ReferencedProject.resolveRuntime (Some "js") withOverrides)
+                            (ReferencedProject.resolveImpl "wasm" withTargets)
+                            [ "ops.fs" ]
+                            "no [targets.wasm] ⇒ shared impl only"
+
+                        Expect.equal
+                            (ReferencedProject.resolveFiles "wasm" withTargets)
+                            [ "contract.fsi" ]
+                            "no [targets.wasm] ⇒ shared contract only"
+                    }
+
+                    // `runtime` has NO shared peer — a runtime asset is inherently
+                    // target-specific — so an undeclared target yields nothing.
+                    test "resolveRuntime selects the target asset, empty for an unknown target" {
+                        Expect.equal
+                            (ReferencedProject.resolveRuntime "js" withTargets)
                             [ "runtime.mjs" ]
                             "js runtime asset selected"
 
-                        Expect.isEmpty (ReferencedProject.resolveRuntime None withOverrides) "None ⇒ no runtime"
-
                         Expect.isEmpty
-                            (ReferencedProject.resolveRuntime (Some "wasm") withOverrides)
-                            "unknown target ⇒ no runtime (no base fallback)"
+                            (ReferencedProject.resolveRuntime "wasm" withTargets)
+                            "unknown target ⇒ no runtime (there is no shared one to inherit)"
+                    }
+
+                    // The stem rule both the conformance pass and the intrinsic-repr
+                    // extraction pair on: extension off, then a declared target's suffix.
+                    test "pairingStem strips the extension and a declared target suffix" {
+                        Expect.equal (ReferencedProject.pairingStem withTargets "ops.js.fs") "ops" "target suffix off"
+
+                        Expect.equal (ReferencedProject.pairingStem withTargets "ops.fs") "ops" "bare body"
+
+                        Expect.equal
+                            (ReferencedProject.pairingStem withTargets "shim.js.fsi")
+                            "shim"
+                            "a `.js.fsi` contract keys the same as its `.js.fs` body"
+
+                        Expect.equal
+                            (ReferencedProject.pairingStem withTargets "ops.wasm.fs")
+                            "ops.wasm"
+                            "an UNdeclared suffix is part of the stem"
                     }
 
                     // `runtimeModules` reads the resolved asset's contents off disk,
@@ -770,7 +828,9 @@ let tests =
                             path,
                             "[core]\n\
                              files = []\n\
-                             runtime-js = [\"asset.mjs\"]\n"
+                             \n\
+                             [targets.js]\n\
+                             runtime = [\"asset.mjs\"]\n"
                         )
 
                         let resolved = ReferencedProject.runtimeModules "js" [ path ]
@@ -785,22 +845,8 @@ let tests =
                             "a target with no runtime asset resolves to an empty map"
                     }
 
-                    test "resolve falls back to the base list for None and for an unknown target" {
-                        Expect.equal (ReferencedProject.resolveImpl None withOverrides) [ "ops.fs" ] "None ⇒ base impl"
-
-                        Expect.equal
-                            (ReferencedProject.resolveImpl (Some "wasm") withOverrides)
-                            [ "ops.fs" ]
-                            "unknown target ⇒ base impl"
-
-                        Expect.equal
-                            (ReferencedProject.resolveInlineBodies (Some "wasm") withOverrides)
-                            [ "ops.fs" ]
-                            "unknown target ⇒ base inline-bodies"
-                    }
-
-                    test "a manifest with no overrides has empty override maps and resolves to base" {
-                        let dir = Path.Combine(tmpSrc, "NoOverrides")
+                    test "a manifest with no [targets] table declares no target and resolves to shared" {
+                        let dir = Path.Combine(tmpSrc, "NoTargets")
                         Directory.CreateDirectory dir |> ignore
                         let path = Path.Combine(dir, "manifest.toml")
                         File.WriteAllText(path, "[core]\nfiles = []\nimpl = [\"ops.fs\"]\n")
@@ -808,22 +854,48 @@ let tests =
                         match ReferencedProject.loadManifest path with
                         | Result.Error e -> failtestf "loadManifest failed: %s" e
                         | Result.Ok m ->
-                            Expect.isEmpty m.ImplOverrides "no impl overrides"
-                            Expect.isEmpty m.InlineBodiesOverrides "no inline-bodies overrides"
-                            Expect.isEmpty m.RuntimeOverrides "no runtime overrides"
-                            // `inline-bodies` itself defaults to `impl` (existing behaviour).
-                            Expect.equal
-                                (ReferencedProject.resolveInlineBodies (Some "js") m)
-                                [ "ops.fs" ]
-                                "js ⇒ base (= impl)"
+                            Expect.isEmpty m.Targets "no [targets.<t>] table ⇒ no declared target"
+                            Expect.equal (ReferencedProject.resolveImpl "js" m) [ "ops.fs" ] "js ⇒ shared impl"
+
+                    }
+
+                    // A key the schema does not define is a parse ERROR, not silence: the
+                    // old dashed-suffix spellings would otherwise resolve to a plausible
+                    // wrong file set.
+                    test "an unknown key is rejected, in [core] and in a target table" {
+                        let write (name: string) (body: string) =
+                            let dir = Path.Combine(tmpSrc, name)
+                            Directory.CreateDirectory dir |> ignore
+                            let path = Path.Combine(dir, "manifest.toml")
+                            File.WriteAllText(path, body)
+                            path
+
+                        match
+                            ReferencedProject.loadManifest (
+                                write "StaleCore" "[core]\nfiles = []\nimpl-js = [\"ops.js.fs\"]\n"
+                            )
+                        with
+                        | Result.Ok m -> failtestf "expected an unknown-key error, got Ok %A" m
+                        | Result.Error e ->
+                            Expect.stringContains e "impl-js" "the error names the offending key"
+                            Expect.stringContains e "core" "and the table it was found in"
+
+                        match
+                            ReferencedProject.loadManifest (
+                                write "StaleTarget" "[core]\nfiles = []\n\n[targets.js]\nruntime-js = [\"x.mjs\"]\n"
+                            )
+                        with
+                        | Result.Ok m -> failtestf "expected an unknown-key error, got Ok %A" m
+                        | Result.Error e ->
+                            Expect.stringContains e "runtime-js" "the error names the offending key"
+                            Expect.stringContains e "targets.js" "and the target table it was found in"
                     }
                 ]
 
-            // The compile cache's key folds `sourceInputs`, and the provider build reads what
-            // it reads; a file in the second set and not the first is a stale hit. The two are
-            // held together by `declaredTarget`, which narrows the PROBE to the suffixes
-            // `targetSuffixes` reports — so this list gates that narrowing rather than the
-            // coincidence it replaced.
+            // The compile cache's key folds `sourceInputs`, and the provider build reads
+            // only what a list NAMES; a file in the second set and not the first is a
+            // stale hit. With no companion derivation left, the two are the same set by
+            // construction — these gate that they stay so.
             testList
                 "sourceInputs covers what the provider build reads"
                 [
@@ -839,83 +911,69 @@ let tests =
                         File.WriteAllText(path, body)
                         path
 
-                    test "a manifest declaring no per-target key participates in no target" {
-                        // THE hole this narrowing closes. Such a manifest reports no suffixes,
-                        // so `sourceInputs` names no `.js.fs` companion — and `declaredTarget`
-                        // is what stops the extraction probing one anyway.
+                    test "sourceInputs names every path any list holds, and no runtime asset" {
+                        let m =
+                            loadOrFail (
+                                writeManifest
+                                    "AllLists"
+                                    "[core]\n\
+                                     files = [\"contract.fsi\"]\n\
+                                     impl = [\"ops.fs\"]\n\
+                                     sig-only = [\"contract.fsi\"]\n\
+                                     \n\
+                                     [targets.clr]\n\
+                                     impl = [\"ops.clr.fs\"]\n\
+                                     \n\
+                                     [targets.js]\n\
+                                     files = [\"shim.js.fsi\"]\n\
+                                     impl = [\"ops.js.fs\"]\n\
+                                     inline-bodies = [\"splice.js.fs\"]\n\
+                                     runtime = [\"x.mjs\"]\n"
+                            )
+
+                        let inputs = ReferencedProject.sourceInputs m
+
+                        Expect.equal
+                            (List.sort inputs)
+                            (List.sort
+                                [
+                                    "contract.fsi"
+                                    "ops.fs"
+                                    "ops.clr.fs"
+                                    "shim.js.fsi"
+                                    "ops.js.fs"
+                                    "splice.js.fs"
+                                ])
+                            "every target's lists unioned, deduplicated"
+
+                        Expect.isFalse (List.contains "x.mjs" inputs) "a runtime asset is not a parsed source"
+                    }
+
+                    test "a manifest naming no target names nothing target-shaped" {
                         let m =
                             loadOrFail (writeManifest "TargetBlind" "[core]\nfiles = [\"contract.fsi\"]\n")
 
-                        Expect.isEmpty (ReferencedProject.targetSuffixes m) "no per-target key ⇒ no suffix"
+                        Expect.isEmpty m.Targets "no [targets.<t>] table"
 
                         Expect.equal
-                            (ReferencedProject.declaredTarget (Some "js") m)
-                            None
-                            "an undeclared target narrows to the base resolution"
-
-                        Expect.isFalse
-                            (List.contains "contract.js.fs" (ReferencedProject.sourceInputs m))
-                            "and so no per-target companion is named"
+                            (ReferencedProject.sourceInputs m)
+                            [ "contract.fsi" ]
+                            "only what the shared lists name"
                     }
 
-                    test "a manifest declaring the target keeps it, and names its companion" {
-                        let m =
-                            loadOrFail (
-                                writeManifest
-                                    "TargetAware"
-                                    "[core]\nfiles = [\"contract.fsi\"]\nimpl-js = [\"ops.js.fs\"]\n"
-                            )
-
-                        Expect.equal
-                            (ReferencedProject.declaredTarget (Some "js") m)
-                            (Some "js")
-                            "a declared target survives the narrowing"
-
-                        let inputs = ReferencedProject.sourceInputs m
-                        Expect.contains inputs "contract.js.fs" "the per-target companion is named"
-                        Expect.contains inputs "contract.fs" "so is the base companion"
-                        Expect.contains inputs "ops.js.fs" "and the override list itself"
-                    }
-
-                    test "a suffix declared only by runtime- still participates" {
-                        // `runtime-js` ships no source, but a package may declare it and no
-                        // other per-target key while still shipping `.js.fs` companions.
-                        let m =
-                            loadOrFail (
-                                writeManifest
-                                    "RuntimeOnly"
-                                    "[core]\nfiles = [\"contract.fsi\"]\nruntime-js = [\"x.mjs\"]\n"
-                            )
-
-                        Expect.equal
-                            (ReferencedProject.declaredTarget (Some "js") m)
-                            (Some "js")
-                            "a runtime-only suffix is still a declared target"
-
-                        let inputs = ReferencedProject.sourceInputs m
-                        Expect.contains inputs "contract.js.fs" "so its companion is named"
-                        Expect.isFalse (List.contains "x.mjs" inputs) "but a runtime asset is not a source"
-                    }
-
-                    test "every real package's declared targets name their own companions" {
-                        // The pairing across the shipped manifests, not a synthetic one: for
-                        // every target a package participates in, the companion the extraction
-                        // would probe is a path `sourceInputs` folds.
+                    test "every real package's listed bodies are folded" {
+                        // Across the shipped manifests, not a synthetic one: every `.fs` a
+                        // target compiles is a path the cache key covers.
                         for manifest in [ vesperCoreManifest; vesperListManifest ] do
                             let m = loadOrFail manifest
                             let inputs = ReferencedProject.sourceInputs m
 
-                            for t in ReferencedProject.targetSuffixes m do
-                                Expect.equal
-                                    (ReferencedProject.declaredTarget (Some t) m)
-                                    (Some t)
-                                    (sprintf "%s declares %s" m.Name t)
-
-                                for fsi in m.Files do
-                                    Expect.contains
-                                        inputs
-                                        (ReferencedProject.companionFs (Some t) fsi)
-                                        (sprintf "%s: %s's %s companion is folded" m.Name fsi t)
+                            for t in m.Targets |> Map.toList |> List.map fst do
+                                for rel in
+                                    ReferencedProject.resolveImpl t m
+                                    @ ReferencedProject.resolveInlineBodies t m
+                                    @ ReferencedProject.resolveFiles t m do
+                                    Expect.contains inputs rel (sprintf "%s: %s's %s is folded" m.Name t rel)
                     }
                 ]
         ]

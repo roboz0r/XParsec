@@ -9,9 +9,8 @@ files = [
     "set.fsi",
 ]
 
-# Runtime impl `.fs` files (our-backend target source). `set.fs` is parse-tested
-# today and lined up for compilation once the backend supports the FSharp.Core-
-# style surface it uses.
+[targets.clr]
+# CLR-bound: `System.Collections{,.Generic}` and `System.Text`. No JS body ships yet.
 impl = [
     "set.fs",
 ]

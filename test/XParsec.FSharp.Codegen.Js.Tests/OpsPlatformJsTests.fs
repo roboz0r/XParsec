@@ -23,15 +23,12 @@ let tests =
             // The declared operator surface IS the JS target's arithmetic-support
             // definition; the manifest states the same matrix. Built through the JS-native
             // leaf, so this is the contract a real JS build resolves against.
-            OperatorSurfaceParity.tests
-                "js"
-                (JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ])
+            OperatorSurfaceParity.tests "js" (JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ])
 
             // The operators themselves are still `let inline` values in the collection —
             // now bare trait calls, with the per-width IL on the primitives.
             test "arithmetic operators are collected as cross-package inlines (js target)" {
-                let js =
-                    JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
+                let js = JsNativeSymbols.jsNativeInlineBodiesFor Target.Js [ vesperCoreManifest ]
 
                 for name in
                     [
@@ -49,8 +46,7 @@ let tests =
             // Each of these was a `when ^T1 : …` clause on the operator; the width owning
             // its own body is what the freeze has to carry across intact.
             test "the int32 / int64 / float bodies freeze with their JS templates intact" {
-                let js =
-                    JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
+                let js = JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ]
 
                 let opsOf width compiled =
                     InlineBodies.ilOpCodes (InlineBodies.operatorBody js width compiled)
@@ -76,8 +72,7 @@ let tests =
             }
 
             test "equality operators freeze with `===` primitive clauses + structural-call base" {
-                let js =
-                    JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
+                let js = JsNativeSymbols.jsNativeInlineBodiesFor Target.Js [ vesperCoreManifest ]
 
                 // The aggregate base is a CALL to `structuralEquals`, not an IL template;
                 // `ilOpCodes` sees the `===` clauses but no `equals(` opcode.
@@ -100,8 +95,7 @@ let tests =
             test "JS numeric reprs: canon identities stay distinct while both platform-project to `number`" {
                 // `int` and `float` must keep distinct canon keys; a shared repr would conflate %d/%f
                 // and integer division.
-                let js =
-                    JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
+                let js = JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ]
 
                 let facesOf (name: string) =
                     match js.TryLookupType name |> ExternalSymbols.typeShapeOf with
@@ -134,8 +128,7 @@ let tests =
 
             test "JS target: unit -> undefined, int64/uint64 -> bigint (canon = `.fsi` name)" {
                 // `number` loses precision past 53 bits, so int64/uint64 must use `bigint`.
-                let js =
-                    JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
+                let js = JsNativeSymbols.buildJsNativeContractFor Target.Js [ vesperCoreManifest ]
 
                 let facesOf (name: string) =
                     match js.TryLookupType name |> ExternalSymbols.typeShapeOf with
@@ -164,7 +157,7 @@ let tests =
             // that was parsed would turn every later resolution into a spurious hard failure.
             test "the collection retains the producer files its bodies are anchored in" {
                 let origins =
-                    JsNativeSymbols.jsNativeInlineOriginsFor (Some Target.Js) [ vesperCoreManifest ]
+                    JsNativeSymbols.jsNativeInlineOriginsFor Target.Js [ vesperCoreManifest ]
                     |> OriginSources.toList
 
                 Expect.isNonEmpty origins "the JS `inline-bodies` files are retained, not dropped after the parse"

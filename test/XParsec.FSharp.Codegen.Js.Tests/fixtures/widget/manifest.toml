@@ -22,12 +22,14 @@ files = [
     "widget.fsi",
 ]
 
-# The JS-target body sources. Read by the codegen inline-body loader
-# (`resolveInlineBodies (Some "js")`), whose `liftMemberBody` mints each `member inline`
-# as a `this`-first inline body served under that member's key. `gadget.js.fs` is the
-# NON-IL-bodied case: its body is a keyed `widget.Poke` call, and it publishes because it
-# is declared `inline`, not because of anything the body is.
-inline-bodies-js = [
+[targets.js]
+# SPLICE sources, not an `impl`: nothing here is compiled, and the `(# "object" #)` these
+# files bind is the member host's shape, not a primitive the contract publishes. The
+# inline-body loader's `liftMemberBody` mints each `member inline` as a `this`-first
+# inline body served under that member's key. `gadget.js.fs` is the NON-IL-bodied case:
+# its body is a keyed `widget.Poke` call, and it publishes because it is declared
+# `inline`, not because of anything the body is.
+inline-bodies = [
     "widget.js.fs",
     "gadget.js.fs",
 ]

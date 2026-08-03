@@ -63,22 +63,22 @@ module ClrSymbolProviders =
 
     /// Layer-1 contract stack over the BCL metadata leaf. Uncached.
     let build (manifestPaths: string list) : IExternalSymbolProvider =
-        SymbolProviders.buildWith bclMetaTail manifestPaths
+        SymbolProviders.buildWith bclMetaTail Target.Clr manifestPaths
 
     /// Provider stack for a manifest set (BCL leaf), including cross-package inline bodies.
     let buildContract (manifestPaths: string list) : IExternalSymbolProvider =
-        (SymbolProviders.buildContractWith "bcl" bclMetaTail None manifestPaths).Provider
+        (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr manifestPaths).Provider
 
-    /// `buildContract` for a specific target (`Some "js"` selects `inline-bodies-js`
-    /// overrides). `None` is identical to `buildContract`.
-    let buildContractFor (target: string option) (manifestPaths: string list) : IExternalSymbolProvider =
+    /// `buildContract` for a specific target — `Target.Js` selects the `[targets.js]`
+    /// lists. `Target.Clr` is identical to `buildContract`.
+    let buildContractFor (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).Provider
 
     /// The compiling package's own intrinsic reverse axis
     /// The reverse `{ platform-repr -> [canon] }` axis of the package being compiled, as
     /// a consumer of it would see it. Read off that package's own composed contract
     /// sources.
-    let selfReverseCanon (target: string option) (selfManifest: string option) : Map<string, SymbolKey list> =
+    let selfReverseCanon (target: string) (selfManifest: string option) : Map<string, SymbolKey list> =
         match selfManifest with
         | None -> Map.empty
         | Some manifestPath -> (buildContractFor target [ manifestPath ]).IntrinsicReverseCanon
@@ -119,7 +119,7 @@ module ClrSymbolProviders =
     /// which would declare every one of its types twice.
     let buildContractForSelf
         (selfManifest: string option)
-        (target: string option)
+        (target: string)
         (manifestPaths: string list)
         : IExternalSymbolProvider =
         let seed = selfReverseCanon target selfManifest
@@ -132,10 +132,10 @@ module ClrSymbolProviders =
     /// (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`); a simple name is not a
     /// resolution channel.
     let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
-        (SymbolProviders.buildContractWith "bcl" bclMetaTail None manifestPaths).BodiesByName
+        (SymbolProviders.buildContractWith "bcl" bclMetaTail Target.Clr manifestPaths).BodiesByName
 
     /// `contractInlineBodies` for a specific target — introspection seam for target tests.
-    let contractInlineBodiesFor (target: string option) (manifestPaths: string list) : Map<string, InlineBody> =
+    let contractInlineBodiesFor (target: string) (manifestPaths: string list) : Map<string, InlineBody> =
         (SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths).BodiesByName
 
     /// The cached contract for one compilation: an EXPLICIT reference set (a
@@ -149,7 +149,7 @@ module ClrSymbolProviders =
     let private compilationContract
         (selfManifest: string option)
         (dllPaths: string list)
-        (target: string option)
+        (target: string)
         (manifestPaths: string list)
         : SymbolProviders.Contract =
         let seed = selfReverseCanon target selfManifest
@@ -166,7 +166,7 @@ module ClrSymbolProviders =
     let buildContractWithRefs
         (selfManifest: string option)
         (dllPaths: string list)
-        (target: string option)
+        (target: string)
         (manifestPaths: string list)
         : IExternalSymbolProvider =
         (compilationContract selfManifest dllPaths target manifestPaths).Provider
@@ -178,7 +178,7 @@ module ClrSymbolProviders =
     let contractInlineBodiesWithRefs
         (selfManifest: string option)
         (dllPaths: string list)
-        (target: string option)
+        (target: string)
         (manifestPaths: string list)
         : Map<string, InlineBody> =
         (compilationContract selfManifest dllPaths target manifestPaths).BodiesByName
