@@ -106,6 +106,14 @@ module RuntimeNames =
     /// [`structuralFormattableKey`].
     let formatSinkKey: TypeKey = SymbolKeyOps.typeKeyOf intrinsicNamespace "IFormatSink"
 
+    /// Canonical identity for the function interface `Vesper.Fun` at `genericArity` type
+    /// arguments — the CURRIED `Fun<'A,'B>` (2) and the FLAT overloads `Fun<'A,'B,'C>` …
+    /// `Fun<'A,'B,'C,'D,'E>` (3–5), which share the name and differ only by arity. A
+    /// function value's type and every synthesised closure's implemented interface.
+    /// Resolved local-or-external exactly as [`structuralFormattableKey`].
+    let vesperFunKey (genericArity: int) : TypeKey =
+        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Fun" genericArity
+
     /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>` (arity 4) —
     /// the type a format literal freezes to (`PrintfSpec.printfFormatName`). The FSharp.Core
     /// spelling of the format *type*.

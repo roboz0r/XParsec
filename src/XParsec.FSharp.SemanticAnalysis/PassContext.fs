@@ -375,7 +375,7 @@ type PassContextResolution =
         /// as an `App` head).
         /// Read by the type-decl emitter (`Elaborate.tryUnionType`) and the enum use-site
         /// elaborator by type key, and by Unification's `tryExternalTypeReceiver` /
-        /// `splitExternalClassPrefix` / `tryInferExternalCtorApp`, which take the
+        /// `splitExternalStaticPrefix` / `tryInferExternalCtorApp`, which take the
         /// stamped declaring-type key into a key-addressed `TryLookupMember` /
         /// `TryLookupMembers(_, ".ctor")`. That split IS F#'s name-resolution /
         /// type-inference seam: the static type prefix is resolved here, opens-aware,
@@ -397,11 +397,14 @@ type PassContextResolution =
         /// `float<m>` measure carrier is synthesized during inference with no `Type`
         /// node to stamp, and keeps the one sanctioned resolver-view reach.)
         ResolvedTypeHead: SideTable<TypeKey>
-        /// A static-access receiver's resolved external CLASS key — the writer
-        /// guarantees the Class shape, so readers dispatch with no shape re-query.
+        /// A static-access receiver's resolved external type key — a CLASS, or an
+        /// INTRINSIC whose contract declares static members on it (a member-bearing
+        /// `extern` type: the `Intrinsic` shape carries no member slots, so its
+        /// members ride the by-key lookup under the canon). The writer guarantees a
+        /// static-member-bearing shape, so readers dispatch with no shape re-query.
         /// Two minting forms, each keyed by its own node: a folded static-member
         /// `Expr.LongIdent` (`System.Console.Out`, `N.pickName`) stamps the receiver
-        /// PREFIX (every segment but the last; read by `splitExternalClassPrefix`,
+        /// PREFIX (every segment but the last; read by `splitExternalStaticPrefix`,
         /// then `TryLookupMember(prefixKey, lastSegment)` selects the post-dot
         /// member by key), and a generic `Expr.TypeApp` receiver *head*
         /// (`EqualityComparer<int>` in `EqualityComparer<int>.Default`, resolved at
@@ -414,9 +417,9 @@ type PassContextResolution =
         /// `ResolvedType`) while `N.pickName` is a prefix class + trailing member
         /// (here) — so they cannot share one table: a ctor-app consumer reading
         /// `ResolvedType` must NOT see the receiver prefix of a static member and
-        /// mistake it for a constructible head. Absent when the receiver is not an
-        /// external class (a namespace, a local field chain, an unknown qualifier,
-        /// a union/record/abbrev/intrinsic receiver — each keeps its own path).
+        /// mistake it for a constructible head. Absent when the receiver bears no
+        /// external static surface (a namespace, a local field chain, an unknown
+        /// qualifier, a union/record/abbrev receiver — each keeps its own path).
         ExternalStaticReceiver: SideTable<SymbolKey>
         /// Keyed by a ≥2-segment qualified `Expr.LongIdent` whose qualifier (every
         /// segment but the last) resolves to an external UNION or RECORD: the

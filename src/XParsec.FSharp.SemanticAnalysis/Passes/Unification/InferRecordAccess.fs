@@ -18,25 +18,27 @@ open UnificationInferDispatch
 
 module internal UnificationInferRecordAccess =
 
-    /// A member named `memberName` on an *intrinsic* receiver (`TyConst`) whose
-    /// `(# "…" #)` binding canonicalises to a BCL type (`tryExternalReceiver`).
-    /// Yields the declaring type's key, the receiver's type args, and the single-
-    /// pick member — so the consuming arm resolves the member without re-running
-    /// the canonicalisation or the provider lookup. Declines (the arm falls
-    /// through to the array / other `TyConst` cases) when the receiver isn't an
-    /// intrinsic mapped to a BCL type, or that type has no such member.
+    /// A member named `memberName` on an *intrinsic* receiver (`TyConst`) — declared
+    /// on the intrinsic's own contract, or on the BCL type its `(# "…" #)` binding
+    /// canonicalises to (`externalReceiverKeys` yields both, contract first). Yields
+    /// the declaring type's key, the receiver's type args, and the single-pick member
+    /// — so the consuming arm resolves the member without re-running the
+    /// canonicalisation or the provider lookup. Declines (the arm falls through to the
+    /// array / other `TyConst` cases) when no surface of the receiver has such a member.
     [<return: Struct>]
     let private (|IntrinsicBclMember|_|)
         (ctx: PassContext)
         (memberName: string)
         (ty: SemType)
         : struct (SymbolKey * EqArray<SemType> * ExternalMember) voption =
-        match tryExternalReceiver ctx ty with
-        | ValueSome(declKey, args) ->
+        let onSurface (struct (declKey, args)) =
             match ctx.Provider.TryLookupMember(declKey, memberName) with
-            | ValueSome m -> ValueSome(struct (declKey, args, m))
-            | ValueNone -> ValueNone
-        | ValueNone -> ValueNone
+            | ValueSome m -> Some(struct (declKey, args, m))
+            | ValueNone -> None
+
+        match externalReceiverKeys ctx ty |> List.tryPick onSurface with
+        | Some hit -> ValueSome hit
+        | None -> ValueNone
 
     let rec inferRecord
         (infer: Infer)
@@ -700,16 +702,18 @@ module internal UnificationInferRecordAccess =
             | ValueNone -> getArrayIndex ()
         | _ ->
             // An intrinsic receiver mapped to a BCL type — `string` (`s.[i]`), whose
-            // indexer accessor is `System.String.get_Chars(int) : char`. When that does
-            // not resolve (the JS target — `string`'s platform repr is the bare
-            // `"string"`, so `tryExternalReceiver` declines), a `string` falls to the
+            // indexer accessor is `System.String.get_Chars(int) : char`. When no surface
+            // of the receiver publishes it (the JS target — `string`'s platform repr is
+            // the bare `"string"`, which names no class), a `string` falls to the
             // `GetString` intrinsic, anything else to `GetArray`.
-            match tryExternalReceiver ctx recvTy with
-            | ValueSome(declKey, clsArgs) ->
+            let charsIndexer (struct (declKey, clsArgs: EqArray<SemType>)) =
                 match resolveExternalIndexer declKey (clsArgs.AsSpan().ToArray()) "get_Chars" with
-                | ValueSome resultTy -> resultTy
-                | ValueNone -> stringOrArrayIndex ()
-            | ValueNone -> stringOrArrayIndex ()
+                | ValueSome resultTy -> Some resultTy
+                | ValueNone -> None
+
+            match externalReceiverKeys ctx recvTy |> List.tryPick charsIndexer with
+            | Some resultTy -> resultTy
+            | None -> stringOrArrayIndex ()
 
     /// `r.X.Y…` parsed as a single multi-segment `Expr.LongIdentOrOp`, whose
     /// head segment NameResolution resolved as a local binding; the remaining

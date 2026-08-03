@@ -10,7 +10,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // NameResolution — the one resolve-once layer — resolves an expression-position
 // external TYPE identity (opens-aware, longest-type-prefix) ONCE and stamps its
 // `SymbolKey` in `Resolution.ResolvedType`, keyed by the head expr's `NodeKey`.
-// Unification's `tryExternalTypeReceiver` / `splitExternalClassPrefix` /
+// Unification's `tryExternalTypeReceiver` / `splitExternalStaticPrefix` /
 // `tryInferExternalCtorApp` READ that stamp and do a key-addressed store-view
 // member/ctor lookup instead of re-running `OpenScope.tryQualify` + a string
 // provider lookup at inference time. A MISSED stamp is a resolution failure (the
@@ -53,7 +53,7 @@ let tests =
             // A folded static-member LongIdent: the receiver PREFIX (`Widget`) is
             // stamped in the DEDICATED receiver table (not `ResolvedType`, so a ctor-app
             // consumer never mistakes it for a constructible head);
-            // `splitExternalClassPrefix` reads it and looks the member up by key.
+            // `splitExternalStaticPrefix` reads it and looks the member up by key.
             test "static-member receiver prefix is stamped" {
                 let ctx, file = analyse "let x = Widget.Make"
                 let e = firstBindingExpr file

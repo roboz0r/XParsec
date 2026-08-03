@@ -514,35 +514,48 @@ module UnificationEngineCore =
             | true, platform -> platform
             | _ -> SymbolKeyOps.intrinsicName key
 
-    /// Resolve a *receiver* type to the external `(SymbolKey, typeArgs)` a provider
-    /// member lookup keys on: a non-project-local `TyClass` (a BCL / contract
-    /// class) passes its resolved key through UNCHANGED, and an *intrinsic*
-    /// `TyConst` whose `(# "…" #)` binding gives its platform type name
-    /// (`intrinsicPlatformName`, via `prim-types-*.fs`) mints the lookup key from
-    /// that repr HERE, once — consumers never see the string. `ValueNone` for a
-    /// project-local class (which routes through `resolveLocalInstanceMember`), an
-    /// array (`"[]"`), or byref (`"byref"`) — each keeps its own path. Shared by
-    /// the dot-access resolver (`resolveFieldStep`) and the arg-aware external
-    /// instance-method probe so neither re-derives the receiver→key mapping.
-    let tryExternalReceiver (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
+    /// Resolve a *receiver* type to the external `(SymbolKey, typeArgs)` surfaces a
+    /// provider member lookup keys on, MOST SPECIFIC FIRST. A non-project-local
+    /// `TyClass` (a BCL / contract class) publishes exactly one — its resolved key,
+    /// passed through UNCHANGED.
+    ///
+    /// An *intrinsic* `TyConst` publishes TWO, and both are real:
+    ///  - its own CONTRACT surface, keyed by the intrinsic's canon — a member the
+    ///    `.fsi` declares directly on the `extern` type (`type widget = extern with
+    ///    member inline Poke: …`), whose body is a member-keyed splice. The
+    ///    `Intrinsic` shape carries no member slots, so this surface is visible only
+    ///    through the by-key member lookup, never through the shape;
+    ///  - the PLATFORM type's catalogue, keyed by the name the `(# "…" #)` binding
+    ///    gives (`intrinsicPlatformName`, via `prim-types-*.fs`) — `"hello".TryCopyTo`
+    ///    reaching `System.String`. Minted HERE, once; consumers never see the string.
+    /// The contract's own declaration wins: it is what the type itself states.
+    ///
+    /// Empty for a project-local class (which routes through
+    /// `resolveLocalInstanceMember`), an array (`"[]"`), or byref (`"byref"`) — each
+    /// keeps its own path. Shared by the dot-access resolver (`resolveFieldStep`) and
+    /// the arg-aware external instance-method probe so neither re-derives the
+    /// receiver→key mapping.
+    let externalReceiverKeys (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) list =
         match resolveStep ctx.Store ty with
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
-            ValueSome(struct (SymbolKey.Type clsKey, typeArgs))
+            [ struct (SymbolKey.Type clsKey, typeArgs) ]
         // A structural constructor (`'T []`/`byref`) is a generic intrinsic whose
         // `platform` repr (`"!0[]"`) is an IL/codegen artefact, NOT a nominal receiver
         // key — its members ride dedicated backend paths, so honour the documented
         // "keeps its own path" and decline BEFORE consulting the platform name (which
         // would otherwise differ from `name` and mis-route the lookup onto `"!0[]"`).
-        | TyStructuralCtor -> ValueNone
+        | TyStructuralCtor -> []
         | TyConst(key, typeArgs) ->
             let name = SymbolKeyOps.intrinsicName key
             let platformQual = intrinsicPlatformName ctx key
 
-            if platformQual <> name then
-                ValueSome(struct (SymbolKeyOps.qualifiedTypeKey platformQual 0, typeArgs))
-            else
-                ValueNone
-        | _ -> ValueNone
+            [
+                struct (key, typeArgs)
+
+                if platformQual <> name then
+                    struct (SymbolKeyOps.qualifiedTypeKey platformQual 0, typeArgs)
+            ]
+        | _ -> []
 
     // Surface a nominal `(canonKey, args)` for the comparison. Covers `TyConst` (so the
     // `exn` bound participates), not just `TyClass`. The surfaced `SymbolKey` is the

@@ -339,17 +339,22 @@ module internal UnificationInferExternalCall =
             // `infer ctx fn`. If a fluent chain shows it up, thread the receiver
             // `SemType` out of the probe instead of re-inferring.
             //
-            // Resolve the receiver to an external `(SymbolKey, typeArgs)` — a
-            // non-project-local `TyClass` or an intrinsic `TyConst` mapped to a BCL
-            // type (`tryExternalReceiver`). A project-local class / array / byref
-            // declines and keeps its own path.
-            match tryExternalReceiver ctx recvTy with
-            | ValueNone -> ValueNone
-            | ValueSome(declKey, typeArgs) ->
-                let candidates =
+            // Resolve the receiver to its external member surfaces — a
+            // non-project-local `TyClass`, or an intrinsic `TyConst`'s own contract
+            // surface then the BCL type its repr names (`externalReceiverKeys`). The
+            // first surface that publishes the name owns the overload set; a
+            // project-local class / array / byref declines and keeps its own path.
+            let onSurface (struct (declKey, typeArgs)) =
+                match
                     ctx.Provider.TryLookupMembers(declKey, memberName)
                     |> Array.filter (fun m -> not m.IsStatic)
+                with
+                | [||] -> None
+                | candidates -> Some(struct (typeArgs, candidates))
 
+            match externalReceiverKeys ctx recvTy |> List.tryPick onSurface with
+            | None -> ValueNone
+            | Some(typeArgs, candidates) ->
                 if candidates.Length <= 1 then
                     // 0 / 1 instance overload: the single-pick path is unambiguous.
                     ValueNone

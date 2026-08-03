@@ -1,6 +1,6 @@
 # widget — a minimal test-only fixture package that carries a concrete
-# `(# … #)`-bodied member on an intrinsic/`extern` type. It proves the W9 member-inline
-# SPLICE end-to-end: the `.fsi` is the consumer-side contract (a dual-faced Class +
+# `(# … #)`-bodied member on an intrinsic/`extern` type. It proves the member-inline
+# SPLICE end-to-end: the `.fsi` is the consumer-side contract (an `extern` host +
 # `Poke` member), and the `.js.fs` companion is the body source whose member body the
 # codegen inline-body loader keys under the finalized member key. No `depends-on`: the
 # only external it names is the primitive `int`, resolved through whatever provider stack
@@ -23,13 +23,14 @@ files = [
 ]
 
 [targets.js]
-# SPLICE sources, not an `impl`: nothing here is compiled, and the `(# "object" #)` these
-# files bind is the member host's shape, not a primitive the contract publishes. The
-# inline-body loader's `liftMemberBody` mints each `member inline` as a `this`-first
-# inline body served under that member's key. `gadget.js.fs` is the NON-IL-bodied case:
-# its body is a keyed `widget.Poke` call, and it publishes because it is declared
-# `inline`, not because of anything the body is.
-inline-bodies = [
+# The bodies. Every declaration in them is `inline`, so the package emits no DLL and these
+# are purely SPLICE sources — the inline-body loader mints each `member inline` as a
+# `this`-first inline body served under that member's key. Listing them here is also what
+# marks `widget`/`gadget` as intrinsics (their `(# "object" #)` binding is the marker), so
+# the fixture pins that a member on an INTRINSIC host splices — instance and static alike.
+# `gadget.js.fs` is the NON-IL-bodied case: its body is a keyed `widget.Poke` call, and it
+# publishes because it is declared `inline`, not because of anything the body is.
+impl = [
     "widget.js.fs",
     "gadget.js.fs",
 ]

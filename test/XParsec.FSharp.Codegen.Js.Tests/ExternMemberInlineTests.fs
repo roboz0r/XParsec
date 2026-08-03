@@ -23,10 +23,9 @@ open XParsec.FSharp.Codegen.Js
 //
 // The key-agreement test still hand-builds the input member and sources the
 // FINALIZED key from a REAL loaded `.fsi` — wiring the FULL manifest path (a package
-// carrying BOTH the widget `.fsi` contract AND the widget `.fs` under
-// `inline-bodies-js`, so the lifted body reaches the use site through
-// `TryLookupMember(...).InlineBody` end-to-end) is deferred as disproportionate for this
-// stage.
+// carrying BOTH the widget `.fsi` contract AND the widget `.fs` bodies, so the lifted
+// body reaches the use site through `TryLookupMember(...).InlineBody` end-to-end) is
+// deferred as disproportionate for this stage.
 
 /// The hand-built member body below belongs to no file, so it sits at no source position —
 /// the same anchor a lowering's own minted node takes.
@@ -161,11 +160,13 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : TastAccessor
 /// `member inline _.Poke (x: int) : int = (# "$0 + 1" x : int #)`.
 let private pokeMember () : TastAccessor.TypeMember = pokeMemberOf "$0 + 1" ftInt
 
-// ─── Stage 1c: end-to-end SPLICE proof over the loadable `widget` fixture ────
+// ─── End-to-end SPLICE proof over the loadable `widget` fixture ──────────────
 //
-// The fixture package (`fixtures/widget/`) carries BOTH the `.fsi` contract AND the
-// `.js.fs` body source under `inline-bodies-js`, so the JS-native provider closes
-// `TryLookupMember("widget","Poke").InlineBody` against real elaboration.
+// The fixture package (`fixtures/widget/`) carries BOTH the `.fsi` contract AND its
+// `.js.fs` bodies, so the JS-native provider closes
+// `TryLookupMember("widget","Poke").InlineBody` against real elaboration. The bodies'
+// `(# "object" #)` binding also publishes the hosts as INTRINSICS, so these are the
+// splice tests for a member on an intrinsic host.
 // Stacked AHEAD of `jsManifests` (which carry Vesper.Core, so `int` resolves).
 
 /// `fixtures/widget/manifest.toml`.
@@ -190,9 +191,9 @@ let tests =
     testList
         "ExternMemberInline"
         [
-            // THE Stage 1c end-to-end assertion: a consumer call `w.Poke 41` on the
-            // loadable fixture SPLICES its member body (`41 + 1`) — no `.Poke(` method
-            // call survives, and `widget`'s lift-only `Class` decl never reaches emit.
+            // THE end-to-end assertion: a consumer call `w.Poke 41` on the loadable
+            // fixture SPLICES its member body (`41 + 1`) — no `.Poke(` method call
+            // survives, and `widget`'s lift-only `Class` decl never reaches emit.
             test "`w.Poke 41` splices to `41 + 1` end-to-end (no `.Poke`, no `class widget`)" {
                 let js = emitWidget "open Widgets\nlet usePoke (w: widget) : int = w.Poke 41\n"
 
@@ -204,8 +205,7 @@ let tests =
                 Expect.isFalse (js.Contains ".Poke") (sprintf "a `.Poke` method call leaked into emit:\n%s" js)
 
                 // The lift-only `Class` decl (widget's `.js.fs` `TDecl.Type(Class)`) must
-                // NEVER reach emit — it lives only in the inline-bodies file. Pins the
-                // 1b-elab flag that a lift-only Class decl is not emitted.
+                // NEVER reach emit — it is a splice source, not an emitted type.
                 Expect.isFalse (js.Contains "class widget") (sprintf "widget's Class decl leaked into emit:\n%s" js)
             }
 

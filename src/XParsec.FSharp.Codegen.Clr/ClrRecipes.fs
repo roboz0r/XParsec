@@ -25,8 +25,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let methodSpec handle args = enc.MethodSpec(handle, args)
     let eTextWriter = env.ETextWriter
     let eStringBuilder = env.EStringBuilder
-    let eFun2 = env.EFun2
-    let eFlatFun = env.EFlatFun
+    let eFun2 () = env.EFun2()
     let eVesperList1 = env.EVesperList1
     let eListModule = env.EListModule
     let eFormatter = env.EFormatter
@@ -42,7 +41,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let funInvokeRef (a: FrozenType) (b: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(eFun2.Value, 2, false)
+        let g = te.GenericInstantiation(eFun2 (), 2, false)
         encodeType (g.AddArgument()) a
         encodeType (g.AddArgument()) b
         let typeSpec = ctx.TypeSpec tsB
@@ -210,7 +209,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let funInterfaceSpec (a: FrozenType) (b: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(eFun2.Value, 2, false)
+        let g = te.GenericInstantiation(eFun2 (), 2, false)
         encodeType (g.AddArgument()) a
         encodeType (g.AddArgument()) b
         toEntity (ctx.TypeSpec tsB)
@@ -224,7 +223,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let len = List.length tys
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation((env.FlatFunEntity len).Value, len, false)
+        let g = te.GenericInstantiation(env.FlatFunEntity len, len, false)
 
         for ty in tys do
             encodeType (g.AddArgument()) ty

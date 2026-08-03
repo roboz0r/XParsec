@@ -99,14 +99,15 @@ module NameResolutionScope =
     let private resolvesAsBareExternalCase (ctx: PassContext) (name: string) : bool =
         (tryExternalCase ctx ValueNone name).IsSome
 
-    /// The dotted receiver name of an `Expr.TypeApp`, when it is an identifier /
+    /// The receiver name of an `Expr.TypeApp`, when it is an identifier /
     /// long-identifier the provider could know as a type. `ValueNone` for receiver
     /// shapes that are never an external type name (e.g. an applied expression).
-    let private typeAppReceiverName (ctx: PassContext) (receiver: Expr<SyntaxToken>) : string voption =
+    /// A `WrittenTypeName` (qualifier + short name), not a dotted string, so the
+    /// local-claim test and the external probe read the SAME decomposition.
+    let private typeAppReceiverName (ctx: PassContext) (receiver: Expr<SyntaxToken>) : WrittenTypeName voption =
         match receiver with
-        | Expr.Ident tok -> ValueSome(ctx.NameOf tok)
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
-            ValueSome(li.Idents |> Seq.map ctx.NameOf |> String.concat ".")
+        | Expr.Ident tok -> ValueSome(WrittenTypeName.bare (ctx.NameOf tok))
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> ValueSome(ctx.WrittenTypeNameOf li)
         | _ -> ValueNone
 
     let private resolveIdent (ctx: PassContext) (scope: Scope list) (tok: SyntaxToken) (useKey: NodeKey) =
@@ -647,11 +648,17 @@ module NameResolutionScope =
                         // head): the whole name as an external class (a ctor-sugar head
                         // `System.InvalidOperationException "x"`, or a bare class ref) →
                         // `ResolvedType`; else the folded static-member receiver PREFIX
-                        // (`System.Console` in `System.Console.Out`, `N` in `N.pickName`)
-                        // → `ExternalStaticReceiver`. Class-only, at arity 0 (a *generic*
-                        // receiver requires explicit type args — a TypeApp, whose visit
-                        // stamps `ResolvedType` at exact arity, hence the guard on an
-                        // existing entry); additive to the suppression verdicts below.
+                        // (`System.Console` in `System.Console.Out`, `N` in `N.pickName`,
+                        // `gadget` in `gadget.Bump w`) → `ExternalStaticReceiver`. At arity
+                        // 0 (a *generic* receiver requires explicit type args — a TypeApp,
+                        // whose visit stamps `ResolvedType` at exact arity, hence the guard
+                        // on an existing entry); additive to the suppression verdicts below.
+                        //
+                        // An INTRINSIC prefix stamps too: an `extern` type's `.fsi` may
+                        // declare static members on it, and those ride the by-key member
+                        // lookup under the intrinsic's canon (the `Intrinsic` shape carries
+                        // no member slots). The reader claims the node only when the member
+                        // actually resolves, so a memberless intrinsic prefix is unaffected.
                         if not (ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)) then
                             match qualHit with
                             | ValueSome {
@@ -673,6 +680,11 @@ module NameResolutionScope =
                                         CstKeys.ofExpr e,
                                         SymbolKeyOps.externalTypeKey info.Origin compiled 0
                                     )
+                                | ValueSome {
+                                                ProbedTyparArity = 0
+                                                Shape = ExternalTypeShape.Intrinsic { Id = { Canon = canon } }
+                                            } when canon.TyparArity = 0 ->
+                                    ctx.Resolution.ExternalStaticReceiver.Set(CstKeys.ofExpr e, SymbolKey.Type canon)
                                 | _ -> ()
 
                         // A qualifier naming an external UNION or RECORD has no static
@@ -784,9 +796,17 @@ module NameResolutionScope =
             // `ExternalStaticReceiver`, so the static-member reader
             // (`tryExternalTypeReceiver`) dispatches without a shape re-query at
             // inference time.
+            //
+            // A LOCAL claim wins, exactly as it does for a written type head: a package
+            // compiled against its own contract sees each of its types twice, and a
+            // `T<'a>(…)` written in the file that DECLARES `T` means that declaration —
+            // not the narrower surface the `.fsi` publishes. Claims are read AS SEEN FROM
+            // the receiver, so file-order shadowing still applies.
             match typeAppReceiverName ctx receiver with
-            | ValueSome name ->
-                match tryClassifyExternalType ctx (arityProbes types.Length) name with
+            | ValueSome written when
+                not (TypeRegistry.isWrittenTypeNameInScope ctx.Types (ctx.UseSiteAt(CstKeys.ofExpr receiver)) written)
+                ->
+                match tryClassifyExternalType ctx (arityProbes types.Length) written.Written with
                 | ValueSome hit when hit.Shape.TyparArity = types.Length ->
                     let key = useSiteTypeKey hit
                     ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr receiver, key)
@@ -796,7 +816,7 @@ module NameResolutionScope =
                         ctx.Resolution.ExternalStaticReceiver.Set(CstKeys.ofExpr receiver, SymbolKey.Type key)
                     | _ -> ()
                 | _ -> ()
-            | ValueNone -> ()
+            | _ -> ()
         // Operator/intrinsic symbol resolution, moved upstream from `InferApp`:
         // stamp the resolved operator `ExternalSymbol` so Unification instantiates
         // its scheme (and threads `sym.Key` into `IntrinsicKey`) by reading the

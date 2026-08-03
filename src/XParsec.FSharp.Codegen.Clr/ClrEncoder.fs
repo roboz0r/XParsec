@@ -25,7 +25,7 @@ type internal ClrEncoder(env: ClrEnv) =
     let eTextWriter = env.ETextWriter
     let eFormatter = env.EFormatter
     let eHashCode = env.EHashCode
-    let eFun2 = env.EFun2
+    let eFun2 () = env.EFun2()
     let ePrintfFormat4 = env.EPrintfFormat4
     let eVesperList1 = env.EVesperList1
     let eFSharpList1 = env.EFSharpList1
@@ -138,7 +138,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
         | FTArray elem -> encodeType (te.SZArray()) elem
         | FTFun(a, b) ->
-            let g = te.GenericInstantiation(eFun2.Value, 2, false)
+            let g = te.GenericInstantiation(eFun2 (), 2, false)
             encodeType (g.AddArgument()) a
             encodeType (g.AddArgument()) b
         | FTClass(key, args) when RuntimeNames.isPrintfFormatKey key ->

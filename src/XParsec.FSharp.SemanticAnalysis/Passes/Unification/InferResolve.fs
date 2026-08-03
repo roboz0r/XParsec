@@ -468,14 +468,14 @@ module internal UnificationInferResolve =
 
     /// Split a folded static-member LongIdent (`System.Console.Out`) into
     /// `(declTypeKey, lastTok)` where `declTypeKey` is the receiver PREFIX's resolved
-    /// class identity and `lastTok` the trailing member segment. NameResolution
-    /// resolved the prefix (opens-aware, class-only) and stamped its key in
+    /// type identity and `lastTok` the trailing member segment. NameResolution
+    /// resolved the prefix (opens-aware) and stamped its key in
     /// `ExternalStaticReceiver` under the whole LongIdent node's `key`; this reads it
     /// instead of re-running `OpenScope.tryQualify` at inference time. The DEDICATED
     /// receiver-prefix table (not `ResolvedType`) keeps a static member's receiver
     /// prefix from being mistaken for a constructible whole-name head. `ValueNone`
-    /// when the prefix did not resolve to an external class.
-    let splitExternalClassPrefix
+    /// when the prefix bears no external static surface.
+    let splitExternalStaticPrefix
         (ctx: PassContext)
         (key: NodeKey)
         (li: LongIdent<SyntaxToken>)
@@ -566,7 +566,7 @@ module internal UnificationInferResolve =
     let tryExternalStaticLongIdent (ctx: PassContext) (key: NodeKey) (e: Expr<SyntaxToken>) : SemType voption =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length >= 2 ->
-            match splitExternalClassPrefix ctx key li with
+            match splitExternalStaticPrefix ctx key li with
             | ValueSome(declTypeKey, lastTok) ->
                 // Claim it only if the member actually resolves; otherwise leave
                 // the node to the ctor/TyVar fallback without a spurious error.
@@ -588,7 +588,7 @@ module internal UnificationInferResolve =
             li.Idents.Length >= 2
             && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
             ->
-            match splitExternalClassPrefix ctx (CstKeys.ofExpr e) li with
+            match splitExternalStaticPrefix ctx (CstKeys.ofExpr e) li with
             | ValueSome(declTypeKey, lastTok) when
                 (ctx.Provider.TryLookupMembers(declTypeKey, ctx.NameOf lastTok)).Length > 0
                 ->

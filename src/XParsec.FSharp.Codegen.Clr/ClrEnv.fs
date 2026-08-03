@@ -189,34 +189,10 @@ type internal ClrEnv
     let ePrintfFormat4 =
         lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "PrintfFormat`4")))
 
-    // Forcing `eFun2` without a `Vesper.Core` reference is a hard error — `Fun` lives in Vesper.Core,
-    // not this assembly and not FSharp.Core.
+    // Forcing this without a `Vesper.Core` reference is a hard error — the function
+    // interfaces and the `%A` sinks live in Vesper.Core, not FSharp.Core.
     let vesperCoreRef =
         lazy (toEntity (ctx.AssemblyRef(refRequired "Vesper.Core" "a function value needs Vesper.Fun")))
-
-    let eFun2 = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`2")))
-
-    // The FLAT 2-arg function interface `Vesper.Fun`3<a,b,c>` a flat-2
-    // value-struct closure implements (one `Invoke(a,b):c`). Sibling of `eFun2`
-    // (the curried `Fun`2`) — same `Vesper.Fun` name, overloaded by generic arity.
-    let eFlatFun = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`3")))
-
-    // The wider FLAT function interfaces a flat arity-3 / arity-4 value-struct
-    // closure implements: `Vesper.Fun`4<a,b,c,r>` (one `Invoke(a,b,c):r`) and
-    // `Vesper.Fun`5<a,b,c,d,r>` (one `Invoke(a,b,c,d):r`). Same `Vesper.Fun`
-    // name, overloaded by generic arity — siblings of `eFlatFun` (`Fun`3`).
-    let eFun4 = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`4")))
-    let eFun5 = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`5")))
-
-    // Select the flat function interface entity by GENERIC arity (its number of
-    // type arguments = flat param count + 1): `3`⇒`Fun`3`, `4`⇒`Fun`4`,
-    // `5`⇒`Fun`5`. A flat closure of param-arity N implements `Fun`(N+1)`.
-    let flatFunEntity (genericArity: int) =
-        match genericArity with
-        | 3 -> eFlatFun
-        | 4 -> eFun4
-        | 5 -> eFun5
-        | n -> failwithf "ClrEnv: no flat Fun interface for generic arity %d" n
 
     // Deliberately NO fallback to `vesperCoreRef`: that would re-merge the list into Core's ref
     // surface and mint a wrong `Vesper.Core::List`1` while every test still passed.
@@ -399,32 +375,50 @@ type internal ClrEnv
     /// can reference the type before its row is added.
     let userTypes = Dictionary<TypeKey, EntityHandle>()
 
+    // A `Vesper.Core`-owned interface, LOCAL-FIRST like any other nominal. When THIS
+    // compilation is `Vesper.Core` the interface is one of its OWN `TypeDef`s —
+    // `Assembler.buildPrelude` registers interfaces in `userTypes` precisely so one Core
+    // interface can name another in a member signature — so Core's own emission binds that
+    // `TypeDef` instead of an `AssemblyRef` to itself (which `refRequired` rejects).
+    //
+    // A function, not a `lazy`: the answer depends on `userTypes`, which fills per file in
+    // `buildPrelude`, so a value forced too early would cache the wrong side. `ctx.TypeRef`
+    // dedupes by (scope, ns, name), so re-probing mints no extra row.
+    //
+    // The `TypeRef`'s namespace + `` `N ``-suffixed name come off the KEY, so the fallback
+    // ref cannot spell a different type than the local probe looked for.
+    let coreInterfaceEntity (key: TypeKey) : EntityHandle =
+        match userTypes.TryGetValue key with
+        | true, h -> h
+        | _ -> toEntity (ctx.TypeRef(vesperCoreRef.Value, key.Namespace.Dotted, SymbolKeyOps.typeSegmentName key))
+
     // The `%A` structural-format interfaces. Owned by `Vesper.Core`: the synthesised
     // `Format` implements a Core-owned interface, so a record-bearing program links only
     // `Vesper.Core` — never `Vesper.Printf` (where only the layout *engine*,
     // `RuntimeFormatState`, lives, implementing this same Core `IFormatSink`).
     // `IStructuralFormattable` is the `InterfaceImpl` a synthesised record/DU declares;
     // `IFormatSink` is its `Format` param type.
-    //
-    // LOCAL-FIRST, like any other nominal. When THIS compilation is `Vesper.Core` the
-    // interface is one of its OWN `TypeDef`s — `Assembler.buildPrelude` registers
-    // interfaces in `userTypes` precisely so one Core interface can name another in a
-    // member signature — so Core's own records implement that `TypeDef` instead of an
-    // `AssemblyRef` to themselves (which `refRequired` rejects).
-    //
-    // A function, not a `lazy`: the answer depends on `userTypes`, which fills per file in
-    // `buildPrelude`, so a value forced too early would cache the wrong side. `ctx.TypeRef`
-    // dedupes by (scope, ns, name), so re-probing mints no extra row.
-    let coreInterfaceEntity (key: TypeKey) (name: string) : EntityHandle =
-        match userTypes.TryGetValue key with
-        | true, h -> h
-        | _ -> toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", name))
-
     let eStructuralFormattable () =
-        coreInterfaceEntity RuntimeNames.structuralFormattableKey "IStructuralFormattable"
+        coreInterfaceEntity RuntimeNames.structuralFormattableKey
 
     let eFormatSink () =
-        coreInterfaceEntity RuntimeNames.formatSinkKey "IFormatSink"
+        coreInterfaceEntity RuntimeNames.formatSinkKey
+
+    // The CURRIED function interface `Vesper.Fun`2<a,b>` — the type of every function
+    // value, and the interface a synthesised closure implements.
+    let eFun2 () =
+        coreInterfaceEntity (RuntimeNames.vesperFunKey 2)
+
+    // The FLAT function interfaces a flat value-struct closure implements: one
+    // `Invoke(a,…)` with no intermediate `Fun`2`. Same `Vesper.Fun` name, overloaded by
+    // GENERIC arity (type args = flat param count + 1), so a flat closure of param-arity
+    // N implements `Fun`(N+1)`; `Fun`2` is the curried one above.
+    let flatFunEntity (genericArity: int) : EntityHandle =
+        match genericArity with
+        | 3
+        | 4
+        | 5 -> coreInterfaceEntity (RuntimeNames.vesperFunKey genericArity)
+        | n -> failwithf "ClrEnv: no flat Fun interface for generic arity %d" n
 
     /// Module-level functions whose home is *this* compilation's own assembly, by their
     /// `ValueKey` → local `MethodDef` handle. A cross-file module-function call freezes to
@@ -645,9 +639,7 @@ type internal ClrEnv
     member _.EValueTuple = eValueTuple
     member _.EValueTupleN arity = eValueTupleN arity
     member _.EPrintfFormat4 = ePrintfFormat4
-    member _.VesperCoreRef = vesperCoreRef
-    member _.EFun2 = eFun2
-    member _.EFlatFun = eFlatFun
+    member _.EFun2() = eFun2 ()
     member _.FlatFunEntity(genericArity: int) = flatFunEntity genericArity
     member _.VesperListRef = vesperListRef
     member _.EFSharpList1 = eFSharpList1

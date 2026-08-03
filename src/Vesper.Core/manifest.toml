@@ -28,12 +28,11 @@ files = [
 
 # NO shared `impl`, though four of these bodies are target-neutral
 # (`compiler-attributes`, `core-types`, `structural-format`, `ops-std`). A single-package
-# compile is DECLARATION-ordered and the package's own `.fsi` contracts are not in its
-# resolution stack, so each `.fs` resolves against the ones before it: `core-types` needs
-# `Fun` from `prim-types-min` and `[<ReferenceEquality>]` from `compiler-attributes`,
-# which needs `Attribute` from `prim-types-attr`. Inherited lists append AFTER the shared
-# ones, so a shared list here would put the neutral bodies first and break that chain.
-# Each target therefore names the whole sequence, in `files` order.
+# compile is DECLARATION-ordered: `core-types` needs `Fun` from `prim-types-min` and
+# `[<ReferenceEquality>]` from `compiler-attributes`, which needs `Attribute` from
+# `prim-types-attr`. Inherited lists append AFTER the shared ones, so a shared list here
+# would put the neutral bodies first and break that chain. Each target therefore names the
+# whole sequence, in `files` order.
 
 [targets.clr]
 # Compiled into Vesper.Core.dll, in `files` order. The intrinsic-only `prim-types-*` /
@@ -55,20 +54,17 @@ impl = [
     "core-types.fs",
     "capabilities.fs",
     "structural-format.fs",
+    "ops-platform.fs",
+    "ops-std.fs",
+    "int-comparison.fs",
 ]
 
-# The splice sources. The `prim-types-*` entries are also in `impl`, and necessarily in
-# both: they BIND the primitive reprs and CARRY the operator members declared on them,
-# whose `(# … #)` bodies are splice templates served by member key. A member on an
-# intrinsic is never emitted — the primitive has no type to hang a method on — so the body
-# can only reach a use site through this list.
-#
-# `ops-platform` / `ops-std` / `int-comparison` are here and NOT in `impl` because the CLR
-# backend cannot yet compile them into this assembly: emitting a function value needs a
-# `Vesper.Fun` reference, which does not exist from inside the assembly that DEFINES
-# `Vesper.Fun`, and `ops-platform` names `int32`, a type abbreviation a prior file of the
-# same compilation does not export. Both are compiler gaps, not manifest facts; when they
-# close, these three move into `impl` and this list collapses to the `prim-types-*` ones.
+# The splice sources — every entry is also in `impl`, and necessarily in both. The
+# `prim-types-*` files BIND the primitive reprs and CARRY the operator members declared on
+# them: a member on an intrinsic is never emitted (the primitive has no type to hang a
+# method on), so its `(# … #)` body reaches a use site only through this list. The `ops-*` /
+# `int-comparison` files compile into the DLL AND publish their `let inline` bodies, the way
+# any `inline` declaration is both callable and spliceable.
 inline-bodies = [
     "prim-types-min.fs",
     "prim-types-int.fs",
