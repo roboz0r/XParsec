@@ -59,6 +59,19 @@ module ConformancePass =
         | Paired of PairResult
         /// `.fsi` with NO companion `.fs` in the impl set — impl-free.
         | SigOnly of sigFile: string
+        /// `.fsi` with no companion `.fs` for this target, and NOTHING in it that a `.fs`
+        /// could supply: every declaration is an `extern` (whose whole body would be a repr
+        /// binding) or a transparent abbreviation. The target represents these types
+        /// nowhere, so the absent `.fs` is the STATEMENT of that — accepted here, and paid
+        /// for at each use site instead (`nativeint is not supported on the js target`).
+        ///
+        /// Distinct from `SigOnly`, which is a manifest DECLARATION that a contract is
+        /// impl-free on every target; this is derived from the file's own content, and it
+        /// is what lets a target be conformance-checked with no hand-maintained exemption
+        /// list. A contract carrying anything that needs a real body — a record, a union, a
+        /// module-level `val` — is never this: a forgotten `.fs` must not read as "not
+        /// supported".
+        | Unrepresentable of sigFile: string * types: string list
         /// The `.fsi` or its companion `.fs` failed to parse, so the pair could not be
         /// conformed. Carried as a per-contract verdict (not an abort of the whole
         /// package) so one malformed file does not mask drift in the others; `enforce`
@@ -149,9 +162,62 @@ module ConformancePass =
 
             let companionOf (fsiRel: string) : string option = Map.tryFind (stem fsiRel) implByStem
 
+            let declaredSigOnly = ReferencedProject.resolveSigOnly target m |> Set.ofList
+
+            // A companion-less `.fsi`, split on its own CONTENT. Everything an `extern`
+            // promises is a repr binding the target does not make, and a transparent
+            // abbreviation resolves through; anything else — a record, a union, a
+            // module-level `val` — needs a real `.fs`, so its absence stays the FS0240
+            // hard error rather than being read as "not supported here".
+            let unpaired (fsiRel: string) : PairOutcome =
+                if declaredSigOnly.Contains fsiRel then
+                    // A manifest declaration of impl-free-on-every-target outranks the
+                    // content split, so a declared exemption never silently re-labels
+                    // itself and stops being checked as one.
+                    PairOutcome.SigOnly fsiRel
+                else
+                    match parseRel m.Name dir fsiRel with
+                    | Error e -> PairOutcome.ParseFailed(fsiRel, e)
+                    | Ok sigParsed ->
+                        let decls =
+                            match sigParsed.Ast with
+                            | FSharpAst.SignatureFile sf -> Conformance.summariseSig sigParsed.Lexed sigParsed.Input sf
+                            | _ -> []
+
+                        let vals =
+                            match sigParsed.Ast with
+                            | FSharpAst.SignatureFile sf ->
+                                Conformance.summariseSigVals sigParsed.Lexed sigParsed.Input sf
+                            | _ -> []
+
+                        let externs =
+                            decls
+                            |> List.choose (fun d ->
+                                match d.Shape with
+                                | Conformance.SigShape.Extern
+                                | Conformance.SigShape.ExternClass -> Some d.Name
+                                | _ -> None
+                            )
+
+                        let bodiless =
+                            decls
+                            |> List.forall (fun d ->
+                                match d.Shape with
+                                | Conformance.SigShape.Extern
+                                | Conformance.SigShape.ExternClass
+                                | Conformance.SigShape.Abbrev -> true
+                                | Conformance.SigShape.Enum
+                                | Conformance.SigShape.Other _ -> false
+                            )
+
+                        if List.isEmpty externs || not bodiless || not (List.isEmpty vals) then
+                            PairOutcome.SigOnly fsiRel
+                        else
+                            PairOutcome.Unrepresentable(fsiRel, externs)
+
             let outcome (fsiRel: string) : PairOutcome =
                 match companionOf fsiRel with
-                | None -> PairOutcome.SigOnly fsiRel
+                | None -> unpaired fsiRel
                 | Some implRel ->
                     match parseRel m.Name dir fsiRel, parseRel m.Name dir implRel with
                     | Ok sigParsed, Ok implParsed ->
@@ -259,9 +325,13 @@ module ConformancePass =
                         match p with
                         | PairOutcome.Paired r -> yield r.SigFile
                         | PairOutcome.SigOnly _
+                        | PairOutcome.Unrepresentable _
                         | PairOutcome.ParseFailed _ -> ()
                 ]
 
+        // An `Unrepresentable` verdict is only ever reached for a contract the manifest
+        // does NOT declare `sig-only`, so it can never be a declared exemption's file and
+        // is excluded here rather than folded in.
         let sigOnlySigs =
             set
                 [
@@ -269,6 +339,7 @@ module ConformancePass =
                         match p with
                         | PairOutcome.SigOnly s -> yield s
                         | PairOutcome.Paired _
+                        | PairOutcome.Unrepresentable _
                         | PairOutcome.ParseFailed _ -> ()
                 ]
 
@@ -289,6 +360,10 @@ module ConformancePass =
                 | PairOutcome.SigOnly s ->
                     if not (outcome.SigOnlyExemptions.Contains s) then
                         yield err (ConformanceVerdict.SigWithoutImpl s)
+                // Declared, unrepresentable, ACCEPTED: the absent `.fs` is the statement
+                // that this target represents none of these types, and the reject is owed
+                // at the use site, not here.
+                | PairOutcome.Unrepresentable _ -> ()
                 | PairOutcome.ParseFailed(sigFile, detail) ->
                     yield err (ConformanceVerdict.PairParseFailure(sigFile, detail))
 

@@ -254,9 +254,12 @@ There are two sources:
 - the per-target `<base>.<target>.fs` ⇒ `IntrinsicReprs`: the platform name for
   *this* target (`prim-types-int.js.fs` ⇒ `number`).
 
-A primitive the target omits — `decimal` ships no `.js.fs` — is in the base map but
-not the target map, so it stays an `Intrinsic` with no platform name rather than
-silently falling back to a BCL repr that has no JS runtime. The `canon` key is the
+A primitive the target omits — `decimal` ships no `.js.fs` — is a marker with no entry
+in the target map, so it stays an `Intrinsic` whose platform axis NAMES that target as
+binding no representation (`IntrinsicPlatform.Unsupported "js"`), rather than silently
+falling back to a BCL repr that has no JS runtime. Mentioning it in a program is then an
+error carrying the target's name; the absence of the `.fs` is the whole statement, so no
+manifest key lists what a target lacks. The `canon` key is the
 `.fsi` name itself, so an override never moves the unifier's identity key. A
 target-only intrinsic (`undefined`, `dynamic`) has no base/override split at all:
 its single `.js.fs` is both marker and platform name.

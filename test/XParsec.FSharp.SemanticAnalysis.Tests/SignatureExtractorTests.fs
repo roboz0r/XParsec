@@ -46,7 +46,7 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
 /// `AmbientShapes` / the intrinsic repr extraction before the `.fsi` walk runs, spells the
 /// steps out rather than coming through here.
 let extractFsi (relative: string) (input: string) : VesperLib.ExtractCtx =
-    let ctx = VesperLib.ExtractCtx.empty ()
+    let ctx = VesperLib.ExtractCtx.empty "clr"
     VesperLib.extractSymbols ctx (parseFsi relative input)
     VesperLib.finalizeDeferred ctx
     ctx
@@ -80,7 +80,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n    val viaOpen: Widget<int> -> int\n"
 
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.AmbientShapes <- ambient
                 VesperLib.extractSymbols ctx parsed
                 // Vals are stashed during extraction and built into `ctx.Symbols` by
@@ -241,7 +241,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Thing =\n        | Red = 0\n        | Green = 1\n"
 
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 VesperLib.extractSymbols ctx parsed
 
                 let thingShape =
@@ -275,7 +275,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Point =\n        struct\n            val X: int\n            val Y: int\n        end\n"
 
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 VesperLib.extractSymbols ctx parsed
 
                 let pointShape =
@@ -406,7 +406,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | ([]): Thing<'T>\n        | (::): Head: 'T * Tail: Thing<'T> -> Thing<'T>\n"
 
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 VesperLib.extractSymbols ctx parsed
 
                 let thingShape =
@@ -442,7 +442,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nmodule M =\n    [<RequireQualifiedAccess>]\n    type Color =\n        | Red\n        | Green\n\n    type Hue =\n        | Blue\n        | Cyan\n"
 
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 VesperLib.extractSymbols ctx parsed
 
                 Expect.isTrue
@@ -485,7 +485,7 @@ let tests =
                         "app.fsi"
                         "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n"
 
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.AmbientShapes <- ambient
 
                 // Extraction stashes the val; the finalize pass translates it, hits
@@ -608,7 +608,7 @@ let tests =
             // the `.fsi` is the contract, so it states that rather than leaving a consumer
             // to infer it from the paired `.fs`.
             test "a concrete member on an intrinsic must be declared inline" {
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 // Intrinsic-ness is the target-blind marker, not the compiling target's repr.
                 ctx.IntrinsicMarkers.Add "widget" |> ignore
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
@@ -631,7 +631,7 @@ let tests =
             // The carve-out. A capability's slots declare no body, so there is nothing to
             // splice and nothing to mark — the rule is about members WITH a body.
             test "an extern interface's abstract members do not want inline" {
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.IntrinsicMarkers.Add "disposable" |> ignore
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
@@ -651,7 +651,7 @@ let tests =
             // `override`/`default` have no `inline` slot in the signature grammar, so on a
             // host that publishes no method table neither the slot nor the remedy exists.
             test "an override on an intrinsic is rejected outright, not asked for inline" {
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.IntrinsicMarkers.Add "widget" |> ignore
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
@@ -676,7 +676,7 @@ let tests =
             // The carve-out a heritable primitive needs: `new: unit -> obj` NAMES a
             // target-provided constructor, so there is no body to splice.
             test "a heritable primitive's constructor signature is exempt" {
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.IntrinsicMarkers.Add "obj" |> ignore
                 ctx.IntrinsicReprs.["obj"] <- "System.Object"
 
@@ -709,7 +709,7 @@ let tests =
                 // (see the compat-shim path).
                 // (Synthetic: mirroring the CLR build, where a `.fs` `(# … #)` both marks the
                 // name a primitive and supplies the platform repr.)
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 ctx.IntrinsicMarkers.Add "disposable" |> ignore
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
@@ -772,7 +772,7 @@ let tests =
                 // break all of them. Members ride their own table, not the shape, so both hold
                 // at once. The heritable case is the EXPLICIT `extern class` tag; a capability
                 // INTERFACE (all-abstract body) republishes to an `IntrinsicInterface`.
-                let ctx = VesperLib.ExtractCtx.empty ()
+                let ctx = VesperLib.ExtractCtx.empty "clr"
                 // `isIntrinsic` is decided by the BASE repr marker (the primitive's `.fs`).
                 ctx.IntrinsicMarkers.Add "widget" |> ignore
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
@@ -795,7 +795,11 @@ let tests =
                 // `Intrinsic` carrying its platform repr, so use sites resolve `TyConst`.
                 match ctx.TypeShapes.[key] with
                 | ExternalTypeShape.Intrinsic shape ->
-                    Expect.equal shape.Id.Platform (Some "System.Widget") "the intrinsic keeps its platform repr"
+                    Expect.equal
+                        shape.Id.Platform
+                        (IntrinsicPlatform.Repr "System.Widget")
+                        "the intrinsic keeps its platform repr"
+
                     Expect.equal shape.Class ValueNone "an untagged member surface is not a heritable class"
                 | other -> failtestf "expected the Intrinsic shape to survive for widget; got %A" other
 

@@ -220,9 +220,10 @@ module FrozenCodecDiagnostics =
         | Kind.Internal b ->
             w.Write 1uy
             writeInternalBreak w b
-        | Kind.UnrepresentableTypes names ->
+        | Kind.UnsupportedOnTarget(typeName, target) ->
             w.Write 2uy
-            writeStringList w names
+            w.Write typeName
+            w.Write target
         | Kind.NoMember(typeName, noun, memberName) ->
             w.Write 3uy
             w.Write typeName
@@ -376,7 +377,9 @@ module FrozenCodecDiagnostics =
         match r.ReadByte() with
         | 0uy -> Kind.UndefinedType(r.ReadString())
         | 1uy -> Kind.Internal(readInternalBreak r)
-        | 2uy -> Kind.UnrepresentableTypes(readStringList r)
+        | 2uy ->
+            let typeName = r.ReadString()
+            Kind.UnsupportedOnTarget(typeName, r.ReadString())
         | 3uy ->
             let typeName = r.ReadString()
             let noun = readMemberNoun r

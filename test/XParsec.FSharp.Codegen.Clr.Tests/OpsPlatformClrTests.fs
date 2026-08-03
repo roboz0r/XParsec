@@ -54,7 +54,7 @@ let tests =
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Canon = canon
-                                                                     Platform = Some platform
+                                                                     Platform = IntrinsicPlatform.Repr platform
                                                                  }
                                                         }) ->
                     Expect.equal (SymbolKey.Type canon) (RuntimeNames.intKey) "int canon on CLR is the `.fsi` name"

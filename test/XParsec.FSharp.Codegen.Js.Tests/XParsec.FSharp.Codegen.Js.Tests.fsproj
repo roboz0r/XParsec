@@ -72,6 +72,7 @@
     <Compile Include="TypeArgNumberTests.fs" />
     <Compile Include="ExternMemberInlineTests.fs" />
     <Compile Include="ArrayIndexMemberTests.fs" />
+    <Compile Include="UnsupportedOnTargetTests.fs" />
     <Compile Include="ConformanceTests.fs" />
     <Compile Include="ConformanceByteIdentityTests.fs" />
     <Compile Include="ConformanceRoundTripByteIdentityTests.fs" />

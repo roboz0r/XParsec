@@ -102,7 +102,7 @@ let tests =
                     | ValueSome(ExternalTypeShape.Intrinsic {
                                                                 Id = {
                                                                          Canon = canon
-                                                                         Platform = Some platform
+                                                                         Platform = IntrinsicPlatform.Repr platform
                                                                      }
                                                             }) -> SymbolKey.Type canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
@@ -135,7 +135,7 @@ let tests =
                     | ValueSome(ExternalTypeShape.Intrinsic {
                                                                 Id = {
                                                                          Canon = canon
-                                                                         Platform = Some platform
+                                                                         Platform = IntrinsicPlatform.Repr platform
                                                                      }
                                                             }) -> SymbolKey.Type canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other

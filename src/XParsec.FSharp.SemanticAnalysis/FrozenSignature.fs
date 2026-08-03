@@ -564,13 +564,13 @@ module FrozenSignature =
                                     {
                                         Canon = typeKey
                                         TyparArity = typeKey.TyparArity
-                                        Platform = Some repr.Platform
+                                        Platform = IntrinsicPlatform.Repr repr.Platform
                                     }
                                 Class = ValueSome { BaseType = ValueNone; Members = [||] }
                             }
                     else
                         ExternalTypeShape.Intrinsic(
-                            IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, Some repr.Platform)
+                            IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, IntrinsicPlatform.Repr repr.Platform)
                         )
 
                 shapesByKey.[key] <- shape

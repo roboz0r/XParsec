@@ -5,62 +5,59 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 // Pre:  Unification + Elaborate have settled every type to its ground SemType.
-// Post: ctx.Diagnostics carries an Error per TDecl that references a primitive
-//       with NO representation on the COMPILING target.
+// Post: ctx.Diagnostics carries an Error per TDecl that MENTIONS an intrinsic the
+//       COMPILING target binds no representation for.
 //
 // This is the same class of error as an unresolved generic (`ResolvedTypes`): a
-// type the back end cannot lower. The target's representation knowledge already
-// rides the provider — a SCALAR primitive the target ships no `(# … #)` companion
-// for surfaces as `ExternalTypeShape.Intrinsic(arity = 0, platform = None)`
-// (`decimal`, `nativeint`/pointers on JS). So the verdict is read straight off the
-// provider and reported HERE, as a graceful semantic diagnostic, rather than as a
-// `failwith` deep in one backend's emitter (the JS code never has to re-walk the
-// frozen tree to rediscover it). Target-AGNOSTIC: on a target where every
-// primitive has a representation (CLR — base `.fs` IS the platform repr) no
-// `Intrinsic` is `platform = None`, so this never fires.
+// type the back end cannot lower. The rule is DERIVED, never listed — an intrinsic
+// marker (some target's `.fs` binds a `(# … #)` repr for it) whose compiling target
+// ships no such body surfaces as `IntrinsicPlatform.Unsupported`, so absence of a body
+// IS the statement and adding a target never re-lists what it lacks. The verdict is
+// read straight off the provider and reported HERE, as a graceful semantic diagnostic,
+// rather than as a `failwith` deep in one backend's emitter (the JS code never has to
+// re-walk the frozen tree to rediscover it). On a target where every primitive has a
+// representation (CLR — the base `.fs` IS the platform repr) nothing is `Unsupported`,
+// so this never fires.
 //
-// The `arity = 0` guard is load-bearing: the structural type constructors are
-// intrinsics too (`'T []`/`byref`, arity ≥ 1) and ship no per-target `(# … #)`
-// overlay (a JS array needs no repr string — `ElaborateExpr` lowers `'T []` straight
-// to `FTConst("[]")`), so they too carry `platform = None`. But a generic intrinsic
-// is representable BY CONSTRUCTION — only its element type can be unrepresentable,
-// and the walker already recurses into a `TyConst`'s args, so `decimal[]` still
-// flags `decimal` while `int[]` passes. Keying on `arity` (recorded on the shape)
-// makes the rule total over its domain — it no longer depends on whether `[]`
-// happens to miss the store lookup by key.
+// ANY MENTION is the error, not only a use that demands the representation: a
+// signature naming `nativeint` on JS is confused whether or not it is ever
+// instantiated. So there is no arity carve-out — `nativeptr<'T>` and `ilsigptr<'T>`
+// are as unsupported as `voidptr`, and a target that CAN represent a structural
+// constructor (`'T []`) says so by binding its repr.
 
 module PlatformTypes =
 
-    /// `true` when `key` resolves to a NULLARY primitive the provider declares has
-    /// no representation on the compiling target. A generic intrinsic (`'T []`) is
-    /// representable structurally regardless of its own `platform` name, so it is
-    /// never flagged here (its args are judged by the caller's recursion). Answered by
-    /// the receiver's own resolved `SymbolKey` on the store view: the caller holds the
-    /// key, and a canon intrinsic key carries its namespace, so no ambient-prelude
-    /// re-resolution of a short name is needed.
+    /// The target its own declaration names as binding no representation for `key`, or
+    /// `ValueNone` when the compiling target represents it. Answered by the receiver's
+    /// own resolved `SymbolKey` on the store view: the caller holds the key, and a canon
+    /// intrinsic key carries its namespace, so no ambient-prelude re-resolution of a
+    /// short name is needed.
     ///
     /// A capability interface (`disposable` …) is an `IntrinsicInterface` (CLR) or a plain
     /// interface `Class` (JS) — never an `Intrinsic` — so it is excluded here BY CONSTRUCTION:
     /// an interface has no value representation, so "no platform repr" is correct, not a gap.
     /// Keep this match `Intrinsic`-only — do NOT broaden it to flag interfaces.
-    let private isUnrepresentable (ctx: PassContext) (key: SymbolKey) : bool =
+    let private unsupportedOn (ctx: PassContext) (key: SymbolKey) : string voption =
         match ctx.Provider.TryLookupType key with
-        // Scalar or heritable primitive alike — the identity axis is one pattern; only
-        // a nullary intrinsic with no repr on this target is unrepresentable.
+        // Scalar or heritable primitive alike — the identity axis is one pattern.
         | ValueSome(ExternalTypeShape.Intrinsic {
-                                                    Id = { TyparArity = 0; Platform = None }
-                                                }) -> true
-        | _ -> false
+                                                    Id = {
+                                                             Platform = IntrinsicPlatform.Unsupported target
+                                                         }
+                                                }) -> ValueSome target
+        | _ -> ValueNone
 
     /// Add every nominal name in `t` (and its type args) with no target representation
-    /// to `acc`. `zonk` first so a `TyVar` linked to a concrete shape is resolved, the
-    /// same chase `Elaborate` does before it lowers the type.
-    let private addUnrepresentable (ctx: PassContext) (acc: HashSet<string>) (t: SemType) : unit =
+    /// to `acc`, paired with the target that lacks it. `zonk` first so a `TyVar` linked to
+    /// a concrete shape is resolved, the same chase `Elaborate` does before it lowers the
+    /// type.
+    let private addUnsupported (ctx: PassContext) (acc: HashSet<string * string>) (t: SemType) : unit =
         let rec go ty =
             match ty with
             | TyConst(key, args) ->
-                if isUnrepresentable ctx key then
-                    acc.Add(SymbolKeyOps.intrinsicName key) |> ignore
+                match unsupportedOn ctx key with
+                | ValueSome target -> acc.Add(SymbolKeyOps.intrinsicName key, target) |> ignore
+                | ValueNone -> ()
 
                 for a in args do
                     go a
@@ -73,11 +70,11 @@ module PlatformTypes =
 
     /// Visit every expression / pattern type, plus a `Format` hole's side type (which
     /// the default walker doesn't surface) — the same coverage `ResolvedTypes` uses.
-    let private buildIter (ctx: PassContext) (acc: HashSet<string>) : TastWalk.Iter =
+    let private buildIter (ctx: PassContext) (acc: HashSet<string * string>) : TastWalk.Iter =
         { TastWalk.identityIter with
             VisitExpr =
                 fun it e ->
-                    addUnrepresentable ctx acc (TastWalk.exprTy e)
+                    addUnsupported ctx acc (TastWalk.exprTy e)
 
                     match e with
                     | TExpr.Format(sink, segments, _, _) ->
@@ -92,38 +89,80 @@ module PlatformTypes =
                             match seg with
                             | FormatSeg.Lit _ -> ()
                             | FormatSeg.Hole(hole, arg) ->
-                                addUnrepresentable ctx acc hole.Ty
+                                addUnsupported ctx acc hole.Ty
                                 TastWalk.iterExpr it arg
                             | FormatSeg.DynHole d ->
-                                addUnrepresentable ctx acc d.Spec.Ty
+                                addUnsupported ctx acc d.Spec.Ty
                                 d.Width |> ValueOption.iter (TastWalk.iterExpr it)
                                 d.Precision |> ValueOption.iter (TastWalk.iterExpr it)
                                 TastWalk.iterExpr it d.Value
                             | FormatSeg.CallbackHole(spec, residue) ->
-                                addUnrepresentable ctx acc spec.Ty
+                                addUnsupported ctx acc spec.Ty
                                 TastWalk.iterExpr it residue
 
                         false
                     | _ -> true
             VisitPat =
                 fun _ p ->
-                    addUnrepresentable ctx acc (TastWalk.patTy p)
+                    addUnsupported ctx acc (TastWalk.patTy p)
                     true
         }
 
+    /// The DECLARED type surface of a type declaration — field / case-payload /
+    /// ctor-parameter / base / interface / abstract-method types. A mention here never
+    /// reaches an expression or pattern, and it is exactly the "signature it never
+    /// instantiates" the any-mention rule is about.
+    let private addDeclSurface (ctx: PassContext) (acc: HashSet<string * string>) (kind: TTypeKind) : unit =
+        let add = addUnsupported ctx acc
+
+        let addField (f: TRecordFieldG<SemType>) = add f.Type
+
+        match kind with
+        | TTypeKindG.Interface methods ->
+            for m in methods do
+                add m.Signature
+        | TTypeKindG.Union(cases, _, interfaces) ->
+            for c in cases do
+                for (_, ty) in c.Fields do
+                    add ty
+
+            for (iface, _) in interfaces do
+                add iface
+        | TTypeKindG.Record(fields, _, interfaces, _) ->
+            for f in fields do
+                addField f
+
+            for (iface, _) in interfaces do
+                add iface
+        | TTypeKindG.Class c ->
+            for f in c.Fields do
+                addField f
+
+            for p in c.CtorParams do
+                addField p
+
+            c.BaseType |> ValueOption.iter add
+
+            for (iface, _) in c.Interfaces do
+                add iface
+        // An enum case value is an integer or string literal, never a typed term.
+        | TTypeKindG.Enum _ -> ()
+
     let private walkDecl (ctx: PassContext) (d: TDecl) : unit =
-        let acc = HashSet<string>()
+        let acc = HashSet<string * string>()
         let iter = buildIter ctx acc
 
         match d with
         | TDecl.Let(binding, value, _, ty) ->
-            addUnrepresentable ctx acc ty
+            addUnsupported ctx acc ty
             TastWalk.iterPat iter binding
             TastWalk.iterExpr iter value
         | TDecl.Expression(e, ty) ->
-            addUnrepresentable ctx acc ty
+            addUnsupported ctx acc ty
             TastWalk.iterExpr iter e
         | TDecl.Type td ->
+            addDeclSurface ctx acc td.Kind
+
             // The augmentation member bodies a backend lowers alongside the type.
             // Class members are intentionally NOT walked: a backend may not emit them
             // yet (the JS back end does not), so flagging a type they reference would
@@ -144,8 +183,10 @@ module PlatformTypes =
                         TastWalk.iterExpr iter m.Body
             | _ -> ()
 
-        if acc.Count > 0 then
-            ctx.Report(ResolvedTypes.declSite d, Kind.UnrepresentableTypes(acc |> Seq.sort |> List.ofSeq))
+        // One diagnostic per distinct type named, so the message can be about the type
+        // rather than about a set of them.
+        for (name, target) in acc |> Seq.sort do
+            ctx.Report(ResolvedTypes.declSite d, Kind.UnsupportedOnTarget(name, target))
 
     let run (ctx: PassContext) (tast: TastFile) : unit =
         for d in tast.Decls do

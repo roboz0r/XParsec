@@ -48,7 +48,7 @@ let private nowhereSource: OriginSource =
 /// `members` — the member-bearing `Class` a concrete (non-interface) member surface
 /// registers. Returns the provider and the resolved shape key.
 let private widgetContractOf (members: string) : IExternalSymbolProvider * string =
-    let ctx = VesperLib.ExtractCtx.empty ()
+    let ctx = VesperLib.ExtractCtx.empty Target.Js
     // The marker makes `widget` intrinsic; the repr is its platform name.
     ctx.IntrinsicMarkers.Add "widget" |> ignore
     ctx.IntrinsicReprs.["widget"] <- "object"

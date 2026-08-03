@@ -90,7 +90,7 @@ let tests =
             }
 
             test "a type with no JS representation (decimal) is rejected as a semantic diagnostic" {
-                // `decimal` has no `.js.fs` companion, so its `platform` name is `None` and
+                // `decimal` has no `.js.fs` companion, so no JS repr is bound for it and
                 // `PlatformTypes` flags it as a per-decl error (not a failwith in the emitter).
                 let msg =
                     try
@@ -101,9 +101,7 @@ let tests =
 
                 match msg with
                 | None -> failtest "expected a platform-unsupported diagnostic for `decimal`"
-                | Some m ->
-                    Expect.stringContains m "no representation on the target platform" "names the platform verdict"
-                    Expect.stringContains m "decimal" "names the offending type"
+                | Some m -> Expect.stringContains m "decimal is not supported on the js target" "names type and target"
             }
 
             test "`let x = m` snapshots a mutable read; a later `m <- _` is not seen through x" {
@@ -192,9 +190,11 @@ let tests =
                     Expect.equal out "3" "the lambda's three writes to the module-level mutable are observed"
             }
 
-            test "a generic intrinsic (array) is NOT flagged unrepresentable on JS" {
-                // Array shares `platform = None` with `decimal` but has arity >= 1, so
-                // `PlatformTypes` skips the platform-repr check. Any other failure is fine.
+            test "a generic intrinsic (array) is NOT flagged unsupported on JS" {
+                // The array's front-end identity is `RuntimeNames.arrayKey` (`Vesper.[]`),
+                // a different string from the contract spelling `` Vesper.``[]`` `` the
+                // shape registers under, so a `TyConst` array reaches no `Intrinsic` shape
+                // and no unsupported verdict. Any other failure is fine.
                 let msg =
                     try
                         emitJs "let x = [| 1; 2; 3 |]" |> ignore
@@ -206,7 +206,7 @@ let tests =
                 | None -> ()
                 | Some m ->
                     Expect.isFalse
-                        (m.Contains "no representation on the target platform")
-                        (sprintf "array must not trip the platform-unrepresentable verdict, got: %s" m)
+                        (m.Contains "is not supported on the")
+                        (sprintf "array must not trip the unsupported-on-target verdict, got: %s" m)
             }
         ]

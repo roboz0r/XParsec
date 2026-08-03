@@ -293,8 +293,8 @@ let private packageManifests: (string * string) list =
 
 /// Run the manifest-driven pass for a package, failing the test on a manifest /
 /// parse error (the pass returns `Error`).
-let private outcomeFor (manifestPath: string) : ConformancePass.PackageOutcome =
-    match ConformancePass.checkManifest "clr" manifestPath with
+let private outcomeFor (target: string) (manifestPath: string) : ConformancePass.PackageOutcome =
+    match ConformancePass.checkManifest target manifestPath with
     | Ok o -> o
     | Error e ->
         failtestf "checkManifest failed for %s: %s" manifestPath e
@@ -307,7 +307,7 @@ let packageConformanceTests =
         [
             for package, manifestPath in packageManifests do
                 test $"{package}: manifest-driven conformance is enforced (no hard errors)" {
-                    let outcome = outcomeFor manifestPath
+                    let outcome = outcomeFor "clr" manifestPath
 
                     // `enforce` subsumes every drift species — the FS0240 family
                     // (`MissingInImpl`/`ValueMissingInImpl`), extern/intrinsic drift, an
@@ -323,6 +323,110 @@ let packageConformanceTests =
                             package
                             (errors |> List.map (fun d -> d.Message) |> String.concat "\n"))
                 }
+        ]
+
+// ---- The SAME pass, run for JS --------------------------------------------
+//
+// The pass now runs for a second target, which it could not before: a contract JS binds
+// no representation for is `Unrepresentable` — derived from the file's own content, not
+// from a key someone remembered to add — so no JS exemption list has to be guessed. What
+// remains on JS is not exemptions but MISSING WORK: most Vesper packages ship no JS
+// bodies at all yet, and each of those is a hard error the run is right to keep making.
+// So the JS assertions below are about the axis this outcome closes — every contract JS
+// cannot represent is accepted, and no manifest anywhere carries a JS-specific
+// `sig-only` key — rather than a blanket "no hard errors" the unported library cannot
+// satisfy.
+
+/// The contracts a target accepts as declared-but-unrepresentable, with the `extern`
+/// types each names.
+let private unrepresentableOf (outcome: ConformancePass.PackageOutcome) : (string * string list) list =
+    [
+        for p in outcome.Pairs do
+            match p with
+            | ConformancePass.PairOutcome.Unrepresentable(sigFile, types) -> yield sigFile, types
+            | ConformancePass.PairOutcome.Paired _
+            | ConformancePass.PairOutcome.SigOnly _
+            | ConformancePass.PairOutcome.ParseFailed _ -> ()
+    ]
+
+[<Tests>]
+let jsPackageConformanceTests =
+    testList
+        "PackageConformanceJs"
+        [
+            test "js: prim-types-nativeint.fsi is accepted as unrepresentable, naming all five types" {
+                let core =
+                    packageManifests
+                    |> List.tryFind (fun (p, _) -> p = "Vesper.Core")
+                    |> Option.map snd
+                    |> Option.defaultWith (fun () -> failtest "Vesper.Core manifest not found")
+
+                match
+                    unrepresentableOf (outcomeFor "js" core)
+                    |> List.tryFind (fun (f, _) -> f.Contains "nativeint")
+                with
+                | None -> failtest "prim-types-nativeint.fsi must be Unrepresentable on js"
+                | Some(_, types) ->
+                    Expect.equal
+                        (List.sort types)
+                        [ "ilsigptr"; "nativeint"; "nativeptr"; "unativeint"; "voidptr" ]
+                        "every type the contract declares is named"
+            }
+
+            test "js: a contract whose declarations need a real body stays a hard error, not `unsupported`" {
+                // `core-types.fsi` declares records/unions and ships no JS body yet. Absence
+                // there is missing work, not a statement that JS cannot represent them —
+                // exactly the split that keeps a forgotten `.fs` from reading as polite.
+                let core =
+                    packageManifests
+                    |> List.tryFind (fun (p, _) -> p = "Vesper.Core")
+                    |> Option.map snd
+                    |> Option.defaultWith (fun () -> failtest "Vesper.Core manifest not found")
+
+                let outcome = outcomeFor "js" core
+
+                Expect.isFalse
+                    (unrepresentableOf outcome |> List.exists (fun (f, _) -> f = "core-types.fsi"))
+                    "a body-bearing contract is never accepted as unrepresentable"
+
+                Expect.stringContains
+                    (ConformancePass.enforce outcome
+                     |> List.map (fun d -> d.Message)
+                     |> String.concat "\n")
+                    "core-types.fsi"
+                    "its absent body is still the FS0240-style hard error"
+            }
+
+            test "js: an unrepresentable contract raises no hard error, and needs no exemption to" {
+                for package, manifestPath in packageManifests do
+                    let outcome = outcomeFor "js" manifestPath
+                    let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
+
+                    for sigFile, _ in unrepresentableOf outcome do
+                        Expect.isFalse
+                            (errors |> List.exists (fun m -> m.Contains sigFile))
+                            (sprintf
+                                "%s: %s is unrepresentable on js, so nothing may be enforced about it"
+                                package
+                                sigFile)
+
+                        Expect.isFalse
+                            (outcome.SigOnlyExemptions.Contains sigFile)
+                            (sprintf "%s: %s is accepted by DERIVATION, not by a `sig-only` key" package sigFile)
+            }
+
+            test "no manifest carries a target-specific `sig-only` list" {
+                // The exemption list that would otherwise have to be guessed per target.
+                // Its absence everywhere is what "list-free" means concretely.
+                for package, manifestPath in packageManifests do
+                    match ReferencedProject.loadManifest manifestPath with
+                    | Error e -> failtestf "%s: %s" package e
+                    | Ok m ->
+                        for KeyValue(target, lists) in m.Targets do
+                            Expect.isEmpty
+                                lists.SigOnly
+                                (sprintf "%s: [targets.%s] declares a sig-only exemption list" package target)
+            }
         ]
 
 // ---- Step 5: conformance findings are HARD errors --------------------
@@ -358,6 +462,20 @@ let enforcementTests =
                 Expect.equal errors.Head.Severity Severity.Error "error severity"
                 Expect.equal errors.Head.Code (DiagCode.Vesper "V240") "the FS0240 family"
                 Expect.stringContains errors.Head.Message "deleted-impl.fsi" "names the orphaned .fsi"
+            }
+
+            test "an Unrepresentable .fsi → no error, with no exemption declared" {
+                // The third verdict: declared, unrepresentable, accepted. The reject is
+                // owed at the use site, so nothing is enforced here — and unlike the
+                // `SigOnly` above, the empty exemption set is what it is accepted against.
+                let outcome =
+                    mkOutcome
+                        [
+                            ConformancePass.PairOutcome.Unrepresentable("prim-types-nativeint.fsi", [ "nativeint" ])
+                        ]
+                        Set.empty
+
+                Expect.isEmpty (ConformancePass.enforce outcome) "an unrepresentable contract conforms"
             }
 
             test "a SigOnly .fsi declared `sig-only` in the manifest → no error (exempt)" {

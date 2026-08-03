@@ -536,7 +536,7 @@ module ReferencedProject =
         | Error e -> Error e
         | Ok manifest ->
             let dir = Path.GetDirectoryName manifestPath
-            let ctx = VesperLib.ExtractCtx.empty ()
+            let ctx = VesperLib.ExtractCtx.empty target
             ctx.AmbientShapes <- ambientShapes
             // The dependency composite's ambient open prefixes (`Vesper`, …) so this
             // package's own extraction resolves a dependency's ambiently-available

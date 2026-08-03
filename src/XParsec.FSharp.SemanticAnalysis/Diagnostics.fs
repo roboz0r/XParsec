@@ -261,9 +261,9 @@ type Kind =
     /// `name` names no type: no scope of this file claims it and the target's external
     /// universe does not hold it.
     | UndefinedType of name: string
-    /// Types with no representation on the compiling target: they exist only as a
-    /// .NET/BCL runtime type, so this back end cannot lower them.
-    | UnrepresentableTypes of names: string list
+    /// An intrinsic type the compiling target binds no representation for. Naming it is
+    /// the error, whether or not the mention would ever demand the representation.
+    | UnsupportedOnTarget of typeName: string * target: string
     /// The type resolves; the name on it does not. `noun` is what was looked for.
     | NoMember of typeName: string * noun: MemberNoun * memberName: string
     | NoCase of owner: CaseOwner * typeName: string * caseName: string
@@ -436,7 +436,7 @@ module Kind =
         // ordinary function instead, where a cross-file `val inline` here has no such
         // function to fall back to. A refusal fsc never makes cannot borrow its number.
         | Kind.CyclicInline _
-        | Kind.UnrepresentableTypes _
+        | Kind.UnsupportedOnTarget _
         | Kind.OperatorFormQualifiedName _
         // An internal break is not a verdict about the program, so there is nothing for a
         // user to look up and nothing for fsc to have numbered.
@@ -458,10 +458,7 @@ module Kind =
     let message (k: Kind) : string =
         match k with
         | Kind.UndefinedType name -> sprintf "The type '%s' is not defined" name
-        | Kind.UnrepresentableTypes names ->
-            sprintf
-                "PlatformTypes: type(s) with no representation on the target platform: %s — they exist only as a .NET/BCL runtime type"
-                (String.concat ", " names)
+        | Kind.UnsupportedOnTarget(typeName, target) -> sprintf "%s is not supported on the %s target" typeName target
         | Kind.NoMember(typeName, noun, memberName) ->
             sprintf "Type '%s' has no %s '%s'" typeName (MemberNoun.word noun) memberName
         | Kind.NoCase(owner, typeName, caseName) ->
@@ -580,7 +577,7 @@ module Kind =
         | Kind.UnrelatedTypeTest _
         | Kind.RedundantDowncast _ -> Severity.Warning
         | Kind.UndefinedType _
-        | Kind.UnrepresentableTypes _
+        | Kind.UnsupportedOnTarget _
         | Kind.NoMember _
         | Kind.NoCase _
         | Kind.UnknownNominalType _

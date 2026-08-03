@@ -589,7 +589,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     member _.IntrinsicClassBase(canon: SymbolKey) : struct (SymbolKey * EntityHandle) voption =
         match env.LookupTypeByKey canon with
         | ValueSome(ExternalTypeShape.Intrinsic {
-                                                    Id = { Platform = Some repr }
+                                                    Id = {
+                                                             Platform = IntrinsicPlatform.Repr repr
+                                                         }
                                                     Class = ValueSome _
                                                 }) ->
             let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0

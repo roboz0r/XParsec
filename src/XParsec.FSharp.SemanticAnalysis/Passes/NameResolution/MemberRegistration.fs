@@ -918,16 +918,9 @@ module NameResolutionMemberRegistration =
                         ValueSome(TyConst(SymbolKey.Type id.Canon, EqArray.ofList targs))
                     | ValueSome(struct (id, _)) ->
                         match id.Platform with
-                        | Some repr -> reprToExternalBase repr
-                        | None ->
-                            diagnose
-                                nameTok
-                                (Kind.Message(
-                                    sprintf
-                                        "Cannot inherit from '%s': it has no runtime representation on the compiling target"
-                                        name
-                                ))
-
+                        | IntrinsicPlatform.Repr repr -> reprToExternalBase repr
+                        | IntrinsicPlatform.Unsupported target ->
+                            diagnose nameTok (Kind.UnsupportedOnTarget(name, target))
                             ValueNone
                     | ValueNone ->
                         // The class arms above have already missed, so a name the NAME TABLE

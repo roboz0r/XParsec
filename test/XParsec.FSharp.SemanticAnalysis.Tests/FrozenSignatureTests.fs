@@ -300,7 +300,7 @@ module M =
                         Ast = sigAst
                     }
 
-                let ectx = VesperLib.ExtractCtx.empty ()
+                let ectx = VesperLib.ExtractCtx.empty "clr"
                 ectx.AmbientShapes <- (fun n -> realProvider.Value.TryLookupType n |> ExternalSymbols.typeShapeOf)
                 VesperLib.extractSymbols ectx parsed
                 VesperLib.finalizeDeferred ectx

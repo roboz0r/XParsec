@@ -199,13 +199,13 @@ diagnose = { clr = "does not support the operator", js = "does not support the o
 [[program]]
 path = "ops/arith-nativeint.fs"
 run = ["clr"]
-diagnose = { js = "no representation on the target platform" }
+diagnose = { js = "nativeint is not supported on the js target" }
 width = "nativeint"
 
 [[program]]
 path = "ops/arith-unativeint.fs"
 run = ["clr"]
-diagnose = { js = "no representation on the target platform" }
+diagnose = { js = "unativeint is not supported on the js target" }
 width = "unativeint"
 operators = ["+", "-", "*", "/", "%", "~+"]
 
@@ -217,7 +217,7 @@ operators = ["+", "-", "*", "/", "%", "~+"]
 [[program]]
 path = "ops/arith-decimal.fs"
 run = ["clr"]
-diagnose = { js = "no representation on the target platform" }
+diagnose = { js = "decimal is not supported on the js target" }
 width = "decimal"
 
 # `bigint` is the other non-CIL-primitive width, and the one both backends represent — the

@@ -665,11 +665,28 @@ type ExternalClassShape =
             Origin = origin
         }
 
+/// What a compiling target does about an intrinsic: either it binds a representation
+/// or it names itself as the target that binds none. There is no third answer and no
+/// bare `None` — absence of a repr is only ever meaningful together with WHICH target
+/// is absent, which is what a use-site diagnostic must say.
+///
+/// `Unsupported` is DERIVED, never declared: an intrinsic marker (some target's `.fs`
+/// binds a `(# … #)` repr for it) whose compiling target ships no such body. No manifest
+/// key states it, so adding a target never re-lists what that target lacks.
+[<RequireQualifiedAccess>]
+type IntrinsicPlatform =
+    /// The target's own name for the type, from the `<base>.<target>.fs` companion's
+    /// `type x = (# "<repr>" #)` — `"System.Int32"` on CLR, `"number"`/`"Error"` on JS.
+    | Repr of platform: string
+    /// The compiling target binds no representation, so naming the type is an error
+    /// there (`nativeint` / `nativeptr` / `voidptr` on JS).
+    | Unsupported of target: string
+
 /// The platform-invariant identity axis a scalar / heritable intrinsic carries — the
 /// shared payload of `ExternalTypeShape.Intrinsic`, so consumers of "any intrinsic
 /// canon" read one record rather than re-matching per kind. (A capability
-/// `IntrinsicInterface` does NOT share it — its `Platform` is always present, so it
-/// carries a non-optional `string` rather than this record's `option`.)
+/// `IntrinsicInterface` does NOT share it — it is minted only where its `.fs` binds the
+/// repr, so it carries a bare `string`.)
 ///
 /// **Two names** (a single repr string used to do two unrelated jobs at once):
 /// - `Canon` — the platform-INVARIANT nominal-identity key: the qualified
@@ -678,25 +695,15 @@ type ExternalClassShape =
 ///   uses THIS key; it is distinct per nominal type so `int` ≠ `float`, and it
 ///   is the SAME regardless of which backend is compiling — a JS build never
 ///   needs to know what the BCL calls `int`.
-/// - `Platform` — the per-target runtime/codegen repr: the platform's *name*
-///   for the type, sourced from the `<base>.<target>.fs` companion's
-///   `type x = (# "<repr>" #)` (`Some "System.Int32"` on CLR, `Some "number"`/
-///   `Some "Error"` on JS). Codegen emission + the `exnReprOf`/`tryRuntimeType`
-///   runtime axis, and the intrinsic-receiver member probe
-///   (`tryExternalReceiver`), read THIS name. Many-to-one and directional — it
-///   must never drive unification. **`None` on a NULLARY intrinsic means the
-///   type is a known scalar primitive but has NO representation on the
-///   compiling target** — e.g. `decimal`/`nativeint` on JS, which ship no
-///   `.js.fs` companion; `SemanticAnalysis.PlatformTypes` rejects that up front.
-///   `None` on a GENERIC intrinsic (`'T []` on JS) is benign — the structural
-///   backend path needs no repr string. On CLR every primitive's base `.fs` IS
-///   its platform repr, so `Platform` is always `Some` there.
+/// - `Platform` — the per-target runtime/codegen repr, or the naming of the
+///   target that binds none (`IntrinsicPlatform`). Codegen emission + the
+///   `exnReprOf`/`tryRuntimeType` runtime axis, and the intrinsic-receiver
+///   member probe (`tryExternalReceiver`), read the repr name. Many-to-one and
+///   directional — it must never drive unification.
 ///
 /// `TyparArity` — the type's generic parameter count. Usually `0` (the scalar
 /// primitives), but NOT always: the structural type constructors are intrinsics
-/// too (`type 'T [] = (# "!0[]" #)`, arity 1; `byref`, nd-array). Load-bearing
-/// for representability: only an `arity = 0` intrinsic with `Platform = None`
-/// is unrepresentable (see `Platform` above).
+/// too (`type 'T [] = (# "!0[]" #)`, arity 1; `byref`, nd-array).
 type IntrinsicIdentity =
     {
         /// A `TypeKey` — an intrinsic is a nominal TYPE, so the identity axis admits no
@@ -704,7 +711,7 @@ type IntrinsicIdentity =
         /// (`SymbolKey.Type`), which is where the IR still speaks the wide key.
         Canon: TypeKey
         TyparArity: int
-        Platform: string option
+        Platform: IntrinsicPlatform
     }
 
 /// The class surface a HERITABLE primitive (`obj`/`exn`, declared
@@ -747,7 +754,7 @@ type IntrinsicShape =
     }
 
     /// A scalar (non-heritable) intrinsic — the common mint.
-    static member Scalar(canon: TypeKey, arity: int, platform: string option) : IntrinsicShape =
+    static member Scalar(canon: TypeKey, arity: int, platform: IntrinsicPlatform) : IntrinsicShape =
         {
             Id =
                 {
@@ -766,11 +773,10 @@ type IntrinsicShape =
 /// repr (CLR); on JS a capability surfaces as a plain canon-only interface `Class`.
 ///
 /// Carries its own identity fields rather than a shared `IntrinsicIdentity`: unlike a
-/// scalar `Intrinsic` (whose `Platform` is an `option` — `None` = unrepresentable, the
-/// gate's reject signal), a capability interface is minted ONLY when its `.fs` binds
-/// the repr, so its `Platform` name is always present — a non-optional `string` that
-/// keeps the `Some`-unwraps at `resolveAnchor` / `externalClassRef` / `ClrExternalMembers`
-/// total and removes the two-polarity hazard of sharing the scalar's optional field.
+/// scalar `Intrinsic` (whose `Platform` admits an `Unsupported` target — the gate's
+/// reject signal), a capability interface is minted ONLY when its `.fs` binds the repr,
+/// so its `Platform` name is always present — a bare `string` that keeps the reads at
+/// `resolveAnchor` / `externalClassRef` / `ClrExternalMembers` total.
 ///
 /// - `Canon` — the platform-INVARIANT `.fsi` short-name identity (`Vesper.disposable`):
 ///   the reconciliation / capability-matching key (`resolveAnchor`'s `CanonKey`), and where
@@ -1362,8 +1368,11 @@ module ExternalSymbols =
 
         let resolveAnchor (lookup: string) (bclName: string voption) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup |> typeShapeOf with
-            | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
-                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf fqn 0))
+            | ValueSome(ExternalTypeShape.Intrinsic {
+                                                        Id = {
+                                                                 Platform = IntrinsicPlatform.Repr fqn
+                                                             }
+                                                    }) -> ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf fqn 0))
             | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                 ValueSome
                     {

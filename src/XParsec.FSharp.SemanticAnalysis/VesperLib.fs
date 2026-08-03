@@ -548,7 +548,7 @@ module VesperLib =
                                 {
                                     Canon = canon
                                     TyparArity = shape.TyparArity
-                                    Platform = Some platform
+                                    Platform = IntrinsicPlatform.Repr platform
                                 }
                             Class =
                                 ValueSome
@@ -1401,17 +1401,14 @@ module VesperLib =
 
                 // `short` (the `.fsi` name) is the platform-invariant `canon` key;
                 // intrinsic-ness is decided TARGET-BLIND (`IntrinsicMarkers`), so a target
-                // that omits a primitive's repr still publishes it as an `Intrinsic` with
-                // `platform = None`. The `platform` name is the compiling target's
-                // `(# … #)` repr (`IntrinsicReprs`).
-                // `arity` rides along (the structural constructors `'T []`/`byref` are
-                // intrinsics of arity ≥ 1); `PlatformTypes` treats `platform = None` as
-                // fatal only when `arity = 0`.
+                // that omits a primitive's repr still publishes it as an `Intrinsic` — with
+                // the compiling target named as the one that supports it nowhere. The
+                // `platform` name is that target's `(# … #)` repr (`IntrinsicReprs`).
                 let registerIntrinsic () =
                     let platform =
                         match ctx.IntrinsicReprs.TryGetValue short with
-                        | true, repr -> Some repr
-                        | _ -> None
+                        | true, repr -> IntrinsicPlatform.Repr repr
+                        | _ -> IntrinsicPlatform.Unsupported ctx.Target
 
                     ctx.TypeShapes.[compiled] <-
                         ExternalTypeShape.Intrinsic(
@@ -1469,8 +1466,8 @@ module VesperLib =
                         // Intrinsic-ness is a fact of the BASE `.fs`, so a primitive this
                         // target omits (`nativeint` on JS, which declares the bitwise
                         // family but has no JS repr) must still publish as an `Intrinsic`
-                        // with `platform = None` — that is what makes it unrepresentable
-                        // there rather than a silently opaque class.
+                        // naming the target it is unsupported on, rather than as a
+                        // silently opaque class.
                         | ValueNone -> registerIntrinsic ()
                         | ValueSome tag ->
                             match ctx.IntrinsicReprs.TryGetValue short with
