@@ -9,6 +9,25 @@ something I say so rather than estimating.
 
 ---
 
+## Decisions taken
+
+**`Vesper.Set` is out of scope.** The port stops at the coherent small core: Core,
+Array, List, Seq, Comparison, Choice, Option, Result, Exceptions. Deferring costs
+1 of 24 errors and nothing waits on it.
+
+**Computation expressions, including `seq { }`, are deferred.** They are greenfield
+— no front-end node, no backend support, on either target — and nothing in the port
+needs them. `Seq.truncate` gets the hand-rolled enumerator class, which is not a
+workaround: it is what a compiler would generate anyway.
+
+When they are picked up they are their own project, and one thing is worth knowing
+in advance because it inverts the usual intuition. On JS a sequence expression
+lowers to a generator (`function*` / `yield`), close to 1:1. On CLR it needs a
+compiled state machine. So the JS half is the cheap half, and a CE project scoped
+CLR-first would hit the expensive end before proving the design.
+
+---
+
 ## 0. The number
 
 **24 hard conformance errors on `js`, across 7 of the 11 packages. 0 on `clr`.**
