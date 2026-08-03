@@ -929,7 +929,7 @@ module internal ElaborateResolve =
         | TyNominal(nominalKey, _) -> flatNominalStep nominalKey
         // `arr.Length` on an intrinsic rank-1 array desugars to the core
         // `GetArrayLength` inline function (the `ldlen` mnemonic lives in
-        // `ops-platform.fs`, spliced here by `InlineExpansion`). `array.Length`
+        // `ops-platform.clr.fs`, spliced here by `InlineExpansion`). `array.Length`
         // parses as a local-headed LongIdent field chain (not `DotLookup`), so this
         // `fieldStep` arm is the one that fires; mirrors the `DotLookup` array guard.
         | TyArray _ when segName = "Length" ->

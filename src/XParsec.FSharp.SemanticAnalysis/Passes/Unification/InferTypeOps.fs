@@ -20,7 +20,7 @@ open UnificationInferDispatch
 module internal UnificationInferTypeOps =
 
     /// Explicit type application on a value/constructor head: `Set<'T>(args)`
-    /// (`set.fs` construction sites), `Box<int>(x)`, etc. The CST shape is
+    /// (`set.clr.fs` construction sites), `Box<int>(x)`, etc. The CST shape is
     /// `HighPrecedenceApp(TypeApp(head, [tyArgs]), valueArgs)`, so this types the
     /// `TypeApp` node to the head's curried ctor / function type — the enclosing
     /// App then unifies the value args as usual. The supplied type arguments are
@@ -146,7 +146,7 @@ module internal UnificationInferTypeOps =
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
     /// member-trait call, only ever the static-opt BASE of a `let inline` arithmetic
-    /// operator (`ops-platform.fs`). The member is resolved at inline
+    /// operator (`ops-platform.clr.fs`). The member is resolved at inline
     /// expansion (the typars are abstract here), so inference only types the argument
     /// tuple — so its operand subtrees are solved — and yields the member signature's
     /// declared RETURN type. That is `^T3`, which for a heterogeneous operator
@@ -209,7 +209,7 @@ module internal UnificationInferTypeOps =
     /// it (the BCL `System.Object` class isn't in `ctx.Types.Class`), so the
     /// coercion arms special-case it: a downcast / type-test from `obj` to any
     /// known type is statically admissible and resolved at runtime. The
-    /// `set.fs:988` `(that :?> Set<'T>).Tree` site relies on this.
+    /// `set.clr.fs:988` `(that :?> Set<'T>).Tree` site relies on this.
     and isObjTy (store: TypeStore) (t: SemType) : bool =
         match resolveStep store t with
         | TyObj -> true

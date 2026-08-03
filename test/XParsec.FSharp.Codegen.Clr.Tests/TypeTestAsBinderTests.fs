@@ -3,7 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.TypeTestAsBinderTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Regression probes for two `structural-printer.fs` workarounds that were needed
+// Regression probes for two `structural-printer.clr.fs` workarounds that were needed
 // against 2026-06 codegen but have since been fixed (many `:? T as x` arms in a
 // member body; a module `let` read from a member), and for the interface-receiver
 // member-resolution shapes the printer relies on — including a `System.Object`-

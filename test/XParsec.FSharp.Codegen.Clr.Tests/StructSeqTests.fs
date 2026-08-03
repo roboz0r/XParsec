@@ -969,7 +969,7 @@ let structSeqTests =
             // non-allocating: a `constrained.` prefix present, no `box`.
             //
             // The fixtures here re-declare the struct-seq surface inline (mirroring
-            // `src/Vesper.Seq/struct-seq.fs`) so the proof is self-contained against
+            // `src/Vesper.Seq/struct-seq.clr.fs`) so the proof is self-contained against
             // `compileSource` (which tolerates the Seq contract not being stacked);
             // the library form is proven separately by `buildPackage "Vesper.Seq"`.
             test "struct-closure-typar map/fold pipeline runs non-allocating" {

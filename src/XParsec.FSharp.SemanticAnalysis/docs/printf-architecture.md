@@ -168,7 +168,7 @@ seam above — the happy path and the partial-app arity peel
 ([printf-partial-app-plan](printf-partial-app-plan.md)) count `argTypes(p).Length` — and
 absorbs the length-2/3 holes without a structural change.
 
-## The write-through handler (`formatter.fs`)
+## The write-through handler (`formatter.clr.fs`)
 
 `Vesper.Formatter` is a `[<Struct; IsByRefLike>]` stack-only handler the backend
 constructs and drives inline; users never name it. It rents a pooled `char[]` from
@@ -181,7 +181,7 @@ Members: `AppendLiteral`, `AppendFormatted` (value / +format / +alignment /
 `AppendOctal`, `AppendZeroPaddedFloat`) and `AppendStructured` for `%A`.
 
 Two deliberate deviations from a pure no-alloc handler, each **byte-identical** in
-output and documented at the head of `formatter.fs`:
+output and documented at the head of `formatter.clr.fs`:
 
 - `AppendFormatted` takes the `IFormattable.ToString(format, provider)` path rather
   than the no-alloc `ISpanFormattable.TryFormat` span fast-path — so it does box the
@@ -224,7 +224,7 @@ The interfaces live in `Vesper.Core/structural-format.fs(i)`:
 `IStructuralFormattable` (types implement `Format(sink)`) and `IFormatSink` (the sink
 the body drives). A record/DU that reaches `%A` gets a **compiler-synthesized**
 `Format` body (`Codegen.Clr/EmitStructuralFormat.fs`); the layout engine +
-built-in walking live in the runtime (`Vesper.Printf/structural-printer.fs`,
+built-in walking live in the runtime (`Vesper.Printf/structural-printer.clr.fs`,
 `RuntimeFormatState`). Reflection-free means no `System.Reflection` over fields —
 but there *is* a runtime layout walker for built-ins (collections, tuples,
 primitives). Output is **copy-pasteable Vesper source** with a **group-based**
@@ -283,7 +283,7 @@ a generic virtual method is its own AOT hazard.
 
 ### Where the knowledge lives, and the single-source-of-truth cost
 
-The record/union output forms live independently in `structural-printer.fs` (CLR)
+The record/union output forms live independently in `structural-printer.clr.fs` (CLR)
 and `structural-printer.js.fs` (JS), tied only by the cross-target differential
 test. This is not a pure win: it trades one shared definition for two copies and
 promotes the differential test from backstop to the thing keeping the targets in
@@ -310,16 +310,16 @@ handler.
   no `PrintfFormat` *value* is constructed.
 - `formatter.fsi` — the write-through ref-struct handler.
 - `printf.fsi` — `[<AutoOpen>]` `printf` / `printfn` / `sprintf`.
-- `structural-printer.fs(i)` — the `%A` engine + `RuntimeFormatState`.
-- `formatter.fs` — the handler body.
+- `structural-printer.clr.fs(i)` — the `%A` engine + `RuntimeFormatState`.
+- `formatter.clr.fs` — the handler body.
 
 The `.fs` are compiled into `Vesper.Printf.dll` by this repo's own backend;
-`structural-printer.fs` must precede `formatter.fs` (declaration-ordered single
+`structural-printer.clr.fs` must precede `formatter.clr.fs` (declaration-ordered single
 package — `Formatter.AppendStructured` calls `StructuralPrinter.Print`).
 
 The handler and `%A` engine were bootstrapped in C# (`Formatter.cs`,
 `StructuralFormat.cs`, a throwaway `.csproj`) and that scaffolding has been retired:
-the Vesper-compiled `formatter.fs` + `structural-printer.fs` are the sole CLR runtime.
+the Vesper-compiled `formatter.clr.fs` + `structural-printer.clr.fs` are the sole CLR runtime.
 
 ## The sink model (designed, not built): contract-declared, provider-resolved
 
@@ -564,7 +564,7 @@ the code, not from the BCL's shape.
 
 *CLR.* The sink is touched in exactly two places. It is passed as a **ctor argument** to the
 `Vesper.Formatter` ref-struct (`EmitFormat.fs:58-63`: `ToWriter` → `CtorWriter`, `ToBuilder` →
-`CtorBuilder`), and it is written to **once, in `Flush`** (`formatter.fs:350-357`):
+`CtorBuilder`), and it is written to **once, in `Flush`** (`formatter.clr.fs:350-357`):
 
 ```fsharp
 match this.Writer with

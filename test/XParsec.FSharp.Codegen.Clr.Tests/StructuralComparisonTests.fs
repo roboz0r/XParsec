@@ -339,7 +339,7 @@ let tests =
             test "the < operator routes through Comparer<T>.Default.Compare for a [<StructuralComparison>] record" {
                 // End-to-end: source-level `<` / `>` / `<=` / `>=` against two
                 // values of an opted-in record type compiles + runs. The
-                // `comparison.fs` inline body's static-opt base routes to
+                // `comparison.clr.fs` inline body's static-opt base routes to
                 // `Comparer<Pair>.Default.Compare(x, y) <op> 0`, which
                 // dispatches to our generated `IComparable<Pair>::CompareTo`.
                 let src =

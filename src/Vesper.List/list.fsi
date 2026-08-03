@@ -71,8 +71,8 @@ open System.Collections.Generic
         /// <remarks>This is an O(1) operation.</remarks>
         static member Cons: head: 'T * tail: 'T list -> 'T list
 
-        // The ITERATION CAPABILITY, advertised because it is implemented on every target
-        // (CLR `list.fs`; JS `list.js.fs`'s `[Symbol.iterator]`). The BCL interfaces are NOT
+        // The ITERATION CAPABILITY, advertised because every target's body implements it
+        // (on JS as `[Symbol.iterator]`). The BCL interfaces are NOT
         // advertised: on CLR they are synthesized co-slots of this same capability, and on
         // JS they do not exist. Contrast `IReadOnlyCollection<'T>`/`IReadOnlyList<'T>`:
         // those carry real members (`Count`/`Item`) that NEITHER target implements and that

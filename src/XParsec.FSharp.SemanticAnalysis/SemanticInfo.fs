@@ -513,7 +513,7 @@ and [<RequireQualifiedAccess>] SemanticConstraintKind =
     /// `translateConstraint`; external symbol: `Instantiate`). Checked by
     /// `checkConstraint` via the read-only `subsumes` relation. The `exn ≡
     /// System.Exception` identity it leans on comes from `IntrinsicReprTypes`
-    /// (prim-types-exn.fs), not the unifier.
+    /// (prim-types-exn.clr.fs), not the unifier.
     | Coercion of target: SemType
 
 and [<Struct>] SemanticConstraint =

@@ -13,7 +13,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // end to end (compile + run real CIL).
 //
 // The equality family (`=`/`<>`) is sourced from the frozen
-// `Vesper.Core/ops-platform.fs` contract body: the operator-named binding
+// `Vesper.Core/ops-platform.clr.fs` contract body: the operator-named binding
 // `let inline (=) …` is collected by `ClrSymbolProviders.inlineBodies` and spliced at
 // each use site. A GROUND primitive operand selects the `when ^T : int` clause and
 // emits `(# "ceq" #)`; every other operand — an aggregate, or a still-free `^T` in a
@@ -256,15 +256,17 @@ let tests =
 
             test "`=`/`<>` freeze from the Vesper.Core contract and are collected as cross-package inlines" {
                 // The operator-named bindings `let inline (=)` / `let inline (<>)` in
-                // `ops-platform.fs` freeze and are sourced by the codegen inline-body
+                // `ops-platform.clr.fs` freeze and are sourced by the codegen inline-body
                 // loader — the sole supply of `=`/`<>` semantics.
                 let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
 
-                Expect.isTrue (Map.containsKey "op_Equality" inlines) "op_Equality body sourced from ops-platform.fs"
+                Expect.isTrue
+                    (Map.containsKey "op_Equality" inlines)
+                    "op_Equality body sourced from ops-platform.clr.fs"
 
                 Expect.isTrue
                     (Map.containsKey "op_Inequality" inlines)
-                    "op_Inequality body sourced from ops-platform.fs"
+                    "op_Inequality body sourced from ops-platform.clr.fs"
 
                 // Each body is an `inline` curried lambda over a static optimization
                 // (the `(# \"ceq\" … #)` per-primitive clauses + the fall-clause base).

@@ -518,7 +518,7 @@ let staticTests =
 
                 Expect.isNull (getEmpty.MakeGenericMethod(typeof<int>).Invoke(null, [||])) "Tree.getEmpty<int>() = null"
 
-                // The generic-class `static let` cctor reads it (the `set.fs` shape).
+                // The generic-class `static let` cctor reads it (the `set.clr.fs` shape).
                 let boxInt = (asm.GetType "Box`1").MakeGenericType typeof<int>
                 let s = boxInt.GetMethod("S", declaredStatic, null, [||], null)
                 Expect.isNull (s.Invoke(null, [||])) "Box<int>.S() reads the static-let built from Tree.empty = null"

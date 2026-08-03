@@ -1,40 +1,35 @@
 # Manifest redesign: one `impl` list, targets as peers
 
-Two defects in the `manifest.toml` schema, and the single change that removes both.
+Two defects in the `manifest.toml` schema. Both are now fixed; what remains is the
+file renames and the unsupported-on-target diagnostics.
 
-## Defect 1 — `impl` and `inline-bodies` are one list wearing two hats
+## Defect 1 — `impl` and `inline-bodies` are one list wearing two hats — LANDED
 
-The split claims to separate "files compiled into the DLL" from "files whose
-`let inline` bodies are spliced across the package boundary". Nothing in the tree
-actually needs that separation:
+`impl` is the one list per tier; `inline-bodies` is an unknown-key parse error.
+`sig-only` stays: a contract with deliberately no body anywhere is a genuine
+manifest fact, not derivable from any file's contents.
 
-- `Vesper.Core` re-lists seven `prim-types-*.fs` under `inline-bodies` that are
-  already in `impl`, with a comment apologising for it ("Also in `impl`, and
-  necessarily in both").
-- `Vesper.List`'s `impl-js` and `inline-bodies-js` are the identical one-element
-  list.
-- `Vesper.Comparison` has `impl = []` with `inline-bodies = ["comparison.fs"]` —
-  a hand-written restatement of a fact about `comparison.fs`'s contents (every
-  declaration is `inline`, so nothing is emitted).
-- `ConformancePass` computes `resolveImpl target ∪ resolveInlineBodies target` as
-  *the* impl set. The one consumer that needs the real concept unions them back.
+Two obstacles turned out to be bugs the split was masking, not reasons for it:
 
-Emission is decided per declaration and is already known from the declaration.
-So: **one `impl` list.** A package whose declarations are all `inline` emits no
-DLL — which is what `impl = []` says today by hand. `sig-only` stays; a contract
-with deliberately no body anywhere is a genuine manifest fact, not derivable.
+- A member on an intrinsic host was reachable only through canon-keyed channels.
+  Instance access mapped a `TyConst` receiver to the platform repr key alone;
+  static access stamped an external receiver only for `Class` shapes. A receiver
+  now yields its member surfaces most-specific-first, own canon key before
+  platform repr.
+- `Vesper.Core` could not compile its own operator files: a function value forced
+  an `AssemblyRef` to Vesper.Core from inside it, and `type int32 = int` was
+  invisible to a later file of the same package. Fixed by extending the existing
+  local-first nominal probe, and by resolving a package compile against its own
+  `.fsi` contracts the way F# does.
 
-No escape hatch. Nothing currently needs "compile this but do not publish it as a
-splice source", and building the hatch before the case exists is what re-creates
-the defect. If such a case appears, it is its own design effort.
+The one real distinction between the lists was that `impl` publishes an intrinsic
+*marker* target-blind. It survives the merge intact, since the marker set is now
+derived from every target's single `impl`.
 
-Cost accepted: a consumer today parses only its dependencies' `inline-bodies`;
-merged, it parses their whole `impl`. The frozen inline cache amortises it, and
-`Vesper.Printf`'s BCL-heavy `formatter.fs` — the worst case, and the reason
-`inline-bodies-js = []` exists — is not in any JS list under the new scheme
-anyway.
+No escape hatch, and none is to be added. If a case for one ever appears it is its
+own design effort.
 
-## Defect 2 — the base tier is secretly the CLR
+## Defect 2 — the base tier is secretly the CLR — LANDED
 
 `[core] impl` means both "target-neutral" and "CLR", and every piece of awkward
 machinery in `ReferencedProject` traces back to that conflation:

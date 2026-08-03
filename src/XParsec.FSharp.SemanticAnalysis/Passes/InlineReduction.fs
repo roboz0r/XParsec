@@ -518,7 +518,7 @@ module InlineReduction =
     /// collapse could serve a sibling overload's body.
     ///
     /// Every expandable head is key-stamped upstream (operators included — a primitive `1 + 2`
-    /// head is keyed and DOES reach `ops-platform.fs`'s `(+)`), so a `key = ValueNone` head
+    /// head is keyed and DOES reach `ops-platform.clr.fs`'s `(+)`), so a `key = ValueNone` head
     /// carries no inline body by construction and `ValueNone` is a genuine "no body", never a
     /// missed keyless lookup.
     ///

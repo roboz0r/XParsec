@@ -147,7 +147,7 @@ Unrelated to enumeration lowering, but the remaining thing keeping `Vesper.Seq` 
 JS: `truncate` delegates to `System.Linq.Enumerable.Take`. Now that `seq`/`enumerator`
 are authorable capabilities, the fix is plain Vesper code — a `TakeSeq<'T>` /
 `TakeEnumerator<'T>` pair, the shape `List`/`ListEnumerator` already take. See the
-sited comment in `src/Vesper.Seq/seq.fs`.
+sited comment in `src/Vesper.Seq/seq.clr.fs`.
 
 ---
 

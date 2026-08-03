@@ -179,7 +179,7 @@ let tests =
 
             test "the language-capability anchors resolve as two-name IntrinsicInterfaces carrying their CLR repr" {
                 // Each capability (`extern with abstract member …` in `capabilities.fsi`, paired
-                // with a `capabilities.fs` `(# "<BCL interface>" #)` repr) surfaces as ONE
+                // with a `capabilities.clr.fs` `(# "<BCL interface>" #)` repr) surfaces as ONE
                 // two-name `IntrinsicInterface`: the member surface plus `Id { Canon; Platform }`.
                 // The generic ones carry the backtick-arity suffix in the lookup name, in the
                 // `Canon` KEY — arity is part of a nominal identity, so the canon a contract

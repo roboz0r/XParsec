@@ -456,7 +456,7 @@ type TExprG<'ty, 'tok, 'id> =
     | TypeTest of source: TExprG<'ty, 'tok, 'id> * testTy: 'ty * ty: 'ty * tok: 'tok
     /// SRTP member-trait call, the lowering of a `let inline` operator body's
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` static-opt BASE
-    /// (`ops-platform.fs`). `receiver` is the LEFT operand's type
+    /// (`ops-platform.clr.fs`). `receiver` is the LEFT operand's type
     /// (`^T1`) — one receiver, so the `(^T1 or ^T2)` support set is searched left-only
     /// and a right-operand-only member does not resolve; `ty` is the member's `^T3`
     /// result, which for a heterogeneous operator is neither operand's type.

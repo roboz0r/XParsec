@@ -13,7 +13,7 @@ files = [
 # bare ordering operators), so this compiles to an empty DLL and splices at each use site.
 # The file declares no types, so naming it here publishes no intrinsic marker.
 impl = [
-    "comparison.fs",
+    "comparison.clr.fs",
 ]
 
 [targets.js]

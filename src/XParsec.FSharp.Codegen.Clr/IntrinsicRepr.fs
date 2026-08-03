@@ -21,7 +21,7 @@ module IntrinsicRepr =
     /// not as direct value types.
     ///
     /// A key is the repr string the `.fs` declares, verbatim — usually a BCL name, but
-    /// the pointer-width pair is spelled in IL signature syntax (`prim-types-nativeint.fs`:
+    /// the pointer-width pair is spelled in IL signature syntax (`prim-types-nativeint.clr.fs`:
     /// `type nativeint = (# "native int" #)`), because `native int` / `unsigned native int`
     /// ARE the ECMA-335 element types (`ELEMENT_TYPE_I` / `_U`) — not a nominal struct that
     /// happens to be pointer-sized. `IntPtr()` / `UIntPtr()` write exactly those tags.

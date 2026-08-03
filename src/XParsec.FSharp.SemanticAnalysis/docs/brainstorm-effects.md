@@ -256,5 +256,5 @@ exists — but `Effect` is exactly what EF-Q3 would serialise, so nothing is was
 - [brainstorm-option-representation](brainstorm-option-representation.md) — OR7's `Fun::Invoke` copy/SROA tension is resolved by EF1/EF6 (optimise across the out-of-line combinator).
 - [core-lib-architecture](core-lib-architecture.md) — one impl DLL per package is why EF6 (cross-assembly effect summary) is load-bearing rather than a nicety.
 - [function-representation-plan](function-representation-plan.md) — `Fun` and closure devirtualisation; the other half of erasing the combinator-call cost.
-- [`../../Vesper.Core/ops-platform.fs`](../../Vesper.Core/ops-platform.fs) — the inline-IL operator bodies (`(+)`), the EF7 boundary where a trusted annotation survives.
+- [`../../Vesper.Core/ops-platform.clr.fs`](../../Vesper.Core/ops-platform.clr.fs) — the inline-IL operator bodies (`(+)`), the EF7 boundary where a trusted annotation survives.
 - `Conformance.fs` (self-host conformance) — the model EF7.1/EF-Q4 extend to check trusted intrinsic purity.

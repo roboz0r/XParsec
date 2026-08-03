@@ -29,7 +29,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 //    an ordinary module function — F# emits both — so it does reach `checkFile`, and
 //    `checkFile` skips it explicitly on `IsInline`.) 4.2 would exempt it even if the
 //    body matched the contract exactly.
-//    (Aside, lest the current state mislead: `ops-platform.fs` implements `(+)` as the
+//    (Aside, lest the current state mislead: `ops-platform.clr.fs` implements `(+)` as the
 //    homogeneous `^T -> ^T -> ^T`, while the contract — and real FSharp.Core's body,
 //    `prim-types.fs` `let inline (+) (x:^T) (y:^U) : ^V` — is the general
 //    `^T1 -> ^T2 -> ^T3`. That one-typar body is a known SIMPLIFICATION, not an intended

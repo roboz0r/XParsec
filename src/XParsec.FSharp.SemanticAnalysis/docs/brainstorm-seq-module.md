@@ -182,7 +182,7 @@ The compiler detects the type mismatch (struct vs interface) and emits a `box` i
 ## 9. Status & sequencing (where this sits in the roadmap)
 
 > **Status:** Forward-looking design — the *destination*, not the next step. The
-> currently-shipping sequence type is the interface-based `src/Vesper.Seq/seq.fs`
+> currently-shipping sequence type is the interface-based `src/Vesper.Seq/seq.clr.fs`
 > (`seq<'T>` = `IEnumerable<'T>`, walked through the `for … in` `Interface` path).
 > This zero-allocation struct redesign sits **on top of** several larger unbuilt
 > capabilities; completing it is not a near-term next commit.

@@ -336,6 +336,6 @@ compiler v1 — so it is deferred.
 - Byte-for-byte parity with FSharp.Core's output across the spec matrix — including the
   `printfn` trailing newline, from sharing the `EmitFormat` lowering.
 - The cold-path spec-runner and the partial-application `Invoke` share one **handler**
-  (`formatter.fs`); the `Invoke` itself is statically unrolled, not run through the runtime
+  (`formatter.clr.fs`); the `Invoke` itself is statically unrolled, not run through the runtime
   spec-runner.
 - **Scope: `printf` only.** The rest of the family is a follow-up review, not this landing.

@@ -29,7 +29,7 @@ let tests =
 
             test "Vesper.Set builds BCL-only" { buildsBclOnly "Vesper.Set" }
 
-            test "Vesper.Printf builds BCL-only (structural-printer.fs + formatter.fs, PP7d)" {
+            test "Vesper.Printf builds BCL-only (structural-printer.clr.fs + formatter.clr.fs, PP7d)" {
                 buildsBclOnly "Vesper.Printf"
             }
         ]

@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // `hash` — the third equality-family member (C-Eq1) — now sourced from
-// `src/Vesper.Core/ops-platform.fs`, not the
+// `src/Vesper.Core/ops-platform.clr.fs`, not the
 // `Emit.isHash` codegen stopgap.
 //
 // `let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj` is
@@ -30,7 +30,7 @@ let tests =
         [
             test
                 "`hash 5` freezes to the EqualityComparer<int>.Default.GetHashCode ExternalMember nodes (no surviving External)" {
-                // The contract path resolves `hash` to its `ops-platform.fs` inline
+                // The contract path resolves `hash` to its `ops-platform.clr.fs` inline
                 // body, which the pre-freeze `Passes.InlineExpansion` pass splices in:
                 // `hash 5` becomes
                 // `let _ = 5 in EqualityComparer<int>.Default.GetHashCode _` —
@@ -38,7 +38,7 @@ let tests =
                 // the frozen `tast.Decls`, before codegen runs.
                 let provider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
                 let inlines = ClrSymbolProviders.contractInlineBodies [ vesperCoreManifest ]
-                Expect.isTrue (Map.containsKey "hash" inlines) "hash inline body loaded from ops-platform.fs"
+                Expect.isTrue (Map.containsKey "hash" inlines) "hash inline body loaded from ops-platform.clr.fs"
 
                 let lexed, file = parseFile "let v = hash 5"
 

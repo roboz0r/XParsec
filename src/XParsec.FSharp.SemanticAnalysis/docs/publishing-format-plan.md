@@ -35,12 +35,12 @@ Grounded in the current contract files:
 | Extern/intrinsic type mapping | `type int = extern` (`../../Vesper.Core/prim-types-min.fsi:13`) | In IL `int` *is* `System.Int32`; "the target provides this" is compiler-only. On JS the same line maps to a number. |
 | Type abbreviations | `'T array = 'T[]`, `'T ref = Ref<'T>`, `'A -> 'B` ≡ `Fun<'A,'B>` | IL erases abbreviations to the underlying type; they exist only for name resolution. |
 | Inline signatures + SRTP | `val inline (+): … when (^T1 or ^T2): (static member (+)…)` (`../../Vesper.Core/ops-platform.fsi:40`) | Statically-resolved type params and `default ^T: int` have no runtime existence; solved per call site. |
-| Inline bodies | `let inline hash (obj:'T) = EqualityComparer<'T>.Default.GetHashCode obj` (`../../Vesper.Core/ops-platform.fs:30`) | To inline across the package boundary you need the *expression* the backend re-lowers per target, not a compiled method. |
+| Inline bodies | `let inline hash (obj:'T) = EqualityComparer<'T>.Default.GetHashCode obj` (`../../Vesper.Core/ops-platform.clr.fs:30`) | To inline across the package boundary you need the *expression* the backend re-lowers per target, not a compiled method. |
 | Name-resolution metadata | `[<AutoOpen>]` on the operator modules, `[<CompiledName>]`, module-vs-namespace, RQA | AutoOpen must be honoured by the *consumer's* resolver; not all of it survives as plain attributes. |
 
 This is the same partition F# pickles: `FSharpSignatureData` (the contract) +
 `FSharpOptimizationData` (inlinable bodies). Vesper's `.fsi` ≙ signature data;
-the manifest's `impl` inline `.fs` (e.g. `ops-platform.fs`) ≙ optimization data
+the manifest's `impl` inline `.fs` (e.g. `ops-platform.clr.fs`) ≙ optimization data
 (read across the package boundary by
 `SymbolProviders.inlineBodies` and spliced by `Emit.lowerWith`, milestone M).
 

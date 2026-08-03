@@ -10,14 +10,14 @@ callable representation instead of the current bare-`defaultof` +
 
 - **DONE — the idiomatic surface.** Half 1 (qualified / type-applied
   references splice during semantic analysis) shipped, then `[<AutoOpen>]`
-  was dropped from `module Unchecked` and `seq.fs` rewritten to
+  was dropped from `module Unchecked` and `seq.clr.fs` rewritten to
   `Unchecked.defaultof<'T>`. This fully answers the original goal: the
   idiomatic spelling compiles and splices to `ilzero`, no phantom call.
 - **DEFERRED — materialisation** (a real callable `DefaultOf<T>()` for
   C#/reflection). A prototype existed but was **discarded**: it special-cased
   generalization (`Elaborate` quantEnv) and freeze retention to force an
   *inline* value to also materialise — and it delivered **nothing shippable**,
-  because `ops-platform.fs` is in the manifest's `inline-bodies` list, not
+  because `ops-platform.clr.fs` is in the manifest's `inline-bodies` list, not
   `impl`, so it never compiles to `Vesper.Core.dll`. When revisited, do NOT
   carve up the front end; prefer one of:
   - **(a)** make `defaultof` a plain non-inline `[<GeneralizableValue>]` in a
@@ -32,7 +32,7 @@ callable representation instead of the current bare-`defaultof` +
 
 ## Status quo
 
-`Vesper.Core/ops-platform.fs:247` defines the primitive as a nullary
+`Vesper.Core/ops-platform.clr.fs:247` defines the primitive as a nullary
 generic `inline` value in an `[<AutoOpen>] module Unchecked`:
 
 ```fsharp
@@ -40,7 +40,7 @@ let inline defaultof<'T> : 'T = (# "ilzero" type ('T) : 'T #)
 ```
 
 Its only legal use is the **bare, un-type-applied** form under a type
-annotation (`seq.fs:52`: `let mutable acc: 'T = defaultof`). That is a
+annotation (`seq.clr.fs:52`: `let mutable acc: 'T = defaultof`). That is a
 workaround for two front-end gaps, both of which the idiomatic spelling
 `Unchecked.defaultof<'T>` hits:
 
@@ -123,7 +123,7 @@ a compiled `DefaultOf`).
   (`Elaborate.fs:1710` → `VesperLibTypeTranslate.tryCompiledName`), so
   the materialised method takes its IL name for free.
 - Once materialised, `[<AutoOpen>]` on `module Unchecked` can be
-  removed and `seq.fs:52` rewritten to the idiomatic spelling.
+  removed and `seq.clr.fs:52` rewritten to the idiomatic spelling.
 
 ### Discriminator — `[<NoDynamicInvocation>]` (opt-out)
 
@@ -158,8 +158,8 @@ not leak into Freeze; FSharp.Core encodes the verdict at the source with
 | 4 | `EmitClosures.fs:164` | `classifyModuleValues`: admit `isInline` values that lack `[<NoDynamicInvocation>]`. |
 | 5a | `Vesper.Core/compiler-attributes.fsi` | Declare `NoDynamicInvocationAttribute`; and add `CompiledNameAttribute`, which is recognised by short name (`Elaborate.fs:1710` → `tryCompiledName`) but currently has **no source representation** — a latent gap to close while we are here. |
 | 5b | attribute plumbing (near `Elaborate.fs:1710`, sibling of `tryCompiledName`) | Derive a `NoDynamicInvocation` flag off `b.attributes` and thread it to site #4. |
-| 6 | `ops-platform.fs:247` / `.fsi:464` | Drop `[<AutoOpen>]`; keep `inline`; the `.fsi` remarks documenting the old workaround are deleted. |
-| 7 | `seq.fs:52` | Rewrite bare `defaultof` → `Unchecked.defaultof<'T>`. |
+| 6 | `ops-platform.clr.fs:247` / `.fsi:464` | Drop `[<AutoOpen>]`; keep `inline`; the `.fsi` remarks documenting the old workaround are deleted. |
+| 7 | `seq.clr.fs:52` | Rewrite bare `defaultof` → `Unchecked.defaultof<'T>`. |
 
 Sites 1–3 are **Half 1** (correctness, independently shippable); 4–7 are
 **Half 2** (materialisation, lets `[<AutoOpen>]` go away).
@@ -175,7 +175,7 @@ Sites 1–3 are **Half 1** (correctness, independently shippable); 4–7 are
 
 ## Test plan
 
-- **Regression:** `seq.fs` `reduce` still compiles and its emitted IL
+- **Regression:** `seq.clr.fs` `reduce` still compiles and its emitted IL
   for the seed is unchanged (`ilzero` splice, no call).
 - **Qualified in-language:** a fixture using `Unchecked.defaultof<'T>`
   (bare and type-applied) splices identically — assert on frozen TAST

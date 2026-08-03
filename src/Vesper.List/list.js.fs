@@ -16,7 +16,7 @@ type List<'T> =
 // JS-target cons enumerator: a `val mutable` cursor walked by `MoveNext`/`Current`
 // (the duck-typed protocol the `*[Symbol.iterator]()` generator adapter drives).
 // `started` makes the first `MoveNext` "start" the walk (cursor stays at the head);
-// each later call advances to the tail. Mirrors `list.fs`'s `ListEnumerator` but
+// each later call advances to the tail. Mirrors `list.clr.fs`'s `ListEnumerator` but
 // pattern-matches the cons cells (no `.Head`/`.IsEmpty` members on the JS union).
 and ListEnumerator<'T> =
     val mutable cursor: 'T list
@@ -45,7 +45,7 @@ and ListEnumerator<'T> =
             | [] -> failwith "The input list was empty."
             | h :: _ -> h
 
-// The `'T list` abbreviation stays LAST in the rec group (mirroring `list.fs` and the
+// The `'T list` abbreviation stays LAST in the rec group (mirroring `list.clr.fs` and the
 // original declaration order); `ListEnumerator` sits between `List` and the abbreviation.
 and 'T list = List<'T>
 

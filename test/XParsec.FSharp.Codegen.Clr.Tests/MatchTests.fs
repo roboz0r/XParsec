@@ -59,7 +59,7 @@ let tests =
                     // through to the wildcard).
                     "let o = (42 :> obj)\nlet r = match o with | :? int as n -> n | _ -> 0\nprintfn \"%d\" r", "42"
                     "let o = (42 :> obj)\nlet r = match o with | :? bool as b -> 1 | _ -> 0\nprintfn \"%d\" r", "0"
-                    // Reference-type target (the `set.fs` shape): isinst + bind the
+                    // Reference-type target (the `set.clr.fs` shape): isinst + bind the
                     // cast-down receiver, then read a field off the binder.
                     rec'
                     + "\nlet o = ({ n = 7 } :> obj)\nlet r = match o with | :? R as x -> x.n | _ -> -1\nprintfn \"%d\" r",

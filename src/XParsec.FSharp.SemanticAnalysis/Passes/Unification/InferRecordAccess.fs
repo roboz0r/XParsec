@@ -434,7 +434,7 @@ module internal UnificationInferRecordAccess =
         // An instance member on an *intrinsic* receiver whose `(# "…" #)` binding
         // maps it to a BCL type (`"hello".TryCopyTo(span)` / `s.Length`): resolve
         // through the provider by the canonical BCL name (`IntrinsicBclMember`,
-        // routed via `prim-types-string.fs`), recording it for Elaborate exactly as
+        // routed via `prim-types-string.clr.fs`), recording it for Elaborate exactly as
         // the external `TyClass` arm does. The single-pick member suffices for a
         // name with one overload; an arg-overloaded name (`string.CopyTo`) is
         // picked arg-aware earlier by `tryInferExternalInstanceMethodCall`. A

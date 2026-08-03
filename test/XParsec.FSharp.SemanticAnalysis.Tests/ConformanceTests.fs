@@ -53,16 +53,16 @@ let tests =
         [
             // ---- The real contract/impl pair: the load-bearing P4 assertion ----
 
-            test "prim-types-min.fsi conforms to prim-types-min.fs (no drift)" {
+            test "prim-types-min.fsi conforms to prim-types-min.clr.fs (no drift)" {
                 let sigSrc = readNormalised (vesperCorePath "prim-types-min.fsi")
-                let implSrc = readNormalised (vesperCorePath "prim-types-min.fs")
+                let implSrc = readNormalised (vesperCorePath "prim-types-min.clr.fs")
                 let errors = conform sigSrc implSrc
                 Expect.isEmpty errors "prim-types-min should conform with no errors"
             }
 
             test "prim-types-min: extern capability set equals the intrinsic set" {
                 let sigSrc = readNormalised (vesperCorePath "prim-types-min.fsi")
-                let implSrc = readNormalised (vesperCorePath "prim-types-min.fs")
+                let implSrc = readNormalised (vesperCorePath "prim-types-min.clr.fs")
 
                 let sigLexed, sigFile = parseSigFile sigSrc
                 let implLexed, implFile = parseFile implSrc
@@ -537,7 +537,7 @@ let typarConformanceTests =
 // canonical order, so `=` is α-equivalence-with-order across both axes. A member
 // with no matching-arity published overload is skipped (presence is Step 4.1's job).
 //
-// The real `formatter.fs ↔ formatter.fsi` end-to-end check lives in
+// The real `formatter.clr.fs ↔ formatter.fsi` end-to-end check lives in
 // `Codegen.Clr.Tests/ConformanceTyparsTests.fs` (it needs `ClrSymbolProviders` to
 // EXTRACT the contract); here the contract side is a stub publishing an exact member
 // overload set, so the drift case is pinned without a manifest round-trip.

@@ -44,7 +44,7 @@ silently miss. Parse-time rejection keeps the two identities from drifting.
 
 **No package has a `.fsproj`.** None of this tree is built by `dotnet`/`fsc`. The
 operators alone force it: a `let inline (+)` body needs inline IL /
-`--compiling-fslib` (`Vesper.Core/ops-platform.fs`), so the contract is
+`--compiling-fslib` (`Vesper.Core/ops-platform.clr.fs`), so the contract is
 signature-only from `fsc`'s point of view — which is why those bodies sit in
 `inline-bodies`, not `impl` (`Vesper.Core/manifest.toml`). The `.fsi` are parsed by
 `XParsec.FSharp` and walked into an `IExternalSymbolProvider`; the `.fs` are
@@ -84,7 +84,7 @@ tier 3   Set ──▶ List, Array, Seq, Choice, Option, Comparison, Printf
 ```
 
 `Vesper.Set` is the only wide node, and its width is a property of its *source*,
-not of the design: `set.fsi`/`set.fs` are verbatim copies of FSharp.Core's, with
+not of the design: `set.fsi`/`set.clr.fs` are verbatim copies of FSharp.Core's, with
 the namespace and opens patched (`Vesper.Set/set.fsi:1-2`). The verbatim
 body reaches for `sprintf` in its invariant-violation messages (⇒ Printf) and
 `Set.toList`/`ofList` in its surface (⇒ List), so the edges follow the copy. A
@@ -96,7 +96,7 @@ referenced by the **JS provider only**. A CLR build resolves the same names
 through `System.Private.CoreLib`, so the contract never shadows the BCL type in a
 `newobj` (which would mint a TypeRef into the wrong assembly). The shared seam
 stays the `.fsi`; the per-target binding is `prim-types-exn`'s `(# … #)` repr —
-`System.Exception` on CLR (`Vesper.Core/prim-types-exn.fs`), `Error` on JS
+`System.Exception` on CLR (`Vesper.Core/prim-types-exn.clr.fs`), `Error` on JS
 (`Vesper.Core/prim-types-exn.js.fs`).
 
 ## Why one package per type
@@ -204,7 +204,7 @@ ordering on primitives costs no `Vesper.Comparison` reference and the emitted PE
 carries no `AssemblyRef` for it. Only the polymorphic family — dispatching through
 `Comparer<^T>.Default` for aggregates — is the genuinely opt-in part. Equality
 (`=`/`<>`/`hash`) is not split this way: it stays whole in Core's
-`ops-platform.fs`. See [brainstorm-comparison](brainstorm-comparison.md).
+`ops-platform.clr.fs`. See [brainstorm-comparison](brainstorm-comparison.md).
 
 ## Contract vs implementation, and per-target companions
 
@@ -233,9 +233,9 @@ the backend ships beside its output (`runtimeModules`, `:409`).
 
 Three distinct companion patterns coexist, and the distinction is load-bearing:
 
-- **`prim-types-int.fs`** — a base `.fs` binding a contract `extern` to its
+- **`prim-types-int.clr.fs`** — a base `.fs` binding a contract `extern` to its
   intrinsic repr, with `prim-types-int.js.fs` as the per-target override.
-- **`ops-platform.fs`** — an inline-body source that is *not* a DLL compile target:
+- **`ops-platform.clr.fs`** — an inline-body source that is *not* a DLL compile target:
   its `let inline` bodies are read across the package boundary by the codegen
   inline-body loader and spliced at each use site. `Vesper.Core`'s DLL is the
   prim-types/`Ref` bodies; its operator semantics live here and nowhere else —

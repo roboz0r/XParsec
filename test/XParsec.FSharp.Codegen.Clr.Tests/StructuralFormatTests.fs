@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // the backend synthesises against. The oracle is the spec (copy-pasteable Vesper
 // source), not F#'s `sprintf "%A"` — we deliberately diverge.
 //
-// These drive the **Vesper-compiled** `StructuralPrinter` (`structural-printer.fs`)
+// These drive the **Vesper-compiled** `StructuralPrinter` (`structural-printer.clr.fs`)
 // via reflection (`structuralPrint` / `structuralPrintSized` in `TestHelpers`) — the
 // real backend-emitted engine, loaded from the `buildPackage`-produced
 // `Vesper.Printf.dll`. The `Sem*` `IStructuralFormattable` impls own the Core-bound

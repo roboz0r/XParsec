@@ -848,7 +848,7 @@ type ExternalTypeShape =
     | Class of shape: ExternalClassShape
     /// A *referenced* package's intrinsic-representation binding: an `extern`
     /// type whose sibling `.fs` carries `type x = (# "<repr>" #)`
-    /// (`type exn = (# class "System.Exception" #)`, prim-types-exn.fs) — scalar
+    /// (`type exn = (# class "System.Exception" #)`, prim-types-exn.clr.fs) — scalar
     /// (`int`) or heritable class (`obj`/`exn`). Identity, representability, and
     /// the optional class surface all ride `IntrinsicShape` (lifted out like
     /// `ExternalClassShape`, so the DU header stays narrow and the identity axis

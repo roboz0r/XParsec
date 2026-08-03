@@ -31,8 +31,8 @@ let tests =
         "SelfHost"
         [
             // ---- Vesper.Core: the Fun`2 interface + Ref`1 cell --------
-            test "compiles prim-types-min.fs to a Vesper.Core.dll with the Fun`2 interface and no FSharp.Core" {
-                let src = File.ReadAllText(vesperCoreSource "prim-types-min.fs")
+            test "compiles prim-types-min.clr.fs to a Vesper.Core.dll with the Fun`2 interface and no FSharp.Core" {
+                let src = File.ReadAllText(vesperCoreSource "prim-types-min.clr.fs")
                 let project = ProjectInfo.library "Vesper.Core"
                 let artifact = compileSourceTo project src
 
@@ -240,7 +240,7 @@ let tests =
 
             // ---- Function values as Vesper.Fun closures (R1) -----------------
             test "the Vesper.Core.dll the cutover references is on disk and named Vesper.Core" {
-                // Forcing the lazy *is* stage 1 — it compiled prim-types-min.fs to
+                // Forcing the lazy *is* stage 1 — it compiled prim-types-min.clr.fs to
                 // the on-disk DLL and loaded it for in-process resolution.
                 let corePath = vesperCoreDll.Value
                 Expect.isTrue (File.Exists corePath) "Vesper.Core.dll written to disk"
@@ -310,7 +310,7 @@ let tests =
             test
                 "Vesper.List.dll exports List`1 (Cons/Empty + IsEmpty/Head/Tail) and ListModule::fold (its own package)" {
                 // The cons-list is its own package: forcing the lazy compiles
-                // `src/Vesper.List/list.fs` into a standalone Vesper.List.dll and loads it.
+                // `src/Vesper.List/list.clr.fs` into a standalone Vesper.List.dll and loads it.
                 let listPath = vesperListDll.Value
                 let listAsm = Assembly.LoadFrom listPath
 
@@ -358,7 +358,7 @@ let tests =
             }
 
             // `List<'T>` authors ONLY the platform-agnostic iteration capability
-            // (`interface seq<'T>` / `interface enumerator<'T>`, `src/Vesper.List/list.fs`):
+            // (`interface seq<'T>` / `interface enumerator<'T>`, `src/Vesper.List/list.clr.fs`):
             // it never writes `IEnumerable`, `IEnumerator`, `object Current`, or `Reset`.
             // The CLR backend synthesises those BCL co-slots during capability
             // reconciliation, so a plain BCL consumer — this test host, holding nothing but
@@ -474,7 +474,7 @@ let tests =
             // A happy-path bundle binds Vesper.Printf even with no list / function value
             // of its own. The Vesper-compiled `Vesper.Printf.dll` references `Vesper.Core`
             // (its `RuntimeFormatState` implements the Core-owned `IFormatSink`) AND
-            // `Vesper.List` (the self-hosted `%A` engine `structural-printer.fs` uses
+            // `Vesper.List` (the self-hosted `%A` engine `structural-printer.clr.fs` uses
             // the Vesper cons-list as its `Doc` child lists + frame stack). So the
             // bundle's transitive closure ships both deps even for a `%d`-only program.
             test "a happy-path bundle ships Vesper.Printf + its Vesper.Core / Vesper.List deps, no FSharp.Core" {

@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Exception construction + `raise` (gap B-9), folding in M1 (`isFailwith` →
 // `TExpr.Raise`). The chosen mechanism is *not* a dedicated `TExpr.Raise` TAST
 // node — `raise` / `failwith` / `invalidArg` are real cross-package inline
-// operators in `Vesper.Core/ops-platform.fs` whose bodies splice to a
+// operators in `Vesper.Core/ops-platform.clr.fs` whose bodies splice to a
 // `TExpr.ILIntrinsic "throw"` (the terminal `throw` arm in `Emit`). These tests
 // pin the runtime behaviour: the thrown CLR exception's *type* and message.
 
@@ -60,7 +60,7 @@ let tests =
             test "raise of a derived exception (InvalidOperationException) throws the derived type" {
                 // `raise : System.Exception -> 'T`, but the argument is an
                 // `InvalidOperationException` (a subtype). This exercises argument
-                // subsumption at the call site — the set.fs `raise (InvalidOperationException …)`
+                // subsumption at the call site — the set.clr.fs `raise (InvalidOperationException …)`
                 // enumeration-guard sites.
                 let ex =
                     thrownBy
@@ -82,7 +82,7 @@ let tests =
                 // `raise : 'e -> 'a when 'e :> exn` — passing an `int` must fail the
                 // coercion constraint at type-check: the v1 compromise dropped this
                 // bound; the constraint chain restores it via `subsumes` + the
-                // prim-types-exn.fs `exn ≡ System.Exception` identity). Compile only
+                // prim-types-exn.clr.fs `exn ≡ System.Exception` identity). Compile only
                 // (no run): we assert a diagnostic, not a throw.
                 let tast, _ =
                     compileSource "ExnRaiseBadArg" (lines [ "let boom (n: int) : int = raise 42" ])

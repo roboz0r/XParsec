@@ -3,7 +3,7 @@ namespace XParsec.FSharp.Codegen.Common
 /// Target-neutral `%A` *grammar* oracle — the record / union output forms
 /// (`{ F = ·; G = · }`, `None`, `Some ·`, `Case (·, ·)`) as pure data. The JS
 /// shape-keyed walker is checked against this by a cross-target differential test;
-/// the CLR runtime encodes the same forms independently in `structural-printer.fs`,
+/// the CLR runtime encodes the same forms independently in `structural-printer.clr.fs`,
 /// so both targets are pinned to this grammar without either consuming it directly.
 module StructuralFormatRecipe =
 

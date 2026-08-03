@@ -57,8 +57,8 @@ double up).
 
 ## Decisions locked (user, this design)
 
-1. **Derive-from-operators is the wrong direction.** The `when ^T: int` clauses in `comparison.fs`
-   / `ops-platform.fs` are a **codegen optimization** (inline `clt`/`ceq` vs. the `Comparer<^T>` /
+1. **Derive-from-operators is the wrong direction.** The `when ^T: int` clauses in `comparison.clr.fs`
+   / `ops-platform.clr.fs` are a **codegen optimization** (inline `clt`/`ceq` vs. the `Comparer<^T>` /
    generic base) — a *subset* of what supports the operation, chosen for "can we emit an opcode."
    Using them to answer `when 'T : comparison` would under-approximate (a comparable type reachable
    only through the base comparer would be wrongly rejected). The clause list stays the source for

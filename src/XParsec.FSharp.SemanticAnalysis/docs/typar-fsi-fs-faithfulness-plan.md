@@ -70,8 +70,8 @@ test refactor is a later, separate effort).
 
 ### Sprint B — retire `BuiltinOps` (drift inventory Species 2) — ✅ DONE
 
-`BuiltinOps` is deleted. Every operator now emits from its `ops-platform.fs` /
-`comparison.fs` contract body, spliced by `SymbolKey` in `Passes.InlineExpansion` —
+`BuiltinOps` is deleted. Every operator now emits from its `ops-platform.clr.fs` /
+`comparison.clr.fs` contract body, spliced by `SymbolKey` in `Passes.InlineExpansion` —
 applied *and* eta'd-as-a-value (that pass eta-reifies an inline external pre-freeze, so
 the `App` it mints is spliced by the pass that minted it). Codegen holds no op→opcode
 table and recognises no operator by name.
@@ -108,7 +108,7 @@ this is the one remaining FSharp.Core tie on the printf stack.
   `InlineExpansion.deriveInlineTypeArgs` fills, one per BODY root, first-ground-wins. With
   one root, a heterogeneous `Vec2 * int -> Vec2` folded both operands into `^T := Vec2`
   and bound the `int` argument into a `Vec2`-typed `let` — type-checking with zero
-  diagnostics and emitting a PE that threw `InvalidProgramException`. `ops-platform.fs`'s
+  diagnostics and emitting a PE that threw `InvalidProgramException`. `ops-platform.clr.fs`'s
   `+ - * / %` now carry the contract's `^T1 / ^T2 / ^T3`.
 
   The general lesson for this doc: `.fsi`/`.fs` typar drift is **not** confined to the ABI

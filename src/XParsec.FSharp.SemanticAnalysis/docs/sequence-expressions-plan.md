@@ -4,7 +4,7 @@
 
 Lower `seq { … }` and the list/array comprehensions (`[ for x in xs -> f x ]`, `[| … |]`) to a lazy
 pull object on both targets. This is what `Vesper.Seq`'s lazy surface is blocked on today: `truncate`
-delegates to CLR-Linq `Enumerable.Take` (`seq.fs:64-65`) because the backend cannot lower a `seq { }`
+delegates to CLR-Linq `Enumerable.Take` (`seq.clr.fs:64-65`) because the backend cannot lower a `seq { }`
 body, which makes it the one member of `Vesper.Seq` with no JS lowering.
 
 Distinct from **general computation expressions** (`async { }`, `option { }`, a user `Builder()`),
@@ -49,7 +49,7 @@ it directly). That matters here twice over:
 
 ## `Seq.truncate` does NOT need sequence expressions
 
-Worth stating plainly, because the sited comment in `seq.fs` currently claims otherwise (it predates
+Worth stating plainly, because the sited comment in `seq.clr.fs` currently claims otherwise (it predates
 the capability work). `truncate` needs exactly **one lazy combinator**, and a lazy combinator is now
 plain Vesper code:
 
@@ -59,7 +59,7 @@ type TakeEnumerator<'T> =     // holds the inner enumerator<'T> + remaining; imp
 ```
 
 That is precisely the shape `List` / `ListEnumerator` already proves end-to-end on both targets, and
-the shape `struct-seq.fs` already hand-writes for `MapSeq` / `MapEnumerator` in the struct-chaining
+the shape `struct-seq.clr.fs` already hand-writes for `MapSeq` / `MapEnumerator` in the struct-chaining
 surface. It ports to JS, and it drops the `System.Linq` dependency from `Vesper.Seq`.
 
 **Recommendation: do `truncate` this way, independently, and do not gate it on this plan.** The same

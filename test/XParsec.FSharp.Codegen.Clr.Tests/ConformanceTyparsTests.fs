@@ -25,12 +25,12 @@ let tests =
     testList
         "ConformanceTypars.Clr"
         [
-            test "Vesper.List: list.fs generic module functions conform to list.fsi typar order" {
-                // Analyse `list.fs` through the real frozen self-host pipeline against its
+            test "Vesper.List: list.clr.fs generic module functions conform to list.fsi typar order" {
+                // Analyse `list.clr.fs` through the real frozen self-host pipeline against its
                 // DEPENDENCY contract only (Core; the self-manifest is excluded — the
                 // package is defining its own types here), exactly as `buildPackage` /
                 // `vesperListDll` do.
-                let src = File.ReadAllText(vesperListSource "list.fs")
+                let src = File.ReadAllText(vesperListSource "list.clr.fs")
                 let analysisProvider = ClrSymbolProviders.buildContract [ vesperCoreManifest ]
                 let lexed, file = parseFile src
 
@@ -41,7 +41,7 @@ let tests =
                         (Hashing.originSourceOfText src lexed)
                         file
 
-                Expect.isEmpty tast.Residue.Diagnostics "list.fs analyses cleanly"
+                Expect.isEmpty tast.Residue.Diagnostics "list.clr.fs analyses cleanly"
 
                 // The LOOKUP provider DOES include `list.fsi` (the published contract), so
                 // `List.fold` / `List.map` / `List.append` / … resolve to their declared
@@ -52,7 +52,7 @@ let tests =
 
                 let mismatches = ConformanceTypars.checkFile contract tast
 
-                Expect.isEmpty mismatches (sprintf "list.fs conforms to list.fsi typar order; got %A" mismatches)
+                Expect.isEmpty mismatches (sprintf "list.clr.fs conforms to list.fsi typar order; got %A" mismatches)
             }
 
             // T8 Step 6 — generic type MEMBER conformance against a REAL extracted `.fsi`.
@@ -61,14 +61,14 @@ let tests =
             // with a method-owned typar (`MethodTyparArity = 1`, `FTTypar(Method, 0)`), no
             // longer dropped. This drives BOTH halves: the published contract surface is
             // present + correctly typed, and `checkMembers` confirms the real
-            // `formatter.fs` member signatures agree with it end-to-end.
-            test "Vesper.Printf: formatter.fs generic members conform to formatter.fsi" {
+            // `formatter.clr.fs` member signatures agree with it end-to-end.
+            test "Vesper.Printf: formatter.clr.fs generic members conform to formatter.fsi" {
                 // The whole package is analysed as one concatenated `impl` source (a
                 // single declaration-ordered compile), exactly as `buildPackage` does —
-                // `formatter.fs` calls its sibling `StructuralPrinter` so it can't be
+                // `formatter.clr.fs` calls its sibling `StructuralPrinter` so it can't be
                 // analysed alone. Dependency contract = Core + List (the `depends-on`).
                 let src =
-                    [ "structural-printer.fs"; "formatter.fs" ]
+                    [ "structural-printer.clr.fs"; "formatter.clr.fs" ]
                     |> List.map (fun f -> File.ReadAllText(vesperPrintfSource f))
                     |> String.concat "\n\n"
 
@@ -106,11 +106,11 @@ let tests =
                         "every AppendFormatted overload carries its own typar (MethodTyparArity = 1); got %A"
                         (appendFormatted |> Array.map (fun m -> m.MethodTyparArity)))
 
-                // And the real `formatter.fs` members agree with that published surface.
+                // And the real `formatter.clr.fs` members agree with that published surface.
                 let memberMismatches = ConformanceTypars.checkMembers contract tast
 
                 Expect.isEmpty
                     memberMismatches
-                    (sprintf "formatter.fs members conform to formatter.fsi; got %A" memberMismatches)
+                    (sprintf "formatter.clr.fs members conform to formatter.fsi; got %A" memberMismatches)
             }
         ]

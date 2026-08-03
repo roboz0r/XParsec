@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The arithmetic operator family (`+ - * / %`, `~-`, `~+`) is sourced
-// from the `Vesper.Core/ops-platform.fs` contract bodies. Each binary body carries
+// from the `Vesper.Core/ops-platform.clr.fs` contract bodies. Each binary body carries
 // the three typars its `.fsi` publishes (`x: ^T1 -> y: ^T2 -> ^T3`, support set
 // `(^T1 or ^T2)`) and IS the bare SRTP TRAIT CALL: a user type dispatches to its own
 // `static member (+)`, and so does a primitive — every supported width states the
@@ -193,7 +193,9 @@ let tests =
                     ]
 
                 for name in arithmeticOps do
-                    Expect.isTrue (Map.containsKey name inlines) (sprintf "%s body sourced from ops-platform.fs" name)
+                    Expect.isTrue
+                        (Map.containsKey name inlines)
+                        (sprintf "%s body sourced from ops-platform.clr.fs" name)
 
                 // Every arithmetic body IS the SRTP trait call — an operand type either
                 // declares the member or does not support the operator. Nothing rides a

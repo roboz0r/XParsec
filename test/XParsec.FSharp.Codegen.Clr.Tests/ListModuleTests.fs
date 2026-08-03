@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The behavioral runtime suite for `Vesper.List`,
 // scoped to *what the compiled impl actually contains*. Post-cutover the package's
-// manifest builds `list.fs`: the verbatim `[]`/`::` operator-case cons-list +
+// manifest builds `list.clr.fs`: the verbatim `[]`/`::` operator-case cons-list +
 // `ListModule` (fold + the proven "grow" set), now buildable because the front end
 // lowers cons patterns/construction. The `[]`/`::` cases compile to FSharpList's
 // shape — `[]` → a static `Empty` factory, `(::)` → a static `Cons` factory +
@@ -30,7 +30,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // ---- reflection over the built Vesper.List.dll (pure-data surface) -----------
 
-/// The built `Vesper.List.dll` (cached). Built from `list.fs`, so the type is
+/// The built `Vesper.List.dll` (cached). Built from `list.clr.fs`, so the type is
 /// `Vesper.Collections.List`1` with the `[]`/`::` operator cases — compiled to the
 /// `Empty` (nullary) / `Cons` (binary) factories (package name != namespace: the
 /// package is `Vesper.List` but contributes `List` into `Vesper.Collections`).
@@ -89,7 +89,7 @@ let tests =
             }
 
             // ---- Head / Tail on the empty list raise --------------------------
-            // `list.fs`'s `Head`/`Tail` use `failwith`, which the backend lowers to
+            // `list.clr.fs`'s `Head`/`Tail` use `failwith`, which the backend lowers to
             // a *plain* BCL `System.Exception` (so the list type references no
             // `FSharp.Core`). Asserting the message keeps the empty-list contract
             // pinned without depending on the exception subtype.

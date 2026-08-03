@@ -666,7 +666,7 @@ let tests =
 
             test "a marked subtree keeps CONSUMER anchors while the body around it keeps PRODUCER anchors" {
                 // The entire point of the node: `a && b` outlines as `if a then ⟨b⟩ else false`,
-                // where the `if`/`then`/`else` were written in `ops-platform.fs` and `b` was
+                // where the `if`/`then`/`else` were written in `ops-platform.clr.fs` and `b` was
                 // written HERE — one entry, two anchor domains, told apart by the mark.
                 let input = "let a = true && false\n"
                 let expanded = expandedFor input

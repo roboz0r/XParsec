@@ -12,6 +12,6 @@ files = [
 [targets.clr]
 # CLR-bound: `IEnumerable` / `IEnumerator` / `System.Linq`. No JS body ships yet.
 impl = [
-    "seq.fs",
-    "struct-seq.fs",
+    "seq.clr.fs",
+    "struct-seq.clr.fs",
 ]

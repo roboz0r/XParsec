@@ -135,7 +135,7 @@ module ReferencedProject =
 
     /// The pairing key of a manifest-listed source: its name minus the extension, minus a
     /// trailing `.<t>` segment for a target this manifest declares. `prim-types-int.js.fs`,
-    /// `prim-types-int.fs` and `prim-types-int.fsi` all key on `prim-types-int`.
+    /// `prim-types-int.clr.fs` and `prim-types-int.fsi` all key on `prim-types-int`.
     ///
     /// ONE rule, shared by the conformance pass and the intrinsic-repr extraction: the two
     /// pair the same `.fsi` with the same `.fs`, or one of them is checking a pair the other
@@ -554,7 +554,7 @@ module ReferencedProject =
             //    names. A primitive is a primitive of the language on every target, so
             //    `decimal` (which ships no JS repr) still publishes as an `Intrinsic` with
             //    `platform = None` there rather than as a silently opaque class. `int` is
-            //    bound by both `prim-types-int.fs` and `prim-types-int.js.fs`; a set has no
+            //    bound by both `prim-types-int.clr.fs` and `prim-types-int.js.fs`; a set has no
             //    value for the second to disagree with.
             //  - `IntrinsicReprs`, the `platform` name: THIS target's bodies
             //    (`prim-types-int.js.fs` ⇒ `number`).

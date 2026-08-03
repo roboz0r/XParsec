@@ -24,7 +24,7 @@ let tests =
             // `s1 + s2` on a REFERENCED package's type: the operand is a nominal, so
             // the arithmetic contract body's static-opt matches no per-primitive clause
             // and falls to its trait-call BASE, which resolves to `Set`'s own
-            // `static member (+)` (set.fs) — the whole point of the base being the SRTP
+            // `static member (+)` (set.clr.fs) — the whole point of the base being the SRTP
             // dispatch rather than raw IL.
             test "`Set + Set` resolves through the operator's trait-call base to Set's own op_Addition" {
                 runsSet

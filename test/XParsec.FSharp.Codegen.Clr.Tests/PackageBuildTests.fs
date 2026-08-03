@@ -87,7 +87,7 @@ let tests =
                 Expect.isNotNull (asm.GetType "Vesper.Collections.List`1") "the DLL contains Vesper.Collections.List`1"
             }
 
-            // Vesper.Seq's `struct-seq.fs` is the graduation of the rung-3 inline
+            // Vesper.Seq's `struct-seq.clr.fs` is the graduation of the rung-3 inline
             // struct-`Seq` slice (brainstorm-seq-module.md) into a real,
             // generic-over-`'T` library: the `IStructEnumerator`/`IStructSeq` marker
             // interfaces, the `ArrayEnumerator`/`ArraySeq` + `MapEnumerator`/`MapSeq`

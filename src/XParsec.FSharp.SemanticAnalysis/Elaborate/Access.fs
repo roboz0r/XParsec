@@ -40,7 +40,7 @@ module internal ElaborateAccess =
             TExpr.FieldSet(translateExpr ctx r, fieldName, translateExpr ctx right, ty, tok)
         // `arr.[i] <- v` desugars to the core `SetArray` inline function (the
         // write mirror of the `IndexedLookup` → `GetArray` read path below):
-        // the `stelem` mnemonic lives in Vesper.Core's `ops-platform.fs`,
+        // the `stelem` mnemonic lives in Vesper.Core's `ops-platform.clr.fs`,
         // spliced at this use site by `InlineExpansion` — never invented in this
         // target-agnostic pass. Emit a curried `External` call whose type is
         // rebuilt from the resolved operand types (`ty` is the assignment's
@@ -185,7 +185,7 @@ module internal ElaborateAccess =
             TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
         // `(expr).Length` on an intrinsic rank-1 array desugars to the core
         // `GetArrayLength` inline function — the `ldlen` mnemonic lives in
-        // `ops-platform.fs`, spliced by `InlineExpansion`. Mirrors the
+        // `ops-platform.clr.fs`, spliced by `InlineExpansion`. Mirrors the
         // `fieldStep` array guard (the LongIdent-chain form).
         | TyArray _ when memberName = "Length" ->
             let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue key
@@ -221,7 +221,7 @@ module internal ElaborateAccess =
 
     /// `arr.[i]` desugars to the core `GetArray` inline function (mirroring F#'s
     /// `IntrinsicFunctions.GetArray`): the `ldelem` mnemonic lives in
-    /// Vesper.Core's `ops-platform.fs`, spliced at this use site by
+    /// Vesper.Core's `ops-platform.clr.fs`, spliced at this use site by
     /// `InlineExpansion` — never invented in this target-agnostic pass. Mirrors
     /// the operator path (`translateInfix`): emit a curried `External` call whose
     /// type is rebuilt from the resolved operand types. `ty` is the element type.

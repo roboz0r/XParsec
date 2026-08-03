@@ -5,8 +5,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Each driver is run through the Vesper-compiled `Vesper.Printf.dll` handler in
 // its own collectible ALC, and its stdout is asserted equal to the pinned
-// structural spec. The `%A` cases exercise the `structural-printer.fs` port; the
-// plain printf cases exercise `formatter.fs`.
+// structural spec. The `%A` cases exercise the `structural-printer.clr.fs` port; the
+// plain printf cases exercise `formatter.clr.fs`.
 //
 // Every input here is ACYCLIC except the final self-referential-record case,
 // which pins the cons-list cycle-detection back-edge (`...`).
@@ -16,7 +16,7 @@ let tests =
     testList
         "PrintfSpec"
         [
-            // ---- `%A` structural engine (structural-printer.fs) ----
+            // ---- `%A` structural engine (structural-printer.clr.fs) ----
             test "`%A` of an int" { runsEq "42" "printfn \"%A\" 42" }
 
             test "`%A` of a string (quoted)" { runsEq "\"hi\"" "printfn \"%A\" \"hi\"" }
@@ -66,7 +66,7 @@ let tests =
                     "type Node = { mutable Next: obj }\nlet n = { Next = null }\nn.Next <- (n :> obj)\nprintfn \"%A\" n"
             }
 
-            // ---- plain printf (formatter.fs) ----
+            // ---- plain printf (formatter.clr.fs) ----
             test "literal `printfn`" { runsEq "hi" "printfn \"hi\"" }
 
             test "`%s`" { runsEq "world" "printfn \"%s\" \"world\"" }

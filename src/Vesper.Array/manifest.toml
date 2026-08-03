@@ -11,5 +11,5 @@ files = [
 [targets.clr]
 # CLR-bound: `zeroCreate`'s `newarr` inline IL. No JS body ships yet.
 impl = [
-    "array.fs",
+    "array.clr.fs",
 ]

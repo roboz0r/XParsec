@@ -428,7 +428,7 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
 5. **Emit** — nothing new: a spliced `(# … #)` emits as today; a bodiless member stays a real call
    (`ClrExternalMembers.fs`, `EmitJs.fs:621-663`).
 6. **Migrate + delete** — move `GetArray`/`SetArray`/`GetArrayLength` (and `GetString`) bodies from the
-   `ops-platform.fs` / `.js.fs` free `let inline` functions INTO `'T[]` / `string` member accessors; the
+   `ops-platform.clr.fs` / `.js.fs` free `let inline` functions INTO `'T[]` / `string` member accessors; the
    TS index-sig `get_Item`/`set_Item` become provider-synthesised members whose inline body is the
    `$0[$1]` bracket, served via `TryLookupInlineBody` (so `GetIndex`/`SetIndex` become those bodies — no
    separate lowering flag). Then DELETE: `tryIndexSignature`, `TryLookupIndexSignature` (+ its ~12

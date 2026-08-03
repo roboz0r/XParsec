@@ -14,7 +14,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // matrix below *both* Layer B (the inline bodies splice + emit) and Layer R
 // (they return the right answer). No opt-in harness, no DLL.
 //
-// `comparison.fs` carries one CIL-emitting clause per primitive
+// `comparison.clr.fs` carries one CIL-emitting clause per primitive
 // (`when ^T: byte/char/bool/float32/float/int64/int`) plus a structural *base*
 // that routes through `Comparer<^T>.Default.Compare(x, y)`. This suite is the
 // per-primitive completion of that clause table:

@@ -12,5 +12,5 @@ files = [
 [targets.clr]
 # CLR-bound: `System.Collections{,.Generic}` and `System.Text`. No JS body ships yet.
 impl = [
-    "set.fs",
+    "set.clr.fs",
 ]

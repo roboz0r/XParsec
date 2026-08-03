@@ -577,7 +577,7 @@ module EmitTypes =
             )
 
     /// Materialise the `unit` value (`()`) on the stack. `unit` is the zero-field
-    /// BCL struct `System.ValueTuple` (its `prim-types-min.fs` binding), not
+    /// BCL struct `System.ValueTuple` (its `prim-types-min.clr.fs` binding), not
     /// FSharp.Core's null `Unit`, so the value is reified by zero-initialising a
     /// scratch local: `ldloca; initobj System.ValueTuple; ldloc` (net +1). Every
     /// site that leaves a unit result — `()`, a `for` loop, a `FieldSet`, a

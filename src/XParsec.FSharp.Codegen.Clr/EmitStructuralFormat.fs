@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// `Field(name)` / `Child(box value)` / `EndRecord` for records, `BeginCase(name)`
 /// / `Child(box payload)` / `EndCase` for union arms. The record/union layout
 /// policy (`{ F = ·; G = · }`, `None`, `Some ·`, `Case (·, ·)`) lives entirely in
-/// the runtime sink (`Vesper.Printf/structural-printer.fs`), which lowers these
+/// the runtime sink (`Vesper.Printf/structural-printer.clr.fs`), which lowers these
 /// frames into its `Doc` builders; the emitted body no longer replays the layout
 /// grammar, so the `%A` policy is patchable in the runtime rather than frozen into
 /// every assembly. Every field/payload is `box`ed and handed to `Child(obj)`; `box`

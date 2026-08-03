@@ -882,7 +882,7 @@ type IdInt() =
                 // implicitly opens `Test.A` and `Widget` resolves unqualified — with no `open`
                 // written and nothing published by file 1's view. This is the case `Vesper.Core`
                 // relies on: every Core file is `namespace Vesper`, so `compiler-attributes.fs`
-                // reaches `prim-types-attr.fs`'s `Attribute` this way.
+                // reaches `prim-types-attr.clr.fs`'s `Attribute` this way.
                 let file1 =
                     "\
 namespace Test.A

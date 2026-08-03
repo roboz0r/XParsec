@@ -159,7 +159,7 @@ type internal ClrEnv
             ))
 
     // The BCL-only `unit`: the zero-field `System.ValueTuple` struct (the repr
-    // `prim-types-min.fs` binds `unit` to). The general `unit` type/value encodes
+    // `prim-types-min.clr.fs` binds `unit` to). The general `unit` type/value encodes
     // off this — no `FSharp.Core.Unit` is referenced anywhere in the backend.
     let eValueTuple =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueTuple")))

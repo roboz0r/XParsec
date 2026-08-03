@@ -14,7 +14,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 ///
 /// The probe is appended to Vesper.Core's real `impl` list and compiled as Core, so its
 /// `string` is the `TyConst Vesper.string` Core's own `.fs` binds — the situation
-/// `prim-types-string.fs` is in, not a reconstruction of it. Both directions are asserted:
+/// `prim-types-string.clr.fs` is in, not a reconstruction of it. Both directions are asserted:
 /// unseeded it must FAIL, or the test would pass for a reason unrelated to the seed.
 module SelfPackageReverseCanonTests =
 

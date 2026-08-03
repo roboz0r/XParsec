@@ -41,24 +41,24 @@ files = [
 # operator members declared on the primitives — a member on an intrinsic has no type to hang
 # a method on, so its `(# … #)` body reaches a use site only by being spliced.
 impl = [
-    "prim-types-min.fs",
-    "prim-types-int.fs",
-    "prim-types-float.fs",
-    "prim-types-string.fs",
-    "prim-types-object.fs",
-    "prim-types-exn.fs",
-    "prim-types-decimal.fs",
-    "prim-types-bigint.fs",
-    "prim-types-nativeint.fs",
-    "prim-types-nd-array.fs",
-    "prim-types-attr.fs",
+    "prim-types-min.clr.fs",
+    "prim-types-int.clr.fs",
+    "prim-types-float.clr.fs",
+    "prim-types-string.clr.fs",
+    "prim-types-object.clr.fs",
+    "prim-types-exn.clr.fs",
+    "prim-types-decimal.clr.fs",
+    "prim-types-bigint.clr.fs",
+    "prim-types-nativeint.clr.fs",
+    "prim-types-nd-array.clr.fs",
+    "prim-types-attr.clr.fs",
     "compiler-attributes.fs",
     "core-types.fs",
-    "capabilities.fs",
+    "capabilities.clr.fs",
     "structural-format.fs",
-    "ops-platform.fs",
+    "ops-platform.clr.fs",
     "ops-std.fs",
-    "int-comparison.fs",
+    "int-comparison.clr.fs",
 ]
 
 [targets.js]
@@ -95,7 +95,7 @@ files = [
 # The JS bodies: the platform reprs and the spliced operator templates. No JS library build
 # of Vesper.Core exists yet (the JS runtime is the committed `Vesper.Core.mjs` asset), so
 # nothing here is compiled today — the list is read as the splice source and as the
-# intrinsic-repr binding. `ops-std.fs` is the CLR-named neutral file, repeated per target
+# intrinsic-repr binding. `ops-std.fs` is the target-neutral body, repeated per target
 # rather than shared, for the declaration-order reason in the `[core]` comment.
 # There is no `prim-types-nativeint.js.fs`: JS has no nativeint repr, so
 # the type is unrepresentable there and its operator declarations are unreachable rather

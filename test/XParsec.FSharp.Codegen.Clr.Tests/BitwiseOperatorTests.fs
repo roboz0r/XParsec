@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The bitwise operator family (`&&& ||| ^^^ <<< >>> ~~~`) sourced from the
-// `Vesper.Core/ops-platform.fs` contract bodies, each of which is the bare trait call.
+// `Vesper.Core/ops-platform.clr.fs` contract bodies, each of which is the bare trait call.
 // Binding heads need the source-text fallback in `Desugar.opPatCompiledName` (the
 // parenthesised ops lex to generic tokens); use sites resolve to their distinct `Token`
 // enums. Which widths support the family, and the IL each one lowers to, are stated on
@@ -30,7 +30,9 @@ let tests =
                         "op_RightShift"
                         "op_LogicalNot"
                     ] do
-                    Expect.isTrue (Map.containsKey name inlines) (sprintf "%s body sourced from ops-platform.fs" name)
+                    Expect.isTrue
+                        (Map.containsKey name inlines)
+                        (sprintf "%s body sourced from ops-platform.clr.fs" name)
             }
 
             test "bitwise and/or/xor and complement compute correctly through the contract" {

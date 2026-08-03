@@ -888,7 +888,7 @@ module NameResolutionMemberRegistration =
                     // implicit open of its own `namespace N` header (`CstWalk.addNamespacePrefix`,
                     // F#'s `ImplicitlyOpenOwnNamespace`), then the ambient prelude. That implicit
                     // open is what resolves a SAME-namespace prior file's base (`Vesper.Core`'s
-                    // `compiler-attributes.fs` inheriting `prim-types-attr.fs`'s `Attribute`): the
+                    // `compiler-attributes.fs` inheriting `prim-types-attr.clr.fs`'s `Attribute`): the
                     // fact lives in the CONSUMER's scope, never in a producer-published ambient.
                     // `pick` returning `ValueNone` scans past a non-intrinsic hit to the next
                     // candidate. Then branch on whether the CONTRACT declares a ctor:

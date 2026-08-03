@@ -159,7 +159,7 @@ let private anchoredDiagText (diags: AssemblyFiles.AnchoredDiagnostic list) : st
     |> List.map (fun d -> sprintf "%s: %s" d.Path d.Diagnostic.Message)
     |> String.concat "\n"
 
-/// Compile `Vesper.Core.dll` from `prim-types-min.fs` + `core-types.fs` (the
+/// Compile `Vesper.Core.dll` from `prim-types-min.clr.fs` + `core-types.fs` (the
 /// `Vesper.Fun\`2` interface, the primitive intrinsics, and the `Vesper.Ref\`1`
 /// captured-mutable cell), load it into the *Default* `AssemblyLoadContext`, and
 /// return its path. An in-process user PE loaded into a fresh context resolves
@@ -213,7 +213,7 @@ let vesperCoreDll: Lazy<string> =
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
          corePath)
 
-/// Compile `Vesper.List.dll` from `src/Vesper.List/list.fs` — the
+/// Compile `Vesper.List.dll` from `src/Vesper.List/list.clr.fs` — the
 /// `Vesper.Collections.List\`1` cons-list (`Cons`/`Empty` + `IsEmpty`/`Head`/`Tail`)
 /// **and** the `Vesper.Collections.ListModule::fold` static method
 /// (`fold` is compiled into the DLL now) — as its own package,
@@ -234,12 +234,12 @@ let vesperListDll: Lazy<string> =
                  References = [ vesperCoreDll.Value ]
              }
 
-         let src = IO.File.ReadAllText(vesperListSource "list.fs")
-         // Vesper.List's compiled impl is `list.fs` (post-cutover): the verbatim
+         let src = IO.File.ReadAllText(vesperListSource "list.clr.fs")
+         // Vesper.List's compiled impl is `list.clr.fs` (post-cutover): the verbatim
          // `[]`/`::` cons-list. A `[1; 2; 3]` consumer literal binds to it by arity
          // (nullary terminator + binary cons), not by case name, so the driver
          // stack is unaffected by the `Nil`/`Cons` → `Empty`/`Cons` rename. It uses
-         // `failwith` (a real inline operator in `Vesper.Core/ops-platform.fs`, not
+         // `failwith` (a real inline operator in `Vesper.Core/ops-platform.clr.fs`, not
          // a name-suffix probe), so the build must run through the Vesper.Core
          // contract for the call head to inline.
          // Self-manifest (`Vesper.List`'s own) is excluded; the package is
@@ -383,7 +383,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  // The package NAMES ITSELF as self, so a BCL signature presents the
                  // primitives this very compilation declares as its own canon identities
-                 // — `prim-types-string.fs`'s `System.String.Concat(x, y)` takes two
+                 // — `prim-types-string.clr.fs`'s `System.String.Concat(x, y)` takes two
                  // `Vesper.string`s and must find the `(String, String)` overload.
                  let provider =
                      ClrSymbolProviders.buildContractForSelf (Some manifestPath) Target.Clr depManifests
@@ -430,8 +430,8 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  // A package with no bodies for this target compiles to an *empty* DLL
                  // here — it carries no runtime types. `Vesper.Printf` is a special case: its runtime
-                 // peer — the Vesper-compiled `Vesper.Formatter` (`formatter.fs`) and
-                 // `StructuralPrinter` (`structural-printer.fs`, the `%A` engine), plus
+                 // peer — the Vesper-compiled `Vesper.Formatter` (`formatter.clr.fs`) and
+                 // `StructuralPrinter` (`structural-printer.clr.fs`, the `%A` engine), plus
                  // the printf module surface — is loaded separately into the Default ALC
                  // by `vesperPrintfDll` for the in-process driver path. Registering it in
                  // `packageAlc` too would make a second copy: a driver `printfn` would
@@ -451,7 +451,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      asm, artifact)
     )
 
-/// The Vesper-compiled `Vesper.Printf.dll` (`structural-printer.fs` + `formatter.fs`),
+/// The Vesper-compiled `Vesper.Printf.dll` (`structural-printer.clr.fs` + `formatter.clr.fs`),
 /// built by the `buildPackage` harness and loaded into the *Default*
 /// `AssemblyLoadContext` — the in-process runtime printf/`%A` handler a driver binds
 /// (the only `Vesper.Printf` in Default, so a fresh-ALC
@@ -508,7 +508,7 @@ let withCore (project: ProjectInfo) : ProjectInfo =
 /// (cached per manifest set by `ClrSymbolProviders.buildContract`) and run *both*
 /// phases against it: a use-site
 /// `External(name)` whose body lives in a referenced `.fs` (today: `hash` from
-/// `ops-platform.fs`) is spliced in pre-freeze by `Passes.InlineExpansion` (off the
+/// `ops-platform.clr.fs`) is spliced in pre-freeze by `Passes.InlineExpansion` (off the
 /// resolved symbol's own `InlineBody`) rather than served by a codegen stopgap. `[]` manifests ⇒ the BCL metadata leaf alone, for callers
 /// that must stay off the Vesper contracts.
 let private compileContract
@@ -727,7 +727,7 @@ let runEntryPoint (bytes: byte[]) : int * string =
 // fall-through) to the single Default-ALC `vesperCoreDll` — the same runtime
 // identity. The Vesper-compiled `Vesper.Printf` was built (`buildPackage`)
 // against its own `packageAlc` `Vesper.Core`, but that copy shares
-// `vesperCoreDll`'s source (`prim-types-min.fs` + `core-types.fs` +
+// `vesperCoreDll`'s source (`prim-types-min.clr.fs` + `core-types.fs` +
 // `structural-format.fs`), so the surface matches and the simple-name bind is
 // sound. (Same for `Vesper.List`.) The driver compile (`compileSource` →
 // `withCore`) forces `vesperCoreDll`/`vesperListDll` into Default first, so the
@@ -805,7 +805,7 @@ let runsEq (expected: string) (src: string) : unit =
         failwithf "expected %A but the handler produced %A for:\n%s" expected actual src
 
 // ---- Drive the `%A` golden oracle on the VESPER engine ------------
-// Exercise the *Vesper-compiled* engine (`structural-printer.fs`, including its
+// Exercise the *Vesper-compiled* engine (`structural-printer.clr.fs`, including its
 // cons-list `Object.ReferenceEquals` cycle scan) by resolving `StructuralPrinter` by
 // reflection from the `buildPackage`-produced `Vesper.Printf.dll`. It is loaded into
 // a dedicated long-lived (non-collectible) ALC with no `Load` override, so its
@@ -1342,7 +1342,7 @@ let failsWithResult (fragment: string) (src: string) : unit =
     failsWithPackages [ "Vesper.Result" ] fragment src
 
 // ---- Vesper.Choice wrappers --------------------------------------------------
-// Choice is a pure-data struct union with NO module (its sole consumer `set.fs`
+// Choice is a pure-data struct union with NO module (its sole consumer `set.clr.fs`
 // uses only constructors + pattern matching), so `runsChoice` exercises
 // construction (Layer B) + `match` (Layer C), not a module call.
 
@@ -1376,7 +1376,7 @@ let typeChecksArray (src: string) : unit =
 // ---- Vesper.Seq wrappers -----------------------------------------------------
 // A driver's `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)` (a
 // real BCL `IEnumerable<int>`) — the Vesper cons-list declares `IEnumerable<'T>`
-// in its `.fsi` but does not implement it in `list.fs`, so a list value is not a
+// in its `.fsi` but does not implement it in `list.clr.fs`, so a list value is not a
 // runtime seq. `Range` sidesteps that entirely.
 
 let runsSeq (expected: string) (src: string) : unit =

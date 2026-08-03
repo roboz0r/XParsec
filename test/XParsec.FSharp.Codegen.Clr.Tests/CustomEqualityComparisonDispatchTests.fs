@@ -15,8 +15,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // / `interface IComparable<Self>` impls land as InterfaceImpl rows + methods.
 //
 // The use-site lowering of `=` / `<` is uniform and class-agnostic:
-//   `=` → `EqualityComparer<^T>.Default.Equals(x, y)`   (ops-platform.fs:114)
-//   `<` → `Comparer<^T>.Default.Compare(x, y) < 0`      (comparison.fs:40)
+//   `=` → `EqualityComparer<^T>.Default.Equals(x, y)`   (ops-platform.clr.fs:114)
+//   `<` → `Comparer<^T>.Default.Compare(x, y) < 0`      (comparison.clr.fs:40)
 // At runtime `EqualityComparer<T>.Default` / `Comparer<T>.Default` dispatch to
 // `IEquatable<T>.Equals` / `IComparable<T>.CompareTo` when the type implements
 // them. So the Custom class routes `=` / `<` to the USER's interface member.

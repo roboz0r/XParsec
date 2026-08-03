@@ -144,7 +144,7 @@ let tests =
             test "implicit member typar in a nested-let body annotation" {
                 // `'b` is named in the return *and* in `Comparer<'b>` inside a nested
                 // `let` in the body — it must persist past the member's own binding
-                // into nested scopes (the set.fs `s.Map` shape).
+                // into nested scopes (the set.clr.fs `s.Map` shape).
                 let ctx =
                     analyse
                         "type Box<'a>(value: 'a) =\n    member this.Value = value\n    member this.Map (f: 'a -> 'b) : Box<'b> =\n        let g : 'b -> 'b = fun x -> x\n        Box(g (f value))"

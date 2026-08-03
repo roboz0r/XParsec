@@ -518,7 +518,7 @@ type RuntimeFormatState =
             this.Add(DocText(value.ToString()))
 
     // ---- the layout pass: append into the pooled `RenderBuf` ----
-    // These mirror `formatter.fs`'s grow/copy surface (`ArrayPool<char>` + a
+    // These mirror `formatter.clr.fs`'s grow/copy surface (`ArrayPool<char>` + a
     // `Span<char>` local over the field). Each `RenderDoc` returns the end column
     // (an `int`); the rendered characters are pushed straight into `RenderBuf`.
 

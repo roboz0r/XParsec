@@ -1,7 +1,7 @@
 # Codegen by key — what's left
 
 `Emit.BuiltinOps` is **retired** (2026-07-11). Every operator now emits from its
-`ops-platform.fs` / `comparison.fs` contract body, spliced by `SymbolKey` in
+`ops-platform.clr.fs` / `comparison.clr.fs` contract body, spliced by `SymbolKey` in
 `Passes.InlineExpansion` — applied *and* eta'd-as-a-value. Codegen holds no op→opcode
 table and recognises no operator by name. That narrative is not repeated here: the code
 is its record, and `git log` has the blow-by-blow.

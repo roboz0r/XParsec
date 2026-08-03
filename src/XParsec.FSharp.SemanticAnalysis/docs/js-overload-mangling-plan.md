@@ -295,4 +295,4 @@ stub. The boundary and contract:
 - First consumer: the `IFormatSink.Child` typed overloads — add the overloads to
   the interface, the CLR emit side (`sinkChild` picks the typed handle by field
   `FrozenType`, else boxes to `Child(obj)`), and the runtime sink impls in
-  `structural-printer.fs`.
+  `structural-printer.clr.fs`.

@@ -26,7 +26,7 @@ let private compiles (src: string) : unit =
 //     is unresolvable (the provider only knows dependency packages, and a module name is
 //     not a value binding).
 //   * an *unqualified* reference from a type nested *inside* a module up to one of that
-//     module's `let`-bound siblings (`SetIterator` → `collapseLHS` in `set.fs`) resolves —
+//     module's `let`-bound siblings (`SetIterator` → `collapseLHS` in `set.clr.fs`) resolves —
 //     the enclosing module's bindings enter the nested type's member-body scope.
 //
 // Both ride the `runs` driver (compile → run → assert stdout), so resolution is proven end

@@ -129,17 +129,17 @@ module RuntimeNames =
         SymbolKeyOps.typeKeyOfArity intrinsicNamespace "PrintfFormat" 4
 
     /// The user-facing abbreviation for the object root — `obj` — declared in
-    /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
+    /// `prim-types-object.clr.fs` as `type obj = (# "System.Object" #)`. The front end
     /// carries it as `TyConst("obj", _)` (what `translateType` produces); codegen as
     /// `FTConst("obj", _)` or the rendered `"obj"` sig. The single source for the
     /// abbreviation name, so `obj ≡ System.Object` is decided in one place rather
-    /// than re-spelled at each predicate (the `arrayName`/`prim-types-min.fs`
+    /// than re-spelled at each predicate (the `arrayName`/`prim-types-min.clr.fs`
     /// precedent above). Pairs with `systemObjectQualifiedName` (the intrinsic it
     /// binds to).
     let objAbbrevName: string = "obj"
 
     /// The intrinsic the `obj` abbreviation binds to — `System.Object`, the
-    /// `(# "System.Object" #)` of `prim-types-object.fs`. Used where the param model
+    /// `(# "System.Object" #)` of `prim-types-object.clr.fs`. Used where the param model
     /// is a *rendered* signature string rather than a `SymbolKey` (an external
     /// member's `argSig`). No `SymbolKey` twin remains — `System.Object` is no
     /// longer recognised at the unify boundary (metadata surfacing eagerly
@@ -168,7 +168,7 @@ module RuntimeNames =
     let stringWriterTypeName: string = "System.IO.StringWriter"
 
     /// The canonical identity name for a rank-`rank` array, sourced from the
-    /// `prim-types-min.fs` declaration `type 'T ``[]`` ` (rank 1 → `"[]"`;
+    /// `prim-types-min.clr.fs` declaration `type 'T ``[]`` ` (rank 1 → `"[]"`;
     /// rank N → `"[" + (N-1) commas + "]"`, e.g. `"[,]"` for 2-D). Arrays are a
     /// generic intrinsic carried as `TyConst(arrayName rank, [elem])`
     /// — this single name replaces the former

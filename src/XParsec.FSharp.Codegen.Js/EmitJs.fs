@@ -552,7 +552,7 @@ module EmitJs =
         // / `arr.Length`, desugared to `newarr`/`ldelem`/`stelem`/`ldlen` (the same
         // mnemonics the CLR backend reads; they are target-neutral, the element-type
         // operand is dropped on JS). They reach the backend because their inline bodies
-        // live in `ops-platform.js.fs` (`array.fs`'s `zeroCreate` for `newarr`).
+        // live in `ops-platform.js.fs` (`array.clr.fs`'s `zeroCreate` for `newarr`).
         | ExprShape.ILIntrinsic ->
             let args = TastAccessor.exprChildren e
 

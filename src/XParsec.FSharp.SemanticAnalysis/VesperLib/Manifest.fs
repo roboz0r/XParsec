@@ -47,8 +47,8 @@ module VesperLibManifest =
     /// Parse one `.fsi` file via XParsec.FSharp's signature-file parser, or `.fs`
     /// file via the implementation parser. Both paths are live: most modules ship
     /// `.fsi` (extracted as the signature contract), but a package's per-target
-    /// primitive companions (`prim-types-int.fs`) and operator bodies
-    /// (`ops-platform.fs`) have no companion signature and route through
+    /// primitive companions (`prim-types-int.clr.fs`) and operator bodies
+    /// (`ops-platform.clr.fs`) have no companion signature and route through
     /// `FSharpAst.parse` so their reprs / bodies feed the intrinsic extraction and the
     /// cross-package inline-expansion pipeline.
     let parseFileFull (file: LibFile) : Result<ParsedFile, string> =

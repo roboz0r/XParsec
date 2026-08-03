@@ -605,7 +605,7 @@ module internal UnificationInferApp =
                     // `TExpr.External(name, …)` it mints for this operator and
                     // `InlineExpansion` splices the contract's `let inline` body by KEY.
                     // EVERY resolved operator is stamped — there is no builtin-operator
-                    // exclusion. A primitive `1 + 2` splices `ops-platform.fs`'s `(+)`
+                    // exclusion. A primitive `1 + 2` splices `ops-platform.clr.fs`'s `(+)`
                     // exactly like a referenced package's operator does; the static-opt
                     // clause selection at splice time is what turns it into `add`.
                     ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)

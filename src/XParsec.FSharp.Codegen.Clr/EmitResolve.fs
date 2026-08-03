@@ -319,7 +319,7 @@ module EmitResolve =
         // owning generic context — a `BadImageFormatException` at JIT.
         // The instantiation is recovered from the node's *result*
         // type when its head is the declaring type (every self-returning static
-        // member — `Empty`/`Singleton`/`Intersection`/`Union` in `set.fs`).
+        // member — `Empty`/`Singleton`/`Intersection`/`Union` in `set.clr.fs`).
         //
         // When the result type does not surface the instantiation (`Box<'T>.Describe
         // (x: 'T) : int` from a concrete context), recover it
