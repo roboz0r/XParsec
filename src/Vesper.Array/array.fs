@@ -4,7 +4,7 @@ namespace Vesper.Collections
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Array =
 
-    let zeroCreate (count: int) : 'T[] = (# "newarr !0" type ('T) count : 'T[] #)
+    let zeroCreate (count: int) : 'T[] = ArrayPrelude.NewArray count
 
     let length (array: 'T[]) : int = array.Length
 

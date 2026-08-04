@@ -77,6 +77,7 @@ let jsManifests: string list =
         srcManifest "Vesper.Exceptions"
         srcManifest "Vesper.Option"
         srcManifest "Vesper.List"
+        srcManifest "Vesper.Array"
     ]
 
 /// The JS-target contract for `jsManifests` (BCL-free; resolves exceptions through
@@ -189,6 +190,22 @@ let emitJsLibrary (input: string) : string =
 /// avoid colliding with the in-file types the impl declares).
 let coreDepsJsContract: Lazy<SymbolProviders.Contract> =
     lazy JsNativeSymbols.jsNativeContractFor Target.Js [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
+
+/// As `coreDepsJsContract`, plus `Vesper.Array`'s OWN manifest — `array.fs` splices
+/// `NewArray` out of the per-target `array-prelude.js.fs`, so the package's inline bodies
+/// have to be in the contract that compiles it. Safe here for the reason the exclusion
+/// exists: the collision it guards against is over in-file TYPES, and `Vesper.Array`
+/// declares none. A package that declares types (`Vesper.List`) still takes the deps-only
+/// contract above.
+let arrayDepsJsContract: Lazy<SymbolProviders.Contract> =
+    lazy
+        JsNativeSymbols.jsNativeContractFor
+            Target.Js
+            [
+                vesperCoreManifest
+                srcManifest "Vesper.Exceptions"
+                srcManifest "Vesper.Array"
+            ]
 
 /// Front-end + freeze a JS-target package impl. The provider carries only the package's
 /// dependencies — the impl's own in-file types are the resolution authority.

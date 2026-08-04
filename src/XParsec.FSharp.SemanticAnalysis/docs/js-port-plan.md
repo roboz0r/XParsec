@@ -7,7 +7,7 @@ running `ConformancePass.checkManifest "js"` + `ConformancePass.enforce` over al
 `src/Vesper.*` manifests. Where I could not establish something I say so rather than
 estimating.
 
-**T1, T2, T3's Kind B half and T4 have landed.** The run is at **7** errors, down from 24. The
+**T1, T2, T3's Kind B half, T4 and T5 have landed.** The run is at **6** errors, down from 24. The
 error set is now pinned by a committed test rather than a throwaway one —
 `ConformanceTests.fs`'s *"js: the hard-error set is exactly the un-ported library surface"*
 — so every tranche below has to shrink that list to be believed.
@@ -35,14 +35,14 @@ CLR-first would hit the expensive end before proving the design.
 
 ## 0. The number
 
-**7 hard conformance errors on `js`, across 3 of the 11 packages. 0 on `clr`.**
-(Was 24 across 7 before T1 + T2 + T3's Kind B half + T4.)
+**6 hard conformance errors on `js`, across 2 of the 11 packages. 0 on `clr`.**
+(Was 24 across 7 before T1 + T2 + T3's Kind B half + T4 + T5.)
 
 | package | js errors | was | clr errors |
 |---|---|---|---|
 | Vesper.Core | 5 | 14 | 0 |
-| Vesper.Array | 1 | 1 | 0 |
 | Vesper.Seq | 1 | 2 | 0 |
+| Vesper.Array | 0 | 1 | 0 |
 | Vesper.List | 0 | 2 | 0 |
 | Vesper.Printf | 0 | 3 | 0 |
 | Vesper.Comparison | 0 | 1 | 0 |
@@ -88,7 +88,7 @@ again"* materialises a one-contract package twice, changing only the exported id
 the `.mjs`, and asserts `RuntimeServed` then V240. Both polarities, on ground no library
 port can retire.
 
-### Kind B — genuinely missing library source, writable today (2 errors left of 10)
+### Kind B — genuinely missing library source, writable today (1 error left of 10)
 
 No compiler feature needed. This is F#-writing work.
 
@@ -98,7 +98,7 @@ No compiler feature needed. This is F#-writing work.
 | B2–B5 ✅ | `Vesper.Core/ops-platform.js.fs` | *done.* `ignore` = `(# "void $0" #)` (JS's own discard, so the operand is still evaluated — the CLR's bare `()` says nothing about that); `isNull` = `(# "$0 === null" #)`, STRICT, `undefined` being a separate type here with its own value; `box` = the erasing `(# "" #)`, JS having nothing unboxed to move; `invalidArg` = `failwith` over the BCL's own `"{message} (Parameter '{name}')"` text, every exception erasing to `Error` |
 | B6 ✅ | `Vesper.Core/int-comparison.js.fs` | *done.* `IntComparison.(<) (>) (<=) (>=)` as the native relational operators |
 | B7–B8 ✅ | `Vesper.List/list.fs` | *done,* subsumed by the merge (§3). `toSeq` is a `:> seq<'T>` upcast, which erases on JS (`export const toSeq = (list) => list` — the cons-list IS iterable); `ofSeq` is `for x in source`. Both node-tested on the generated asset (`ListTests.fs`) |
-| B9 | `Vesper.Array/array.js.fs` (new) | the whole `Array` module: `zeroCreate length isEmpty get set create init copy append rev map mapi iter iteri fold foldBack` (16 `val`s, `array.fsi`). Only `zeroCreate` is intrinsic on CLR (`newarr`); on JS it is `new Array($0).fill(…)`. The rest are ordinary loops | ~100 lines |
+| B9 ✅ | `Vesper.Array/array.js.fs` (new) | *done, but not as a port* — see §3's third consequence. `newarr` is a named IR node the JS backend already implements, so the CLR body compiled as written on JS. Split instead into `array-prelude.{clr,js}.fs` (the intrinsics) + a neutral `array.fs` (all 16 functions, no inline IL) | ~10 lines of prelude; the module itself unchanged |
 | B10 | `Vesper.Seq/seq.js.fs` (new) | `Seq.fold reduce truncate toArray` (4 `val`s). `fold`/`reduce` in `seq.clr.fs` are already target-neutral (`for … in`, `Unchecked.defaultof`, `invalidArg`). Only `truncate` (`Enumerable.Take`) and `toArray` (`ResizeArray`) are BCL. **But `truncate` returns a `seq<'T>` and `seq { }` does not exist** — see the sizing note in T6 | ~40 lines + a design call |
 
 **B1 caveat — settled, it is inert.** `PlatformTypes.fs:26` states the rule: *"a target that
@@ -139,7 +139,7 @@ decide first.
 
 | | count | what it is |
 |---|---|---|
-| **Writable now** (Kind B) | 2 | B9–B10. ~140 lines of F#. B1–B8 ✅ |
+| **Writable now** (Kind B) | 1 | B10. ~40 lines of F#. B1–B9 ✅ |
 | ~~Machinery, no library source~~ (Kind A) | ~~6~~ ✅ | done — `ConformancePass` + the manifest schema's `impl-only` key |
 | ~~Manifest scope statement~~ (C6, C7, C8) | ~~3~~ ✅ | done — 4 `.fsi` moved to `[targets.clr] files` |
 | **Probably writable, unverified** (C1, C4, C5) | 3 | likely just `[targets.js] impl` entries + the 4 `Fun` interfaces. Must be compiled to know |
@@ -236,25 +236,83 @@ is its own tranche.
   `System.Collections.IEnumerable` / `IEnumerator` (which `capabilities-compat.js.fsi` does
   **not** map — it maps only the generic ones), and its raison d'être is `[<Struct>]`
   by-value chaining. C7 above: move the `.fsi` to `[targets.clr] files`.
-- `array.clr.fs` — correctly named: `(# "newarr !0" … #)` at `array.clr.fs:7`.
+- `array.clr.fs` — **misnamed**, on the same false premise as `list.clr.fs`. See
+  consequence 3.
 - `comparison.clr.fs` (32 inline-IL sites), `capabilities.clr.fs` (5 BCL reprs),
   `int-comparison.clr.fs`, the `prim-types-*.clr.fs` — all correctly named.
 
+### Consequence 3 — `array.clr.fs` split into a prelude + a neutral `array.fs` ✅ (T5)
+
+Inline IL is not by itself a CLR binding — but the reason is **not** that CIL mnemonics are
+neutral. It is that four of them are this codebase's **named array IR**, and the JS backend
+hardcodes an interpretation of each: `newarr` → `Array(n).fill(null)` (dense, so no slot is
+a hole), `ldelem` → `a[i]`, `stelem` → `a[i] = v`, `ldlen` → `a.length` (`EmitJs.fs:560-594`).
+CLR's names were adopted for that IR, which is a CLR-flavoured choice; portability here is
+manufactured by the backend, not inherent to the spelling.
+
+So a single body does compile on both targets, and B9's "write `array.js.fs`, 16 functions"
+was work that did not exist — a duplicate would have carried the identical `newarr` line.
+But "it is target-neutral" was the wrong reason to reach for, and a straight merge left a
+wart. A census of `(# "` across `src/Vesper.*` puts inline IL in 27 files, of which 26 are
+`.clr.fs` or `.js.fs`: **inline IL lives in per-target files** is an invariant the tree
+otherwise holds perfectly, and a merged `array.fs` would have been the sole exception.
+
+**The layout that keeps both properties.** `array-prelude.fsi` declares the primitives whose
+bodies can only be an intrinsic — today just `val inline NewArray: count: int -> 'T[]` — and
+`array-prelude.clr.fs` / `array-prelude.js.fs` carry them per target. `array.fs` is the
+`Array` module proper, all sixteen functions, with **no inline IL at all**: the fifteen loops
+reach the array ops through `ops-platform`'s per-target bodies exactly as `list.fs` reaches
+`failwith`, and `zeroCreate` is now `NewArray count`.
+
+Two things this deliberately is not. It does **not** widen `Vesper.Core`: `GetArray` /
+`SetArray` / `GetArrayLength` live in `ops-platform` because the front end desugars `arr.[i]`
+and `arr.Length` to them through `CoreAccess`, and nothing resolves an allocation primitive by
+name — so it belongs to the package that owns arrays. And it does **not** remove the JS
+backend's IL knowledge; the JS prelude body is the same `newarr`, as the two `ops-platform`
+bodies are already identical for the other three. Identical is not shared: separate files are
+what let them stop being identical.
+
+The manifest mirrors `Vesper.Core` throughout — a neutral `.fsi` over two per-target bodies,
+and `array.fs` named in *both* target `impl` lists rather than in `[core]`, for the same
+declaration-order reason Core repeats `ops-std.fs` (inherited lists append after shared ones,
+which would put `array.fs` ahead of the prelude it splices).
+
+**The split is provably inert.** Regenerating `Vesper.Array.mjs` across it changes only the
+generated temp-name counters (`_lim317` → `_lim320`, +3 from the extra splice); every emitted
+statement is byte-identical, `export const zeroCreate = (count) => Array(count).fill(null);`
+included. On CLR the reflection-invoke suite over the built `Vesper.Array.dll` is unchanged.
+
+**One seam it moved.** A package that splices its own prelude needs its own manifest in the
+contract that compiles it, so `ArrayTests` takes `arrayDepsJsContract` rather than
+`coreDepsJsContract`. Safe here, and for the reason the exclusion exists: it guards a
+collision over in-file *types*, and `Vesper.Array` declares none. A package that does declare
+types (`Vesper.List`) still takes the deps-only contract.
+
+**T6 inherits this shape.** `seq.clr.fs` is BCL-bound in 2 of 4 functions, which §3 above
+already flagged as a merge candidate. The prelude split is the answer: `fold`/`reduce` into a
+neutral `seq.fs`, `truncate`/`toArray` into per-target preludes.
+
+`ArrayTests.fs` pins it the way `ListTests.fs` pins the list: the module is compiled in
+library mode, byte-compared against a committed `Vesper.Array.mjs`, and all sixteen
+functions are executed under Node. `Vesper.Array` also joins `TestHelpers.jsManifests`, so
+a use site resolves `Array.map` and imports it from the asset.
+
 ---
 
-## 4. The five committed `.mjs` runtime assets
+## 4. The six committed `.mjs` runtime assets
 
 Verified against the tests, not the manifest comments.
 
 | asset | actually | generated from | drift detected? | load-bearing for the port? |
 |---|---|---|---|---|
 | `Vesper.List.mjs` | **generated** (claim true) | `list.fs` | **yes** — full byte compare every run, `ListTests.fs` | yes, but it regenerates itself |
+| `Vesper.Array.mjs` | **generated** (new, T5) | `array.fs` | **yes** — full byte compare every run, `ArrayTests.fs` | yes, self-maintaining |
 | `Vesper.Option.mjs` | **generated** (claim true) | `option.fs` | **yes** — `OptionTests.fs:117-127` | yes, self-maintaining |
 | `Vesper.Printf.mjs` | **generated** (claim true) | `structural-printer.js.fs` | **yes** — `StructuralPrinterTests.fs:39-49` | yes, self-maintaining |
 | `Vesper.Core.mjs` | **hand-authored** | — | **no** | **critically** — 4 exports: `checkedDivisor` (every integral `/` and `%`), `structuralEquals` / `structuralHash` (every `=` / `<>` / `hash`), `enumeratorOf` (every `for … in`) |
 | `Vesper.Comparison.mjs` | **hand-authored** | — | **no** | yes — `structuralCompare`, behind every aggregate `< > <= >=` |
 
-None of the five is referenced from `package.json` or any npm script; they are executed only
+None of the six is referenced from `package.json` or any npm script; they are executed only
 by the dotnet suite via `Codegen.materialise` + `node`.
 
 **The gap worth naming — ✅ closed (T2).** Nothing used to check that `Vesper.Core.mjs` /
@@ -273,7 +331,7 @@ whose `=` it implements) and want a real bootstrap story. **Recommendation: keep
 hand-authored for this port.** The rename-rot risk is what the export-presence check above
 now covers.
 
-Legacy / not load-bearing: none of the five is dead. `Vesper.Printf.mjs` exports ~60
+Legacy / not load-bearing: none of the six is dead. `Vesper.Printf.mjs` exports ~60
 symbols of which the backend imports 2 (`structuralFormat`, `float32ToString`) — the rest
 are incidental library-mode exports, harmless.
 
@@ -356,16 +414,18 @@ Each leaves the tree green and moves the JS error count down monotonically.
 | **T2** ✅ | **Conformance machinery.** One rule replaces three guards: *a contract owes a `.fs` unless every declaration in it is satisfied without one* — `extern`/abbreviation always, a `val` exactly when the `runtime` asset exports it (`RuntimeServed`, which IS §4's export-presence check). `array-index-body.js.fs` renamed to pair with its contract; a new `impl-only` manifest key withholds a contract-less body from pairing | A1–A6 | −6 (→15) | done |
 | **T3a** ✅ | **Vesper.Core, the writable half.** `` `[]` `` repr in `prim-types-min.js.fs`; `ignore`/`isNull`/`box`/`invalidArg` in `ops-platform.js.fs`; new `int-comparison.js.fs`. Each body node-tested (`CoreOpBodiesJsTests.fs`), not merely conformed | B1–B6 | −6 (→9) | done |
 | **T4** ✅ | **`list.fs` merge.** Folded `list.js.fs` back into the neutral `list.fs` (`Length`/`IsEmpty`/`Head`/`Tail`, `toSeq`, `ofSeq`, the explicit `disposable` impl, and `[<Struct>]`, which holds — it is erased). `list.js.fs` deleted; one shared `[core] impl`. `Vesper.List.mjs` regenerated. Plus the two emitter bugs above | B7, B8, + the `7e994a93` revert | −2 (→7) | done |
-| **T3b** | **The compile-and-see remainder.** The 4 `Fun` interfaces in `prim-types-min.js.fs`; add `core-types.fs` and `structural-format.fs` to `[targets.js] impl` and see whether they compile | C1, C4, C5 | −3 (→4) | half a day if C4/C5 just work; a day if `Curried`/`Flattened` surface a codegen gap |
-| **T5** | **Vesper.Array.** New `array.js.fs`: 16 functions, only `zeroCreate` non-obvious | B9 | −1 (→3) | ~100 lines, half a day |
+| **T3b** | **The compile-and-see remainder.** The 4 `Fun` interfaces in `prim-types-min.js.fs`; add `core-types.fs` and `structural-format.fs` to `[targets.js] impl` and see whether they compile | C1, C4, C5 | −3 (→3) | half a day if C4/C5 just work; a day if `Curried`/`Flattened` surface a codegen gap |
+| **T5** ✅ | **`Vesper.Array`, split not ported.** The CLR body compiled as written on JS, `newarr` included, so the work was a layout call: per-target `array-prelude.{clr,js}.fs` for the intrinsics, a neutral `array.fs` for the module. Plus a generated + byte-compared `Vesper.Array.mjs` and all 16 functions node-tested (`ArrayTests.fs`) | B9 | −1 (→6) | done |
 | **T6** | **Vesper.Seq.** New `seq.js.fs`: 4 functions. `fold`/`reduce`/`toArray` are straightforward. **`truncate` is the one real decision** — see below | B10 | −1 (→2) | ~40 lines + a design call; ~1 day |
 | **T7** | **The two remaining architectural items.** `obj`'s heritability on JS (C2); `compiler-attributes.fsi` (C3) — which is either "implement `extends`/`super` on JS" or "these are CLR-only marker types". I recommend the latter and deferring the former | C2, C3 | −2 (→0) | unbounded; scope it separately once T1–T6 are in |
 
 After T6 the JS run is at **2 errors, both of them named architectural questions** rather
 than missing work. That is a good place to stop and re-decide.
 
-T1 + T2 landed together, then T3a, then T4. **T3b is the next move**, and every tranche
-after it must shrink the pinned error list in `ConformanceTests.fs` — that list is the count.
+T1 + T2 landed together, then T3a, then T4, then T5 (taken out of order — once it turned out
+to be a rename rather than a port, there was nothing to sequence it behind). **T3b is the next
+move**, and every tranche after it must shrink the pinned error list in `ConformanceTests.fs`
+— that list is the count.
 
 ### T6's decision: `Seq.truncate` with no sequence expressions
 
@@ -429,10 +489,10 @@ Adjacent facts that shape the port:
   not), so flagging a type they reference would be a premature reject."* Record/union
   augmentation bodies and all interface-impl bodies **are** walked. So a class member
   mentioning an unrepresentable type is silently unchecked.
-- **Library mode is proven end-to-end for exactly three packages**: List, Option, Printf
-  (`ListTests.fs:154,176,188`; `OptionTests.fs`; `StructuralPrinterTests.fs`, all via
-  `TestHelpers.compileLibrary` at `TestHelpers.fs:213-231`). Extending it to Array / Seq /
-  Core is the mechanism every tranche after T2 rides on; it is real, not aspirational.
+- **Library mode is proven end-to-end for four packages**: List, Option, Printf and — since
+  T5 — Array (`ListTests.fs`; `OptionTests.fs`; `StructuralPrinterTests.fs`; `ArrayTests.fs`,
+  all via `TestHelpers.compileLibrary`). Extending it to Seq / Core is the mechanism every
+  tranche after T2 rides on; it is real, not aspirational.
 
 ---
 
@@ -448,6 +508,11 @@ Adjacent facts that shape the port:
 - ❌ "`structural-printer.fsi`'s `RuntimeFormatState`/`StructuralPrinter` are absent from `structural-printer.js.fs`" — true as stated but misleading. `structural-printer.js.fs` is a complete, generated, byte-checked, node-tested JS `%A` engine that implements a *different* surface (`structuralFormat`). It was not an incomplete port of that contract; the two were mispaired by the stem rule (A5–A6).
 - ❌ `formatter.fsi` was omitted from the Printf line — it was a third live error there (C6).
 - ❌ (already known) `ops-platform.fsi` mentions `nativeint`: it does not. Zero occurrences.
+- ❌ `array.clr.fs` "correctly named" (§3, my own line) — it was not, though not because the
+  file is target-free. `newarr` / `ldelem` / `stelem` / `ldlen` are a named array IR both
+  backends implement, so one body compiles on both; T5's "write `array.js.fs`, 16 functions"
+  was work that did not exist. The one genuinely CLR-only thing in it was the `newarr`
+  spelling, which is now in a per-target prelude — see consequence 3.
 - ➕ Not in the handed-over inventory at all: `list.js.fs` **already implemented
   `interface seq<'T>`**, which falsified the stated reason both for its existence and for
   the `list.fs` → `list.clr.fs` rename. Both are undone (§3).

@@ -1,0 +1,1139 @@
+namespace                                 'namespace'       KWNamespace         tok=   0  pos=   0
+                                          'Vesper'          Identifier          tok=   2  pos=  10
+                                          'Collection...'   Identifier          tok=   4  pos=  17
+  Module:
+    [<                                    '[<'              KWLAttrBracket      tok=   7  pos=  30
+    NamedType:
+      Ident                               'RequireQua...'   Identifier          tok=   8  pos=  32
+    >]                                    '>]'              KWRAttrBracket      tok=   9  pos=  54
+    [<                                    '[<'              KWLAttrBracket      tok=  11  pos=  57
+    NamedType:
+      Ident                               'Compilatio...'   Identifier          tok=  12  pos=  59
+    ParenBlock                            '('               KWLParen            tok=  13  pos=  84
+      LongIdentOrOp:
+        LongIdent:
+                                          'Compilatio...'   Identifier          tok=  14  pos=  85
+                                          'ModuleSuff...'   Identifier          tok=  16  pos= 116
+                                          ')'               KWRParen            tok=  17  pos= 128
+    >]                                    '>]'              KWRAttrBracket      tok=  18  pos= 129
+    module                                'module'          KWModule            tok=  20  pos= 132
+    ident                                 'Array'           Identifier          tok=  22  pos= 139
+    =                                     '='               OpEquality          tok=  24  pos= 145
+    begin                                 <virt>            KWBegin             tok=virt  pos= 152
+      FunctionOrValue:
+        let                               'let'             KWLet               tok=  28  pos= 152
+          Pat.NamedSimple                 'zeroCreate'      Identifier          tok=  30  pos= 156
+          Pats:
+            ParenBlock                    '('               KWLParen            tok=  32  pos= 167
+              Pat.Typed:
+                Pat.NamedSimple           'count'           Identifier          tok=  33  pos= 168
+                Colon                     ':'               OpColon             tok=  34  pos= 173
+                NamedType:
+                  Ident                   'int'             Identifier          tok=  36  pos= 175
+                                          ')'               KWRParen            tok=  37  pos= 178
+          ReturnColon                     ':'               OpColon             tok=  39  pos= 180
+          ArrayType:
+            VarType:
+              Typar.Named:
+                                          ''T'              TypeParameter       tok=  41  pos= 182
+                                          '['               KWLBracket          tok=  42  pos= 184
+                                          ']'               KWRBracket          tok=  43  pos= 185
+          =                               '='               OpEquality          tok=  45  pos= 187
+            App:
+              Func:
+                LongIdentOrOp:
+                  LongIdent:
+                                          'ArrayPrelu...'   Identifier          tok=  47  pos= 189
+                                          'NewArray'        Identifier          tok=  49  pos= 202
+              Args:
+                Ident                     'count'           Identifier          tok=  51  pos= 211
+      FunctionOrValue:
+        let                               'let'             KWLet               tok=  55  pos= 222
+          Pat.NamedSimple                 'length'          Identifier          tok=  57  pos= 226
+          Pats:
+            ParenBlock                    '('               KWLParen            tok=  59  pos= 233
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok=  60  pos= 234
+                Colon                     ':'               OpColon             tok=  61  pos= 239
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok=  63  pos= 241
+                                          '['               KWLBracket          tok=  64  pos= 243
+                                          ']'               KWRBracket          tok=  65  pos= 244
+                                          ')'               KWRParen            tok=  66  pos= 245
+          ReturnColon                     ':'               OpColon             tok=  68  pos= 247
+          NamedType:
+            Ident                         'int'             Identifier          tok=  70  pos= 249
+          =                               '='               OpEquality          tok=  72  pos= 253
+            LongIdentOrOp:
+              LongIdent:
+                                          'array'           Identifier          tok=  74  pos= 255
+                                          'Length'          Identifier          tok=  76  pos= 261
+      FunctionOrValue:
+        let                               'let'             KWLet               tok=  80  pos= 273
+          Pat.NamedSimple                 'isEmpty'         Identifier          tok=  82  pos= 277
+          Pats:
+            ParenBlock                    '('               KWLParen            tok=  84  pos= 285
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok=  85  pos= 286
+                Colon                     ':'               OpColon             tok=  86  pos= 291
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok=  88  pos= 293
+                                          '['               KWLBracket          tok=  89  pos= 295
+                                          ']'               KWRBracket          tok=  90  pos= 296
+                                          ')'               KWRParen            tok=  91  pos= 297
+          ReturnColon                     ':'               OpColon             tok=  93  pos= 299
+          NamedType:
+            Ident                         'bool'            Identifier          tok=  95  pos= 301
+          =                               '='               OpEquality          tok=  97  pos= 306
+            InfixApp                      '='               OpEquality          tok= 103  pos= 321
+              LongIdentOrOp:
+                LongIdent:
+                                          'array'           Identifier          tok=  99  pos= 308
+                                          'Length'          Identifier          tok= 101  pos= 314
+              Const                       '0'               NumInt32            tok= 105  pos= 323
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 109  pos= 330
+          Pat.NamedSimple                 'get'             Identifier          tok= 111  pos= 334
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 113  pos= 338
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok= 114  pos= 339
+                Colon                     ':'               OpColon             tok= 115  pos= 344
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 117  pos= 346
+                                          '['               KWLBracket          tok= 118  pos= 348
+                                          ']'               KWRBracket          tok= 119  pos= 349
+                                          ')'               KWRParen            tok= 120  pos= 350
+            ParenBlock                    '('               KWLParen            tok= 122  pos= 352
+              Pat.Typed:
+                Pat.NamedSimple           'index'           Identifier          tok= 123  pos= 353
+                Colon                     ':'               OpColon             tok= 124  pos= 358
+                NamedType:
+                  Ident                   'int'             Identifier          tok= 126  pos= 360
+                                          ')'               KWRParen            tok= 127  pos= 363
+          ReturnColon                     ':'               OpColon             tok= 129  pos= 365
+          VarType:
+            Typar.Named:
+                                          ''T'              TypeParameter       tok= 131  pos= 367
+          =                               '='               OpEquality          tok= 133  pos= 370
+            IndexedLookup:
+              Expr:
+                Ident                     'array'           Identifier          tok= 135  pos= 372
+              .                           '.'               OpDot               tok= 136  pos= 377
+              [                           '['               KWLBracket          tok= 137  pos= 378
+              Index:
+                Ident                     'index'           Identifier          tok= 138  pos= 379
+                                          ']'               KWRBracket          tok= 139  pos= 384
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 143  pos= 391
+          Pat.NamedSimple                 'set'             Identifier          tok= 145  pos= 395
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 147  pos= 399
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok= 148  pos= 400
+                Colon                     ':'               OpColon             tok= 149  pos= 405
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 151  pos= 407
+                                          '['               KWLBracket          tok= 152  pos= 409
+                                          ']'               KWRBracket          tok= 153  pos= 410
+                                          ')'               KWRParen            tok= 154  pos= 411
+            ParenBlock                    '('               KWLParen            tok= 156  pos= 413
+              Pat.Typed:
+                Pat.NamedSimple           'index'           Identifier          tok= 157  pos= 414
+                Colon                     ':'               OpColon             tok= 158  pos= 419
+                NamedType:
+                  Ident                   'int'             Identifier          tok= 160  pos= 421
+                                          ')'               KWRParen            tok= 161  pos= 424
+            ParenBlock                    '('               KWLParen            tok= 163  pos= 426
+              Pat.Typed:
+                Pat.NamedSimple           'value'           Identifier          tok= 164  pos= 427
+                Colon                     ':'               OpColon             tok= 165  pos= 432
+                VarType:
+                  Typar.Named:
+                                          ''T'              TypeParameter       tok= 167  pos= 434
+                                          ')'               KWRParen            tok= 168  pos= 436
+          ReturnColon                     ':'               OpColon             tok= 170  pos= 438
+          NamedType:
+            Ident                         'unit'            Identifier          tok= 172  pos= 440
+          =                               '='               OpEquality          tok= 174  pos= 445
+            Assignment                    '<-'              OpArrowLeft         tok= 182  pos= 461
+              IndexedLookup:
+                Expr:
+                  Ident                   'array'           Identifier          tok= 176  pos= 447
+                .                         '.'               OpDot               tok= 177  pos= 452
+                [                         '['               KWLBracket          tok= 178  pos= 453
+                Index:
+                  Ident                   'index'           Identifier          tok= 179  pos= 454
+                                          ']'               KWRBracket          tok= 180  pos= 459
+              Ident                       'value'           Identifier          tok= 184  pos= 464
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 188  pos= 475
+          Pat.NamedSimple                 'create'          Identifier          tok= 190  pos= 479
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 192  pos= 486
+              Pat.Typed:
+                Pat.NamedSimple           'count'           Identifier          tok= 193  pos= 487
+                Colon                     ':'               OpColon             tok= 194  pos= 492
+                NamedType:
+                  Ident                   'int'             Identifier          tok= 196  pos= 494
+                                          ')'               KWRParen            tok= 197  pos= 497
+            ParenBlock                    '('               KWLParen            tok= 199  pos= 499
+              Pat.Typed:
+                Pat.NamedSimple           'value'           Identifier          tok= 200  pos= 500
+                Colon                     ':'               OpColon             tok= 201  pos= 505
+                VarType:
+                  Typar.Named:
+                                          ''T'              TypeParameter       tok= 203  pos= 507
+                                          ')'               KWRParen            tok= 204  pos= 509
+          ReturnColon                     ':'               OpColon             tok= 206  pos= 511
+          ArrayType:
+            VarType:
+              Typar.Named:
+                                          ''T'              TypeParameter       tok= 208  pos= 513
+                                          '['               KWLBracket          tok= 209  pos= 515
+                                          ']'               KWRBracket          tok= 210  pos= 516
+          =                               '='               OpEquality          tok= 212  pos= 518
+            Let                           'let'             KWLet               tok= 215  pos= 528
+              Pat.NamedSimple             'result'          Identifier          tok= 217  pos= 532
+              ReturnColon                 ':'               OpColon             tok= 218  pos= 538
+              ArrayType:
+                VarType:
+                  Typar.Named:
+                                          ''T'              TypeParameter       tok= 220  pos= 540
+                                          '['               KWLBracket          tok= 221  pos= 542
+                                          ']'               KWRBracket          tok= 222  pos= 543
+              =                           '='               OpEquality          tok= 224  pos= 545
+                App:
+                  Func:
+                    Ident                 'zeroCreate'      Identifier          tok= 226  pos= 547
+                  Args:
+                    Ident                 'count'           Identifier          tok= 228  pos= 558
+            in                            <virt>            KWIn                tok=virt  pos= 573
+            Body:
+              Sequential:
+                ForTo                     'for'             KWFor               tok= 232  pos= 573
+                Ident                     'i'               Identifier          tok= 234  pos= 577
+                Equals                    '='               OpEquality          tok= 236  pos= 579
+                Start:
+                  Const                   '0'               NumInt32            tok= 238  pos= 581
+                ToToken                   'to'              KWTo                tok= 240  pos= 583
+                End:
+                  InfixApp                '-'               op_Subtraction      tok= 244  pos= 592
+                    Ident                 'count'           Identifier          tok= 242  pos= 586
+                    Const                 '1'               NumInt32            tok= 246  pos= 594
+                DoToken                   'do'              KWDo                tok= 248  pos= 596
+                Body:
+                  Assignment              '<-'              OpArrowLeft         tok= 257  pos= 622
+                    IndexedLookup:
+                      Expr:
+                        Ident             'result'          Identifier          tok= 251  pos= 611
+                      .                   '.'               OpDot               tok= 252  pos= 617
+                      [                   '['               KWLBracket          tok= 253  pos= 618
+                      Index:
+                        Ident             'i'               Identifier          tok= 254  pos= 619
+                                          ']'               KWRBracket          tok= 255  pos= 620
+                    Ident                 'value'           Identifier          tok= 259  pos= 625
+                DoneToken                 <virt>            KWDone              tok=virt  pos= 640
+                Ident                     'result'          Identifier          tok= 263  pos= 640
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 267  pos= 652
+          Pat.NamedSimple                 'init'            Identifier          tok= 269  pos= 656
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 271  pos= 661
+              Pat.Typed:
+                Pat.NamedSimple           'count'           Identifier          tok= 272  pos= 662
+                Colon                     ':'               OpColon             tok= 273  pos= 667
+                NamedType:
+                  Ident                   'int'             Identifier          tok= 275  pos= 669
+                                          ')'               KWRParen            tok= 276  pos= 672
+            ParenBlock                    '('               KWLParen            tok= 278  pos= 674
+              Pat.Typed:
+                Pat.NamedSimple           'initialize...'   Identifier          tok= 279  pos= 675
+                Colon                     ':'               OpColon             tok= 280  pos= 686
+                FunctionType:
+                  NamedType:
+                    Ident                 'int'             Identifier          tok= 282  pos= 688
+                  ->                      '->'              OpArrowRight        tok= 284  pos= 692
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 286  pos= 695
+                                          ')'               KWRParen            tok= 287  pos= 697
+          ReturnColon                     ':'               OpColon             tok= 289  pos= 699
+          ArrayType:
+            VarType:
+              Typar.Named:
+                                          ''T'              TypeParameter       tok= 291  pos= 701
+                                          '['               KWLBracket          tok= 292  pos= 703
+                                          ']'               KWRBracket          tok= 293  pos= 704
+          =                               '='               OpEquality          tok= 295  pos= 706
+            Let                           'let'             KWLet               tok= 298  pos= 716
+              Pat.NamedSimple             'result'          Identifier          tok= 300  pos= 720
+              ReturnColon                 ':'               OpColon             tok= 301  pos= 726
+              ArrayType:
+                VarType:
+                  Typar.Named:
+                                          ''T'              TypeParameter       tok= 303  pos= 728
+                                          '['               KWLBracket          tok= 304  pos= 730
+                                          ']'               KWRBracket          tok= 305  pos= 731
+              =                           '='               OpEquality          tok= 307  pos= 733
+                App:
+                  Func:
+                    Ident                 'zeroCreate'      Identifier          tok= 309  pos= 735
+                  Args:
+                    Ident                 'count'           Identifier          tok= 311  pos= 746
+            in                            <virt>            KWIn                tok=virt  pos= 761
+            Body:
+              Sequential:
+                ForTo                     'for'             KWFor               tok= 315  pos= 761
+                Ident                     'i'               Identifier          tok= 317  pos= 765
+                Equals                    '='               OpEquality          tok= 319  pos= 767
+                Start:
+                  Const                   '0'               NumInt32            tok= 321  pos= 769
+                ToToken                   'to'              KWTo                tok= 323  pos= 771
+                End:
+                  InfixApp                '-'               op_Subtraction      tok= 327  pos= 780
+                    Ident                 'count'           Identifier          tok= 325  pos= 774
+                    Const                 '1'               NumInt32            tok= 329  pos= 782
+                DoToken                   'do'              KWDo                tok= 331  pos= 784
+                Body:
+                  Assignment              '<-'              OpArrowLeft         tok= 340  pos= 810
+                    IndexedLookup:
+                      Expr:
+                        Ident             'result'          Identifier          tok= 334  pos= 799
+                      .                   '.'               OpDot               tok= 335  pos= 805
+                      [                   '['               KWLBracket          tok= 336  pos= 806
+                      Index:
+                        Ident             'i'               Identifier          tok= 337  pos= 807
+                                          ']'               KWRBracket          tok= 338  pos= 808
+                    App:
+                      Func:
+                        Ident             'initialize...'   Identifier          tok= 342  pos= 813
+                      Args:
+                        Ident             'i'               Identifier          tok= 344  pos= 825
+                DoneToken                 <virt>            KWDone              tok=virt  pos= 836
+                Ident                     'result'          Identifier          tok= 348  pos= 836
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 352  pos= 848
+          Pat.NamedSimple                 'copy'            Identifier          tok= 354  pos= 852
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 356  pos= 857
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok= 357  pos= 858
+                Colon                     ':'               OpColon             tok= 358  pos= 863
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 360  pos= 865
+                                          '['               KWLBracket          tok= 361  pos= 867
+                                          ']'               KWRBracket          tok= 362  pos= 868
+                                          ')'               KWRParen            tok= 363  pos= 869
+          ReturnColon                     ':'               OpColon             tok= 365  pos= 871
+          ArrayType:
+            VarType:
+              Typar.Named:
+                                          ''T'              TypeParameter       tok= 367  pos= 873
+                                          '['               KWLBracket          tok= 368  pos= 875
+                                          ']'               KWRBracket          tok= 369  pos= 876
+          =                               '='               OpEquality          tok= 371  pos= 878
+            Let                           'let'             KWLet               tok= 374  pos= 888
+              Pat.NamedSimple             'len'             Identifier          tok= 376  pos= 892
+              =                           '='               OpEquality          tok= 378  pos= 896
+                LongIdentOrOp:
+                  LongIdent:
+                                          'array'           Identifier          tok= 380  pos= 898
+                                          'Length'          Identifier          tok= 382  pos= 904
+            in                            <virt>            KWIn                tok=virt  pos= 919
+            Body:
+              Let                         'let'             KWLet               tok= 385  pos= 919
+                Pat.NamedSimple           'result'          Identifier          tok= 387  pos= 923
+                ReturnColon               ':'               OpColon             tok= 388  pos= 929
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 390  pos= 931
+                                          '['               KWLBracket          tok= 391  pos= 933
+                                          ']'               KWRBracket          tok= 392  pos= 934
+                =                         '='               OpEquality          tok= 394  pos= 936
+                  App:
+                    Func:
+                      Ident               'zeroCreate'      Identifier          tok= 396  pos= 938
+                    Args:
+                      Ident               'len'             Identifier          tok= 398  pos= 949
+              in                          <virt>            KWIn                tok=virt  pos= 962
+              Body:
+                Sequential:
+                  ForTo                   'for'             KWFor               tok= 402  pos= 962
+                  Ident                   'i'               Identifier          tok= 404  pos= 966
+                  Equals                  '='               OpEquality          tok= 406  pos= 968
+                  Start:
+                    Const                 '0'               NumInt32            tok= 408  pos= 970
+                  ToToken                 'to'              KWTo                tok= 410  pos= 972
+                  End:
+                    InfixApp              '-'               op_Subtraction      tok= 414  pos= 979
+                      Ident               'len'             Identifier          tok= 412  pos= 975
+                      Const               '1'               NumInt32            tok= 416  pos= 981
+                  DoToken                 'do'              KWDo                tok= 418  pos= 983
+                  Body:
+                    Assignment            '<-'              OpArrowLeft         tok= 427  pos=1009
+                      IndexedLookup:
+                        Expr:
+                          Ident           'result'          Identifier          tok= 421  pos= 998
+                        .                 '.'               OpDot               tok= 422  pos=1004
+                        [                 '['               KWLBracket          tok= 423  pos=1005
+                        Index:
+                          Ident           'i'               Identifier          tok= 424  pos=1006
+                                          ']'               KWRBracket          tok= 425  pos=1007
+                      IndexedLookup:
+                        Expr:
+                          Ident           'array'           Identifier          tok= 429  pos=1012
+                        .                 '.'               OpDot               tok= 430  pos=1017
+                        [                 '['               KWLBracket          tok= 431  pos=1018
+                        Index:
+                          Ident           'i'               Identifier          tok= 432  pos=1019
+                                          ']'               KWRBracket          tok= 433  pos=1020
+                  DoneToken               <virt>            KWDone              tok=virt  pos=1031
+                  Ident                   'result'          Identifier          tok= 437  pos=1031
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 441  pos=1043
+          Pat.NamedSimple                 'append'          Identifier          tok= 443  pos=1047
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 445  pos=1054
+              Pat.Typed:
+                Pat.NamedSimple           'array1'          Identifier          tok= 446  pos=1055
+                Colon                     ':'               OpColon             tok= 447  pos=1061
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 449  pos=1063
+                                          '['               KWLBracket          tok= 450  pos=1065
+                                          ']'               KWRBracket          tok= 451  pos=1066
+                                          ')'               KWRParen            tok= 452  pos=1067
+            ParenBlock                    '('               KWLParen            tok= 454  pos=1069
+              Pat.Typed:
+                Pat.NamedSimple           'array2'          Identifier          tok= 455  pos=1070
+                Colon                     ':'               OpColon             tok= 456  pos=1076
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 458  pos=1078
+                                          '['               KWLBracket          tok= 459  pos=1080
+                                          ']'               KWRBracket          tok= 460  pos=1081
+                                          ')'               KWRParen            tok= 461  pos=1082
+          ReturnColon                     ':'               OpColon             tok= 463  pos=1084
+          ArrayType:
+            VarType:
+              Typar.Named:
+                                          ''T'              TypeParameter       tok= 465  pos=1086
+                                          '['               KWLBracket          tok= 466  pos=1088
+                                          ']'               KWRBracket          tok= 467  pos=1089
+          =                               '='               OpEquality          tok= 469  pos=1091
+            Let                           'let'             KWLet               tok= 472  pos=1101
+              Pat.NamedSimple             'len1'            Identifier          tok= 474  pos=1105
+              =                           '='               OpEquality          tok= 476  pos=1110
+                LongIdentOrOp:
+                  LongIdent:
+                                          'array1'          Identifier          tok= 478  pos=1112
+                                          'Length'          Identifier          tok= 480  pos=1119
+            in                            <virt>            KWIn                tok=virt  pos=1134
+            Body:
+              Let                         'let'             KWLet               tok= 483  pos=1134
+                Pat.NamedSimple           'len2'            Identifier          tok= 485  pos=1138
+                =                         '='               OpEquality          tok= 487  pos=1143
+                  LongIdentOrOp:
+                    LongIdent:
+                                          'array2'          Identifier          tok= 489  pos=1145
+                                          'Length'          Identifier          tok= 491  pos=1152
+              in                          <virt>            KWIn                tok=virt  pos=1167
+              Body:
+                Let                       'let'             KWLet               tok= 494  pos=1167
+                  Pat.NamedSimple         'result'          Identifier          tok= 496  pos=1171
+                  ReturnColon             ':'               OpColon             tok= 497  pos=1177
+                  ArrayType:
+                    VarType:
+                      Typar.Named:
+                                          ''T'              TypeParameter       tok= 499  pos=1179
+                                          '['               KWLBracket          tok= 500  pos=1181
+                                          ']'               KWRBracket          tok= 501  pos=1182
+                  =                       '='               OpEquality          tok= 503  pos=1184
+                    App:
+                      Func:
+                        Ident             'zeroCreate'      Identifier          tok= 505  pos=1186
+                      Args:
+                        ParenBlock        '('               KWLParen            tok= 507  pos=1197
+                          InfixApp        '+'               op_Addition         tok= 510  pos=1203
+                            Ident         'len1'            Identifier          tok= 508  pos=1198
+                            Ident         'len2'            Identifier          tok= 512  pos=1205
+                                          ')'               KWRParen            tok= 513  pos=1209
+                in                        <virt>            KWIn                tok=virt  pos=1220
+                Body:
+                  Sequential:
+                    ForTo                 'for'             KWFor               tok= 517  pos=1220
+                    Ident                 'i'               Identifier          tok= 519  pos=1224
+                    Equals                '='               OpEquality          tok= 521  pos=1226
+                    Start:
+                      Const               '0'               NumInt32            tok= 523  pos=1228
+                    ToToken               'to'              KWTo                tok= 525  pos=1230
+                    End:
+                      InfixApp            '-'               op_Subtraction      tok= 529  pos=1238
+                        Ident             'len1'            Identifier          tok= 527  pos=1233
+                        Const             '1'               NumInt32            tok= 531  pos=1240
+                    DoToken               'do'              KWDo                tok= 533  pos=1242
+                    Body:
+                      Assignment          '<-'              OpArrowLeft         tok= 542  pos=1268
+                        IndexedLookup:
+                          Expr:
+                            Ident         'result'          Identifier          tok= 536  pos=1257
+                          .               '.'               OpDot               tok= 537  pos=1263
+                          [               '['               KWLBracket          tok= 538  pos=1264
+                          Index:
+                            Ident         'i'               Identifier          tok= 539  pos=1265
+                                          ']'               KWRBracket          tok= 540  pos=1266
+                        IndexedLookup:
+                          Expr:
+                            Ident         'array1'          Identifier          tok= 544  pos=1271
+                          .               '.'               OpDot               tok= 545  pos=1277
+                          [               '['               KWLBracket          tok= 546  pos=1278
+                          Index:
+                            Ident         'i'               Identifier          tok= 547  pos=1279
+                                          ']'               KWRBracket          tok= 548  pos=1280
+                    DoneToken             <virt>            KWDone              tok=virt  pos=1291
+                    ForTo                 'for'             KWFor               tok= 552  pos=1291
+                    Ident                 'i'               Identifier          tok= 554  pos=1295
+                    Equals                '='               OpEquality          tok= 556  pos=1297
+                    Start:
+                      Const               '0'               NumInt32            tok= 558  pos=1299
+                    ToToken               'to'              KWTo                tok= 560  pos=1301
+                    End:
+                      InfixApp            '-'               op_Subtraction      tok= 564  pos=1309
+                        Ident             'len2'            Identifier          tok= 562  pos=1304
+                        Const             '1'               NumInt32            tok= 566  pos=1311
+                    DoToken               'do'              KWDo                tok= 568  pos=1313
+                    Body:
+                      Assignment          '<-'              OpArrowLeft         tok= 581  pos=1346
+                        IndexedLookup:
+                          Expr:
+                            Ident         'result'          Identifier          tok= 571  pos=1328
+                          .               '.'               OpDot               tok= 572  pos=1334
+                          [               '['               KWLBracket          tok= 573  pos=1335
+                          Index:
+                            InfixApp      '+'               op_Addition         tok= 576  pos=1341
+                              Ident       'len1'            Identifier          tok= 574  pos=1336
+                              Ident       'i'               Identifier          tok= 578  pos=1343
+                                          ']'               KWRBracket          tok= 579  pos=1344
+                        IndexedLookup:
+                          Expr:
+                            Ident         'array2'          Identifier          tok= 583  pos=1349
+                          .               '.'               OpDot               tok= 584  pos=1355
+                          [               '['               KWLBracket          tok= 585  pos=1356
+                          Index:
+                            Ident         'i'               Identifier          tok= 586  pos=1357
+                                          ']'               KWRBracket          tok= 587  pos=1358
+                    DoneToken             <virt>            KWDone              tok=virt  pos=1369
+                    Ident                 'result'          Identifier          tok= 591  pos=1369
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 595  pos=1381
+          Pat.NamedSimple                 'rev'             Identifier          tok= 597  pos=1385
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 599  pos=1389
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok= 600  pos=1390
+                Colon                     ':'               OpColon             tok= 601  pos=1395
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 603  pos=1397
+                                          '['               KWLBracket          tok= 604  pos=1399
+                                          ']'               KWRBracket          tok= 605  pos=1400
+                                          ')'               KWRParen            tok= 606  pos=1401
+          ReturnColon                     ':'               OpColon             tok= 608  pos=1403
+          ArrayType:
+            VarType:
+              Typar.Named:
+                                          ''T'              TypeParameter       tok= 610  pos=1405
+                                          '['               KWLBracket          tok= 611  pos=1407
+                                          ']'               KWRBracket          tok= 612  pos=1408
+          =                               '='               OpEquality          tok= 614  pos=1410
+            Let                           'let'             KWLet               tok= 617  pos=1420
+              Pat.NamedSimple             'len'             Identifier          tok= 619  pos=1424
+              =                           '='               OpEquality          tok= 621  pos=1428
+                LongIdentOrOp:
+                  LongIdent:
+                                          'array'           Identifier          tok= 623  pos=1430
+                                          'Length'          Identifier          tok= 625  pos=1436
+            in                            <virt>            KWIn                tok=virt  pos=1451
+            Body:
+              Let                         'let'             KWLet               tok= 628  pos=1451
+                Pat.NamedSimple           'result'          Identifier          tok= 630  pos=1455
+                ReturnColon               ':'               OpColon             tok= 631  pos=1461
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 633  pos=1463
+                                          '['               KWLBracket          tok= 634  pos=1465
+                                          ']'               KWRBracket          tok= 635  pos=1466
+                =                         '='               OpEquality          tok= 637  pos=1468
+                  App:
+                    Func:
+                      Ident               'zeroCreate'      Identifier          tok= 639  pos=1470
+                    Args:
+                      Ident               'len'             Identifier          tok= 641  pos=1481
+              in                          <virt>            KWIn                tok=virt  pos=1494
+              Body:
+                Sequential:
+                  ForTo                   'for'             KWFor               tok= 645  pos=1494
+                  Ident                   'i'               Identifier          tok= 647  pos=1498
+                  Equals                  '='               OpEquality          tok= 649  pos=1500
+                  Start:
+                    Const                 '0'               NumInt32            tok= 651  pos=1502
+                  ToToken                 'to'              KWTo                tok= 653  pos=1504
+                  End:
+                    InfixApp              '-'               op_Subtraction      tok= 657  pos=1511
+                      Ident               'len'             Identifier          tok= 655  pos=1507
+                      Const               '1'               NumInt32            tok= 659  pos=1513
+                  DoToken                 'do'              KWDo                tok= 661  pos=1515
+                  Body:
+                    Assignment            '<-'              OpArrowLeft         tok= 670  pos=1541
+                      IndexedLookup:
+                        Expr:
+                          Ident           'result'          Identifier          tok= 664  pos=1530
+                        .                 '.'               OpDot               tok= 665  pos=1536
+                        [                 '['               KWLBracket          tok= 666  pos=1537
+                        Index:
+                          Ident           'i'               Identifier          tok= 667  pos=1538
+                                          ']'               KWRBracket          tok= 668  pos=1539
+                      IndexedLookup:
+                        Expr:
+                          Ident           'array'           Identifier          tok= 672  pos=1544
+                        .                 '.'               OpDot               tok= 673  pos=1549
+                        [                 '['               KWLBracket          tok= 674  pos=1550
+                        Index:
+                          InfixApp        '-'               op_Subtraction      tok= 681  pos=1559
+                            InfixApp      '-'               op_Subtraction      tok= 677  pos=1555
+                              Ident       'len'             Identifier          tok= 675  pos=1551
+                              Const       '1'               NumInt32            tok= 679  pos=1557
+                            Ident         'i'               Identifier          tok= 683  pos=1561
+                                          ']'               KWRBracket          tok= 684  pos=1562
+                  DoneToken               <virt>            KWDone              tok=virt  pos=1573
+                  Ident                   'result'          Identifier          tok= 688  pos=1573
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 692  pos=1585
+          Pat.NamedSimple                 'map'             Identifier          tok= 694  pos=1589
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 696  pos=1593
+              Pat.Typed:
+                Pat.NamedSimple           'mapping'         Identifier          tok= 697  pos=1594
+                Colon                     ':'               OpColon             tok= 698  pos=1601
+                FunctionType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 700  pos=1603
+                  ->                      '->'              OpArrowRight        tok= 702  pos=1606
+                  VarType:
+                    Typar.Named:
+                                          ''U'              TypeParameter       tok= 704  pos=1609
+                                          ')'               KWRParen            tok= 705  pos=1611
+            ParenBlock                    '('               KWLParen            tok= 707  pos=1613
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok= 708  pos=1614
+                Colon                     ':'               OpColon             tok= 709  pos=1619
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 711  pos=1621
+                                          '['               KWLBracket          tok= 712  pos=1623
+                                          ']'               KWRBracket          tok= 713  pos=1624
+                                          ')'               KWRParen            tok= 714  pos=1625
+          ReturnColon                     ':'               OpColon             tok= 716  pos=1627
+          ArrayType:
+            VarType:
+              Typar.Named:
+                                          ''U'              TypeParameter       tok= 718  pos=1629
+                                          '['               KWLBracket          tok= 719  pos=1631
+                                          ']'               KWRBracket          tok= 720  pos=1632
+          =                               '='               OpEquality          tok= 722  pos=1634
+            Let                           'let'             KWLet               tok= 725  pos=1644
+              Pat.NamedSimple             'len'             Identifier          tok= 727  pos=1648
+              =                           '='               OpEquality          tok= 729  pos=1652
+                LongIdentOrOp:
+                  LongIdent:
+                                          'array'           Identifier          tok= 731  pos=1654
+                                          'Length'          Identifier          tok= 733  pos=1660
+            in                            <virt>            KWIn                tok=virt  pos=1675
+            Body:
+              Let                         'let'             KWLet               tok= 736  pos=1675
+                Pat.NamedSimple           'result'          Identifier          tok= 738  pos=1679
+                ReturnColon               ':'               OpColon             tok= 739  pos=1685
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''U'              TypeParameter       tok= 741  pos=1687
+                                          '['               KWLBracket          tok= 742  pos=1689
+                                          ']'               KWRBracket          tok= 743  pos=1690
+                =                         '='               OpEquality          tok= 745  pos=1692
+                  App:
+                    Func:
+                      Ident               'zeroCreate'      Identifier          tok= 747  pos=1694
+                    Args:
+                      Ident               'len'             Identifier          tok= 749  pos=1705
+              in                          <virt>            KWIn                tok=virt  pos=1718
+              Body:
+                Sequential:
+                  ForTo                   'for'             KWFor               tok= 753  pos=1718
+                  Ident                   'i'               Identifier          tok= 755  pos=1722
+                  Equals                  '='               OpEquality          tok= 757  pos=1724
+                  Start:
+                    Const                 '0'               NumInt32            tok= 759  pos=1726
+                  ToToken                 'to'              KWTo                tok= 761  pos=1728
+                  End:
+                    InfixApp              '-'               op_Subtraction      tok= 765  pos=1735
+                      Ident               'len'             Identifier          tok= 763  pos=1731
+                      Const               '1'               NumInt32            tok= 767  pos=1737
+                  DoToken                 'do'              KWDo                tok= 769  pos=1739
+                  Body:
+                    Assignment            '<-'              OpArrowLeft         tok= 778  pos=1765
+                      IndexedLookup:
+                        Expr:
+                          Ident           'result'          Identifier          tok= 772  pos=1754
+                        .                 '.'               OpDot               tok= 773  pos=1760
+                        [                 '['               KWLBracket          tok= 774  pos=1761
+                        Index:
+                          Ident           'i'               Identifier          tok= 775  pos=1762
+                                          ']'               KWRBracket          tok= 776  pos=1763
+                      App:
+                        Func:
+                          Ident           'mapping'         Identifier          tok= 780  pos=1768
+                        Args:
+                          IndexedLookup:
+                            Expr:
+                              Ident       'array'           Identifier          tok= 782  pos=1776
+                            .             '.'               OpDot               tok= 783  pos=1781
+                            [             '['               KWLBracket          tok= 784  pos=1782
+                            Index:
+                              Ident       'i'               Identifier          tok= 785  pos=1783
+                                          ']'               KWRBracket          tok= 786  pos=1784
+                  DoneToken               <virt>            KWDone              tok=virt  pos=1795
+                  Ident                   'result'          Identifier          tok= 790  pos=1795
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 794  pos=1807
+          Pat.NamedSimple                 'mapi'            Identifier          tok= 796  pos=1811
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 798  pos=1816
+              Pat.Typed:
+                Pat.NamedSimple           'mapping'         Identifier          tok= 799  pos=1817
+                Colon                     ':'               OpColon             tok= 800  pos=1824
+                FunctionType:
+                  NamedType:
+                    Ident                 'int'             Identifier          tok= 802  pos=1826
+                  ->                      '->'              OpArrowRight        tok= 804  pos=1830
+                  FunctionType:
+                    VarType:
+                      Typar.Named:
+                                          ''T'              TypeParameter       tok= 806  pos=1833
+                    ->                    '->'              OpArrowRight        tok= 808  pos=1836
+                    VarType:
+                      Typar.Named:
+                                          ''U'              TypeParameter       tok= 810  pos=1839
+                                          ')'               KWRParen            tok= 811  pos=1841
+            ParenBlock                    '('               KWLParen            tok= 813  pos=1843
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok= 814  pos=1844
+                Colon                     ':'               OpColon             tok= 815  pos=1849
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 817  pos=1851
+                                          '['               KWLBracket          tok= 818  pos=1853
+                                          ']'               KWRBracket          tok= 819  pos=1854
+                                          ')'               KWRParen            tok= 820  pos=1855
+          ReturnColon                     ':'               OpColon             tok= 822  pos=1857
+          ArrayType:
+            VarType:
+              Typar.Named:
+                                          ''U'              TypeParameter       tok= 824  pos=1859
+                                          '['               KWLBracket          tok= 825  pos=1861
+                                          ']'               KWRBracket          tok= 826  pos=1862
+          =                               '='               OpEquality          tok= 828  pos=1864
+            Let                           'let'             KWLet               tok= 831  pos=1874
+              Pat.NamedSimple             'len'             Identifier          tok= 833  pos=1878
+              =                           '='               OpEquality          tok= 835  pos=1882
+                LongIdentOrOp:
+                  LongIdent:
+                                          'array'           Identifier          tok= 837  pos=1884
+                                          'Length'          Identifier          tok= 839  pos=1890
+            in                            <virt>            KWIn                tok=virt  pos=1905
+            Body:
+              Let                         'let'             KWLet               tok= 842  pos=1905
+                Pat.NamedSimple           'result'          Identifier          tok= 844  pos=1909
+                ReturnColon               ':'               OpColon             tok= 845  pos=1915
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''U'              TypeParameter       tok= 847  pos=1917
+                                          '['               KWLBracket          tok= 848  pos=1919
+                                          ']'               KWRBracket          tok= 849  pos=1920
+                =                         '='               OpEquality          tok= 851  pos=1922
+                  App:
+                    Func:
+                      Ident               'zeroCreate'      Identifier          tok= 853  pos=1924
+                    Args:
+                      Ident               'len'             Identifier          tok= 855  pos=1935
+              in                          <virt>            KWIn                tok=virt  pos=1948
+              Body:
+                Sequential:
+                  ForTo                   'for'             KWFor               tok= 859  pos=1948
+                  Ident                   'i'               Identifier          tok= 861  pos=1952
+                  Equals                  '='               OpEquality          tok= 863  pos=1954
+                  Start:
+                    Const                 '0'               NumInt32            tok= 865  pos=1956
+                  ToToken                 'to'              KWTo                tok= 867  pos=1958
+                  End:
+                    InfixApp              '-'               op_Subtraction      tok= 871  pos=1965
+                      Ident               'len'             Identifier          tok= 869  pos=1961
+                      Const               '1'               NumInt32            tok= 873  pos=1967
+                  DoToken                 'do'              KWDo                tok= 875  pos=1969
+                  Body:
+                    Assignment            '<-'              OpArrowLeft         tok= 884  pos=1995
+                      IndexedLookup:
+                        Expr:
+                          Ident           'result'          Identifier          tok= 878  pos=1984
+                        .                 '.'               OpDot               tok= 879  pos=1990
+                        [                 '['               KWLBracket          tok= 880  pos=1991
+                        Index:
+                          Ident           'i'               Identifier          tok= 881  pos=1992
+                                          ']'               KWRBracket          tok= 882  pos=1993
+                      App:
+                        Func:
+                          Ident           'mapping'         Identifier          tok= 886  pos=1998
+                        Args:
+                          Ident           'i'               Identifier          tok= 888  pos=2006
+                          IndexedLookup:
+                            Expr:
+                              Ident       'array'           Identifier          tok= 890  pos=2008
+                            .             '.'               OpDot               tok= 891  pos=2013
+                            [             '['               KWLBracket          tok= 892  pos=2014
+                            Index:
+                              Ident       'i'               Identifier          tok= 893  pos=2015
+                                          ']'               KWRBracket          tok= 894  pos=2016
+                  DoneToken               <virt>            KWDone              tok=virt  pos=2027
+                  Ident                   'result'          Identifier          tok= 898  pos=2027
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 902  pos=2039
+          Pat.NamedSimple                 'iter'            Identifier          tok= 904  pos=2043
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 906  pos=2048
+              Pat.Typed:
+                Pat.NamedSimple           'action'          Identifier          tok= 907  pos=2049
+                Colon                     ':'               OpColon             tok= 908  pos=2055
+                FunctionType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 910  pos=2057
+                  ->                      '->'              OpArrowRight        tok= 912  pos=2060
+                  NamedType:
+                    Ident                 'unit'            Identifier          tok= 914  pos=2063
+                                          ')'               KWRParen            tok= 915  pos=2067
+            ParenBlock                    '('               KWLParen            tok= 917  pos=2069
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok= 918  pos=2070
+                Colon                     ':'               OpColon             tok= 919  pos=2075
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 921  pos=2077
+                                          '['               KWLBracket          tok= 922  pos=2079
+                                          ']'               KWRBracket          tok= 923  pos=2080
+                                          ')'               KWRParen            tok= 924  pos=2081
+          ReturnColon                     ':'               OpColon             tok= 926  pos=2083
+          NamedType:
+            Ident                         'unit'            Identifier          tok= 928  pos=2085
+          =                               '='               OpEquality          tok= 930  pos=2090
+            ForTo                         'for'             KWFor               tok= 933  pos=2100
+            Ident                         'i'               Identifier          tok= 935  pos=2104
+            Equals                        '='               OpEquality          tok= 937  pos=2106
+            Start:
+              Const                       '0'               NumInt32            tok= 939  pos=2108
+            ToToken                       'to'              KWTo                tok= 941  pos=2110
+            End:
+              InfixApp                    '-'               op_Subtraction      tok= 947  pos=2126
+                LongIdentOrOp:
+                  LongIdent:
+                                          'array'           Identifier          tok= 943  pos=2113
+                                          'Length'          Identifier          tok= 945  pos=2119
+                Const                     '1'               NumInt32            tok= 949  pos=2128
+            DoToken                       'do'              KWDo                tok= 951  pos=2130
+            Body:
+              App:
+                Func:
+                  Ident                   'action'          Identifier          tok= 954  pos=2145
+                Args:
+                  IndexedLookup:
+                    Expr:
+                      Ident               'array'           Identifier          tok= 956  pos=2152
+                    .                     '.'               OpDot               tok= 957  pos=2157
+                    [                     '['               KWLBracket          tok= 958  pos=2158
+                    Index:
+                      Ident               'i'               Identifier          tok= 959  pos=2159
+                                          ']'               KWRBracket          tok= 960  pos=2160
+            DoneToken                     <virt>            KWDone              tok=virt  pos=2167
+      FunctionOrValue:
+        let                               'let'             KWLet               tok= 964  pos=2167
+          Pat.NamedSimple                 'iteri'           Identifier          tok= 966  pos=2171
+          Pats:
+            ParenBlock                    '('               KWLParen            tok= 968  pos=2177
+              Pat.Typed:
+                Pat.NamedSimple           'action'          Identifier          tok= 969  pos=2178
+                Colon                     ':'               OpColon             tok= 970  pos=2184
+                FunctionType:
+                  NamedType:
+                    Ident                 'int'             Identifier          tok= 972  pos=2186
+                  ->                      '->'              OpArrowRight        tok= 974  pos=2190
+                  FunctionType:
+                    VarType:
+                      Typar.Named:
+                                          ''T'              TypeParameter       tok= 976  pos=2193
+                    ->                    '->'              OpArrowRight        tok= 978  pos=2196
+                    NamedType:
+                      Ident               'unit'            Identifier          tok= 980  pos=2199
+                                          ')'               KWRParen            tok= 981  pos=2203
+            ParenBlock                    '('               KWLParen            tok= 983  pos=2205
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok= 984  pos=2206
+                Colon                     ':'               OpColon             tok= 985  pos=2211
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok= 987  pos=2213
+                                          '['               KWLBracket          tok= 988  pos=2215
+                                          ']'               KWRBracket          tok= 989  pos=2216
+                                          ')'               KWRParen            tok= 990  pos=2217
+          ReturnColon                     ':'               OpColon             tok= 992  pos=2219
+          NamedType:
+            Ident                         'unit'            Identifier          tok= 994  pos=2221
+          =                               '='               OpEquality          tok= 996  pos=2226
+            ForTo                         'for'             KWFor               tok= 999  pos=2236
+            Ident                         'i'               Identifier          tok=1001  pos=2240
+            Equals                        '='               OpEquality          tok=1003  pos=2242
+            Start:
+              Const                       '0'               NumInt32            tok=1005  pos=2244
+            ToToken                       'to'              KWTo                tok=1007  pos=2246
+            End:
+              InfixApp                    '-'               op_Subtraction      tok=1013  pos=2262
+                LongIdentOrOp:
+                  LongIdent:
+                                          'array'           Identifier          tok=1009  pos=2249
+                                          'Length'          Identifier          tok=1011  pos=2255
+                Const                     '1'               NumInt32            tok=1015  pos=2264
+            DoToken                       'do'              KWDo                tok=1017  pos=2266
+            Body:
+              App:
+                Func:
+                  Ident                   'action'          Identifier          tok=1020  pos=2281
+                Args:
+                  Ident                   'i'               Identifier          tok=1022  pos=2288
+                  IndexedLookup:
+                    Expr:
+                      Ident               'array'           Identifier          tok=1024  pos=2290
+                    .                     '.'               OpDot               tok=1025  pos=2295
+                    [                     '['               KWLBracket          tok=1026  pos=2296
+                    Index:
+                      Ident               'i'               Identifier          tok=1027  pos=2297
+                                          ']'               KWRBracket          tok=1028  pos=2298
+            DoneToken                     <virt>            KWDone              tok=virt  pos=2305
+      FunctionOrValue:
+        let                               'let'             KWLet               tok=1032  pos=2305
+          Pat.NamedSimple                 'fold'            Identifier          tok=1034  pos=2309
+          TyparDefns:
+            <                             '<'               op_LessThan         tok=1035  pos=2313
+            Typar.Named:
+                                          ''T'              TypeParameter       tok=1036  pos=2314
+            Typar.Named:
+                                          ''State'          TypeParameter       tok=1039  pos=2318
+            >                             '>'               op_GreaterThan      tok=1040  pos=2324
+          Pats:
+            ParenBlock                    '('               KWLParen            tok=1042  pos=2326
+              Pat.Typed:
+                Pat.NamedSimple           'folder'          Identifier          tok=1043  pos=2327
+                Colon                     ':'               OpColon             tok=1044  pos=2333
+                FunctionType:
+                  VarType:
+                    Typar.Named:
+                                          ''State'          TypeParameter       tok=1046  pos=2335
+                  ->                      '->'              OpArrowRight        tok=1048  pos=2342
+                  FunctionType:
+                    VarType:
+                      Typar.Named:
+                                          ''T'              TypeParameter       tok=1050  pos=2345
+                    ->                    '->'              OpArrowRight        tok=1052  pos=2348
+                    VarType:
+                      Typar.Named:
+                                          ''State'          TypeParameter       tok=1054  pos=2351
+                                          ')'               KWRParen            tok=1055  pos=2357
+            ParenBlock                    '('               KWLParen            tok=1057  pos=2359
+              Pat.Typed:
+                Pat.NamedSimple           'state'           Identifier          tok=1058  pos=2360
+                Colon                     ':'               OpColon             tok=1059  pos=2365
+                VarType:
+                  Typar.Named:
+                                          ''State'          TypeParameter       tok=1061  pos=2367
+                                          ')'               KWRParen            tok=1062  pos=2373
+            ParenBlock                    '('               KWLParen            tok=1064  pos=2375
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok=1065  pos=2376
+                Colon                     ':'               OpColon             tok=1066  pos=2381
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok=1068  pos=2383
+                                          '['               KWLBracket          tok=1069  pos=2385
+                                          ']'               KWRBracket          tok=1070  pos=2386
+                                          ')'               KWRParen            tok=1071  pos=2387
+          ReturnColon                     ':'               OpColon             tok=1073  pos=2389
+          VarType:
+            Typar.Named:
+                                          ''State'          TypeParameter       tok=1075  pos=2391
+          =                               '='               OpEquality          tok=1077  pos=2398
+            Let                           'let'             KWLet               tok=1080  pos=2408
+              mutable                     'mutable'         KWMutable           tok=1082  pos=2412
+              Pat.NamedSimple             'acc'             Identifier          tok=1084  pos=2420
+              =                           '='               OpEquality          tok=1086  pos=2424
+                Ident                     'state'           Identifier          tok=1088  pos=2426
+            in                            <virt>            KWIn                tok=virt  pos=2441
+            Body:
+              Sequential:
+                ForTo                     'for'             KWFor               tok=1092  pos=2441
+                Ident                     'i'               Identifier          tok=1094  pos=2445
+                Equals                    '='               OpEquality          tok=1096  pos=2447
+                Start:
+                  Const                   '0'               NumInt32            tok=1098  pos=2449
+                ToToken                   'to'              KWTo                tok=1100  pos=2451
+                End:
+                  InfixApp                '-'               op_Subtraction      tok=1106  pos=2467
+                    LongIdentOrOp:
+                      LongIdent:
+                                          'array'           Identifier          tok=1102  pos=2454
+                                          'Length'          Identifier          tok=1104  pos=2460
+                    Const                 '1'               NumInt32            tok=1108  pos=2469
+                DoToken                   'do'              KWDo                tok=1110  pos=2471
+                Body:
+                  Assignment              '<-'              OpArrowLeft         tok=1115  pos=2490
+                    Ident                 'acc'             Identifier          tok=1113  pos=2486
+                    App:
+                      Func:
+                        Ident             'folder'          Identifier          tok=1117  pos=2493
+                      Args:
+                        Ident             'acc'             Identifier          tok=1119  pos=2500
+                        IndexedLookup:
+                          Expr:
+                            Ident         'array'           Identifier          tok=1121  pos=2504
+                          .               '.'               OpDot               tok=1122  pos=2509
+                          [               '['               KWLBracket          tok=1123  pos=2510
+                          Index:
+                            Ident         'i'               Identifier          tok=1124  pos=2511
+                                          ']'               KWRBracket          tok=1125  pos=2512
+                DoneToken                 <virt>            KWDone              tok=virt  pos=2523
+                Ident                     'acc'             Identifier          tok=1129  pos=2523
+      FunctionOrValue:
+        let                               'let'             KWLet               tok=1133  pos=2532
+          Pat.NamedSimple                 'foldBack'        Identifier          tok=1135  pos=2536
+          Pats:
+            ParenBlock                    '('               KWLParen            tok=1137  pos=2545
+              Pat.Typed:
+                Pat.NamedSimple           'folder'          Identifier          tok=1138  pos=2546
+                Colon                     ':'               OpColon             tok=1139  pos=2552
+                FunctionType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok=1141  pos=2554
+                  ->                      '->'              OpArrowRight        tok=1143  pos=2557
+                  FunctionType:
+                    VarType:
+                      Typar.Named:
+                                          ''State'          TypeParameter       tok=1145  pos=2560
+                    ->                    '->'              OpArrowRight        tok=1147  pos=2567
+                    VarType:
+                      Typar.Named:
+                                          ''State'          TypeParameter       tok=1149  pos=2570
+                                          ')'               KWRParen            tok=1150  pos=2576
+            ParenBlock                    '('               KWLParen            tok=1152  pos=2578
+              Pat.Typed:
+                Pat.NamedSimple           'array'           Identifier          tok=1153  pos=2579
+                Colon                     ':'               OpColon             tok=1154  pos=2584
+                ArrayType:
+                  VarType:
+                    Typar.Named:
+                                          ''T'              TypeParameter       tok=1156  pos=2586
+                                          '['               KWLBracket          tok=1157  pos=2588
+                                          ']'               KWRBracket          tok=1158  pos=2589
+                                          ')'               KWRParen            tok=1159  pos=2590
+            ParenBlock                    '('               KWLParen            tok=1161  pos=2592
+              Pat.Typed:
+                Pat.NamedSimple           'state'           Identifier          tok=1162  pos=2593
+                Colon                     ':'               OpColon             tok=1163  pos=2598
+                VarType:
+                  Typar.Named:
+                                          ''State'          TypeParameter       tok=1165  pos=2600
+                                          ')'               KWRParen            tok=1166  pos=2606
+          ReturnColon                     ':'               OpColon             tok=1168  pos=2608
+          VarType:
+            Typar.Named:
+                                          ''State'          TypeParameter       tok=1170  pos=2610
+          =                               '='               OpEquality          tok=1172  pos=2617
+            Let                           'let'             KWLet               tok=1175  pos=2627
+              mutable                     'mutable'         KWMutable           tok=1177  pos=2631
+              Pat.NamedSimple             'acc'             Identifier          tok=1179  pos=2639
+              =                           '='               OpEquality          tok=1181  pos=2643
+                Ident                     'state'           Identifier          tok=1183  pos=2645
+            in                            <virt>            KWIn                tok=virt  pos=2659
+            Body:
+              Let                         'let'             KWLet               tok=1186  pos=2659
+                Pat.NamedSimple           'len'             Identifier          tok=1188  pos=2663
+                =                         '='               OpEquality          tok=1190  pos=2667
+                  LongIdentOrOp:
+                    LongIdent:
+                                          'array'           Identifier          tok=1192  pos=2669
+                                          'Length'          Identifier          tok=1194  pos=2675
+              in                          <virt>            KWIn                tok=virt  pos=2691
+              Body:
+                Sequential:
+                  ForTo                   'for'             KWFor               tok=1198  pos=2691
+                  Ident                   'i'               Identifier          tok=1200  pos=2695
+                  Equals                  '='               OpEquality          tok=1202  pos=2697
+                  Start:
+                    Const                 '0'               NumInt32            tok=1204  pos=2699
+                  ToToken                 'to'              KWTo                tok=1206  pos=2701
+                  End:
+                    InfixApp              '-'               op_Subtraction      tok=1210  pos=2708
+                      Ident               'len'             Identifier          tok=1208  pos=2704
+                      Const               '1'               NumInt32            tok=1212  pos=2710
+                  DoToken                 'do'              KWDo                tok=1214  pos=2712
+                  Body:
+                    Assignment            '<-'              OpArrowLeft         tok=1219  pos=2731
+                      Ident               'acc'             Identifier          tok=1217  pos=2727
+                      App:
+                        Func:
+                          Ident           'folder'          Identifier          tok=1221  pos=2734
+                        Args:
+                          IndexedLookup:
+                            Expr:
+                              Ident       'array'           Identifier          tok=1223  pos=2741
+                            .             '.'               OpDot               tok=1224  pos=2746
+                            [             '['               KWLBracket          tok=1225  pos=2747
+                            Index:
+                              InfixApp    '-'               op_Subtraction      tok=1232  pos=2756
+                                InfixApp  '-'               op_Subtraction      tok=1228  pos=2752
+                                  Ident   'len'             Identifier          tok=1226  pos=2748
+                                  Const   '1'               NumInt32            tok=1230  pos=2754
+                                Ident     'i'               Identifier          tok=1234  pos=2758
+                                          ']'               KWRBracket          tok=1235  pos=2759
+                          Ident           'acc'             Identifier          tok=1237  pos=2761
+                  DoneToken               <virt>            KWDone              tok=virt  pos=2774
+                  Ident                   'acc'             Identifier          tok=1241  pos=2774
+    end                                   <virt>            KWEnd               tok=virt  pos=2778

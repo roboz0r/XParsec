@@ -459,7 +459,6 @@ let jsPackageConformanceTests =
                 // contract lost its body.
                 let expected =
                     [
-                        "Vesper.Array: the signature file 'array.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                         "Vesper.Core: prim-types-min.fsi: type 'Fun' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
                         "Vesper.Core: prim-types-object.fsi: type 'obj' disagrees on heritability across the pair: one side marks it a heritable external base ('extern class' / '(# class … #)'), the other an opaque value repr"
                         "Vesper.Core: the signature file 'compiler-attributes.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"

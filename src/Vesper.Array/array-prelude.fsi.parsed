@@ -1,0 +1,25 @@
+namespace        'namespace'       KWNamespace         tok=   0  pos=   0
+                 'Vesper'          Identifier          tok=   2  pos=  10
+                 'Collection...'   Identifier          tok=   4  pos=  17
+  Module:
+    module       'module'          KWModule            tok=  25  pos= 623
+    ident        'ArrayPrelu...'   Identifier          tok=  27  pos= 630
+    =            '='               OpEquality          tok=  29  pos= 643
+    begin        <virt>            KWBegin             tok=virt  pos=1178
+      Val:
+        val      'val'             KWVal               tok=  57  pos=1178
+        inline   'inline'          KWInline            tok=  59  pos=1182
+        Ident    'NewArray'        Identifier          tok=  61  pos=1189
+        :        ':'               OpColon             tok=  62  pos=1197
+        arg      'count'           Identifier          tok=  64  pos=1199
+        :        ':'               OpColon             tok=  65  pos=1204
+        NamedType:
+          Ident  'int'             Identifier          tok=  67  pos=1206
+        ->       '->'              OpArrowRight        tok=  69  pos=1210
+        ArrayType:
+          VarType:
+            Typar.Named:
+                 ''T'              TypeParameter       tok=  71  pos=1213
+                 '['               KWLBracket          tok=  72  pos=1215
+                 ']'               KWRBracket          tok=  73  pos=1216
+    end          <virt>            KWEnd               tok=virt  pos=1218

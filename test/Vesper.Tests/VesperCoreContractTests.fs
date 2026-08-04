@@ -133,8 +133,10 @@ let vesperArrayContractTests =
     testList
         "VesperArrayContract"
         [
+            test "Parsing array-prelude.fsi" { testParseSignatureFile (arrayPath "array-prelude.fsi") }
+            test "Parsing array-prelude.clr.fs" { testParseFile (arrayPath "array-prelude.clr.fs") }
             test "Parsing array.fsi" { testParseSignatureFile (arrayPath "array.fsi") }
-            test "Parsing array.clr.fs" { testParseFile (arrayPath "array.clr.fs") }
+            test "Parsing array.fs" { testParseFile (arrayPath "array.fs") }
         ]
 
 /// Vesper.Seq — standalone package (one package per module) adding the `Seq`

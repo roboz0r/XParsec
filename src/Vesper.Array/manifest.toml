@@ -3,13 +3,38 @@ name = "Vesper.Array"
 description = "The Array module over the intrinsic 'T[] type (zeroCreate, get/set, map/iter/fold, ...)."
 depends-on = ["Vesper.Core"]
 
-# Contract `.fsi` files in compile order (one, today).
+# Contract `.fsi` files in compile order. `array-prelude.fsi` first: `array.fs`'s
+# `zeroCreate` splices its `NewArray`.
 files = [
+    "array-prelude.fsi",
     "array.fsi",
 ]
 
+# NO shared `impl`, though `array.fs` is target-neutral and named by both lists below.
+# Inherited lists append AFTER the shared ones, so a shared entry here would put `array.fs`
+# BEFORE the prelude it splices — the same declaration-order reason `Vesper.Core` repeats
+# `ops-std.fs` per target rather than sharing it.
+#
+# The split is the point: inline IL lives ONLY in per-target files, tree-wide, and
+# `array.fs` is the module proper with none of it. The two prelude bodies are identical
+# today (as `GetArray` / `SetArray` / `GetArrayLength` already are across the two
+# `ops-platform` bodies) because `newarr` is a named IR node BOTH backends implement — the
+# JS one emits `Array(n).fill(null)`. Identical is not the same as shared: this is where a
+# divergence would go.
+
 [targets.clr]
-# CLR-bound: `zeroCreate`'s `newarr` inline IL. No JS body ships yet.
 impl = [
-    "array.clr.fs",
+    "array-prelude.clr.fs",
+    "array.fs",
 ]
+
+[targets.js]
+impl = [
+    "array-prelude.js.fs",
+    "array.fs",
+]
+
+# JS runtime *asset*: the `Array` module functions a consumer imports and ships beside its
+# output. GENERATED from `array.fs`, not hand-authored; regenerable via the codegen-js
+# test suite.
+runtime = ["Vesper.Array.mjs"]

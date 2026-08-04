@@ -527,7 +527,7 @@ module internal ElaborateExpr =
         // so the element is recovered from the node's declared types — `newarr`'s
         // result is the array (`elem` = its argument), `ldelem`'s result IS the
         // element. The mnemonics ORIGINATE in per-target library source
-        // (`array.clr.fs`'s `zeroCreate`, `ops-platform.clr.fs`'s `GetArray`), so this is
+        // (`array.fs`'s `zeroCreate`, `ops-platform.clr.fs`'s `GetArray`), so this is
         // interpreting source IL, not inventing it. The mnemonic is normalised
         // (`ldelem.any` → `ldelem`) to the form codegen's emit arm reads.
         if opCode.StartsWith "newarr" then
