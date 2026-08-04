@@ -296,3 +296,8 @@ module Attributes =
     /// canonical short names live in exactly one place).
     let decodeClassAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) =
         AttributeDecode.decodeClassAttributes ctx.NameOf attrs
+
+    /// `[<Global>]` on a module-level binding: the value IS a target global, so no
+    /// definition is emitted for it and a reference emits its bare name with no import.
+    let decodeGlobal (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : bool =
+        AttributeDecode.decodeGlobal ctx.NameOf attrs

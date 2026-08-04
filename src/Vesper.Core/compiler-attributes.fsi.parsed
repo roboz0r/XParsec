@@ -350,4 +350,45 @@ namespace                 'namespace'       KWNamespace         tok=   0  pos=  
           ->              '->'              OpArrowRight        tok= 503  pos=4184
           NamedType:
             Ident         'NoComparis...'   Identifier          tok= 505  pos=4187
-      end                 <virt>            KWEnd               tok=virt  pos=4209
+      end                 <virt>            KWEnd               tok=virt  pos=4787
+  Type:
+    type                  'type'            KWType              tok= 548  pos=4894
+    TypeSig.Anon:
+      [<                  '[<'              KWLAttrBracket      tok= 522  pos=4787
+      NamedType:
+        Ident             'AttributeU...'   Identifier          tok= 523  pos=4789
+      ParenBlock          '('               KWLParen            tok= 524  pos=4803
+        Tuple:
+          InfixApp        '|||'             op_BitwiseOr        tok= 529  pos=4830
+            LongIdentOrOp:
+              LongIdent:
+                          'AttributeT...'   Identifier          tok= 525  pos=4804
+                          'Property'        Identifier          tok= 527  pos=4821
+            LongIdentOrOp:
+              LongIdent:
+                          'AttributeT...'   Identifier          tok= 531  pos=4834
+                          'Field'           Identifier          tok= 533  pos=4851
+          InfixApp        '='               OpEquality          tok= 538  pos=4872
+            Ident         'AllowMulti...'   Identifier          tok= 536  pos=4858
+            Const         'false'           KWFalse             tok= 540  pos=4874
+                          ')'               KWRParen            tok= 541  pos=4879
+      >]                  '>]'              KWRAttrBracket      tok= 542  pos=4880
+      [<                  '[<'              KWLAttrBracket      tok= 544  pos=4883
+      NamedType:
+        Ident             'Sealed'          Identifier          tok= 545  pos=4885
+      >]                  '>]'              KWRAttrBracket      tok= 546  pos=4891
+      TypeName            'GlobalAttr...'   Identifier          tok= 550  pos=4899
+      =                   '='               OpEquality          tok= 552  pos=4915
+      begin               <virt>            KWBegin             tok=virt  pos=4921
+        inherit           'inherit'         KWInherit           tok= 555  pos=4921
+        NamedType:
+          Ident           'Attribute'       Identifier          tok= 557  pos=4929
+        Constructor:
+          new             'new'             KWNew               tok= 564  pos=5008
+          :               ':'               OpColon             tok= 565  pos=5011
+          NamedType:
+            Ident         'unit'            Identifier          tok= 567  pos=5013
+          ->              '->'              OpArrowRight        tok= 569  pos=5018
+          NamedType:
+            Ident         'GlobalAttr...'   Identifier          tok= 571  pos=5021
+      end                 <virt>            KWEnd               tok=virt  pos=5037

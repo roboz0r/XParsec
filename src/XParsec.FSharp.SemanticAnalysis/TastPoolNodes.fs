@@ -701,9 +701,15 @@ module BinderNaming =
 /// a new `TDecl`/`DeclShape` case fails to compile at `declPayload`/`substituteDecl`.
 [<RequireQualifiedAccess>]
 type DeclPayload =
-    /// The binding is the sole pat child, its value the sole expr child; `IsInline`/`Ty`
-    /// (the binding's declared slot type) are the residual scalars.
-    | Let of {| IsInline: bool; Ty: FrozenType |}
+    /// The binding is the sole pat child, its value the sole expr child;
+    /// `IsInline`/`IsGlobal`/`Ty` (the binding's declared slot type) are the residual
+    /// scalars.
+    | Let of
+        {|
+            IsInline: bool
+            IsGlobal: bool
+            Ty: FrozenType
+        |}
     /// The decl's declared type; the body is the sole expr child.
     | Expression of FrozenType
     /// The `type` declaration's shape, its seven body slots holding pool ids rather than

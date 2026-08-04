@@ -274,7 +274,7 @@ module TSpecializationG =
         (entry: TSpecializationG<'ty, 'tok, 'id>)
         : TPatG<'ty, 'tok, 'id> * TExprG<'ty, 'tok, 'id> =
         match entry.Decl with
-        | TDeclG.Let(pat, value, _, _) -> pat, value
+        | TDeclG.Let(pat, value, _, _, _) -> pat, value
         | other ->
             let (SpecializationId i) = spec
             failwithf "TSpecialization: specialization %d is not a `TDecl.Let`: %A" i other

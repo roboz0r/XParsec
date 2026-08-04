@@ -53,6 +53,7 @@ let tests =
                                                   _,
                                                   _),
                                      true,
+                                     _,
                                      _) ] when SymbolKeyOps.simpleName key = DisplayName "int" ->
                     Expect.equal clauses.Length 3 "three when-clauses, in source order"
 
@@ -87,6 +88,7 @@ let tests =
                 | EqList [ TDecl.Let(_,
                                      TExpr.Lambda(_, TExpr.StaticOptimization(EqList [ clause ], _, _, _), _, _),
                                      true,
+                                     _,
                                      _) ] ->
                     match clause.Constraints with
                     | EqList [ TStaticOptConstraint.TyconEquals(TyTypar(axisA, iA), TyTypar(axisB, iB)) ] ->

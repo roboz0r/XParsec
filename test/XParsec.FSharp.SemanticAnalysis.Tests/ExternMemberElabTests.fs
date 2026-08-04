@@ -86,7 +86,7 @@ let tests =
                     EqArray.toList tast.Decls
                     |> List.tryPick (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, _, _, ty) -> Some ty
+                        | TDecl.Let(TPat.NamedSimple _, _, _, _, ty) -> Some ty
                         | _ -> None
                     )
 
@@ -150,7 +150,7 @@ let tests =
                     EqArray.toList tast.Decls
                     |> List.tryPick (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, _, _, ty) -> Some ty
+                        | TDecl.Let(TPat.NamedSimple _, _, _, _, ty) -> Some ty
                         | _ -> None
                     )
 

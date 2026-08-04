@@ -50,7 +50,7 @@ let tests =
                     // arithmetic lowering is covered elsewhere. This test's anchor is
                     // the Format hole's `Var` resolving to the let-bound NodeKey.
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(kx, _, _), _, false, _)
+                    | EqList [ TDecl.Let(TPat.NamedSimple(kx, _, _), _, false, _, _)
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _, _)) ] ->

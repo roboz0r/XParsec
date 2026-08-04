@@ -137,7 +137,13 @@ module TastPools =
     /// be interned without being rewritten.
     let private declPayload (sink: PoolSink<'tok, 'id>) (d: TDeclG<FrozenType, 'tok, 'id>) : DeclPayload =
         match d with
-        | TDeclG.Let(isInline = isInline; ty = ty) -> DeclPayload.Let {| IsInline = isInline; Ty = ty |}
+        | TDeclG.Let(isInline = isInline; isGlobal = isGlobal; ty = ty) ->
+            DeclPayload.Let
+                {|
+                    IsInline = isInline
+                    IsGlobal = isGlobal
+                    Ty = ty
+                |}
         | TDeclG.Expression(ty = ty) -> DeclPayload.Expression ty
         | TDeclG.Type td ->
             DeclPayload.Type(

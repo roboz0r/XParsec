@@ -460,6 +460,7 @@ module FrozenCodec =
         | DeclPayload.Let p ->
             w.Write 0uy
             w.Write p.IsInline
+            w.Write p.IsGlobal
             writeTypeRef w p.Ty
         | DeclPayload.Expression ty ->
             w.Write 1uy
@@ -472,8 +473,15 @@ module FrozenCodec =
         match r.ReadByte() with
         | 0uy ->
             let isInline = r.ReadBoolean()
+            let isGlobal = r.ReadBoolean()
             let ty = readTypeRef r
-            DeclPayload.Let {| IsInline = isInline; Ty = ty |}
+
+            DeclPayload.Let
+                {|
+                    IsInline = isInline
+                    IsGlobal = isGlobal
+                    Ty = ty
+                |}
         | 1uy -> DeclPayload.Expression(readTypeRef r)
         | 2uy -> DeclPayload.Type(readTypeDecl r)
         | b -> failwithf "FrozenCodec: unknown DeclPayload tag %d" b

@@ -1060,45 +1060,9 @@ module EmitJs =
         let expansion =
             InlineExpand.expand ctx0.Pool (TastAccessor.roots ctx0.Pool |> List.ofArray)
 
-        // Two shapes of COMPILE-TIME ALIAS, dropped before anything reads a decl so no
-        // table registers one either.
+        // Two shapes DECLARED to be the target's own, dropped before anything reads a decl
+        // so no table registers one either.
         let intrinsicReprs = TastPoolBuilder.intrinsicReprKeys ctx0.Pool
-
-        // Was this node WRITTEN in the file being emitted, rather than spliced in from a
-        // producer? A copied node keeps the producer's origin, so the origin decides.
-        let ownFile = TastPoolBuilder.origin ctx0.Pool
-
-        let writtenHere (e: TastAccessor.ExprId) : bool =
-            match expansion.Origins.TryGetValue e with
-            | true, origin -> origin.File = ownFile
-            | _ -> true
-
-        // The COMPILE-TIME ALIAS a zero-operand intrinsic binding is, made checkable: the
-        // file WROTE it (`let undefined = (# "undefined" #)` — a binding whose body is a
-        // spliced intrinsic, `let u = undefined` or `let absent = Unchecked.defaultof<_>`,
-        // is an ordinary definition of that value), and nothing reads it any more, every
-        // reference having spliced the body. Only then is there nothing to define — and a
-        // definition would restate the target's own global, `const undefined = undefined`,
-        // which cannot even initialise. A same-file reference is a `Var` no splice touched
-        // (`emptyDocs`), so such a binding is live and stays.
-        let isIntrinsicAlias (d: TastAccessor.DeclId) : bool =
-            let dl = TastAccessor.declLet d
-
-            match dl.Binding with
-            | TastAccessor.PNamed k ->
-                TastAccessor.exprKind dl.Value = ExprShape.ILIntrinsic
-                && Array.isEmpty (TastAccessor.exprChildren dl.Value)
-                && writtenHere dl.Value
-                && not (
-                    expansion.Decls
-                    |> List.exists (fun other ->
-                        match TastAccessor.declKind other with
-                        | DeclShape.Expression -> readsBinder k (TastAccessor.declExpression other)
-                        | DeclShape.Let -> readsBinder k (TastAccessor.declLet other).Value
-                        | DeclShape.Type -> false
-                    )
-                )
-            | _ -> false
 
         let decls =
             expansion.Decls
@@ -1108,7 +1072,11 @@ module EmitJs =
                 // `int` IS `number` on the target, and the `inline` operator members it
                 // carries are splice templates a use site expands, not exports.
                 | DeclShape.Type -> not (intrinsicReprs.ContainsKey (TastAccessor.declType d).Key)
-                | DeclShape.Let -> not (isIntrinsicAlias d)
+                // `[<Global>]` declares the value to BE a target global (`undefined`), so
+                // there is nothing to define: a definition would restate the global and,
+                // being self-referential, could not initialise. References emit the bare
+                // name — the intrinsic the front end splices at each of them.
+                | DeclShape.Let -> not (TastAccessor.declLet d).IsGlobal
                 | DeclShape.Expression -> true
             )
 

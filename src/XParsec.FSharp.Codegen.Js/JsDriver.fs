@@ -80,6 +80,10 @@ module JsDriver =
             // reversing before composing puts the NEAREST first — the same layering the
             // analysis ran under.
             let mutable priorViews: IExternalSymbolProvider list = []
+            // The retention grows WITH the views, because they are halves of one contract: a
+            // prior file that serves a body is a producer like any package, and a node spliced
+            // out of it stays readable only against that file's own text.
+            let mutable origins = contract.Origins
             let emitted = ResizeArray<JsPackageModule>()
 
             for file in analysed do
@@ -88,6 +92,7 @@ module JsDriver =
                 let scoped =
                     { contract with
                         Provider = ExternalSymbolProviders.composite ((List.rev priorViews) @ [ contract.Provider ])
+                        Origins = origins
                     }
 
                 let project =
@@ -117,6 +122,7 @@ module JsDriver =
                         }
 
                 priorViews <- file.View :: priorViews
+                origins <- OriginSources.add file.Source origins
 
             let modules = List.ofSeq emitted
 

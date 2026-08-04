@@ -272,8 +272,11 @@ let tests =
                 // (the `(# \"ceq\" … #)` per-primitive clauses + the fall-clause base).
                 let isStaticOptInline =
                     function
-                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization _, _, _), _, _), true, _) ->
-                        true
+                    | TDeclG.Let(_,
+                                 TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization _, _, _), _, _),
+                                 true,
+                                 _,
+                                 _) -> true
                     | _ -> false
 
                 Expect.isTrue (isStaticOptInline inlines.["op_Equality"].Decl) "op_Equality is a static-opt inline"

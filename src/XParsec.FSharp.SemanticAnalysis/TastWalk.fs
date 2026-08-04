@@ -1024,7 +1024,7 @@ module TastWalk =
 
         for d in decls do
             match d with
-            | TDecl.Let(p, v, _, _) ->
+            | TDecl.Let(p, v, _, _, _) ->
                 iterPat it p
                 iterExpr it v
             | TDecl.Expression(e, _) -> iterExpr it e

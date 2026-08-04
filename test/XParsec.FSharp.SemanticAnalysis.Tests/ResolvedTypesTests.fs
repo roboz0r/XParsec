@@ -80,6 +80,7 @@ let tests =
                             TPat.NamedSimple(NodeKey(0UL), freeTy, dummyTok),
                             TExpr.Const(TConstValue.Unit, freeTy, dummyTok),
                             false,
+                            false,
                             freeTy
                         )
                     ]
@@ -126,7 +127,7 @@ let tests =
 
                 let idKey =
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) ] -> k
+                    | EqList [ TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _, _) ] -> k
                     | _ -> failwithf "expected single NamedSimple decl, got %A" tast.Decls
 
                 let scheme = ctx.Bindings.Scheme.TryGetValue idKey
@@ -146,6 +147,7 @@ let tests =
                                     TDecl.Let(
                                         TPat.NamedSimple(idKey, ty, dummyTok),
                                         TExpr.Const(TConstValue.Unit, ty, dummyTok),
+                                        false,
                                         false,
                                         ty
                                     )
@@ -189,7 +191,7 @@ let tests =
                         Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText src lexed) file
 
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(_, ty, _), _, _, _) ] -> ty
+                    | EqList [ TDecl.Let(TPat.NamedSimple(_, ty, _), _, _, _, _) ] -> ty
                     | other -> failwithf "expected a single annotated let, got %A" other
 
                 Expect.equal

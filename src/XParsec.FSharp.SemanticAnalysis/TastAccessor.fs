@@ -1013,6 +1013,7 @@ module TastAccessor =
                     Binding = declPatChild d 0
                     Value = declExprChild d 0
                     IsInline = p.IsInline
+                    IsGlobal = p.IsGlobal
                     Ty = p.Ty
                 }
         | _ -> ValueNone
@@ -1230,7 +1231,8 @@ module TastAccessor =
     let mintTuplePat (pool: PoolBuilder) (items: PatId[]) (ty: FrozenType) (tok: Anchor) : PatId =
         mintPat pool ty tok (items |> Array.map (fun i -> i.Id)) PatPayload.Tuple
 
-    /// A top-level `let binding = value` declaration.
+    /// A top-level `let binding = value` declaration. `IsGlobal` is a DECLARATION
+    /// (`[<Global>]` on a source binding), and nothing minted here is one.
     let mintLetDecl (binding: PatId) (value: ExprId) (isInline: bool) (ty: FrozenType) : DeclId =
         {
             Pool = value.Pool
@@ -1240,7 +1242,13 @@ module TastAccessor =
                     {
                         ExprChildren = [| value.Id |]
                         PatChildren = [| binding.Id |]
-                        Payload = DeclPayload.Let {| IsInline = isInline; Ty = ty |}
+                        Payload =
+                            DeclPayload.Let
+                                {|
+                                    IsInline = isInline
+                                    IsGlobal = false
+                                    Ty = ty
+                                |}
                     }
         }
 

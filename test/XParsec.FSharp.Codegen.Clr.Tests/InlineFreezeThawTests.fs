@@ -148,7 +148,7 @@ let private frozenLetDecl (src: string) : Wire.TDecl =
     pools.Roots
     |> Array.tryPick (fun r ->
         match TastPoolBuilder.declTree pool r with
-        | TDeclG.Let(TPatG.NamedSimple _, _, _, _) as d -> Some d
+        | TDeclG.Let(TPatG.NamedSimple _, _, _, _, _) as d -> Some d
         | _ -> None
     )
     |> Option.defaultWith (fun () -> failtestf "no top-level `let` in the frozen tree of:\n%s" src)
@@ -262,7 +262,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
         |> List.map (fun (key, body) ->
             let declTy =
                 match body.Decl with
-                | TDeclG.Let(_, _, _, ty) -> ty
+                | TDeclG.Let(_, _, _, _, ty) -> ty
                 | other -> failtestf "a published body is not a `let`: %A" other
 
             let binding =
@@ -314,7 +314,7 @@ let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : in
         match e with
         | TExprG.InlineCall(spec = SpecializationId i) ->
             match tast.Specializations.[i].Decl with
-            | TDeclG.Let(_, value, _, _) -> result value
+            | TDeclG.Let(_, value, _, _, _) -> result value
             | other -> failtestf "an entry is a `TDecl.Let` of lambdas; got %A" other
         | TExprG.Lambda(_, body, _, _)
         | TExprG.Let(_, _, body, _, _) -> result body
@@ -322,7 +322,7 @@ let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : in
         | other -> failtestf "expected `r` to reduce to a resolved constant, got %A" other
 
     match EqArray.tryLast tast.Decls with
-    | ValueSome(TDeclG.Let(_, value, _, _)) -> result value
+    | ValueSome(TDeclG.Let(_, value, _, _, _)) -> result value
     | _ -> failtestf "expected a trailing `let r = …`, got %A" (EqArray.toList tast.Decls)
 
 [<Tests>]
@@ -395,7 +395,7 @@ let tests =
 
                 let clauses, resultTy =
                     match published.Body.Decl with
-                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.StaticOptimization(cls, _, resultTy, _), _, _), _, _) ->
+                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.StaticOptimization(cls, _, resultTy, _), _, _), _, _, _) ->
                         EqArray.toList cls, resultTy
                     | other -> failtestf "freeze lost the static-opt shape: %A" other
 
@@ -429,7 +429,7 @@ let tests =
 
                 let declTy =
                     match fDecl with
-                    | TDeclG.Let(_, _, _, ty) -> ty
+                    | TDeclG.Let(_, _, _, _, ty) -> ty
                     | _ -> failtest "unreachable"
 
                 // `g`'s `'x` and `h`'s `'y` are each bound by their OWN local scheme, so

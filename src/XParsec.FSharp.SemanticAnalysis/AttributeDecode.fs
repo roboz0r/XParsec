@@ -43,6 +43,11 @@ module AttributeDecode =
     let private requireQualifiedAccessNames =
         [ "RequireQualifiedAccess"; "RequireQualifiedAccessAttribute" ]
 
+    /// `[<Global>]` declares a module-level value to BE a target global (JS
+    /// `undefined`): no definition is emitted for it and a reference emits its bare
+    /// name, from any file, with no import.
+    let private globalNames = [ "Global"; "GlobalAttribute" ]
+
     /// Decoded class-shaping attributes. `IsSealed` flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`;
     /// `AllowNullLiteral` is consumed only by the front end (Unification's
@@ -117,10 +122,14 @@ module AttributeDecode =
                 IsByRefLike = isByRefLike
             }
 
-    /// True iff the attribute sets carry `[<RequireQualifiedAccess>]`. Shares the
+    /// True iff the attribute sets carry one of `names`. Shares the
     /// `attributeShortName` short-name rule with `decodeClassAttributes` so the
     /// name-resolution pass (`ctx.NameOf`) and any other decoder agree on the leaf.
-    let decodeRequireQualifiedAccess (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
+    let private hasAttribute
+        (names: string list)
+        (nameOf: SyntaxToken -> string)
+        (attrs: Attributes<SyntaxToken> voption)
+        : bool =
         match attrs with
         | ValueNone -> false
         | ValueSome sets ->
@@ -134,7 +143,15 @@ module AttributeDecode =
                         | InterfaceConstruction(typ = t) -> t
 
                     match attributeShortName nameOf attrTy with
-                    | ValueSome n when List.contains n requireQualifiedAccessNames -> found <- true
+                    | ValueSome n when List.contains n names -> found <- true
                     | _ -> ()
 
             found
+
+    /// True iff the attribute sets carry `[<RequireQualifiedAccess>]`.
+    let decodeRequireQualifiedAccess (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
+        hasAttribute requireQualifiedAccessNames nameOf attrs
+
+    /// True iff the attribute sets carry `[<Global>]`.
+    let decodeGlobal (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
+        hasAttribute globalNames nameOf attrs

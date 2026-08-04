@@ -99,3 +99,18 @@ type NoComparisonAttribute =
 
     /// <summary>Creates an instance of the attribute</summary>
     new: unit -> NoComparisonAttribute
+
+/// <summary>Adding this attribute to a module-level value declares that the value IS a
+/// global of the target runtime (JS <c>undefined</c>), not a definition of our own. Two
+/// consequences: no definition is emitted for the binding — one would restate the
+/// global, and being self-referential could not even initialise — and a reference emits
+/// the bare name from any file, with no import. The binding's body must be exactly one
+/// zero-operand intrinsic template naming that global, or compilation fails. A JS-target
+/// marker; the CLR backend ignores it.</summary>
+[<AttributeUsage(AttributeTargets.Property ||| AttributeTargets.Field, AllowMultiple = false)>]
+[<Sealed>]
+type GlobalAttribute =
+    inherit Attribute
+
+    /// <summary>Creates an instance of the attribute</summary>
+    new: unit -> GlobalAttribute

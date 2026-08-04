@@ -173,6 +173,42 @@ type IShape =
                     Expect.equal actual "object" "the barrel resolves to a module namespace object"
             }
 
+            // `[<Global>]` is what makes a target global survive the per-file split: the
+            // declaring file emits no definition (so it emits no module at all), and a
+            // reference from a sibling cannot import from a module that does not exist.
+            test "a [<Global>] value emits no definition and a cross-file use imports nothing" {
+                let declaring =
+                    "\
+namespace Test.Pkg
+
+module Ambient =
+    [<Global>]
+    let globalThis: string = (# \"globalThis\" : string #)
+"
+
+                let consuming =
+                    "\
+namespace Test.Pkg
+
+module Reader =
+    open Test.Pkg.Ambient
+
+    let here () : string = globalThis
+"
+
+                let pkg = compilePackage [ "ambient.fs", declaring; "reader.fs", consuming ]
+
+                Expect.equal
+                    (pkg.Modules |> List.map (fun m -> m.FileName))
+                    [ "reader.mjs" ]
+                    "the declaring file defines nothing, so it contributes no module"
+
+                let js = sourceOf pkg "reader.mjs"
+
+                Expect.isFalse (js.Contains "import") (sprintf "a global pulls in no import, got:\n%s" js)
+                Expect.stringContains js "globalThis" (sprintf "the bare global name is emitted, got:\n%s" js)
+            }
+
             test "the emitted package runs under Node through its barrel" {
                 let pkg = compilePackage [ "shapes.fs", declaringFile; "use.fs", consumingFile ]
 

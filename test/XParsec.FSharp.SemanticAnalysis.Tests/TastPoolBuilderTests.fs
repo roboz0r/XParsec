@@ -299,11 +299,15 @@ let rowCopyTests =
                 let expected =
                     match original with
                     | TDeclG.Let(
-                        binding = binding; value = TExprG.Tuple(items, ty, tok); isInline = isInline; ty = declTy) ->
+                        binding = binding
+                        value = TExprG.Tuple(items, ty, tok)
+                        isInline = isInline
+                        isGlobal = isGlobal
+                        ty = declTy) ->
                         let reversed =
                             TExprG.Tuple(items |> EqArray.toArray |> Array.rev |> EqArray.ofArray, ty, tok)
 
-                        TDeclG.Let(binding, reversed, isInline, declTy)
+                        TDeclG.Let(binding, reversed, isInline, isGlobal, declTy)
                     | _ -> failtest "the decl is not a `let` over a Tuple"
 
                 // Unpooled through `declTree`: the derived decl is a node like any other,

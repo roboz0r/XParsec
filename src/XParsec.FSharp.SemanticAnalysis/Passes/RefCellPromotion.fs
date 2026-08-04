@@ -59,7 +59,7 @@ module RefCellPromotion =
 
         for d in decls do
             match d with
-            | TDecl.Let(_, value, _, _) ->
+            | TDecl.Let(_, value, _, _, _) ->
                 // Only NESTED `let mutable` binders (reached by `iter` over the value)
                 // are promotion candidates. A top-level binder is deliberately NOT
                 // `considerPat`ed: a module-level mutable is not a heap cell — it is a
@@ -141,12 +141,12 @@ module RefCellPromotion =
 
     let private rewriteDecl (promote: IReadOnlyDictionary<NodeKey, SemType>) (d: TDecl) : TDecl =
         match d with
-        | TDecl.Let(pat, value, isInline, ty) ->
+        | TDecl.Let(pat, value, isInline, isGlobal, ty) ->
             // A top-level binder is never in `promote` (`collectPromotions` skips it —
             // module-level mutables are static fields / ambient reassignable lets, not
             // heap cells), so the pattern's type is unchanged; the rewrite reaches any
             // inner `let mutable` through the value's expression tree.
-            TDecl.Let(pat, rewriteExpr promote value, isInline, ty)
+            TDecl.Let(pat, rewriteExpr promote value, isInline, isGlobal, ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(rewriteExpr promote e, ty)
         | TDecl.Type _ -> d
 

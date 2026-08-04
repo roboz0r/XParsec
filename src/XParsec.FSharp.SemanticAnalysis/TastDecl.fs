@@ -87,8 +87,9 @@ type ClassValueKind =
 [<RequireQualifiedAccess>]
 type TDeclG<'ty, 'tok, 'id> =
     /// `isInline` lets codegen expand the body per call site via `Inline.inlineExpand`
-    /// rather than emit a single callable.
-    | Let of binding: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * ty: 'ty
+    /// rather than emit a single callable. `isGlobal` (`[<Global>]`) says the value IS a
+    /// target global: no definition is emitted, and a reference is its bare name.
+    | Let of binding: TPatG<'ty, 'tok, 'id> * value: TExprG<'ty, 'tok, 'id> * isInline: bool * isGlobal: bool * ty: 'ty
     | Expression of expr: TExprG<'ty, 'tok, 'id> * ty: 'ty
     | Type of TTypeDeclG<'ty, 'tok, 'id, TExprG<'ty, 'tok, 'id>>
 

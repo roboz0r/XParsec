@@ -343,11 +343,17 @@ module InlineSpecTable =
                     {
                         Key = o.Grounding.Key
                         Origin = o.Origin
-                        // The binder is unread — every consumer matches
-                        // `TDecl.Let(_, value, _, _)` — so it is minted rather than
-                        // taken from anything, exactly as a lifted member body's is.
+                        // The binder is unread — every consumer matches on the VALUE
+                        // alone — so it is minted rather than taken from anything,
+                        // exactly as a lifted member body's is.
                         Decl =
-                            TDecl.Let(TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value), value, true, declTy)
+                            TDecl.Let(
+                                TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value),
+                                value,
+                                true,
+                                false,
+                                declTy
+                            )
                     }
 
             // INTERNED only once BUILT: `Interned` is the reuse pool, and reuse is a decision

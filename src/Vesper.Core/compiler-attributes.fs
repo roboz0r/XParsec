@@ -31,3 +31,7 @@ type CustomComparisonAttribute() =
 [<Sealed>]
 type NoComparisonAttribute() =
     inherit Attribute()
+
+[<Sealed>]
+type GlobalAttribute() =
+    inherit Attribute()

@@ -16,13 +16,13 @@ let private analyse (input: string) : PassContext * TastFile =
 /// The trailing `let`'s binder NodeKey (its declared/inferred query target).
 let private lastBinderKey (tast: TastFile) : NodeKey =
     match tast.Decls.[tast.Decls.Length - 1] with
-    | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> k
+    | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _, _) -> k
     | other -> failwithf "expected a trailing let-binder, got %A" other
 
 /// The trailing `let f <param> = …`'s single lambda-parameter NodeKey.
 let private lastParamKey (tast: TastFile) : NodeKey =
     match tast.Decls.[tast.Decls.Length - 1] with
-    | TDecl.Let(_, TExpr.Lambda(TPat.NamedSimple(k, _, _), _, _, _), _, _) -> k
+    | TDecl.Let(_, TExpr.Lambda(TPat.NamedSimple(k, _, _), _, _, _), _, _, _) -> k
     | other -> failwithf "expected a trailing single-param function, got %A" other
 
 /// The binder's LIVE (un-zonked) type — the graph `HasInferenceHoleIn` must read.

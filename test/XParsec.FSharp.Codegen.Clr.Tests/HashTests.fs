@@ -57,6 +57,7 @@ let tests =
                                   spec = spec
                                   args = EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _) ]),
                               false,
+                              _,
                               _) ] ->
                     match specializationValue tast spec with
                     | TExpr.Lambda(_,

@@ -31,6 +31,7 @@ let tests =
                                                   _,
                                                   _),
                                      true,
+                                     _,
                                      _) ] when SymbolKeyOps.simpleName key = DisplayName "bool" ->
                     match args with
                     | EqList [ TExpr.Var _; TExpr.Var _ ] -> ()

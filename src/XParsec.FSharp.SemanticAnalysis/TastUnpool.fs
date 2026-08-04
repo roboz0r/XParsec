@@ -237,7 +237,7 @@ module TastUnpool =
         (ps: TPatG<FrozenType, Anchor, 'id>[])
         : TDeclG<FrozenType, Anchor, 'id> =
         match payload with
-        | DeclPayload.Let p -> TDeclG.Let(ps.[0], es.[0], p.IsInline, p.Ty)
+        | DeclPayload.Let p -> TDeclG.Let(ps.[0], es.[0], p.IsInline, p.IsGlobal, p.Ty)
         | DeclPayload.Expression ty -> TDeclG.Expression(es.[0], ty)
         | DeclPayload.Type td ->
             TDeclG.Type(

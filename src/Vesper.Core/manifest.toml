@@ -102,7 +102,7 @@ files = [
     "array-index.js.fsi",
 ]
 
-# Deliberately impl-free ON JS. All 8 types are compile-time markers the front end reads
+# Deliberately impl-free ON JS. All 9 types are compile-time markers the front end reads
 # off the `.fsi`; their CLR `.fs` bodies exist because CLR metadata cannot reference a
 # type that has no TypeDef, which is not a constraint JS has. So they are fully ERASED
 # here — no `.mjs` residue, no decorator. (Runtime-retrievable attribute DATA, if it ever

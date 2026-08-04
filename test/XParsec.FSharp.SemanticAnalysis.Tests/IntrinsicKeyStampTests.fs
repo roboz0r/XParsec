@@ -44,7 +44,7 @@ let private externalKey (name: string) (input: string) : SymbolKey voption optio
 
     for d in tast.Decls do
         match d with
-        | TDecl.Let(_, value, _, _) -> TastWalk.mapExpr mapper value |> ignore
+        | TDecl.Let(_, value, _, _, _) -> TastWalk.mapExpr mapper value |> ignore
         | _ -> ()
 
     found

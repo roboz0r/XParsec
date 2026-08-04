@@ -61,7 +61,7 @@ let specializationValue (tast: TastFile) (spec: SpecializationId) : TExpr =
     let (SpecializationId i) = spec
 
     match tast.Specializations.[i].Decl with
-    | TDecl.Let(_, value, _, _) -> value
+    | TDecl.Let(_, value, _, _, _) -> value
     | other -> failwithf "a specialization entry is a `TDecl.Let` of lambdas; got %A" other
 
 /// Read THROUGH an `InlineCall` edge to the body it names — the identity on anything else.
@@ -97,7 +97,7 @@ let rec iterThroughEdges (it: TastWalk.Iter) (tast: TastFile) (e: TExpr) : unit 
 let iterFileExprs (it: TastWalk.Iter) (tast: TastFile) : unit =
     let ofDecl (d: TDecl) =
         match d with
-        | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
+        | TDecl.Let(_, value, _, _, _) -> TastWalk.iterExpr it value
         | TDecl.Expression(e, _) -> TastWalk.iterExpr it e
         | TDecl.Type _ -> ()
 

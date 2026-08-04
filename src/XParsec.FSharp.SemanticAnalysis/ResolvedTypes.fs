@@ -125,7 +125,7 @@ module ResolvedTypes =
     /// identically.
     let declSite (d: TDecl) : Site =
         match d with
-        | TDecl.Let(TPat.NamedSimple(tok = tok), _, _, _) -> Site.ofToken tok
+        | TDecl.Let(TPat.NamedSimple(tok = tok), _, _, _, _) -> Site.ofToken tok
         | _ -> Site.Nowhere
 
     let private walkDecl (ctx: PassContext) (allowed: HashSet<TyVarId>) (d: TDecl) : unit =
@@ -133,7 +133,7 @@ module ResolvedTypes =
         let iter = buildIter ctx allowed acc
 
         match d with
-        | TDecl.Let(binding, value, _, ty) ->
+        | TDecl.Let(binding, value, _, _, ty) ->
             let added = pushScheme ctx binding allowed
             addFreeRoots ctx.Store allowed acc ty
             TastWalk.iterPat iter binding

@@ -31,7 +31,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(_, TExpr.Lambda(_, TExpr.Format(sink, segs, _, _), _, _), _, _) ] ->
+                | EqList [ TDecl.Let(_, TExpr.Lambda(_, TExpr.Format(sink, segs, _, _), _, _), _, _, _) ] ->
                     Expect.equal sink (FormatSink.ToStdOut true) "printfn → stdout with newline"
 
                     match EqArray.toList segs with

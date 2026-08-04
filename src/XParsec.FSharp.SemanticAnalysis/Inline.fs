@@ -58,7 +58,7 @@ module Inline =
     /// leaves it with no lowered definition.
     let nullaryIntrinsicValueBody (decl: TDecl) : TExpr voption =
         match decl with
-        | TDecl.Let(_, (TExpr.ILIntrinsic(_, _, args, _, _) as body), _, _) when args.Length = 0 -> ValueSome body
+        | TDecl.Let(_, (TExpr.ILIntrinsic(_, _, args, _, _) as body), _, _, _) when args.Length = 0 -> ValueSome body
         | _ -> ValueNone
 
     /// Quantified typars of an inline binding, in the canonical order codegen
@@ -277,7 +277,7 @@ module Inline =
     /// catch-all.
     let inlineExpand (ctx: PassContext) (decl: TDecl) (typeArgs: SemType[]) : TExpr * UnresolvedTrait list =
         match decl with
-        | TDecl.Let(_, value, _, declTy) ->
+        | TDecl.Let(_, value, _, _, declTy) ->
             let typars = quantifiedTypars ctx.Store declTy
             let subst = Dictionary<TyVarId, SemType>()
 
