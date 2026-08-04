@@ -93,9 +93,11 @@
     <Compile Include="TypeRegistry.fs" />
     <Compile Include="PassContext.fs" />
     <Compile Include="StringLiterals.fs" />
-    <Compile Include="Passes\Attributes.fs" />
     <Compile Include="Passes\Desugar.fs" />
     <Compile Include="Passes\NameResolution\TypeHeadStamp.fs" />
+    <!-- After the head-resolution engine: an attribute is decoded by RESOLVING its
+         long-ident as a type, not by matching its short name. -->
+    <Compile Include="Passes\Attributes.fs" />
     <Compile Include="Passes\Unification\EngineCore.fs" />
     <!-- Immediately after `zonk`, which every query here is asked through, and before any
          pass that asks one. It reads the engine core and the `SemType` shapes, nothing else. -->

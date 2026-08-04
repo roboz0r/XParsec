@@ -128,6 +128,35 @@ module RuntimeNames =
     let vesperPrintfFormatKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity intrinsicNamespace "PrintfFormat" 4
 
+    /// The `namespace Vesper` attribute classes of `compiler-attributes.fsi` — the whole
+    /// set the compiler attaches meaning to. A decode site recognises one by KEY equality
+    /// against these, so a user type of the same short name in another namespace names its
+    /// own attribute and cannot take the compiler's meaning over. The names are the
+    /// DECLARED, `Attribute`-suffixed ones; F#'s optional-suffix rule belongs where the
+    /// head is resolved, not to the identity.
+    ///
+    /// Honouring one more attribute is one more constant here plus the one consumer that
+    /// asks for it — never another decode arm.
+    let private attributeKey (name: string) : TypeKey =
+        SymbolKeyOps.typeKeyOf intrinsicNamespace name
+
+    let callAtMostOnceAttributeKey: TypeKey = attributeKey "CallAtMostOnceAttribute"
+
+    let structuralEqualityAttributeKey: TypeKey =
+        attributeKey "StructuralEqualityAttribute"
+
+    let structuralComparisonAttributeKey: TypeKey =
+        attributeKey "StructuralComparisonAttribute"
+
+    let referenceEqualityAttributeKey: TypeKey =
+        attributeKey "ReferenceEqualityAttribute"
+
+    let noEqualityAttributeKey: TypeKey = attributeKey "NoEqualityAttribute"
+    let customEqualityAttributeKey: TypeKey = attributeKey "CustomEqualityAttribute"
+    let noComparisonAttributeKey: TypeKey = attributeKey "NoComparisonAttribute"
+
+    let customComparisonAttributeKey: TypeKey = attributeKey "CustomComparisonAttribute"
+
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.clr.fs` as `type obj = (# "System.Object" #)`. The front end
     /// carries it as `TyConst("obj", _)` (what `translateType` produces); codegen as

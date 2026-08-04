@@ -5,11 +5,18 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 // Decode the small set of attributes that govern a record / union's equality AND comparison postures,
-// off the type's `TypeName.attributes` CST node. The decoder is intentionally
-// syntactic — F# attributes resolve by short name (with the `Attribute` suffix
-// optional) and a fully qualified path collapses to the same leaf, so matching
-// on the long-ident's last segment is what F# itself does for these BCL
-// attributes.
+// off the type's `TypeName.attributes` CST node. Each attribute's long-ident is
+// RESOLVED as a type — through the same local-claim-then-external engine every
+// other written type head goes through — and the resolved `TypeKey` is compared
+// against the `Vesper.Core` attribute identities in `RuntimeNames`. So a user type
+// named `ReferenceEqualityAttribute` in another namespace keeps its own meaning,
+// and a qualified path is honoured because it resolves, not because its leaf
+// happens to read right.
+//
+// A TYPE ABBREVIATION naming a marker (`type R = Vesper.ReferenceEqualityAttribute`;
+// `[<R>]`) resolves to the alias' OWN identity, so it is ignored — F# dealiases it.
+// Closing that needs the abbreviation body, which is not filled while a type
+// registers.
 //
 // Equality and comparison are independent axes: `[<StructuralEquality;
 // NoComparison>]` is a valid combination. Each `decode*Attributes` decoder
@@ -18,40 +25,6 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Attributes =
 
-    /// Canonical equality-relevant short names. `Attribute` is the F# suffix
-    /// rule (`StructuralEqualityAttribute` ≡ `StructuralEquality`), accepted on
-    /// either form.
-    let private structuralEqualityNames =
-        [ "StructuralEquality"; "StructuralEqualityAttribute" ]
-
-    let private referenceEqualityNames =
-        [ "ReferenceEquality"; "ReferenceEqualityAttribute" ]
-
-    let private noEqualityNames = [ "NoEquality"; "NoEqualityAttribute" ]
-
-    let private customEqualityNames = [ "CustomEquality"; "CustomEqualityAttribute" ]
-
-    /// Canonical comparison-relevant short names. `[<StructuralComparison>]`
-    /// opts a record / union INTO structural comparison (per
-    /// brainstorm-comparison §9 the default is opt-in); `[<NoComparison>]` is
-    /// explicit refusal. `[<CustomComparison>]` decodes to
-    /// `ComparisonVerdict.Custom` — no pair is synthesised; the user's
-    /// `CompareTo`/`IComparable<Self>` members are authoritative.
-    let private structuralComparisonNames =
-        [ "StructuralComparison"; "StructuralComparisonAttribute" ]
-
-    let private noComparisonNames = [ "NoComparison"; "NoComparisonAttribute" ]
-
-    let private customComparisonNames =
-        [ "CustomComparison"; "CustomComparisonAttribute" ]
-
-    /// The attribute "class" lives inside `ObjectConstruction.typ` as the
-    /// long-ident the user wrote; yield the last segment so we match the F#
-    /// resolution rule on short name. Pass-binding `PassContext.NameOf` to the
-    /// shared `AttributeDecode` resolver.
-    let private attributeShortName (ctx: PassContext) (typ: Type<SyntaxToken>) : string voption =
-        AttributeDecode.attributeShortName ctx.NameOf typ
-
     // Per-axis verdict resolution + the FS0382 / FS0377 attribute validation
     // lives in `validateEqCompAttributes` below (the single entry point for every
     // type-registration site). The old first-wins `decode*Attributes` decoders
@@ -59,8 +32,8 @@ module Attributes =
 
     /// The set of equality / comparison attributes PRESENT on a type, collected
     /// without first-wins short-circuiting so the mix validator (FS0377) can see
-    /// every contributing attribute. Each flag is `true` iff the corresponding
-    /// attribute short name appears in the type's `[<…>]` sets.
+    /// every contributing attribute. Each flag is `true` iff the type's `[<…>]`
+    /// sets carry an attribute RESOLVING to the corresponding `Vesper.Core` type.
     [<Struct>]
     type private EqCompAttrSet =
         {
@@ -73,45 +46,28 @@ module Attributes =
             CustomCmp: bool
         }
 
-        static member Empty =
-            {
-                StructuralEq = false
-                ReferenceEq = false
-                NoEq = false
-                CustomEq = false
-                StructuralCmp = false
-                NoCmp = false
-                CustomCmp = false
-            }
-
     /// Collect the FULL set of present equality / comparison attributes off a
     /// type's `[<…>]` sets — unlike `decode*Attributes`, no first-wins
     /// short-circuit, so a contradictory mix (`[<ReferenceEquality;
     /// StructuralEquality>]`) is visible to the FS0377 validator.
+    ///
+    /// `[<StructuralComparison>]` opts a record / union INTO structural comparison
+    /// (the default is opt-in); `[<NoComparison>]` is explicit refusal.
+    /// `[<CustomComparison>]` decodes to `ComparisonVerdict.Custom` — no pair is
+    /// synthesised; the user's `CompareTo` / `IComparable<Self>` members are
+    /// authoritative.
     let private collectEqCompAttrs (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : EqCompAttrSet =
-        match attrs with
-        | ValueNone -> EqCompAttrSet.Empty
-        | ValueSome sets ->
-            let mutable r = EqCompAttrSet.Empty
+        let a = NameResolutionTypeHeadStamp.resolveAttributes ctx attrs
 
-            for AttributeSet(attributes = entries) in sets do
-                for Attribute(construction = construction), _sep in entries do
-                    let attrTy =
-                        match construction with
-                        | ObjectConstruction(typ = t) -> t
-                        | InterfaceConstruction(typ = t) -> t
-
-                    match attributeShortName ctx attrTy with
-                    | ValueSome n when List.contains n structuralEqualityNames -> r <- { r with StructuralEq = true }
-                    | ValueSome n when List.contains n referenceEqualityNames -> r <- { r with ReferenceEq = true }
-                    | ValueSome n when List.contains n noEqualityNames -> r <- { r with NoEq = true }
-                    | ValueSome n when List.contains n customEqualityNames -> r <- { r with CustomEq = true }
-                    | ValueSome n when List.contains n structuralComparisonNames -> r <- { r with StructuralCmp = true }
-                    | ValueSome n when List.contains n noComparisonNames -> r <- { r with NoCmp = true }
-                    | ValueSome n when List.contains n customComparisonNames -> r <- { r with CustomCmp = true }
-                    | _ -> ()
-
-            r
+        {
+            StructuralEq = a.Has RuntimeNames.structuralEqualityAttributeKey
+            ReferenceEq = a.Has RuntimeNames.referenceEqualityAttributeKey
+            NoEq = a.Has RuntimeNames.noEqualityAttributeKey
+            CustomEq = a.Has RuntimeNames.customEqualityAttributeKey
+            StructuralCmp = a.Has RuntimeNames.structuralComparisonAttributeKey
+            NoCmp = a.Has RuntimeNames.noComparisonAttributeKey
+            CustomCmp = a.Has RuntimeNames.customComparisonAttributeKey
+        }
 
     /// The type-kind axis the equality / comparison attribute legality matrix
     /// (FS0382) keys on. `Struct` is any value type (`[<Struct>]`, `struct … end`,
@@ -239,32 +195,19 @@ module Attributes =
 
         eqVerdict, cmpVerdict
 
-    /// Canonical parameter-attribute short names. `[<CallAtMostOnce>]` marks an
-    /// inline parameter for call-by-name-at-its-single-use splicing (see
-    /// `ParamAttrs.CallAtMostOnce`). Extend this section as more special
-    /// parameter attributes are honoured (F# declares many — `InlineIfLambda`,
-    /// `CallerMemberName`, …): one name list + one decoder arm + one `ParamAttrs`
-    /// flag.
-    let private callAtMostOnceNames = [ "CallAtMostOnce"; "CallAtMostOnceAttribute" ]
-
     /// Fold one parameter's `[<…>]` sets into `acc`, flipping each recognised
-    /// flag. Mirrors `decodeClassAttributes`; unrecognised attributes are
-    /// silently ignored.
+    /// flag. `[<CallAtMostOnce>]` marks an inline parameter for
+    /// call-by-name-at-its-single-use splicing; unresolved attributes are silently
+    /// ignored. Extend as more parameter attributes are honoured (F# declares many
+    /// — `InlineIfLambda`, `CallerMemberName`, …): one declared type, one key, one
+    /// `ParamAttrs` flag.
     let private mergeParamAttrSets (ctx: PassContext) (acc: ParamAttrs) (sets: Attributes<SyntaxToken>) : ParamAttrs =
-        let mutable r = acc
+        let a = NameResolutionTypeHeadStamp.resolveAttributes ctx (ValueSome sets)
 
-        for AttributeSet(attributes = entries) in sets do
-            for Attribute(construction = construction), _sep in entries do
-                let attrTy =
-                    match construction with
-                    | ObjectConstruction(typ = t) -> t
-                    | InterfaceConstruction(typ = t) -> t
-
-                match attributeShortName ctx attrTy with
-                | ValueSome n when List.contains n callAtMostOnceNames -> r <- { r with CallAtMostOnce = true }
-                | _ -> ()
-
-        r
+        if a.Has RuntimeNames.callAtMostOnceAttributeKey then
+            { acc with CallAtMostOnce = true }
+        else
+            acc
 
     /// Decode the compiler-recognised attributes on a single argument pattern.
     /// Unwraps the inert pattern wrappers (`(p)`, `p : t`, `p as x`, `?p`)

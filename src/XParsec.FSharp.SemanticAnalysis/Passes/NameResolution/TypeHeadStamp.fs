@@ -227,6 +227,76 @@ module NameResolutionTypeHeadStamp =
                 ExternalType
             | ValueNone -> UnknownType
 
+    /// The identities of one declaration's `[<…>]` attributes. Recognition is
+    /// `Has key` against `RuntimeNames`' attribute constants, so a user type of the
+    /// same short name in another namespace cannot take a compiler attribute's meaning
+    /// over — which a short-name test could not say.
+    ///
+    /// An attribute that resolves to NOTHING is simply absent. Most of F#'s attribute
+    /// vocabulary (`AutoOpen`, `Sealed`, `Struct`, `RequireQualifiedAccess`, …) is not
+    /// declared in the Vesper contract at all, so rejecting an unresolved head would
+    /// reject every library file; declaring that vocabulary is separate work.
+    [<Struct; NoEquality; NoComparison>]
+    type ResolvedAttributes =
+        {
+            Keys: TypeKey list
+        }
+
+        member this.Has(k: TypeKey) : bool = List.contains k this.Keys
+
+        static member None: ResolvedAttributes = { Keys = [] }
+
+    /// The type an attribute head NAMES. F#'s attribute suffix rule is
+    /// `Attribute`-suffixed FIRST, then the name as written (probed against
+    /// `dotnet fsi`: `[<Foo>]` binds `FooAttribute` even where a non-attribute `Foo` is
+    /// also in scope). Local claim beats the external universe, the one precedence rule
+    /// `classifyTypeHead` applies.
+    ///
+    /// Deliberately UNSTAMPED: an attribute head is never translated to a `SemType`, so
+    /// there is no read side for a stamp to serve.
+    ///
+    /// No `inherit Attribute` test. The keys this feeds are the contract's attribute
+    /// classes by construction, so a base check could only reject them — and the base
+    /// `Attribute` has no representation on the JS target, where these very attributes
+    /// are erased.
+    let tryResolveAttributeTypeKey (ctx: PassContext) (typ: Type<SyntaxToken>) : TypeKey voption =
+        match CstKeys.ofTypeHead typ with
+        | ValueNone -> ValueNone
+        | ValueSome head ->
+            let useSite = ctx.UseSiteAt head.Site.Key
+            let written = ctx.WrittenTypeNameOf head.LongIdent
+
+            let tryName (name: string) : TypeKey voption =
+                let w = { written with Name = name }
+
+                match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite w head.TyparArity with
+                | ValueSome claim -> ValueSome claim.Key
+                | ValueNone -> tryResolveExternalTypeKey ctx w.Written head.TyparArity
+
+            match tryName (written.Name + "Attribute") with
+            | ValueSome k -> ValueSome k
+            | ValueNone -> tryName written.Name
+
+    /// Resolve every attribute in a declaration's `[<…>]` sets to the type it names.
+    let resolveAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : ResolvedAttributes =
+        match attrs with
+        | ValueNone -> ResolvedAttributes.None
+        | ValueSome sets ->
+            let keys = ResizeArray()
+
+            for AttributeSet(attributes = entries) in sets do
+                for Attribute(construction = construction), _sep in entries do
+                    let attrTy =
+                        match construction with
+                        | ObjectConstruction(typ = t) -> t
+                        | InterfaceConstruction(typ = t) -> t
+
+                    match tryResolveAttributeTypeKey ctx attrTy with
+                    | ValueSome k -> keys.Add k
+                    | ValueNone -> ()
+
+            { Keys = List.ofSeq keys }
+
     /// The `CstWalk.iterType` visitor that classifies + stamps every written type head
     /// reachable from a `Type`. `iterType`'s recursion reaches every nested head (generic
     /// args, function/tuple members, `when`-constraint types), so a single call over a

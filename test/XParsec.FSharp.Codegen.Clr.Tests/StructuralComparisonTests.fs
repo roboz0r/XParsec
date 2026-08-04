@@ -301,10 +301,9 @@ let tests =
             }
 
             test "the decoder accepts the `Attribute` suffix and qualified paths" {
-                // Mirror of `EqualityAttributeTests.fs`'s suffix / qualified
-                // tests: `[<StructuralComparisonAttribute>]` and
-                // `[<Microsoft.FSharp.Core.StructuralComparison>]` both
-                // resolve on the leaf name.
+                // Both spellings reach the ONE declared marker type
+                // `Vesper.StructuralComparisonAttribute`: the suffix is optional,
+                // and a qualifier is honoured because it resolves.
                 let suffixSrc =
                     String.concat
                         "\n"
@@ -324,7 +323,7 @@ let tests =
                     String.concat
                         "\n"
                         [
-                            "[<Microsoft.FSharp.Core.StructuralComparison>]"
+                            "[<Vesper.StructuralComparison>]"
                             "type Pair2 = { X: int }"
                             "let p = { X = 0 }"
                         ]
@@ -333,7 +332,7 @@ let tests =
                 let asm2 = loadAssembly (Codegen.toBytes artifact2)
                 let ty2 = asm2.GetType "Pair2"
 
-                Expect.isNotNull (typedCompareTo ty2) "qualified StructuralComparison resolved by leaf segment"
+                Expect.isNotNull (typedCompareTo ty2) "qualified StructuralComparison resolved to the Vesper marker"
             }
 
             test "the < operator routes through Comparer<T>.Default.Compare for a [<StructuralComparison>] record" {

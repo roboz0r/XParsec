@@ -4,18 +4,28 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // Syntactic decoding of the class-shaping attributes (`[<Sealed>]`,
-// `[<AllowNullLiteral>]`, `[<Struct>]`, `[<IsByRefLike>]`) off a type's CST
-// attribute sets. F# attributes resolve by short name (the `Attribute` suffix is
-// optional, a fully qualified path collapses to the same leaf), so matching on
-// the long-ident's last segment is what F# itself does for these BCL attributes.
+// `[<AllowNullLiteral>]`, `[<Struct>]`, `[<IsByRefLike>]`,
+// `[<RequireQualifiedAccess>]`) off a type's CST attribute sets, matching the
+// long-ident's last segment against the canonical names below.
+//
+// SHORT NAME, not resolved identity — unlike the equality / comparison and
+// parameter attributes, which resolve their long-ident as a type and compare the
+// resulting `TypeKey`. Two reasons, both structural:
+//   * NOTHING DECLARES THESE. The Vesper contract declares `Attribute` and the
+//     eight `compiler-attributes.fsi` markers; `Sealed` / `Struct` /
+//     `RequireQualifiedAccess` / `AutoOpen` / … are used throughout the library
+//     sources and declared nowhere, so resolution would find nothing and every
+//     struct would silently encode as a class. Declaring that vocabulary is the
+//     work that unblocks resolving them.
+//   * ONE CALLER HAS NO RESOLVER. The `.fsi` contract extractor decodes value-type
+//     shape with no `PassContext`, no registry and no provider.
 //
 // The decode is pure over a `nameOf` short-name resolver (`SyntaxToken -> string`)
-// so the two callers share ONE decode and one set of canonical names: the
-// name-resolution pass passes `PassContext.NameOf`, and the `.fsi` contract
-// extractor passes `nameOfTok lexed input`. Neither re-hardcodes the attribute
-// names — a value-type mis-decode there encodes a struct as `CLASS` not
-// `ELEMENT_TYPE_VALUETYPE`, so a consumer's member-ref misses the value-type
-// method (`MissingMethodException`).
+// so both callers share ONE decode and one set of canonical names: the
+// name-resolution pass passes `PassContext.NameOf`, the extractor
+// `nameOfTok lexed input`. A value-type mis-decode there encodes a struct as
+// `CLASS` not `ELEMENT_TYPE_VALUETYPE`, so a consumer's member-ref misses the
+// value-type method (`MissingMethodException`).
 
 module AttributeDecode =
 
@@ -122,9 +132,9 @@ module AttributeDecode =
                 IsByRefLike = isByRefLike
             }
 
-    /// True iff the attribute sets carry one of `names`. Shares the
-    /// `attributeShortName` short-name rule with `decodeClassAttributes` so the
-    /// name-resolution pass (`ctx.NameOf`) and any other decoder agree on the leaf.
+    /// True iff the attribute sets carry one of `names`. Shares the short-name rule
+    /// with `decodeClassAttributes` so every decoder that stays syntactic agrees on
+    /// the leaf.
     let private hasAttribute
         (names: string list)
         (nameOf: SyntaxToken -> string)

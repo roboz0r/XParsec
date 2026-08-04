@@ -468,8 +468,8 @@ let tests =
             }
 
             test "fully-qualified [<Microsoft.FSharp.Core.Sealed>] still stamps IsSealed" {
-                // Attribute resolution is by short name (with the `Attribute`
-                // suffix optional) — mirrors `decodeEqualityAttributes`.
+                // The class-shaping attributes decode by SHORT NAME (suffix optional):
+                // nothing declares `Sealed`, so there is no identity to resolve to.
                 let ctx =
                     analyse "[<Microsoft.FSharp.Core.SealedAttribute>]\ntype C() = member this.M () = 1"
 

@@ -185,7 +185,30 @@ let tests =
                 Expect.isNull (equalsObj ty) "no triple ⇒ the suffix variant resolved to NoEquality"
             }
 
-            test "a fully-qualified attribute path still resolves on its leaf segment" {
+            test "a qualified attribute path resolves through the type it names" {
+                // `Vesper.ReferenceEqualityAttribute` is where the marker really lives,
+                // so the qualified spelling reaches the same identity as the bare one.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<Vesper.ReferenceEquality>]"
+                            "type Point = { X: int }"
+                            "let p = { X = 0 }"
+                        ]
+
+                let _, artifact = compileSource "EqAttrQualified" src
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Point"
+
+                Expect.isNull (equalsObj ty) "qualified ReferenceEquality resolved to the Vesper marker"
+                Expect.isFalse (implementsIEquatable ty) "no IEquatable<Point> on qualified ReferenceEquality"
+            }
+
+            test "a qualified path that names no type is silently ignored" {
+                // `Microsoft.FSharp.Core` declares nothing here, so this decodes to
+                // NOTHING — the record keeps its default structural equality rather
+                // than taking the meaning of a same-leaf name.
                 let src =
                     String.concat
                         "\n"
@@ -195,12 +218,12 @@ let tests =
                             "let p = { X = 0 }"
                         ]
 
-                let _, artifact = compileSource "EqAttrQualified" src
+                let tast, artifact = compileSource "EqAttrUnresolvedQualified" src
                 let asm = loadAssembly (Codegen.toBytes artifact)
                 let ty = asm.GetType "Point"
 
-                Expect.isNull (equalsObj ty) "qualified ReferenceEquality resolved by leaf segment"
-                Expect.isFalse (implementsIEquatable ty) "no IEquatable<Point> on qualified ReferenceEquality"
+                Expect.isNotNull (equalsObj ty) "an unresolved attribute leaves the structural default"
+                Expect.isEmpty (errors tast) "an unresolved attribute is not an error"
             }
 
             // Phase 3 — the `Custom` posture's semantic requirement (the type must
