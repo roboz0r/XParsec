@@ -137,25 +137,39 @@ module RuntimeNames =
     ///
     /// Honouring one more attribute is one more constant here plus the one consumer that
     /// asks for it — never another decode arm.
-    let private attributeKey (name: string) : TypeKey =
-        SymbolKeyOps.typeKeyOf intrinsicNamespace name
+    [<Literal>]
+    let AttributeSuffix = "Attribute"
 
-    let callAtMostOnceAttributeKey: TypeKey = attributeKey "CallAtMostOnceAttribute"
+    /// Named by the marker's BARE name, the suffix appended here — so every key below
+    /// provably carries it, and a reader recovering the unsuffixed spelling can cut it off.
+    let private attributeKey (bareName: string) : TypeKey =
+        SymbolKeyOps.typeKeyOf intrinsicNamespace (bareName + AttributeSuffix)
 
-    let structuralEqualityAttributeKey: TypeKey =
-        attributeKey "StructuralEqualityAttribute"
+    let callAtMostOnceAttributeKey: TypeKey = attributeKey "CallAtMostOnce"
+    let structuralEqualityAttributeKey: TypeKey = attributeKey "StructuralEquality"
+    let structuralComparisonAttributeKey: TypeKey = attributeKey "StructuralComparison"
+    let referenceEqualityAttributeKey: TypeKey = attributeKey "ReferenceEquality"
+    let noEqualityAttributeKey: TypeKey = attributeKey "NoEquality"
+    let customEqualityAttributeKey: TypeKey = attributeKey "CustomEquality"
+    let noComparisonAttributeKey: TypeKey = attributeKey "NoComparison"
+    let customComparisonAttributeKey: TypeKey = attributeKey "CustomComparison"
+    let globalAttributeKey: TypeKey = attributeKey "Global"
 
-    let structuralComparisonAttributeKey: TypeKey =
-        attributeKey "StructuralComparisonAttribute"
-
-    let referenceEqualityAttributeKey: TypeKey =
-        attributeKey "ReferenceEqualityAttribute"
-
-    let noEqualityAttributeKey: TypeKey = attributeKey "NoEqualityAttribute"
-    let customEqualityAttributeKey: TypeKey = attributeKey "CustomEqualityAttribute"
-    let noComparisonAttributeKey: TypeKey = attributeKey "NoComparisonAttribute"
-
-    let customComparisonAttributeKey: TypeKey = attributeKey "CustomComparisonAttribute"
+    /// Every marker above, so a consumer that must recognise the SPELLING of one — the only
+    /// thing left to go on once resolution has FAILED — derives its names from the same
+    /// constants the resolved decode compares against, and cannot fall out of step with them.
+    let compilerAttributeKeys: TypeKey list =
+        [
+            callAtMostOnceAttributeKey
+            structuralEqualityAttributeKey
+            structuralComparisonAttributeKey
+            referenceEqualityAttributeKey
+            noEqualityAttributeKey
+            customEqualityAttributeKey
+            noComparisonAttributeKey
+            customComparisonAttributeKey
+            globalAttributeKey
+        ]
 
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.clr.fs` as `type obj = (# "System.Object" #)`. The front end

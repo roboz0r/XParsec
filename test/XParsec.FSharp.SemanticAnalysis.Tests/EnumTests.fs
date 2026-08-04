@@ -42,7 +42,7 @@ let private singleLet (tast: TastFile) : TExpr * SemType =
         |> EqArray.toList
         |> List.choose (fun d ->
             match d with
-            | TDecl.Let(_, v, _, _, ty) -> Some(v, ty)
+            | TDecl.Let(_, v, _, ty) -> Some(v, ty)
             | _ -> None
         )
         |> List.ofSeq

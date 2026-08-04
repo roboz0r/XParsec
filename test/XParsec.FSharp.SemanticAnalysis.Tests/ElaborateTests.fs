@@ -11,7 +11,7 @@ let private analyse (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | EqList [ TDecl.Let(_, _, _, _, ty) ] -> ty
+    | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
     | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
 [<Tests>]
@@ -25,7 +25,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), ty, _), _, _, letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), ty, _), _, letTy) ->
                     Expect.equal ty BuiltinTypes.tyInt "value type"
                     Expect.equal letTy BuiltinTypes.tyInt "binding type"
                 | other -> failtestf "unexpected: %A" other
@@ -35,7 +35,7 @@ let tests =
                 let tast = analyse "let b = true"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Bool true, ty, _), _, _, _) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Bool true, ty, _), _, _) ->
                     Expect.equal ty BuiltinTypes.tyBool "value type bool"
                 | other -> failtestf "unexpected: %A" other
             }
@@ -48,7 +48,7 @@ let tests =
                 Expect.equal (TastShape.prettyDecl tast.Decls.[0]) "let v0 = fun v1 -> (v1 + 1)" "TAST shape"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Lambda(_, _, lamTy, _), _, _, declTy) ->
+                | TDecl.Let(_, TExpr.Lambda(_, _, lamTy, _), _, declTy) ->
                     Expect.equal lamTy intToInt "lambda type int -> int"
                     Expect.equal declTy intToInt "decl type int -> int"
                 | other -> failtestf "unexpected decl: %A" other
@@ -64,7 +64,7 @@ let tests =
                     "TAST shape matches fun-form"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, _, _, _, declTy) -> Expect.equal declTy intToInt "decl type"
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy intToInt "decl type"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -84,7 +84,7 @@ let tests =
                 let expected = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match tast.Decls.[0] with
-                | TDecl.Let(TPat.NamedSimple(bindingKey, _, _), _, _, _, _) ->
+                | TDecl.Let(TPat.NamedSimple(bindingKey, _, _), _, _, _) ->
                     Expect.equal bindingKey expected "binding key"
                 | other -> failtestf "unexpected: %A" other
             }
@@ -95,7 +95,7 @@ let tests =
                 let xKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 match tast.Decls with
-                | EqList [ _; TDecl.Let(_, TExpr.Var(refKey, _, _), _, _, _) ] -> Expect.equal refKey xKey "y refs x"
+                | EqList [ _; TDecl.Let(_, TExpr.Var(refKey, _, _), _, _) ] -> Expect.equal refKey xKey "y refs x"
                 | _ -> failtestf "unexpected decls: %A" tast.Decls
             }
 
@@ -140,7 +140,6 @@ let tests =
                                             outerTy,
                                             _),
                             _,
-                            _,
                             _) -> Expect.equal outerTy listTy "outer UnionCons ty"
                 | other -> failtestf "unexpected TAST shape: %A" other
             }
@@ -151,7 +150,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.UnionCons("Nil", EqList [], ty, _), _, _, _) ->
+                | TDecl.Let(_, TExpr.UnionCons("Nil", EqList [], ty, _), _, _) ->
                     match ty with
                     | TyRecord("Microsoft.FSharp.Collections.list`1", args) when args.Length = 1 -> ()
                     | _ -> failtestf "expected list<_> Nil, got %A" ty
@@ -176,7 +175,6 @@ let tests =
                                       TExpr.UnionCons("Cons", _, innerTy, _),
                                       outerTy,
                                       _),
-                            _,
                             _,
                             _) ->
                     Expect.equal opTy (TyFun(listTy, arrayTy)) "Array.ofList: list -> array"
@@ -216,7 +214,7 @@ let namespaceTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), ty, _), _, _, letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), ty, _), _, letTy) ->
                     Expect.equal ty BuiltinTypes.tyInt "value type int"
                     Expect.equal letTy BuiltinTypes.tyInt "binding type int"
                 | other -> failtestf "unexpected: %A" other
@@ -253,7 +251,7 @@ let namespaceTests =
                     "cross-referencing namespace bindings freeze identically to the module form"
 
                 match nsForm.Decls.[1] with
-                | TDecl.Let(_, _, _, _, declTy) -> Expect.equal declTy BuiltinTypes.tyInt "y : int"
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy BuiltinTypes.tyInt "y : int"
                 | other -> failtestf "unexpected: %A" other
             }
         ]
@@ -276,7 +274,7 @@ let nestedModuleTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[1] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), ty, _), _, _, letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), ty, _), _, letTy) ->
                     Expect.equal ty BuiltinTypes.tyInt "value type int"
                     Expect.equal letTy BuiltinTypes.tyInt "binding type int"
                 | other -> failtestf "unexpected: %A" other
@@ -293,7 +291,7 @@ let nestedModuleTests =
                 Expect.isEmpty tast.Diagnostics "top resolves inside the nested module"
 
                 match tast.Decls.[1] with
-                | TDecl.Let(_, _, _, _, declTy) -> Expect.equal declTy BuiltinTypes.tyInt "y : int"
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy BuiltinTypes.tyInt "y : int"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -304,7 +302,7 @@ let nestedModuleTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[1] with
-                | TDecl.Let(_, _, _, _, declTy) -> Expect.equal declTy BuiltinTypes.tyInt "x : int"
+                | TDecl.Let(_, _, _, declTy) -> Expect.equal declTy BuiltinTypes.tyInt "x : int"
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -698,12 +696,12 @@ let listAbbrevTests =
                     tast.Decls
                     |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, _, _, _, _) -> true
+                        | TDecl.Let(TPat.NamedSimple _, _, _, _) -> true
                         | _ -> false
                     )
                     |> ValueOption.map (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, v, _, _, ty) -> v, ty
+                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> v, ty
                         | _ -> failwith "unreachable"
                     )
 
@@ -731,12 +729,12 @@ let listAbbrevTests =
                     tast.Decls
                     |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, _, _, _, _) -> true
+                        | TDecl.Let(TPat.NamedSimple _, _, _, _) -> true
                         | _ -> false
                     )
                     |> ValueOption.map (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, v, _, _, ty) -> v, ty
+                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> v, ty
                         | _ -> failwith "unreachable"
                     )
 
@@ -762,12 +760,12 @@ let listAbbrevTests =
                     tast.Decls
                     |> EqArray.tryFind (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, _, _, _, _) -> true
+                        | TDecl.Let(TPat.NamedSimple _, _, _, _) -> true
                         | _ -> false
                     )
                     |> ValueOption.map (fun d ->
                         match d with
-                        | TDecl.Let(TPat.NamedSimple _, v, _, _, ty) -> v, ty
+                        | TDecl.Let(TPat.NamedSimple _, v, _, ty) -> v, ty
                         | _ -> failwith "unreachable"
                     )
 
@@ -1056,9 +1054,9 @@ let recordInterfaceImplTests =
             }
         ]
 
-// `[<Global>]` DECLARES a module value to BE a target global: the decl rides the flag
-// (the JS backend emits no definition for it), and the declaration is checked against
-// the body BOTH ways — a marked binding must be a bare intrinsic template, and an
+// `[<Global>]` DECLARES a module value to BE a target global: the binding's SYMBOL is
+// recorded (the JS backend emits no definition for it), and the declaration is checked
+// against the body BOTH ways — a marked binding must be a bare intrinsic template, and an
 // unmarked one may not restate its own emitted name.
 [<Tests>]
 let globalAttributeTests =
@@ -1070,14 +1068,24 @@ let globalAttributeTests =
     testList
         "Elaborate [<Global>]"
         [
-            test "a [<Global>] binding rides the flag and emits no diagnostic" {
+            test "a [<Global>] binding is recorded by symbol and emits no diagnostic" {
                 let tast = analyse "module M\n\n[<Global>]\nlet undefined = (# \"undefined\" #)\n"
 
                 Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "a well-formed global is accepted"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(_, _, _, true, _) ] -> ()
-                | other -> failtestf "expected a single [<Global>] TDecl.Let, got %A" other
+                | EqList [ TDecl.Let _ ] -> ()
+                | other -> failtestf "expected a single TDecl.Let, got %A" other
+
+                Expect.equal
+                    (tast.GlobalValueKeys |> Seq.map SymbolKeyOps.simpleName |> List.ofSeq)
+                    [ DisplayName "undefined" ]
+                    "the binding's own identity carries the declaration"
+            }
+
+            test "an unmarked binding records no global" {
+                let tast = analyse "module M\n\nlet emptyDocs = (# \"[]\" #)\n"
+                Expect.isEmpty tast.GlobalValueKeys "nothing declared, nothing recorded"
             }
 
             test "[<Global>] on a body that is not a bare intrinsic is an error naming the binding" {
@@ -1100,5 +1108,45 @@ let globalAttributeTests =
             // apart from a global: its name is NOT the template text, so it defines a value.
             test "a nullary intrinsic whose name differs from its template is an ordinary binding" {
                 Expect.isEmpty (errorsOf "module M\n\nlet emptyDocs = (# \"[]\" #)\n") "no diagnostic"
+            }
+
+            test "[<Global>] on a head naming no value is an error, not a silent no-op" {
+                // The declaration is filed under the value's identity, so a wildcard head
+                // has nowhere to carry it — and honouring it silently would emit the very
+                // definition the attribute exists to suppress.
+                let tast = analyse "module M\n\n[<Global>]\nlet _ = (# \"undefined\" #)\n"
+
+                Expect.isEmpty tast.GlobalValueKeys "nothing was recorded"
+
+                match tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
+                | [ msg ] -> Expect.stringContains msg "this binding names none" "the head is blamed"
+                | other -> failtestf "expected exactly one error, got %A" other
+            }
+
+            test "a same-named user type does NOT take [<Global>]'s meaning" {
+                // THE case a short-name match cannot decide: `Global` here reaches the
+                // user's own class — a local claim beats the contract — so the binding is
+                // NOT declared a target global, and it is blamed for restating one instead.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "namespace Mine"
+                            ""
+                            "type GlobalAttribute() ="
+                            "    member this.M () = 1"
+                            ""
+                            "module Ambient ="
+                            "    [<Global>]"
+                            "    let undefined = (# \"undefined\" #)"
+                        ]
+
+                let tast = analyse src
+
+                Expect.isEmpty tast.GlobalValueKeys "the user's GlobalAttribute cannot hijack the compiler's"
+
+                match tast.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
+                | [ msg ] -> Expect.stringContains msg "restates the target global" "so the binding reads as unmarked"
+                | other -> failtestf "expected exactly one error, got %A" other
             }
         ]

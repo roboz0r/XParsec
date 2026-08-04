@@ -132,7 +132,7 @@ let tests =
                     tast.Decls
                     |> EqArray.exists (fun d ->
                         match d with
-                        | TDecl.Let(_, v, _, _, _) -> scanExpr p v
+                        | TDecl.Let(_, v, _, _) -> scanExpr p v
                         | TDecl.Expression(e, _) -> scanExpr p e
                         | _ -> false
                     )

@@ -420,6 +420,19 @@ module TastPoolBuilder =
         : System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo> =
         b.Base.Residue.IntrinsicReprKeys
 
+    /// This file's OWN `[<Global>]` bindings (`let undefined = (# "undefined" #)`), keyed by
+    /// the bound value's identity. A backend reads it for the same reason as
+    /// `intrinsicReprKeys`: the target already owns the thing declared, so there is nothing
+    /// to emit — a definition would restate the global and could not initialise.
+    let globalValueKeys (b: PoolBuilder) : System.Collections.Generic.IReadOnlySet<SymbolKey> =
+        b.Base.Residue.GlobalValueKeys
+
+    /// This file's module-level bindings by binder — the SYMBOL identity behind a `let`
+    /// decl's head, which the columns address only positionally. Indexes on each call, so
+    /// a walk that asks per decl holds the result rather than re-asking.
+    let moduleMembers (b: PoolBuilder) : System.Collections.Generic.IReadOnlyDictionary<BinderId, ModuleBindingInfo> =
+        DenseTable.index b.Base.ModuleMembers
+
     /// How many resolved-specialization entries the table holds — the bound every
     /// `SpecializationId` an edge carries is inside.
     let specializationCount (b: PoolBuilder) : int = b.Base.Specializations.Length

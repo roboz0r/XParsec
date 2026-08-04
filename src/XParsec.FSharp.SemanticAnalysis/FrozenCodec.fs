@@ -460,7 +460,6 @@ module FrozenCodec =
         | DeclPayload.Let p ->
             w.Write 0uy
             w.Write p.IsInline
-            w.Write p.IsGlobal
             writeTypeRef w p.Ty
         | DeclPayload.Expression ty ->
             w.Write 1uy
@@ -473,34 +472,30 @@ module FrozenCodec =
         match r.ReadByte() with
         | 0uy ->
             let isInline = r.ReadBoolean()
-            let isGlobal = r.ReadBoolean()
             let ty = readTypeRef r
-
-            DeclPayload.Let
-                {|
-                    IsInline = isInline
-                    IsGlobal = isGlobal
-                    Ty = ty
-                |}
+            DeclPayload.Let {| IsInline = isInline; Ty = ty |}
         | 1uy -> DeclPayload.Expression(readTypeRef r)
         | 2uy -> DeclPayload.Type(readTypeDecl r)
         | b -> failwithf "FrozenCodec: unknown DeclPayload tag %d" b
 
-    /// The three not-yet-pooled fields, verbatim — none of them a tree, so this writer
+    /// The not-yet-pooled fields, verbatim — none of them a tree, so this writer
     /// bottoms out entirely in the leaf codecs.
     let private writeResidue (w: FrozenWriter) (res: FrozenFileResidue) =
         writeListWith w writeDiagnostic res.Diagnostics
         writeSymbolDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
+        writeSymbolSet w res.GlobalValueKeys
         writeSymbolDict w writeAccessibility res.Accessibility
 
     let private readResidue (r: FrozenReader) : FrozenFileResidue =
         let diagnostics = readListWith r readDiagnostic
         let intrinsicReprKeys = readSymbolDict r readIntrinsicReprInfo
+        let globalValueKeys = readSymbolSet r
         let accessibility = readSymbolDict r readAccessibility
 
         {
             Diagnostics = diagnostics
             IntrinsicReprKeys = intrinsicReprKeys
+            GlobalValueKeys = globalValueKeys
             Accessibility = accessibility
         }
 

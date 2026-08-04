@@ -28,7 +28,7 @@ let private bodyOf (input: string) : TExpr =
     Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics for %s" input)
 
     match tast.Decls with
-    | EqList [ TDecl.Let(_, TExpr.Lambda(_, body, _, _), _, _, _) ] -> body
+    | EqList [ TDecl.Let(_, TExpr.Lambda(_, body, _, _), _, _) ] -> body
     | other -> failtestf "expected a single `let f () = _` decl, got %A" other
 
 [<Tests>]

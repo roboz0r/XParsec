@@ -40,25 +40,20 @@ module Inline =
             MemberName: string
         }
 
-    /// A module-level `let` value whose body is EXACTLY one intrinsic expression with
-    /// NO operands (`let undefined : undefined = (# "undefined" : undefined #)`).
-    /// Returns the intrinsic body to splice, else `ValueNone`.
+    /// The decl-shaped `TExprG.nullaryIntrinsicText`: a module-level `let` whose body is
+    /// exactly one zero-operand intrinsic (`let undefined = (# "undefined" #)`), yielding
+    /// the body to splice.
     ///
-    /// Such a binding is a compile-time ALIAS for the intrinsic's emitted form: with no
-    /// operands there is nothing to substitute, and it carries no typars, so the body IS
-    /// the splice. The JS backend treats it as inline — it emits NO lowered definition
-    /// (a `const undefined = undefined` would be both nonsensical and self-referential),
-    /// and every reference splices the intrinsic body (`(# "undefined" #)` → bare
-    /// `undefined`). The shape is deliberately narrow (one intrinsic, zero operands) so
-    /// the alias can never lose or duplicate an operand. `InlineExpansion` splices it at
-    /// each `External` reference; `Freeze` publishes it in the file's inline vocabulary
-    /// (it is a splice template, `inline` keyword or not) so a consumer's provider serves
-    /// the body. Publication is additive, here as for a `let inline`: the binding stays in
-    /// `Decls`, and it is the JS backend's own reference splicing — not the freeze — that
-    /// leaves it with no lowered definition.
+    /// Such a binding is a compile-time ALIAS for the intrinsic's emitted form, so every
+    /// reference splices the body rather than calling it. `InlineExpansion` does that at
+    /// each `External` reference; `Freeze` publishes it in the file's inline vocabulary (it
+    /// is a splice template, `inline` keyword or not) so a consumer's provider serves the
+    /// body. Publication is additive, here as for a `let inline`: the binding stays in
+    /// `Decls`. Whether the binding also emits a DEFINITION is a separate axis, declared by
+    /// `[<Global>]`.
     let nullaryIntrinsicValueBody (decl: TDecl) : TExpr voption =
         match decl with
-        | TDecl.Let(_, (TExpr.ILIntrinsic(_, _, args, _, _) as body), _, _, _) when args.Length = 0 -> ValueSome body
+        | TDecl.Let(_, body, _, _) when (TExprG.nullaryIntrinsicText body).IsSome -> ValueSome body
         | _ -> ValueNone
 
     /// Quantified typars of an inline binding, in the canonical order codegen
@@ -277,7 +272,7 @@ module Inline =
     /// catch-all.
     let inlineExpand (ctx: PassContext) (decl: TDecl) (typeArgs: SemType[]) : TExpr * UnresolvedTrait list =
         match decl with
-        | TDecl.Let(_, value, _, _, declTy) ->
+        | TDecl.Let(_, value, _, declTy) ->
             let typars = quantifiedTypars ctx.Store declTy
             let subst = Dictionary<TyVarId, SemType>()
 

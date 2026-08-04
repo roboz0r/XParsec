@@ -50,7 +50,7 @@ module InlineExpansion =
     /// and they must not be able to disagree about which expressions exist.
     let private mapDeclExprs (f: TExpr -> TExpr) (d: TDecl) : TDecl =
         match d with
-        | TDecl.Let(p, value, isInline, isGlobal, ty) -> TDecl.Let(p, f value, isInline, isGlobal, ty)
+        | TDecl.Let(p, value, isInline, ty) -> TDecl.Let(p, f value, isInline, ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(f e, ty)
         | TDecl.Type td -> TDecl.Type(TastWalk.mapTypeDecl id f td)
 
@@ -131,7 +131,7 @@ module InlineExpansion =
 
         for (d, _) in decls do
             match d with
-            | TDecl.Let(TPat.NamedSimple(b, _, _) as head, _, true, _, _) ->
+            | TDecl.Let(TPat.NamedSimple(b, _, _) as head, _, true, _) ->
                 locals.[b] <-
                     {
                         Key = templateKey head

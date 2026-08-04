@@ -104,6 +104,11 @@ type PassContextBindings =
         /// export filters each apply their own threshold over the one fact. Type MEMBER
         /// accessibility rides `TTypeMemberG.Accessibility` on the member, not here.
         Accessibility: Dictionary<SymbolKey, Accessibility>
+        /// The `[<Global>]` module-level bindings, by `SymbolKey`. Recorded by `Elaborate`
+        /// where the binding's exportable identity is minted and snapshotted into
+        /// `TastFile.GlobalValueKeys`; the JS backend reads it to emit no definition for a
+        /// value that IS a target global.
+        GlobalValueKeys: HashSet<SymbolKey>
         /// A module binding's typar-axis width, keyed by the binder its head pattern
         /// introduces. Recorded by `Elaborate` at the single method-axis index-minting
         /// point (`mkMethodQuantEnv`); snapshotted into `TastFile.BindingTyparArities`.
@@ -121,6 +126,7 @@ module PassContextBindings =
             ModuleMembers = Dictionary<_, _>()
             DeclaredTypars = SideTable<_>()
             Accessibility = Dictionary<_, _>()
+            GlobalValueKeys = HashSet<_>()
             BindingTyparArities = Dictionary<_, _>()
         }
 

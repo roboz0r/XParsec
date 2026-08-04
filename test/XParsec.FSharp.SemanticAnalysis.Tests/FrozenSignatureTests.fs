@@ -47,7 +47,7 @@ let private moduleBindings (frozen: FrozenPools) : (string * SymbolKey) list =
         EqArray.toList file.Decls
         |> List.choose (
             function
-            | TDeclG.Let(head, _, _, _, _) ->
+            | TDeclG.Let(head, _, _, _) ->
                 match BinderKey.ofPat head with
                 | ValueSome binder ->
                     match Map.tryFind binder file.ModuleMembers with

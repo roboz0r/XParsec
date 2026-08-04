@@ -153,7 +153,7 @@ module PlatformTypes =
         let iter = buildIter ctx acc
 
         match d with
-        | TDecl.Let(binding, value, _, _, ty) ->
+        | TDecl.Let(binding, value, _, ty) ->
             addUnsupported ctx acc ty
             TastWalk.iterPat iter binding
             TastWalk.iterExpr iter value

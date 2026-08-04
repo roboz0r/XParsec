@@ -12,7 +12,7 @@ open XParsec.FSharp.Parser
 // parameter attributes, which resolve their long-ident as a type and compare the
 // resulting `TypeKey`. Two reasons, both structural:
 //   * NOTHING DECLARES THESE. The Vesper contract declares `Attribute` and the
-//     eight `compiler-attributes.fsi` markers; `Sealed` / `Struct` /
+//     `compiler-attributes.fsi` markers; `Sealed` / `Struct` /
 //     `RequireQualifiedAccess` / `AutoOpen` / … are used throughout the library
 //     sources and declared nowhere, so resolution would find nothing and every
 //     struct would silently encode as a class. Declaring that vocabulary is the
@@ -52,11 +52,6 @@ module AttributeDecode =
     /// enclosing unqualified index — F#'s `isILOrRequiredQualifiedAccess`.
     let private requireQualifiedAccessNames =
         [ "RequireQualifiedAccess"; "RequireQualifiedAccessAttribute" ]
-
-    /// `[<Global>]` declares a module-level value to BE a target global (JS
-    /// `undefined`): no definition is emitted for it and a reference emits its bare
-    /// name, from any file, with no import.
-    let private globalNames = [ "Global"; "GlobalAttribute" ]
 
     /// Decoded class-shaping attributes. `IsSealed` flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`;
@@ -132,14 +127,10 @@ module AttributeDecode =
                 IsByRefLike = isByRefLike
             }
 
-    /// True iff the attribute sets carry one of `names`. Shares the short-name rule
-    /// with `decodeClassAttributes` so every decoder that stays syntactic agrees on
-    /// the leaf.
-    let private hasAttribute
-        (names: string list)
-        (nameOf: SyntaxToken -> string)
-        (attrs: Attributes<SyntaxToken> voption)
-        : bool =
+    /// True iff the attribute sets carry `[<RequireQualifiedAccess>]`. Shares the
+    /// short-name rule with `decodeClassAttributes` so every decoder that stays syntactic
+    /// agrees on the leaf.
+    let decodeRequireQualifiedAccess (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
         match attrs with
         | ValueNone -> false
         | ValueSome sets ->
@@ -153,15 +144,7 @@ module AttributeDecode =
                         | InterfaceConstruction(typ = t) -> t
 
                     match attributeShortName nameOf attrTy with
-                    | ValueSome n when List.contains n names -> found <- true
+                    | ValueSome n when List.contains n requireQualifiedAccessNames -> found <- true
                     | _ -> ()
 
             found
-
-    /// True iff the attribute sets carry `[<RequireQualifiedAccess>]`.
-    let decodeRequireQualifiedAccess (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
-        hasAttribute requireQualifiedAccessNames nameOf attrs
-
-    /// True iff the attribute sets carry `[<Global>]`.
-    let decodeGlobal (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
-        hasAttribute globalNames nameOf attrs

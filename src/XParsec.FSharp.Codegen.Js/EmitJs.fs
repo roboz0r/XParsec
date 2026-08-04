@@ -1060,24 +1060,40 @@ module EmitJs =
         let expansion =
             InlineExpand.expand ctx0.Pool (TastAccessor.roots ctx0.Pool |> List.ofArray)
 
-        // Two shapes DECLARED to be the target's own, dropped before anything reads a decl
-        // so no table registers one either.
+        // What a declaration DECLARES, when it declares something with an identity:
+        // a `type`'s own key, a module `let`'s exported value key. A statement declares
+        // nothing, and neither does a binding whose head names no single value.
+        let moduleMembers = TastPoolBuilder.moduleMembers ctx0.Pool
+
+        let declaredSymbol (d: TastAccessor.DeclId) : SymbolKey voption =
+            match TastAccessor.declKind d with
+            | DeclShape.Type -> ValueSome (TastAccessor.declType d).Key
+            | DeclShape.Let ->
+                match (TastAccessor.declLet d).Binding with
+                | TastAccessor.PNamed b ->
+                    match moduleMembers.TryGetValue b with
+                    | true, info -> ValueSome info.Key
+                    | _ -> ValueNone
+                | _ -> ValueNone
+            | DeclShape.Expression -> ValueNone
+
+        // Declared to be the TARGET'S OWN, in either of the two ways the front end records:
+        // `type x = (# "repr" #)` names a platform representation (`int` IS `number`, and
+        // the `inline` operator members it carries are splice templates, not exports), and
+        // `[<Global>]` names a target global (`undefined`) whose definition would restate
+        // itself and could not initialise. Either way there is nothing to emit, and
+        // references emit the intrinsic the front end splices at each of them.
+        //
+        // Dropped before anything reads a decl, so no table registers one either.
         let intrinsicReprs = TastPoolBuilder.intrinsicReprKeys ctx0.Pool
+        let globals = TastPoolBuilder.globalValueKeys ctx0.Pool
 
         let decls =
             expansion.Decls
             |> List.filter (fun d ->
-                match TastAccessor.declKind d with
-                // `type x = (# "repr" #)` declares a platform REPRESENTATION, not a type:
-                // `int` IS `number` on the target, and the `inline` operator members it
-                // carries are splice templates a use site expands, not exports.
-                | DeclShape.Type -> not (intrinsicReprs.ContainsKey (TastAccessor.declType d).Key)
-                // `[<Global>]` declares the value to BE a target global (`undefined`), so
-                // there is nothing to define: a definition would restate the global and,
-                // being self-referential, could not initialise. References emit the bare
-                // name — the intrinsic the front end splices at each of them.
-                | DeclShape.Let -> not (TastAccessor.declLet d).IsGlobal
-                | DeclShape.Expression -> true
+                match declaredSymbol d with
+                | ValueSome key -> not (intrinsicReprs.ContainsKey key || globals.Contains key)
+                | ValueNone -> true
             )
 
         // Where each spliced node was WRITTEN, for the map, plus the authorship chain those

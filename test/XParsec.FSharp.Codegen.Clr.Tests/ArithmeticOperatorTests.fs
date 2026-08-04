@@ -210,7 +210,7 @@ let tests =
 
                 for name in arithmeticOps do
                     match inlines.[name].Decl with
-                    | TDeclG.Let(_, v, true, _, _) ->
+                    | TDeclG.Let(_, v, true, _) ->
                         match traitBase v with
                         | TExprG.TraitCall(_, traitName, _, _, _) ->
                             Expect.equal traitName name (sprintf "%s's body dispatches to its own trait" name)

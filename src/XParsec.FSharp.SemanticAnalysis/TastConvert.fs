@@ -388,8 +388,7 @@ module TastConvert =
 
     let decl (f: 'a -> 'b) (fTok: 'ta -> 'tb) (d: TDeclG<'a, 'ta, 'id>) : TDeclG<'b, 'tb, 'id> =
         match d with
-        | TDeclG.Let(binding, value, isInline, isGlobal, ty) ->
-            TDeclG.Let(pat f fTok binding, expr f fTok value, isInline, isGlobal, f ty)
+        | TDeclG.Let(binding, value, isInline, ty) -> TDeclG.Let(pat f fTok binding, expr f fTok value, isInline, f ty)
         | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f fTok e, f ty)
         // A tree-shaped rebuild leaves the identity axis alone — the key slots stay in the
         // space they were in — and its bodies are the expression rebuild itself.
@@ -474,6 +473,7 @@ module TastConvert =
             Specializations = EqArray.map (specialization f fTok) tf.Specializations
             Diagnostics = tf.Diagnostics
             IntrinsicReprKeys = tf.IntrinsicReprKeys
+            GlobalValueKeys = tf.GlobalValueKeys
             ModuleMembers = tf.ModuleMembers
             ClosureReprs = tf.ClosureReprs
             FunVerdicts = tf.FunVerdicts

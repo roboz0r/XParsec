@@ -786,7 +786,7 @@ module Regions =
             [
                 for d in decls do
                     match d with
-                    | TDecl.Let(p, v, _, _, _) -> yield (p, v)
+                    | TDecl.Let(p, v, _, _) -> yield (p, v)
                     | TDecl.Expression _
                     | TDecl.Type _ -> ()
             ]

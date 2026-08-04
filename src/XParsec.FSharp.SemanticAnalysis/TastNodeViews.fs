@@ -319,8 +319,7 @@ module TastNodeViews =
         { EnumKey: SymbolKey; CaseName: string }
 
     /// The payload of a `Let` decl. `Binding` is the bound pattern, `Value` its
-    /// initializer, `IsInline` whether the binding expands per call site, `IsGlobal`
-    /// whether the value IS a target global (`[<Global>]` — no definition emitted), `Ty`
+    /// initializer, `IsInline` whether the binding expands per call site, `Ty`
     /// the binding's declared type (the slot type a value-producing consumer allocates
     /// for it — distinct from `exprTy Value` for a destructuring binding).
     [<Struct>]
@@ -329,6 +328,5 @@ module TastNodeViews =
             Binding: PatId
             Value: ExprId
             IsInline: bool
-            IsGlobal: bool
             Ty: FrozenType
         }

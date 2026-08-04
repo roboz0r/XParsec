@@ -151,57 +151,6 @@ module Elaborate =
 
                     ctx.InlineParamAttrs.[binderKey] <- attrs
 
-    /// The target-global name a body NAMES, when the body is exactly one zero-operand
-    /// intrinsic template — the shape `[<Global>]` admits, and the only shape a
-    /// definition-free binding can have (with no operands, the template text IS the
-    /// emitted reference).
-    let private nullaryIntrinsicText (valT: TExpr) : string voption =
-        match valT with
-        | TExpr.ILIntrinsic(opCode, _, args, _, _) when args.Length = 0 -> ValueSome opCode
-        | _ -> ValueNone
-
-    /// The `[<Global>]` DECLARATION checked against the body it is written on, both ways.
-    /// Marking a body that is not a bare intrinsic template would silently delete real
-    /// code; leaving a binding that restates its own target global unmarked emits
-    /// `const undefined = undefined`, which cannot initialise and kills the module at
-    /// load. `emittedName` is the name the binding is emitted under, which is what a
-    /// restatement is a restatement OF.
-    let private validateGlobalBinding
-        (ctx: PassContext)
-        (b: Binding<SyntaxToken>)
-        (emittedName: string voption)
-        (isGlobal: bool)
-        (valT: TExpr)
-        : unit =
-        let site = (CstKeys.siteOfBinding b).Tok
-
-        let named =
-            match emittedName with
-            | ValueSome n -> sprintf "'%s'" n
-            | ValueNone -> "this binding"
-
-        match nullaryIntrinsicText valT, isGlobal with
-        | ValueNone, true ->
-            ctx.Report(
-                site,
-                Kind.Message(
-                    sprintf
-                        "[<Global>] declares %s to BE a target global, so its body must be exactly one zero-operand intrinsic naming that global — no definition is emitted for it"
-                        named
-                )
-            )
-        | ValueSome text, false when emittedName = ValueSome text ->
-            ctx.Report(
-                site,
-                Kind.Message(
-                    sprintf
-                        "The binding %s restates the target global '%s': its definition would initialise from itself and could not run. Mark it [<Global>], which emits no definition and references the global by its bare name."
-                        named
-                        text
-                )
-            )
-        | _ -> ()
-
     let private typeNameSimple (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string =
         let (TypeName(ident = li)) = tn
 
@@ -490,7 +439,7 @@ module Elaborate =
         let f = remapDeclTypars store env
 
         match d with
-        | TDecl.Let(binding, value, isInline, isGlobal, ty) ->
+        | TDecl.Let(binding, value, isInline, ty) ->
             let binding =
                 TastWalk.mapPat
                     { TastWalk.identityMapper with
@@ -498,7 +447,7 @@ module Elaborate =
                     }
                     binding
 
-            TDecl.Let(binding, mapExprTypes f value, isInline, isGlobal, f ty)
+            TDecl.Let(binding, mapExprTypes f value, isInline, f ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(mapExprTypes f e, f ty)
         | TDecl.Type td -> TDecl.Type(TastWalk.mapTypeDecl f (mapExprTypes f) td)
 
@@ -1875,26 +1824,27 @@ module Elaborate =
                     // binder (a destructuring `let (a, b) = p`) records nothing — there is no
                     // single value to name, so there is nothing to export and nothing
                     // downstream to look up.
-                    match emittedName, binder with
-                    | ValueSome compiledNm, ValueSome bk ->
-                        // The holder is the containment chain itself, so the binding's
-                        // `SymbolKey` is a direct construction downstream
-                        // (`ModuleBindingInfo.Key`), never a dotted-string re-parse.
-                        let info: ModuleBindingInfo = { Holder = holder; Name = compiledNm }
-                        ctx.Bindings.ModuleMembers.[bk] <- info
-                        // Capture the binding's declared accessibility under its own
-                        // `SymbolKey` (honestly — the file→file projection thresholds
-                        // it internal-or-better, the `.fsi` extractor public-only).
-                        ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
-                    | _ -> ()
+                    let exportedKey =
+                        match emittedName, binder with
+                        | ValueSome compiledNm, ValueSome bk ->
+                            // The holder is the containment chain itself, so the binding's
+                            // `SymbolKey` is a direct construction downstream
+                            // (`ModuleBindingInfo.Key`), never a dotted-string re-parse.
+                            let info: ModuleBindingInfo = { Holder = holder; Name = compiledNm }
+                            ctx.Bindings.ModuleMembers.[bk] <- info
+                            // Capture the binding's declared accessibility under its own
+                            // `SymbolKey` (honestly — the file→file projection thresholds
+                            // it internal-or-better, the `.fsi` extractor public-only).
+                            ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
+                            ValueSome info.Key
+                        | _ -> ValueNone
 
                     let valT = translateBinding ctx b
                     let declTy = typeOfKey ctx (CstKeys.ofBinding b)
 
-                    // `[<Global>]`: the value IS a target global, so the decl rides the
-                    // flag and the JS backend emits no definition for it.
-                    let isGlobal = Attributes.decodeGlobal ctx b.attributes
-                    validateGlobalBinding ctx b emittedName isGlobal valT
+                    // `[<Global>]`-ness belongs to the VALUE the binder names, so it is filed
+                    // under that identity beside the accessibility, not on the decl node.
+                    Attributes.declareGlobalBinding ctx b emittedName exportedKey valT
 
                     // Decode + validate compiler parameter attributes
                     // (`[<CallAtMostOnce>]`) for an inline binding, recording them
@@ -1982,7 +1932,7 @@ module Elaborate =
                     // so nothing reads it. (A genuinely dynamic read is E2, rejected
                     // upstream.) Eliding it here keeps `New PrintfFormat` off codegen.
                     if not elided then
-                        yield TDecl.Let(tpat, valT, b.inlineToken.IsSome, isGlobal, declTy), quantEnv
+                        yield TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv
             ]
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e
@@ -2049,7 +1999,7 @@ module Elaborate =
             // published has to be the tree the walk never saw.
             for (d, env) in elaborated do
                 match d with
-                | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _, _) ->
+                | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
                     ctx.InlineTemplates.[k] <- freezeTypars ctx.Store env d
                 | _ -> ()
 
@@ -2118,6 +2068,9 @@ module Elaborate =
             // twin: the backend holds a resolved canon key, and a display name cannot say
             // which type it names.
             IntrinsicReprKeys = System.Collections.Generic.Dictionary(ctx.Types.IntrinsicReprKeys)
+            // The `[<Global>]` bindings, snapshotted on the same identity axis: the JS
+            // backend reads it to emit no definition for a value that IS a target global.
+            GlobalValueKeys = System.Collections.Generic.HashSet(ctx.Bindings.GlobalValueKeys)
             // Snapshot the named-module placements: the backend keys
             // off a binding's identity to emit it on its holder type.
             ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq

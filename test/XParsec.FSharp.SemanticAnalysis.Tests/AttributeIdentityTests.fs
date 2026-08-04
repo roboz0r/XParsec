@@ -54,11 +54,11 @@ let tests =
                     "the qualifier is honoured because it resolves"
             }
 
-            test "a qualified path that names no type is silently ignored" {
+            test "a qualified path that names no type is blamed for spelling a marker" {
                 // The old leaf-segment rule accepted this on the strength of its last
                 // segment alone. Nothing declares `Microsoft.FSharp.Core` here, so it
-                // now decodes to nothing — and stays a non-error: most of F#'s
-                // attribute vocabulary is undeclared in the Vesper contract.
+                // decodes to nothing — and silence would ship the very default the author
+                // wrote the attribute to refuse.
                 let ctx =
                     analyse (src [ "[<Microsoft.FSharp.Core.ReferenceEquality>]"; "type Point = { X: int }" ])
 
@@ -66,6 +66,22 @@ let tests =
                     (expectRecord ctx "Point").EqualitySupport
                     EqualityVerdict.Structural
                     "an unresolved head leaves the record's structural default"
+
+                match ctx.Diagnostics |> Diagnostic.errors |> List.map (fun d -> d.Message) with
+                | [ msg ] ->
+                    Expect.stringContains
+                        msg
+                        "Microsoft.FSharp.Core.ReferenceEquality"
+                        "the diagnostic quotes the path as written"
+                | other -> failtestf "expected exactly one error, got %A" other
+            }
+
+            test "an unresolved attribute that spells no marker stays silently ignored" {
+                // Most of F#'s attribute vocabulary is declared nowhere in the Vesper
+                // contract, so blaming every unresolved head would blame every library file.
+                let ctx = analyse (src [ "[<AutoOpen>]"; "type Point = { X: int }" ])
+
+                Expect.isEmpty (ctx.Diagnostics |> Diagnostic.errors) "an undeclared non-marker is not an error"
             }
 
             test "a same-named user type does NOT take the compiler marker's meaning" {

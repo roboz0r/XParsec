@@ -322,7 +322,7 @@ module InlineReduction =
         (args: (TExpr * SemType * SyntaxToken) list)
         : {| Body: TExpr; TypeArgs: SemType[] |} =
         match decl with
-        | TDecl.Let(_, _, _, _, declTy) ->
+        | TDecl.Let(_, _, _, declTy) ->
             let typeArgs = Inline.deriveInlineTypeArgs ctx.Store declTy args
             let expanded, unresolved = Inline.inlineExpand ctx decl typeArgs
 
@@ -372,7 +372,7 @@ module InlineReduction =
             | ValueSome ib ->
                 let bodyArity =
                     match ib.Decl with
-                    | TDecl.Let(_, value, _, _, _) -> Inline.lambdaArity value
+                    | TDecl.Let(_, value, _, _) -> Inline.lambdaArity value
                     | _ -> 0
 
                 min (SemTypeQuery.Funs.count ctx.Store refTy) bodyArity

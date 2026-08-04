@@ -347,13 +347,7 @@ module InlineSpecTable =
                         // alone — so it is minted rather than taken from anything,
                         // exactly as a lifted member body's is.
                         Decl =
-                            TDecl.Let(
-                                TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value),
-                                value,
-                                true,
-                                false,
-                                declTy
-                            )
+                            TDecl.Let(TPat.NamedSimple(t.Mint(), declTy, TastWalk.exprTok value), value, true, declTy)
                     }
 
             // INTERNED only once BUILT: `Interned` is the reuse pool, and reuse is a decision

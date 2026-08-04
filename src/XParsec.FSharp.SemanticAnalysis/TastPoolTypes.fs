@@ -230,14 +230,14 @@ type PooledSpecialization =
 /// and the two per-binder `BinderColumn`s).
 /// NO field here carries a tree, which is the property that matters: every expression and
 /// pattern in the file is in the columns, so the residue can never drag a subtree along.
-/// Exactly these three fields, each for its own reason:
+/// Each field for its own reason:
 ///
 ///   * `Diagnostics` — a flat list positioned in the file's own token space, in no pooled
 ///     domain (a diagnostic can name a node the emittable tree does not contain, so it
 ///     cannot take a pool id).
-///   * `IntrinsicReprKeys` / `Accessibility` — the two `SymbolKey`-keyed dictionaries. Their
-///     key space is the SYMBOL identity, not the positional node identity the pools give, so
-///     they are untouched by the dense-id remap.
+///   * `IntrinsicReprKeys` / `GlobalValueKeys` / `Accessibility` — the `SymbolKey`-keyed
+///     tables. Their key space is the SYMBOL identity, not the positional node identity the
+///     pools give, so they are untouched by the dense-id remap.
 ///
 /// Naming the residue is the point: `FrozenPools` is then a self-contained, serializable
 /// value, and what remains outside the columnar form is visible in the type rather than
@@ -250,6 +250,7 @@ type FrozenFileResidue =
         // the same shadowing `TastFileG.Diagnostics` guards against.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
         IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>
+        GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
     }
 
@@ -447,6 +448,7 @@ module FrozenPools =
                 {
                     Diagnostics = []
                     IntrinsicReprKeys = readOnlyDict []
+                    GlobalValueKeys = System.Collections.Generic.HashSet()
                     Accessibility = readOnlyDict []
                 }
             ModuleMembers = [||]

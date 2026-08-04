@@ -169,8 +169,8 @@ module Freeze =
     /// stays in `Decls` and is emitted; publication here is purely additive.
     let private isInlineVocabulary (d: TDecl) : bool =
         match d with
-        | TDecl.Let(TPat.NamedSimple _, _, true, _, _) -> true
-        | TDecl.Let(TPat.NamedSimple _, _, false, _, _) -> (Inline.nullaryIntrinsicValueBody d).IsSome
+        | TDecl.Let(TPat.NamedSimple _, _, true, _) -> true
+        | TDecl.Let(TPat.NamedSimple _, _, false, _) -> (Inline.nullaryIntrinsicValueBody d).IsSome
         | _ -> false
 
     /// Rewrite a template's references to its MODULE-LEVEL SIBLINGS — every one of them,
@@ -210,8 +210,7 @@ module Freeze =
             }
 
         match d with
-        | TDecl.Let(pat, value, isInline, isGlobal, ty) ->
-            TDecl.Let(pat, TastWalk.mapExpr mapper value, isInline, isGlobal, ty)
+        | TDecl.Let(pat, value, isInline, ty) -> TDecl.Let(pat, TastWalk.mapExpr mapper value, isInline, ty)
         | other -> other
 
     /// The publish invariant, checked STRUCTURALLY on the rewritten body: every `Var` it
@@ -235,7 +234,7 @@ module Freeze =
         match d with
         // The decl's own binder is in scope in its body (a template may be recursive), so
         // it seeds the bound set; the walk binds the lambda params / locals as it enters them.
-        | TDecl.Let(pat, value, _, _, _) ->
+        | TDecl.Let(pat, value, _, _) ->
             let free = TastWalk.freeVars (TastWalk.bindersOfTPat pat) value
             let seen = HashSet<NodeKey>(HashIdentity.Structural)
             let sites = ResizeArray<NodeKey * SyntaxToken>()
@@ -325,7 +324,7 @@ module Freeze =
 
         for d in tast.Decls do
             match d with
-            | TDecl.Let(head, _, _, _, _) when isInlineVocabulary d ->
+            | TDecl.Let(head, _, _, _) when isInlineVocabulary d ->
                 match publishedInfo head with
                 | ValueSome(binder, info) ->
                     let k = BinderKey.identity binder

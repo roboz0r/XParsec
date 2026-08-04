@@ -11,7 +11,7 @@ let private analyse (input: string) =
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
-    | EqList [ TDecl.Let(_, _, _, _, ty) ] -> ty
+    | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
     | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
 [<Tests>]
@@ -292,7 +292,7 @@ let tests =
                 Expect.equal (declType tast) BuiltinTypes.tyFloat "pi : float"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Float v, _, _), _, _, _) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Float v, _, _), _, _) ->
                     Expect.floatClose Accuracy.medium v 3.14 "value preserved"
                 | other -> failtestf "unexpected: %A" other
             }
@@ -302,7 +302,7 @@ let tests =
                 Expect.equal (declType tast) BuiltinTypes.tyInt64 "big : int64"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int64, 1L), _, _), _, _, _) -> ()
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int64, 1L), _, _), _, _) -> ()
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -311,7 +311,7 @@ let tests =
                 Expect.equal (declType tast) BuiltinTypes.tyByte "b : byte"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Byte, 255L), _, _), _, _, _) -> ()
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Byte, 255L), _, _), _, _) -> ()
                 | other -> failtestf "unexpected: %A" other
             }
 
@@ -329,7 +329,7 @@ let tests =
                 Expect.equal (declType tast) BuiltinTypes.tyString "s : string"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.String text, _, _), _, _, _) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.String text, _, _), _, _) ->
                     Expect.equal text "hello" "string body preserved"
                 | other -> failtestf "unexpected: %A" other
             }
@@ -493,17 +493,12 @@ let tests =
                 let tast = analyse "let f (a, b) = a + b"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(TPat.Tuple(EqList [ TPat.NamedSimple(_, _, _); TPat.NamedSimple(_, _, _) ], _, _),
-                            _,
-                            _,
-                            _,
-                            _) ->
+                | TDecl.Let(TPat.Tuple(EqList [ TPat.NamedSimple(_, _, _); TPat.NamedSimple(_, _, _) ], _, _), _, _, _) ->
                     // For function-form let, `f`'s own pattern is NamedSimple and the
                     // tuple sits on the Lambda — not on the TDecl.Let.
                     failtest "did not expect TDecl.Let to be the tuple pattern itself"
                 | TDecl.Let(TPat.NamedSimple _,
                             TExpr.Lambda(TPat.Tuple(EqList [ TPat.NamedSimple _; TPat.NamedSimple _ ], _, _), _, _, _),
-                            _,
                             _,
                             _) -> ()
                 | other -> failtestf "unexpected: %A" other

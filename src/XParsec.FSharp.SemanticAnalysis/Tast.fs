@@ -131,6 +131,16 @@ type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
         /// but deliberately not ordered. Same form the provider's `IntrinsicForwardRepr`
         /// presents, so the backend's two halves of the axis read alike.
         IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>
+        /// The `[<Global>]` module-level bindings: values that ARE a target global
+        /// (JS `undefined`), so the declaring file emits no definition for one — a
+        /// definition would restate the global and, being self-referential, could not
+        /// initialise. A reference emits the bare name the front end splices, which is why
+        /// only the DECLARING file consults this and no consumer needs it.
+        ///
+        /// Keyed by the binding's `SymbolKey`, on the same identity axis as
+        /// `IntrinsicReprKeys` — `[<Global>]`-ness belongs to the value a binder names, not
+        /// to the shape of the `let` node that names it.
+        GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
         /// A module-level binding's binder → its named-holder placement
         /// (`module Foo`'s functions emit on a real `Foo`/`FooModule` static class,
         /// not the anonymous "Program" holder). Empty for a program with no named
@@ -274,14 +284,14 @@ module TSpecializationG =
         (entry: TSpecializationG<'ty, 'tok, 'id>)
         : TPatG<'ty, 'tok, 'id> * TExprG<'ty, 'tok, 'id> =
         match entry.Decl with
-        | TDeclG.Let(pat, value, _, _, _) -> pat, value
+        | TDeclG.Let(pat, value, _, _) -> pat, value
         | other ->
             let (SpecializationId i) = spec
             failwithf "TSpecialization: specialization %d is not a `TDecl.Let`: %A" i other
 
 [<RequireQualifiedAccess>]
 module TastFileG =
-    /// Key→value set equality for the two `IReadOnlyDictionary<SymbolKey,_>` fields.
+    /// Key→value set equality for the `IReadOnlyDictionary<SymbolKey,_>` fields.
     /// A `SymbolKey` is an identity (equatable, deliberately unordered), so the file
     /// stores these as HASH maps — and `IReadOnlyDictionary` carries only REFERENCE
     /// equality, so two dictionaries with identical contents never `=`-match. Compare
@@ -302,16 +312,18 @@ module TastFileG =
 
     /// Whole-file structural equality — the equality a `TastFileG` round-trip (freeze
     /// → serialize → rebuild, or `TastUnpool.ofPools ∘ toPools`) is judged by. This is
-    /// LIBRARY knowledge, not test knowledge: two of the record's fields
-    /// (`IntrinsicReprKeys`, `Accessibility`) are `IReadOnlyDictionary`, which breaks the
-    /// derived structural `=` on the whole record, so `a = b` is unsound on a rebuilt file
-    /// and every consumer that wants "same contents" must route through here rather than
-    /// rediscover the carve-out. Every other field — the decl trees, the `Map` side tables,
-    /// the diagnostics list, the inline vocabulary — has sound structural equality.
+    /// LIBRARY knowledge, not test knowledge: three of the record's fields
+    /// (`IntrinsicReprKeys`, `GlobalValueKeys`, `Accessibility`) are read-only collection
+    /// interfaces, which break the derived structural `=` on the whole record, so `a = b` is
+    /// unsound on a rebuilt file and every consumer that wants "same contents" must route
+    /// through here rather than rediscover the carve-out. Every other field — the decl
+    /// trees, the `Map` side tables, the diagnostics list, the inline vocabulary — has sound
+    /// structural equality.
     let structurallyEqual (a: TastFileG<'ty, 'tok, 'id>) (b: TastFileG<'ty, 'tok, 'id>) : bool =
         a.Decls = b.Decls
         && a.Diagnostics = b.Diagnostics
         && dictEqual a.IntrinsicReprKeys b.IntrinsicReprKeys
+        && a.GlobalValueKeys.SetEquals b.GlobalValueKeys
         && a.ModuleMembers = b.ModuleMembers
         && a.ClosureReprs = b.ClosureReprs
         && a.FunVerdicts = b.FunVerdicts

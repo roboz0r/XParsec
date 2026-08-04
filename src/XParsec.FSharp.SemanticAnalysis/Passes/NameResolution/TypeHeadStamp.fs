@@ -232,19 +232,23 @@ module NameResolutionTypeHeadStamp =
     /// same short name in another namespace cannot take a compiler attribute's meaning
     /// over — which a short-name test could not say.
     ///
-    /// An attribute that resolves to NOTHING is simply absent. Most of F#'s attribute
-    /// vocabulary (`AutoOpen`, `Sealed`, `Struct`, `RequireQualifiedAccess`, …) is not
-    /// declared in the Vesper contract at all, so rejecting an unresolved head would
-    /// reject every library file; declaring that vocabulary is separate work.
+    /// An attribute that resolves to NOTHING is simply absent — unless its leaf SPELLS a
+    /// compiler marker, which is blamed. Most of F#'s attribute vocabulary (`AutoOpen`,
+    /// `Sealed`, `Struct`, `RequireQualifiedAccess`, …) is not declared in the Vesper
+    /// contract at all, so rejecting every unresolved head would reject every library file;
+    /// declaring that vocabulary is separate work.
     [<Struct; NoEquality; NoComparison>]
     type ResolvedAttributes =
         {
-            Keys: TypeKey list
+            Keys: System.Collections.Generic.HashSet<TypeKey>
         }
 
-        member this.Has(k: TypeKey) : bool = List.contains k this.Keys
+        member this.Has(k: TypeKey) : bool = this.Keys.Contains k
 
-        static member None: ResolvedAttributes = { Keys = [] }
+        static member None: ResolvedAttributes =
+            {
+                Keys = System.Collections.Generic.HashSet()
+            }
 
     /// The type an attribute head NAMES. F#'s attribute suffix rule is
     /// `Attribute`-suffixed FIRST, then the name as written (probed against
@@ -277,12 +281,45 @@ module NameResolutionTypeHeadStamp =
             | ValueSome k -> ValueSome k
             | ValueNone -> tryName written.Name
 
+    /// Every spelling that reaches a compiler marker: each declared name and, per F#'s
+    /// optional-suffix rule, the same name without `Attribute`. Derived from the marker
+    /// KEYS, so the recognised spellings cannot drift from the identities.
+    let private compilerMarkerLeaves: System.Collections.Generic.HashSet<string> =
+        System.Collections.Generic.HashSet<string>(
+            seq {
+                for k in RuntimeNames.compilerAttributeKeys do
+                    yield k.Name
+                    yield k.Name.Substring(0, k.Name.Length - RuntimeNames.AttributeSuffix.Length)
+            }
+        )
+
+    /// An attribute head that resolved to NOTHING but spells a compiler marker: the author
+    /// asked for a meaning the compiler has and got none — the contract declaring it is
+    /// unreferenced, or the qualifier names no such scope — and silence there ships a
+    /// record with the posture it was written to refuse. Held to the marker spellings so
+    /// `[<Sealed>]` and the rest of F#'s undeclared vocabulary stay silently ignored.
+    let private reportUnresolvedMarker (ctx: PassContext) (typ: Type<SyntaxToken>) : unit =
+        match CstKeys.ofTypeHead typ with
+        | ValueNone -> ()
+        | ValueSome head ->
+            let written = ctx.WrittenTypeNameOf head.LongIdent
+
+            if compilerMarkerLeaves.Contains written.Name then
+                ctx.Report(
+                    head.Site.Tok,
+                    Kind.Message(
+                        sprintf
+                            "'%s' names no type here, so this attribute is not the compiler marker it spells and would have no effect. Reference the contract that declares it, or qualify the path to the type meant."
+                            written.Written
+                    )
+                )
+
     /// Resolve every attribute in a declaration's `[<…>]` sets to the type it names.
     let resolveAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : ResolvedAttributes =
         match attrs with
         | ValueNone -> ResolvedAttributes.None
         | ValueSome sets ->
-            let keys = ResizeArray()
+            let keys = System.Collections.Generic.HashSet()
 
             for AttributeSet(attributes = entries) in sets do
                 for Attribute(construction = construction), _sep in entries do
@@ -292,10 +329,10 @@ module NameResolutionTypeHeadStamp =
                         | InterfaceConstruction(typ = t) -> t
 
                     match tryResolveAttributeTypeKey ctx attrTy with
-                    | ValueSome k -> keys.Add k
-                    | ValueNone -> ()
+                    | ValueSome k -> keys.Add k |> ignore
+                    | ValueNone -> reportUnresolvedMarker ctx attrTy
 
-            { Keys = List.ofSeq keys }
+            { Keys = keys }
 
     /// The `CstWalk.iterType` visitor that classifies + stamps every written type head
     /// reachable from a `Type`. `iterType`'s recursion reaches every nested head (generic

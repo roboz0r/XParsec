@@ -672,3 +672,20 @@ and CompiledFormG<'ty, 'pat, 'id> =
         Params: StaticParamG<'ty, 'pat, 'id> list
         Return: CompiledReturnG<'ty>
     }
+
+[<RequireQualifiedAccess>]
+module TExprG =
+
+    /// The intrinsic template text of a body that is EXACTLY one zero-operand intrinsic
+    /// (`(# "undefined" #)`), else `ValueNone`. With no operands there is nothing to
+    /// substitute and no typar to instantiate, so the template text IS what a reference
+    /// emits — which makes such a body a compile-time ALIAS for its intrinsic rather than a
+    /// computation, and is the whole of the shape `[<Global>]` admits.
+    ///
+    /// THE recogniser for that shape: the alias must be recognised identically wherever it
+    /// is asked about, or a body could be published as splice vocabulary in one place and
+    /// emitted as a definition in another.
+    let nullaryIntrinsicText (e: TExprG<'ty, 'tok, 'id>) : string voption =
+        match e with
+        | TExprG.ILIntrinsic(opCode = opCode; args = args) when args.Length = 0 -> ValueSome opCode
+        | _ -> ValueNone

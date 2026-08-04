@@ -68,13 +68,13 @@ module FrozenCodecTypes =
 
     // ── the `SymbolKey`-keyed container ─────────────────────────────────────
     //
-    // The one container helper that names a domain: it rides `writeSymbolRef` above, so it
-    // cannot sit with the generic containers in `FrozenCodecPrimitives`. The two
-    // `IReadOnlyDictionary<SymbolKey,_>` fields serialize as a length-prefixed
-    // (key, value) sequence — no canonical order is imposed (the cache key hashes
-    // inputs, not the blob), so emit order is free and read rebuilds an unordered map.
+    // The container helpers that name a domain: they ride `writeSymbolRef` above, so they
+    // cannot sit with the generic containers in `FrozenCodecPrimitives`. A
+    // `SymbolKey`-keyed table serializes as a length-prefixed entry sequence — no
+    // canonical order is imposed (the cache key hashes inputs, not the blob), so emit
+    // order is free and read rebuilds an unordered table.
 
-    /// The two `IReadOnlyDictionary<SymbolKey,_>` fields — rebuilt on read as a
+    /// The `IReadOnlyDictionary<SymbolKey,_>` fields — rebuilt on read as a
     /// concrete `Dictionary` exposed through the read-only view, exactly how
     /// `Elaborate` constructs `IntrinsicReprKeys` / `Accessibility`.
     let writeSymbolDict
@@ -101,6 +101,22 @@ module FrozenCodecTypes =
             d.[k] <- v
 
         d :> System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>
+
+    /// The membership-only twin of `writeSymbolDict` — a `SymbolKey` set with no payload.
+    let writeSymbolSet (w: FrozenWriter) (s: System.Collections.Generic.IReadOnlySet<SymbolKey>) =
+        w.Write s.Count
+
+        for k in s do
+            writeSymbolRef w k
+
+    let readSymbolSet (r: FrozenReader) : System.Collections.Generic.IReadOnlySet<SymbolKey> =
+        let n = r.ReadInt32()
+        let s = System.Collections.Generic.HashSet<SymbolKey>(n)
+
+        for _ in 1..n do
+            s.Add(readSymbolRef r) |> ignore
+
+        s :> System.Collections.Generic.IReadOnlySet<SymbolKey>
 
     // ── non-generic leaf payloads the tree / side tables carry ──────────────
 

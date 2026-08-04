@@ -4,8 +4,9 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-// Decode the small set of attributes that govern a record / union's equality AND comparison postures,
-// off the type's `TypeName.attributes` CST node. Each attribute's long-ident is
+// Decode the compiler-recognised attributes and validate what each one is written on: a
+// record / union's equality AND comparison postures, an inline parameter's calling
+// convention, and `[<Global>]` on a module binding. Each attribute's long-ident is
 // RESOLVED as a type — through the same local-claim-then-external engine every
 // other written type head goes through — and the resolved `TypeKey` is compared
 // against the `Vesper.Core` attribute identities in `RuntimeNames`. So a user type
@@ -240,7 +241,58 @@ module Attributes =
     let decodeClassAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) =
         AttributeDecode.decodeClassAttributes ctx.NameOf attrs
 
-    /// `[<Global>]` on a module-level binding: the value IS a target global, so no
-    /// definition is emitted for it and a reference emits its bare name with no import.
-    let decodeGlobal (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : bool =
-        AttributeDecode.decodeGlobal ctx.NameOf attrs
+    /// `[<Global>]` on a module-level binding: the value IS a target global (JS
+    /// `undefined`), so the declaring file emits no definition for it and a reference emits
+    /// its bare name, from any file, with no import. Checks the declaration and, when it
+    /// holds, files it under `exportedKey` — the value's own identity, which is what the
+    /// declaration is ABOUT. Recording here rather than at the call site is the point: a
+    /// checked declaration cannot then be dropped on the floor.
+    ///
+    /// The declaration is checked against the body it is written on BOTH ways. Marking a
+    /// body that is not a bare intrinsic template would silently delete real code; leaving
+    /// a binding that restates its own target global unmarked emits
+    /// `const undefined = undefined`, which cannot initialise and kills the module at load.
+    /// `emittedName` is the name the binding is emitted under, which is what a restatement
+    /// is a restatement OF.
+    let declareGlobalBinding
+        (ctx: PassContext)
+        (b: Binding<SyntaxToken>)
+        (emittedName: string voption)
+        (exportedKey: SymbolKey voption)
+        (valT: TExpr)
+        : unit =
+        let isGlobal =
+            (NameResolutionTypeHeadStamp.resolveAttributes ctx b.attributes).Has RuntimeNames.globalAttributeKey
+
+        let site = (CstKeys.siteOfBinding b).Tok
+
+        let named =
+            match emittedName with
+            | ValueSome n -> sprintf "'%s'" n
+            | ValueNone -> "this binding"
+
+        let report (message: string) = ctx.Report(site, Kind.Message message)
+
+        match TExprG.nullaryIntrinsicText valT, isGlobal with
+        | ValueNone, true ->
+            report (
+                sprintf
+                    "[<Global>] declares %s to BE a target global, so its body must be exactly one zero-operand intrinsic naming that global — no definition is emitted for it"
+                    named
+            )
+        | ValueSome text, false when emittedName = ValueSome text ->
+            report (
+                sprintf
+                    "The binding %s restates the target global '%s': its definition would initialise from itself and could not run. Mark it [<Global>], which emits no definition and references the global by its bare name."
+                    named
+                    text
+            )
+        | ValueSome _, true ->
+            match exportedKey with
+            | ValueSome k -> ctx.Bindings.GlobalValueKeys.Add k |> ignore
+            // A head naming no single value (`let _ = …`) has no identity to file the
+            // declaration under, so honouring it silently would emit the definition anyway.
+            | ValueNone ->
+                report
+                    "[<Global>] declares the VALUE a binding names to be a target global, but this binding names none — give it a single name, or drop the attribute"
+        | _ -> ()
