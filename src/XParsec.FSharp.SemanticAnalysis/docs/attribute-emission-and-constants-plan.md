@@ -59,6 +59,49 @@ The third is the tell: the codebase already has a notion of "a constant that mus
 at compile time", reached today only by writing a literal. Folding widens the door the
 other two walk through.
 
+### 3.1 The constraint: a primitive's arithmetic is PLATFORM-DEFINED
+
+The front end has no basis for folding `a + b` today, and this is the design's central
+problem rather than an implementation detail.
+
+`prim-types-int.fsi` declares the operators as SIGNATURES ONLY —
+`static member inline (+): x: int * y: int -> int` says nothing about whether that wraps,
+saturates, or throws. The semantics live in the per-target `.fs` bodies, as `(# … #)`
+template text the front end cannot interpret. Folding with .NET's meaning would be
+SemanticAnalysis inventing a semantics it was never told.
+
+The bodies show this is live, not theoretical. JS `( * )` is `Math.imul($0, $1)` precisely
+because a masked `$0 * $1` loses the low bits past 2^53; JS `(+)` carries `| 0` because the
+target computes in float64. The two targets agree on 32-bit two's complement only because
+the JS body was WRITTEN to agree — a convention nothing checks. Where agreement is
+impossible it is absent: `float32` is a width JS does not have, and `decimal` has no JS
+representation at all.
+
+Two moves follow.
+
+**Fold only in CONSTANT CONTEXTS, total-or-error.** Do not build general constant folding.
+The three consumers in §3 all REQUIRE a value at compile time, so there the evaluator must
+either produce one or refuse with a diagnostic. Everywhere else, folding is an optimization
+we can simply decline — and declining is always correct. That turns a correctness risk into
+a coverage question: an unfoldable expression in a constant context is a clear error, never
+a wrong value.
+
+**The contract must DECLARE the operation, not merely permit it.** A yes/no permission bit
+would still leave the front end guessing what `+` means. So the abstract operation belongs
+on the operator member in the shared contract, read through the provider; both platform
+bodies then implement a stated operation rather than an implied one, and the evaluator
+implements a closed set of declared ops. Default is silence: no declaration means no
+folding means an error in a constant context, so every foldable operator is a deliberate
+act.
+
+Likely first set: the integer family and the bitwise operators (where both targets are
+32-bit two's complement by construction), `bool`, string concatenation, and enum bitwise —
+which is what attribute arguments need. Explicitly NOT `float` / `float32` / `decimal`.
+
+The declaration pays a second dividend: it makes the JS body's `| 0` mask the
+implementation of a stated contract rather than an unexplained convention, so a body that
+dropped it would be a bug with a name.
+
 ---
 
 ## 4. What emission needs beyond the row that exists
@@ -122,4 +165,15 @@ Nothing in the JS port waits on any of it.
   that is the case that makes group 3 non-empty for real.
 - **Where does folding live?** A pass over the TAST, or an evaluator the consumers call?
   The three consumers in §3 are reached at different stages, which argues for a shared
-  evaluator over a pass that rewrites the tree.
+  evaluator over a pass that rewrites the tree. §3.1's total-or-error rule points the same
+  way: a pass that rewrites opportunistically has no place to put the refusal.
+- **How is a declared operation spelled?** (§3.1) An attribute on the operator member is
+  the obvious candidate and matches how every other target fact is now stated, but it makes
+  the constant evaluator depend on attribute decoding — which the vocabulary tranche is
+  mid-flight on. A dedicated contract syntax would avoid that coupling at the cost of new
+  grammar. Decide before building either.
+- **Does the CLR side need its own declaration?** The CLR bodies are inline IL whose
+  meaning IS the ECMA-335 instruction, so the semantics are arguably already stated there
+  and only JS needs to assert conformance to them. That reading would halve the annotation
+  burden; it also makes CLR the privileged target again, which the manifest work
+  deliberately moved away from.
