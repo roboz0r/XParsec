@@ -385,79 +385,38 @@ module EmitJs =
                 (Members.localFn ctx (TastAccessor.exprStaticMethodCallKey e) true false loc)
                 (EqArray.ofArray (TastAccessor.exprChildren e))
 
-        // A member on an external type. The declaring type's provider flags × the
-        // receiver's presence pick the lowering — the whole dispatch in one table:
-        //   * an ERASED grouping type erases to the bare module export
-        //     (`erasedGroupingRef`); it holds only STATIC members, so a receiver is
-        //     an invariant break;
-        //   * an ATTACH-MEMBERS instance member reached WITHOUT being applied —
-        //     the CALL form is folded in the `App` head-case — is a native value
-        //     read: a data-property READ for a property, an eta-wrapped method
-        //     value for a method. (R2 scope is INSTANCE members: a static member /
-        //     ctor — `receiver = ValueNone` — falls through until its native
-        //     lowering lands.)
-        //   * everything else — including statics/ctors on an AttachMembers type —
-        //     takes the mangled-import path, which is only satisfiable by a
-        //     Vesper-provided runtime module (`JsImports.entryFor` fails loudly
-        //     when the package has none — a real npm package cannot export a
-        //     mangled name).
-        // A capability-member property read (`e.Current`) — the applied calls (`e.MoveNext()`)
-        // are folded in the `App` arm. Same convention as the `LocalInterfaces` arm above and
-        // `emitIteratorMethod`: an interface property is a zero-arg method, so the read is the
-        // call.
+        // A member on an external type, reached WITHOUT being applied — the CALL forms fold
+        // in the `App` head-case, off the same `MemberDispatch`. A STATIC member has no
+        // native lowering yet, so every dispatch but the erased one falls to the mangled
+        // import. A capability-member read (`e.Current`) is recognised ahead of all of them.
         | ExprShape.ExternalMember ->
             match e with
             | CapabilityRead ctx.Capabilities ctx.Imports (recv, emit) -> emit (buildExpr ctx recv) loc
             | _ ->
                 let em = TastAccessor.exprExternalMember e
                 let declKey = JsExternalMembers.declKey em.Key
-                // JS has no field/property distinction at access — both are a value member
-                // (the `get_`-style mangled import); only a `Method` is a function. (A `Field`
-                // here would gain only `readonly` fidelity, not yet modelled.)
-                let isProperty = em.Storage.IsValueMember
 
-                match JsExternalMembers.classFlagsOf ctx.Provider declKey, em.Receiver with
-                | ValueSome {
-                                MemberLowering = MemberLowering.ErasedBare
-                            },
-                  ValueSome _ ->
+                match JsExternalMembers.dispatchOf ctx.Provider declKey em.Storage, em.Receiver with
+                | MemberDispatch.ErasedBare _, ValueSome _ ->
                     failwithf
-                        "EmitJs (Step 9b): erased grouping type member '%s' has an instance receiver, but a synthetic free-function-overload type carries only static members"
+                        "EmitJs: erased grouping type member '%s' has an instance receiver, but a synthetic free-function-overload type carries only static members"
                         em.MemberName
-                | ValueSome {
-                                MemberLowering = MemberLowering.ErasedBare
-                                ImportForm = form
-                            },
-                  ValueNone ->
+                | MemberDispatch.ErasedBare form, ValueNone ->
                     JsExternalMembers.erasedGroupingRef ctx.Provider ctx.Imports declKey em.MemberName form loc
-                | ValueSome {
-                                MemberLowering = MemberLowering.AttachedNative
-                            },
-                  ValueSome r when isProperty ->
-                    // A manifest Property is a JS DATA property — native access is a plain
-                    // member READ `recv.prop`, NOT a zero-arg call. (Contrast the LOCAL
-                    // interface-impl property path, which emits `Call(attachedAccess, [])`
-                    // because Vesper compiles interface properties as zero-arg methods; a
-                    // TS property is genuinely a data slot, not a method.)
+                | MemberDispatch.Application, ValueSome r -> buildExpr ctx r
+                | MemberDispatch.NativeData, ValueSome r ->
                     JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc
-                | ValueSome {
-                                MemberLowering = MemberLowering.AttachedNative
-                            },
-                  ValueSome r ->
+                | MemberDispatch.AttachedMethod, ValueSome r ->
                     JsExternalMembers.etaWrapAttachedMethod (buildExpr ctx) r em.Key em.MemberName ctx.Pool loc
-                // A `Fun` IS an ECMAScript function, so `f.Invoke` unapplied names no member
-                // on it — the receiver is already the callable.
-                | _, ValueSome r when JsExternalMembers.isFunInterface declKey -> buildExpr ctx r
-                // Any other INTERFACE member: the impl is an attached method on the
-                // receiver's class, whichever file (or library) declared the interface.
-                // Vesper compiles an interface property as a zero-arg method, so its read
-                // is the call — the same shape the local-interface arm above emits.
-                | _, ValueSome r when JsExternalMembers.isInterface ctx.Provider declKey ->
-                    if isProperty then
-                        JsExpr.Call(JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc, [], loc)
-                    else
-                        JsExternalMembers.etaWrapAttachedMethod (buildExpr ctx) r em.Key em.MemberName ctx.Pool loc
-                | _ ->
+                | MemberDispatch.InterfaceProperty, ValueSome r ->
+                    JsExpr.Call(JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc, [], loc)
+                // JS has no field/property distinction at access — a `Field` and a `Property`
+                // both take the `get_`-style mangled import; only a `Method` is a function.
+                | MemberDispatch.MangledImport, _
+                | MemberDispatch.Application, ValueNone
+                | MemberDispatch.NativeData, ValueNone
+                | MemberDispatch.AttachedMethod, ValueNone
+                | MemberDispatch.InterfaceProperty, ValueNone ->
                     JsExternalMembers.mangledMemberAccess
                         ctx.Provider
                         ctx.Imports
@@ -465,7 +424,7 @@ module EmitJs =
                         declKey
                         em.Receiver
                         em.MemberName
-                        isProperty
+                        em.Storage.IsValueMember
                         loc
 
         // `match scrut with …` → an IIFE binding the scrutinee once, then testing each

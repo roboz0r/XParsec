@@ -6,6 +6,26 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open JsEmitHelpers
 
+/// HOW an `ExternalMember` head lowers, as the declaring type's provider shape and the
+/// member's storage decide it. ONE verdict for both consumers — the unapplied member
+/// reference and the applied call — so a new lowering is a case here plus an arm at each,
+/// never two hand-synchronised taxonomies.
+type MemberDispatch =
+    /// The receiver IS the callable: `f.Invoke(a)` is `f(a)`.
+    | Application
+    /// A native data property: `recv.prop`.
+    | NativeData
+    /// A prototype/own method: `recv.member(args)`, eta-wrapped when unapplied.
+    | AttachedMethod
+    /// An interface property. Vesper compiles those as zero-arg methods, so the read is
+    /// the call: `recv.prop()`.
+    | InterfaceProperty
+    /// A synthetic grouping type with no runtime existence: the bare module export,
+    /// imported in the group's stamped form.
+    | ErasedBare of ImportForm
+    /// The receiver-first `<Type>__<member>` import Vesper's own runtimes export.
+    | MangledImport
+
 /// The EXTERNAL-member lowering cluster — everything the walker keys off the
 /// provider's external world: the declaring type's `ExternalClassFlags`, the `exn`
 /// repr climb, member-name mangling, the attached-member arity contract, and the
@@ -16,8 +36,8 @@ open JsEmitHelpers
 /// sub-expression takes a `build: TastAccessor.ExprId -> JsExpr` callback (the
 /// `EmitJs.buildExpr ctx` closure) — keeping this cluster out of the `buildExpr`
 /// mutual-recursion group is what lets it live in its own file and keeps `EmitJs`
-/// legible: `EmitJs`'s `ExternalMember` / `App` arms shrink to a dispatch over
-/// (`classFlagsOf` × receiver); the lowering bodies live here.
+/// legible: `EmitJs`'s `ExternalMember` / `App` arms shrink to a match over
+/// `MemberDispatch`; the lowering bodies live here.
 module JsExternalMembers =
 
     /// The declaring type's `TypeKey` from a member-call node's `key`. A member node's
@@ -77,65 +97,53 @@ module JsExternalMembers =
         | ValueSome _ -> home
         | ValueNone -> failwithf "EmitJs: %s has no resolvable home assembly (key %A)" what key
 
-    /// The declaring type's `ExternalClassFlags`, resolved through the provider
-    /// (`TryLookupType` → `Class` shape → `Flags`) in ONE lookup — the
-    /// `ExternalMember` dispatch reads `Erased` and `AttachMembers` off the same
-    /// result. `ValueNone` when the key names no `Class` shape; every flag then reads
-    /// as `false`, so the normal mangled static-member path is untouched. The flags
-    /// the dispatch consumes:
-    ///
-    ///   * `Erased` — a SYNTHETIC erased grouping type (Tier 2 item 9b): the TS
-    ///     provider groups a module's overloaded free functions as static members
-    ///     of one F#-visible type purely so the front end can resolve the overload
-    ///     set. The type does not exist at runtime — a call to one of its members
-    ///     must ERASE to the bare module export (`Util.format(x)` → `format(x)`,
-    ///     see `erasedGroupingRef`), never the mangled `Util_format` an ordinary
-    ///     external static member would import. `false` for every real
-    ///     (metadata/contract) class.
-    ///   * `AttachMembers` — the type carries its instance members as NATIVE
-    ///     object methods (`receiver.member(args)` / property reads) rather than
-    ///     the receiver-first free-fn imports Vesper's own runtimes emit; stamped
-    ///     by the provider on a real manifest Interface/Class.
-    /// The declaring type's resolved `Class` shape — the ONE provider lookup the three
-    /// predicates below project, so they cannot disagree about what the key names.
-    /// `ValueNone` when the key names no `Class` shape.
+    /// The declaring type's resolved `Class` shape — the ONE provider lookup the flags
+    /// accessor and the dispatch classifier project, so they cannot disagree about what
+    /// the key names. `ValueNone` when the key names no `Class` shape.
     let private classShapeOf (provider: IExternalSymbolProvider) (declKey: TypeKey) : ExternalClassShape voption =
         match provider.TryLookupType(SymbolKey.Type declKey) with
         | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape
         | _ -> ValueNone
 
+    /// The declaring type's `ExternalClassFlags` in one provider lookup. `ValueNone` when
+    /// the key names no `Class` shape; every flag then reads as `false`.
     let classFlagsOf (provider: IExternalSymbolProvider) (declKey: TypeKey) : ExternalClassFlags voption =
         classShapeOf provider declKey |> ValueOption.map (fun shape -> shape.Flags)
 
-    /// Whether `declKey` names an INTERFACE, as the provider resolved it.
-    let isInterface (provider: IExternalSymbolProvider) (declKey: TypeKey) : bool =
-        match classShapeOf provider declKey with
-        | ValueSome shape -> shape.IsInterface
-        | ValueNone -> false
+    /// `Vesper.Fun` at every arity — the curried `Fun<'A,'B>` and the flat overloads
+    /// `Fun<'A,'B,'C>` … `Fun<..,'E>`. Built once: the emit walk tests every external
+    /// member head against it.
+    let private funKeys: TypeKey[] =
+        [| for arity in 2..5 -> RuntimeNames.vesperFunKey arity |]
 
-    /// Whether an instance member of `declKey` dispatches as a NATIVE attached method
-    /// (`recv.member(args)`) rather than a receiver-first free-function import.
-    ///
-    /// Two ways to be one, and they are the same rule: a manifest object whose members ARE
-    /// prototype methods (`MemberLowering.AttachedNative`), and ANY interface. An interface
-    /// has no runtime existence on JS — no module, no export, no free-function form — so
-    /// its implementations are attached methods on the implementing class, and WHERE it was
-    /// declared (this file, a sibling file, another library) cannot change that.
-    let attachesMembers (provider: IExternalSymbolProvider) (declKey: TypeKey) : bool =
-        match classShapeOf provider declKey with
-        | ValueSome shape -> shape.IsInterface || shape.Flags.MemberLowering = MemberLowering.AttachedNative
-        | ValueNone -> false
-
-    /// `Vesper.Fun` at any of its arities — the curried `Fun<'A,'B>` and the flat
-    /// overloads `Fun<'A,'B,'C>` … `Fun<..,'E>`.
-    ///
-    /// THE carve-out from the attach-members rule above: a `Fun` value is an ECMAScript
-    /// arrow function at run time (that is what a Vesper lambda emits as), so `f.Invoke(a)`
-    /// is APPLICATION — `f(a)` — and not a member on an object that has none. The flat
-    /// overloads dispatch a saturated call in ONE call (`f(a, b)`), the curried one stays
-    /// curried (`f(a)(b)`); the member's own arity says which.
-    let isFunInterface (declKey: TypeKey) : bool =
-        [ 2..5 ] |> List.exists (fun arity -> RuntimeNames.vesperFunKey arity = declKey)
+    /// THE `ExternalMember` classification, from the declaring type's provider shape and
+    /// the member's storage. Both the unapplied reference and the applied call read it,
+    /// so the two can no longer drift.
+    let dispatchOf (provider: IExternalSymbolProvider) (declKey: TypeKey) (storage: MemberStorage) : MemberDispatch =
+        // A `Fun` is an ECMAScript arrow at run time, so `f.Invoke(a)` is application, not
+        // a member on an object that has none. Its KEY settles it, before any shape lookup.
+        if Array.contains declKey funKeys then
+            MemberDispatch.Application
+        else
+            match classShapeOf provider declKey with
+            | ValueNone -> MemberDispatch.MangledImport
+            | ValueSome shape ->
+                match shape.Flags.MemberLowering with
+                | MemberLowering.ErasedBare -> MemberDispatch.ErasedBare shape.Flags.ImportForm
+                // A manifest Property is a genuine data slot, not a zero-arg method.
+                | MemberLowering.AttachedNative ->
+                    if storage.IsValueMember then
+                        MemberDispatch.NativeData
+                    else
+                        MemberDispatch.AttachedMethod
+                // An interface has no runtime existence on JS — no module, no export, no
+                // free-function form — so its impls attach to the implementing class.
+                | MemberLowering.ReceiverFirst when shape.IsInterface ->
+                    if storage.IsValueMember then
+                        MemberDispatch.InterfaceProperty
+                    else
+                        MemberDispatch.AttachedMethod
+                | MemberLowering.ReceiverFirst -> MemberDispatch.MangledImport
 
     /// Walk a type's `inherit` chain up to the `exn` intrinsic root and resolve its
     /// `(# "Error" #)` repr to the native runtime class name (`Error` on JS). Returns
@@ -212,14 +220,14 @@ module JsExternalMembers =
 
     // ---- The lowerings ---------------------------------------------------------
 
-    /// A NATIVE attached-member call. An `ExternalMember` head whose declaring type
-    /// attaches its members (`attachesMembers` — a real manifest object, or any interface)
-    /// folds every applied argument into ONE `receiver.member(args)`; it is NOT a
-    /// receiver-first free-fn import (the form Vesper's OWN runtimes emit as a tree-shaking
-    /// optimisation). The member is tupled (.NET convention): it consumes the FIRST argument
-    /// as its argument list, opened to the key's `argSig` width — and any residual
-    /// over-application folds on as unary calls. `ValueNone` for every other head:
-    /// the `App` arm falls through to the flat-call / curried dispatch.
+    /// A NATIVE attached-member call: an `ExternalMember` head that dispatches on the
+    /// receiver folds every applied argument into ONE `receiver.member(args)` (or, for a
+    /// `Fun`, one `receiver(args)`); it is NOT a receiver-first free-fn import (the form
+    /// Vesper's OWN runtimes emit as a tree-shaking optimisation). The member is tupled
+    /// (.NET convention): it consumes the FIRST argument as its argument list, opened to
+    /// the key's `argSig` width — and any residual over-application folds on as unary
+    /// calls. `ValueNone` for every other head: the `App` arm falls through to the
+    /// flat-call / curried dispatch.
     let tryAttachedCall
         (provider: IExternalSymbolProvider)
         (pool: PoolBuilder)
@@ -229,38 +237,40 @@ module JsExternalMembers =
         (loc: JsLoc voption)
         : JsExpr voption =
         match head with
-        | InstanceExternalMember(recv, em) when
-            em.Storage = MemberStorage.Method && attachesMembers provider (declKey em.Key)
-            ->
-            match appArgs with
-            | (argExpr, _, _) :: rest ->
-                let args, argSpills =
-                    CompiledFns.tupledMemberPlan
-                        (sprintf "EmitJs: external attached member '%s'" em.MemberName)
-                        (memberArgCount em.Key em.MemberName)
-                        argExpr
-                    |> JsFlatFns.renderFlatSteps pool build
+        | InstanceExternalMember(recv, em) ->
+            // ONE argument plan for both receiver-dispatched shapes; only the callee differs.
+            let saturate (callee: JsExpr -> JsExpr list -> JsExpr) : JsExpr voption =
+                match appArgs with
+                | (argExpr, _, _) :: rest ->
+                    let args, argSpills =
+                        CompiledFns.tupledMemberPlan
+                            (sprintf "EmitJs: external attached member '%s'" em.MemberName)
+                            (memberArgCount em.Key em.MemberName)
+                            argExpr
+                        |> JsFlatFns.renderFlatSteps pool build
 
-                // A spill hoists the argument out of the call, so the receiver hoists with it
-                // (ahead of it) or the two swap evaluation order.
-                let recvJs, spills =
-                    match argSpills with
-                    | [] -> build recv, []
-                    | _ ->
-                        let tmp = freshTemp pool "_recv"
-                        JsExpr.Identifier(tmp, ValueNone), (tmp, build recv) :: argSpills
+                    // A spill hoists the argument out of the call, so the receiver hoists with it
+                    // (ahead of it) or the two swap evaluation order.
+                    let recvJs, spills =
+                        match argSpills with
+                        | [] -> build recv, []
+                        | _ ->
+                            let tmp = freshTemp pool "_recv"
+                            JsExpr.Identifier(tmp, ValueNone), (tmp, build recv) :: argSpills
 
-                let call =
-                    if isFunInterface (declKey em.Key) then
-                        JsExpr.Call(recvJs, args, loc)
-                    else
-                        attachedCall recvJs em.MemberName args loc
+                    rest
+                    |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) (callee recvJs args)
+                    |> fun folded -> JsFlatFns.wrapSpills spills folded loc
+                    |> ValueSome
+                | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 argument
 
-                rest
-                |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) call
-                |> fun folded -> JsFlatFns.wrapSpills spills folded loc
-                |> ValueSome
-            | [] -> ValueNone // unreachable: the `App` arm guarantees ≥ 1 argument
+            match dispatchOf provider (declKey em.Key) em.Storage with
+            | MemberDispatch.Application -> saturate (fun recvJs args -> JsExpr.Call(recvJs, args, loc))
+            | MemberDispatch.AttachedMethod -> saturate (fun recvJs args -> attachedCall recvJs em.MemberName args loc)
+            | MemberDispatch.NativeData
+            | MemberDispatch.InterfaceProperty
+            | MemberDispatch.ErasedBare _
+            | MemberDispatch.MangledImport -> ValueNone
         | _ -> ValueNone
 
     /// A METHOD on an `AttachMembers` type extracted as a VALUE (`let f = box.get`):
