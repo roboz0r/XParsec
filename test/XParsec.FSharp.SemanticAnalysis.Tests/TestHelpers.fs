@@ -167,16 +167,25 @@ let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =
         | Result.Ok(FSharpAst.SignatureFile f) -> lexed, f
         | Result.Ok ast -> failwithf "unexpected AST: %A" ast
 
-/// The assembly name every freeze in these suites is taken under. Shared because a
-/// consumer of the frozen output (`FrozenSignature.toProvider`) must be handed the SAME
-/// name the freeze stamped its origins with — two spellings of it can drift apart.
+/// The assembly name every freeze in these suites is taken under.
 let testAsm = "TestAsm"
 
 /// Freeze `src` through the whole front end, keeping the origin it was analysed FROM — what
-/// a consumer of the frozen output must be handed to read its templates' positions.
+/// a consumer of the frozen output must be handed to read its templates' positions. The
+/// origin is BUCKETED under `testAsm`, as a production driver buckets a file under the
+/// assembly it is compiling: the signature projection reads the home assembly off it.
 let freezeWithOrigin (src: string) : OriginSource * FrozenPools =
     let lexed, file = parseFile src
-    let origin = Hashing.originSourceOfText src lexed
+
+    let origin =
+        Hashing.originSource
+            {
+                BucketName = testAsm
+                Relative = (Hashing.textOriginPath src).Relative
+            }
+            src
+            lexed
+
     origin, Pipeline.analyseFor testAsm realProvider.Value origin file
 
 /// Freeze `src` through the whole front end: the pooled output the cache stores, the codec

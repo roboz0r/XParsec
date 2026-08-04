@@ -450,11 +450,13 @@ type internal ClrEnv
         | _ -> 0
 
     let externalAsmRef (origin: Origin) : EntityHandle =
-        match origin with
-        | Origin.Unstamped ->
+        // The CLR emits ONE PE per assembly, so a home refined to its declaring file
+        // scopes to the same `AssemblyRef` — the assembly is all this reads.
+        match origin.AssemblyOption with
+        | ValueNone ->
             failwith
                 "ClrProvider: an external symbol carries no home assembly (project-local symbols are resolved before the provider)."
-        | Origin.InAssembly(AssemblyName simpleName) ->
+        | ValueSome simpleName ->
             let an =
                 match references.TryFind simpleName with
                 | Some an -> an

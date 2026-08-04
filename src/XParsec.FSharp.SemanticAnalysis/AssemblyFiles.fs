@@ -163,7 +163,7 @@ module AssemblyFiles =
 
                 let origin = fileSource assemblyName path source parsed.Lexed
                 let frozen = analyse assemblyName scoped origin parsed.File
-                let view = FrozenSignature.toProvider assemblyName origin frozen
+                let view = FrozenSignature.toProvider origin frozen
 
                 // Push this file's view so LATER files can resolve its exports. It rides
                 // at the head, so it composes NEAREST for the immediately-following file.
@@ -274,3 +274,46 @@ module AssemblyFiles =
             for f in files do
                 yield! anchorDiagnostics f.Source (f.ParseDiagnostics @ f.Frozen.Residue.Diagnostics)
         ]
+
+    /// `analyseAssemblyWith`, GATED: every file must parse, and no analysed file may carry
+    /// an error-severity diagnostic. `Ok` is the analysed files in order; `Error` is every
+    /// blocking diagnostic anchored to its own file (path + in-file line/col) rather than
+    /// thrown. A parse failure is fatal for the whole assembly, and is reported alone —
+    /// the files after it analysed against a truncated view, so their findings would be
+    /// noise.
+    ///
+    /// THE gate both backends' drivers run, so "this package did not type-check" cannot
+    /// come to mean two different things per target.
+    let analyseGated
+        (analyse: AnalyseFile)
+        (assemblyName: string)
+        (external: IExternalSymbolProvider)
+        (files: (string * string) list)
+        : Result<FrozenFile list, AnchoredDiagnostic list> =
+        let results = analyseAssemblyWith analyse assemblyName external files
+
+        let parseFailures =
+            results
+            |> List.collect (
+                function
+                | Error e -> failureDiagnostics e
+                | Ok _ -> []
+            )
+
+        match parseFailures with
+        | _ :: _ -> Error parseFailures
+        | [] ->
+            let analysed =
+                results
+                |> List.choose (
+                    function
+                    | Ok f -> Some f
+                    | Error _ -> None
+                )
+
+            match
+                consolidatedDiagnostics analysed
+                |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
+            with
+            | _ :: _ as errors -> Error errors
+            | [] -> Ok analysed

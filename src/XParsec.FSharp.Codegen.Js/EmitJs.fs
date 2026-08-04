@@ -209,7 +209,7 @@ module EmitJs =
                         | None -> failwithf "EmitJs (Step 3): record literal for '%s' is missing field '%s'" info.Name f
                 ]
 
-            JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), args, loc)
+            JsExpr.New(nominalCtorRef ctx info.Home info.Name ValueNone, args, loc)
 
         // `{ r with X = v; … }` → reconstruction `new R(…)`: each field takes its
         // override if listed, else reads `<src>.field`. `<src>` is read once per
@@ -228,18 +228,14 @@ module EmitJs =
                         | None -> JsExpr.Member(srcRef, JsExpr.Identifier(f, ValueNone), false, ValueNone)
                 ]
 
+            let ctor = nominalCtorRef ctx info.Home info.Name ValueNone
+
             match TastAccessor.exprKind rc.Source with
-            | ExprShape.Var ->
-                JsExpr.New(JsExpr.Identifier(info.Name, ValueNone), argsFrom (buildExpr ctx rc.Source), loc)
+            | ExprShape.Var -> JsExpr.New(ctor, argsFrom (buildExpr ctx rc.Source), loc)
             | _ ->
                 let sName = freshTemp ctx.Pool "_rc"
 
-                let newExpr =
-                    JsExpr.New(
-                        JsExpr.Identifier(info.Name, ValueNone),
-                        argsFrom (JsExpr.Identifier(sName, ValueNone)),
-                        loc
-                    )
+                let newExpr = JsExpr.New(ctor, argsFrom (JsExpr.Identifier(sName, ValueNone)), loc)
 
                 JsExpr.Call(JsExpr.Arrow([ sName ], JsFnBody.Expr newExpr, ValueNone), [ buildExpr ctx rc.Source ], loc)
 
@@ -272,10 +268,7 @@ module EmitJs =
 
             // A local union's class is in this file; an external union's case class is
             // imported from its home module (no local re-emit).
-            let callee =
-                match info.Home with
-                | ValueSome asm -> JsExpr.Identifier(JsImports.addTypeRef ctx.Imports asm c.ClassName, loc)
-                | ValueNone -> JsExpr.Identifier(c.ClassName, ValueNone)
+            let callee = nominalCtorRef ctx info.Home c.ClassName loc
 
             JsExpr.New(callee, [ for a in TastAccessor.exprChildren e -> buildExpr ctx a ], loc)
 
@@ -452,6 +445,18 @@ module EmitJs =
                             },
                   ValueSome r ->
                     JsExternalMembers.etaWrapAttachedMethod (buildExpr ctx) r em.Key em.MemberName ctx.Pool loc
+                // A `Fun` IS an ECMAScript function, so `f.Invoke` unapplied names no member
+                // on it — the receiver is already the callable.
+                | _, ValueSome r when JsExternalMembers.isFunInterface declKey -> buildExpr ctx r
+                // Any other INTERFACE member: the impl is an attached method on the
+                // receiver's class, whichever file (or library) declared the interface.
+                // Vesper compiles an interface property as a zero-arg method, so its read
+                // is the call — the same shape the local-interface arm above emits.
+                | _, ValueSome r when JsExternalMembers.isInterface ctx.Provider declKey ->
+                    if isProperty then
+                        JsExpr.Call(JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc, [], loc)
+                    else
+                        JsExternalMembers.etaWrapAttachedMethod (buildExpr ctx) r em.Key em.MemberName ctx.Pool loc
                 | _ ->
                     JsExternalMembers.mangledMemberAccess
                         ctx.Provider
@@ -1055,7 +1060,57 @@ module EmitJs =
         let expansion =
             InlineExpand.expand ctx0.Pool (TastAccessor.roots ctx0.Pool |> List.ofArray)
 
-        let decls = expansion.Decls
+        // Two shapes of COMPILE-TIME ALIAS, dropped before anything reads a decl so no
+        // table registers one either.
+        let intrinsicReprs = TastPoolBuilder.intrinsicReprKeys ctx0.Pool
+
+        // Was this node WRITTEN in the file being emitted, rather than spliced in from a
+        // producer? A copied node keeps the producer's origin, so the origin decides.
+        let ownFile = TastPoolBuilder.origin ctx0.Pool
+
+        let writtenHere (e: TastAccessor.ExprId) : bool =
+            match expansion.Origins.TryGetValue e with
+            | true, origin -> origin.File = ownFile
+            | _ -> true
+
+        // The COMPILE-TIME ALIAS a zero-operand intrinsic binding is, made checkable: the
+        // file WROTE it (`let undefined = (# "undefined" #)` — a binding whose body is a
+        // spliced intrinsic, `let u = undefined` or `let absent = Unchecked.defaultof<_>`,
+        // is an ordinary definition of that value), and nothing reads it any more, every
+        // reference having spliced the body. Only then is there nothing to define — and a
+        // definition would restate the target's own global, `const undefined = undefined`,
+        // which cannot even initialise. A same-file reference is a `Var` no splice touched
+        // (`emptyDocs`), so such a binding is live and stays.
+        let isIntrinsicAlias (d: TastAccessor.DeclId) : bool =
+            let dl = TastAccessor.declLet d
+
+            match dl.Binding with
+            | TastAccessor.PNamed k ->
+                TastAccessor.exprKind dl.Value = ExprShape.ILIntrinsic
+                && Array.isEmpty (TastAccessor.exprChildren dl.Value)
+                && writtenHere dl.Value
+                && not (
+                    expansion.Decls
+                    |> List.exists (fun other ->
+                        match TastAccessor.declKind other with
+                        | DeclShape.Expression -> readsBinder k (TastAccessor.declExpression other)
+                        | DeclShape.Let -> readsBinder k (TastAccessor.declLet other).Value
+                        | DeclShape.Type -> false
+                    )
+                )
+            | _ -> false
+
+        let decls =
+            expansion.Decls
+            |> List.filter (fun d ->
+                match TastAccessor.declKind d with
+                // `type x = (# "repr" #)` declares a platform REPRESENTATION, not a type:
+                // `int` IS `number` on the target, and the `inline` operator members it
+                // carries are splice templates a use site expands, not exports.
+                | DeclShape.Type -> not (intrinsicReprs.ContainsKey (TastAccessor.declType d).Key)
+                | DeclShape.Let -> not (isIntrinsicAlias d)
+                | DeclShape.Expression -> true
+            )
 
         // Where each spliced node was WRITTEN, for the map, plus the authorship chain those
         // origins are keyed along — the walk keeps deriving nodes (the `InlinableLet` splice),

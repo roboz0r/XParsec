@@ -35,6 +35,13 @@ type AssemblyName =
 type Origin =
     | Unstamped
     | InAssembly of asm: AssemblyName
+    /// `InAssembly` REFINED to the declaring source file — what a projected view of an
+    /// analysed file stamps, since it knows which file it projected. The path carries its
+    /// own `BucketName`, so the assembly is read off the file rather than supplied a
+    /// second time and left free to disagree. A target that emits one artifact per
+    /// assembly reads only `AssemblyOption` and never sees the difference; one that emits
+    /// a module per source file names that module from `DeclaringFile`.
+    | InFile of file: OriginPath
 
     /// The home assembly's simple name, or `ValueNone` on an `Unstamped` origin (no
     /// home: the compilation being analysed, a front-end-only / contract-scrape path, or
@@ -45,6 +52,15 @@ type Origin =
         match this with
         | Origin.Unstamped -> ValueNone
         | Origin.InAssembly a -> ValueSome a.Name
+        | Origin.InFile f -> ValueSome f.BucketName
+
+    /// The declaring file, for a target whose artifact is per-FILE. `ValueNone` wherever
+    /// the producer knew only the assembly — a `.fsi` contract view or a metadata scrape.
+    member this.DeclaringFile: OriginPath voption =
+        match this with
+        | Origin.Unstamped
+        | Origin.InAssembly _ -> ValueNone
+        | Origin.InFile f -> ValueSome f
 
 /// A namespace — the root holder. `Path` is SEGMENTED (`["System"; "Collections"]`),
 /// never a dotted string: the prefix relations the codebase needs (`StartsWith(ns + ".")`)

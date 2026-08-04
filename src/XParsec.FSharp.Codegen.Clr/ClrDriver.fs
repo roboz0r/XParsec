@@ -206,44 +206,15 @@ module ClrDriver =
         (project: ProjectInfo)
         (files: (string * string) list)
         : Result<ClrArtifact, AssemblyFiles.AnchoredDiagnostic list> =
-        let results =
-            AssemblyFiles.analyseAssemblyWith analyse project.AssemblyName external files
+        AssemblyFiles.analyseGated analyse project.AssemblyName external files
+        |> Result.map (fun analysed ->
+            // Each file's projected view (nearest-first) ahead of the external stack.
+            let symbols =
+                ExternalSymbolProviders.composite ([ for f in analysed -> f.View ] @ [ external ])
 
-        // A parse failure is fatal for the whole assembly: surface every failed file's
-        // diagnostics anchored to its own source (looked up by path from `files`).
-        let parseFailures =
-            results
-            |> List.collect (
-                function
-                | Error e -> AssemblyFiles.failureDiagnostics e
-                | Ok _ -> []
-            )
-
-        match parseFailures with
-        | _ :: _ -> Error parseFailures
-        | [] ->
-            let analysed =
-                results
-                |> List.choose (
-                    function
-                    | Ok f -> Some f
-                    | Error _ -> None
-                )
-
-            // Every analysed file's error-severity diagnostics, anchored per-file.
-            let analysisErrors =
-                AssemblyFiles.consolidatedDiagnostics analysed
-                |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
-
-            match analysisErrors with
-            | _ :: _ -> Error analysisErrors
-            | [] ->
-                // Each file's projected view (nearest-first) ahead of the external stack.
-                let symbols =
-                    ExternalSymbolProviders.composite ([ for f in analysed -> f.View ] @ [ external ])
-
-                let tasts = [ for f in analysed -> f.Frozen ]
-                Ok(Codegen.compileFilesWithBclReferences bclReferences symbols project tasts)
+            let tasts = [ for f in analysed -> f.Frozen ]
+            Codegen.compileFilesWithBclReferences bclReferences symbols project tasts
+        )
 
     /// Compile an ordered multi-file assembly against the compilation's own reference
     /// set, MSBuild-shaped (`ClrCompilation`). The multi-file counterpart of `compile`:

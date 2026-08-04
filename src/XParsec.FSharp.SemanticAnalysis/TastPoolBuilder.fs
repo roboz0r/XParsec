@@ -411,6 +411,15 @@ module TastPoolBuilder =
     /// domain compares against to learn whether it is this file's own or a producer's.
     let origin (b: PoolBuilder) : OriginFile = b.Base.Origin
 
+    /// This file's OWN intrinsic-repr type declarations (`type int = (# "number" #)`),
+    /// keyed by the declared type's identity. A backend reads it to tell a declaration of a
+    /// PLATFORM REPRESENTATION from a type it must emit — the represented type already
+    /// exists on the target, so there is nothing to declare.
+    let intrinsicReprKeys
+        (b: PoolBuilder)
+        : System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo> =
+        b.Base.Residue.IntrinsicReprKeys
+
     /// How many resolved-specialization entries the table holds — the bound every
     /// `SpecializationId` an edge carries is inside.
     let specializationCount (b: PoolBuilder) : int = b.Base.Specializations.Length

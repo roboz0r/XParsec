@@ -242,6 +242,12 @@ module JsEmitHelpers =
                 TastAccessor.existsChild (isAssignedIn k) e
         | _ -> TastAccessor.existsChild (isAssignedIn k) e
 
+    /// Does any expression in `e` READ binder `k`?
+    let rec readsBinder (k: BinderId) (e: TastAccessor.ExprId) : bool =
+        match TastAccessor.exprKind e with
+        | ExprShape.Var -> TastAccessor.exprVarBinding e = k
+        | _ -> TastAccessor.existsChild (readsBinder k) e
+
     /// Does `value` read a variable that `body` later reassigns? F# `let x = value`
     /// takes a *snapshot* of `value` at the bind point; substituting `value` into `x`'s
     /// uses re-reads it at each use, so if `value` reads a var that `body` mutates

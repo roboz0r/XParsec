@@ -23,6 +23,7 @@
     <Compile Include="EmitJsMembers.fs" />
     <Compile Include="EmitJs.fs" />
     <Compile Include="Codegen.fs" />
+    <Compile Include="JsDriver.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />

@@ -35,11 +35,7 @@ let tests =
                     Expect.isFalse info.IsInterface "a class, not an interface"
                     Expect.equal info.Origin.Namespace.Dotted "System.Collections.Generic" "origin namespace"
 
-                    Expect.isTrue
-                        (match info.Origin.Home with
-                         | Origin.InAssembly _ -> true
-                         | Origin.Unstamped -> false)
-                        "origin carries the defining assembly"
+                    Expect.isTrue info.Origin.Home.AssemblyOption.IsSome "origin carries the defining assembly"
                 | other -> failtestf "expected a Class shape, got %A" other
             }
 

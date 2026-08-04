@@ -96,6 +96,10 @@ module EmitJsContext =
             /// `Unions` falls back here. Their case classes are imported from the
             /// union's home module at each `UnionCons` site, not re-emitted.
             ExternalUnions: Dictionary<SymbolKey, JsUnionInfo>
+            /// External records resolved on demand — the record twin of `ExternalUnions`,
+            /// and the same fall-back relation to `Records`. A sibling file of the package
+            /// under compilation reaches this path as readily as another package does.
+            ExternalRecords: Dictionary<SymbolKey, JsRecordInfo>
             Imports: JsImports
             /// `true` in library mode: top-level `let` emits `export const …`.
             ExportTopLevel: bool
@@ -152,6 +156,7 @@ module EmitJsContext =
                 Enums = Dictionary()
                 Provider = provider
                 ExternalUnions = Dictionary()
+                ExternalRecords = Dictionary()
                 Imports = imports
                 ExportTopLevel = exportTopLevel
                 CompiledFns = Dictionary()
@@ -232,13 +237,59 @@ module EmitJsContext =
         | ValueSome(key, _) -> SymbolKey.Type key
         | ValueNone -> failwithf "EmitJs: %s on non-nominal type %A" what ty
 
+    /// Resolve an external record to a `JsRecordInfo` via the provider, caching in
+    /// `ExternalRecords`. Its class is NOT re-emitted locally — it is imported from the
+    /// record's home module at each construction site, exactly as an external union's case
+    /// classes are. `ValueNone` when the provider does not know the type, or knows it as
+    /// something other than a record — caller fails loudly.
+    let resolveExternalRecord (ctx: WalkCtx) (key: SymbolKey) : JsRecordInfo voption =
+        match ctx.ExternalRecords.TryGetValue key with
+        | true, info -> ValueSome info
+        | _ ->
+            match ctx.Provider.TryLookupType key with
+            | ValueSome(ExternalTypeShape.Record(_, fields, origin)) ->
+                // Backend name emission: the class identifier the record is imported under
+                // is its name, which carries no generic arity on the target.
+                let (DisplayName name) = SymbolKeyOps.simpleName key
+
+                let home =
+                    match origin.Home.AssemblyOption with
+                    | ValueSome _ -> ValueSome origin.Home
+                    | ValueNone -> failwithf "EmitJs: external record '%s' has no home assembly (key %A)" name key
+
+                let info =
+                    {
+                        Name = name
+                        Fields = [ for f in fields -> f.Name ]
+                        Home = home
+                    }
+
+                ctx.ExternalRecords.[key] <- info
+                ValueSome info
+            | _ -> ValueNone
+
     /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` receiver to its `JsRecordInfo`.
+    /// Falls through to the external-record provider on a local miss, the same relation
+    /// `unionInfoOf` has to `resolveExternalUnion`.
     let recordInfoOf (ctx: WalkCtx) (what: string) (ty: FrozenType) : JsRecordInfo =
         let key = nominalKey what ty
 
         match ctx.Records.TryGetValue key with
         | true, info -> info
-        | _ -> failwithf "EmitJs: %s on record with no emitted type (key %A)" what key
+        | _ ->
+            match resolveExternalRecord ctx key with
+            | ValueSome info -> info
+            | ValueNone -> failwithf "EmitJs: %s on record with no emitted type (key %A)" what key
+
+    /// The class identifier a nominal's construction site names: the locally emitted class
+    /// for a type declared in this file, or the imported class export for one declared
+    /// elsewhere — another package, or a sibling file of the package being compiled. ONE
+    /// rule, so a record `new` and a union case `new` cannot disagree about where a class
+    /// comes from.
+    let nominalCtorRef (ctx: WalkCtx) (home: Origin voption) (className: string) (loc: JsLoc voption) : JsExpr =
+        match home with
+        | ValueSome h -> JsExpr.Identifier(JsImports.addTypeRef ctx.Imports h className, loc)
+        | ValueNone -> JsExpr.Identifier(className, ValueNone)
 
     // ---- Unions --------------------------------------------------------------
 
@@ -262,7 +313,7 @@ module EmitJsContext =
                 // the key names only WHAT it is.
                 let home =
                     match origin.Home.AssemblyOption with
-                    | ValueSome _ as h -> h
+                    | ValueSome _ -> ValueSome origin.Home
                     | ValueNone -> failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
 
                 let info, _ =
@@ -388,12 +439,12 @@ module EmitJsContext =
             // mirroring the external-union case-class import (`addTypeRef`). The
             // `import { E } + E.Ci` shape is exactly what `tsc` emits for the enum, so
             // no object map is re-emitted. The enum's resolved SHAPE names the module.
-            let asm =
-                JsExternalMembers.assemblyOf ctx.Provider enumKey (sprintf "enum case '%s'" caseName)
+            let home =
+                JsExternalMembers.homeOf ctx.Provider enumKey (sprintf "enum case '%s'" caseName)
 
             // Backend name emission: the enum object is imported under the name `tsc` emits.
             let (DisplayName enumName) = SymbolKeyOps.simpleName enumKey
-            let local = JsImports.addTypeRef ctx.Imports asm enumName
+            let local = JsImports.addTypeRef ctx.Imports home enumName
             JsExpr.Member(JsExpr.Identifier(local, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
 
     /// A class `static let` backing field → a property on the emitted class object

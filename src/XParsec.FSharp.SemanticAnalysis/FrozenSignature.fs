@@ -16,11 +16,11 @@ open System.Collections.Generic
 // keeps public-only — two thresholds over the ONE honestly-stored `Accessibility`
 // fact.
 //
-// Home origin: a file-N entity is the SAME assembly as N+1, so every entry stamps
-// `Assembly = Some assemblyName` (home) rather than a foreign `SymbolOrigin`. The
-// compose-WITHOUT-re-origin layering (`stack ValueNone` / `composite`) that lets N+1
-// mint the identical key is the ORCHESTRATOR's concern; this projector just stamps
-// home origin on what it produces.
+// Home origin: a file-N entity is the SAME assembly as N+1, so every entry stamps the
+// PRODUCER FILE (`Origin.InFile`, which names that assembly) rather than a foreign
+// `SymbolOrigin`. The compose-WITHOUT-re-origin layering (`stack ValueNone` /
+// `composite`) that lets N+1 mint the identical key is the ORCHESTRATOR's concern; this
+// projector just stamps home origin on what it produces.
 
 module FrozenSignature =
 
@@ -55,18 +55,21 @@ module FrozenSignature =
             vr
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a
-    /// provider view. `assemblyName` is this file's home assembly — a file-N entity is
-    /// the same assembly as N+1, so it rides every entry's `Origin`.
+    /// provider view.
     ///
     /// `producer` is the file `frozen` was analysed FROM, retained. Every anchor in every
     /// template published below is an index into that file's `Lexed`, so taking it as an
     /// argument is what makes the pairing a fact of the call rather than something a caller
-    /// has to remember while it still has the parse in hand.
-    let toProvider (assemblyName: string) (producer: OriginSource) (frozen: FrozenPools) : IExternalSymbolProvider =
-        // Home origin for an entity in namespace `ns`: this frozen signature's assembly.
+    /// has to remember while it still has the parse in hand. It also names the home assembly
+    /// every entry's `Origin` rides — a file-N entity is the same assembly as N+1 — so the
+    /// two cannot be handed in separately and disagree.
+    let toProvider (producer: OriginSource) (frozen: FrozenPools) : IExternalSymbolProvider =
+        // Home origin for an entity in namespace `ns`: the PRODUCER FILE, which names its
+        // own assembly. A per-file backend needs the file to name the module the entity is
+        // exported from; a per-assembly one reads the assembly off it and is unaffected.
         let originIn (ns: NamespaceKey) : SymbolOrigin =
             {
-                Home = Origin.InAssembly(AssemblyName assemblyName)
+                Home = Origin.InFile producer.File.Path
                 Namespace = ns
             }
 

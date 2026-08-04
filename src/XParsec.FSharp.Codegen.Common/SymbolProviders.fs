@@ -26,6 +26,21 @@ module SymbolProviders =
         | Result.Ok(ordered, transitiveDeps) -> ordered, transitiveDeps
         | Result.Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
+    /// The manifest stack for a compilation that IS a package: its declared references
+    /// plus the package's OWN manifest, last (it depends on them). Each `.fs` is therefore
+    /// checked against the package's own `.fsi` contracts, which is what F# does — and the
+    /// only channel a prior file's TYPE ABBREVIATION (`type int32 = int`) reaches a later
+    /// one through, since an abbreviation lives in the per-file pass context and no frozen
+    /// signature carries it.
+    ///
+    /// A type therefore arrives twice, contract and local definition. Both mint the SAME
+    /// `SymbolKey` (a key names what a symbol is, never where it lives), so the local-first
+    /// probes in codegen bind the local definition on either route.
+    let selfStack (selfManifest: string option) (manifestPaths: string list) : string list =
+        match selfManifest with
+        | Some p -> manifestPaths @ [ p ]
+        | None -> manifestPaths
+
     /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 leaf
     /// FACTORY. Common names no concrete leaf — the CLR backend injects its BCL
     /// `MetadataSymbols` tail (`ClrSymbolProviders.bclMetaTail`), the JS backend its

@@ -39,9 +39,9 @@ let private errors (tast: TastFile) : Diagnostic list = tast.Diagnostics |> Diag
 let private declAssembly (provider: IExternalSymbolProvider) (decl: TypeKey) : string option =
     match (provider :> IExternalSymbolStore).TryLookupType(SymbolKey.Type decl) with
     | ValueSome(ExternalTypeShape.Class info) ->
-        match info.Origin.Home with
-        | Origin.InAssembly a -> Some a.Name
-        | Origin.Unstamped -> None
+        match info.Origin.Home.AssemblyOption with
+        | ValueSome a -> Some a
+        | ValueNone -> None
     | ValueSome other ->
         failtestf "expected %s to resolve to a Class shape, got %A" (SymbolKeyOps.typeMetaName decl) other
     | ValueNone ->

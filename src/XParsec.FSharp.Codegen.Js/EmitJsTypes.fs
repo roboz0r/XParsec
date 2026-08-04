@@ -13,7 +13,15 @@ module EmitJsTypes =
 
     /// A record type's JS shape: the emitted class `Name` and its `Fields` in
     /// *declaration* order — `RecordCons`/`RecordClone` reorder source args to match.
-    type JsRecordInfo = { Name: string; Fields: string list }
+    type JsRecordInfo =
+        {
+            Name: string
+            Fields: string list
+            /// `ValueSome home` for an external record: its class lives in the home's
+            /// module, so a construction site imports it rather than relying on a local
+            /// class. `ValueNone` for a record declared in this file.
+            Home: Origin voption
+        }
 
     /// A union type's JS shape: the emitted base-class `Name` and its cases keyed by
     /// F# case name. `UnionCons` and union patterns look up subclass + field order here.
@@ -21,10 +29,10 @@ module EmitJsTypes =
         {
             Name: string
             Cases: System.Collections.Generic.Dictionary<string, JsUnionCaseDecl>
-            /// `ValueSome asm` for an external union: its case classes live in `asm`'s
-            /// runtime module, so a `UnionCons` site imports them rather than relying on
-            /// a local class. `ValueNone` for a union declared in this file.
-            Home: string voption
+            /// `ValueSome home` for an external union: its case classes live in the home's
+            /// module, so a `UnionCons` site imports them rather than relying on a local
+            /// class. `ValueNone` for a union declared in this file.
+            Home: Origin voption
         }
 
     // ---- Unions --------------------------------------------------------------
@@ -46,7 +54,7 @@ module EmitJsTypes =
     /// Build a `JsUnionInfo` for `baseName` with `(caseName, fieldNames)` in declaration
     /// order: tag = declaration index, subclass = `<baseName>_<case>`.
     let buildUnionInfo
-        (home: string voption)
+        (home: Origin voption)
         (baseName: string)
         (cases: (string * string voption list) list)
         : JsUnionInfo * JsUnionCaseDecl list =
@@ -330,10 +338,12 @@ module EmitJsTypes =
                 // (`valueKind = Struct`) emits as an ordinary reference object, a
                 // pre-existing documented limitation shared with struct classes.
                 | TTypeKindG.Record(fields, recMembers, recInterfaces, _) ->
+                    // Local record: `Home = ValueNone` — its class is emitted here.
                     let info =
                         {
                             Name = td.Name
                             Fields = [ for f in fields -> f.Name ]
+                            Home = ValueNone
                         }
 
                     records.[td.Key] <- info

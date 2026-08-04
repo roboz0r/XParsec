@@ -30,6 +30,12 @@ type JsCompileKind =
 type JsProjectInfo =
     {
         ModuleName: string
+        /// The package directory this module is emitted INTO — one member of a package
+        /// build, which sits at `<out>/<Package>/`. `None` is a program at the output
+        /// root. Import specifiers are rendered relative to it, so a sibling module, a
+        /// root-level runtime asset and another package's module each get the right
+        /// number of `../` hops.
+        Package: string option
         /// `None` keeps the emitted source in-memory only.
         OutputPath: string option
         /// `Some` turns on V3 source-map emission; `None` keeps the output
@@ -50,6 +56,7 @@ module JsProjectInfo =
     let defaults (moduleName: string) : JsProjectInfo =
         {
             ModuleName = moduleName
+            Package = None
             OutputPath = None
             Source = None
             Kind = Script
@@ -66,9 +73,13 @@ type JsArtifact =
         Map: string option
         /// `<OutputPath>.map`, `None` when not writing to disk or no map.
         MapPath: string option
-        /// The JS runtime modules this program imports, written beside the output by
-        /// `materialise` so Node can resolve the emitted `import … from "./<FileName>"`.
+        /// The committed JS runtime ASSETS this program imports, written to the output
+        /// ROOT by `materialise` so Node can resolve the emitted specifiers.
         RuntimeModules: JsRuntimeModule list
+        /// `true` when the file lowered to NO statements — an intrinsic-repr-only source
+        /// that contributes no module at all. A package build writes no `.mjs` for it and
+        /// leaves it out of the barrel.
+        IsEmpty: bool
     }
 
 module Codegen =
@@ -125,20 +136,26 @@ module Codegen =
         // handed out keeps naming the same node.
         let pool = TastPoolBuilder.openOver tast
 
+        let selfPackage =
+            match project.Package with
+            | Some p -> ValueSome p
+            | None -> ValueNone
+
         let ctx =
             EmitJsContext.WalkCtx.create
                 resolver
                 pool
                 contract.Provider
-                (JsImports.create runtimeAssets)
+                (JsImports.createIn selfPackage runtimeAssets)
                 (match project.Kind with
                  | Library -> true
                  | Script -> false)
 
-        let result = JsPrint.print (EmitJs.buildProgram ctx)
+        let program = EmitJs.buildProgram ctx
+        let result = JsPrint.print program
         let jsFile = jsFileName project
 
-        let runtimeModules = JsImports.modules ctx.Imports
+        let runtimeModules = JsImports.assets ctx.Imports
 
         // Optional provenance header as the file's first line; it shifts every
         // source-map mapping down one generated line so the map stays aligned.
@@ -184,6 +201,9 @@ module Codegen =
                 | Some _, Some path -> Some(path + ".map")
                 | _ -> None
             RuntimeModules = runtimeModules
+            // Imports are recorded WHILE the body is built, so a program with no
+            // statements imported nothing either — emptiness is the one test.
+            IsEmpty = List.isEmpty program.Body
         }
 
     /// `compileWith` over the empty contract — for a program that references no external
@@ -194,15 +214,20 @@ module Codegen =
     let toSource (artifact: JsArtifact) : string = artifact.Source
     let toSourceMap (artifact: JsArtifact) : string option = artifact.Map
 
-    /// Write the `.js` to `OutputPath`, runtime modules alongside it, and the map to `MapPath`.
+    /// Copy the referenced runtime ASSETS into `root` — the output root, where every
+    /// specifier that names one resolves from.
+    let materialiseAssets (root: string) (assets: JsRuntimeModule list) : unit =
+        for rt in assets do
+            System.IO.File.WriteAllText(System.IO.Path.Combine(root, rt.FileName), rt.Source)
+
+    /// Write the `.js` to `OutputPath`, runtime assets alongside it, and the map to
+    /// `MapPath`. A program is emitted AT the output root, so its own directory is that
+    /// root; a package member is written by the package driver instead.
     let materialise (artifact: JsArtifact) : unit =
         match artifact.OutputPath with
         | Some path ->
             System.IO.File.WriteAllText(path, artifact.Source)
-            let dir = System.IO.Path.GetDirectoryName path
-
-            for rt in artifact.RuntimeModules do
-                System.IO.File.WriteAllText(System.IO.Path.Combine(dir, rt.FileName), rt.Source)
+            materialiseAssets (System.IO.Path.GetDirectoryName path) artifact.RuntimeModules
         | None -> ()
 
         match artifact.MapPath, artifact.Map with

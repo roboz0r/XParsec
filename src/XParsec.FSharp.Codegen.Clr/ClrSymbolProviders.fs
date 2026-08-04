@@ -113,21 +113,6 @@ module ClrSymbolProviders =
                )
                |> String.concat ";")
 
-    /// The resolution stack for a compilation that IS a package: its declared references
-    /// plus the package's OWN manifest, last (it depends on them). Each `.fs` is therefore
-    /// checked against the package's own `.fsi` contracts, which is what F# does — and the
-    /// only channel a prior file's TYPE ABBREVIATION (`type int32 = int`) reaches a later
-    /// one through, since an abbreviation lives in the per-file pass context and no frozen
-    /// signature carries it.
-    ///
-    /// A type therefore arrives twice, contract and local `TypeDef`. Both mint the SAME
-    /// `TypeKey` (a key names what a symbol is, never where it lives), so the local-first
-    /// probes in codegen bind the local definition on either route.
-    let private selfStack (selfManifest: string option) (manifestPaths: string list) : string list =
-        match selfManifest with
-        | Some p -> manifestPaths @ [ p ]
-        | None -> manifestPaths
-
     /// `buildContractFor` for a compilation that IS a package — the host-TPA mirror of
     /// `buildContractWithRefs`, for a caller with no explicit reference set (the package
     /// fixtures). `selfManifest` seeds the leaf AND joins the resolution stack.
@@ -142,7 +127,7 @@ module ClrSymbolProviders =
             ("bcl" + seedTag seed)
             (seeded seed bclMetaTail)
             target
-            (selfStack selfManifest manifestPaths))
+            (SymbolProviders.selfStack selfManifest manifestPaths))
             .Provider
 
     /// Raw cross-package inline bodies by source name — introspection seam for tests.
@@ -176,7 +161,7 @@ module ClrSymbolProviders =
             (refsCacheTag dllPaths + seedTag seed)
             (seeded seed (bclMetaTailWith dllPaths))
             target
-            (selfStack selfManifest manifestPaths)
+            (SymbolProviders.selfStack selfManifest manifestPaths)
 
     /// `buildContractFor` over a compilation's own reference set and self package.
     /// `selfManifest` is `None` for a consumer — every compilation that does not itself

@@ -54,26 +54,27 @@ module JsExternalMembers =
         elif isProperty then typeName + "__get_" + memberName
         else typeName + "__" + memberName
 
-    /// THE `key -> home assembly` oracle for an external type — the module its exports are
-    /// imported from. A `SymbolKey` is a nominal identity and carries no home, so the only
-    /// answer is the one the provider stamped on the type's RESOLVED SHAPE
-    /// (`SymbolOrigin.Home.AssemblyOption`). Consulted strictly PAST the local/external verdict (which
+    /// THE `key -> home` oracle for an external type — what names the module its exports
+    /// are imported from. A `SymbolKey` is a nominal identity and carries no home, so the
+    /// only answer is the one the provider stamped on the type's RESOLVED SHAPE
+    /// (`SymbolOrigin.Home`). Consulted strictly PAST the local/external verdict (which
     /// the emitted-type tables make, not the key): a type that is external but whose shape
     /// names no home cannot be imported at all, so it fails loudly rather than emitting a
     /// dangling reference.
-    let assemblyOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : string =
+    let homeOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : Origin =
         // A shape whose home is unstamped names no importable module — the local/external
-        // verdict is already past, so a `ValueNone` here is a real failure, not a fall-back.
+        // verdict is already past, so an unstamped home here is a real failure, not a
+        // fall-back.
         let home =
             match provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Union(_, _, _, o))
             | ValueSome(ExternalTypeShape.Record(_, _, o))
-            | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Home.AssemblyOption
-            | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home.AssemblyOption
-            | _ -> ValueNone
+            | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Home
+            | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home
+            | _ -> Origin.Unstamped
 
-        match home with
-        | ValueSome a -> a
+        match home.AssemblyOption with
+        | ValueSome _ -> home
         | ValueNone -> failwithf "EmitJs: %s has no resolvable home assembly (key %A)" what key
 
     /// The declaring type's `ExternalClassFlags`, resolved through the provider
@@ -95,10 +96,46 @@ module JsExternalMembers =
     ///     object methods (`receiver.member(args)` / property reads) rather than
     ///     the receiver-first free-fn imports Vesper's own runtimes emit; stamped
     ///     by the provider on a real manifest Interface/Class.
-    let classFlagsOf (provider: IExternalSymbolProvider) (declKey: TypeKey) : ExternalClassFlags voption =
+    /// The declaring type's resolved `Class` shape — the ONE provider lookup the three
+    /// predicates below project, so they cannot disagree about what the key names.
+    /// `ValueNone` when the key names no `Class` shape.
+    let private classShapeOf (provider: IExternalSymbolProvider) (declKey: TypeKey) : ExternalClassShape voption =
         match provider.TryLookupType(SymbolKey.Type declKey) with
-        | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags
+        | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape
         | _ -> ValueNone
+
+    let classFlagsOf (provider: IExternalSymbolProvider) (declKey: TypeKey) : ExternalClassFlags voption =
+        classShapeOf provider declKey |> ValueOption.map (fun shape -> shape.Flags)
+
+    /// Whether `declKey` names an INTERFACE, as the provider resolved it.
+    let isInterface (provider: IExternalSymbolProvider) (declKey: TypeKey) : bool =
+        match classShapeOf provider declKey with
+        | ValueSome shape -> shape.IsInterface
+        | ValueNone -> false
+
+    /// Whether an instance member of `declKey` dispatches as a NATIVE attached method
+    /// (`recv.member(args)`) rather than a receiver-first free-function import.
+    ///
+    /// Two ways to be one, and they are the same rule: a manifest object whose members ARE
+    /// prototype methods (`MemberLowering.AttachedNative`), and ANY interface. An interface
+    /// has no runtime existence on JS — no module, no export, no free-function form — so
+    /// its implementations are attached methods on the implementing class, and WHERE it was
+    /// declared (this file, a sibling file, another library) cannot change that.
+    let attachesMembers (provider: IExternalSymbolProvider) (declKey: TypeKey) : bool =
+        match classShapeOf provider declKey with
+        | ValueSome shape -> shape.IsInterface || shape.Flags.MemberLowering = MemberLowering.AttachedNative
+        | ValueNone -> false
+
+    /// `Vesper.Fun` at any of its arities — the curried `Fun<'A,'B>` and the flat
+    /// overloads `Fun<'A,'B,'C>` … `Fun<..,'E>`.
+    ///
+    /// THE carve-out from the attach-members rule above: a `Fun` value is an ECMAScript
+    /// arrow function at run time (that is what a Vesper lambda emits as), so `f.Invoke(a)`
+    /// is APPLICATION — `f(a)` — and not a member on an object that has none. The flat
+    /// overloads dispatch a saturated call in ONE call (`f(a, b)`), the curried one stays
+    /// curried (`f(a)(b)`); the member's own arity says which.
+    let isFunInterface (declKey: TypeKey) : bool =
+        [ 2..5 ] |> List.exists (fun arity -> RuntimeNames.vesperFunKey arity = declKey)
 
     /// Walk a type's `inherit` chain up to the `exn` intrinsic root and resolve its
     /// `(# "Error" #)` repr to the native runtime class name (`Error` on JS). Returns
@@ -175,12 +212,11 @@ module JsExternalMembers =
 
     // ---- The lowerings ---------------------------------------------------------
 
-    /// A NATIVE attached-member call. An `ExternalMember` head whose declaring
-    /// type carries `AttachMembers` (a real manifest object — its instance
-    /// members are genuine prototype/own methods) folds every applied argument
-    /// into ONE `receiver.member(args)`; it is NOT a receiver-first free-fn
-    /// import (the form Vesper's OWN runtimes emit as a tree-shaking optimisation).
-    /// The member is tupled (.NET convention): it consumes the FIRST argument
+    /// A NATIVE attached-member call. An `ExternalMember` head whose declaring type
+    /// attaches its members (`attachesMembers` — a real manifest object, or any interface)
+    /// folds every applied argument into ONE `receiver.member(args)`; it is NOT a
+    /// receiver-first free-fn import (the form Vesper's OWN runtimes emit as a tree-shaking
+    /// optimisation). The member is tupled (.NET convention): it consumes the FIRST argument
     /// as its argument list, opened to the key's `argSig` width — and any residual
     /// over-application folds on as unary calls. `ValueNone` for every other head:
     /// the `App` arm falls through to the flat-call / curried dispatch.
@@ -194,9 +230,7 @@ module JsExternalMembers =
         : JsExpr voption =
         match head with
         | InstanceExternalMember(recv, em) when
-            em.Storage = MemberStorage.Method
-            && (classFlagsOf provider (declKey em.Key)
-                |> ValueOption.exists (fun flags -> flags.MemberLowering = MemberLowering.AttachedNative))
+            em.Storage = MemberStorage.Method && attachesMembers provider (declKey em.Key)
             ->
             match appArgs with
             | (argExpr, _, _) :: rest ->
@@ -216,7 +250,11 @@ module JsExternalMembers =
                         let tmp = freshTemp pool "_recv"
                         JsExpr.Identifier(tmp, ValueNone), (tmp, build recv) :: argSpills
 
-                let call = attachedCall recvJs em.MemberName args loc
+                let call =
+                    if isFunInterface (declKey em.Key) then
+                        JsExpr.Call(recvJs, args, loc)
+                    else
+                        attachedCall recvJs em.MemberName args loc
 
                 rest
                 |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) call
@@ -280,7 +318,7 @@ module JsExternalMembers =
         // A free function is a binding held DIRECTLY by the namespace its export sits in
         // (`TsManifestProvider`); the grouping type is a synthetic type in that same
         // namespace. So the sibling binding is built from the grouping type's own
-        // `NamespaceKey`, and its home is the grouping type's home (`assemblyOf` — the
+        // `NamespaceKey`, and its home is the grouping type's home (`homeOf` — the
         // grouping type and the functions it groups share one module by construction) —
         // so `addRef` imports the same bare export from the same home module the bare
         // free function would.
@@ -288,7 +326,7 @@ module JsExternalMembers =
             SymbolKeyOps.valueKey (ModuleHolder.InNamespace declKey.Namespace) memberName
 
         let home =
-            assemblyOf provider (SymbolKey.Type declKey) (sprintf "erased grouping member '%s'" memberName)
+            homeOf provider (SymbolKey.Type declKey) (sprintf "erased grouping member '%s'" memberName)
 
         // `form` is the group's import shape, stamped on the grouping type's flags by
         // `buildOverloadGroupingTypes`: `Named` → `import { format }`; `Default`/
@@ -296,7 +334,7 @@ module JsExternalMembers =
         let valueRef =
             {
                 Key = ValueSome valueKey
-                Home = Origin.InAssembly(AssemblyName home)
+                Home = home
                 Form = form
             }
 
@@ -324,10 +362,10 @@ module JsExternalMembers =
         let (DisplayName declName) = SymbolKeyOps.typeSimpleName declKey
         let exportName = mangledName declName isStatic isProperty memberName
 
-        let asm =
-            assemblyOf provider (SymbolKey.Type declKey) (sprintf "external member '%s'" memberName)
+        let home =
+            homeOf provider (SymbolKey.Type declKey) (sprintf "external member '%s'" memberName)
 
-        let local = JsImports.addMemberRef imports asm exportName
+        let local = JsImports.addMemberRef imports home exportName
 
         match receiver with
         | ValueSome r -> JsExpr.Call(JsExpr.Identifier(local, ValueNone), [ build r ], loc)
