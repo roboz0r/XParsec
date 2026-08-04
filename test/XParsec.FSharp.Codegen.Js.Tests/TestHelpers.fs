@@ -186,8 +186,9 @@ let emitJsLibrary (input: string) : string =
     let idx = src.IndexOf "//# sourceMappingURL"
     if idx >= 0 then src.Substring(0, idx) else src
 
-/// Deps-only JS contract for compiling a package impl (the package's own contract is absent, to
-/// avoid colliding with the in-file types the impl declares).
+/// Deps-only JS contract for compiling a package impl. The package's own contract is absent
+/// because `compileLibrary` names no home assembly, so its declarations would be a second
+/// claimant of the types the impl declares; `compileOwnLibrary` names one and takes them both.
 let coreDepsJsContract: Lazy<SymbolProviders.Contract> =
     lazy JsNativeSymbols.jsNativeContractFor Target.Js [ vesperCoreManifest; srcManifest "Vesper.Exceptions" ]
 
@@ -195,8 +196,8 @@ let coreDepsJsContract: Lazy<SymbolProviders.Contract> =
 /// `NewArray` out of the per-target `array-prelude.js.fs`, so the package's inline bodies
 /// have to be in the contract that compiles it. Safe here for the reason the exclusion
 /// exists: the collision it guards against is over in-file TYPES, and `Vesper.Array`
-/// declares none. A package that declares types (`Vesper.List`) still takes the deps-only
-/// contract above.
+/// declares none. A package that declares types (`Vesper.List`) takes the deps-only contract
+/// above, or names its home assembly.
 let arrayDepsJsContract: Lazy<SymbolProviders.Contract> =
     lazy
         JsNativeSymbols.jsNativeContractFor
@@ -235,16 +236,29 @@ let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPoo
 
     Freeze.run ctx tast
 
-/// Compile a package impl in library mode to runtime-module source text (strips
-/// sourceMappingURL). `sourceFile` is the Vesper source basename (`list.fs`),
-/// recorded both in the source map and in the emitted `// Generated from …` header.
-/// The impl is analysed against the same contract it is emitted through, so a body spliced
-/// out of a dependency resolves against the file it was written in.
-let compileLibrary
+/// Front-end + freeze a JS-target package impl compiled AS `assemblyName` — the entry a
+/// package build harness uses. Naming the home assembly is what lets the package's own
+/// contract be in scope: a type shape homed there is the file seeing what it declares,
+/// not a second claimant of the name.
+let frozenOwnImplJs (assemblyName: string) (provider: IExternalSymbolProvider) (input: string) : FrozenPools =
+    let lexed, file = parseFile input
+
+    let frozen =
+        Pipeline.analyseForSelfHost assemblyName provider (Hashing.originSourceOfText input lexed) file
+
+    match frozen.Residue.Diagnostics |> Diagnostic.errors with
+    | [] -> frozen
+    | errors -> failwithf "impl analysis errors: %A" (errors |> List.map (fun d -> d.Message))
+
+/// Emit an already-frozen package impl as runtime-module source text (strips
+/// sourceMappingURL). `sourceFile` is the Vesper source basename (`list.fs`), recorded
+/// both in the source map and in the emitted `// Generated from …` header.
+let private emitLibrarySource
     (contract: SymbolProviders.Contract)
     (moduleName: string)
     (sourceFile: string)
     (input: string)
+    (frozen: FrozenPools)
     : string =
     let project =
         { JsProjectInfo.defaults moduleName with
@@ -253,12 +267,31 @@ let compileLibrary
             GeneratedFrom = Some sourceFile
         }
 
-    let src =
-        Codegen.compileWith contract project (frozenImplJs contract.Provider input)
-        |> Codegen.toSource
+    let src = Codegen.compileWith contract project frozen |> Codegen.toSource
 
     let idx = src.IndexOf "//# sourceMappingURL"
     if idx >= 0 then src.Substring(0, idx) else src
+
+/// Compile a package impl in library mode, against a contract carrying only its
+/// DEPENDENCIES. The impl is analysed against the same contract it is emitted through, so
+/// a body spliced out of a dependency resolves against the file it was written in.
+let compileLibrary
+    (contract: SymbolProviders.Contract)
+    (moduleName: string)
+    (sourceFile: string)
+    (input: string)
+    : string =
+    emitLibrarySource contract moduleName sourceFile input (frozenImplJs contract.Provider input)
+
+/// `compileLibrary` for an impl compiled as its OWN package, so `moduleName` is both the
+/// emitted module and the home assembly the contract's own declarations are attributed to.
+let compileOwnLibrary
+    (contract: SymbolProviders.Contract)
+    (moduleName: string)
+    (sourceFile: string)
+    (input: string)
+    : string =
+    emitLibrarySource contract moduleName sourceFile input (frozenOwnImplJs moduleName contract.Provider input)
 
 /// Write `files` to a tmp dir and run the first as entry point under Node.
 let runNodeFiles (name: string) (files: (string * string) list) : (int * string) option =

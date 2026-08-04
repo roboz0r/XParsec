@@ -38,3 +38,17 @@ type unit = (# "undefined" #)
 // repr as the marker that arrays ARE representable here, not as emitted text.
 type 'T ``[]`` = (# "!0[]" #)
 type 'T array = 'T[]
+
+// Target-neutral: a plain interface per arity, shared verbatim with the CLR body.
+// All four arities are declared — the contract pairs on typar count and order.
+type Fun<'A, 'B> =
+    abstract member Invoke: arg: 'A -> 'B
+
+type Fun<'A, 'B, 'C> =
+    abstract member Invoke: a: 'A * b: 'B -> 'C
+
+type Fun<'A, 'B, 'C, 'D> =
+    abstract member Invoke: a: 'A * b: 'B * c: 'C -> 'D
+
+type Fun<'A, 'B, 'C, 'D, 'E> =
+    abstract member Invoke: a: 'A * b: 'B * c: 'C * d: 'D -> 'E

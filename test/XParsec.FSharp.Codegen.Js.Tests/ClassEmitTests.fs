@@ -268,6 +268,41 @@ let tests =
                     Expect.equal out "7" "(r :> IRank).Rank() dispatches to the attached method reading this.N (=7)"
             }
 
+            // ---- a CLASS implementing a plain, non-capability interface ----
+            //
+            // The record case above shares this partition, but a class differs in what the
+            // impl body can reach: a ctor parameter, captured through the field the primary
+            // constructor stores. That is the shape the library's `Fun` adapters take.
+
+            let offsetSrc =
+                lines
+                    [
+                        "type IAdder ="
+                        "    abstract member Add : int -> int"
+                        "type Offset(k: int) ="
+                        "    interface IAdder with"
+                        "        member _.Add(n) = k + n"
+                        "let a = Offset(10) :> IAdder"
+                    ]
+
+            test "a class implementing a local interface emits the impl as an attached method" {
+                let src = emitJs (offsetSrc + "\nprintfn \"%d\" (a.Add 5)")
+
+                Expect.stringContains src "class Offset {" "the class emits"
+                Expect.stringContains src "this.k = k;" "the ctor param it captures is a stored field"
+                Expect.stringContains src "Add(n)" "the IAdder.Add impl attaches as an instance method"
+                // The upcast is an identity: one JS class, no wrapper object.
+                Expect.stringContains src "const a = new Offset(10);" "`:> IAdder` erases"
+            }
+
+            test "a class's interface impl reads a captured ctor param through the upcast (10 + 5 = 15)" {
+                match runJs "class-localiface" (offsetSrc + "\nprintfn \"%d\" (a.Add 5)") with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "15" "the attached method adds its argument to the ctor-stored field"
+            }
+
             // ---- instance preamble (`let` / `do`) ----
             //
             // The RUNTIME semantics of the instance preamble (declaration order,

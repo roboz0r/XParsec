@@ -105,10 +105,11 @@ sig-only = [
     "compiler-attributes.fsi",
 ]
 
-# The JS bodies: the platform reprs and the spliced operator templates. No JS library build
-# of Vesper.Core exists yet (the JS runtime is the committed `Vesper.Core.mjs` asset), so
-# nothing here is compiled today — the list is read as the splice source and as the
-# intrinsic-repr binding. `ops-std.fs` is the target-neutral body, repeated per target
+# The JS bodies: the platform reprs and the spliced operator templates. There is no
+# whole-package JS build (the JS runtime is the committed `Vesper.Core.mjs` asset), so most
+# of this list is read as the splice source and as the intrinsic-repr binding rather than
+# compiled. `core-types.fs` is the exception: it depends only on `Fun` and two erased
+# attributes, so it compiles standalone and is emitted as a module by the codegen-js suite. `ops-std.fs` is the target-neutral body, repeated per target
 # rather than shared, for the declaration-order reason in the `[core]` comment.
 # There is no `prim-types-nativeint.js.fs`: JS has no nativeint repr, so
 # the type is unrepresentable there and its operator declarations are unreachable rather
@@ -122,6 +123,10 @@ impl = [
     "prim-types-object.js.fs",
     "prim-types-exn.js.fs",
     "prim-types-bigint.js.fs",
+    # Target-NEUTRAL body, shared verbatim with `[targets.clr]`: `Ref<'T>`, the two
+    # `Fun` adapter classes, and the upcast module — nothing a target could disagree
+    # about. Placed in `files` order (after `Fun`, before the operator files).
+    "core-types.fs",
     # Target-NEUTRAL body, shared verbatim with `[targets.clr]`: two pure interface
     # declarations, nothing in them that a target could disagree about. Placed in `files`
     # order (after the primitives it names, before the operator files).

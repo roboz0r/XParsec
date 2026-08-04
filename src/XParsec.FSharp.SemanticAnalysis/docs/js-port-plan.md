@@ -58,32 +58,24 @@ body — `structural-printer.js.fs` is 434 lines of `(# … #)` helpers typed `o
 `StructuralPrinterTests` plus the `Vesper.Printf.mjs` byte-compare is the canary. Run all
 four suites (§6).
 
-### 2.2 Writing source — takes the count 2 → 0
+### 2.2 Writing source — DONE, count 2 → 0
 
-C1 gates C4.
+C1 was a verbatim copy of the four `Fun` arities from the CLR body; C4 needed no codegen
+change; the two coverage gaps (a `mutable` record field, a *class* implementing a plain
+interface) both passed first try. What the tranche actually found:
 
-| item | what to do | confidence |
-|---|---|---|
-| **C1** `Fun` | Copy the 4 arities from `prim-types-min.clr.fs` into `prim-types-min.js.fs` — they are plain interface declarations there, with nothing CLR-specific. All four are needed: conformance compares typar COUNT and ORDER, not just the name | high |
-| **C4** `core-types` | Add `core-types.fs` to `[targets.js] impl`. Target-neutral in content: a `[<ReferenceEquality>]` record with a mutable field, two classes with primary ctors implementing `Fun<…>`, and a module of upcasts | medium |
-
-**Why C4 is only medium.** It stacks two things with *zero* JS test coverage: a record with
-a `mutable` field (`IsMutable` is read by the CLR backend and never by the JS one; a record
-is a plain class with assignable properties and `FieldSet` emits `r.X = v` unconditionally,
-so it should work — but `RecordTests.fs` has no `mutable` case), and a **class** implementing
-a plain non-capability interface (the only golden/E2E for that is on a *record*). Both go
-through the same code path. "Very likely fine, no evidence" — so add the missing coverage as
-part of the tranche rather than assuming.
-
-**Try to EXECUTE C4 rather than only conform it.** Conformance is a paper check (§1), but
-`core-types.fs` is a single file, so `compileLibrary` can emit and run it under Node without
-waiting on §4.3. The obstacle is which contract: it needs `Fun` from Core's own
-`prim-types-min.fsi`, so the contract must include Core's manifest — while the file declares
-`Ref` / `Curried` / `Flattened`, which `core-types.fsi` also declares. That is exactly the
-in-file-type collision the `arrayDepsJsContract` comment says the package-own-manifest
-exclusion guards against. Whether it actually bites here is a cheap experiment and worth
-running early: if it does, C4's real proof waits on §4.3, and that is the concrete
-motivation for the tranche rather than an argument from size.
+- **The package-own-contract collision is an artefact of the test helper, not a real
+  limit.** `core-types.fs` compiles against a contract containing `Vesper.Core`'s own
+  manifest, once the compile NAMES its home assembly — the external-claim check is
+  `shapeHomeAssembly <> ctx.AssemblyName`, and the old helper passed `""`. So the
+  `arrayDepsJsContract` comment's "safe only where the package declares no in-file types"
+  was wrong, and is corrected in place.
+- **It still does not RUN, for an unrelated reason.** `f.Invoke(a, b)` on a receiver typed
+  as an interface the compiling file does not itself declare lowers to a receiver-first
+  free function imported from the package's asset, which exports no such name. Attached-
+  method dispatch is chosen only for interfaces in the file's own declaration set. That
+  matters well beyond this file: under §4.3's per-file model, EVERY cross-file interface
+  takes this path, and an interface-only file emits no module for the import to name.
 
 ### 2.3 Per-file JS output (§4.3)
 

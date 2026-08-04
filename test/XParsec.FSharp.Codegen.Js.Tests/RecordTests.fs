@@ -63,6 +63,38 @@ let tests =
                     "{ p with Y = 99 } → new Point(p.X, 99)"
             }
 
+            // A `mutable` field is a plain assignable property on the emitted class — JS has
+            // no read-only field to opt out of, so `IsMutable` has no emission consequence
+            // here and the store is the same `r.X = v` a `val mutable` gets.
+            test "a record `mutable` field assigns in place" {
+                Expect.equal
+                    (emitJs "type Counter = { mutable N: int }\nlet c = { N = 1 }\nc.N <- 5")
+                    ("class Counter {\n"
+                     + "  constructor(N) {\n"
+                     + "    this.N = N;\n"
+                     + "  }\n"
+                     + "}\n"
+                     + "const c = new Counter(1);\n"
+                     + "(c.N = 5);\n")
+                    "`c.N <- 5` → an assignment to the property, with no copy"
+            }
+
+            test "a record `mutable` field is observably updated (1 then 5)" {
+                match
+                    runJs
+                        "record-mutable"
+                        ("type Counter = { mutable N: int }\n"
+                         + "let c = { N = 1 }\n"
+                         + "printfn \"%d\" c.N\n"
+                         + "c.N <- 5\n"
+                         + "printfn \"%d\" c.N")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "1\n5" "the read after the store sees the new value on the same object"
+            }
+
             test "record construction + field-get executes (p.X = 7)" {
                 match
                     runJs "record-lit" "type Point = { X: int; Y: int }\nlet p = { X = 7; Y = 9 }\nprintfn \"%d\" p.X"

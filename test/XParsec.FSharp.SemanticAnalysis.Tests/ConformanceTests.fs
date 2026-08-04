@@ -369,28 +369,33 @@ let private manifestOf (package: string) : string =
     |> Option.map snd
     |> Option.defaultWith (fun () -> failtestf "%s manifest not found" package)
 
-/// Materialise a one-contract package — a manifest, a contract declaring the single `val`
-/// `served`, and a committed runtime asset exporting `exportedAs` — and run the js pass
-/// over it. The export NAME is the only variable, so the two verdicts this produces differ
-/// in nothing else.
-let private runtimeAssetOutcome (exportedAs: string) : ConformancePass.PackageOutcome =
+/// Materialise a throwaway package from `files` (file name → content, `manifest.toml`
+/// among them) and run the js pass over it. A verdict pinned on one of these cannot be
+/// retired by porting a library file.
+let private syntheticOutcome (files: (string * string) list) : ConformancePass.PackageOutcome =
     let dir =
-        Path.Combine(Path.GetTempPath(), "vesper.runtime-served." + System.Guid.NewGuid().ToString("N"))
+        Path.Combine(Path.GetTempPath(), "vesper.synthetic." + System.Guid.NewGuid().ToString("N"))
 
     Directory.CreateDirectory dir |> ignore
 
     try
-        File.WriteAllText(
-            Path.Combine(dir, "manifest.toml"),
-            "[core]\nfiles = [\"served.fsi\"]\n\n[targets.js]\nruntime = [\"Asset.mjs\"]\n"
-        )
-
-        File.WriteAllText(Path.Combine(dir, "served.fsi"), "namespace V\n\nval served: int -> int\n")
-        File.WriteAllText(Path.Combine(dir, "Asset.mjs"), sprintf "export const %s = (x) => x;\n" exportedAs)
+        for name, content in files do
+            File.WriteAllText(Path.Combine(dir, name), content)
 
         outcomeFor "js" (Path.Combine(dir, "manifest.toml"))
     finally
         Directory.Delete(dir, true)
+
+/// A one-contract package — a manifest, a contract declaring the single `val` `served`,
+/// and a committed runtime asset exporting `exportedAs`. The export NAME is the only
+/// variable, so the two verdicts this produces differ in nothing else.
+let private runtimeAssetOutcome (exportedAs: string) : ConformancePass.PackageOutcome =
+    syntheticOutcome
+        [
+            "manifest.toml", "[core]\nfiles = [\"served.fsi\"]\n\n[targets.js]\nruntime = [\"Asset.mjs\"]\n"
+            "served.fsi", "namespace V\n\nval served: int -> int\n"
+            "Asset.mjs", sprintf "export const %s = (x) => x;\n" exportedAs
+        ]
 
 [<Tests>]
 let jsPackageConformanceTests =
@@ -411,25 +416,31 @@ let jsPackageConformanceTests =
             }
 
             test "js: a contract whose declarations need a real body stays a hard error, not `unsupported`" {
-                // `core-types.fsi` declares records/unions and ships no JS body yet. Absence
-                // there is missing work, not a statement that JS cannot represent them —
-                // exactly the split that keeps a forgotten `.fs` from reading as polite.
-                let outcome = outcomeFor "js" (manifestOf "Vesper.Core")
+                // A record needs a real `.fs`: absence is missing work, not a statement that
+                // JS cannot represent it — the split that keeps a forgotten `.fs` from
+                // reading as polite. Synthetic, and the asset even exports the type's NAME,
+                // so neither escape hatch is merely untested here.
+                let outcome =
+                    syntheticOutcome
+                        [
+                            "manifest.toml",
+                            "[core]\nfiles = [\"cell.fsi\"]\n\n[targets.js]\nruntime = [\"Asset.mjs\"]\n"
+                            "cell.fsi", "namespace V\n\ntype Cell = { N: int }\n"
+                            "Asset.mjs", "export const Cell = 1;\n"
+                        ]
 
-                Expect.isFalse
-                    (unrepresentableOf outcome |> List.exists (fun (f, _) -> f = "core-types.fsi"))
+                Expect.isEmpty
+                    (unrepresentableOf outcome)
                     "a body-bearing contract is never accepted as unrepresentable"
 
-                Expect.isFalse
-                    (runtimeServedOf outcome |> List.exists (fun (f, _, _) -> f = "core-types.fsi"))
+                Expect.isEmpty
+                    (runtimeServedOf outcome)
                     "nor as served by the runtime asset — an asset export is a value, never a type"
 
-                Expect.stringContains
-                    (ConformancePass.enforce outcome
-                     |> List.map (fun d -> d.Message)
-                     |> String.concat "\n")
-                    "core-types.fsi"
-                    "its absent body is still the FS0240-style hard error"
+                let errors = ConformancePass.enforce outcome |> List.map (fun d -> d.Message)
+
+                Expect.equal (List.length errors) 1 "one hard error"
+                Expect.stringContains errors.Head "cell.fsi" "the FS0240-style error names the contract owing a body"
             }
 
             test "js: an unrepresentable contract raises no hard error, and needs no exemption to" {
@@ -451,17 +462,12 @@ let jsPackageConformanceTests =
             }
 
             test "js: the hard-error set is exactly the un-ported library surface" {
-                // The JS port's remaining work, enumerated. Every entry is a `.fs` that has
-                // not been written (or a codegen feature that is not there); nothing here is
-                // a machinery artifact. Shrinking this list IS the port, so it is pinned
-                // rather than counted — an entry that vanishes without the corresponding
-                // source appearing means the pass stopped asking, and a NEW entry means a
-                // contract lost its body.
-                let expected =
-                    [
-                        "Vesper.Core: prim-types-min.fsi: type 'Fun' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
-                        "Vesper.Core: the signature file 'core-types.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
-                    ]
+                // EMPTY: every contract in the in-scope library surface now has a JS body,
+                // is unrepresentable there, or is declared impl-free. The list stays rather
+                // than becoming an `isEmpty`, and stays pinned rather than counted — a NEW
+                // entry means a contract lost its body, and an entry that vanishes without
+                // the corresponding source appearing means the pass stopped asking.
+                let expected: string list = []
 
                 let actual =
                     [
