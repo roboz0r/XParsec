@@ -34,7 +34,7 @@ type Result<'T, 'TError> =
 /// higher-order, so this module leg rides R1 (the `Fun`-not-`FSharpFunc`
 /// cutover). The `ModuleSuffix` representation lets the module share the `Result`
 /// name with the type (compiled name `ResultModule`). Each functional argument's
-/// arrow desugars to `Vesper.Fun`.
+/// function type desugars to `Vesper.Fun`.
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Result =

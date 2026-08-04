@@ -1,289 +1,44 @@
-namespace               'namespace'       KWNamespace         tok=   0  pos=   0
-                        'Vesper'          Identifier          tok=   2  pos=  10
+namespace          'namespace'       KWNamespace         tok=   0  pos=   0
+                   'Vesper'          Identifier          tok=   2  pos=  10
   Type:
-    type                'type'            KWType              tok=  31  pos= 534
+    type           'type'            KWType              tok=  31  pos= 534
     TypeSig.Record:
-      [<                '[<'              KWLAttrBracket      tok=  23  pos= 495
+      [<           '[<'              KWLAttrBracket      tok=  23  pos= 495
       NamedType:
-        Ident           'ReferenceE...'   Identifier          tok=  24  pos= 497
-      >]                '>]'              KWRAttrBracket      tok=  25  pos= 514
-      [<                '[<'              KWLAttrBracket      tok=  27  pos= 517
+        Ident      'ReferenceE...'   Identifier          tok=  24  pos= 497
+      >]           '>]'              KWRAttrBracket      tok=  25  pos= 514
+      [<           '[<'              KWLAttrBracket      tok=  27  pos= 517
       NamedType:
-        Ident           'NoComparis...'   Identifier          tok=  28  pos= 519
-      >]                '>]'              KWRAttrBracket      tok=  29  pos= 531
-      TypeName          'Ref'             Identifier          tok=  33  pos= 539
+        Ident      'NoComparis...'   Identifier          tok=  28  pos= 519
+      >]           '>]'              KWRAttrBracket      tok=  29  pos= 531
+      TypeName     'Ref'             Identifier          tok=  33  pos= 539
       TyparDefns:
-        <               '<'               op_LessThan         tok=  34  pos= 542
+        <          '<'               op_LessThan         tok=  34  pos= 542
         Typar.Named:
-                        ''T'              TypeParameter       tok=  35  pos= 543
-        >               '>'               op_GreaterThan      tok=  36  pos= 545
-      =                 '='               OpEquality          tok=  38  pos= 547
-      {                 '{'               KWLBrace            tok=  41  pos= 553
+                   ''T'              TypeParameter       tok=  35  pos= 543
+        >          '>'               op_GreaterThan      tok=  36  pos= 545
+      =            '='               OpEquality          tok=  38  pos= 547
+      {            '{'               KWLBrace            tok=  41  pos= 553
         Field:
-          mutable       'mutable'         KWMutable           tok=  46  pos= 608
-          ident         'contents'        Identifier          tok=  48  pos= 616
-          :             ':'               OpColon             tok=  49  pos= 624
+          mutable  'mutable'         KWMutable           tok=  46  pos= 608
+          ident    'contents'        Identifier          tok=  48  pos= 616
+          :        ':'               OpColon             tok=  49  pos= 624
           VarType:
             Typar.Named:
-                        ''T'              TypeParameter       tok=  51  pos= 626
-      }                 '}'               KWRBrace            tok=  53  pos= 629
-    and                 'and'             KWAnd               tok=  60  pos= 758
+                   ''T'              TypeParameter       tok=  51  pos= 626
+      }            '}'               KWRBrace            tok=  53  pos= 629
+    and            'and'             KWAnd               tok=  60  pos= 758
     TypeSig.Abbrev:
       PrefixTypar:
         Typar.Named:
-                        ''T'              TypeParameter       tok=  62  pos= 762
-      TypeName          'ref'             Identifier          tok=  64  pos= 765
-      =                 '='               OpEquality          tok=  66  pos= 769
+                   ''T'              TypeParameter       tok=  62  pos= 762
+      TypeName     'ref'             Identifier          tok=  64  pos= 765
+      =            '='               OpEquality          tok=  66  pos= 769
         GenericType:
-          Ident         'Ref'             Identifier          tok=  68  pos= 771
-          <             '<'               op_LessThan         tok=  69  pos= 774
+          Ident    'Ref'             Identifier          tok=  68  pos= 771
+          <        '<'               op_LessThan         tok=  69  pos= 774
           TypeArg.Type:
             VarType:
               Typar.Named:
-                        ''T'              TypeParameter       tok=  70  pos= 775
-          >             '>'               op_GreaterThan      tok=  71  pos= 777
-  Type:
-    type                'type'            KWType              tok=  84  pos=1014
-    TypeSig.Anon:
-      TypeName          'Curried'         Identifier          tok=  86  pos=1019
-      TyparDefns:
-        <               '<'               op_LessThan         tok=  87  pos=1026
-        Typar.Named:
-                        ''A'              TypeParameter       tok=  88  pos=1027
-        Typar.Named:
-                        ''B'              TypeParameter       tok=  91  pos=1031
-        Typar.Named:
-                        ''C'              TypeParameter       tok=  94  pos=1035
-        >               '>'               op_GreaterThan      tok=  95  pos=1037
-      =                 '='               OpEquality          tok=  97  pos=1039
-      begin             <virt>            KWBegin             tok=virt  pos=1045
-        InterfaceSpec:
-          interface     'interface'       KWInterface         tok= 100  pos=1045
-          GenericType:
-            Ident       'Fun'             Identifier          tok= 102  pos=1055
-            <           '<'               op_LessThan         tok= 103  pos=1058
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''B'              TypeParameter       tok= 104  pos=1059
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''C'              TypeParameter       tok= 107  pos=1063
-            >           '>'               op_GreaterThan      tok= 108  pos=1065
-        Constructor:
-          new           'new'             KWNew               tok= 111  pos=1071
-          :             ':'               OpColon             tok= 112  pos=1074
-          arg           'f'               Identifier          tok= 114  pos=1076
-          :             ':'               OpColon             tok= 115  pos=1077
-          GenericType:
-            Ident       'Fun'             Identifier          tok= 117  pos=1079
-            <           '<'               op_LessThan         tok= 118  pos=1082
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''A'              TypeParameter       tok= 119  pos=1083
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''B'              TypeParameter       tok= 122  pos=1087
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''C'              TypeParameter       tok= 125  pos=1091
-            >           '>'               op_GreaterThan      tok= 126  pos=1093
-          arg           'a'               Identifier          tok= 130  pos=1097
-          :             ':'               OpColon             tok= 131  pos=1098
-          VarType:
-            Typar.Named:
-                        ''A'              TypeParameter       tok= 133  pos=1100
-          ->            '->'              OpArrowRight        tok= 135  pos=1103
-          GenericType:
-            Ident       'Curried'         Identifier          tok= 137  pos=1106
-            <           '<'               op_LessThan         tok= 138  pos=1113
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''A'              TypeParameter       tok= 139  pos=1114
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''B'              TypeParameter       tok= 142  pos=1118
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''C'              TypeParameter       tok= 145  pos=1122
-            >           '>'               op_GreaterThan      tok= 146  pos=1124
-      end               <virt>            KWEnd               tok=virt  pos=1354
-  Type:
-    type                'type'            KWType              tok= 157  pos=1354
-    TypeSig.Anon:
-      TypeName          'Flattened'       Identifier          tok= 159  pos=1359
-      TyparDefns:
-        <               '<'               op_LessThan         tok= 160  pos=1368
-        Typar.Named:
-                        ''A'              TypeParameter       tok= 161  pos=1369
-        Typar.Named:
-                        ''B'              TypeParameter       tok= 164  pos=1373
-        Typar.Named:
-                        ''C'              TypeParameter       tok= 167  pos=1377
-        >               '>'               op_GreaterThan      tok= 168  pos=1379
-      =                 '='               OpEquality          tok= 170  pos=1381
-      begin             <virt>            KWBegin             tok=virt  pos=1387
-        InterfaceSpec:
-          interface     'interface'       KWInterface         tok= 173  pos=1387
-          GenericType:
-            Ident       'Fun'             Identifier          tok= 175  pos=1397
-            <           '<'               op_LessThan         tok= 176  pos=1400
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''A'              TypeParameter       tok= 177  pos=1401
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''B'              TypeParameter       tok= 180  pos=1405
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''C'              TypeParameter       tok= 183  pos=1409
-            >           '>'               op_GreaterThan      tok= 184  pos=1411
-        Constructor:
-          new           'new'             KWNew               tok= 187  pos=1417
-          :             ':'               OpColon             tok= 188  pos=1420
-          arg           'f'               Identifier          tok= 190  pos=1422
-          :             ':'               OpColon             tok= 191  pos=1423
-          GenericType:
-            Ident       'Fun'             Identifier          tok= 193  pos=1425
-            <           '<'               op_LessThan         tok= 194  pos=1428
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''A'              TypeParameter       tok= 195  pos=1429
-            TypeArg.Type:
-              GenericType:
-                Ident   'Fun'             Identifier          tok= 198  pos=1433
-                <       '<'               op_LessThan         tok= 199  pos=1436
-                TypeArg.Type:
-                  VarType:
-                    Typar.Named:
-                        ''B'              TypeParameter       tok= 200  pos=1437
-                TypeArg.Type:
-                  VarType:
-                    Typar.Named:
-                        ''C'              TypeParameter       tok= 203  pos=1441
-                >       <virt>            OpGreaterThan       tok=virt  pos=1443
-            >           '>>'              op_ComposeRight     tok= 204  pos=1443
-          ->            '->'              OpArrowRight        tok= 206  pos=1446
-          GenericType:
-            Ident       'Flattened'       Identifier          tok= 208  pos=1449
-            <           '<'               op_LessThan         tok= 209  pos=1458
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''A'              TypeParameter       tok= 210  pos=1459
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''B'              TypeParameter       tok= 213  pos=1463
-            TypeArg.Type:
-              VarType:
-                Typar.Named:
-                        ''C'              TypeParameter       tok= 216  pos=1467
-            >           '>'               op_GreaterThan      tok= 217  pos=1469
-      end               <virt>            KWEnd               tok=virt  pos=1766
-  Module:
-    [<                  '[<'              KWLAttrBracket      tok= 228  pos=1766
-    NamedType:
-      Ident             'AutoOpen'        Identifier          tok= 229  pos=1768
-    >]                  '>]'              KWRAttrBracket      tok= 230  pos=1776
-    module              'module'          KWModule            tok= 232  pos=1779
-    ident               'FunAdapter...'   Identifier          tok= 234  pos=1786
-    =                   '='               OpEquality          tok= 236  pos=1798
-    begin               <virt>            KWBegin             tok=virt  pos=1978
-      Val:
-        val             'val'             KWVal               tok= 246  pos=1978
-        Ident           'curryFun'        Identifier          tok= 248  pos=1982
-        :               ':'               OpColon             tok= 249  pos=1990
-        arg             'f'               Identifier          tok= 251  pos=1992
-        :               ':'               OpColon             tok= 252  pos=1993
-        GenericType:
-          Ident         'Fun'             Identifier          tok= 254  pos=1995
-          <             '<'               op_LessThan         tok= 255  pos=1998
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                        ''A'              TypeParameter       tok= 256  pos=1999
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                        ''B'              TypeParameter       tok= 259  pos=2003
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                        ''C'              TypeParameter       tok= 262  pos=2007
-          >             '>'               op_GreaterThan      tok= 263  pos=2009
-        ->              '->'              OpArrowRight        tok= 265  pos=2011
-        arg             'a'               Identifier          tok= 267  pos=2014
-        :               ':'               OpColon             tok= 268  pos=2015
-        VarType:
-          Typar.Named:
-                        ''A'              TypeParameter       tok= 270  pos=2017
-        ->              '->'              OpArrowRight        tok= 272  pos=2020
-        GenericType:
-          Ident         'Fun'             Identifier          tok= 274  pos=2023
-          <             '<'               op_LessThan         tok= 275  pos=2026
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                        ''B'              TypeParameter       tok= 276  pos=2027
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                        ''C'              TypeParameter       tok= 279  pos=2031
-          >             '>'               op_GreaterThan      tok= 280  pos=2033
-      Val:
-        val             'val'             KWVal               tok= 287  pos=2135
-        Ident           'flatten'         Identifier          tok= 289  pos=2139
-        :               ':'               OpColon             tok= 290  pos=2146
-        arg             'f'               Identifier          tok= 292  pos=2148
-        :               ':'               OpColon             tok= 293  pos=2149
-        GenericType:
-          Ident         'Fun'             Identifier          tok= 295  pos=2151
-          <             '<'               op_LessThan         tok= 296  pos=2154
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                        ''A'              TypeParameter       tok= 297  pos=2155
-          TypeArg.Type:
-            GenericType:
-              Ident     'Fun'             Identifier          tok= 300  pos=2159
-              <         '<'               op_LessThan         tok= 301  pos=2162
-              TypeArg.Type:
-                VarType:
-                  Typar.Named:
-                        ''B'              TypeParameter       tok= 302  pos=2163
-              TypeArg.Type:
-                VarType:
-                  Typar.Named:
-                        ''C'              TypeParameter       tok= 305  pos=2167
-              >         <virt>            OpGreaterThan       tok=virt  pos=2169
-          >             '>>'              op_ComposeRight     tok= 306  pos=2169
-        ->              '->'              OpArrowRight        tok= 308  pos=2172
-        GenericType:
-          Ident         'Fun'             Identifier          tok= 310  pos=2175
-          <             '<'               op_LessThan         tok= 311  pos=2178
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                        ''A'              TypeParameter       tok= 312  pos=2179
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                        ''B'              TypeParameter       tok= 315  pos=2183
-          TypeArg.Type:
-            VarType:
-              Typar.Named:
-                        ''C'              TypeParameter       tok= 318  pos=2187
-          >             '>'               op_GreaterThan      tok= 319  pos=2189
-    end                 <virt>            KWEnd               tok=virt  pos=2192
+                   ''T'              TypeParameter       tok=  70  pos= 775
+          >        '>'               op_GreaterThan      tok=  71  pos= 777

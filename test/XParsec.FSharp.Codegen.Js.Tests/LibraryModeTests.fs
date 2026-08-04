@@ -48,28 +48,29 @@ let tests =
             // ---- a Vesper.Core body compiled as a module ----
             //
             // Vesper.Core has no JS module of its own — an eighteen-file package, and a JS
-            // module is compiled from one file. `core-types.fs` is the exception: it needs
-            // only `Fun` and two erased attributes, so it stands alone.
+            // module is compiled from one file. `core-types.fs` is the exception: the ref
+            // cell needs only two erased attributes, so it stands alone.
 
-            test "core-types.fs emits the ref cell, the two Fun adapters, and the adapter functions" {
+            test "core-types.fs emits the ref cell and imports nothing" {
                 let src = coreTypes.Value
 
                 Expect.stringContains src "class Ref {" "the reference-equality record with the mutable field"
-                Expect.stringContains src "class Curried {" "the partial-application adapter"
-                Expect.stringContains src "class Flattened {" "the curried→flat adapter"
-                Expect.stringContains src "export const curryFun = " "the upcasting adapter functions export"
-                Expect.stringContains src "export const flatten = " "both of them"
+
+                // The flat<->curried adapters are CLR-only, so nothing here reaches `Fun` and
+                // no import is owed. An `import` would name the package's own asset, which
+                // exports runtime entries and no compiled member.
+                Expect.isFalse (src.Contains "import ") "a self-contained module"
             }
 
-            // Why there is no Node round-trip beside the emit check: `f.Invoke(a, b)` on a
-            // `Fun`-typed receiver lowers to a receiver-first `Fun__Invoke` imported from
-            // `Vesper.Core.mjs`, and the committed asset exports no such name — so the module
-            // does not load. No other library body calls an interface method on an external
-            // interface-typed value, which is why nothing caught it before.
-            test "an external interface's method call imports a free function the runtime asset lacks" {
-                Expect.stringContains
-                    coreTypes.Value
-                    "import { Fun__Invoke as $Fun__Invoke } from \"./Vesper.Core.mjs\";"
-                    "the import that blocks execution — delete this test and run it under Node once it resolves"
+            test "core-types.fs loads under node and its ref cell round-trips" {
+                match
+                    runNodeFiles
+                        "core-types-lib"
+                        [ "entry.mjs", coreTypes.Value + "\nconsole.log(new Ref(3).contents);\n" ]
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "3" "the emitted module is loadable and its class constructs"
             }
         ]

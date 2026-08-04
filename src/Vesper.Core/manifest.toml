@@ -4,7 +4,7 @@ description = "Minimal language fundamentals: the primitive types, Fun, Ref, cap
 # .fsi files in compile order — fed to the parser one at a time, accumulating
 # declarations. prim-types-min first (defines int/bool/array/`Fun`/`unit`);
 # core-types before the operator files; everything else depends only on the
-# BCL primitives. `List.fold`'s arrow signature desugars to `Vesper.Fun`.
+# BCL primitives. `List.fold`'s function-typed parameter desugars to `Vesper.Fun`.
 files = [
     "prim-types-min.fsi",
     "prim-types-int.fsi",
@@ -35,6 +35,15 @@ files = [
 # whole sequence, in `files` order.
 
 [targets.clr]
+# CLR-only CONTRACT, appended after `[core] files`. The flat<->curried adapters are a CLR
+# REPRESENTATION strategy: a function value there is a nominal `Fun` interface, so adapting
+# one shape to the other needs a reified object. JS has no such need — a function value is a
+# function, and the backend emits the adaptation at the site — so these types are not a JS
+# surface awaiting a body.
+files = [
+    "fun-adapters.fsi",
+]
+
 # Compiled into Vesper.Core.dll AND published as the CLR splice sources, in `files` order.
 # The intrinsic-only `prim-types-*` / `capabilities` files emit NO IL: they register the
 # per-target representation (the provider extraction), not a TypeDef. They still carry the
@@ -54,6 +63,7 @@ impl = [
     "prim-types-attr.clr.fs",
     "compiler-attributes.fs",
     "core-types.fs",
+    "fun-adapters.fs",
     "capabilities.clr.fs",
     "structural-format.fs",
     "ops-platform.clr.fs",
@@ -123,9 +133,9 @@ impl = [
     "prim-types-object.js.fs",
     "prim-types-exn.js.fs",
     "prim-types-bigint.js.fs",
-    # Target-NEUTRAL body, shared verbatim with `[targets.clr]`: `Ref<'T>`, the two
-    # `Fun` adapter classes, and the upcast module — nothing a target could disagree
-    # about. Placed in `files` order (after `Fun`, before the operator files).
+    # Target-NEUTRAL body, shared verbatim with `[targets.clr]`: the `Ref` cell, and
+    # nothing else — the flat<->curried adapters are CLR-only, see `[targets.clr] files`.
+    # Placed in `files` order (after the primitives, before the operator files).
     "core-types.fs",
     # Target-NEUTRAL body, shared verbatim with `[targets.clr]`: two pure interface
     # declarations, nothing in them that a target could disagree about. Placed in `files`

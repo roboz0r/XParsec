@@ -121,8 +121,8 @@ open System.Collections.Generic
     /// module (`map`/`filter`/`iter`/`length`/`rev`/`append`/…) is additive, each
     /// a contract + impl pair added as the language grows. The `ModuleSuffix`
     /// representation lets the module share the `List` name with the type and
-    /// gives it the compiled name `ListModule`. The folder's arrow desugars to
-    /// `Vesper.Fun`.
+    /// gives it the compiled name `ListModule`. The folder's function type desugars
+    /// to `Vesper.Fun`.
     [<RequireQualifiedAccess>]
     [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
     module List =

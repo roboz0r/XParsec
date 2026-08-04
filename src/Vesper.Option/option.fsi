@@ -58,7 +58,7 @@ and 'T option = Option<'T>
 /// higher-order, so this module leg rides R1 (the `Fun`-not-`FSharpFunc`
 /// cutover). The `ModuleSuffix` representation lets the module share the `Option`
 /// name with the type (compiled name `OptionModule`). Each functional argument's
-/// arrow desugars to `Vesper.Fun`.
+/// function type desugars to `Vesper.Fun`.
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Option =
