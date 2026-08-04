@@ -460,10 +460,7 @@ let jsPackageConformanceTests =
                 let expected =
                     [
                         "Vesper.Core: prim-types-min.fsi: type 'Fun' is declared in the signature (.fsi) but not defined in the implementation (.fs)"
-                        "Vesper.Core: prim-types-object.fsi: type 'obj' disagrees on heritability across the pair: one side marks it a heritable external base ('extern class' / '(# class … #)'), the other an opaque value repr"
-                        "Vesper.Core: the signature file 'compiler-attributes.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                         "Vesper.Core: the signature file 'core-types.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
-                        "Vesper.Core: the signature file 'structural-format.fsi' has no corresponding implementation file and is not declared `sig-only` in the manifest"
                     ]
 
                 let actual =
@@ -566,17 +563,35 @@ let jsPackageConformanceTests =
                 Expect.isEmpty (ConformancePass.enforce outcome) "Vesper.Printf conforms on js"
             }
 
-            test "no manifest carries a target-specific `sig-only` list" {
+            test "every target-specific `sig-only` entry is pinned, not an open list" {
                 // The exemption list that would otherwise have to be guessed per target.
-                // Its absence everywhere is what "list-free" means concretely.
-                for package, manifestPath in packageManifests do
-                    match ReferencedProject.loadManifest manifestPath with
-                    | Error e -> failtestf "%s: %s" package e
-                    | Ok m ->
-                        for KeyValue(target, lists) in m.Targets do
-                            Expect.isEmpty
-                                lists.SigOnly
-                                (sprintf "%s: [targets.%s] declares a sig-only exemption list" package target)
+                // Whether a target can REPRESENT a contract is derived from the file's own
+                // content (`Unrepresentable`), so that axis needs no key from anyone — and
+                // this used to assert the lists were empty everywhere.
+                //
+                // Erasure is the axis content cannot decide. `compiler-attributes.fsi`
+                // declares 8 compile-time markers: the CLR owes them TypeDefs (its metadata
+                // cannot reference a type that has none), JS owes nothing at all. Identical
+                // content, different answer per target, so the manifest is where it is said.
+                //
+                // PINNED rather than forbidden, for the reason the hard-error set is pinned
+                // rather than counted: a second entry has to be argued for here, in front of
+                // someone, instead of accruing quietly in a manifest.
+                let expected = [ "Vesper.Core", "js", [ "compiler-attributes.fsi" ] ]
+
+                let actual =
+                    [
+                        for package, manifestPath in packageManifests do
+                            match ReferencedProject.loadManifest manifestPath with
+                            | Error e -> failtestf "%s: %s" package e
+                            | Ok m ->
+                                for KeyValue(target, lists) in m.Targets do
+                                    match lists.SigOnly with
+                                    | [] -> ()
+                                    | entries -> yield package, target, entries
+                    ]
+
+                Expect.equal actual expected "the per-target `sig-only` entries"
             }
         ]
 

@@ -2,4 +2,4 @@ namespace Vesper
 
 #nowarn "42"
 
-type obj = (# "unknown" #)
+type obj = (# class "Object" #)

@@ -427,9 +427,28 @@ to its own plan. `bigint` the TYPE stays the Stage-5a `prim-types` intrinsic; th
   parse path already exist; only the `.fsi` SIGNATURE parser (`SignatureParsing.fs:394`, currently
   `opt (pClass |>> ExternKind.Class)`) needs widening to accept `pInterface`. Not required for
   Piece 2 (inference already yields interface-ness), so it must not gate it.
-- **`top` vs `obj` split** (JS-only refinement): `obj` conflates the value ⊤ (JS `unknown`) with
-  the heritable class root (JS `Object`); CLR collapses both to `System.Object`. Sharpest payoff
-  is boxing on JS. The high-frequency ⊤ meaning should keep the default name.
+- **`top` vs `obj` split — DEFERRED 2026-08-03, and the naming reversed.** `obj` conflates the
+  value ⊤ (JS `unknown`) with the heritable class root (JS `Object`); CLR collapses both to
+  `System.Object`.
+
+  What is being done instead, now: JS binds `type obj = (# class "Object" #)`, mirroring
+  `exn = (# class "Error" #)` — `(# class … #)` already means something on JS, and heritability
+  in the contract is a claim about the declaration, not a demand that the emitter support
+  `inherit` (nothing inherits `obj`). That removes the `prim-types-object.fsi` heritability
+  disagreement without a per-target contract split. It is inert at runtime: JS emission is
+  type-erased, so no `obj`-typed body observes the repr text.
+
+  If the split lands, `top` takes the ⊤ meaning (JS `unknown`, CLR non-heritable `System.Object`)
+  and `obj` stays the class root — the REVERSE of this bullet's earlier "the high-frequency ⊤
+  meaning should keep the default name". Reasons: the contract already declares
+  `type obj = extern class with new: unit -> obj`, `obj` is the name that appears in
+  upcast/inherit positions, and only the ⊤ sites need renaming, which is the bounded edit.
+
+  The forcing function is **`.d.ts` emission**, not runtime behaviour: `Object` is the wrong TS
+  spelling for a ⊤ parameter (it excludes `null`/`undefined` and admits primitives only boxed).
+  The ⊤ sites are countable today — `IFormatSink.Child`, the `structural-printer.js.fs` helper
+  signatures, and `structuralEquals` / `structuralHash` / `structuralCompare`. Until declarations
+  are emitted, the distinction has no observable consequence.
   (`feedback_prototype_correct_semantics_over_fsharp_parity`.)
 - **Intrinsic-abbrev self-type mints — LANDED 2026-07-09 (SA 777).** Both self-type mints
   (`SideTables.IntrinsicAbbrevInfo.MkSelfType`, `Elaborate.tryIntrinsicAbbrevType`) minted

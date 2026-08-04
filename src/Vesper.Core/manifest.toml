@@ -92,6 +92,19 @@ files = [
     "array-index.js.fsi",
 ]
 
+# Deliberately impl-free ON JS. All 8 types are compile-time markers the front end reads
+# off the `.fsi`; their CLR `.fs` bodies exist because CLR metadata cannot reference a
+# type that has no TypeDef, which is not a constraint JS has. So they are fully ERASED
+# here — no `.mjs` residue, no decorator. (Runtime-retrievable attribute DATA, if it ever
+# exists, is a different feature: TS 5 decorators + `Symbol.metadata`, with real bodies.)
+#
+# Kept in the contract rather than moved to `[targets.clr] files`: the declarations must
+# stay RESOLVABLE on JS, because a target-neutral body listed in `impl` below may carry
+# one — `core-types.fs` carries `[<ReferenceEquality>]` and `[<NoComparison>]`.
+sig-only = [
+    "compiler-attributes.fsi",
+]
+
 # The JS bodies: the platform reprs and the spliced operator templates. No JS library build
 # of Vesper.Core exists yet (the JS runtime is the committed `Vesper.Core.mjs` asset), so
 # nothing here is compiled today — the list is read as the splice source and as the
@@ -109,6 +122,10 @@ impl = [
     "prim-types-object.js.fs",
     "prim-types-exn.js.fs",
     "prim-types-bigint.js.fs",
+    # Target-NEUTRAL body, shared verbatim with `[targets.clr]`: two pure interface
+    # declarations, nothing in them that a target could disagree about. Placed in `files`
+    # order (after the primitives it names, before the operator files).
+    "structural-format.fs",
     "ops-platform.js.fs",
     "ops-std.fs",
     "int-comparison.js.fs",
