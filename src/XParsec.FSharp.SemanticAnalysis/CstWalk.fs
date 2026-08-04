@@ -181,7 +181,7 @@ module TypeDefnPatterns =
     /// primary ctor / `inherit` / `let`-preamble). The latter parses as
     /// `Class`/`Anon`, so `registerClassTypeDefn` consults this to stamp
     /// `ClassTypeInfo.IsInterface`, mirroring `isStructShape`. Same all-abstract
-    /// predicate `Elaborate.tryInterfaceMethods` uses to project `TTypeKind.Interface`.
+    /// predicate elaboration uses to project a body onto `TTypeKind.Interface`.
     let isInterfaceShape (td: TypeDefn<'T>) : bool =
         match td with
         | TypeDefn.Interface _ -> true

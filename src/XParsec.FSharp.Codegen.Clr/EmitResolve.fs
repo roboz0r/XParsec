@@ -448,8 +448,8 @@ module EmitResolve =
     /// (`Box<int>::Value`) — the mirror of
     /// `resolveInstanceMember`. A referenced-assembly record
     /// goes through the provider's `TryResolveExternalRecordField`. Classes reach
-    /// here for primary-ctor parameter accesses rewritten to `FieldGet(this,
-    /// name)` by `Elaborate.translateClassMember`.
+    /// here for primary-ctor parameter accesses, which elaboration rewrote to
+    /// `FieldGet(this, name)` when it lowered the class member.
     let resolveRecordField (env: EmitEnv) (receiverTy: FrozenType) (fieldName: string) : EntityHandle =
         // Project-local tables key by the receiver's nominal `TypeKey`; the
         // external record-field lookup derives the qualified compiled name from it

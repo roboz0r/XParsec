@@ -690,7 +690,7 @@ module internal NominalEmit =
         let prepareMember (index: int) (isIfaceImpl: bool) (mem: TastAccessor.TypeMember) =
             // A *generic* member. Both its declaring-type typars and its own
             // method typars now ride self-describing `TyTypar` nodes in the signature /
-            // locals / body (Elaborate.freezeTypars remaps both axes), so no ambient
+            // locals / body (elaboration's typar cut remaps both axes), so no ambient
             // typar window is installed; the encoder resolves them by
             // index. `methodTypars` still feeds the `GENERIC` header arity and the
             // `GenericParam` rows.

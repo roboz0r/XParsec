@@ -140,6 +140,10 @@
     <Compile Include="Elaborate\Apply.fs" />
     <Compile Include="Elaborate\Printf.fs" />
     <Compile Include="ElaborateExpr.fs" />
+    <Compile Include="Elaborate\Typars.fs" />
+    <Compile Include="Elaborate\Members.fs" />
+    <Compile Include="Elaborate\ClassMembers.fs" />
+    <Compile Include="Elaborate\TypeDecls.fs" />
     <Compile Include="Passes\InlineSpecTable.fs" />
     <Compile Include="Passes\InlineReduction.fs" />
     <Compile Include="Passes\InlineExpansion.fs" />

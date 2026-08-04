@@ -178,8 +178,8 @@ module EmitClosures =
         }
 
     /// The emission of a module-level binding, whose exportable identity the front end
-    /// recorded (`Elaborate.translateModuleElem` files one for every module-level `let`
-    /// with a simple binder — in a `module` or at the top level alike). Name and key come
+    /// recorded (one is filed for every module-level `let` with a simple binder — in a
+    /// `module` or at the top level alike). Name and key come
     /// STRAIGHT off that identity, so the vocabulary a consumer resolves and the metadata
     /// this writes cannot drift; `ModuleBindingInfo.Key` is the one place either is derived
     /// from. A top-level binding's identity is held by its file's namespace, which no CLR

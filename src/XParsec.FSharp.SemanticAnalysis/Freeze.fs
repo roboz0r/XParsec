@@ -27,7 +27,7 @@ module Freeze =
     /// The residue reaching freeze is not *free* — it is BOUND, by a binder that is
     /// not the enclosing method (see `FrozenType.FTLocalTypar`). A body-local
     /// `let g = fun x -> x` is its own declaration with its own generalized scheme,
-    /// and `Elaborate.mkMethodQuantEnv` — which derives the `TyVar -> TyTypar` remap
+    /// and elaboration's method-typar quantification — which derives the `TyVar -> TyTypar` remap
     /// by walking the ENCLOSING decl's type — never sees `g`'s own root, because
     /// every use of `g` instantiates away from it. So the root survives as a `TyVar`
     /// on `g`'s own nodes.
@@ -78,7 +78,7 @@ module Freeze =
     /// A residual (unlinked) `TyVar` is **tolerated**, and maps to the
     /// identity-bearing `FTLocalTypar`. It is a typar bound by a *local* `let`'s own
     /// scheme: it is instantiated afresh at every use site, so it never occurs in the
-    /// ENCLOSING decl's type — and `Elaborate.mkMethodQuantEnv`, which derives the
+    /// ENCLOSING decl's type — and elaboration's method-typar quantification, which derives the
     /// `TyVar -> TyTypar(Method, i)` remap by walking exactly that type, therefore
     /// never maps it. The local binding's own nodes keep the unmapped root.
     ///
