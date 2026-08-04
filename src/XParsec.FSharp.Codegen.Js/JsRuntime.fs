@@ -302,6 +302,13 @@ module JsImports =
                 | None -> ()
         ]
 
+    /// The modules the emitted `import` block names, sorted as it emits them. An entry is
+    /// only ever created by a reference that then binds something, so this is exactly the
+    /// set of specifier targets — what a package build checks resolves to a module it
+    /// writes, without reading back the generated text.
+    let importedModules (imports: JsImports) : JsModulePath list =
+        [ for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) -> kv.Key ]
+
     /// The committed runtime ASSETS referenced during the walk, sorted by module. Each is
     /// a self-contained leaf (no asset `.mjs` imports another), so the referenced set is
     /// exactly the set to materialise — no transitive closure needed. A per-file module of

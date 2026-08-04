@@ -196,6 +196,11 @@ module ClrDriver =
     /// re-homes to the LOCAL `MethodDef`) and `Codegen.compileFilesWithBclReferences` emits
     /// the assembly. `bclReferences` feeds emitted-`AssemblyRef` identity only.
     ///
+    /// One PE for the whole assembly, so emission composes ALL the files' views at once
+    /// rather than each file's own analysis-time provider: there is no per-file emission to
+    /// scope, and a cross-file reference is re-homed to a local `MethodDef` instead of being
+    /// resolved to the declaring file.
+    ///
     /// This bridges the SemanticAnalysis multi-file front end (`AssemblyFiles`) and CLR
     /// emission; the `ClrCompilation`-shaped `compileAssembly` and the package-build
     /// fixtures all route through it, so the front-end/compose/emit core exists once.
@@ -210,9 +215,9 @@ module ClrDriver =
         |> Result.map (fun analysed ->
             // Each file's projected view (nearest-first) ahead of the external stack.
             let symbols =
-                ExternalSymbolProviders.composite ([ for f in analysed -> f.View ] @ [ external ])
+                ExternalSymbolProviders.composite ([ for f in analysed.Files -> f.View ] @ [ external ])
 
-            let tasts = [ for f in analysed -> f.Frozen ]
+            let tasts = [ for f in analysed.Files -> f.Frozen ]
             Codegen.compileFilesWithBclReferences bclReferences symbols project tasts
         )
 

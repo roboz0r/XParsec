@@ -52,6 +52,12 @@ module AssemblyFiles =
             /// residue rather than short-circuiting the file.
             ParseDiagnostics: Diagnostic list
             Frozen: FrozenPools
+            /// The provider this file WAS analysed against: the prior files' views
+            /// nearest-first over the external surface, under the file's own declared
+            /// namespaces. A per-file backend emits against it, so an `External` node
+            /// resolves at emission to the symbol the front end resolved it to — carried
+            /// rather than re-derived, because a re-derivation is a second answer.
+            Scoped: IExternalSymbolProvider
             View: IExternalSymbolProvider
         }
 
@@ -132,7 +138,12 @@ module AssemblyFiles =
         let mutable priorViews: IExternalSymbolProvider list = []
         let results = ResizeArray<Result<FrozenFile, UnparsedFile>>()
 
-        for (path, source) in files do
+        for (path, raw) in files do
+            // A driver hands over bytes it read; the manifest extractor reads the SAME files
+            // for a self-host package's splice templates. One text per file, or the two
+            // retentions of it disagree.
+            let source = SourceText.normalise raw
+
             match Pipeline.parse source with
             | Error f ->
                 results.Add(
@@ -175,6 +186,7 @@ module AssemblyFiles =
                             Source = origin
                             ParseDiagnostics = parsed.Diagnostics
                             Frozen = frozen
+                            Scoped = scoped
                             View = view
                         }
                 )
@@ -275,8 +287,18 @@ module AssemblyFiles =
                 yield! anchorDiagnostics f.Source (f.ParseDiagnostics @ f.Frozen.Residue.Diagnostics)
         ]
 
+    /// A whole assembly that passed the gate: its files in manifest order, plus every one
+    /// of their retained sources as one domain. The retention travels with the files
+    /// because a backend needs it to read the anchors of a node spliced out of a prior
+    /// file, and re-collecting it would give a second answer for what each file contains.
+    type AnalysedAssembly =
+        {
+            Files: FrozenFile list
+            Origins: OriginSources
+        }
+
     /// `analyseAssemblyWith`, GATED: every file must parse, and no analysed file may carry
-    /// an error-severity diagnostic. `Ok` is the analysed files in order; `Error` is every
+    /// an error-severity diagnostic. `Ok` is the analysed assembly; `Error` is every
     /// blocking diagnostic anchored to its own file (path + in-file line/col) rather than
     /// thrown. A parse failure is fatal for the whole assembly, and is reported alone —
     /// the files after it analysed against a truncated view, so their findings would be
@@ -289,7 +311,7 @@ module AssemblyFiles =
         (assemblyName: string)
         (external: IExternalSymbolProvider)
         (files: (string * string) list)
-        : Result<FrozenFile list, AnchoredDiagnostic list> =
+        : Result<AnalysedAssembly, AnchoredDiagnostic list> =
         let results = analyseAssemblyWith analyse assemblyName external files
 
         let parseFailures =
@@ -316,4 +338,9 @@ module AssemblyFiles =
                 |> List.filter (fun a -> a.Diagnostic.Severity = Severity.Error)
             with
             | _ :: _ as errors -> Error errors
-            | [] -> Ok analysed
+            | [] ->
+                Ok
+                    {
+                        Files = analysed
+                        Origins = analysed |> List.map (fun f -> f.Source) |> OriginSources.ofSeq
+                    }

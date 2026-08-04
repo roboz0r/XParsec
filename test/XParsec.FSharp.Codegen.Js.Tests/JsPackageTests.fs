@@ -27,9 +27,26 @@ let private compilePackage (files: (string * string) list) : JsPackage =
              |> String.concat "\n")
 
 let private sourceOf (pkg: JsPackage) (fileName: string) : string =
-    match pkg.Modules |> List.tryFind (fun m -> m.FileName = fileName) with
+    match pkg.Modules |> List.tryFind (fun m -> m.Path.FileName = fileName) with
     | Some m -> m.Artifact.Source
-    | None -> failtestf "no module '%s' in the package; got %A" fileName (pkg.Modules |> List.map (fun m -> m.FileName))
+    | None ->
+        failtestf "no module '%s' in the package; got %A" fileName (pkg.Modules |> List.map (fun m -> m.Path.FileName))
+
+/// Every module the emitted artifacts import must be one the package writes: a surviving
+/// per-file module or a runtime asset at the output root. The driver faults on a violation;
+/// asserted here so the relation between "dropped for emitting nothing" and "named by an
+/// importer" stays a stated property rather than only a compiler fault.
+let private expectImportsResolvable (pkg: JsPackage) =
+    let written =
+        (pkg.Modules |> List.map (fun m -> m.Path))
+        @ (pkg.RuntimeAssets |> List.map (fun a -> JsModulePath.asset a.FileName))
+        |> Set.ofList
+
+    for m in pkg.Modules do
+        for target in m.Artifact.ImportedModules do
+            Expect.isTrue
+                (written.Contains target)
+                (sprintf "%s imports %s, which the package does not write" m.Path.FileName target.FileName)
 
 // Two files: the first declares a record and a function over it, the second consumes both.
 let private declaringFile =
@@ -68,13 +85,15 @@ let tests =
                 Expect.isFalse
                     (js.Contains "Test.Pkg.mjs")
                     (sprintf "the package name must not be a module specifier, got:\n%s" js)
+
+                expectImportsResolvable pkg
             }
 
             test "each emitting file becomes its own module, and the barrel re-exports them" {
                 let pkg = compilePackage [ "shapes.fs", declaringFile; "use.fs", consumingFile ]
 
                 Expect.equal
-                    (pkg.Modules |> List.map (fun m -> m.FileName))
+                    (pkg.Modules |> List.map (fun m -> m.Path.FileName))
                     [ "shapes.mjs"; "use.mjs" ]
                     "one module per emitting file, in file order"
 
@@ -100,11 +119,66 @@ type IShape =
                     compilePackage [ "interfaces.fs", interfacesOnly; "shapes.fs", declaringFile ]
 
                 Expect.equal
-                    (pkg.Modules |> List.map (fun m -> m.FileName))
+                    (pkg.Modules |> List.map (fun m -> m.Path.FileName))
                     [ "shapes.mjs" ]
                     "the declaration-only file contributes no module"
 
                 Expect.isFalse (pkg.Barrel.Contains "interfaces") "and is absent from the barrel"
+            }
+
+            // A module path is a file STEM, so two sources differing only by directory claim
+            // one `.mjs`. Writing the package would replace one with the other and leave a
+            // barrel entry re-exporting whichever won.
+            test "two sources with the same leaf name are a build failure, not a silent overwrite" {
+                let moduleNamed (name: string) =
+                    sprintf "namespace Test.Pkg\n\nmodule %s =\n    let v () : int = 1\n" name
+
+                let failure =
+                    try
+                        compilePackage [ "a/one.fs", moduleNamed "Alpha"; "b/one.fs", moduleNamed "Beta" ]
+                        |> ignore
+
+                        ""
+                    with e ->
+                        e.Message
+
+                Expect.stringContains failure "one.mjs" "the collision is refused, naming the claimed module path"
+                Expect.stringContains failure "a/one.fs" "and the sources that claimed it"
+            }
+
+            // The two decisions the driver has to reconcile: dropping a module is per FILE,
+            // naming one in an import is per CONSUMER. A declaration-only file is reachable
+            // only at the TYPE level, which JS erases, so the consumer imports nothing from
+            // the module that was dropped.
+            test "a consumer of a declaration-only file imports no module the package omits" {
+                let contracts =
+                    "\
+namespace Test.Pkg
+
+type IShape =
+    abstract member Area: unit -> int
+"
+
+                let user =
+                    "\
+namespace Test.Pkg
+
+module Shim =
+    let passthrough (s: IShape) : IShape = s
+"
+
+                let pkg = compilePackage [ "contracts.fs", contracts; "user.fs", user ]
+
+                Expect.equal
+                    (pkg.Modules |> List.map (fun m -> m.Path.FileName))
+                    [ "user.mjs" ]
+                    "the declaration-only file contributes no module"
+
+                expectImportsResolvable pkg
+
+                Expect.isEmpty
+                    (pkg.Modules |> List.collect (fun m -> m.Artifact.ImportedModules))
+                    "an erased type reference costs no import"
             }
 
             // The package this whole shape exists for: eighteen contract files, no single
@@ -153,6 +227,8 @@ type IShape =
 
                 Expect.isNonEmpty pkg.Modules "the operator bodies do emit modules"
 
+                expectImportsResolvable pkg
+
                 // Loading the barrel evaluates every emitted module, so an unresolved
                 // import or a missing export is a load-time failure here.
                 let entry = IO.Path.Combine(root, "core-load.mjs")
@@ -199,7 +275,7 @@ module Reader =
                 let pkg = compilePackage [ "ambient.fs", declaring; "reader.fs", consuming ]
 
                 Expect.equal
-                    (pkg.Modules |> List.map (fun m -> m.FileName))
+                    (pkg.Modules |> List.map (fun m -> m.Path.FileName))
                     [ "reader.mjs" ]
                     "the declaring file defines nothing, so it contributes no module"
 

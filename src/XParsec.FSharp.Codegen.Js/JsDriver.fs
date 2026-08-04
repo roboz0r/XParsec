@@ -11,8 +11,10 @@ type JsPackageModule =
     {
         /// The source file this was compiled from, as the manifest names it.
         Source: string
-        /// The module's file name inside the package directory (`<stem>.mjs`).
-        FileName: string
+        /// Where the module sits in the output tree. THE identity an importer's specifier
+        /// is rendered against, so the writer and the importer name one value rather than
+        /// two strings that have to agree.
+        Path: JsModulePath
         Artifact: JsArtifact
     }
 
@@ -56,18 +58,54 @@ module JsDriver =
     /// still a resolvable specifier.
     let private barrelOf (modules: JsPackageModule list) : string =
         modules
-        |> List.map (fun m -> sprintf "export * from \"./%s\";\n" m.FileName)
+        |> List.map (fun m -> sprintf "export * from \"./%s\";\n" m.Path.FileName)
         |> String.concat ""
+
+    /// Every specifier the emitted modules name must resolve to something this build
+    /// writes: a surviving per-file module, or a runtime asset copied to the output root.
+    /// A file dropped for emitting nothing is decided per FILE while the reference to it is
+    /// decided per CONSUMER, so nothing but this ties the two — and a dangling ESM
+    /// specifier otherwise surfaces only when Node loads the package.
+    let private checkResolvable
+        (packageName: string)
+        (modules: JsPackageModule list)
+        (assets: JsRuntimeModule list)
+        : unit =
+        // A module path is a STEM, which drops directories, so two sources whose names
+        // differ only by directory claim one `.mjs` — and the second write would replace
+        // the first with no other sign.
+        for path, claimants in modules |> List.groupBy (fun m -> m.Path) do
+            match claimants with
+            | _ :: _ :: _ ->
+                failwithf
+                    "JS package '%s': sources %s all emit '%s'; a module path is a file stem, so they cannot share a package directory"
+                    packageName
+                    (claimants |> List.map (fun m -> sprintf "'%s'" m.Source) |> String.concat ", ")
+                    path.FileName
+            | _ -> ()
+
+        let written =
+            (modules |> List.map (fun m -> m.Path))
+            @ (assets |> List.map (fun a -> JsModulePath.asset a.FileName))
+            |> Set.ofList
+
+        for m in modules do
+            for target in m.Artifact.ImportedModules do
+                if not (written.Contains target) then
+                    failwithf
+                        "JS package '%s': module '%s' imports '%s', which this build does not write"
+                        packageName
+                        m.Path.FileName
+                        (JsModulePath.specifierFrom m.Path.Package target)
 
     /// Compile an ordered `(path, source)` list as ONE assembly named `packageName`,
     /// through `analyse` (`Pipeline.analyseFor` for a package consumer,
     /// `analyseForSelfHost` for a BCL-free package), emitting one module per emitting file.
     ///
-    /// Each file is EMITTED against exactly the provider it was ANALYSED against — the
-    /// prior files' views nearest-first ahead of the contract — so an `External` node
-    /// resolves at emission to the same symbol the front end resolved it to, and a
-    /// cross-file reference names the declaring file's module through the origin that view
-    /// stamped.
+    /// Each file is emitted against the provider the front end CARRIED back from analysing
+    /// it, so an `External` node resolves at emission to the same symbol the front end
+    /// resolved it to, and a cross-file reference names the declaring file's module through
+    /// the origin that view stamped.
     let compileAssemblyWith
         (analyse: AssemblyFiles.AnalyseFile)
         (contract: SymbolProviders.Contract)
@@ -76,64 +114,63 @@ module JsDriver =
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
         AssemblyFiles.analyseGated analyse packageName contract.Provider files
         |> Result.map (fun analysed ->
-            // Prior views in FILE order; the head is the nearest file after each push, so
-            // reversing before composing puts the NEAREST first — the same layering the
-            // analysis ran under.
-            let mutable priorViews: IExternalSymbolProvider list = []
-            // The retention grows WITH the views, because they are halves of one contract: a
-            // prior file that serves a body is a producer like any package, and a node spliced
-            // out of it stays readable only against that file's own text.
-            let mutable origins = contract.Origins
-            let emitted = ResizeArray<JsPackageModule>()
+            // The package's own files are producers like any referenced package: a node
+            // spliced out of one stays readable only against that file's own text. A file
+            // can only splice from one BEFORE it, so the whole assembly's retention covers
+            // every emission.
+            let origins = OriginSources.addAll analysed.Origins contract.Origins
 
-            for file in analysed do
-                let relative = file.Source.File.Path.Relative
+            let emitted =
+                [
+                    for file in analysed.Files do
+                        let relative = file.Source.File.Path.Relative
 
-                let scoped =
-                    { contract with
-                        Provider = ExternalSymbolProviders.composite ((List.rev priorViews) @ [ contract.Provider ])
-                        Origins = origins
-                    }
+                        let project =
+                            { JsProjectInfo.defaults (JsModulePath.stem relative) with
+                                Package = ValueSome packageName
+                                Kind = Library
+                                GeneratedFrom = Some relative
+                                Source =
+                                    Some
+                                        {
+                                            Path = relative
+                                            Content = file.Source.Input
+                                            Lexed = file.Source.Lexed
+                                        }
+                            }
 
-                let project =
-                    { JsProjectInfo.defaults (JsModulePath.stem relative) with
-                        Package = Some packageName
-                        Kind = Library
-                        GeneratedFrom = Some relative
-                        Source =
-                            Some
-                                {
-                                    Path = relative
-                                    Content = file.Source.Input
-                                    Lexed = file.Source.Lexed
+                        let artifact =
+                            Codegen.compileWith
+                                { contract with
+                                    Provider = file.Scoped
+                                    Origins = origins
                                 }
-                    }
+                                project
+                                file.Frozen
 
-                let artifact = Codegen.compileWith scoped project file.Frozen
+                        // A source that lowers to no statements (an intrinsic-repr-only file)
+                        // gets no module at all — an absent `.mjs` says what an empty one
+                        // would not.
+                        if not artifact.IsEmpty then
+                            {
+                                Source = relative
+                                Path = JsModulePath.ofSource packageName relative
+                                Artifact = artifact
+                            }
+                ]
 
-                // A source that lowers to no statements (an intrinsic-repr-only file) gets
-                // no module at all — an absent `.mjs` says what an empty one would not.
-                if not artifact.IsEmpty then
-                    emitted.Add
-                        {
-                            Source = relative
-                            FileName = JsModulePath.stem relative + ".mjs"
-                            Artifact = artifact
-                        }
+            let assets =
+                emitted
+                |> List.collect (fun m -> m.Artifact.RuntimeModules)
+                |> List.distinctBy (fun a -> a.FileName)
 
-                priorViews <- file.View :: priorViews
-                origins <- OriginSources.add file.Source origins
-
-            let modules = List.ofSeq emitted
+            checkResolvable packageName emitted assets
 
             {
                 Name = packageName
-                Modules = modules
-                Barrel = barrelOf modules
-                RuntimeAssets =
-                    modules
-                    |> List.collect (fun m -> m.Artifact.RuntimeModules)
-                    |> List.distinctBy (fun a -> a.FileName)
+                Modules = emitted
+                Barrel = barrelOf emitted
+                RuntimeAssets = assets
             }
         )
 
@@ -147,10 +184,10 @@ module JsDriver =
         Directory.CreateDirectory dir |> ignore
 
         for m in package.Modules do
-            File.WriteAllText(Path.Combine(dir, m.FileName), m.Artifact.Source)
+            File.WriteAllText(Path.Combine(dir, m.Path.FileName), m.Artifact.Source)
 
             match m.Artifact.Map with
-            | Some map -> File.WriteAllText(Path.Combine(dir, m.FileName + ".map"), map)
+            | Some map -> File.WriteAllText(Path.Combine(dir, m.Path.FileName + ".map"), map)
             | None -> ()
 
         File.WriteAllText(Path.Combine(dir, BarrelFileName), package.Barrel)

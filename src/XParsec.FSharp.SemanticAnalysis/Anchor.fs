@@ -108,6 +108,16 @@ module OriginFile =
             Content = InputHash.ofBytes [||]
         }
 
+[<RequireQualifiedAccess>]
+module SourceText =
+
+    /// THE text a file compiles as, taken at the point its bytes become source. A package's
+    /// own files are read TWICE on a self-host build — once as the manifest's splice
+    /// templates, once as the assembly's sources — and an `OriginSources` keyed by path
+    /// holds one text per file, so two reads that differ only in line endings would retain
+    /// the same file at two contents and fault a tree anchored against the other read.
+    let normalise (raw: string) : string = raw.Replace("\r\n", "\n")
+
 /// A producer file RETAINED past the parse that produced it, so that anchors of a tree unpooled
 /// from it stay readable. `Input` rides with the `Lexed` because a token carries offsets into
 /// the text and not the text itself, and the text is what a multi-source map publishes.
@@ -143,6 +153,11 @@ module OriginSources =
 
     let ofSeq (srcs: OriginSource seq) : OriginSources =
         Seq.fold (fun acc src -> add src acc) empty srcs
+
+    /// Every source of `added` retained over `sources`. A path in both keeps `added`'s read,
+    /// on the same "a file is read once" grounds `add` replaces on.
+    let addAll (added: OriginSources) (sources: OriginSources) : OriginSources =
+        (sources, added.ByPath) ||> Map.fold (fun acc _ src -> add src acc)
 
     /// Everything retained, in path order. The enumeration a consumer that must PUBLISH the
     /// producer text — a multi-source map's `sourcesContent` — reads, which is why it yields

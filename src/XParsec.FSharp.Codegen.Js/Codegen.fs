@@ -31,11 +31,11 @@ type JsProjectInfo =
     {
         ModuleName: string
         /// The package directory this module is emitted INTO — one member of a package
-        /// build, which sits at `<out>/<Package>/`. `None` is a program at the output
+        /// build, which sits at `<out>/<Package>/`. `ValueNone` is a program at the output
         /// root. Import specifiers are rendered relative to it, so a sibling module, a
         /// root-level runtime asset and another package's module each get the right
         /// number of `../` hops.
-        Package: string option
+        Package: string voption
         /// `None` keeps the emitted source in-memory only.
         OutputPath: string option
         /// `Some` turns on V3 source-map emission; `None` keeps the output
@@ -56,7 +56,7 @@ module JsProjectInfo =
     let defaults (moduleName: string) : JsProjectInfo =
         {
             ModuleName = moduleName
-            Package = None
+            Package = ValueNone
             OutputPath = None
             Source = None
             Kind = Script
@@ -76,6 +76,11 @@ type JsArtifact =
         /// The committed JS runtime ASSETS this program imports, written to the output
         /// ROOT by `materialise` so Node can resolve the emitted specifiers.
         RuntimeModules: JsRuntimeModule list
+        /// The modules this artifact's `import` statements name, as paths rather than
+        /// rendered specifiers. A package build checks each one against what it actually
+        /// writes, so a dangling ESM specifier is a build failure rather than a Node
+        /// load-time one.
+        ImportedModules: JsModulePath list
         /// `true` when the file lowered to NO statements — an intrinsic-repr-only source
         /// that contributes no module at all. A package build writes no `.mjs` for it and
         /// leaves it out of the barrel.
@@ -136,17 +141,12 @@ module Codegen =
         // handed out keeps naming the same node.
         let pool = TastPoolBuilder.openOver tast
 
-        let selfPackage =
-            match project.Package with
-            | Some p -> ValueSome p
-            | None -> ValueNone
-
         let ctx =
             EmitJsContext.WalkCtx.create
                 resolver
                 pool
                 contract.Provider
-                (JsImports.createIn selfPackage runtimeAssets)
+                (JsImports.createIn project.Package runtimeAssets)
                 (match project.Kind with
                  | Library -> true
                  | Script -> false)
@@ -201,6 +201,7 @@ module Codegen =
                 | Some _, Some path -> Some(path + ".map")
                 | _ -> None
             RuntimeModules = runtimeModules
+            ImportedModules = JsImports.importedModules ctx.Imports
             // Imports are recorded WHILE the body is built, so a program with no
             // statements imported nothing either — emptiness is the one test.
             IsEmpty = List.isEmpty program.Body
