@@ -77,6 +77,16 @@ interface) both passed first try. What the tranche actually found:
   matters well beyond this file: under §4.3's per-file model, EVERY cross-file interface
   takes this path, and an interface-only file emits no module for the import to name.
 
+  **DECIDED: interface dispatch on JS is always an attached-method call** — same file,
+  another file, another library, no difference. An interface has no runtime existence on
+  JS (no module, no export, no free-function form); its implementations are attached
+  methods on the implementing class, so a member reached through an interface-typed
+  receiver is a member access on whatever object is there, and where the interface was
+  DECLARED is not part of the question. The local/external split is the wrong axis.
+  The capability mapping keeps precedence over it — that one renames a member to its
+  JS-native spelling rather than dispatching by name. Expected to fix TS interop in the
+  same stroke: the path this replaces is a loud `failwith` for any real npm package.
+
 ### 2.3 Per-file JS output (§4.3)
 
 The backend tranche. It is what finally COMPILES `Vesper.Core` on JS, and therefore what
