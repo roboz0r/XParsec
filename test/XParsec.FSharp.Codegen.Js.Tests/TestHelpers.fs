@@ -207,6 +207,19 @@ let arrayDepsJsContract: Lazy<SymbolProviders.Contract> =
                 srcManifest "Vesper.Array"
             ]
 
+/// Contract for `Vesper.Seq`'s impl: `Vesper.Array` for `toArray`'s buffer, and the
+/// package's own manifest for the `SeqPrelude.truncate` its `seq.fs` forwards to.
+let seqDepsJsContract: Lazy<SymbolProviders.Contract> =
+    lazy
+        JsNativeSymbols.jsNativeContractFor
+            Target.Js
+            [
+                vesperCoreManifest
+                srcManifest "Vesper.Exceptions"
+                srcManifest "Vesper.Array"
+                srcManifest "Vesper.Seq"
+            ]
+
 /// Front-end + freeze a JS-target package impl. The provider carries only the package's
 /// dependencies — the impl's own in-file types are the resolution authority.
 let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : FrozenPools =

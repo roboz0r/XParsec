@@ -448,6 +448,49 @@ module UnificationEngineCore =
                         | ValueSome k -> k
                         | ValueNone -> key
 
+    /// `capabilityCanonKey`'s mirror: fold a capability's two nominal keys to its PLATFORM
+    /// key (`Vesper.Collections.enumerator\`1` → `System.Collections.Generic.IEnumerator\`1`);
+    /// a non-capability key is returned unchanged.
+    ///
+    /// For MEMBER LOOKUP only, and the direction matters. A capability's canonical shape is
+    /// an `IntrinsicInterface` — it names the platform type but carries no member table — so
+    /// a receiver typed as the capability resolves its shape and then finds no members on it.
+    /// The platform type is where the members actually live, so a miss retries there.
+    ///
+    /// This is the opposite direction to the one `sameNominalKey` warns off below, and safe
+    /// for the same reason that one is not: rewriting canon-ward inside a lookup erases the
+    /// platform type's own bases, whereas rewriting PLATFORM-ward restores them — which is
+    /// what lets `enumerator<'T>.Dispose` reach `IDisposable` through the BCL interface chain.
+    let capabilityPlatformKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
+        let caps = ctx.CapabilityIds
+
+        // First matching capability's platform key; `key` if none matches. A de-dented match
+        // chain, not a closure/array scan, mirroring `capabilityCanonKey` exactly.
+        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : SymbolKey voption =
+            match cap with
+            | ValueSome c when c.Matches key -> ValueSome(SymbolKey.Type c.Key)
+            | _ -> ValueNone
+
+        match pick caps.Enumerable with
+        | ValueSome k -> k
+        | ValueNone ->
+
+            match pick caps.Enumerator with
+            | ValueSome k -> k
+            | ValueNone ->
+
+                match pick caps.Disposable with
+                | ValueSome k -> k
+                | ValueNone ->
+
+                    match pick caps.Equatable with
+                    | ValueSome k -> k
+                    | ValueNone ->
+
+                        match pick caps.Comparable with
+                        | ValueSome k -> k
+                        | ValueNone -> key
+
     /// Do two nominal keys denote the same type, reconciling a capability's two names?
     /// Applied ONLY at the key-EQUALITY seams (`unify` / `subsumes` / overload filter /
     /// `tryUpcastWitness`), never inside `canonKey` / `subtypeNominalOf`: those drive the

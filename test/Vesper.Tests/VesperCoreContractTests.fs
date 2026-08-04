@@ -151,7 +151,7 @@ let vesperSeqContractTests =
         "VesperSeqContract"
         [
             test "Parsing seq.fsi" { testParseSignatureFile (seqPath "seq.fsi") }
-            test "Parsing seq.clr.fs" { testParseFile (seqPath "seq.clr.fs") }
+            test "Parsing seq.fs" { testParseFile (seqPath "seq.fs") }
             test "Parsing struct-seq.fsi" { testParseSignatureFile (seqPath "struct-seq.fsi") }
             test "Parsing struct-seq.clr.fs" { testParseFile (seqPath "struct-seq.clr.fs") }
         ]

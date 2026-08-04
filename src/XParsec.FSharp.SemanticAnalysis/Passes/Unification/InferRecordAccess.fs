@@ -350,30 +350,46 @@ module internal UnificationInferRecordAccess =
                     match tryExternalInheritedMember ctx rTy memberName with
                     | ValueSome(struct (m, memberArgs)) -> commitExternalMember m memberArgs
                     | ValueNone ->
-                        // A namespace-qualified external `TyClass` for which the provider
-                        // stack has NO shape at all (`TryLookupType` also misses): the
-                        // fingerprint of an identity minted by one package's provider whose
-                        // HOME manifest was never stacked. Name the missing type's NAMESPACE
-                        // rather than emit a generic no-such-member (the plain "Unknown class
-                        // type" is for an in-stack type genuinely lacking the member).
-                        //
-                        // The owning PACKAGE cannot be named here: a key is a nominal identity
-                        // and the assembly is a physical fact carried on the resolved shape —
-                        // and this is precisely the branch where no shape resolved.
-                        let clsNs = clsKey.Namespace.Dotted
 
-                        match ctx.Provider.TryLookupType(SymbolKey.Type clsKey), clsNs with
-                        | ValueNone, ns when ns <> "" ->
-                            errorTy
-                                ctx
-                                memberTok
-                                (Kind.Message(
-                                    sprintf
-                                        "type '%s' is referenced from namespace '%s' but no package in the compilation declares it"
-                                        clsSimple
-                                        ns
-                                ))
-                        | _ -> errorTy ctx memberTok (Kind.UnknownNominalType(NominalKind.Class, clsQual))
+                        // A receiver typed as a CAPABILITY (`enumerator<'T>`, `seq<'T>`, …)
+                        // resolves to an `IntrinsicInterface`, which names its platform type but
+                        // carries no member table — so both lookups above miss on a contract that
+                        // does declare the member. Retry under the platform key, where the members
+                        // live. A non-capability key is returned unchanged, so this costs a `=`.
+                        let platformKey = capabilityPlatformKey ctx (SymbolKey.Type clsKey)
+
+                        match
+                            (if platformKey = SymbolKey.Type clsKey then
+                                 ValueNone
+                             else
+                                 ctx.Provider.TryLookupMember(platformKey, memberName))
+                        with
+                        | ValueSome m when not m.IsStatic -> commitExternalMember m args
+                        | _ ->
+                            // A namespace-qualified external `TyClass` for which the provider
+                            // stack has NO shape at all (`TryLookupType` also misses): the
+                            // fingerprint of an identity minted by one package's provider whose
+                            // HOME manifest was never stacked. Name the missing type's NAMESPACE
+                            // rather than emit a generic no-such-member (the plain "Unknown class
+                            // type" is for an in-stack type genuinely lacking the member).
+                            //
+                            // The owning PACKAGE cannot be named here: a key is a nominal identity
+                            // and the assembly is a physical fact carried on the resolved shape —
+                            // and this is precisely the branch where no shape resolved.
+                            let clsNs = clsKey.Namespace.Dotted
+
+                            match ctx.Provider.TryLookupType(SymbolKey.Type clsKey), clsNs with
+                            | ValueNone, ns when ns <> "" ->
+                                errorTy
+                                    ctx
+                                    memberTok
+                                    (Kind.Message(
+                                        sprintf
+                                            "type '%s' is referenced from namespace '%s' but no package in the compilation declares it"
+                                            clsSimple
+                                            ns
+                                    ))
+                            | _ -> errorTy ctx memberTok (Kind.UnknownNominalType(NominalKind.Class, clsQual))
         | TyUnion(unionKey, args) ->
             // Union instance member access — mirrors the `TyClass` arm
             // against the union's augmentation members.

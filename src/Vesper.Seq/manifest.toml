@@ -1,11 +1,28 @@
 [core]
 name = "Vesper.Seq"
 description = "The Seq module over seq<'T> (fold, reduce, truncate, toArray)."
-depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison"]
+# `Vesper.Array` is `toArray`'s: it returns `'T[]` and builds the buffer with
+# `Array.zeroCreate`, a shared body having no business spelling `newarr` itself.
+depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison", "Vesper.Array"]
 
 # Contract `.fsi` files in compile order, on EVERY target.
 files = [
     "seq.fsi",
+]
+
+# Target-NEUTRAL, and needs no per-target prelude — but it took a compiler fix to be able
+# to say that. All four functions are shared: `toArray` builds a doubling buffer over
+# `Array.zeroCreate` rather than the BCL's `ResizeArray`, and `truncate` is a hand-rolled
+# lazy cursor (`seq { }` does not exist on either target) over the `seq` / `enumerator`
+# CAPABILITIES — an interface on CLR, `Symbol.iterator` on JS.
+#
+# That cursor briefly forced a split: driving it reads `MoveNext` / `Current` off a
+# capability-typed value, and CLR member resolution used to look the CANONICAL key up as a
+# class and fail. It now retries under the capability's platform key, so one body serves
+# both targets. What the CLR half used to reach for (`Enumerable.Take`, `ResizeArray`) was
+# BCL convenience, not necessity.
+impl = [
+    "seq.fs",
 ]
 
 [targets.clr]
@@ -19,8 +36,13 @@ files = [
     "struct-seq.fsi",
 ]
 
-# CLR-bound: `IEnumerable` / `IEnumerator` / `System.Linq`. No JS body ships yet.
+# CLR-only: the by-value struct chaining above. Appended after `[core] impl`'s `seq.fs`.
 impl = [
-    "seq.clr.fs",
     "struct-seq.clr.fs",
 ]
+
+[targets.js]
+# JS runtime *asset*: the `Seq` module functions plus the truncate cursor, imported by a
+# consumer and shipped beside its output. GENERATED from `seq.fs`, not hand-authored;
+# regenerable via the codegen-js test suite.
+runtime = ["Vesper.Seq.mjs"]

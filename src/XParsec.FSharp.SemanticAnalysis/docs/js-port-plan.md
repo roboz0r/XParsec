@@ -7,7 +7,7 @@ running `ConformancePass.checkManifest "js"` + `ConformancePass.enforce` over al
 `src/Vesper.*` manifests. Where I could not establish something I say so rather than
 estimating.
 
-**T1, T2, T3's Kind B half, T4 and T5 have landed.** The run is at **6** errors, down from 24. The
+**T1, T2, T3's Kind B half, T4, T5 and T6 have landed.** The run is at **5** errors, down from 24. The
 error set is now pinned by a committed test rather than a throwaway one —
 `ConformanceTests.fs`'s *"js: the hard-error set is exactly the un-ported library surface"*
 — so every tranche below has to shrink that list to be believed.
@@ -35,13 +35,16 @@ CLR-first would hit the expensive end before proving the design.
 
 ## 0. The number
 
-**6 hard conformance errors on `js`, across 2 of the 11 packages. 0 on `clr`.**
-(Was 24 across 7 before T1 + T2 + T3's Kind B half + T4 + T5.)
+**5 hard conformance errors on `js`, all in Vesper.Core. 0 on `clr`.**
+(Was 24 across 7 before T1 + T2 + T3's Kind B half + T4 + T5 + T6.)
+
+Conformance is necessary but no longer sufficient — it pairs contracts with impls and does
+not compile them. Two blockers it cannot see are recorded at the end of §7.
 
 | package | js errors | was | clr errors |
 |---|---|---|---|
 | Vesper.Core | 5 | 14 | 0 |
-| Vesper.Seq | 1 | 2 | 0 |
+| Vesper.Seq | 0 | 2 | 0 |
 | Vesper.Array | 0 | 1 | 0 |
 | Vesper.List | 0 | 2 | 0 |
 | Vesper.Printf | 0 | 3 | 0 |
@@ -99,7 +102,7 @@ No compiler feature needed. This is F#-writing work.
 | B6 ✅ | `Vesper.Core/int-comparison.js.fs` | *done.* `IntComparison.(<) (>) (<=) (>=)` as the native relational operators |
 | B7–B8 ✅ | `Vesper.List/list.fs` | *done,* subsumed by the merge (§3). `toSeq` is a `:> seq<'T>` upcast, which erases on JS (`export const toSeq = (list) => list` — the cons-list IS iterable); `ofSeq` is `for x in source`. Both node-tested on the generated asset (`ListTests.fs`) |
 | B9 ✅ | `Vesper.Array/array.js.fs` (new) | *done, but not as a port* — see §3's third consequence. `newarr` is a named IR node the JS backend already implements, so the CLR body compiled as written on JS. Split instead into `array-prelude.{clr,js}.fs` (the intrinsics) + a neutral `array.fs` (all 16 functions, no inline IL) | ~10 lines of prelude; the module itself unchanged |
-| B10 | `Vesper.Seq/seq.js.fs` (new) | `Seq.fold reduce truncate toArray` (4 `val`s). `fold`/`reduce` in `seq.clr.fs` are already target-neutral (`for … in`, `Unchecked.defaultof`, `invalidArg`). Only `truncate` (`Enumerable.Take`) and `toArray` (`ResizeArray`) are BCL. **But `truncate` returns a `seq<'T>` and `seq { }` does not exist** — see the sizing note in T6 | ~40 lines + a design call |
+| B10 ✅ | `Vesper.Seq/seq.js.fs` (new) | *done, and no `seq.js.fs`.* `seq.clr.fs` → one neutral `seq.fs` carrying all four: `toArray` on a doubling buffer over `Array.zeroCreate`, `truncate` a hand-rolled lazy cursor. Both BCL reaches (`ResizeArray`, `Enumerable.Take`) were convenience. Took the CLR repr-hop fix to share the cursor | ~45 lines of cursor + ~20 of `toArray` |
 
 **B1 caveat — settled, it is inert.** `PlatformTypes.fs:26` states the rule: *"a target that
 CAN represent a structural constructor (`'T []`) says so by binding its repr"*. There is no
@@ -139,7 +142,7 @@ decide first.
 
 | | count | what it is |
 |---|---|---|
-| **Writable now** (Kind B) | 1 | B10. ~40 lines of F#. B1–B9 ✅ |
+| ~~**Writable now** (Kind B)~~ | ~~1~~ ✅ | B1–B10 all done. What remains for `Vesper.Seq` is a BUILD capability (multi-file JS modules), not library source |
 | ~~Machinery, no library source~~ (Kind A) | ~~6~~ ✅ | done — `ConformancePass` + the manifest schema's `impl-only` key |
 | ~~Manifest scope statement~~ (C6, C7, C8) | ~~3~~ ✅ | done — 4 `.fsi` moved to `[targets.clr] files` |
 | **Probably writable, unverified** (C1, C4, C5) | 3 | likely just `[targets.js] impl` entries + the 4 `Fun` interfaces. Must be compiled to know |
@@ -416,18 +419,75 @@ Each leaves the tree green and moves the JS error count down monotonically.
 | **T4** ✅ | **`list.fs` merge.** Folded `list.js.fs` back into the neutral `list.fs` (`Length`/`IsEmpty`/`Head`/`Tail`, `toSeq`, `ofSeq`, the explicit `disposable` impl, and `[<Struct>]`, which holds — it is erased). `list.js.fs` deleted; one shared `[core] impl`. `Vesper.List.mjs` regenerated. Plus the two emitter bugs above | B7, B8, + the `7e994a93` revert | −2 (→7) | done |
 | **T3b** | **The compile-and-see remainder.** The 4 `Fun` interfaces in `prim-types-min.js.fs`; add `core-types.fs` and `structural-format.fs` to `[targets.js] impl` and see whether they compile | C1, C4, C5 | −3 (→3) | half a day if C4/C5 just work; a day if `Curried`/`Flattened` surface a codegen gap |
 | **T5** ✅ | **`Vesper.Array`, split not ported.** The CLR body compiled as written on JS, `newarr` included, so the work was a layout call: per-target `array-prelude.{clr,js}.fs` for the intrinsics, a neutral `array.fs` for the module. Plus a generated + byte-compared `Vesper.Array.mjs` and all 16 functions node-tested (`ArrayTests.fs`) | B9 | −1 (→6) | done |
-| **T6** | **Vesper.Seq.** New `seq.js.fs`: 4 functions. `fold`/`reduce`/`toArray` are straightforward. **`truncate` is the one real decision** — see below | B10 | −1 (→2) | ~40 lines + a design call; ~1 day |
+| **T6** ✅ | **Vesper.Seq, fully merged.** All four functions in one neutral `seq.fs`: `toArray` on a doubling buffer (no `ResizeArray`), `truncate` a hand-rolled lazy cursor (no `Enumerable.Take`, no `seq { }`). Needed a compiler fix — the CLR repr hop — which also deleted the prelude the split had called for. Generated + byte-compared `Vesper.Seq.mjs`, node-tested including laziness over an infinite generator | B10 | −1 (→5) | done |
 | **T7** | **The two remaining architectural items.** `obj`'s heritability on JS (C2); `compiler-attributes.fsi` (C3) — which is either "implement `extends`/`super` on JS" or "these are CLR-only marker types". I recommend the latter and deferring the former | C2, C3 | −2 (→0) | unbounded; scope it separately once T1–T6 are in |
 
-After T6 the JS run is at **2 errors, both of them named architectural questions** rather
-than missing work. That is a good place to stop and re-decide.
+After T6 the conformance run is at **5**, and after T3b it would be **2 — both named
+architectural questions** rather than missing work. That is a good place to stop and
+re-decide.
+
+**But conformance is no longer the whole count.** T6 surfaced two things it does not
+measure, because the pass checks contract/impl pairing and not whether a body compiles:
+
+1. ~~**CLR member resolution does not make the repr hop** for a capability-typed
+   receiver.~~ ✅ **Fixed in T6** — `EngineCore.capabilityPlatformKey`. This is what would
+   have split `truncate`; instead `seq.fs` is one shared body and no prelude exists.
+2. **A JS runtime module is compiled from ONE source file** (`JsProjectInfo.Source` is a
+   single `JsSource`). This did not bite in the end — fixing (1) left `Vesper.Seq` a
+   single-file package — but the limitation is real and unaddressed. `Vesper.Array` avoids
+   it only because its prelude is `inline` and splices. **`Vesper.Core` cannot have a JS
+   asset until this lands**, so it is still on the critical path for the rest of the port.
+
+The general lesson worth carrying: a per-target split is a claim that the TARGETS differ.
+Twice now — `array.fs`, then `seq.fs` — the real cause was something else (a shared IR
+spelled in CIL; a front-end gap), and the honest fix was upstream rather than a second copy
+of the file.
 
 T1 + T2 landed together, then T3a, then T4, then T5 (taken out of order — once it turned out
 to be a rename rather than a port, there was nothing to sequence it behind). **T3b is the next
 move**, and every tranche after it must shrink the pinned error list in `ConformanceTests.fs`
 — that list is the count.
 
-### T6's decision: `Seq.truncate` with no sequence expressions
+### T6's decision — SETTLED (option 2), and `seq.fs` is fully shared
+
+Option 2 was taken. The forecast was that a hand-rolled `truncate` would keep `seq.fs`
+target-split, because CLR would keep `Enumerable.Take`. It does not: **all four functions
+are one shared body.**
+
+Two things had to be true for that. `toArray` stopped needing `ResizeArray` — a doubling
+buffer over `Array.zeroCreate` is neutral and is what `ResizeArray.ToArray` does underneath.
+And `truncate`'s cursor briefly did force a split, for a reason that turned out to be a
+**front-end gap rather than a runtime difference**: driving a cursor reads `MoveNext` /
+`Current` off a value typed as the `enumerator<'T>` CAPABILITY, whose canonical shape is an
+`IntrinsicInterface` — it names its platform type but carries no member table — so CLR
+member lookup found nothing and reported `Unknown class type
+'Vesper.Collections.enumerator`1'`. The identical source compiled and ran on JS, where a
+capability is a plain `Class` carrying its own members.
+
+**That gap is now fixed** (see below), so the cursor compiles on both targets and
+`seq-prelude` was deleted before it was ever committed. `Enumerable.Take` and `ResizeArray`
+were BCL convenience, not necessity.
+
+### The CLR repr hop — fixed
+
+`EngineCore.capabilityPlatformKey`, the mirror of the existing `capabilityCanonKey`: it
+folds a capability's two nominal keys to its PLATFORM key, and returns a non-capability key
+unchanged. Member lookup retries under it at both `DotSource.ExternalClass` sites —
+`InferRecordAccess.fs` (direct) and `Engine.fs` (deferred).
+
+The direction is the whole safety argument. `EngineCore` already warns that rewriting keys
+inside a lookup path breaks base/interface chains — but that warning is about rewriting
+*canon-ward*, which erases the platform type's own bases. Rewriting *platform-ward* restores
+them, which is exactly what lets `enumerator<'T>.Dispose` reach `IDisposable` through the
+BCL interface chain.
+
+Confirmed by negative control: with the retry disabled the original error returns and 39 CLR
+tests fail; with it enabled, 1451 pass. `CapabilityMemberAccessTests.fs` pins it
+systematically — method, property (`Current` → `get_Current`, the case that could have made
+this expensive and did not), inherited member through a second capability, a
+capability-typed result, the deferred field path, and a non-capability negative control.
+
+### The original framing, for reference
 
 **`seq { }` / `yield` does not exist** — not in the backend, not even in the front end.
 The parser has the syntax (`Expr.fs:252-253,269`) but elaboration has no arm for it, so it

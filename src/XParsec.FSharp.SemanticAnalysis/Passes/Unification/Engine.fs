@@ -559,8 +559,15 @@ module UnificationEngine =
 
                 let argArr = args.AsSpan().ToArray()
 
+                // A capability receiver (`enumerator<'T>`, `seq<'T>`, …) resolves to an
+                // `IntrinsicInterface`, which names its platform type but carries no member
+                // table, so the members are looked up under the platform key. Folded ONCE
+                // for the whole pending set — it depends only on the receiver. A
+                // non-capability key folds to itself, so this costs a `=`.
+                let lookupKey = capabilityPlatformKey ctx key
+
                 for d in pending do
-                    match ctx.Provider.TryLookupMember(key, d.MemberName) with
+                    match ctx.Provider.TryLookupMember(lookupKey, d.MemberName) with
                     | ValueSome m when not m.IsStatic ->
                         let memberSig = ExternalSymbols.openSignature m argArr
 
