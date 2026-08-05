@@ -25,49 +25,10 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Attributes =
 
-    /// The set of equality / comparison attributes PRESENT on a type, collected
-    /// without first-wins short-circuiting so the mix validator (FS0377) can see
-    /// every contributing attribute. Each flag is `true` iff the type's `[<…>]`
-    /// sets carry an attribute RESOLVING to the corresponding `Vesper.Core` type.
-    [<Struct>]
-    type private EqCompAttrSet =
-        {
-            StructuralEq: bool
-            ReferenceEq: bool
-            NoEq: bool
-            CustomEq: bool
-            StructuralCmp: bool
-            NoCmp: bool
-            CustomCmp: bool
-        }
-
-    /// Collect the FULL set of present equality / comparison attributes off a
-    /// type's `[<…>]` sets. No first-wins short-circuit, so a contradictory mix
-    /// (`[<ReferenceEquality; StructuralEquality>]`) is visible to the FS0377
-    /// validator.
-    ///
-    /// `[<StructuralComparison>]` opts a record / union INTO structural comparison
-    /// (the default is opt-in); `[<NoComparison>]` is explicit refusal.
-    /// `[<CustomComparison>]` decodes to `ComparisonVerdict.Custom` — no pair is
-    /// synthesised; the user's `CompareTo` / `IComparable<Self>` members are
-    /// authoritative.
-    let private collectEqCompAttrs (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : EqCompAttrSet =
-        let a = NameResolutionTypeHeadStamp.resolveAttributes ctx attrs
-
-        {
-            StructuralEq = a.Has RuntimeNames.structuralEqualityAttributeKey
-            ReferenceEq = a.Has RuntimeNames.referenceEqualityAttributeKey
-            NoEq = a.Has RuntimeNames.noEqualityAttributeKey
-            CustomEq = a.Has RuntimeNames.customEqualityAttributeKey
-            StructuralCmp = a.Has RuntimeNames.structuralComparisonAttributeKey
-            NoCmp = a.Has RuntimeNames.noComparisonAttributeKey
-            CustomCmp = a.Has RuntimeNames.customComparisonAttributeKey
-        }
-
     /// The type-kind axis the equality / comparison attribute legality matrix
     /// (FS0382) keys on. `Struct` is any value type (`[<Struct>]`, `struct … end`,
     /// `[<IsByRefLike>]`); `RefClass` is a plain reference class. Records, unions
-    /// and exceptions each have their own arm because their legality differs from
+    /// and exceptions are separate cases because their legality differs from
     /// classes' (a record may carry `[<ReferenceEquality>]`; a class may not).
     [<RequireQualifiedAccess>]
     type EqCompTargetKind =
@@ -77,6 +38,113 @@ module Attributes =
         | Struct
         | RefClass
         | Interface
+
+    /// One recognised equality / comparison attribute: the identity it must RESOLVE to,
+    /// the verdict it decodes to, the kinds it may be written on, and what to say where
+    /// it may not. One more honoured attribute is one more row.
+    type private EqCompAttr<'Verdict> =
+        {
+            Key: TypeKey
+            Verdict: 'Verdict
+            LegalKinds: EqCompTargetKind list
+            OnWrongKind: Kind
+        }
+
+    let private anyKind =
+        [
+            EqCompTargetKind.Record
+            EqCompTargetKind.Union
+            EqCompTargetKind.Exception
+            EqCompTargetKind.Struct
+            EqCompTargetKind.RefClass
+            EqCompTargetKind.Interface
+        ]
+
+    /// A structural posture states what the FIELDS decide, so only the kinds that have
+    /// fields of their own.
+    let private structuralKinds =
+        [
+            EqCompTargetKind.Record
+            EqCompTargetKind.Union
+            EqCompTargetKind.Exception
+            EqCompTargetKind.Struct
+        ]
+
+    /// Reference identity additionally bars a struct, which has none.
+    let private referenceKinds =
+        [ EqCompTargetKind.Record; EqCompTargetKind.Union; EqCompTargetKind.Exception ]
+
+    /// A custom posture needs members to carry it, which an interface cannot declare.
+    let private customKinds = anyKind |> List.except [ EqCompTargetKind.Interface ]
+
+    /// The equality axis. Table ORDER is the within-axis verdict priority.
+    let private equalityAttrs: EqCompAttr<EqualityVerdict> list =
+        [
+            {
+                Key = RuntimeNames.structuralEqualityAttributeKey
+                Verdict = EqualityVerdict.Structural
+                LegalKinds = structuralKinds
+                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
+            }
+            {
+                Key = RuntimeNames.referenceEqualityAttributeKey
+                Verdict = EqualityVerdict.Reference
+                LegalKinds = referenceKinds
+                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
+            }
+            {
+                Key = RuntimeNames.noEqualityAttributeKey
+                Verdict = EqualityVerdict.NoEquality
+                LegalKinds = anyKind
+                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
+            }
+            {
+                Key = RuntimeNames.customEqualityAttributeKey
+                Verdict = EqualityVerdict.Custom
+                LegalKinds = customKinds
+                OnWrongKind = Kind.CustomEqualityAttributeOnInterface
+            }
+        ]
+
+    /// The comparison axis, likewise in priority order. Comparison is OPT-IN where
+    /// equality is not: `[<StructuralComparison>]` is what buys a record / union the
+    /// synthesised pair, `[<NoComparison>]` is explicit refusal, and
+    /// `[<CustomComparison>]` leaves the user's `CompareTo` / `IComparable<Self>`
+    /// authoritative.
+    let private comparisonAttrs: EqCompAttr<ComparisonVerdict> list =
+        [
+            {
+                Key = RuntimeNames.structuralComparisonAttributeKey
+                Verdict = ComparisonVerdict.Structural
+                LegalKinds = structuralKinds
+                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
+            }
+            {
+                Key = RuntimeNames.noComparisonAttributeKey
+                Verdict = ComparisonVerdict.NoComparison
+                LegalKinds = anyKind
+                OnWrongKind = Kind.StructuralEqualityAttributeOnWrongKind
+            }
+            {
+                Key = RuntimeNames.customComparisonAttributeKey
+                Verdict = ComparisonVerdict.Custom
+                LegalKinds = customKinds
+                OnWrongKind = Kind.CustomEqualityAttributeOnInterface
+            }
+        ]
+
+    /// The rows PRESENT on the declaration, in table order. No first-wins
+    /// short-circuit, so a contradictory mix stays visible to the FS0377 check.
+    let private presentAttrs
+        (a: NameResolutionTypeHeadStamp.ResolvedAttributes)
+        (rows: EqCompAttr<'Verdict> list)
+        : EqCompAttr<'Verdict> list =
+        rows |> List.filter (fun r -> a.Has r.Key)
+
+    let private wrongKindDiagnostics (kind: EqCompTargetKind) (rows: EqCompAttr<'Verdict> list) : Kind list =
+        rows
+        |> List.filter (fun r -> not (List.contains kind r.LegalKinds))
+        |> List.map (fun r -> r.OnWrongKind)
 
     /// Validate the equality / comparison attributes against the type kind
     /// (FS0382 kind-legality + FS0377 invalid-mix), emitting diagnostics at the
@@ -94,96 +162,36 @@ module Attributes =
         (declTok: SyntaxToken)
         (attrs: Attributes<SyntaxToken> voption)
         : EqualityVerdict voption * ComparisonVerdict voption =
-        let s = collectEqCompAttrs ctx attrs
+        let a = NameResolutionTypeHeadStamp.resolveAttributes ctx attrs
+        let eq = presentAttrs a equalityAttrs
+        let cmp = presentAttrs a comparisonAttrs
 
-        // FS0382 — kind legality. StructuralEquality / StructuralComparison are
-        // legal only on record / union / exception / struct; ReferenceEquality
-        // additionally bars struct; Custom* bar only interface; No* are legal
-        // everywhere.
-        let structuralLegal =
-            match kind with
-            | EqCompTargetKind.Record
-            | EqCompTargetKind.Union
-            | EqCompTargetKind.Exception
-            | EqCompTargetKind.Struct -> true
-            | EqCompTargetKind.RefClass
-            | EqCompTargetKind.Interface -> false
+        // FS0382, once per distinct complaint: two attributes illegal the same way on one
+        // declaration are one mistake.
+        for d in List.distinct (wrongKindDiagnostics kind eq @ wrongKindDiagnostics kind cmp) do
+            ctx.Report(declTok, d)
 
-        let referenceLegal =
-            match kind with
-            | EqCompTargetKind.Record
-            | EqCompTargetKind.Union
-            | EqCompTargetKind.Exception -> true
-            | EqCompTargetKind.Struct
-            | EqCompTargetKind.RefClass
-            | EqCompTargetKind.Interface -> false
+        // FS0377 — more than one attribute on an axis, or `[<StructuralComparison>]`
+        // against an EXPLICIT non-structural equality. ABSENCE of an equality attribute is
+        // not a contradiction: every kind that survives the FS0382 above defaults to
+        // structural equality, so `[<StructuralComparison>]` alone is valid — and usual.
+        let structuralCmp =
+            cmp |> List.exists (fun r -> r.Verdict = ComparisonVerdict.Structural)
 
-        let customLegal =
-            match kind with
-            | EqCompTargetKind.Interface -> false
-            | _ -> true
+        let nonStructuralEq =
+            eq |> List.exists (fun r -> r.Verdict <> EqualityVerdict.Structural)
 
-        if (s.StructuralEq || s.StructuralCmp) && not structuralLegal then
-            ctx.Report(declTok, Kind.StructuralEqualityAttributeOnWrongKind)
-
-        if s.ReferenceEq && not referenceLegal then
-            ctx.Report(declTok, Kind.StructuralEqualityAttributeOnWrongKind)
-
-        if (s.CustomEq || s.CustomCmp) && not customLegal then
-            ctx.Report(declTok, Kind.CustomEqualityAttributeOnInterface)
-
-        // FS0377 — invalid mix. Count attributes per axis; more than one is a
-        // mix. The cross-axis rules forbid structural comparison without
-        // structural equality, and reference / no-equality alongside structural
-        // comparison.
-        let eqCount =
-            (if s.StructuralEq then 1 else 0)
-            + (if s.ReferenceEq then 1 else 0)
-            + (if s.NoEq then 1 else 0)
-            + (if s.CustomEq then 1 else 0)
-
-        let cmpCount =
-            (if s.StructuralCmp then 1 else 0)
-            + (if s.NoCmp then 1 else 0)
-            + (if s.CustomCmp then 1 else 0)
-
-        // `[<StructuralComparison>]` contradicts a non-structural equality
-        // POSTURE — but absence of an equality attribute is NOT a contradiction:
-        // a record / union / struct defaults to structural equality, so
-        // `[<StructuralComparison>]` on its own is valid (and is the common case).
-        // Only an explicit Reference / No / Custom equality attribute conflicts.
-        // (StructuralComparison is already FS0382 on a reference class, whose
-        // default equality is Reference, so the kinds that reach here always have
-        // a structural default.)
-        let invalidMix =
-            eqCount > 1
-            || cmpCount > 1
-            || (s.StructuralCmp && (s.ReferenceEq || s.NoEq || s.CustomEq))
-
-        if invalidMix then
+        if eq.Length > 1 || cmp.Length > 1 || (structuralCmp && nonStructuralEq) then
             ctx.Report(declTok, Kind.InvalidEqualityAttributeMix)
 
-        // Fixed within-axis priority (Structural > Reference > No > Custom). A set with
-        // more than one is already an FS0377 error above, so which of them this picks is
+        // A set with more than one row is already FS0377 above, so which of them wins is
         // moot — the priority exists only to make the verdict total.
-        let eqVerdict =
-            if s.StructuralEq then ValueSome EqualityVerdict.Structural
-            elif s.ReferenceEq then ValueSome EqualityVerdict.Reference
-            elif s.NoEq then ValueSome EqualityVerdict.NoEquality
-            elif s.CustomEq then ValueSome EqualityVerdict.Custom
-            else ValueNone
+        let firstVerdict (rows: EqCompAttr<'Verdict> list) =
+            match rows with
+            | r :: _ -> ValueSome r.Verdict
+            | [] -> ValueNone
 
-        let cmpVerdict =
-            if s.StructuralCmp then
-                ValueSome ComparisonVerdict.Structural
-            elif s.NoCmp then
-                ValueSome ComparisonVerdict.NoComparison
-            elif s.CustomCmp then
-                ValueSome ComparisonVerdict.Custom
-            else
-                ValueNone
-
-        eqVerdict, cmpVerdict
+        firstVerdict eq, firstVerdict cmp
 
     /// Fold one parameter's `[<…>]` sets into `acc`, flipping each recognised
     /// flag. `[<CallAtMostOnce>]` marks an inline parameter for
