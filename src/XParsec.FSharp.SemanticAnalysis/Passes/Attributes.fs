@@ -20,16 +20,10 @@ open XParsec.FSharp.SemanticAnalysis
 // registers.
 //
 // Equality and comparison are independent axes: `[<StructuralEquality;
-// NoComparison>]` is a valid combination. Each `decode*Attributes` decoder
-// returns its own verdict, and `NameResolution` writes both onto the matching
-// `*Info` mutable.
+// NoComparison>]` is a valid combination. One verdict per axis comes back, and
+// `NameResolution` writes both onto the matching `*Info` mutable.
 
 module Attributes =
-
-    // Per-axis verdict resolution + the FS0382 / FS0377 attribute validation
-    // lives in `validateEqCompAttributes` below (the single entry point for every
-    // type-registration site). The old first-wins `decode*Attributes` decoders
-    // were folded into it.
 
     /// The set of equality / comparison attributes PRESENT on a type, collected
     /// without first-wins short-circuiting so the mix validator (FS0377) can see
@@ -48,9 +42,9 @@ module Attributes =
         }
 
     /// Collect the FULL set of present equality / comparison attributes off a
-    /// type's `[<…>]` sets — unlike `decode*Attributes`, no first-wins
-    /// short-circuit, so a contradictory mix (`[<ReferenceEquality;
-    /// StructuralEquality>]`) is visible to the FS0377 validator.
+    /// type's `[<…>]` sets. No first-wins short-circuit, so a contradictory mix
+    /// (`[<ReferenceEquality; StructuralEquality>]`) is visible to the FS0377
+    /// validator.
     ///
     /// `[<StructuralComparison>]` opts a record / union INTO structural comparison
     /// (the default is opt-in); `[<NoComparison>]` is explicit refusal.
@@ -90,9 +84,7 @@ module Attributes =
     /// ComparisonVerdict voption)` for the caller to default + stamp. `ValueNone`
     /// on either axis ⇒ no relevant attribute present (caller applies its
     /// kind-aware default). This is the single attribute-validation entry point
-    /// for every type-registration site (record / union / class / interface);
-    /// the within-axis "first wins" of `decode*Attributes` is preserved here for
-    /// the verdict, while the mix check sees the whole set.
+    /// for every type-registration site (record / union / class / interface).
     ///
     /// `declTok` is the diagnostic site — the `TypeIdentity.DeclSite` token a registrar is
     /// handed, so no registration site re-derives the name token to place a diagnostic.
@@ -171,12 +163,9 @@ module Attributes =
         if invalidMix then
             ctx.Report(declTok, Kind.InvalidEqualityAttributeMix)
 
-        // Resolved verdicts use a fixed within-axis priority (Structural > Reference >
-        // No > Custom). For any non-contradictory attribute set this is exactly the
-        // verdict the old source-order `decode*Attributes` first-wins decoders stamped;
-        // the two differ only for a contradictory mix (e.g. `[<ReferenceEquality;
-        // StructuralEquality>]`), which is now an FS0377 error, so the stamped verdict is
-        // moot. Net: observationally unchanged; only the diagnostics are new.
+        // Fixed within-axis priority (Structural > Reference > No > Custom). A set with
+        // more than one is already an FS0377 error above, so which of them this picks is
+        // moot — the priority exists only to make the verdict total.
         let eqVerdict =
             if s.StructuralEq then ValueSome EqualityVerdict.Structural
             elif s.ReferenceEq then ValueSome EqualityVerdict.Reference

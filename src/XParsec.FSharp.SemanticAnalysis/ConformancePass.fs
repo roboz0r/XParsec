@@ -15,7 +15,7 @@ open XParsec.FSharp.Parser
 // longer be silently omitted from a hand-maintained list.
 //
 // Pairing follows the F#-faithful rules (see the T8 plan "Name resolution"):
-//  - KEY: the manifest's own pairing stem (`ReferencedProject.pairingStem`), so
+//  - KEY: the manifest's own pairing key (`ReferencedProject.pairingKey`), so
 //    `prim-types-int.js.fs` pairs with `prim-types-int.fsi`.
 //  - The impl candidate set for target T is `resolveImpl T` — a `.fsi` pairs only with a
 //    `.fs` the manifest names for that target. A `.fsi` with no such `.fs` is impl-free
@@ -23,10 +23,10 @@ open XParsec.FSharp.Parser
 //    error).
 //  - A `.fs` the manifest declares `impl-only` is withheld from the candidate set: F#
 //    requires no `.fsi`, and such a body publishes its own surface, so pairing it with a
-//    same-stemmed contract it does not implement would compare two unrelated files.
+//    contract of the same key it does not implement would compare two unrelated files.
 //  - GUARD: a paired `.fsi`/`.fs` must agree on their leading `module`/`namespace`
 //    declaration — what FS0240's message is really about (F# correlates files by
-//    `QualifiedNameOfFile`). A disagreement means the stem rule paired two unrelated
+//    `QualifiedNameOfFile`). A disagreement means the pairing rule paired two unrelated
 //    files.
 //
 // This stays a source-level check (CST presence + pairing), so it runs the moment
@@ -36,11 +36,11 @@ open XParsec.FSharp.Parser
 module ConformancePass =
 
     /// The leading `module`/`namespace` declarations of a paired `.fsi`/`.fs`
-    /// disagree — the stem rule paired two files F# would not consider a pair.
+    /// disagree — the pairing rule paired two files F# would not consider a pair.
     [<Struct; NoEquality; NoComparison>]
     type ModuleDeclMismatch = { SigDecl: string; ImplDecl: string }
 
-    /// A `.fsi` contract paired with its `.fs` implementation (the stem rule found a
+    /// A `.fsi` contract paired with its `.fs` implementation (the pairing rule found a
     /// companion in the manifest's impl set), plus the conformance verdict.
     [<NoEquality; NoComparison>]
     type PairResult =
@@ -98,7 +98,7 @@ module ConformancePass =
             Package: string
             /// One outcome per `.fsi` contract, in manifest `files` order.
             Pairs: PairOutcome list
-            /// `.fs` files in the impl set whose stem has no `.fsi` contract.
+            /// `.fs` files in the impl set whose pairing key has no `.fsi` contract.
             ImplOnly: string list
             /// The `.fs` bodies the manifest declares contract-less for this target
             /// (`impl-only`). One reported in `ImplOnly` is accepted; one that is not is a
@@ -198,20 +198,21 @@ module ConformancePass =
 
             let sigFiles = ReferencedProject.resolveFiles target m
 
-            let stem = ReferencedProject.pairingStem m
+            let pairingKey = ReferencedProject.pairingKey m
 
             let declaredImplOnly = ReferencedProject.resolveImplOnly target m |> Set.ofList
 
             // A body declared contract-less publishes its own surface, so it is no pairing
-            // candidate: the stem rule must not marry it to a same-stemmed `.fsi` it does not
-            // implement (a JS `%A` engine and the CLR printer's contract stem alike).
+            // candidate: the pairing rule must not marry it to a `.fsi` of the same key it does
+            // not implement (a JS `%A` engine and the CLR printer's contract alike).
             let pairCandidates = implFiles |> List.filter (declaredImplOnly.Contains >> not)
 
             // The manifest's own pairing rule, so this pass checks the very pairs the
-            // provider build extracts from. A later impl wins a stem clash.
-            let implByStem = pairCandidates |> List.map (fun f -> stem f, f) |> Map.ofList
+            // provider build extracts from. A later impl wins a key clash.
+            let implByKey = pairCandidates |> List.map (fun f -> pairingKey f, f) |> Map.ofList
 
-            let companionOf (fsiRel: string) : string option = Map.tryFind (stem fsiRel) implByStem
+            let companionOf (fsiRel: string) : string option =
+                Map.tryFind (pairingKey fsiRel) implByKey
 
             let declaredSigOnly = ReferencedProject.resolveSigOnly target m |> Set.ofList
 
@@ -352,9 +353,10 @@ module ConformancePass =
             let pairs = sigFiles |> List.map outcome
 
             // `.fs` files with no `.fsi` contract — a body with no published surface.
-            let fsiStems = sigFiles |> List.map stem |> Set.ofList
+            let contractKeys = sigFiles |> List.map pairingKey |> Set.ofList
 
-            let implOnly = implFiles |> List.filter (fun f -> not (fsiStems.Contains(stem f)))
+            let implOnly =
+                implFiles |> List.filter (fun f -> not (contractKeys.Contains(pairingKey f)))
 
             // A per-file parse failure is a `PairOutcome.ParseFailed` verdict (surfaced
             // by `enforce`), NOT an `Error`: the pass still reports every other contract's

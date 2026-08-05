@@ -206,7 +206,7 @@ module EmitJs =
                     for f in info.Fields ->
                         match Map.tryFind f srcMap with
                         | Some e -> buildExpr ctx e
-                        | None -> failwithf "EmitJs (Step 3): record literal for '%s' is missing field '%s'" info.Name f
+                        | None -> failwithf "EmitJs: record literal for '%s' is missing field '%s'" info.Name f
                 ]
 
             JsExpr.New(nominalCtorRef ctx info.Home info.Name ValueNone, args, loc)
@@ -325,7 +325,7 @@ module EmitJs =
                     JsExpr.New(JsExpr.Identifier(repr, ValueNone), errArgs, loc)
                 | ValueNone ->
                     failwithf
-                        "EmitJs (Step 8): construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
+                        "EmitJs: construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
                         (TastAccessor.exprNewClassName e)
 
         // A member access through a LOCAL interface slot (`(r :> IRank).Rank`): the impl

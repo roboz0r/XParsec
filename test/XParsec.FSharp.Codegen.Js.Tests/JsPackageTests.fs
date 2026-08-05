@@ -126,24 +126,23 @@ type IShape =
                 Expect.isFalse (pkg.Barrel.Contains "interfaces") "and is absent from the barrel"
             }
 
-            // A module path is a file STEM, so two sources differing only by directory claim
-            // one `.mjs`. Writing the package would replace one with the other and leave a
-            // barrel entry re-exporting whichever won.
-            test "two sources with the same leaf name are a build failure, not a silent overwrite" {
+            test "two sources with the same leaf name are a build error, not a silent overwrite" {
                 let moduleNamed (name: string) =
                     sprintf "namespace Test.Pkg\n\nmodule %s =\n    let v () : int = 1\n" name
 
-                let failure =
-                    try
-                        compilePackage [ "a/one.fs", moduleNamed "Alpha"; "b/one.fs", moduleNamed "Beta" ]
-                        |> ignore
+                let files = [ "a/one.fs", moduleNamed "Alpha"; "b/one.fs", moduleNamed "Beta" ]
 
-                        ""
-                    with e ->
-                        e.Message
+                match JsDriver.compileAssemblyWith Pipeline.analyseForSelfHost jsContract.Value packageName files with
+                | Ok _ -> failtest "the collision must be refused"
+                | Error diags ->
+                    Expect.equal
+                        (diags |> List.map (fun d -> d.Path))
+                        [ "a/one.fs"; "b/one.fs" ]
+                        "each claimant is blamed, so neither is silently the loser"
 
-                Expect.stringContains failure "one.mjs" "the collision is refused, naming the claimed module path"
-                Expect.stringContains failure "a/one.fs" "and the sources that claimed it"
+                    for d in diags do
+                        Expect.stringContains d.Diagnostic.Message "one.mjs" "naming the claimed module path"
+                        Expect.stringContains d.Diagnostic.Message "a/one.fs" "and the sources that claimed it"
             }
 
             // The two decisions the driver has to reconcile: dropping a module is per FILE,

@@ -252,16 +252,11 @@ module EmitJsContext =
                 // is its name, which carries no generic arity on the target.
                 let (DisplayName name) = SymbolKeyOps.simpleName key
 
-                let home =
-                    match origin.Home.AssemblyOption with
-                    | ValueSome _ -> ValueSome origin.Home
-                    | ValueNone -> failwithf "EmitJs: external record '%s' has no home assembly (key %A)" name key
-
                 let info =
                     {
                         Name = name
                         Fields = [ for f in fields -> f.Name ]
-                        Home = home
+                        Home = ValueSome(JsHome.ofOrigin (sprintf "external record '%s' (key %A)" name key) origin.Home)
                     }
 
                 ctx.ExternalRecords.[key] <- info
@@ -286,7 +281,7 @@ module EmitJsContext =
     /// elsewhere — another package, or a sibling file of the package being compiled. ONE
     /// rule, so a record `new` and a union case `new` cannot disagree about where a class
     /// comes from.
-    let nominalCtorRef (ctx: WalkCtx) (home: Origin voption) (className: string) (loc: JsLoc voption) : JsExpr =
+    let nominalCtorRef (ctx: WalkCtx) (home: JsHome voption) (className: string) (loc: JsLoc voption) : JsExpr =
         match home with
         | ValueSome h -> JsExpr.Identifier(JsImports.addTypeRef ctx.Imports h className, loc)
         | ValueNone -> JsExpr.Identifier(className, ValueNone)
@@ -312,9 +307,8 @@ module EmitJsContext =
                 // The shape the provider resolved is what knows WHERE the union lives —
                 // the key names only WHAT it is.
                 let home =
-                    match origin.Home.AssemblyOption with
-                    | ValueSome _ -> ValueSome origin.Home
-                    | ValueNone -> failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
+                    JsHome.ofOrigin (sprintf "external union '%s' (key %A)" baseName key) origin.Home
+                    |> ValueSome
 
                 let info, _ =
                     buildUnionInfo home baseName [ for c in cases -> c.Name, List.ofArray c.FieldNames ]
@@ -478,13 +472,13 @@ module EmitJsContext =
         | ValueSome sym ->
             {
                 Key = key
-                Home = sym.Origin.Home
+                Home = JsHome.tryOfOrigin sym.Origin.Home
                 Form = sym.ImportForm
             }
         | ValueNone ->
             {
                 Key = key
-                Home = Origin.Unstamped
+                Home = ValueNone
                 Form = ImportForm.Named
             }
 
@@ -495,7 +489,7 @@ module EmitJsContext =
     let private printfRuntimeRef (name: string) : JsValueRef =
         {
             Key = ValueSome(SymbolKeyOps.moduleValueKey "Vesper" "StructuralPrinter" name)
-            Home = Origin.InAssembly(AssemblyName "Vesper.Printf")
+            Home = ValueSome(JsHome.ofAssembly "Vesper.Printf")
             Form = ImportForm.Named
         }
 

@@ -122,7 +122,7 @@ module EmitJsCapabilities =
     let private enumeratorOfRef: JsValueRef =
         {
             Key = ValueSome(SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace "Vesper.Collections") "enumeratorOf")
-            Home = Origin.InAssembly(AssemblyName "Vesper.Core")
+            Home = ValueSome(JsHome.ofAssembly "Vesper.Core")
             Form = ImportForm.Named
         }
 

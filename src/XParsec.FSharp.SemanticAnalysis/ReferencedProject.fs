@@ -40,8 +40,8 @@ module ReferencedProject =
             SigOnly: string list
             /// `.fs` bodies that implement NO contract (`[core] impl-only`) — F# requires no
             /// `.fsi`, and such a body publishes its whole public surface. Naming one here
-            /// keeps the stem rule from marrying it to a same-stemmed `.fsi` it does not
-            /// implement; the mirror of `SigOnly`.
+            /// keeps the pairing rule from marrying it to a `.fsi` of the same key it does
+            /// not implement; the mirror of `SigOnly`.
             ImplOnly: string list
         }
 
@@ -158,7 +158,7 @@ module ReferencedProject =
     /// ONE rule, shared by the conformance pass and the intrinsic-repr extraction: the two
     /// pair the same `.fsi` with the same `.fs`, or one of them is checking a pair the other
     /// never built.
-    let pairingStem (m: Manifest) (rel: string) : string =
+    let pairingKey (m: Manifest) (rel: string) : string =
         let noExt = Path.ChangeExtension(rel, null)
 
         m.Targets

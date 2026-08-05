@@ -128,15 +128,14 @@ module RuntimeNames =
     let vesperPrintfFormatKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity intrinsicNamespace "PrintfFormat" 4
 
-    /// The `namespace Vesper` attribute classes of `compiler-attributes.fsi` — the whole
-    /// set the compiler attaches meaning to. A decode site recognises one by KEY equality
-    /// against these, so a user type of the same short name in another namespace names its
-    /// own attribute and cannot take the compiler's meaning over. The names are the
-    /// DECLARED, `Attribute`-suffixed ones; F#'s optional-suffix rule belongs where the
-    /// head is resolved, not to the identity.
-    ///
-    /// Honouring one more attribute is one more constant here plus the one consumer that
-    /// asks for it — never another decode arm.
+    // The `namespace Vesper` attribute classes of `compiler-attributes.fsi` — the whole set
+    // the compiler attaches meaning to. A decode site recognises one by KEY equality against
+    // these, so a user type of the same short name in another namespace keeps its own
+    // meaning. The names are the DECLARED, `Attribute`-suffixed ones; F#'s optional-suffix
+    // rule belongs where the head is resolved, not to the identity. Honouring one more
+    // attribute is one more constant here plus the consumer that asks for it.
+
+    /// The suffix every declared attribute class carries, and F#'s optional one at a use.
     [<Literal>]
     let AttributeSuffix = "Attribute"
 

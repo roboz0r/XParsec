@@ -777,22 +777,22 @@ let tests =
                             "unknown target ⇒ no runtime (there is no shared one to inherit)"
                     }
 
-                    // The stem rule both the conformance pass and the intrinsic-repr
+                    // The pairing rule both the conformance pass and the intrinsic-repr
                     // extraction pair on: extension off, then a declared target's suffix.
-                    test "pairingStem strips the extension and a declared target suffix" {
-                        Expect.equal (ReferencedProject.pairingStem withTargets "ops.js.fs") "ops" "target suffix off"
+                    test "pairingKey strips the extension and a declared target suffix" {
+                        Expect.equal (ReferencedProject.pairingKey withTargets "ops.js.fs") "ops" "target suffix off"
 
-                        Expect.equal (ReferencedProject.pairingStem withTargets "ops.fs") "ops" "bare body"
+                        Expect.equal (ReferencedProject.pairingKey withTargets "ops.fs") "ops" "bare body"
 
                         Expect.equal
-                            (ReferencedProject.pairingStem withTargets "shim.js.fsi")
+                            (ReferencedProject.pairingKey withTargets "shim.js.fsi")
                             "shim"
                             "a `.js.fsi` contract keys the same as its `.js.fs` body"
 
                         Expect.equal
-                            (ReferencedProject.pairingStem withTargets "ops.wasm.fs")
+                            (ReferencedProject.pairingKey withTargets "ops.wasm.fs")
                             "ops.wasm"
-                            "an UNdeclared suffix is part of the stem"
+                            "an UNdeclared suffix is part of the key"
                     }
 
                     // `runtimeModules` reads the resolved asset's contents off disk,

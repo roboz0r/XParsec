@@ -20,7 +20,7 @@ module EmitJsTypes =
             /// `ValueSome home` for an external record: its class lives in the home's
             /// module, so a construction site imports it rather than relying on a local
             /// class. `ValueNone` for a record declared in this file.
-            Home: Origin voption
+            Home: JsHome voption
         }
 
     /// A union type's JS shape: the emitted base-class `Name` and its cases keyed by
@@ -32,7 +32,7 @@ module EmitJsTypes =
             /// `ValueSome home` for an external union: its case classes live in the home's
             /// module, so a `UnionCons` site imports them rather than relying on a local
             /// class. `ValueNone` for a union declared in this file.
-            Home: Origin voption
+            Home: JsHome voption
         }
 
     // ---- Unions --------------------------------------------------------------
@@ -54,7 +54,7 @@ module EmitJsTypes =
     /// Build a `JsUnionInfo` for `baseName` with `(caseName, fieldNames)` in declaration
     /// order: tag = declaration index, subclass = `<baseName>_<case>`.
     let buildUnionInfo
-        (home: Origin voption)
+        (home: JsHome voption)
         (baseName: string)
         (cases: (string * string voption list) list)
         : JsUnionInfo * JsUnionCaseDecl list =

@@ -259,7 +259,7 @@ let tests =
 //
 // The pairing is no longer a hand-maintained file list: `ConformancePass.checkManifest`
 // reads each `Vesper.*/manifest.toml` and derives the `.fsi`↔`.fs` pairs from it
-// (the manifest's own pairing stem over the resolved `impl` set), so a newly-added
+// (the manifest's own pairing key over the resolved `impl` set), so a newly-added
 // `.fsi`/`.fs` is conformance-checked automatically and can no longer be silently
 // dropped from a curated list. The packages themselves are discovered from the
 // source tree for the same reason.
@@ -539,7 +539,7 @@ let jsPackageConformanceTests =
             test "js: array-index.js.fsi PAIRS with its body rather than being waved through" {
                 // Both halves of the old two-way bug: the `.fsi` was accepted as owing no
                 // body (though its body exists) while the body was reported as contract-less.
-                // The stem now names one pair, and it conforms — `extern` ↔ `(# "!0[]" #)`.
+                // The key now names one pair, and it conforms — `extern` ↔ `(# "!0[]" #)`.
                 let paired =
                     [
                         for p in (outcomeFor "js" (manifestOf "Vesper.Core")).Pairs do

@@ -81,21 +81,17 @@ module JsExternalMembers =
     /// the emitted-type tables make, not the key): a type that is external but whose shape
     /// names no home cannot be imported at all, so it fails loudly rather than emitting a
     /// dangling reference.
-    let homeOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : Origin =
+    let homeOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : JsHome =
         // A shape whose home is unstamped names no importable module — the local/external
         // verdict is already past, so an unstamped home here is a real failure, not a
         // fall-back.
-        let home =
-            match provider.TryLookupType key with
-            | ValueSome(ExternalTypeShape.Union(_, _, _, o))
-            | ValueSome(ExternalTypeShape.Record(_, _, o))
-            | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Home
-            | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home
-            | _ -> Origin.Unstamped
-
-        match home.AssemblyOption with
-        | ValueSome _ -> home
-        | ValueNone -> failwithf "EmitJs: %s has no resolvable home assembly (key %A)" what key
+        match provider.TryLookupType key with
+        | ValueSome(ExternalTypeShape.Union(_, _, _, o))
+        | ValueSome(ExternalTypeShape.Record(_, _, o))
+        | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Home
+        | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home
+        | _ -> Origin.Unstamped
+        |> JsHome.ofOrigin (sprintf "%s (key %A)" what key)
 
     /// The declaring type's resolved `Class` shape — the ONE provider lookup the flags
     /// accessor and the dispatch classifier project, so they cannot disagree about what
@@ -311,7 +307,7 @@ module JsExternalMembers =
         | ValueNone -> arrow
         | ValueSome(name, value) -> JsExpr.Call(JsExpr.Arrow([ name ], JsFnBody.Expr arrow, ValueNone), [ value ], loc)
 
-    /// ERASE (Tier 2 item 9b): the declaring type is a synthetic grouping of
+    /// ERASE: the declaring type is a synthetic grouping of
     /// overloaded free functions with no runtime existence. Resolve the callee the
     /// FREE-FUNCTION way — `addRef` of the BARE member name (the real module export)
     /// from the type's home module — so `Util.format(x)` emits `import { format … }`
@@ -344,7 +340,7 @@ module JsExternalMembers =
         let valueRef =
             {
                 Key = ValueSome valueKey
-                Home = home
+                Home = ValueSome home
                 Form = form
             }
 

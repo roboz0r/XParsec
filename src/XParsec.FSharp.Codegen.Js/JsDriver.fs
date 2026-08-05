@@ -53,7 +53,7 @@ module JsDriver =
     let contractForSelf (target: string) (selfManifest: string) (references: string list) : SymbolProviders.Contract =
         JsNativeSymbols.jsNativeContractFor target (SymbolProviders.selfStack (Some selfManifest) references)
 
-    /// `export * from "./<stem>.mjs";` per emitting module, in file order — the barrel
+    /// `export * from "./<base-name>.mjs";` per emitting module, in file order — the barrel
     /// body. A package whose files all lower to nothing gets an empty barrel, which is
     /// still a resolvable specifier.
     let private barrelOf (modules: JsPackageModule list) : string =
@@ -61,29 +61,45 @@ module JsDriver =
         |> List.map (fun m -> sprintf "export * from \"./%s\";\n" m.Path.FileName)
         |> String.concat ""
 
+    /// The sources that claim one `.mjs`, as a diagnostic against each of them. A module
+    /// path is a BASE NAME, which drops directories, so two sources whose names differ only
+    /// by directory claim one file — and the second write would replace the first with no
+    /// other sign. That is a fact of the FILE LIST the caller handed over, so it is
+    /// returned rather than thrown: the driver's contract is that a bad input comes back as
+    /// diagnostics and only a compiler bug escapes as an exception.
+    let private modulePathCollisions
+        (packageName: string)
+        (modules: JsPackageModule list)
+        : AssemblyFiles.AnchoredDiagnostic list =
+        [
+            for path, claimants in modules |> List.groupBy (fun m -> m.Path) do
+                match claimants with
+                | _ :: _ :: _ ->
+                    let message =
+                        sprintf
+                            "JS package '%s': sources %s all emit '%s'; a module path is the source's base name, so they cannot share a package directory"
+                            packageName
+                            (claimants |> List.map (fun m -> sprintf "'%s'" m.Source) |> String.concat ", ")
+                            path.FileName
+
+                    for m in claimants do
+                        yield!
+                            AssemblyFiles.unpositionedDiagnostics m.Source [ Diagnostic.nowhere (Kind.Driver message) ]
+                | _ -> ()
+        ]
+
     /// Every specifier the emitted modules name must resolve to something this build
     /// writes: a surviving per-file module, or a runtime asset copied to the output root.
     /// A file dropped for emitting nothing is decided per FILE while the reference to it is
     /// decided per CONSUMER, so nothing but this ties the two — and a dangling ESM
-    /// specifier otherwise surfaces only when Node loads the package.
+    /// specifier otherwise surfaces only when Node loads the package. Unlike a module-path
+    /// collision this is not a property of the input: the emitter chose both the drop and
+    /// the reference, so a mismatch is a compiler bug and fails loudly.
     let private checkResolvable
         (packageName: string)
         (modules: JsPackageModule list)
         (assets: JsRuntimeModule list)
         : unit =
-        // A module path is a STEM, which drops directories, so two sources whose names
-        // differ only by directory claim one `.mjs` — and the second write would replace
-        // the first with no other sign.
-        for path, claimants in modules |> List.groupBy (fun m -> m.Path) do
-            match claimants with
-            | _ :: _ :: _ ->
-                failwithf
-                    "JS package '%s': sources %s all emit '%s'; a module path is a file stem, so they cannot share a package directory"
-                    packageName
-                    (claimants |> List.map (fun m -> sprintf "'%s'" m.Source) |> String.concat ", ")
-                    path.FileName
-            | _ -> ()
-
         let written =
             (modules |> List.map (fun m -> m.Path))
             @ (assets |> List.map (fun a -> JsModulePath.asset a.FileName))
@@ -113,7 +129,7 @@ module JsDriver =
         (files: (string * string) list)
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
         AssemblyFiles.analyseGated analyse packageName contract.Provider files
-        |> Result.map (fun analysed ->
+        |> Result.bind (fun analysed ->
             // The package's own files are producers like any referenced package: a node
             // spliced out of one stays readable only against that file's own text. A file
             // can only splice from one BEFORE it, so the whole assembly's retention covers
@@ -126,7 +142,7 @@ module JsDriver =
                         let relative = file.Source.File.Path.Relative
 
                         let project =
-                            { JsProjectInfo.defaults (JsModulePath.stem relative) with
+                            { JsProjectInfo.defaults (JsModulePath.baseName relative) with
                                 Package = ValueSome packageName
                                 Kind = Library
                                 GeneratedFrom = Some relative
@@ -164,14 +180,18 @@ module JsDriver =
                 |> List.collect (fun m -> m.Artifact.RuntimeModules)
                 |> List.distinctBy (fun a -> a.FileName)
 
-            checkResolvable packageName emitted assets
+            match modulePathCollisions packageName emitted with
+            | _ :: _ as errors -> Error errors
+            | [] ->
+                checkResolvable packageName emitted assets
 
-            {
-                Name = packageName
-                Modules = emitted
-                Barrel = barrelOf emitted
-                RuntimeAssets = assets
-            }
+                Ok
+                    {
+                        Name = packageName
+                        Modules = emitted
+                        Barrel = barrelOf emitted
+                        RuntimeAssets = assets
+                    }
         )
 
     /// Write `package` under the output `root`: its modules and barrel into

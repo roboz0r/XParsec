@@ -71,7 +71,7 @@ impl = [
 
 # ...and it implements no `.fsi`: its published surface (`structuralFormat`,
 # `float32ToString`) IS its contract, imported directly by the backend's `%A` holes. Named
-# here so the stem rule never marries it to the CLR `structural-printer.fsi`, whose
+# here so the pairing rule never marries it to the CLR `structural-printer.fsi`, whose
 # `RuntimeFormatState` / `StructuralPrinter` it deliberately does not implement.
 impl-only = [
     "structural-printer.js.fs",

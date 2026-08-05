@@ -38,11 +38,11 @@ module JsModulePath =
             FileName = fileName
         }
 
-    /// The module STEM of a source file: its name without extensions, minus a trailing
-    /// `.js` target segment (`ops-platform.js.fs` → `ops-platform`). That is the stem the
+    /// The module BASE NAME of a source file: its name without extensions, minus a trailing
+    /// `.js` target segment (`ops-platform.js.fs` → `ops-platform`). That is the key the
     /// manifest pairs a body with its `.fsi` contract under, so a module is named for the
     /// declarations it implements rather than for which target's body it happens to be.
-    let stem (relative: string) : string =
+    let baseName (relative: string) : string =
         let noExt = System.IO.Path.GetFileNameWithoutExtension relative
 
         if noExt.EndsWith(".js", System.StringComparison.Ordinal) then
@@ -54,7 +54,7 @@ module JsModulePath =
     let ofSource (package: string) (relative: string) : JsModulePath =
         {
             Package = ValueSome package
-            FileName = stem relative + ".mjs"
+            FileName = baseName relative + ".mjs"
         }
 
     /// The specifier a module emitted in `fromPackage` (`ValueNone` = the output root)
@@ -70,6 +70,50 @@ module JsModulePath =
         | ValueSome p when fromPackage = ValueSome p -> "./" + target.FileName
         | ValueSome p -> toRoot + p + "/" + target.FileName
         | ValueNone -> toRoot + target.FileName
+
+/// The home of something this build IMPORTS: the assembly it belongs to, and — when the
+/// producer knew it — the declaring source file. The backend's own home type, minted from
+/// a provider `Origin` at the one seam that still has an unresolved one to refuse
+/// (`JsHome.tryOfOrigin`), so nothing downstream re-asks whether a home names an assembly.
+/// By the time a home is one of these the local/external verdict is already past, and an
+/// origin naming nothing is a compiler bug rather than a fall-back.
+[<Struct>]
+type JsHome =
+    {
+        Assembly: string
+        /// `ValueNone` wherever the producer knew only the assembly — a `.fsi` contract
+        /// view, a TS manifest, a codegen-synthesised runtime entry.
+        DeclaringFile: OriginPath voption
+    }
+
+module JsHome =
+
+    /// The backend home a provider `Origin` names. `ValueNone` for an origin that names no
+    /// assembly — the one place that question is asked.
+    let tryOfOrigin (home: Origin) : JsHome voption =
+        match home.AssemblyOption with
+        | ValueNone -> ValueNone
+        | ValueSome assembly ->
+            ValueSome
+                {
+                    Assembly = assembly
+                    DeclaringFile = home.DeclaringFile
+                }
+
+    /// `tryOfOrigin`, for a caller past the local/external verdict: `what` names the thing
+    /// whose home is missing, for the failure.
+    let ofOrigin (what: string) (home: Origin) : JsHome =
+        match tryOfOrigin home with
+        | ValueSome h -> h
+        | ValueNone -> failwithf "JS codegen: %s carries no home assembly" what
+
+    /// A whole package's home — a committed runtime asset, or an entry the backend
+    /// synthesises for a module it names itself. No declaring file: there is no source.
+    let ofAssembly (assembly: string) : JsHome =
+        {
+            Assembly = assembly
+            DeclaringFile = ValueNone
+        }
 
 /// The accumulating import specifiers for one imported MODULE: where it sits, the asset
 /// to ship for it (if it is one), the set of NAMED `(exportName, alias)` bindings, and
@@ -105,8 +149,9 @@ type JsValueRef =
         /// `ValueNone` for a node the front end left unkeyed: `addRef` has nothing to
         /// import and fails loudly.
         Key: SymbolKey voption
-        /// The home module the export is imported from. `Origin.Unstamped` is unimportable.
-        Home: Origin
+        /// The home module the export is imported from. `ValueNone` for a node whose
+        /// resolved shape names none — `addRef` has nothing to import and fails loudly.
+        Home: JsHome voption
         Form: ImportForm
     }
 
@@ -141,24 +186,20 @@ module JsImports =
     /// A program emitted at the output root.
     let create (runtime: Map<string, JsRuntimeModule>) : JsImports = createIn ValueNone runtime
 
-    /// The module a resolved `home` is imported from. A home refined to its DECLARING FILE
-    /// names one module of that package's directory — the per-file artifact this backend
-    /// emits; an assembly-only home (a `.fsi` contract view, a TS manifest, a
-    /// codegen-synthesised runtime entry) is served by the package's committed asset.
-    let private moduleOf (imports: JsImports) (home: Origin) (what: string) : JsModulePath * JsRuntimeModule voption =
+    /// The module a `home` is imported from. A home refined to its DECLARING FILE names one
+    /// module of that package's directory — the per-file artifact this backend emits; an
+    /// assembly-only home is served by the package's committed asset.
+    let private moduleOf (imports: JsImports) (home: JsHome) (what: string) : JsModulePath * JsRuntimeModule voption =
         match home.DeclaringFile with
         | ValueSome f -> JsModulePath.ofSource f.BucketName f.Relative, ValueNone
         | ValueNone ->
-            match home.AssemblyOption with
-            | ValueNone -> failwithf "JS codegen: %s carries no home assembly" what
-            | ValueSome assembly ->
-                match imports.Runtime |> Map.tryFind assembly with
-                | Some rt -> JsModulePath.asset rt.FileName, ValueSome rt
-                | None -> failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" what assembly
+            match imports.Runtime |> Map.tryFind home.Assembly with
+            | Some rt -> JsModulePath.asset rt.FileName, ValueSome rt
+            | None -> failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" what home.Assembly
 
     /// The entry for `home`'s module, recording it on first lookup. Fails loudly when the
     /// home names no module to import from.
-    let private entryFor (imports: JsImports) (home: Origin) (what: string) : ImportEntry =
+    let private entryFor (imports: JsImports) (home: JsHome) (what: string) : ImportEntry =
         let path, asset = moduleOf imports home what
 
         match imports.Entries.TryGetValue path with
@@ -192,8 +233,8 @@ module JsImports =
     /// collision-free). Fails loudly for a package with no authored runtime module.
     let addRef (imports: JsImports) (compiledName: string) (ref: JsValueRef) : string =
         // An external value is a BINDING whose resolved shape names a home module. A
-        // project-local binding (`Origin.Unstamped`) has no module to import from, so it is
-        // unsupported here — the same error a non-binding key gets, stated once.
+        // project-local binding has no module to import from, so it is unsupported here —
+        // the same error a non-binding key gets, stated once.
         let unsupported () =
             failwithf "JS codegen: unsupported external value '%s' (key %A)" compiledName ref.Key
 
@@ -202,7 +243,7 @@ module JsImports =
             | ValueSome(SymbolKey.Binding b) -> b
             | _ -> unsupported ()
 
-        match ref.Home.AssemblyOption with
+        match ref.Home with
         | ValueNone -> unsupported ()
         // A GLOBAL pack's export (its home is a `TsGlobalHomes.isGlobalHome`) is
         // provided by the JS runtime intrinsically: emit its BARE export name, record
@@ -212,10 +253,11 @@ module JsImports =
         // external-new arm; this covers a Global pack's free-function / variable
         // exports.) A node module MOUNTS under a namespace too (`node/fs → Node.Fs`)
         // but is NOT a global home, so it falls through to a real import below.
-        | ValueSome asm when TsGlobalHomes.isGlobalHome asm -> b.Name
-        | ValueSome asm ->
+        | ValueSome home when TsGlobalHomes.isGlobalHome home.Assembly -> b.Name
+        | ValueSome home ->
+            let asm = home.Assembly
             let name = b.Name
-            let entry = entryFor imports ref.Home (sprintf "external value '%s'" compiledName)
+            let entry = entryFor imports home (sprintf "external value '%s'" compiledName)
 
             // The alias is `$<holder>_<name>` with every `.` underscored. An UNQUALIFIED
             // binding's holder is the global namespace (`""`), so the leading `.` of the
@@ -256,27 +298,20 @@ module JsImports =
                 bindOnce entry.Namespace (fun v -> entry.Namespace <- Some v) "namespace import" nsLocal
                 nsLocal + "." + name
 
-    /// The home's assembly, which an alias is disambiguated by so a same-named class from
-    /// another package cannot collide. Fails loudly on an unstamped home.
-    let private homeAssembly (home: Origin) (what: string) : string =
-        match home.AssemblyOption with
-        | ValueSome a -> a
-        | ValueNone -> failwithf "JS codegen: %s carries no home assembly" what
-
     /// Resolve an external union's case class to its local import identifier, importing
-    /// the class export `className` from `home`'s module aliased as `$<asm>_<className>`.
-    /// Used by a `UnionCons` on an external union, whose case classes are imported rather
-    /// than re-emitted. Fails loudly for a home that names no module.
-    let addTypeRef (imports: JsImports) (home: Origin) (className: string) : string =
-        let what = sprintf "external type '%s'" className
-        let entry = entryFor imports home what
-        let alias = "$" + (homeAssembly home what).Replace('.', '_') + "_" + className
+    /// the class export `className` from `home`'s module aliased as `$<asm>_<className>`
+    /// (the assembly disambiguates a same-named class from another package). Used by a
+    /// `UnionCons` on an external union, whose case classes are imported rather than
+    /// re-emitted. Fails loudly for a home that names no module.
+    let addTypeRef (imports: JsImports) (home: JsHome) (className: string) : string =
+        let entry = entryFor imports home (sprintf "external type '%s'" className)
+        let alias = "$" + home.Assembly.Replace('.', '_') + "_" + className
         entry.Named.Add((className, alias)) |> ignore
         alias
 
     /// Resolve an external member reference to its local import identifier, aliasing
     /// the export from `home`'s module as `$<exportName>`. Member analogue of `addRef`.
-    let addMemberRef (imports: JsImports) (home: Origin) (exportName: string) : string =
+    let addMemberRef (imports: JsImports) (home: JsHome) (exportName: string) : string =
         let entry = entryFor imports home (sprintf "external member '%s'" exportName)
         let alias = "$" + exportName
         entry.Named.Add((exportName, alias)) |> ignore

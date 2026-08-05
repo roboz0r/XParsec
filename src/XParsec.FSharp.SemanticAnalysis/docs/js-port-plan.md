@@ -230,7 +230,7 @@ and `JsImports` keys both its runtime map and its entries by assembly name (fail
 `AssemblyFiles` mints a per-file `OriginSource` and hands it to the view projection — it just
 never reaches the symbol. So the spine of the tranche is: carry the declaring file onto the
 symbol origin (additive, with the usual central alias), then key imports on (assembly, file)
-and render `./<Package>/<stem>.mjs`. Cross-file TYPE references ride the same path, so
+and render `./<Package>/<name>.mjs`. Cross-file TYPE references ride the same path, so
 records and unions come along with it. Nothing changes for CLR — one PE per assembly stays,
 and the new field is simply unread there.
 
