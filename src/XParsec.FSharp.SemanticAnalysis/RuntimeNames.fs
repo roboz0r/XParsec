@@ -1,146 +1,57 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-/// Single source of truth for the well-known runtime type identities that flow
-/// through the pipeline. Before the
-/// SymbolKey refactor these names + the arity-strip that recognises them were
-/// duplicated across `ClrEnv.isVesperListName` (codegen), `ElaborateExpr`'s list-
-/// retarget (front end), and `RefCellPromotion` — each had independently re-derived
-/// "is this the Vesper cons-list / the ref cell?". This module collapses that to
-/// one place: the canonical `*Key` constants below, which the producers stamp and
-/// the recognisers match.
-///
-/// Identity is the `SymbolKey`, not a string. Each singleton has exactly one
-/// canonical key (the cons-list additionally has its lowercase abbreviation key —
-/// the abbreviation name is load-bearing for contract extraction
-/// — so it's the one type with two accepted nominal
-/// forms). Recognition is KEY EQUALITY against those constants — a `TypeKey` carries its
-/// arity as an int FIELD, which no producer can forget to supply, so the arity is part of
-/// the identity and there is nothing left for a matcher to strip.
-/// The former parallel fully-qualified string constants + the `isVesperList` string
-/// recogniser are gone — the key constants are now the sole representation.
-///
-/// Scope: this module owns ONLY the well-known
-/// singleton key constants + the recognisers built over them. The generic
-/// `SymbolKey` ↔ string projection / minting helpers (`bareName`, `simpleName`,
-/// `qualifiedName`, `externalTypeKey`, …) are NOT runtime-name-specific,
-/// so they live in `module SymbolKeyOps`.
+/// The canonical `*Key` identity of each well-known runtime type. Identity is the key, never
+/// a string: a `TypeKey` carries its arity as a field, so recognition is `=` and strips nothing.
 [<RequireQualifiedAccess>]
 module RuntimeNames =
 
-    // --- Canonical SymbolKey identities --------------------------------------------
-    //
-    // The well-known runtime singletons above flow through the pipeline as bare
-    // string `SemType` names; Phase 5 (sub-step 4) puts a `SymbolKey` on the
-    // nominal `SemType` cases, at which point these consumers compare *key*
-    // identity instead of normalising strings (3b: `isVesperList name` becomes
-    // `key = vesperListKey`). These constants are the one canonical key each
-    // singleton's producers stamp and its consumers match — minted here, next to
-    // the string forms, so the identity lives in exactly one place. Nothing reads
-    // them yet; sub-step 4 wires the producers/consumers onto them.
-    //
-    // Shape conventions (so a key here equals the key the rest of the pipeline
-    // mints for the same type): `name` is the SOURCE simple name, the arity is the int
-    // beside it, and the namespace is the type's declaring namespace — the whole of its
-    // nominal identity. These keys therefore recognise the type whether it is compiled
-    // locally (self-hosting `Vesper.List` / `Vesper.Core`) or resolved through a package
-    // reference.
-
-    /// The namespace the built-in intrinsics and language singletons are declared in —
-    /// the `namespace Vesper` of `prim-types-*.fsi` / `core-types.fsi`. The single literal
-    /// backing the canonical `*Key` constants and `primitiveKey` below.
     [<Literal>]
     let private intrinsicNamespace = "Vesper"
 
-    /// The namespace the collection singletons are declared in — the
-    /// `namespace Vesper.Collections` of `Vesper.List` / `Vesper.Seq` / `Vesper.Array`.
     [<Literal>]
     let private collectionsNamespace = "Vesper.Collections"
 
-    /// The implicit prelude: the namespaces whose contents resolve UNQUALIFIED in every
-    /// compilation, ahead of nothing and behind every explicit `open`. `int` and `seq` are
-    /// declared directly in a namespace (not in an `[<AutoOpen>]` module), so without these
-    /// two prefixes no bare primitive resolves at all.
-    ///
-    /// A fixed pair, deliberately: the prelude is a LANGUAGE fact, not per-package
-    /// configuration. It was formerly each referenced package's `[core] namespace`, which
-    /// made the prelude a property of whatever happened to be referenced, could not describe
-    /// a package that declares several namespaces (`Vesper.Core` declares three), and drifted
-    /// silently from the `namespace` headers it claimed to name. A package's OWN
-    /// `[<AutoOpen>]` modules still contribute, ahead of these.
+    /// The namespaces resolving UNQUALIFIED in every compilation. A language fact, so fixed
+    /// here rather than read from whatever package happens to be referenced.
     let preludeNamespaces: string list = [ intrinsicNamespace; collectionsNamespace ]
 
-    /// Canonical identity for the Vesper cons-list `List` union at arity 1, matching the
-    /// locally compiled `UnionTypeInfo.TypeKey`. The producers' canonical key. A `TypeKey`,
-    /// not a `SymbolKey`, because the nominal heads it stamps (`TyUnion`/`FTUnion`) are.
     let vesperListKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity collectionsNamespace "List" 1
 
-    /// The cons-list's lowercase `list` abbreviation (`` and 'T list = List<'T> ``, arity 1)
-    /// — the cons-list's *second* accepted nominal form, sharing the union's namespace.
-    /// Recogniser-only (no producer mints the abbreviation; `isVesperListKey` matches it
-    /// alongside `vesperListKey`), hence `private`.
+    /// The cons-list's second accepted nominal form. Recogniser-only: no producer mints it.
     let private vesperListAbbrevKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity collectionsNamespace "list" 1
 
-    /// Canonical identity for FSharp.Core's `list` — the non-retargeted default
-    /// `ElaborateExpr` / `Unification` fall back to. Arity 1; never project-local.
+    /// The non-retargeted default. Never project-local.
     let fsharpCoreListKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity "Microsoft.FSharp.Collections" "list" 1
 
-    /// Canonical identity for the heap ref-cell record (`Ref<'T>`, arity 1), matching the
-    /// locally compiled `Vesper.Core` `RecordTypeInfo.TypeKey`.
     let vesperRefKey: TypeKey = SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Ref" 1
 
-    /// Canonical identity for the `%A` structural-format interface
-    /// `Vesper.IStructuralFormattable` (non-generic) — the `InterfaceImpl` the
-    /// synthesised per-record/union `Format` declares. A CLR-backend concern: the JS
-    /// backend renders `%A` through hole-directed renderers and has no such interface.
-    /// The backend resolves it like any other nominal — its own `TypeDef` when compiling
-    /// `Vesper.Core`, a `TypeRef` through Core's `AssemblyRef` downstream — so nothing
-    /// asks "am I Core?".
+    /// Declared by the synthesised per-record/union `Format`. CLR-only: JS renders `%A`
+    /// through hole-directed renderers.
     let structuralFormattableKey: TypeKey =
         SymbolKeyOps.typeKeyOf intrinsicNamespace "IStructuralFormattable"
 
-    /// Canonical identity for `Vesper.IFormatSink` (non-generic) — the parameter type of
-    /// the synthesised `Format`. Resolved local-or-external exactly as
-    /// [`structuralFormattableKey`].
     let formatSinkKey: TypeKey = SymbolKeyOps.typeKeyOf intrinsicNamespace "IFormatSink"
 
-    /// Canonical identity for the function interface `Vesper.Fun` at `genericArity` type
-    /// arguments — the CURRIED `Fun<'A,'B>` (2) and the FLAT overloads `Fun<'A,'B,'C>` …
-    /// `Fun<'A,'B,'C,'D,'E>` (3–5), which share the name and differ only by arity. A
-    /// function value's type and every synthesised closure's implemented interface.
-    /// Resolved local-or-external exactly as [`structuralFormattableKey`].
+    /// Curried at 2, the flat overloads at 3–5: one name, distinguished by arity.
     let vesperFunKey (genericArity: int) : TypeKey =
         SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Fun" genericArity
 
-    /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>` (arity 4) —
-    /// the type a format literal freezes to (`PrintfSpec.printfFormatName`). The FSharp.Core
-    /// spelling of the format *type*.
+    /// The type a format literal freezes to.
     let printfFormatKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity "Microsoft.FSharp.Core" "PrintfFormat" 4
 
-    /// The `Vesper` spelling of `PrintfFormat` at arity 4. Source-level format annotations
-    /// (`Printf.StringFormat<_>` / `TextWriterFormat<_>`) resolve through the
-    /// provider to THIS key, not the `Microsoft.FSharp.Core` one the format-literal
-    /// machinery synthesises (`printfFormatName`). `isPrintfFormatKey` recognises both
-    /// keys so a bound/ascribed format is seen as a `PrintfFormat` at every seam.
+    /// What a source-level format ANNOTATION resolves to; `isPrintfFormatKey` admits both.
     let vesperPrintfFormatKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity intrinsicNamespace "PrintfFormat" 4
-
-    // The `namespace Vesper` attribute classes of `compiler-attributes.fsi` — the whole set
-    // the compiler attaches meaning to. A decode site recognises one by KEY equality against
-    // these, so a user type of the same short name in another namespace keeps its own
-    // meaning. The names are the DECLARED, `Attribute`-suffixed ones; F#'s optional-suffix
-    // rule belongs where the head is resolved, not to the identity. Honouring one more
-    // attribute is one more constant here plus the consumer that asks for it.
 
     /// The suffix every declared attribute class carries, and F#'s optional one at a use.
     [<Literal>]
     let AttributeSuffix = "Attribute"
 
-    /// Named by the marker's BARE name, the suffix appended here — so every key below
-    /// provably carries it, and a reader recovering the unsuffixed spelling can cut it off.
+    /// Named by the marker's BARE name, so every key provably carries the suffix.
     let private attributeKey (bareName: string) : TypeKey =
         SymbolKeyOps.typeKeyOf intrinsicNamespace (bareName + AttributeSuffix)
 
@@ -154,9 +65,7 @@ module RuntimeNames =
     let customComparisonAttributeKey: TypeKey = attributeKey "CustomComparison"
     let globalAttributeKey: TypeKey = attributeKey "Global"
 
-    /// Every marker above, so a consumer that must recognise the SPELLING of one — the only
-    /// thing left to go on once resolution has FAILED — derives its names from the same
-    /// constants the resolved decode compares against, and cannot fall out of step with them.
+    /// For the consumer that must recognise a marker's SPELLING, resolution having failed.
     let compilerAttributeKeys: TypeKey list =
         [
             callAtMostOnceAttributeKey
@@ -170,101 +79,37 @@ module RuntimeNames =
             globalAttributeKey
         ]
 
-    /// The user-facing abbreviation for the object root — `obj` — declared in
-    /// `prim-types-object.clr.fs` as `type obj = (# "System.Object" #)`. The front end
-    /// carries it as `TyConst("obj", _)` (what `translateType` produces); codegen as
-    /// `FTConst("obj", _)` or the rendered `"obj"` sig. The single source for the
-    /// abbreviation name, so `obj ≡ System.Object` is decided in one place rather
-    /// than re-spelled at each predicate (the `arrayName`/`prim-types-min.clr.fs`
-    /// precedent above). Pairs with `systemObjectQualifiedName` (the intrinsic it
-    /// binds to).
     let objAbbrevName: string = "obj"
 
-    /// The intrinsic the `obj` abbreviation binds to — `System.Object`, the
-    /// `(# "System.Object" #)` of `prim-types-object.clr.fs`. Used where the param model
-    /// is a *rendered* signature string rather than a `SymbolKey` (an external
-    /// member's `argSig`). No `SymbolKey` twin remains — `System.Object` is no
-    /// longer recognised at the unify boundary (metadata surfacing eagerly
-    /// canonicalizes it to the `obj` intrinsic), so the string is the whole story.
+    /// What `obj` binds to, for the sites whose param model is a rendered signature string
+    /// rather than a key.
     let systemObjectQualifiedName: string = "System.Object"
 
-    /// The BCL `System.IO.TextWriter` nominal name, carried as the `SemType` of a
-    /// printf writer *sink* (`fprintf`, `PrintfSpec.tyTextWriter`). A CLR
-    /// contract with no JS analogue — single-sourced here so the one consumer's
-    /// hardcoded literal is an auditable, named coupling rather than a bare string
-    /// buried in the printf spec (the deferred target-independent model resolves the
-    /// sink type through the provider per target).
+    // The printf sinks. CLR contracts with no JS analogue; `StringWriter` is the concrete
+    // per-hole sink `%a`/`%t` instantiate, the abstract `TextWriter` not being `new`able.
+
     let textWriterTypeName: string = "System.IO.TextWriter"
 
-    /// The BCL `System.Text.StringBuilder` nominal name, carried as the `SemType`
-    /// of a printf builder *sink* (`bprintf`, `PrintfSpec.tyStringBuilder`). Like
-    /// `textWriterTypeName`, a CLR contract with no JS analogue — single-sourced
-    /// here so the coupling is named rather than a bare literal in the printf spec.
     let stringBuilderTypeName: string = "System.Text.StringBuilder"
 
-    /// The BCL `System.IO.StringWriter` nominal name — the concrete `TextWriter`
-    /// the writer families' `%a`/`%t` capture-first lowering instantiates as a
-    /// per-hole scratch sink (the abstract `TextWriter` `State` can't be `new`d).
-    /// Resolved through the provider like `textWriterTypeName`; a CLR contract with
-    /// no JS analogue (writer-family `%a` diagnoses on JS at the capability gate).
     let stringWriterTypeName: string = "System.IO.StringWriter"
 
-    /// The canonical identity name for a rank-`rank` array, sourced from the
-    /// `prim-types-min.clr.fs` declaration `type 'T ``[]`` ` (rank 1 → `"[]"`;
-    /// rank N → `"[" + (N-1) commas + "]"`, e.g. `"[,]"` for 2-D). Arrays are a
-    /// generic intrinsic carried as `TyConst(arrayName rank, [elem])`
-    /// — this single name replaces the former
-    /// `"array"` / `"arrayN"` / `"Microsoft.FSharp.Core.[]"` triple-naming.
+    /// Rank 1 → `"[]"`; rank N → `"["` + (N-1) commas + `"]"`.
     let arrayName (rank: int) : string =
         if rank <= 1 then
             "[]"
         else
             "[" + System.String(',', rank - 1) + "]"
 
-    /// The rank-1 array's identity as the VesperLib contract extractor AND the self-host
-    /// front end SPELL it in a member-bearing declaration (`array-index.js.fsi` /
-    /// `array-index.js.fs`) — the double-backtick-escaped `arrayName 1`, i.e.
-    /// `` ``[]`` ``. F# requires the `[]` type name be written backtick-escaped (`[]` is
-    /// not a bare identifier); `VesperLib.nameOfTok` preserves that RAW token, and an
-    /// ESCAPED name can carry no `` `N `` (the backticks are the escape), so `SymbolKeyOps`
-    /// holds it at arity 0 and renders it verbatim — the array's member store/contract key
-    /// is the bare `` ``[]`` ``, NOT `arrayName`'s clean `"[]"` nor `"[]`1"`. Both the
-    /// consumer-contract half and the inline-body-store
-    /// half derive this SAME string from the identical source spelling, so they agree by
-    /// construction; the receiver-side `TyConst("[]")` indexer lookup
-    /// (`inferIndexedLookup`) must translate to THIS string to meet them. Single-sourced
-    /// here so the one magic coupling to the contract spelling is auditable.
-    ///
-    /// (The clean-`"[]"`-vs-raw-`` ``[]`` `` split is a VesperLib/self-host naming artifact
-    /// the W9 array-index slice routes AROUND rather than fixing; normalising array naming
-    /// across both subsystems is a broader, separate change.)
+    /// The array's name as a member-bearing declaration must SPELL it: backtick-escaped, so
+    /// it can carry no `` `N ``. THIS is the member-store / contract key, not `arrayName`.
     let arrayContractName: string = "``" + arrayName 1 + "``"
 
-    /// The canonical identity name for the managed by-ref TYPE (`byref<'T>`, IL `T&`)
-    /// — a *generic intrinsic* carried as `TyConst(byrefName, [elem])` /
-    /// `FTConst(byrefName, [elem])`, exactly mirroring the array `arrayName`
-    /// convention rather than a dedicated DU case (so it rides the existing
-    /// `FrozenType`/`SemType` machinery — bridge, `RecoverOpenTypars` arg recursion,
-    /// unification — untouched). The identity is the type's F# name `byref`, NOT the
-    /// `&` / `~&` address-of OPERATOR that constructs one — a separate concern: the
-    /// operator as a real contract symbol (`(~&)` with `[<LocatorValue>]` lvalue
-    /// analysis + context-selected `ld*a` codegen) is deferred, see
-    /// `docs/byref-address-of-plan.md`. A byref is legal only in parameter / return /
-    /// local positions, never as a field or generic argument; `ClrEncoder.encodeType`
-    /// emits its `ELEMENT_TYPE_BYREF` prefix at the return/param seam, not in the
-    /// recursive type encoder. Producers: the BCL-metadata resolver
-    /// (`MetadataSymbols.tryBuildType`, e.g. `Span<T>.get_Item : T&`) and the
-    /// consume-side `&local` address-of prefix (`InferApp.inferPrefix`); the front end
-    /// erases a byref to its element type at the value position (`inferIndexedLookup`).
+    /// The TYPE, not the `&` operator that constructs one. Legal only in parameter / return
+    /// / local positions.
     let byrefName: string = "byref"
 
-    /// True iff `name` is the identity name of a *structural type constructor* — an
-    /// array of any rank (`arrayName`: `"[]"`, `"[,]"`, …) or a managed by-ref
-    /// (`byrefName`: `"byref"`). These are generic intrinsics (`arity ≥ 1`) representable
-    /// by construction, lowered by dedicated backend paths (`SZArray`, the byref seam)
-    /// rather than as a nominal receiver — so a member/representability resolver keyed
-    /// on nominal BCL/contract types must let them keep their own path. Single source
-    /// so the producers (`arrayName`/`byrefName`) and this recogniser can't drift.
+    /// An array of any rank, or a by-ref: the intrinsics with dedicated backend paths.
     let isStructuralConstructorName (name: string) : bool =
         name = byrefName
         || (name.Length >= 2
@@ -278,64 +123,26 @@ module RuntimeNames =
 
                 ok))
 
-    /// The external head an `[| … |]` array literal lowers to (`ElaborateExpr`):
-    /// `ArrayModule.OfList` applied to the literal cons-chain. The FSharp.Core
-    /// path resolves it as a real module call; the BCL-only path recognises this
-    /// exact head in codegen and emits the array directly (newarr + stelem) so an
-    /// array literal needs no FSharp.Core. Single source so the producer
-    /// (`ElaborateExpr`) and the recogniser (`EmitCall`) can't drift.
+    /// The head an `[| … |]` literal lowers to; codegen emits the array directly from it.
     let arrayOfListName: string = "Microsoft.FSharp.Collections.ArrayModule.OfList"
 
-    // --- Anonymous-union reserved member names ---------
-    //
-    // TypeScript-style literal types that are real *members* of an anonymous
-    // structural union (`T | null`, `T | undefined`) rather than nominal types.
-    // They carry no payload and resolve to a bare `TyConst name` — the same opaque
-    // shape an unknown bare name produces, so `translateType` needs no dedicated arm
-    // beyond `Type.Null` (the `null` keyword parses as `Type.Null`, not a named
-    // type); `undefined` falls out of the named-type arm's opaque fallback. Codegen
-    // erases them per backend (JS: literal `null`/`undefined`; CLR: a null reference
-    // for `null`). `never` needs no name — it is the empty `TyOr` that `mkUnion []`
-    // produces. Single-sourced here alongside the other well-known type names.
+    // Members of an anonymous union (`T | null`), not nominal types: no payload, so they
+    // resolve to a bare `TyConst name`. `never` is the empty `TyOr`.
 
-    /// The `null` literal type — the reserved member of `T | null`.
     let nullTypeName: string = "null"
 
-    /// The `undefined` literal type — the reserved member of `T | undefined`.
     let undefinedTypeName: string = "undefined"
 
-    // --- Well-known-singleton recognition by key ---
-    //
-    // Recognition is `=` against the canonical `*Key` constants above; allocation-free
-    // (no qualified-string rebuild, no arity strip) so it's cheap on the hot unify /
-    // codegen paths. The canonical keys are the single identity source — the former
-    // parallel FQ string constants + `isVesperList` string recogniser are gone. (Where a
-    // *local* definition of the same type must win — codegen's self-host cons-list — the
-    // caller checks the project-local table first, then falls to these.)
-
-    /// One resolved capability identity, recognised by KEY EQUALITY against EITHER of up
-    /// to two names so both spellings an interface impl can take dispatch:
-    ///   * `Key` — the PLATFORM / BCL name (`System.IDisposable`): what a metadata or
-    ///     BCL-spelled impl freezes to.
-    ///   * `CanonKey` — the BCL-FREE canonical name (`Vesper.disposable`): what a
-    ///     canonically-authored `interface disposable` freezes to.
-    /// `CanonKey` is `ValueNone` for a canon-only anchor — `seq`/enumerable, and every
-    /// capability on JS, where `Key` IS the canonical name and a BCL-spelled impl is
-    /// folded to it by the `capabilities-compat.js.fsi` shim before it freezes.
+    /// Both spellings an impl can take: `Key` the PLATFORM/BCL name, `CanonKey` the BCL-free
+    /// canonical one — `ValueNone` for a canon-only anchor (`seq`, and everything on JS).
     type CapabilityIdentity =
         {
             Key: TypeKey
             CanonKey: TypeKey voption
         }
 
-        /// The platform key as a `SymbolKey` — for the key-kind-blind consumers (a
-        /// diagnostic's `qualifiedName`, a provider lookup that serves every key kind).
         member this.SymKey: SymbolKey = SymbolKey.Type this.Key
 
-        /// Key EQUALITY against EITHER name. Both keys and every key that reaches here
-        /// carry their arity as an int field no mint can omit (the platform one parsed
-        /// from the BCL metadata name, the canonical from the contract's compiled name),
-        /// so identity is `=` and nothing is stripped.
         member this.Matches(k: TypeKey) : bool =
             this.Key = k
             || (
@@ -344,35 +151,18 @@ module RuntimeNames =
                 | ValueNone -> false
             )
 
-        /// `Matches` for a KIND-BLIND consumer — one canonicalising keys of every kind
-        /// (`EngineCore.capabilityCanonKey`, whose domain includes a `TyConst` intrinsic's
-        /// key). A non-type key names no capability, so it simply does not match.
+        /// A non-type key names no capability.
         member this.Matches(k: SymbolKey) : bool =
             match k with
             | SymbolKey.Type t -> this.Matches t
             | _ -> false
 
-        /// Match a compiled qualified interface-name string (arity-suffixed, e.g.
-        /// `System.Collections.Generic.IEnumerable\`1`) by minting its key and
-        /// comparing. For consumers holding the rendered interface name from
-        /// `ExternalSymbols.instantiateInterfaces` rather than a `TypeKey`.
+        /// For a consumer holding the rendered interface name rather than a key.
         member this.MatchesName(name: string) : bool =
             this.Matches(SymbolKeyOps.qualifiedTypeKeyOf name 0)
 
-    /// The five language-capability identities, resolved once per compilation
-    /// (`PassContext`) THROUGH THE PROVIDER (`ExternalSymbols.resolveCapabilities`).
-    /// Enumerable/enumerator/disposable back the `for-in`/`use` lowering (enumerator is the
-    /// cursor half of iteration, recognized so the CLR backend synthesizes its BCL co-slots);
-    /// equatable/comparable back the FS0378 custom-eq/comp conformance check. Each is a
-    /// `voption`: a provider
-    /// that does not name a capability resolves it to `ValueNone` (resolve-on-use,
-    /// §5.4) — never a hardcoded BCL fallback, so the passes carry zero CLR identities.
-    ///
-    /// The capability set is **closed by construction** — a FIXED RECORD, not an open
-    /// registry. Adding one is a deliberate edit (a field here, a `resolveCapabilities`
-    /// line, the recognizer(s), and on JS a `EmitJsTypes` protocol row), never
-    /// data-driven extension: a capability is a language-semantics judgment, so it
-    /// belongs in the type system, not a config table.
+    /// Resolved once per compilation THROUGH THE PROVIDER: one a provider does not name is
+    /// `ValueNone`, never a hardcoded BCL fallback. A fixed record, not an open registry.
     type CapabilityIds =
         {
             Enumerable: CapabilityIdentity voption
@@ -382,8 +172,7 @@ module RuntimeNames =
             Comparable: CapabilityIdentity voption
         }
 
-        /// The all-unnamed set: a provider-less compilation (`nullProvider`) names no
-        /// capability, so every recognizer falls through to its `ValueNone` arm.
+        /// A provider-less compilation names no capability.
         static member none =
             {
                 Enumerable = ValueNone
@@ -393,59 +182,30 @@ module RuntimeNames =
                 Comparable = ValueNone
             }
 
-    /// True iff `cap` is named and `k` denotes it. Flattens the
-    /// `ValueNone ⇒ no-match` resolve-on-use convention so a recognizer site reads
-    /// `RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey` instead of
-    /// spelling out the `match … ValueSome c -> c.Matches k | ValueNone -> false`.
+    /// Flattens the `ValueNone ⇒ no-match` convention at a recognizer site.
     let matchesKey (cap: CapabilityIdentity voption) (k: TypeKey) : bool =
         cap |> ValueOption.exists (fun c -> c.Matches k)
 
-    /// `matchesKey` for a consumer holding a compiled qualified interface-name string
-    /// (from `ExternalSymbols.instantiateInterfaces`) rather than a `SymbolKey`.
+    /// `matchesKey` for a rendered interface name rather than a key.
     let matchesName (cap: CapabilityIdentity voption) (name: string) : bool =
         cap |> ValueOption.exists (fun c -> c.MatchesName name)
 
-    /// True iff `k` denotes the Vesper cons-list in either of its nominal forms —
-    /// the `List` union or its lowercase `list` abbreviation (both in
-    /// `Vesper.Collections`).
+    /// Either nominal form: the `List` union or its `list` abbreviation.
     let isVesperListKey (k: TypeKey) : bool =
         k = vesperListKey || k = vesperListAbbrevKey
 
     let isFsharpCoreListKey (k: TypeKey) : bool = k = fsharpCoreListKey
 
-    /// True iff the *compiled qualified type-name string* (`Vesper.Collections.List`1`)
-    /// denotes the Vesper cons-list `List` union — the string-keyed analogue of
-    /// `isVesperListKey`, for the one consumer holding the extracted contract's
-    /// `TypeShapes` name (a string) rather than a `SymbolKey`: the reverse
-    /// union-case index in `VesperLib.TyparCapture`, which excludes the cons-list's
-    /// `Empty`/`Cons` cases from bare-ctor-name resolution.
+    /// For the one consumer holding an extracted contract's compiled name, not a key.
     let isVesperListName (compiledName: string) : bool =
         compiledName = SymbolKeyOps.typeMetaName vesperListKey
 
-    /// True iff `k` denotes `PrintfFormat<'Printer,'State,'Residue,'Result>` — the
-    /// format type a `printf` / `sprintf` literal freezes to; replaces the inline
-    /// `bareName (qualifiedName key) =
-    /// PrintfSpec.printfFormatName` rebuild at the codegen / ElaborateExpr consumer sites.
+    /// Either spelling of the format type.
     let isPrintfFormatKey (k: TypeKey) : bool =
         k = printfFormatKey || k = vesperPrintfFormatKey
 
-    // --- Built-in primitive type names -----------------------------------------------
-
-    /// The built-in *numeric* type names — every integral / floating / decimal form,
-    /// including both the alias and the canonical spelling (`int`/`int32`,
-    /// `sbyte`/`int8`, `float`/`double`, `float32`/`single`), since either can reach
-    /// a consumer depending on how a type was written or resolved.
-    ///
-    /// The single source the consumers that classify a primitive by name share, so a
-    /// new numeric type is added in one place instead of drifting across three
-    /// independently-maintained lists (the prior state — each had its own gaps):
-    ///   * the `%A` faithfulness gate (`ElaborateExpr.structuredArgFaithful`, ∪ string/char/bool);
-    ///   * the codegen value-type predicate (`EmitPattern.isValueType`, ∪ bool/char);
-    ///   * the front-end primitive recogniser (`TypeTranslate.isPrimitiveName`) and the
-    ///     TS-manifest recogniser (`TsManifestTranslate.intrinsicOrOpaque`), which both
-    ///     union in `referencePrimitiveNames` below.
-    /// Each consumer unions in its own non-numeric extras at the use site (visible
-    /// there); the numeric core — the part that grows — lives here.
+    /// Alias and canonical spelling alike, since either can reach a consumer. Consumers
+    /// union in their own non-numeric extras at the use site; the part that grows is here.
     let numericTypeNames: Set<string> =
         Set.ofList
             [
@@ -470,84 +230,31 @@ module RuntimeNames =
                 "decimal"
             ]
 
-    /// The non-numeric built-in primitive type names — the scalar/reference primitives
-    /// (`bool`/`char`/`string` and the reference roots `unit`/`obj`/`voidptr`/`exn`).
-    /// The companion to `numericTypeNames`: the single source the name-classifying
-    /// recognisers share for the non-numeric core, so it grows in one place instead of
-    /// each recogniser carrying its own inline copy. Consumers union this with
-    /// `numericTypeNames` (and any use-site-only extras) at the call site.
-    ///
-    /// `objnull` is deliberately NOT here: it is the ordinary `obj | null` union
-    /// (`nullKey`), not a scalar primitive, so it must EXPAND its abbreviation to
-    /// `FTOr [obj; null]` rather than be recognised as a primitive that dealiases to
-    /// bare `obj` — the extractor's `isPrimitiveName` gate would otherwise drop the
-    /// `null` member (`objnull`/`TyOr` nullability).
+    /// `objnull` is deliberately absent: it is the `obj | null` union, and must EXPAND to
+    /// `FTOr [obj; null]` rather than dealias to bare `obj`.
     let referencePrimitiveNames: Set<string> =
         Set.ofList [ "bool"; "char"; "string"; "unit"; "obj"; "voidptr"; "exn" ]
 
-    // `intrinsicNamespace` (top of module) is the declaring namespace every built-in
-    // intrinsic identity carries. It rides in the intrinsic's `SymbolKey` so its identity is
-    // qualified like every nominal — codegen matches THAT key, never a bare name. An
-    // intrinsic's identity is otherwise CONTRACT-sourced (`TypeRegistry.intrinsicKeyOf` from
-    // the declaring `namespace`; the extractor's qualified `compiled` name) — never
-    // classified from a hardcoded front-end name set (the deleted shadow set).
-
-    /// Mint the canonical identity for a primitive whose name is KNOWN to name an
-    /// intrinsic AT THE CALL SITE — authored verbatim as one of the `*Key` constants
-    /// below, or arriving from a known-primitive source (a literal's base type, an SRTP
-    /// numeric-family member, an enum's underlying type). Carries the `Vesper` contract
-    /// namespace by construction: there is NO name-set classification (the former
-    /// front-end shadow set is gone), the caller guarantees `name` denotes a primitive.
-    /// The `name` is taken VERBATIM, at ARITY 0. Every caller but the structural
-    /// constructors names an arity-0 scalar; a CONTRACT-declared generic intrinsic (`seq`,
-    /// arity 1) carries its arity like any other nominal and is minted from the contract
-    /// (`TypeRegistry.intrinsicKeyOf` / `SymbolKeyOps.intrinsicCanonKey`), never here.
-    ///
-    /// `arrayKey`/`byrefKey` are the exception: the array's contract spelling is the
-    /// backtick-escaped `` ``[]`` ``, a different string, so producers and recognisers meet
-    /// only on these constants. Both spellings are held at arity 0 — the escaped one cannot
-    /// carry an arity, and the element typar rides the `TyConst` args — which is what keeps
-    /// them from drifting.
-    /// Prefer the cached `*Key` constants; this by-name form is for the
-    /// runtime-primitive-name sites that can't name a fixed constant.
+    /// For a name the CALL SITE knows to be an intrinsic — nothing here classifies it. Taken
+    /// verbatim at ARITY 0; a generic intrinsic (`seq`) is minted from the contract instead.
     let primitiveKey (name: string) : SymbolKey =
         SymbolKeyOps.typeKey intrinsicNamespace name
 
-    /// Mint an opaque type identity in the GLOBAL namespace — a name that is NOT a
-    /// registered intrinsic and resolved to nothing: an unknown bare user type, a
-    /// bare-carried BCL sink name (a printf `TextWriter`/`StringBuilder`, `System.HashCode`),
-    /// the `null` literal member, a synthesised TS grouping name, a TS `number` token.
-    /// Distinct from `primitiveKey` so the two intents — a real `Vesper` intrinsic vs. an
-    /// unclassified global-namespace name — are legible at each call site rather than
-    /// decided by a shared name-set lookup.
+    /// For a name that is NOT a registered intrinsic. Distinct from `primitiveKey` so the
+    /// intent is legible at each call site.
     let opaqueKey (name: string) : SymbolKey = SymbolKeyOps.typeKey "" name
 
-    /// True iff `k` IS the identity of one of the built-in `namespace Vesper` primitives
-    /// named in `names` — i.e. `k = primitiveKey n` for some `n ∈ names`. The KEY-based
-    /// form of a `numericTypeNames`-style classification: the namespace and the arity are
-    /// compared, so a user type of the same short name in another namespace (or an
-    /// arity-overloaded one) cannot pass, which a `simpleName ∈ names` test could not say.
-    /// Each consumer still spells its own set at the use site (see `numericTypeNames`).
     let private intrinsicHolder: TypeHolder =
         TypeHolder.InNamespace(SymbolKeyOps.namespaceKey intrinsicNamespace)
 
+    /// Namespace and arity are compared, which a `simpleName ∈ names` test could not say.
     let isPrimitiveKeyIn (names: Set<string>) (k: SymbolKey) : bool =
         match k with
         | SymbolKey.Type t -> t.TyparArity = 0 && t.Holder = intrinsicHolder && names.Contains t.Name
         | _ -> false
 
-    // --- Canonical intrinsic key identities ------------------------------------------
-    //
-    // One cached `SymbolKey` per well-known intrinsic — the single object every
-    // `TyConst`/`FTConst` producer of that intrinsic reaches for, so all mints compare
-    // EQUAL (unification / repr resolution depend on it) and the identity is authored in
-    // exactly one place (the correct-by-construction successor to the by-name mint). The
-    // generic intrinsics (`arrayKey rank`, `byrefKey`) mint off `arrayName`/`byrefName`
-    // so the identity name and this key cannot drift. `dynamicKey` is `Vesper`-qualified
-    // like every other intrinsic: the JS `dynamic` any IS a contract intrinsic
-    // (`prim-types-dynamic.js.fsi`, `namespace Vesper`), so its canon is contract-sourced
-    // to `Vesper.dynamic` — the old classifier's `ns = ""` for it was a latent bug the
-    // contract-sourcing (`intrinsicCanonKey`) corrects.
+    // One cached key per intrinsic: every producer reaches for the same object, so all
+    // mints compare EQUAL. The generic ones mint off `arrayName`/`byrefName`.
 
     let unitKey: SymbolKey = primitiveKey "unit"
     let boolKey: SymbolKey = primitiveKey "bool"
@@ -560,10 +267,7 @@ module RuntimeNames =
     let byteKey: SymbolKey = primitiveKey "byte"
     let uint32Key: SymbolKey = primitiveKey "uint32"
     let floatKey: SymbolKey = primitiveKey "float"
-    /// The single-precision float. Its platform repr LOSES the width on JS (it shares
-    /// `number` with `float`), so the identity is the only carrier of "this is a single" —
-    /// which is why `EmitJsContext.plainRenderOf` must recognise it by KEY here rather than
-    /// through the repr axis.
+    /// JS shares `number` between this and `float`, so the key is the only carrier of the width.
     let float32Key: SymbolKey = primitiveKey "float32"
     let decimalKey: SymbolKey = primitiveKey "decimal"
     let undefinedKey: SymbolKey = primitiveKey "undefined"
@@ -571,28 +275,12 @@ module RuntimeNames =
     let arrayKey (rank: int) : SymbolKey = primitiveKey (arrayName rank)
     let dynamicKey: SymbolKey = primitiveKey "dynamic"
 
-    /// The `null` absence-sentinel TYPE — the cross-backend nullable member of a
-    /// `T | null` union (JS `null`; the CLR reference-null / F# 9 `T | null` interop).
-    /// The single identity a written `null` type, a `T | null` union member (front
-    /// end, contract extractor, TS manifest), and any per-target lowering all key on.
-    /// Unlike every other intrinsic `null` is NOT a `namespace Vesper` type: it is a
-    /// reserved KEYWORD (`Token.KWNull`), so `type null = extern` cannot parse and it
-    /// has no declaring namespace — its identity is the BARE `null` (`ns = ""`, an
-    /// `opaqueKey`), never `Vesper.null`. A DISTINCT type from `unit` (an absence
-    /// sentinel, not the inhabited `()`). Single-sourced here so the three producers
-    /// and any consumer share one constant instead of re-spelling `opaqueKey "null"`.
+    /// NOT a `namespace Vesper` type: `null` is a keyword, so it has no declaring namespace
+    /// and its identity is the bare name. A distinct type from `unit`.
     let nullKey: SymbolKey = opaqueKey nullTypeName
 
-/// Active patterns recognising the well-known intrinsic `SemType`/`FrozenType`s by KEY
-/// IDENTITY (never a stringified name) — the sanctioned way for the semantic passes to
-/// ask "is this the `bool` / `unit` / `obj` / array / by-ref intrinsic?". Each matches the
-/// canonical `*Key` constant `RuntimeNames` mints, so the producers and these recognisers
-/// cannot drift, and arity/namespace are compared structurally rather than stripped. Prefer
-/// these over `SymbolKeyOps.intrinsicName key = "…"`; `SymbolKeyOps.simpleName` yields a
-/// `DisplayName` and cannot be compared against a name at all, which is the point. The
-/// BACKENDS match these too (the frozen mirrors `FTUnit`/`FTObj`/`FTArray`/`FTByref`), so
-/// there is one recogniser per intrinsic across the whole tree. `AutoOpen` so a pass
-/// matches `| TyBool ->` unqualified.
+/// The well-known intrinsics by KEY IDENTITY, never a stringified name. The backends match
+/// the frozen mirrors here too, so there is one recogniser per intrinsic across the tree.
 [<AutoOpen>]
 module IntrinsicTypePatterns =
 
@@ -630,43 +318,29 @@ module IntrinsicTypePatterns =
         | TyConst(k, a) when a.IsEmpty && k = dynamicKey -> Some()
         | _ -> None
 
-    /// The `null` absence-sentinel member of a `T | null` union (`RuntimeNames.nullKey`).
-    /// The canonical way to recognise a written/extracted `null`, e.g. to erase it at a
-    /// CLR reference-null seam (`stripReferenceNull`, `ClrEncoder`).
     let (|TyNull|_|) (ty: SemType) =
         match ty with
         | TyConst(k, a) when a.IsEmpty && k = nullKey -> Some()
         | _ -> None
 
-    /// The rank-1 array intrinsic `'T[]`, binding its element type.
     let (|TyArray|_|) (ty: SemType) =
         match ty with
         | TyConst(k, a) when a.Length = 1 && k = arrayKey1 -> Some a.[0]
         | _ -> None
 
-    /// A managed by-ref `T&`, binding its element type.
     let (|TyByref|_|) (ty: SemType) =
         match ty with
         | TyConst(k, a) when a.Length = 1 && k = byrefKey -> Some a.[0]
         | _ -> None
 
-    /// A *structural type constructor* — an array of ANY rank (`[]`, `[,]`, …) or a
-    /// by-ref (`&`); the intrinsics that ride dedicated backend paths rather than a
-    /// nominal receiver (mirrors `RuntimeNames.isStructuralConstructorName`).
+    /// An array of any rank, or a by-ref: the intrinsics with dedicated backend paths.
     let (|TyStructuralCtor|_|) (ty: SemType) =
         match ty with
         | TyConst(k, _) when RuntimeNames.isStructuralConstructorName (SymbolKeyOps.intrinsicName k) -> Some()
         | _ -> None
 
-    /// A key whose identity is a bare PLATFORM name — global namespace, arity 0, i.e. what
-    /// `RuntimeNames.opaqueKey` mints from a name the TARGET owns (a TS-manifest `number`,
-    /// a BCL sink name). Binds that name.
-    ///
-    /// The ONE sanctioned route from a key onto the platform-repr string axis (the reverse
-    /// `{ platform-repr -> canons }` map is keyed by a string because a platform repr IS a
-    /// string). It is not `simpleName`: it refuses any key with a declaring namespace, so a
-    /// Vesper-qualified identity — a user type named `number` in a namespace, or an
-    /// intrinsic canon — cannot be mistaken for a platform name.
+    /// The one sanctioned route from a key onto the platform-repr string axis. Unlike
+    /// `simpleName` it refuses any key with a declaring namespace.
     let (|PlatformName|_|) (k: SymbolKey) : string option =
         match k with
         | SymbolKey.Type t when t.TyparArity = 0 && t.Holder = TypeHolder.InNamespace NamespaceKey.Global -> Some t.Name
@@ -677,28 +351,22 @@ module IntrinsicTypePatterns =
         | FTConst(k, a) when a.IsEmpty && k = unitKey -> Some()
         | _ -> None
 
-    /// Frozen mirror of `(|TyObj|_|)` — the `obj` root, which the CLR encodes as the
-    /// primitive `ELEMENT_TYPE_OBJECT` rather than a `class System.Object` `TypeRef`.
+    /// The CLR encodes `obj` as the primitive `ELEMENT_TYPE_OBJECT`, not a `TypeRef`.
     let (|FTObj|_|) (ft: FrozenType) =
         match ft with
         | FTConst(k, a) when a.IsEmpty && k = objKey -> Some()
         | _ -> None
 
-    /// Frozen mirror of `(|TyArray|_|)` — the rank-1 array intrinsic `'T[]`, binding its
-    /// element type.
     let (|FTArray|_|) (ft: FrozenType) =
         match ft with
         | FTConst(k, a) when a.Length = 1 && k = arrayKey1 -> Some a.[0]
         | _ -> None
 
-    /// Frozen mirror of `(|TyByref|_|)` — a managed by-ref `T&`, binding its element type.
     let (|FTByref|_|) (ft: FrozenType) =
         match ft with
         | FTConst(k, a) when a.Length = 1 && k = byrefKey -> Some a.[0]
         | _ -> None
 
-    /// Frozen mirror of `(|TyNull|_|)` — the `null` member of a frozen `T | null`
-    /// union, recognised at CLR emit (`ClrEncoder`'s `FTOr` reference-null erasure).
     let (|FTNull|_|) (ft: FrozenType) =
         match ft with
         | FTConst(k, a) when a.IsEmpty && k = nullKey -> Some()
