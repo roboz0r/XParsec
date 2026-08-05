@@ -126,9 +126,9 @@ let tests =
                     AssemblyFiles.failureDiagnostics
                         {
                             Path = "broken.fs"
-                            Input = source
                             Failure =
                                 {
+                                    Input = source
                                     Lexed = ValueSome lexed
                                     Diagnostics = recovered
                                 }
@@ -151,9 +151,9 @@ let tests =
                     AssemblyFiles.failureDiagnostics
                         {
                             Path = "unlexable.fs"
-                            Input = ""
                             Failure =
                                 {
+                                    Input = ""
                                     Lexed = ValueNone
                                     Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure "unreadable") ]
                                 }

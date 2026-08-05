@@ -52,7 +52,7 @@ module VesperLibManifest =
     /// `FSharpAst.parse` so their reprs / bodies feed the intrinsic extraction and the
     /// cross-package inline-expansion pipeline.
     let parseFileFull (file: LibFile) : Result<ParsedFile, string> =
-        let input = SourceText.normalise (File.ReadAllText file.Absolute)
+        let input = File.ReadAllText file.Absolute
 
         match Lexing.lexString input with
         | Error _ -> Error(sprintf "Lex error in %s" file.Path.Relative)

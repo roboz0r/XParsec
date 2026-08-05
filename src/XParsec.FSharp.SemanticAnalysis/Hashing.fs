@@ -40,6 +40,10 @@ module Hashing =
     /// string that was parsed — not from a re-read of the path, which can already disagree with
     /// what the `Lexed` indexes. That is what makes the mismatch check at
     /// `OriginSources.tokenAt` mean what it says.
+    ///
+    /// The string is retained VERBATIM. A `Lexed` indexes the text it was lexed from, so
+    /// rewriting it here — line endings included — would put this file's own anchors out by a
+    /// character per preceding line, silently, the indices staying in range.
     let originSource (path: OriginPath) (input: string) (lexed: Lexed) : OriginSource =
         {
             File =

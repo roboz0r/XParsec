@@ -64,12 +64,12 @@ module AssemblyFiles =
     /// A file that never reached analysis: a lex/parse failure (`Pipeline.parse`), surfaced
     /// as a file-level error rather than thrown. Such a file contributes NO view, so later
     /// files simply compose over the ones that did parse. The failure is carried as the
-    /// parser seam produced it, so the "`Lexed` present iff lexing succeeded" invariant is
-    /// stated once, on `ParseFailure`, rather than restated here.
+    /// parser seam produced it, so the "`Lexed` present iff lexing succeeded" invariant —
+    /// and the text both it and the token stream resolve against — are stated once, on
+    /// `ParseFailure`, rather than restated here.
     type UnparsedFile =
         {
             Path: string
-            Input: string
             Failure: Pipeline.ParseFailure
         }
 
@@ -138,22 +138,9 @@ module AssemblyFiles =
         let mutable priorViews: IExternalSymbolProvider list = []
         let results = ResizeArray<Result<FrozenFile, UnparsedFile>>()
 
-        for (path, raw) in files do
-            // A driver hands over bytes it read; the manifest extractor reads the SAME files
-            // for a self-host package's splice templates. One text per file, or the two
-            // retentions of it disagree.
-            let source = SourceText.normalise raw
-
+        for (path, source) in files do
             match Pipeline.parse source with
-            | Error f ->
-                results.Add(
-                    Error
-                        {
-                            Path = path
-                            Input = source
-                            Failure = f
-                        }
-                )
+            | Error f -> results.Add(Error { Path = path; Failure = f })
             | Ok parsed ->
                 // Nearest prior file first, external last.
                 let composed =
@@ -164,7 +151,7 @@ module AssemblyFiles =
                 // bare `bool`. Without it a self-host package's operator bodies cannot
                 // name a primitive an earlier file of the SAME package declares.
                 let scoped =
-                    match declaredNamespaces parsed.Lexed source parsed.File with
+                    match declaredNamespaces parsed.Lexed parsed.Input parsed.File with
                     | [] -> composed
                     | ns ->
                         ExternalSymbolProviders.stack
@@ -172,7 +159,7 @@ module AssemblyFiles =
                             (ns @ composed.AmbientOpenPrefixes |> List.distinct)
                             [ composed ]
 
-                let origin = fileSource assemblyName path source parsed.Lexed
+                let origin = fileSource assemblyName path parsed.Input parsed.Lexed
                 let frozen = analyse assemblyName scoped origin parsed.File
                 let view = FrozenSignature.toProvider origin frozen
 
@@ -275,7 +262,7 @@ module AssemblyFiles =
         match e.Failure.Lexed with
         // No file was analysed, so no assembly claims this one; the source exists only to
         // resolve the positions the parser's own diagnostics carry.
-        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Path e.Input lexed) e.Failure.Diagnostics
+        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Path e.Failure.Input lexed) e.Failure.Diagnostics
         | ValueNone -> unpositionedDiagnostics e.Path e.Failure.Diagnostics
 
     /// Every analysed file's diagnostics, each anchored to ITS OWN file (path + source).
