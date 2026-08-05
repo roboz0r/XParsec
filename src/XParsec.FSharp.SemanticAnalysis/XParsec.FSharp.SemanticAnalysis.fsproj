@@ -131,6 +131,9 @@
     <Compile Include="Elaborate\MemberKeys.fs" />
     <Compile Include="Inline.fs" />
     <Compile Include="Elaborate\Literals.fs" />
+    <Compile Include="Elaborate\Nominals.fs" />
+    <Compile Include="Elaborate\ObjArgs.fs" />
+    <Compile Include="Elaborate\Calls.fs" />
     <Compile Include="Elaborate\Resolve.fs" />
     <Compile Include="Elaborate\Patterns.fs" />
     <Compile Include="Elaborate\Args.fs" />

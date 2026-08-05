@@ -3,7 +3,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
+open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 
 // Identifier and LongIdent-chain projection for the Elaborate pass: a resolved
 // local becomes a `Var`, a provider hit an `External`, and a multi-segment

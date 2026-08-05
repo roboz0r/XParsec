@@ -6,7 +6,7 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateLiterals
-open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 
 // Pattern projection for the Elaborate pass: the recursive CST `Pat` -> `TPat`
 // translation and the list-case-name resolution it shares with the expression

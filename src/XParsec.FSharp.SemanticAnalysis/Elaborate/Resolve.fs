@@ -1,80 +1,17 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-open System
-open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
+open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
+open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 
-// Name / member resolution helpers for the Elaborate pass: the `try*` resolvers, the
-// active patterns each `translateExpr` arm guards on, and the `receiver.seg`
-// field-access projection. None depend on the recursive `translateExpr`; the
+// Name resolution for the Elaborate pass: the `try*` resolvers that answer what a
+// written name / dotted chain denotes, wrapped as the active patterns each
+// `translateExpr` arm guards on. None depend on the recursive `translateExpr`; the
 // expression projection (`ElaborateExpr`) opens this module.
 
 module internal ElaborateResolve =
-
-    // Public surface for the companion `Elaborate` (type-declaration) module: the
-    // entry points it projects member bodies / ctor args / field types from.
-    let typeOfKey (ctx: PassContext) (key: NodeKey) : SemType =
-        match ctx.Bindings.TypeVar.TryGetValue key with
-        | ValueSome tv -> Unification.zonk ctx.Store (TyVar tv)
-        | ValueNone -> TyVar(ctx.NewTypeVar())
-
-    /// The enum `TypeKey` a node's type carries, if it is an enum. Both the
-    /// project-local and the external (TS-manifest) `E.C1` arms type their node
-    /// `TyEnum key`, so this is the single signal the expression / pattern freeze
-    /// arms read to reuse the same `StaticFieldGet` / `TPat.EnumCase` carrier — the
-    /// key is the enum's identity whether the cases are emitted locally (object map)
-    /// or imported from a TS module.
-    let enumKeyOfTy (store: TypeStore) (ty: SemType) : TypeKey voption =
-        match Unification.zonk store ty with
-        | TyEnum key -> ValueSome key
-        | _ -> ValueNone
-
-    [<return: Struct>]
-    let (|LocalClass|_|) (ctx: PassContext) (ty: SemType) : ClassTypeInfo voption =
-        match Unification.zonk ctx.Store ty with
-        | TyClass(key, _) -> TypeRegistry.tryClassByKey ctx.Types key
-        | _ -> ValueNone
-
-    [<return: Struct>]
-    let (|LocalRecord|_|) (ctx: PassContext) (ty: SemType) : RecordTypeInfo voption =
-        match Unification.zonk ctx.Store ty with
-        | TyRecord(key, _) -> TypeRegistry.tryRecordByKey ctx.Types key
-        | _ -> ValueNone
-
-    [<return: Struct>]
-    let (|LocalUnion|_|) (ctx: PassContext) (ty: SemType) : UnionTypeInfo voption =
-        match Unification.zonk ctx.Store ty with
-        | TyUnion(key, _) -> TypeRegistry.tryUnionByKey ctx.Types key
-        | _ -> ValueNone
-
-    /// The enum key for a two-segment `E.C1` access/pattern, binding it once and
-    /// collapsing the formerly-separate local-registry and type-signal arms into a
-    /// single freeze arm (used by both `ElaborateExpr`'s `StaticFieldGet` and
-    /// `ElaboratePatterns`' `TPat.EnumCase`). `enumKeyOfTy` is the canonical signal —
-    /// Unification types BOTH project-local and external `E.C1` as `TyEnum key`, so
-    /// it alone resolves the valid case; the local registry is consulted only as the
-    /// error-path fallback, where an invalid case (`E.BadCase`, already diagnosed
-    /// upstream) left the node's type un-pinned. This preserves the prior arms'
-    /// behaviour exactly while removing the duplicate arm and the guard re-lookups.
-    [<return: Struct>]
-    let (|EnumCaseAccess|_|) (ctx: PassContext) (ty: SemType) (li: LongIdent<SyntaxToken>) : TypeKey voption =
-        if li.Idents.Length <> 2 then
-            ValueNone
-        else
-            match enumKeyOfTy ctx.Store ty with
-            | ValueSome key -> ValueSome key
-            | ValueNone ->
-                // The written enum name's own token is the use site — the same position
-                // Unification resolved the head at, so the fallback cannot see an enum the
-                // canonical `TyEnum` signal could not.
-                let useSite =
-                    ctx.UseSiteAt(NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprIdent)
-
-                match TypeRegistry.tryEnum ctx.Types useSite (ctx.NameOf li.Idents.[0]) with
-                | ValueSome info -> ValueSome info.TypeKey
-                | ValueNone -> ValueNone
 
     /// Class-name reference only when there's no local `Binding` entry — i.e. it
     /// really is a class name, not a shadowing local. An explicit type application
@@ -127,20 +64,10 @@ module internal ElaborateResolve =
             | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
             | _ -> ValueNone
 
-    /// The declaring nominal `TypeKey` of a class/union/record receiver type — the
-    /// `Decl` slot of the `MemberKey` minted for an instance member access. Only
-    /// called where the receiver is already known to be nominal (the active patterns /
-    /// `InstanceMethodCall` guard on `TyNominal`), so a non-nominal type is an
-    /// Elaborate invariant break.
-    let nominalDeclKey (store: TypeStore) (ty: SemType) : TypeKey =
-        match Unification.zonk store ty with
-        | TyNominal(key, _) -> key
-        | other -> failwithf "Elaborate: expected a class/union/record receiver for a member access, got %A" other
-
-    /// Look up `memberName` on `typeName` — a class or (P3d.3) a union
-    /// augmentation. Returns the declaring type's `SymbolKey` (`info.Key`)
-    /// alongside the member so the static-member path can mint a local
-    /// `SymbolKey.MemberKey` off the resolved type (Phase 4).
+    /// Look up `memberName` on `typeName` — a class, or a union / record
+    /// augmentation. Returns the declaring type's `TypeKey` alongside the member so
+    /// the static-member path can mint a local `SymbolKey.MemberKey` off the resolved
+    /// type.
     let private tryClassMember
         (ctx: PassContext)
         (useSite: UseSite)
@@ -165,280 +92,6 @@ module internal ElaborateResolve =
                 match TypeRegistry.tryRecord ctx.Types useSite typeName with
                 | ValueSome info -> pick info.TypeKey info.Members
                 | ValueNone -> ValueNone
-
-    /// Key-based sibling of `tryClassMember`: resolves the declaring class / union /
-    /// record by its arity-qualified `SymbolKey` (`tryClassByKey`/`tryUnionByKey`/
-    /// `tryRecordByKey`, which read the key's ``Name`arity`` verbatim), not the bare
-    /// simple name. An arity-overloaded receiver (`Fun`2`/`Fun`3`) does not resolve by
-    /// bare name, so a `simpleName`-keyed lookup would miss and the call would mis-lower
-    /// to a `Vesper.Fun::Invoke` function application. This is the single member-key
-    /// registry read every nominal member dispatch routes through — a record's members
-    /// resolve here on the same path as a class's or union's. Callers holding the
-    /// receiver's nominal key must route through here.
-    let tryNominalMemberByKey
-        (ctx: PassContext)
-        (typeKey: TypeKey)
-        (memberName: string)
-        : (TypeKey * TypeMemberInfo) voption =
-        // The walk (and the declaring-typar surface `LocalMemberKeys.totalMemberKey`
-        // needs) is spelled once in `LocalMemberKeys`; this projection drops the typars
-        // for the callers here that only need the member and its declaring key.
-        match LocalMemberKeys.tryNominalMemberWithTypars ctx typeKey memberName with
-        | ValueSome nm -> ValueSome(nm.DeclKey, nm.Member)
-        | ValueNone -> ValueNone
-
-    // --- Implicit value→`obj` upcast ----------------------------------------
-    //
-    // The front end accepts a value / open typar flowing into an `obj` parameter
-    // *without grounding* the typar (Engine's obj-absorption rule). The box that
-    // upcast implies is made explicit here, at Elaborate, as a `TExpr.Upcast(arg,
-    // obj)` node — codegen's existing `buildUpcast` handler materialises the box
-    // (`box` for a value/typar source, a JIT no-op for a reference one). This is
-    // the single home for the box policy; codegen no longer re-derives it per
-    // emit site. The producers below supply each call/ctor/cons site's
-    // per-argument parameter SemTypes; `wrapObjArg`/`wrapObjArgsEq` apply the rule.
-
-    /// `obj` SemType for a synthesised `Upcast` target.
-    let objTy: SemType = TyConst(RuntimeNames.objKey, EqArray.empty)
-
-    let private isObjTy (store: TypeStore) (t: SemType) : bool =
-        UnificationEngine.isObjType (Unification.zonk store t)
-
-    /// Wrap an argument flowing into parameter `paramTy` in an explicit
-    /// obj-`Upcast` when the parameter is the universal `obj` slot and the
-    /// argument is not already obj (the latter only for tree cleanliness — an
-    /// `Upcast(obj, obj)` would emit nothing anyway). A *tupled* multi-parameter
-    /// slot — an external .NET method's flattened argument list arriving as a
-    /// single `TExpr.Tuple` — wraps element-wise.
-    let rec wrapObjArg (store: TypeStore) (paramTy: SemType) (arg: TExpr) : TExpr =
-        match Unification.zonk store paramTy with
-        | TyTuple ptys ->
-            match arg with
-            | TExpr.Tuple(elems, tupTy, tupTok) when ptys.Length = elems.Length ->
-                TExpr.Tuple(
-                    EqArray.ofSeq (seq { for i in 0 .. elems.Length - 1 -> wrapObjArg store ptys.[i] elems.[i] }),
-                    tupTy,
-                    tupTok
-                )
-            | _ -> arg
-        | zParam when UnificationEngine.isObjType zParam && not (isObjTy store (TastWalk.exprTy arg)) ->
-            // The box wraps an existing argument node; anchor the synthesised
-            // `Upcast` at that argument's own source token.
-            TExpr.Upcast(arg, objTy, TastWalk.exprTok arg)
-        | _ -> arg
-
-    /// Apply `wrapObjArg` per position over an arity-flattened argument array.
-    /// Positions past the supplied `paramTys` (or an empty model — an external
-    /// ctor / unknown member) are left raw.
-    let wrapObjArgsEq (store: TypeStore) (paramTys: SemType list) (args: EqArray<TExpr>) : EqArray<TExpr> =
-        if List.isEmpty paramTys then
-            args
-        else
-            let ptys = List.toArray paramTys
-
-            EqArray.ofSeq (
-                seq {
-                    for i in 0 .. args.Length - 1 ->
-                        if i < ptys.Length then
-                            wrapObjArg store ptys.[i] args.[i]
-                        else
-                            args.[i]
-                }
-            )
-
-    // --- Tuple-VALUED argument at a multi-parameter member ------------------
-    //
-    // A member is TUPLED — one argument whatever its parameter count — and overload
-    // resolution reads that argument's TYPE, so a tuple VALUE selects a 2-parameter
-    // member exactly as a literal `(3, 4)` does. Its elements are then not expressions,
-    // which is what a spliced `member inline` body needs one of per parameter.
-
-    /// The `let`s an opened call now sits inside (outermost first), and its rewritten
-    /// head + argument.
-    [<NoEquality; NoComparison>]
-    type OpenedTupledCall =
-        {
-            Binds: (TPat * TExpr) list
-            Head: TExpr
-            Arg: TExpr
-        }
-
-    /// `w.M t` ⟶ `let r = w in let (a, b) = t in r.M(a, b)`. `t` binds once, so it is
-    /// evaluated once; the receiver binds FIRST, because an instance member evaluates it
-    /// before its argument and the argument's `let` would otherwise hoist above it.
-    ///
-    /// `ValueNone` leaves the call alone: a non-method head, a value member (empty
-    /// `ArgSig`), arity 1, an argument the source already opened, or one whose type is
-    /// not the tuple its arity needs.
-    let openTupledMemberArg (ctx: PassContext) (head: TExpr) (arg: TExpr) : OpenedTupledCall voption =
-        match head with
-        | TExpr.ExternalMember(receiver, key, name, MemberStorage.Method, memberTy, memberTok) ->
-            let arity = SymbolKeyOps.memberArity (sprintf "Elaborate: member '%s'" name) key
-
-            let argTy = Unification.zonk ctx.Store (TastWalk.exprTy arg)
-
-            match arg, argTy with
-            | TExpr.Tuple _, _ -> ValueNone
-            | _, TyTuple elemTys when arity >= 2 && elemTys.Length = arity ->
-                let argTok = TastWalk.exprTok arg
-
-                let elems = [ for elemTy in EqArray.toList elemTys -> ctx.NewSynthBinder(), elemTy ]
-
-                let tuplePat =
-                    TPat.Tuple(
-                        EqArray.ofSeq (seq { for (k, ty) in elems -> TPat.NamedSimple(k, ty, argTok) }),
-                        argTy,
-                        argTok
-                    )
-
-                let recvBind, head' =
-                    match receiver with
-                    | ValueSome r ->
-                        let rKey = ctx.NewSynthBinder()
-                        let rTy = TastWalk.exprTy r
-
-                        [ TPat.NamedSimple(rKey, rTy, memberTok), r ],
-                        TExpr.ExternalMember(
-                            ValueSome(TExpr.Var(rKey, rTy, memberTok)),
-                            key,
-                            name,
-                            MemberStorage.Method,
-                            memberTy,
-                            memberTok
-                        )
-                    | ValueNone -> [], head
-
-                ValueSome
-                    {
-                        Binds = recvBind @ [ tuplePat, arg ]
-                        Head = head'
-                        Arg =
-                            TExpr.Tuple(
-                                EqArray.ofSeq (seq { for (k, ty) in elems -> TExpr.Var(k, ty, argTok) }),
-                                argTy,
-                                argTok
-                            )
-                    }
-            | _ -> ValueNone
-        | _ -> ValueNone
-
-    /// Wrap a call in the `let`s `openTupledMemberArg` produced, outermost first.
-    let wrapOpenedBinds (binds: (TPat * TExpr) list) (call: TExpr) : TExpr =
-        List.foldBack
-            (fun (pat, value) body -> TExpr.Let(pat, value, body, TastWalk.exprTy body, TastWalk.patTok pat))
-            binds
-            call
-
-    /// The declared parameter SemType (the `obj`-slot model) for an external
-    /// method call, read from the `ResolvedExternalMember.Signature` Unification
-    /// recorded at `fnKey` — a method's `TyFun(param → … → ret)` domain, fed
-    /// straight to `wrapObjArg` (a multi-parameter method's domain is a `TyTuple`,
-    /// which `wrapObjArg` wraps element-wise). This — not the call node's own
-    /// SemType — is the box source for an external method: a deferred dot-access
-    /// (`comparer.GetHashCode(x)`, receiver grounded only after the body) is typed
-    /// by `unifyAppliedSig`, which leaves the node's argument position as the
-    /// *un-grounded* argument typar (the obj-absorption rule never grounds
-    /// `'T → obj`), so the `obj` slot is visible only on the recorded declared
-    /// signature. `ValueNone` for a property (no `TyFun` domain) or a missing
-    /// record (the call still emits — just unwrapped).
-    let externalMethodParamTy (ctx: PassContext) (fnKey: NodeKey) : SemType voption =
-        match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
-        | ValueSome info ->
-            match Unification.zonk ctx.Store info.Signature with
-            | TyFun(dom, _) -> ValueSome dom
-            | _ -> ValueNone
-        | ValueNone -> ValueNone
-
-    /// The `obj`-slot model for a *residual* application head (the argument fold and
-    /// the single-`HighPrecedenceApp` arm share this probe): an external .NET
-    /// method head reads it off the recorded declared signature
-    /// (`externalMethodParamTy`), since its node SemType is the un-grounded applied
-    /// shape, not the function type. `ValueNone` for any non-external head, whose
-    /// `obj` slots read off its function-type domain at the call site instead.
-    let externalHeadDom (ctx: PassContext) (fnKey: NodeKey) (fnT: TExpr) : SemType voption =
-        match fnT with
-        | TExpr.ExternalMember(_, _, _, MemberStorage.Method, _, _) -> externalMethodParamTy ctx fnKey
-        | _ -> ValueNone
-
-    /// Per-argument parameter SemTypes for a *member* call, flattened to the
-    /// arity-flattened argument list. A tupled member `M(a, b)` carries a single
-    /// `TyTuple` parameter; `peelCtorArgs` flattens its call args to two, so the
-    /// tuple is expanded element-wise here to keep the indices aligned.
-    let private flatMemberParams (store: TypeStore) (memberTy: SemType) : SemType list =
-        let rec peelFuns t =
-            match Unification.zonk store t with
-            | TyFun(a, b) ->
-                let ps, r = peelFuns b
-                a :: ps, r
-            | other -> [], other
-
-        match peelFuns memberTy with
-        | [ single ], _ ->
-            match Unification.zonk store single with
-            | TyTuple elems -> EqArray.toList elems
-            | other -> [ other ]
-        | ps, _ -> ps
-
-    /// Parameter SemTypes for an instance/static member call resolved to
-    /// `declKey.memberName`; empty when the member is unresolved (the call still
-    /// emits — just unwrapped, exactly as before this plan).
-    let memberParamTys (ctx: PassContext) (declKey: TypeKey) (memberName: string) : SemType list =
-        match tryNominalMemberByKey ctx declKey memberName with
-        | ValueSome(_, m) -> flatMemberParams ctx.Store m.Type
-        | ValueNone -> []
-
-    /// Constructor parameter SemTypes for a project-local class construction of
-    /// the given arity: the primary ctor when the arity matches its field count,
-    /// else the arity-selected secondary ctor. Empty for an external ctor (no
-    /// local param model — the provider recipe boxes), matching codegen's old
-    /// `noObjSlots`.
-    let ctorParamTys (ctx: PassContext) (classTy: SemType) (argCount: int) : SemType list =
-        match classTy with
-        | LocalClass ctx info ->
-            if argCount = info.CtorParams.Length then
-                [ for p in info.CtorParams -> p.Type ]
-            else
-                match info.SecondaryCtors |> Array.tryFind (fun sc -> sc.Params.Length = argCount) with
-                | Some sc -> [ for p in sc.Params -> p.Type ]
-                | None -> []
-        | _ -> []
-
-    /// The declared SemType of a record field, for boxing a value flowing into an
-    /// `obj` field. Answers for a LOCAL record (registry field model) AND an
-    /// external / cross-file one (provider field shapes, instantiated at the receiver's
-    /// type args), so `wrapObjArg` boxes an `obj`-typed field of a cross-file record
-    /// exactly as it does a local one. The external arm is load-bearing: field-init now
-    /// COERCES a value into an `obj` field (`InferRecordAccess`'s `unifyArg`), so a
-    /// cross-file `{ X = v }` type-checks — without the box here it would emit invalid IL.
-    /// `ValueNone` when the field is unknown or the shape is not a provider record.
-    let recordFieldTy (ctx: PassContext) (recordTy: SemType) (fieldName: string) : SemType voption =
-        match recordTy with
-        | LocalRecord ctx info ->
-            match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-            | Some f -> ValueSome f.Type
-            | None -> ValueNone
-        | _ ->
-            match Unification.zonk ctx.Store recordTy with
-            | TyRecord(key, args) ->
-                match ctx.Provider.TryLookupType(SymbolKey.Type key) with
-                | ValueSome(ExternalTypeShape.Record(_, fieldShapes, _)) ->
-                    match fieldShapes |> Array.tryFind (fun f -> f.Name = fieldName) with
-                    | Some f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen (args.AsSpan().ToArray()))
-                    | None -> ValueNone
-                | _ -> ValueNone
-            | _ -> ValueNone
-
-    /// Field SemTypes of a union case, in declaration order — for boxing a
-    /// value-typed argument flowing into an `obj` case field (the union-cons obj
-    /// gap codegen could not close: `EmittedCase.Fields` carries only handles, not
-    /// the field types Elaborate has here). Empty for an external union.
-    let unionCaseFieldTys (ctx: PassContext) (unionTy: SemType) (caseName: string) : SemType list =
-        match unionTy with
-        | LocalUnion ctx info ->
-            match info.Cases |> Array.tryFind (fun c -> c.Name = caseName) with
-            | Some c -> List.ofArray c.Fields
-            | None -> []
-        | _ -> []
 
     /// Resolve `head.M` when the head is a local binding of a `TyClass`/`TyUnion`
     /// with a known member `M`. The parser folds the dot into the long ident
@@ -615,328 +268,6 @@ module internal ElaborateResolve =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Dispatch discriminator for an instance member access. A `base.M(...)` / `base.X` receiver translates to a
-    /// `TExpr.Var` whose binding site is some class's `BaseKey`; that must
-    /// dispatch non-virtually so an `override` calling `base.M()` doesn't recurse
-    /// into itself. The check is O(classes) per access — the gap doc accepts this
-    /// for v1 (most files declare a handful of classes); a reverse index is a
-    /// later optimisation.
-    let viaOfReceiver (ctx: PassContext) (receiver: TExpr) : CallVia<SemType> =
-        match receiver with
-        | TExpr.Var(bindingSite, _, _) ->
-            let mutable isBase = false
-
-            for kv in ctx.Types.Class do
-                // A `Var` names its binder in the reference domain, so the class's `base`
-                // binder is compared there.
-                if
-                    not isBase
-                    && kv.Value.BaseType.IsSome
-                    && BinderKey.identity kv.Value.BaseKey = bindingSite
-                then
-                    isBase <- true
-
-            if isBase then CallVia.Base else CallVia.Self
-        | _ -> CallVia.Self
-
-    // --- Call / construction smart constructors -----------------------------
-    //
-    // Every TAST node that flows arguments into possibly-`obj` parameter slots is
-    // built through one of these, so the implicit value→`obj` upcast
-    // (`wrapObjArgsEq`) can never be forgotten by a `translateExpr` arm — the
-    // single home of the box decision, in the TAST layer where the `Upcast` node
-    // lives. Each picks the parameter model appropriate to its node kind; the arms
-    // supply only the resolved callee and the peeled (un-wrapped) arguments.
-
-    /// `New` for a class construction. Reads the front-end-chosen external `.ctor`'s
-    /// `SymbolKey.MemberKey` from `Resolution.ExternalCtor`, keyed by the construction
-    /// node's `key`, and records it on the node so codegen selects that exact `.ctor` by
-    /// identity. `ValueNone` (absent) ⇒ a project-local / scratch class codegen resolves
-    /// by result-type key + arity. Centralising the read here keeps every construction
-    /// syntax's identity handshake in one place.
-    let mkNew
-        (ctx: PassContext)
-        (className: string)
-        (key: NodeKey)
-        (ty: SemType)
-        (args: EqArray<TExpr>)
-        (tok: SyntaxToken)
-        : TExpr =
-        TExpr.New(
-            className,
-            ctx.Resolution.ExternalCtor.TryGetValue key,
-            wrapObjArgsEq ctx.Store (ctorParamTys ctx ty args.Length) args,
-            ty,
-            tok
-        )
-
-    /// Instance `MethodCall` resolved to `declKey.memberName`, with the `CallVia`
-    /// derived from the receiver. `callKey` is the call node's `NodeKey`: for an OVERLOADED
-    /// name, Unification recorded the chosen overload's TOTAL frozen `MemberKey` there
-    /// (`Resolution.LocalMemberCall`), read back verbatim so Freeze resolves the identical
-    /// member by identity — no second name-based pick. A non-overloaded name has no entry
-    /// and mints the member's TOTAL key from the resolved member itself
-    /// (`LocalMemberKeys.totalMemberKey`), which is already unique.
-    let mkMethodCall
-        (ctx: PassContext)
-        (callKey: NodeKey)
-        (receiver: TExpr)
-        (declKey: TypeKey)
-        (memberName: string)
-        (args: EqArray<TExpr>)
-        (ty: SemType)
-        (tok: SyntaxToken)
-        : TExpr =
-        // The overloaded-instance handshake first: inference stamped the chosen overload's
-        // frozen key here. Only the non-overloaded fallback mints from the resolved member.
-        let key =
-            match ctx.Resolution.LocalMemberCall.TryGetValue callKey with
-            | ValueSome frozen -> ValueSome frozen
-            | ValueNone ->
-                // External overload discrimination reads the receiver's declaring-type args
-                // and the ground operand element types; a non-ground operand declines to the
-                // best-by-arity single inside the minter.
-                let operands =
-                    LocalMemberKeys.externalOperands
-                        ctx.Store
-                        (LocalMemberKeys.nominalArgs ctx.Store (TastWalk.exprTy receiver))
-                        [ for a in args -> TastWalk.exprTy a ]
-
-                LocalMemberKeys.totalMemberKey ctx declKey memberName operands
-
-        match key with
-        | ValueSome key ->
-            let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx declKey memberName) args
-            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty, tok)
-        | ValueNone ->
-            // Post-inference the resolved member is committed, so a miss is an internal
-            // invariant break, not mis-typed source — degrade to a diagnostic, never a crash.
-            ctx.Report(
-                tok,
-                Kind.Internal(InternalBreak.MemberNotResolvable("mkMethodCall", string declKey, memberName))
-            )
-
-            TExpr.Null(ty, tok)
-
-    /// Wall B (rung 3): instance `MethodCall` dispatched through an *interface* the
-    /// receiver's typar is coerced to (`'T :> IFace`). `ifaceKey` is the interface's
-    /// declaring `SymbolKey` (the member key's `decl`); `CallVia.Interface` tells
-    /// codegen to emit `constrained. <receiver-typar> callvirt`. The parameter model
-    /// for the obj-upcast comes from the interface's own member (the abstract slot).
-    let mkInterfaceMethodCall
-        (ctx: PassContext)
-        (receiver: TExpr)
-        (ifaceKey: TypeKey)
-        (ifaceArgs: EqArray<SemType>)
-        (memberName: string)
-        (args: EqArray<TExpr>)
-        (ty: SemType)
-        (tok: SyntaxToken)
-        : TExpr =
-        // A local interface resolves via the local-registry arm; an external-coerced one
-        // (`'T :> IFace` where `IFace` is an imported contract) via the provider arm — the
-        // shared minter routes both.
-        // The interface's own type args are the declaring-type args; operand element types
-        // discriminate a same-arity overloaded abstract slot.
-        let operands =
-            LocalMemberKeys.externalOperands
-                ctx.Store
-                (EqArray.toArray ifaceArgs)
-                [ for a in args -> TastWalk.exprTy a ]
-
-        match LocalMemberKeys.totalMemberKey ctx ifaceKey memberName operands with
-        | ValueSome key ->
-            let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx ifaceKey memberName) args
-            TExpr.MethodCall(receiver, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
-        | ValueNone ->
-            ctx.Report(
-                tok,
-                Kind.Internal(InternalBreak.MemberNotResolvable("mkInterfaceMethodCall", string ifaceKey, memberName))
-            )
-
-            TExpr.Null(ty, tok)
-
-    /// `StaticMethodCall` resolved to `declKey.memberName`.
-    let mkStaticMethodCall
-        (ctx: PassContext)
-        (declKey: TypeKey)
-        (memberName: string)
-        (args: EqArray<TExpr>)
-        (ty: SemType)
-        (tok: SyntaxToken)
-        : TExpr =
-        // A folded / type-qualified static head names a non-generic declaring type (generics
-        // need `<>`, handled at the receiver), so it carries no declaring-type args; the
-        // operand element types alone discriminate a same-arity overload (e.g. an operator).
-        let operands =
-            LocalMemberKeys.externalOperands ctx.Store [||] [ for a in args -> TastWalk.exprTy a ]
-
-        match LocalMemberKeys.totalMemberKey ctx declKey memberName operands with
-        | ValueSome key ->
-            TExpr.StaticMethodCall(key, wrapObjArgsEq ctx.Store (memberParamTys ctx declKey memberName) args, ty, tok)
-        | ValueNone ->
-            ctx.Report(
-                tok,
-                Kind.Internal(InternalBreak.MemberNotResolvable("mkStaticMethodCall", string declKey, memberName))
-            )
-
-            TExpr.Null(ty, tok)
-
-    /// `UnionCons` for case `caseName` of union `ty`.
-    let mkUnionCons
-        (ctx: PassContext)
-        (caseName: string)
-        (ty: SemType)
-        (args: EqArray<TExpr>)
-        (tok: SyntaxToken)
-        : TExpr =
-        TExpr.UnionCons(caseName, wrapObjArgsEq ctx.Store (unionCaseFieldTys ctx ty caseName) args, ty, tok)
-
-    /// Recover segment `segName`'s declared type from receiver type `recvTy` — a
-    /// record field, or a union / class instance-member return type — instantiated
-    /// at the receiver's type arguments. `ValueNone` when the receiver isn't a
-    /// known nominal or has no such member (the caller picks a fallback type).
-    let recoverFieldStepTy (ctx: PassContext) (recvTy: SemType) (segName: string) : SemType voption =
-        let memberTy (typeParams, args) (members: TypeMemberInfo[]) =
-            members
-            |> Array.tryPick (fun m ->
-                if m.Name = segName && not m.IsStatic then
-                    Some(Unification.instantiateMember ctx.Store (typeParams, args) m.Type)
-                else
-                    None
-            )
-
-        let resolved =
-            match Unification.zonk ctx.Store recvTy with
-            | TyRecord(recKey, args) ->
-                match TypeRegistry.tryRecordByKey ctx.Types recKey with
-                | ValueSome info ->
-                    // A record's chain segment is a field OR an instance member
-                    // (property) — check fields first, then members, mirroring the
-                    // class arm below (a record has no inheritance, so no chain walk).
-                    let fieldTy =
-                        info.Fields
-                        |> Array.tryPick (fun f ->
-                            if f.Name = segName then
-                                Some(Unification.instantiateMember ctx.Store (info.TypeParams, args) f.Type)
-                            else
-                                None
-                        )
-
-                    match fieldTy with
-                    | Some _ -> fieldTy
-                    | None -> memberTy (info.TypeParams, args) info.Members
-                | ValueNone -> None
-            | TyUnion(unionKey, args) ->
-                match TypeRegistry.tryUnionByKey ctx.Types unionKey with
-                | ValueSome info -> memberTy (info.TypeParams, args) info.Members
-                | ValueNone -> None
-            | TyClass(clsKey, args) ->
-                match TypeRegistry.tryClassByKey ctx.Types clsKey with
-                | ValueSome info ->
-                    // A `this.x` chain segment may be an explicit `val` instance
-                    // field or a primary-ctor parameter (both emitted as fields),
-                    // not an instance member — `memberTy` alone misses it, and the
-                    // caller would then fall back to the chain's *final* type,
-                    // mis-typing the receiver (e.g. `this.stack.IsEmpty` typing
-                    // `this.stack` as `bool`). Check fields first, then members.
-                    let fieldTy =
-                        Seq.append
-                            (info.InstanceFields |> Seq.map (fun f -> f.Name, f.Type))
-                            (info.CtorParams |> Seq.map (fun p -> p.Name, p.Type))
-                        |> Seq.tryPick (fun (n, t) ->
-                            if n = segName then
-                                Some(Unification.instantiateMember ctx.Store (info.TypeParams, args) t)
-                            else
-                                None
-                        )
-
-                    match fieldTy with
-                    | Some _ -> fieldTy
-                    | None -> memberTy (info.TypeParams, args) info.Members
-                | ValueNone -> None
-            | _ -> None
-
-        match resolved with
-        | Some t -> ValueSome(Unification.zonk ctx.Store t)
-        | None -> ValueNone
-
-    /// One `receiver.seg` access node: `PropertyGet` for a class / union member,
-    /// `FieldGet` otherwise. `recvTy` is the receiver's (un-zonked) type; `stepTy`
-    /// is the segment's already-resolved result type.
-    /// `chainKey` is the enclosing `LongIdent` chain's NodeKey — the identity
-    /// Unification stamped the resolved `GetArrayLength` intrinsic under for the
-    /// `arr.Length` array-length arm below (so the `ldlen` body splices by KEY).
-    let fieldStep
-        (ctx: PassContext)
-        (chainKey: NodeKey)
-        (receiver: TExpr)
-        (recvTy: SemType)
-        (segName: string)
-        (stepTy: SemType)
-        (tok: SyntaxToken)
-        : TExpr =
-        let isMember (members: TypeMemberInfo[]) =
-            members |> Array.exists (fun m -> m.Name = segName)
-
-        // A flat nominal (union or record — neither has an inheritance chain): a
-        // member-name segment is a `PropertyGet`, a non-member (a record field, a
-        // union tag/case field) a `FieldGet`. The two kinds share ONE arm through
-        // the member-key read (`tryNominalMemberByKey`); only which registry it
-        // consults differs, and that is hidden inside the read.
-        let flatNominalStep (typeKey: TypeKey) : TExpr =
-            match tryNominalMemberByKey ctx typeKey segName with
-            | ValueSome(declKey, _) ->
-                let key = LocalSymbolKey.ofProperty declKey segName
-                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
-            | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy, tok)
-
-        match Unification.zonk ctx.Store recvTy with
-        | TyClass(clsKey, args) ->
-            match TypeRegistry.tryClassByKey ctx.Types clsKey with
-            | ValueSome info when isMember info.Members ->
-                let key = LocalSymbolKey.ofProperty info.TypeKey segName
-                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
-            | _ ->
-                // An *inherited* member (declared on a base class, e.g. `node.Key`
-                // where `Key` is on the parent `SetTree`): upcast the receiver to the
-                // declaring ancestor so codegen's receiver-keyed
-                // `resolveInstanceMember` resolves `get_<seg>` on the class that
-                // emits it (a reference-type upcast is a codegen no-op). Reuses
-                // inference's `inherit`-chain walk (`tryClassChainMemberDecl`) so this
-                // read isn't a second chain walk that must stay in sync. Falls through
-                // to `FieldGet` only when no ancestor declares it — a genuine ctor-param
-                // / `val` field access. (The own-class case is the `isMember` arm
-                // above, so the walk only ever resolves a strict ancestor here.)
-                match Unification.tryClassChainMemberDecl ctx clsKey args segName with
-                | ValueSome cm ->
-                    let key =
-                        LocalSymbolKey.ofProperty (nominalDeclKey ctx.Store cm.DeclaringTy) segName
-
-                    TExpr.PropertyGet(
-                        TExpr.Upcast(receiver, cm.DeclaringTy, TastWalk.exprTok receiver),
-                        key,
-                        viaOfReceiver ctx receiver,
-                        stepTy,
-                        tok
-                    )
-                | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy, tok)
-        // A flat nominal — union or record. The `TyClass` arm above forks for its
-        // inheritance chain; union and record share `flatNominalStep` (a member is a
-        // `PropertyGet`, a record field / union case field a `FieldGet`), so they land
-        // here through `TyNominal` (class is already handled above, so this only ever
-        // catches union/record).
-        | TyNominal(nominalKey, _) -> flatNominalStep nominalKey
-        // `arr.Length` on an intrinsic rank-1 array desugars to the core
-        // `GetArrayLength` inline function (the `ldlen` mnemonic lives in
-        // `ops-platform.clr.fs`, spliced here by `InlineExpansion`). `array.Length`
-        // parses as a local-headed LongIdent field chain (not `DotLookup`), so this
-        // `fieldStep` arm is the one that fires; mirrors the `DotLookup` array guard.
-        | TyArray _ when segName = "Length" ->
-            let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue chainKey
-            TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(recvTy, stepTy), tok), receiver, stepTy, tok)
-        | _ -> TExpr.FieldGet(receiver, segName, stepTy, tok)
-
     /// `r.M(...)` where `r` has a class / union type and `M` is one of its
     /// instance methods. Returns the receiver expr + resolved member name so the
     /// `App` and `HighPrecedenceApp` invocation arms share one guard (the same
@@ -959,20 +290,50 @@ module internal ElaborateResolve =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// The receiver type a folded LongIdent chain's prefix segments `[1 .. n-2]` land
+    /// on: the head's bound type walked through `recoverFieldStepTy` one field /
+    /// property step at a time. `ValueNone` if the head is not a local binding or any
+    /// step can't be typed — then the generic field-chain path handles the whole
+    /// expression instead.
+    let private tryChainReceiverTy (ctx: PassContext) (li: LongIdent<SyntaxToken>) : SemType voption =
+        let head = li.Idents.[0]
+        let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+
+        match ctx.Bindings.Binding.TryGetValue headKey with
+        | ValueNone -> ValueNone
+        | ValueSome rb ->
+            let mutable recvTy = Unification.zonk ctx.Store (typeOfKey ctx rb.BindingSite)
+            let mutable ok = true
+
+            for i in 1 .. li.Idents.Length - 2 do
+                if ok then
+                    match recoverFieldStepTy ctx recvTy (ctx.NameOf li.Idents.[i]) with
+                    | ValueSome t -> recvTy <- Unification.zonk ctx.Store t
+                    | ValueNone -> ok <- false
+
+            if ok then ValueSome recvTy else ValueNone
+
+    /// The receiver chain of a folded member call: the same LongIdent with its
+    /// trailing member segment (and the dot before it) dropped, so the caller rebuilds
+    /// the receiver via `translateLongIdentFieldChain`.
+    let private chainPrefix (li: LongIdent<SyntaxToken>) : LongIdent<SyntaxToken> =
+        {
+            Idents = li.Idents.RemoveAt(li.Idents.Length - 1)
+            Dots = li.Dots.RemoveAt(li.Dots.Length - 1)
+        }
+
     /// `head.f.…g.M(args)` — a method call whose receiver is a *multi-segment*
     /// folded LongIdent chain (`head` a bound local, `f…g` intermediate field /
     /// property steps, `M` the trailing instance method). The parser folds any
     /// `Ident`-headed dotted path into one `LongIdent`, so `this.Source.MoveNext`
     /// arrives as `LongIdent[this; Source; MoveNext]` — *not* a `DotLookup`
     /// (`InstanceMethodCall`) and longer than the 2-segment `ClassTailMethod`. Walk
-    /// the prefix's segment types with `recoverFieldStepTy` (the same recovery
-    /// `translateLongIdentFieldChain` uses) to land the receiver type, then confirm
-    /// the tail is one of its methods. Returns the *prefix* LongIdent (the receiver
-    /// chain, last segment dropped) + the receiver type + the method name, so the
-    /// `App` arm rebuilds the receiver via `translateLongIdentFieldChain`. Without
-    /// this the chain falls through to the field-chain resolver, which mis-types the
-    /// trailing method segment as a property and leaves the call's `()` as a spurious
-    /// `App` lowered to `Vesper.Fun::Invoke` — malformed IL.
+    /// the prefix's segment types to land the receiver type, then confirm the tail is
+    /// one of its methods. Returns the *prefix* LongIdent (the receiver chain, last
+    /// segment dropped) + the receiver type + the method name. Without this the chain
+    /// falls through to the field-chain resolver, which mis-types the trailing method
+    /// segment as a property and leaves the call's `()` as a spurious `App` lowered to
+    /// `Vesper.Fun::Invoke` — malformed IL.
     [<return: Struct>]
     let (|ClassChainMethod|_|)
         (ctx: PassContext)
@@ -984,60 +345,31 @@ module internal ElaborateResolve =
             // 2-segment `var.M(args)` is `ClassTailMethod`; this is the 3+ case.
             ValueNone
         else
-            let head = li.Idents.[0]
-            let headKey = NodeKey.ofToken head NodeKind.ExprIdent
+            match tryChainReceiverTy ctx li with
+            | ValueSome(TyNominal(typeKey, _) as recvTy) ->
+                let memberName = ctx.NameOf li.Idents.[n - 1]
 
-            match ctx.Bindings.Binding.TryGetValue headKey with
-            | ValueNone -> ValueNone
-            | ValueSome rb ->
-                // Walk the intermediate segments `[1 .. n-2]` to the receiver type,
-                // bailing if any step can't be typed (then the generic path handles it).
-                let mutable recvTy = Unification.zonk ctx.Store (typeOfKey ctx rb.BindingSite)
-                let mutable ok = true
+                match tryNominalMemberByKey ctx typeKey memberName with
+                | ValueSome(_, m) when m.Kind = ClassMemberKind.Method -> ValueSome(chainPrefix li, recvTy, memberName)
+                | _ -> ValueNone
+            | _ -> ValueNone
 
-                for i in 1 .. n - 2 do
-                    if ok then
-                        match recoverFieldStepTy ctx recvTy (ctx.NameOf li.Idents.[i]) with
-                        | ValueSome t -> recvTy <- Unification.zonk ctx.Store t
-                        | ValueNone -> ok <- false
-
-                if not ok then
-                    ValueNone
-                else
-                    match recvTy with
-                    | TyNominal(typeKey, _) ->
-                        let memberName = ctx.NameOf li.Idents.[n - 1]
-
-                        match tryNominalMemberByKey ctx typeKey memberName with
-                        | ValueSome(_, m) when m.Kind = ClassMemberKind.Method ->
-                            let prefixLi =
-                                {
-                                    Idents = li.Idents.RemoveAt(n - 1)
-                                    Dots = li.Dots.RemoveAt(li.Dots.Length - 1)
-                                }
-
-                            ValueSome(prefixLi, recvTy, memberName)
-                        | _ -> ValueNone
-                    | _ -> ValueNone
-
-    /// Wall B (rung 3): `head.…M(args)` whose receiver type is a generic typar
-    /// coerced to a project-local interface (`'T :> IFace`). Unification resolved
-    /// the member through the interface and recorded its `SymbolKey` in
-    /// `TyparInterfaceCall` (keyed by the folded `LongIdent`'s `NodeKey`, the same
-    /// `CstKeys.ofExpr` identity the inference step used). The receiver never grounds
-    /// to a nominal, so neither `ClassTailMethod` nor `ClassChainMethod` fires; this
-    /// pattern recognises the recorded call instead. Returns the receiver-prefix
-    /// LongIdent (member segment dropped), the receiver's (typar) type, the interface
-    /// `SymbolKey`, and the member name — mirroring `ClassChainMethod`'s shape so the
-    /// `App` arms rebuild the receiver via `translateLongIdentFieldChain`.
+    /// `head.…M(args)` whose receiver type is a generic typar coerced to a
+    /// project-local interface (`'T :> IFace`). Unification resolved the member
+    /// through the interface and recorded its `SymbolKey` in `TyparInterfaceCall`
+    /// (keyed by the folded `LongIdent`'s `NodeKey`, the same `CstKeys.ofExpr`
+    /// identity the inference step used). The receiver never grounds to a nominal, so
+    /// neither `ClassTailMethod` nor `ClassChainMethod` fires; this pattern recognises
+    /// the recorded call instead. Returns the receiver-prefix LongIdent (member
+    /// segment dropped), the receiver's (typar) type, the interface `SymbolKey`, and
+    /// the member name — mirroring `ClassChainMethod`'s shape so the `App` arms
+    /// rebuild the receiver via `translateLongIdentFieldChain`.
     [<return: Struct>]
     let (|TyparInterfaceMethod|_|)
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
         : (LongIdent<SyntaxToken> * SemType * TypeKey * EqArray<SemType> * string) voption =
-        let n = li.Idents.Length
-
-        if n < 2 then
+        if li.Idents.Length < 2 then
             ValueNone
         else
             let key = NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
@@ -1045,35 +377,11 @@ module internal ElaborateResolve =
             match ctx.Resolution.TyparInterfaceCall.TryGetValue key with
             | ValueNone -> ValueNone
             | ValueSome(ifaceKey, ifaceArgs) ->
-                let head = li.Idents.[0]
-                let headKey = NodeKey.ofToken head NodeKind.ExprIdent
-
-                match ctx.Bindings.Binding.TryGetValue headKey with
+                match tryChainReceiverTy ctx li with
                 | ValueNone -> ValueNone
-                | ValueSome rb ->
-                    // Walk the intermediate segments `[1 .. n-2]` to the receiver
-                    // (typar) type, exactly as `ClassChainMethod` does.
-                    let mutable recvTy = Unification.zonk ctx.Store (typeOfKey ctx rb.BindingSite)
-                    let mutable ok = true
-
-                    for i in 1 .. n - 2 do
-                        if ok then
-                            match recoverFieldStepTy ctx recvTy (ctx.NameOf li.Idents.[i]) with
-                            | ValueSome t -> recvTy <- Unification.zonk ctx.Store t
-                            | ValueNone -> ok <- false
-
-                    if not ok then
-                        ValueNone
-                    else
-                        let memberName = ctx.NameOf li.Idents.[n - 1]
-
-                        let prefixLi =
-                            {
-                                Idents = li.Idents.RemoveAt(n - 1)
-                                Dots = li.Dots.RemoveAt(li.Dots.Length - 1)
-                            }
-
-                        ValueSome(prefixLi, recvTy, ifaceKey, ifaceArgs, memberName)
+                | ValueSome recvTy ->
+                    let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                    ValueSome(chainPrefix li, recvTy, ifaceKey, ifaceArgs, memberName)
 
     /// The `ResolvedExternalMember` Unification recorded for this node, if any.
     /// Used with a `&` conjunction so the external-member arms drop both the

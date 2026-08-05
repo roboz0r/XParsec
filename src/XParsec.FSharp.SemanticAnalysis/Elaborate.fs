@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 open XParsec.FSharp.SemanticAnalysis.ElaboratePatterns
 open XParsec.FSharp.SemanticAnalysis.ElaborateExpr
 open XParsec.FSharp.SemanticAnalysis.ElaborateTypars
@@ -182,6 +182,170 @@ module Elaborate =
 
                 ctx.GenericFnSchemes.Set(binder, constraints)
 
+    /// The name a module `let` is EMITTED under: its `[<CompiledName>]` (the IL
+    /// boundary name, e.g. `Set.empty` ⇒ `SetModule.Empty`), falling back to the
+    /// source name — matching the contract extractor's `compiledNameForVal`, so a
+    /// separately-compiled consumer resolving `Set.empty` to `SetModule.Empty` finds the
+    /// method this emits. Both the producer-internal call resolver (`SymbolProviders`)
+    /// and codegen key off this same `Name`; the `[<Global>]` check reads it too, a
+    /// restatement being a restatement of the EMITTED name.
+    let private emittedNameOfBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : string voption =
+        memberNameOfBinding ctx b
+        |> ValueOption.map (fun nm ->
+            match VesperLibTypeTranslate.tryCompiledName ctx.Lexed b.attributes with
+            | ValueSome cn -> cn
+            | ValueNone -> nm
+        )
+
+    /// Record the binding's exportable identity on `holder` and its declared
+    /// accessibility, returning the `SymbolKey` both are filed under. A head that
+    /// introduces no binder (a destructuring `let (a, b) = p`) records nothing — there
+    /// is no single value to name, so there is nothing to export and nothing downstream
+    /// to look up.
+    let private recordExportedBinding
+        (ctx: PassContext)
+        (holder: ModuleHolder)
+        (b: Binding<SyntaxToken>)
+        (emittedName: string voption)
+        (binder: BinderKey voption)
+        : SymbolKey voption =
+        match emittedName, binder with
+        | ValueSome compiledNm, ValueSome bk ->
+            // The holder is the containment chain itself, so the binding's
+            // `SymbolKey` is a direct construction downstream
+            // (`ModuleBindingInfo.Key`), never a dotted-string re-parse.
+            let info: ModuleBindingInfo = { Holder = holder; Name = compiledNm }
+            ctx.Bindings.ModuleMembers.[bk] <- info
+            // Capture the binding's declared accessibility under its own
+            // `SymbolKey` (honestly — the file→file projection thresholds
+            // it internal-or-better, the `.fsi` extractor public-only).
+            ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
+            ValueSome info.Key
+        | _ -> ValueNone
+
+    /// The method-typar env a module `let` quantifies. A module-`let` compiled as a
+    /// generic static method (or generic closure) carries its free typars as
+    /// `TyTypar(Method, i)`. The index order is minted once here (Edge A order), but the
+    /// cut itself is deferred to `freezeTypars` — `elaborate` leaves the head pattern,
+    /// value body, and declared type in `TyVar` form and just pairs the decl with this
+    /// env. A *function* binding (`TyFun` declared type) always quantifies. A *value*
+    /// binding quantifies only when (a) the generaliser left it a non-empty scheme and
+    /// (b) its free typars sit *inside a type constructor* (`let empty: SetTree<'T> =
+    /// null` ⇒ `TyClass(SetTree, ['T])`, lowered to a generic method returning `ldnull :
+    /// SetTree<!!0>`, which verifies). A *bare* free var — `let n = null` (`TyVar`) or
+    /// `let x: 'T = …` — stays a value-restriction metavar: generalising it would emit
+    /// `ldnull : !!0` over an unconstrained typar (no `class` constraint ⇒
+    /// unverifiable), so it keeps its `TyVar` representation.
+    let private moduleLetQuantEnv
+        (ctx: PassContext)
+        (b: Binding<SyntaxToken>)
+        (declTy: SemType)
+        : (TyVarId * SemType) list =
+        // The binding's explicit `<'b,'a>` typars, in source order with their
+        // inference-seeded roots (recorded by `inferBinding` while the transient
+        // `TyparScope` was live). `canonical` orders these first, the F# rule.
+        let declaredTypars =
+            match ctx.Bindings.DeclaredTypars.TryGetValue(CstKeys.ofBinding b) with
+            | ValueSome ds -> ds
+            | ValueNone -> []
+
+        // An INLINE binding quantifies unconditionally — every shape gate below is
+        // about EMISSION, and an inline binding is never emitted. It is a TEMPLATE:
+        // `Freeze` publishes it as vocabulary and a consumer thaws + substitutes it per
+        // call site, so its free typars are its template parameters and must be named on
+        // a self-describing axis (`TyTypar(Method, i)` ⇒ `FTTypar`), not left as roots
+        // only this compilation's `UnionFind` can explain.
+        //
+        // The value-restriction arm is exactly where that bites:
+        // `let inline defaultof<'T> : 'T = (# "ilzero" … #)` has a declTy that zonks to a
+        // bare `TyVar`, so it would fall into `| TyVar _ -> []` and reach freeze with an
+        // unmapped root — which is not a metavar leak (its scheme DID quantify it) but
+        // has no binder freeze can honestly name, so it would degrade to `FTUnknown`.
+        // Its verifiability rationale does not apply either: no `ldnull : !!0` is ever
+        // emitted for a template.
+        if b.inlineToken.IsSome then
+            mkMethodQuantEnv ctx.Store declaredTypars declTy
+        else
+            match Unification.zonk ctx.Store declTy with
+            | TyFun _ -> mkMethodQuantEnv ctx.Store declaredTypars declTy
+            // A bare free var is value-restricted — never a method typar.
+            | TyVar _
+            | TyTypar _ -> []
+            | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv ctx.Store declaredTypars declTy
+            | _ -> []
+
+    /// Translate one module-level `let` binding to its decl + the typar env it
+    /// quantifies. `ValueNone` for an E1 format-literal alias binding (`let fmt :
+    /// Format<…> = "%d"`): its value froze to a `New PrintfFormat` that is dead — every
+    /// use const-propagates the literal (`PrintfFormatLiterals`), and the self-host
+    /// contract has no cold runtime for a format value, so nothing reads it. (A
+    /// genuinely dynamic read is E2, rejected upstream.) Eliding it here keeps `New
+    /// PrintfFormat` off codegen — and it reaches the frozen tree as no declaration at
+    /// all, so it introduces NO binder either: recording one would file a side-table
+    /// entry against a definition site the tree does not contain, which the frozen
+    /// binder pool (`TastPools.toPools`) faults on.
+    let private translateModuleLet
+        (ctx: PassContext)
+        (holder: ModuleHolder)
+        (b: Binding<SyntaxToken>)
+        : (TDecl * (TyVarId * SemType) list) voption =
+        let tpat = translatePat ctx b.headPat
+        let elided = ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat)
+
+        // The identity this binding contributes to the FROZEN side tables
+        // (`ModuleMembers`, `GenericFnSchemes`, `BindingTyparArities`): the binder its
+        // already-translated head pattern introduces (`BinderKey.ofPat`, which is also
+        // where the shapes that introduce none are enumerated), or `ValueNone` — in which
+        // case the tables below record nothing at all, every reader of them
+        // (`FrozenSignature`, `HolderPlan`) looking up a simple binder.
+        //
+        // Read off the TRANSLATED head, never the CST binding: the analysis identity
+        // `CstKeys.ofBinding b` addresses the head PATTERN node, which for a wrapped head
+        // (`let (x) = …`, `let (x: int) = …`) is a node `ElaboratePatterns.translatePat`
+        // ERASES.
+        let binder = if elided then ValueNone else BinderKey.ofPat tpat
+
+        let emittedName = emittedNameOfBinding ctx b
+        let exportedKey = recordExportedBinding ctx holder b emittedName binder
+
+        let valT = translateBinding ctx b
+        let declTy = typeOfKey ctx (CstKeys.ofBinding b)
+
+        // `[<Global>]`-ness belongs to the VALUE the binder names, so it is filed
+        // under that identity beside the accessibility, not on the decl node.
+        Attributes.declareGlobalBinding ctx b emittedName exportedKey valT
+
+        // Decode + validate compiler parameter attributes
+        // (`[<CallAtMostOnce>]`) for an inline binding, recording them
+        // for `Passes.InlineExpansion`. Keyed by the function binder.
+        match tpat with
+        | TPat.NamedSimple(binderKey, _, _) -> recordInlineParamAttrs ctx b binderKey valT
+        | _ -> ()
+
+        let quantEnv = moduleLetQuantEnv ctx b declTy
+
+        // Record the binding's frozen typar bounds using THIS `quantEnv` (the same env
+        // `freezeTypars` freezes the body with, so the bounds' typar indices line up).
+        // Read by the call-site phantom-typar solve (`EmitCall`). Both this and the arity
+        // below are filed under the binding's FROZEN identity: the binding's typar-axis
+        // width is a property of the value the binder names, so a binder-less head (`let
+        // (a, b) = p`, `let _ = e`) has nowhere to put it — and nothing to read it, such a
+        // binding never being a callable.
+        match binder with
+        | ValueSome bk ->
+            recordGenericFnScheme ctx b bk quantEnv
+
+            // The binding's typar-axis WIDTH at this single index-minting point
+            // (`quantEnv` IS the method-axis order), keyed the same as `ModuleMembers`.
+            // The frozen→provider projection reads it for `ExternalSymbol.TyparArity`.
+            ctx.Bindings.BindingTyparArities.[bk] <- List.length quantEnv
+        | ValueNone -> ()
+
+        if elided then
+            ValueNone
+        else
+            ValueSome(TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv)
+
     /// `c` is the element's declaring containment — the `namespace` group plus the
     /// `module`s it is nested in. EVERY module-level `let` in it records its `NodeKey` →
     /// `ModuleBindingInfo`, so every one of them has an exportable identity: a binding
@@ -201,158 +365,9 @@ module Elaborate =
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             [
                 for b in bindings do
-                    let tpat = translatePat ctx b.headPat
-
-                    // An E1 format-literal alias binding is ELIDED below — it reaches the
-                    // frozen tree as no declaration at all — so it introduces NO binder.
-                    // Recording one would file a side-table entry against a definition
-                    // site the tree does not contain, which the frozen binder pool
-                    // (`TastPools.toPools`) faults on.
-                    let elided = ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat)
-
-                    // The identity this binding contributes to the FROZEN side tables
-                    // (`ModuleMembers`, `GenericFnSchemes`,
-                    // `BindingTyparArities`): the binder its already-translated head
-                    // pattern introduces (`BinderKey.ofPat`, which is also where the
-                    // shapes that introduce none are enumerated), or `ValueNone` — in
-                    // which case the tables below record nothing at all, every reader of
-                    // them (`FrozenSignature`, `HolderPlan`) looking up a simple binder.
-                    //
-                    // Read off the TRANSLATED head, never the CST binding: the analysis
-                    // identity `CstKeys.ofBinding b` addresses the head PATTERN node,
-                    // which for a wrapped head (`let (x) = …`, `let (x: int) = …`) is a
-                    // node `ElaboratePatterns.translatePat` ERASES.
-                    let binder = if elided then ValueNone else BinderKey.ofPat tpat
-
-                    // The name the binding is EMITTED under: its `[<CompiledName>]` (the IL
-                    // boundary name, e.g. `Set.empty` ⇒ `SetModule.Empty`), falling back to
-                    // the source name — matching the contract extractor's
-                    // `compiledNameForVal`, so a separately-compiled consumer resolving
-                    // `Set.empty` to `SetModule.Empty` finds the method this emits. Both the
-                    // producer-internal call resolver (`SymbolProviders`) and codegen key off
-                    // this same `Name`; the `[<Global>]` check below reads it too, a
-                    // restatement being a restatement of the EMITTED name.
-                    let emittedName =
-                        memberNameOfBinding ctx b
-                        |> ValueOption.map (fun nm ->
-                            match VesperLibTypeTranslate.tryCompiledName ctx.Lexed b.attributes with
-                            | ValueSome cn -> cn
-                            | ValueNone -> nm
-                        )
-
-                    // Record this binding's exportable identity. A head that introduces no
-                    // binder (a destructuring `let (a, b) = p`) records nothing — there is no
-                    // single value to name, so there is nothing to export and nothing
-                    // downstream to look up.
-                    let exportedKey =
-                        match emittedName, binder with
-                        | ValueSome compiledNm, ValueSome bk ->
-                            // The holder is the containment chain itself, so the binding's
-                            // `SymbolKey` is a direct construction downstream
-                            // (`ModuleBindingInfo.Key`), never a dotted-string re-parse.
-                            let info: ModuleBindingInfo = { Holder = holder; Name = compiledNm }
-                            ctx.Bindings.ModuleMembers.[bk] <- info
-                            // Capture the binding's declared accessibility under its own
-                            // `SymbolKey` (honestly — the file→file projection thresholds
-                            // it internal-or-better, the `.fsi` extractor public-only).
-                            ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
-                            ValueSome info.Key
-                        | _ -> ValueNone
-
-                    let valT = translateBinding ctx b
-                    let declTy = typeOfKey ctx (CstKeys.ofBinding b)
-
-                    // `[<Global>]`-ness belongs to the VALUE the binder names, so it is filed
-                    // under that identity beside the accessibility, not on the decl node.
-                    Attributes.declareGlobalBinding ctx b emittedName exportedKey valT
-
-                    // Decode + validate compiler parameter attributes
-                    // (`[<CallAtMostOnce>]`) for an inline binding, recording them
-                    // for `Passes.InlineExpansion`. Keyed by the function binder.
-                    match tpat with
-                    | TPat.NamedSimple(binderKey, _, _) -> recordInlineParamAttrs ctx b binderKey valT
-                    | _ -> ()
-
-                    // A module-`let` compiled as a generic
-                    // static method (or generic closure) carries its free typars as
-                    // `TyTypar(Method, i)`. The index order is minted once here
-                    // (Edge A order) as `quantEnv`, but the cut itself is deferred to
-                    // `freezeTypars` — `elaborate` leaves the head pattern, value
-                    // body, and declared type in `TyVar` form and just pairs the decl
-                    // with its `quantEnv`. A *function* binding (`TyFun` declared
-                    // type) always quantifies. A *value* binding quantifies only when
-                    // (a) the generaliser left it a non-empty scheme and (b) its free
-                    // typars sit *inside a type constructor* (`let empty: SetTree<'T> =
-                    // null` ⇒ `TyClass(SetTree, ['T])`, lowered to a generic method
-                    // returning `ldnull : SetTree<!!0>`, which verifies). A *bare* free
-                    // var — `let n = null` (`TyVar`) or `let x: 'T = …` — stays a
-                    // value-restriction metavar: generalising it would emit `ldnull :
-                    // !!0` over an unconstrained typar (no `class` constraint ⇒
-                    // unverifiable), so it keeps its `TyVar` representation.
-                    // The binding's explicit `<'b,'a>` typars, in source order with
-                    // their inference-seeded roots (recorded by `inferBinding` while
-                    // the transient `TyparScope` was live). `canonical` orders these
-                    // first, the F# rule.
-                    let declaredTypars =
-                        match ctx.Bindings.DeclaredTypars.TryGetValue(CstKeys.ofBinding b) with
-                        | ValueSome ds -> ds
-                        | ValueNone -> []
-
-                    let quantEnv =
-                        // An INLINE binding quantifies unconditionally — every shape
-                        // gate below is about EMISSION, and an inline binding is never
-                        // emitted. It is a TEMPLATE: `Freeze` publishes it as vocabulary
-                        // and a consumer thaws + substitutes it per call site, so its
-                        // free typars are its template parameters and must be named on a
-                        // self-describing axis (`TyTypar(Method, i)` ⇒ `FTTypar`), not
-                        // left as roots only this compilation's `UnionFind` can explain.
-                        //
-                        // The value-restriction arm is exactly where that bites:
-                        // `let inline defaultof<'T> : 'T = (# "ilzero" … #)` has a declTy
-                        // that zonks to a bare `TyVar`, so it would fall into `| TyVar _
-                        // -> []` and reach freeze with an unmapped root — which is not a
-                        // metavar leak (its scheme DID quantify it) but has no binder
-                        // freeze can honestly name, so it would degrade to `FTUnknown`.
-                        // Its verifiability rationale does not apply either: no `ldnull :
-                        // !!0` is ever emitted for a template.
-                        if b.inlineToken.IsSome then
-                            mkMethodQuantEnv ctx.Store declaredTypars declTy
-                        else
-                            match Unification.zonk ctx.Store declTy with
-                            | TyFun _ -> mkMethodQuantEnv ctx.Store declaredTypars declTy
-                            // A bare free var is value-restricted — never a method typar.
-                            | TyVar _
-                            | TyTypar _ -> []
-                            | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv ctx.Store declaredTypars declTy
-                            | _ -> []
-
-                    // Record the binding's frozen typar
-                    // bounds using THIS `quantEnv` (the same env `freezeTypars` freezes
-                    // the body with, so the bounds' typar indices line up). Read by the
-                    // call-site phantom-typar solve (`EmitCall`). Both this and the arity
-                    // below are filed under the binding's FROZEN identity: the binding's
-                    // typar-axis width is a property of the value the binder names, so a
-                    // binder-less head (`let (a, b) = p`, `let _ = e`) has nowhere to put
-                    // it — and nothing to read it, such a binding never being a callable.
-                    match binder with
-                    | ValueSome bk ->
-                        recordGenericFnScheme ctx b bk quantEnv
-
-                        // The binding's typar-axis WIDTH at this single index-minting
-                        // point (`quantEnv` IS the method-axis order), keyed the same as
-                        // `ModuleMembers`. The frozen→provider projection reads it for
-                        // `ExternalSymbol.TyparArity`.
-                        ctx.Bindings.BindingTyparArities.[bk] <- List.length quantEnv
+                    match translateModuleLet ctx holder b with
+                    | ValueSome decl -> yield decl
                     | ValueNone -> ()
-
-                    // Drop an E1 format-literal alias binding (`let fmt : Format<…> =
-                    // "%d"`): its value froze to a `New PrintfFormat` that is dead —
-                    // every use const-propagates the literal (`PrintfFormatLiterals`),
-                    // and the self-host contract has no cold runtime for a format value,
-                    // so nothing reads it. (A genuinely dynamic read is E2, rejected
-                    // upstream.) Eliding it here keeps `New PrintfFormat` off codegen.
-                    if not elided then
-                        yield TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv
             ]
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e

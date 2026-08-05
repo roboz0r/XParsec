@@ -4,7 +4,7 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
 // Printf lowering for the Elaborate pass: a marked happy-path call becomes a

@@ -3,7 +3,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
+open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
 // Element and member *access* lowering for the Elaborate pass: assignment

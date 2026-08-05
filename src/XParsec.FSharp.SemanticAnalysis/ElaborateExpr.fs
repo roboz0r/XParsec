@@ -6,6 +6,9 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateLiterals
+open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
+open XParsec.FSharp.SemanticAnalysis.ElaborateObjArgs
+open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
 open XParsec.FSharp.SemanticAnalysis.ElaboratePatterns
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs

@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 open XParsec.FSharp.SemanticAnalysis.ElaborateExpr
 open XParsec.FSharp.SemanticAnalysis.ElaborateTypars
@@ -496,14 +496,107 @@ module internal ElaborateTypeDecls =
                 List.ofSeq env
             )
 
+    /// A class element list surfaced as members: each translated through the *class*
+    /// `info` (so `this` and ctor-param references rewrite identically wherever the
+    /// elements were written) then run through the caller's self-type remapper. Serves
+    /// both the class's own body and each `interface … with` impl's `Elements`.
+    let private elaborateClassElements
+        (ctx: PassContext)
+        (info: ClassTypeInfo)
+        (elaborateOne: TTypeMember -> TTypeMember)
+        (elements: TypeDefnElements<SyntaxToken>)
+        : EqArray<TTypeMember> =
+        EqArray.ofSeq (
+            seq {
+                for el in elements do
+                    match translateClassMember ctx info el with
+                    | ValueSome m -> yield elaborateOne m
+                    | ValueNone -> ()
+            }
+        )
+
+    /// The class's registered `interface IFace with member …` blocks as `(ifaceTy,
+    /// members)` entries: the resolved interface `TyClass` (carrying this class's
+    /// declaring typars as roots so a generic arg like `IEnumerable<'T>` encodes against
+    /// this class's typars after the cut) paired with its already-typed member bodies.
+    /// Impls whose interface failed to resolve (`Resolved = ValueNone`, the diagnostic
+    /// already fired) are dropped.
+    let private elaborateClassInterfaces
+        (ctx: PassContext)
+        (info: ClassTypeInfo)
+        (elaborateOne: TTypeMember -> TTypeMember)
+        : EqArray<SemType * EqArray<TTypeMember>> =
+        EqArray.ofSeq (
+            seq {
+                for impl in info.InterfaceImpls do
+                    match impl.Resolved with
+                    | ValueSome ifaceTy -> yield (ifaceTy, elaborateClassElements ctx info elaborateOne impl.Elements)
+                    | ValueNone -> ()
+            }
+        )
+
+    /// A class's `static let`/`static do` or `let`/`do` preamble, each entry's
+    /// initialiser translated and then run through `rewrite` — the field-reference
+    /// rewrite appropriate to the half it belongs to.
+    let private elaborateClassPreamble
+        (ctx: PassContext)
+        (rewrite: TExpr -> TExpr)
+        (entries: ClassPreambleEntry[])
+        : EqArray<TPreambleEntry> =
+        EqArray.ofSeq (
+            seq {
+                for entry in entries ->
+                    match entry with
+                    | ClassPreambleEntry.Let l ->
+                        TPreambleEntry.Let
+                            {
+                                Name = l.Name
+                                Type = Unification.zonk ctx.Store l.Type
+                                IsMutable = l.IsMutable
+                                Init = translateBinding ctx l.Binding |> rewrite
+                            }
+                    | ClassPreambleEntry.Do e -> TPreambleEntry.Do(translateExpr ctx e |> rewrite)
+            }
+        )
+
+    /// The `inherit Base(args)` invocation: the derived class's primary-ctor params (the
+    /// `ldarg` mapping the args reference, since `this` isn't constructed yet) and the
+    /// translated arg expressions. `ValueNone` for a class with no base or no base-ctor
+    /// argument list.
+    let private tryBaseCtorCall
+        (ctx: PassContext)
+        (info: ClassTypeInfo)
+        (staticRewrite: FieldRewrite)
+        : TBaseCtorCall voption =
+        match info.BaseType, info.BaseCtorArgs with
+        | ValueSome _, ValueSome argExpr ->
+            let ctorParamKeys =
+                EqArray.ofSeq (
+                    seq { for p in info.CtorParams -> (p.DeclSite.Binder, Unification.zonk ctx.Store p.Type) }
+                )
+
+            // The base-ctor args run before `this` exists (they are `ldarg`-only), so the
+            // INSTANCE rewrite must not apply — but the `.cctor` has already run, so a
+            // `static let` is in scope here (NameResolution scopes it in) and is a FIELD:
+            // without the static rewrite its binder `NodeKey` would survive as a bare
+            // `TExpr.Var` into the base-ctor args, where codegen has no slot for it.
+            let args = peelOneArg (translateExpr ctx >> rewriteFieldRefs staticRewrite) argExpr
+
+            ValueSome
+                {
+                    CtorParams = ctorParamKeys
+                    Args = args
+                    // The base ctor's chosen identity, recorded by
+                    // `Unification.fillBaseCtorCall` under the args expr (an external
+                    // base like `inherit exn(msg)`); `ValueNone` for a project-local base.
+                    ChosenCtor = ctx.Resolution.ExternalCtor.TryGetValue(CstKeys.ofExpr argExpr)
+                }
+        | _ -> ValueNone
+
     /// Surface a `TypeDefn.Class` (or class-shaped `TypeDefn.Anon`) as a
     /// `TDecl.Type` from the resolved `ClassTypeInfo`. Ctor params and member
     /// signatures are remapped through the declaring-type typars (the same
     /// `mkDeclTyparEnv` + `remapDeclTypars` pipeline records / unions use).
-    /// An early slice left `fields` empty (no mutable instance fields yet) and
-    /// `baseType` `ValueNone` (codegen defaults to `Object`); a later slice fills the
-    /// base type and another projects `info.InterfaceImpls` onto
-    /// `interfaces`.
     let private tryClassType
         (ctx: PassContext)
         (ns: string option)
@@ -555,67 +648,22 @@ module internal ElaborateTypeDecls =
 
             let selfTy = TyClass(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
 
-            // Surface a member when the declaring type is generic (declaring axis)
-            // *or* the member itself is generic (method axis): stamp its
-            // self-type and fold its method typars into the decl env, so
-            // `freezeTypars` later flips both axes. A generic method on a
-            // *monomorphic* class still needs its `'C` cut to `TyTypar(Method, i)`,
-            // so it can't be skipped. For a mono type with a
-            // mono member, `selfTy = TyClass(key, [])` equals the member's existing
-            // `ThisTy`, so leaving it verbatim is byte-identical.
-            let needsRemap (m: TTypeMember) =
-                not (List.isEmpty declTypars) || m.MethodTypeParams.Length > 0
+            let elaborateOne = mkMemberElaborator selfTy declTypars env
 
-            let elaborateOne (m: TTypeMember) : TTypeMember =
-                if needsRemap m then
-                    let m, methodMarkers = elaborateMember selfTy m
-                    env.AddRange methodMarkers
-                    m
-                else
-                    m
-
-            let members =
-                EqArray.ofSeq (
-                    seq {
-                        for el in elements do
-                            match translateClassMember ctx info el with
-                            | ValueSome m -> yield elaborateOne m
-                            | ValueNone -> ()
-                    }
-                )
+            let members = elaborateClassElements ctx info elaborateOne elements
+            let interfaces = elaborateClassInterfaces ctx info elaborateOne
 
             let staticRewrite = staticFieldRewrite info
             let instanceRewrite = instanceFieldRewrite info selfTy
 
-            let translatePreambleEntry (rewrite: TExpr -> TExpr) (entry: ClassPreambleEntry) : TPreambleEntry =
-                match entry with
-                | ClassPreambleEntry.Let l ->
-                    TPreambleEntry.Let
-                        {
-                            Name = l.Name
-                            Type = Unification.zonk ctx.Store l.Type
-                            IsMutable = l.IsMutable
-                            Init = translateBinding ctx l.Binding |> rewrite
-                        }
-                | ClassPreambleEntry.Do e -> TPreambleEntry.Do(translateExpr ctx e |> rewrite)
-
             let staticPreamble =
-                EqArray.ofSeq (
-                    seq {
-                        for entry in info.StaticPreamble ->
-                            translatePreambleEntry (rewriteFieldRefs staticRewrite) entry
-                    }
-                )
+                elaborateClassPreamble ctx (rewriteFieldRefs staticRewrite) info.StaticPreamble
 
             let instancePreamble =
-                EqArray.ofSeq (
-                    seq {
-                        for entry in info.InstancePreamble ->
-                            translatePreambleEntry
-                                (rewriteFieldRefs staticRewrite >> rewriteFieldRefs instanceRewrite)
-                                entry
-                    }
-                )
+                elaborateClassPreamble
+                    ctx
+                    (rewriteFieldRefs staticRewrite >> rewriteFieldRefs instanceRewrite)
+                    info.InstancePreamble
 
             // Secondary constructors. Each `new(...)` overload becomes a
             // `TSecondaryCtor`; codegen emits a `.ctor` overload chaining to the
@@ -623,73 +671,12 @@ module internal ElaborateTypeDecls =
             let secondaryCtors =
                 EqArray.ofSeq (seq { for sc in info.SecondaryCtors -> translateSecondaryCtor ctx sc })
 
-            // Inheritance. `baseType` is the parent's resolved
-            // `TyClass`, carried with this class's declaring typars as `TyVar` roots
-            // so `freezeTypars` encodes a generic parent (`SetTree\`1<!0>`) against
-            // this class's own generic parameters; codegen reads it for the IL
-            // `TypeDefinition.BaseType`. `baseCtorCall` carries the `inherit
-            // Base(args)` invocation: the derived class's primary-ctor params (the
-            // `ldarg` mapping the args reference, since `this` isn't constructed yet)
-            // and the translated arg expressions.
+            // Inheritance. `baseType` is the parent's resolved `TyClass`, carried with
+            // this class's declaring typars as `TyVar` roots so `freezeTypars` encodes a
+            // generic parent (`SetTree\`1<!0>`) against this class's own generic
+            // parameters; codegen reads it for the IL `TypeDefinition.BaseType`.
             let baseType = info.BaseType
-
-            // Interface implementations.
-            // Each registered `interface IFace with member …` block becomes an
-            // `(ifaceTy, members)` entry: the resolved interface `TyClass` (carrying
-            // this class's declaring typars as roots so a generic arg like
-            // `IEnumerable<'T>` encodes against this class's typars after the cut)
-            // paired with its already-typed member bodies. The bodies translate
-            // through the *class* `info` exactly like the class's own members —
-            // `this` and ctor-param references rewrite identically — but read their
-            // elements from the impl's own `Elements`. Impls whose interface failed
-            // to resolve (`Resolved = ValueNone`, the diagnostic already fired)
-            // are dropped.
-            let interfaces =
-                EqArray.ofSeq (
-                    seq {
-                        for impl in info.InterfaceImpls do
-                            match impl.Resolved with
-                            | ValueSome ifaceTy ->
-                                let implMembers =
-                                    EqArray.ofSeq (
-                                        seq {
-                                            for el in impl.Elements do
-                                                match translateClassMember ctx info el with
-                                                | ValueSome m -> yield elaborateOne m
-                                                | ValueNone -> ()
-                                        }
-                                    )
-
-                                yield (ifaceTy, implMembers)
-                            | ValueNone -> ()
-                    }
-                )
-
-            let baseCtorCall =
-                match info.BaseType, info.BaseCtorArgs with
-                | ValueSome _, ValueSome argExpr ->
-                    let ctorParamKeys =
-                        EqArray.ofSeq (
-                            seq { for p in info.CtorParams -> (p.DeclSite.Binder, Unification.zonk ctx.Store p.Type) }
-                        )
-
-                    // The base-ctor args run before `this` exists (they are `ldarg`-only), so the
-                    // INSTANCE rewrite must not apply — but the `.cctor` has already run, so a
-                    // `static let` is in scope here (NameResolution scopes it in) and is a FIELD:
-                    // without the static rewrite its binder `NodeKey` would survive as a bare
-                    // `TExpr.Var` into the base-ctor args, where codegen has no slot for it.
-                    let args = peelOneArg (translateExpr ctx >> rewriteFieldRefs staticRewrite) argExpr
-
-                    ValueSome
-                        {
-                            CtorParams = ctorParamKeys
-                            Args = args
-                            // The base ctor's chosen identity, recorded by
-                            // `Unification.fillBaseCtorCall` under the args expr (an external
-                            // base like `inherit exn(msg)`); `ValueNone` for a project-local base.
-                            ChosenCtor = ctx.Resolution.ExternalCtor.TryGetValue(CstKeys.ofExpr argExpr)
-                        }
-                | _ -> ValueNone
+            let baseCtorCall = tryBaseCtorCall ctx info staticRewrite
 
             Some(
                 mkTypeDecl

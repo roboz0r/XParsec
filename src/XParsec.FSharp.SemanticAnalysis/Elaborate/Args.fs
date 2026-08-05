@@ -5,7 +5,7 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 
 // Argument-peeling and small literal helpers for the Elaborate pass. The `peel*`
 // helpers take the recursive `translateExpr` as a parameter (dependency

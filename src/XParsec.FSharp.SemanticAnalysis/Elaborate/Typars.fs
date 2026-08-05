@@ -163,17 +163,20 @@ module internal ElaborateTypars =
 
     /// The per-member elaborator every host surfacer (union / record / class /
     /// intrinsic-abbrev) folds over its members — they differ only in `selfTy`'s
-    /// head. A monomorphic host (`declTypars` empty) keeps
-    /// `translateNominalMember`'s self-type byte-identical; a generic host remaps
-    /// each member's self-type to declaring-typar roots via `elaborateMember` and
-    /// accumulates the surfaced method markers into the decl's freeze `env`.
+    /// head. Surface a member when the declaring type is generic (declaring axis) *or*
+    /// the member itself is generic (method axis): stamp its self-type and fold its
+    /// method typars into the decl `env`, so `freezeTypars` later flips both axes. A
+    /// generic method on a *monomorphic* host still needs its `'C` cut to
+    /// `TyTypar(Method, i)`, so it can't be skipped. For a mono host with a mono member,
+    /// `selfTy` equals the member's existing `ThisTy`, so leaving it verbatim is
+    /// byte-identical.
     let mkMemberElaborator
         (selfTy: SemType)
         (declTypars: string list)
         (env: ResizeArray<TyVarId * SemType>)
         : TTypeMember -> TTypeMember =
         fun m ->
-            if List.isEmpty declTypars then
+            if List.isEmpty declTypars && m.MethodTypeParams.Length = 0 then
                 m
             else
                 let m, methodMarkers = elaborateMember selfTy m
