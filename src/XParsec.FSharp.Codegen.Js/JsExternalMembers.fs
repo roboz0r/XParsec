@@ -269,18 +269,17 @@ module JsExternalMembers =
             | MemberDispatch.MangledImport -> ValueNone
         | _ -> ValueNone
 
-    /// A METHOD on an `AttachMembers` type extracted as a VALUE (`let f = box.get`):
-    /// eta-wrap so `this` binds at the eventual call — a detached `recv.member`
-    /// loses `this` in JS. The receiver is spilled to a temp unless it is a trivial
-    /// `Var`, so it evaluates exactly once — the spill is `(name, value) voption`,
-    /// so the at-most-one-binding invariant is in the type. An external method is
-    /// tupled, so the escaped value is a one-parameter `arg -> ret`: one wrapper
-    /// param, forwarded per the member's `argSig` arity (`attachedForwardArgs`).
-    let etaWrapAttachedMethod
+    /// An external member escaping as a VALUE, wrapped so it has the shape F# gave it. The
+    /// receiver is spilled to a temp unless it is a trivial `Var`, so it evaluates exactly
+    /// once — the spill is `(name, value) voption`, so the at-most-one-binding invariant is
+    /// in the type. An external member is tupled, so the escaped value is a ONE-parameter
+    /// `arg -> ret` whatever the member's JS arity: that single param is opened to the
+    /// member's positions by `attachedForwardArgs`, and `callee` says what receives them.
+    let private etaWrapMember
         (build: TastAccessor.ExprId -> JsExpr)
         (recv: TastAccessor.ExprId)
-        (key: SymbolKey)
-        (memberName: string)
+        (argCount: int)
+        (callee: JsExpr -> JsExpr list -> JsExpr)
         (pool: PoolBuilder)
         (loc: JsLoc voption)
         : JsExpr =
@@ -294,18 +293,47 @@ module JsExternalMembers =
         let argName = freshTemp pool "_a"
         let argVar = JsExpr.Identifier(argName, ValueNone)
 
-        let call =
-            JsExpr.Call(
-                attachedMember recvJs memberName ValueNone,
-                attachedForwardArgs argVar (memberArgCount key memberName),
-                loc
-            )
-
-        let arrow = JsExpr.Arrow([ argName ], JsFnBody.Expr call, loc)
+        let arrow =
+            JsExpr.Arrow([ argName ], JsFnBody.Expr(callee recvJs (attachedForwardArgs argVar argCount)), loc)
 
         match spill with
         | ValueNone -> arrow
         | ValueSome(name, value) -> JsExpr.Call(JsExpr.Arrow([ name ], JsFnBody.Expr arrow, ValueNone), [ value ], loc)
+
+    /// A METHOD on an `AttachMembers` type extracted as a VALUE (`let f = box.get`):
+    /// eta-wrap so `this` binds at the eventual call — a detached `recv.member` loses
+    /// `this` in JS.
+    let etaWrapAttachedMethod
+        (build: TastAccessor.ExprId -> JsExpr)
+        (recv: TastAccessor.ExprId)
+        (key: SymbolKey)
+        (memberName: string)
+        (pool: PoolBuilder)
+        (loc: JsLoc voption)
+        : JsExpr =
+        etaWrapMember
+            build
+            recv
+            (memberArgCount key memberName)
+            (fun recvJs args -> JsExpr.Call(attachedMember recvJs memberName ValueNone, args, loc))
+            pool
+            loc
+
+    /// A receiver-dispatching member extracted as a VALUE (`let g = f.Invoke`). At ONE
+    /// parameter the receiver already has the escaped value's shape and passes through; the
+    /// flat `Fun` arities are N-POSITIONAL arrows while the escaped member is one TUPLED
+    /// parameter, so they eta-wrap and open that param by index.
+    let etaWrapApplication
+        (build: TastAccessor.ExprId -> JsExpr)
+        (recv: TastAccessor.ExprId)
+        (key: SymbolKey)
+        (memberName: string)
+        (pool: PoolBuilder)
+        (loc: JsLoc voption)
+        : JsExpr =
+        match memberArgCount key memberName with
+        | 1 -> build recv
+        | argCount -> etaWrapMember build recv argCount (fun recvJs args -> JsExpr.Call(recvJs, args, loc)) pool loc
 
     /// ERASE: the declaring type is a synthetic grouping of
     /// overloaded free functions with no runtime existence. Resolve the callee the

@@ -27,6 +27,25 @@ let tests =
     testList
         "Codegen.Js Function Emission"
         [
+            // A `Fun` IS its own callable in JS, so `f.Invoke` unapplied can only pass the
+            // receiver through when the two have the SAME parameter shape. They do at the
+            // curried arity and nowhere above it: an escaped member is one TUPLED parameter,
+            // while a flat `Fun` is an N-positional arrow.
+
+            test "an unapplied curried `Fun.Invoke` is the receiver itself" {
+                Expect.equal
+                    (emitJs "let use1 (f: Fun<int, int>) =\n    let g = f.Invoke\n    g 5\n")
+                    "const use1 = (f) => ((g) => g(5))(f);\n"
+                    "one parameter either way — no wrapper"
+            }
+
+            test "an unapplied flat `Fun.Invoke` eta-wraps its tupled parameter open" {
+                Expect.equal
+                    (emitJs "let use2 (f: Fun<int, int, int>) =\n    let g = f.Invoke\n    g (1, 2)\n")
+                    "const use2 = (f) => ((g) => g([1, 2]))((_a3) => f(_a3[0], _a3[1]));\n"
+                    "the one tupled param opens to the arrow's two positions"
+            }
+
             test "a module function emits one flat multi-arg arrow" {
                 Expect.equal
                     (emitJs "let add x y = x + y")

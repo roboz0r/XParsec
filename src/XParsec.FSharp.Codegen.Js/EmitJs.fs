@@ -403,7 +403,8 @@ module EmitJs =
                         em.MemberName
                 | MemberDispatch.ErasedBare form, ValueNone ->
                     JsExternalMembers.erasedGroupingRef ctx.Provider ctx.Imports declKey em.MemberName form loc
-                | MemberDispatch.Application, ValueSome r -> buildExpr ctx r
+                | MemberDispatch.Application, ValueSome r ->
+                    JsExternalMembers.etaWrapApplication (buildExpr ctx) r em.Key em.MemberName ctx.Pool loc
                 | MemberDispatch.NativeData, ValueSome r ->
                     JsExternalMembers.attachedMember (buildExpr ctx r) em.MemberName loc
                 | MemberDispatch.AttachedMethod, ValueSome r ->
