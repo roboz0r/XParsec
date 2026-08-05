@@ -248,7 +248,7 @@ let vesperListDll: Lazy<string> =
          let lexed, file = parseFile src
 
          let tast =
-             Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText src lexed) file
+             Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
          let artifact = Codegen.compile provider project tast
          Codegen.materialise artifact
@@ -292,10 +292,7 @@ let defaultManifests: string list =
 let analyse (input: string) : TastFile =
     let lexed, file = parseFile input
 
-    Pipeline.analyseSem
-        (ClrSymbolProviders.buildContract defaultManifests)
-        (Hashing.originSourceOfText input lexed)
-        file
+    Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultManifests) (Hashing.originSourceOfText lexed) file
 
 /// `analyse`, keeping the `PassContext`. `Freeze.run` needs it: the binder a residual
 /// typar root belongs to is recorded in `ctx.Bindings.Scheme`, not recoverable from the
@@ -305,7 +302,7 @@ let analyseWithCtx (input: string) : PassContext * TastFile =
 
     Pipeline.analyseSemWithContext
         (ClrSymbolProviders.buildContract defaultManifests)
-        (Hashing.originSourceOfText input lexed)
+        (Hashing.originSourceOfText lexed)
         file
 
 /// The load context the package-build harness (`buildPackage`) loads its own DLLs
@@ -521,7 +518,7 @@ let private compileContract
     // Callers assert on the returned `SemType` tast, but the real
     // `analyse` output is frozen — return the SemType tree, compile the frozen one.
     let ctx, tast =
-        Pipeline.analyseSemWithContextFor project.AssemblyName provider (Hashing.originSourceOfText input lexed) file
+        Pipeline.analyseSemWithContextFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
     let artifact = Codegen.compile provider (withCore project) (Freeze.run ctx tast)
     tast, artifact
@@ -561,7 +558,7 @@ let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: strin
     let lexed, file = parseFile input
 
     let ctx, tast =
-        Pipeline.analyseSemWithContextFor project.AssemblyName provider (Hashing.originSourceOfText input lexed) file
+        Pipeline.analyseSemWithContextFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
     let frozen = Freeze.run ctx tast
     let thawRoundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
@@ -595,7 +592,7 @@ let compileSourceSelfHost (assemblyName: string) (input: string) : ClrArtifact =
     let lexed, file = parseFile input
 
     let tast =
-        Pipeline.analyseForSelfHost project.AssemblyName provider (Hashing.originSourceOfText input lexed) file
+        Pipeline.analyseForSelfHost project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
     Codegen.compile provider (withCore project) tast
 
@@ -886,7 +883,7 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
     let lexed, file = parseFile source
 
     let tast =
-        Pipeline.analyseForSelfHost project.AssemblyName provider (Hashing.originSourceOfText source lexed) file
+        Pipeline.analyseForSelfHost project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
     let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
@@ -953,7 +950,7 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
     let lexed, file = parseFile source
 
     let tast =
-        Pipeline.analyseForSelfHost project.AssemblyName provider (Hashing.originSourceOfText source lexed) file
+        Pipeline.analyseForSelfHost project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
     let errs = tast.Residue.Diagnostics |> Diagnostic.errors
 
@@ -1167,7 +1164,7 @@ let compilePackages (packages: string list) (src: string) : ClrArtifact =
     let lexed, file = parseFile src
 
     let tast =
-        Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText src lexed) file
+        Pipeline.analyseFor project.AssemblyName provider (Hashing.originSourceOfText lexed) file
 
     let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors
 
@@ -1245,7 +1242,7 @@ let private analysePackagesErrors (packages: string list) (src: string) : Diagno
         ClrSymbolProviders.buildContract (allPackages |> List.map srcManifest)
 
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText src lexed) file
+    let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
     tast.Diagnostics |> Diagnostic.errors
 
 /// Analyse `src` against `packages`; assert NO error diagnostics, without running
@@ -1288,7 +1285,7 @@ let runsOptionLines (expected: string list) (src: string) : unit =
 let private analyseErrors (src: string) : Diagnostic list =
     let provider = ClrSymbolProviders.buildContract defaultManifests
     let lexed, file = parseFile src
-    let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText src lexed) file
+    let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
     tast.Diagnostics |> Diagnostic.errors
 
 /// Analyse `src`; assert it produced an error diagnostic whose message contains

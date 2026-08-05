@@ -27,5 +27,5 @@ type ParsingBenchmarks() =
 
     [<Benchmark>]
     member _.XParsec() =
-        let reader = Reader.ofLexed lexed source Set.empty
+        let reader = Reader.ofLexed lexed Set.empty
         FSharpAst.parse reader

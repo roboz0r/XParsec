@@ -9,7 +9,7 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
 
     let ctx, _ =
-        Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
+        Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
 
     ctx, file
 

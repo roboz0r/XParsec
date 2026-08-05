@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText input lexed)
+    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     ctx
@@ -277,7 +277,7 @@ let tests =
                 // that's stored in TypeParams.
                 let input = "type Box<'a> = { Value: 'a }"
                 let lexed, file = parseFile input
-                let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText input lexed)
+                let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
@@ -317,8 +317,7 @@ let tests =
                 // "Free type parameter" diagnostic.
                 let lexed, file = parseFile "type Bad = { X: 'a }"
 
-                let ctx =
-                    PassContext(realProvider.Value, Hashing.originSourceOfText "type Bad = { X: 'a }" lexed)
+                let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
 
                 Desugar.run ctx file
                 NameResolution.run ctx file
@@ -647,7 +646,7 @@ let tests =
                     "type Choice<'a, 'b> = | C1 of 'a | C2 of 'b\nlet f (x: Choice<int, string>) = x"
 
                 let lexed, file = parseFile input
-                let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText input lexed)
+                let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file

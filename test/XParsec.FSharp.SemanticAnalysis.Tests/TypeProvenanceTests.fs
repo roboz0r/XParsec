@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
+    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
 
 /// The trailing `let`'s binder NodeKey (its declared/inferred query target).
 let private lastBinderKey (tast: TastFile) : NodeKey =

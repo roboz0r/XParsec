@@ -88,7 +88,7 @@ module ClrDriver =
                 Pipeline.analyseFor
                     inputs.Project.AssemblyName
                     provider
-                    (Hashing.originSourceOfText parsed.Input parsed.Lexed)
+                    (Hashing.originSourceOfText parsed.Lexed)
                     parsed.File
 
             match blockingErrors tast with
@@ -165,7 +165,7 @@ module ClrDriver =
                         Pipeline.analyseFor
                             inputs.Project.AssemblyName
                             provider
-                            (Hashing.originSource path parsed.Input parsed.Lexed)
+                            (Hashing.originSource path parsed.Lexed)
                             parsed.File
 
                     match blockingErrors tast with

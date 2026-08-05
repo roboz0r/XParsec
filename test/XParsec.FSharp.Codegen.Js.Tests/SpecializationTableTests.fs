@@ -38,7 +38,7 @@ type private Analysed =
 /// where the table would otherwise be flattened away and discarded.
 let private expandedWith (provider: IExternalSymbolProvider) (input: string) : Analysed =
     let lexed, file = parseFile input
-    let ctx = PassContext(provider, Hashing.originSourceOfText input lexed)
+    let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
@@ -88,7 +88,7 @@ let private heapSharedCount (input: string) (walkTable: bool) : int =
 /// a test naming it cannot drift from what the pass was handed.
 let private compilingOrigin (input: string) : OriginFile =
     let lexed, _ = parseFile input
-    (Hashing.originSourceOfText input lexed).File
+    (Hashing.originSourceOfText lexed).File
 
 /// The recursive-inline verdicts among `ds`, as the binding each closes on and the way round.
 let private cyclicInlines (ds: Diagnostic list) : (string * string list) list =

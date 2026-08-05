@@ -14,7 +14,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// names the element and `prefixes` is the `OpenScope.Prefixes` active there.
 let private walk (input: string) : (string * string list) list =
     let lexed, file = parseFile input
-    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText input lexed)
+    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
 
     let label (e: ModuleElem<SyntaxToken>) : string =
         match e with

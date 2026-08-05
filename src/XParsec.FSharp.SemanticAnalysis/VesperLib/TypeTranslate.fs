@@ -17,33 +17,32 @@ open VesperLibTyparCapture
 /// `ConstraintCollector` (for inline `when …` clauses).
 module VesperLibTypeTranslate =
 
-    let nameOfTok (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
+    let nameOfTok (lexed: Lexed) (tok: SyntaxToken) : string =
         match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenString(iT, input)
+        | TokenIndex.Regular iT -> lexed.GetTokenString(iT)
         | TokenIndex.Virtual -> ""
 
-    let longIdentName (lexed: Lexed) (input: string) (li: LongIdent<SyntaxToken>) : string =
-        let parts =
-            [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed input li.Idents.[i] ]
+    let longIdentName (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =
+        let parts = [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed li.Idents.[i] ]
 
         String.concat "." parts
 
-    let longIdentShortName (lexed: Lexed) (input: string) (li: LongIdent<SyntaxToken>) : string =
+    let longIdentShortName (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =
         if li.Idents.Length = 0 then
             ""
         else
-            nameOfTok lexed input li.Idents.[li.Idents.Length - 1]
+            nameOfTok lexed li.Idents.[li.Idents.Length - 1]
 
-    let identOrOpName (lexed: Lexed) (input: string) (io: IdentOrOp<SyntaxToken>) : string voption =
+    let identOrOpName (lexed: Lexed) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
-        | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed input tok)
+        | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed tok)
         // `(::)` is a binding head only the contract surface needs to name (cons
         // has no `op_` member in expression position — see `OperatorNames.ofToken`),
         // so it is mapped here before delegating to the shared resolver.
         | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) when opTok.Token = Token.KWColonColon ->
             ValueSome OperatorData.OpColonColon
         | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) ->
-            OperatorNames.ofParenSymbolic (nameOfTok lexed input opTok) opTok
+            OperatorNames.ofParenSymbolic (nameOfTok lexed opTok) opTok
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome OperatorData.OpRange
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome OperatorData.OpRangeStep
         | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome OperatorData.OpNil
@@ -55,7 +54,6 @@ module VesperLibTypeTranslate =
     /// ignoring the optional `Attribute` suffix.
     let findAttribute
         (lexed: Lexed)
-        (input: string)
         (attrs: Attributes<SyntaxToken> voption)
         (candidates: string list)
         : ObjectConstruction<SyntaxToken> voption =
@@ -90,8 +88,8 @@ module VesperLibTypeTranslate =
 
                             let attrName =
                                 match typ with
-                                | Type.NamedType li -> longIdentShortName lexed input li
-                                | Type.GenericType(li, _, _, _, _) -> longIdentShortName lexed input li
+                                | Type.NamedType li -> longIdentShortName lexed li
+                                | Type.GenericType(li, _, _, _, _) -> longIdentShortName lexed li
                                 | _ -> ""
 
                             if matchName attrName then
@@ -109,16 +107,15 @@ module VesperLibTypeTranslate =
     /// interpolated strings in practice).
     let stringExprText
         (lexed: Lexed)
-        (input: string)
         (parts: System.Collections.Immutable.ImmutableArray<StringPart<SyntaxToken>>)
         : string =
         let sb = System.Text.StringBuilder()
 
         for i in 0 .. parts.Length - 1 do
             match parts.[i] with
-            | StringPart.Text tok -> sb.Append(nameOfTok lexed input tok) |> ignore
+            | StringPart.Text tok -> sb.Append(nameOfTok lexed tok) |> ignore
             | StringPart.EscapeSequence tok ->
-                let raw = nameOfTok lexed input tok
+                let raw = nameOfTok lexed tok
                 // Preserve source-level text; full escape decoding is the
                 // lexer's job and unneeded for attribute args.
                 sb.Append raw |> ignore
@@ -126,8 +123,8 @@ module VesperLibTypeTranslate =
 
         sb.ToString()
 
-    let tryCompiledName (lexed: Lexed) (input: string) (attrs: Attributes<SyntaxToken> voption) : string voption =
-        match findAttribute lexed input attrs [ "CompiledName" ] with
+    let tryCompiledName (lexed: Lexed) (attrs: Attributes<SyntaxToken> voption) : string voption =
+        match findAttribute lexed attrs [ "CompiledName" ] with
         | ValueNone -> ValueNone
         | ValueSome oc ->
             match constructionExpr oc with
@@ -142,17 +139,17 @@ module VesperLibTypeTranslate =
 
                 match stripParens argExpr with
                 | Expr.String(_, parts, _) ->
-                    let s = stringExprText lexed input parts
+                    let s = stringExprText lexed parts
                     if s.Length > 0 then ValueSome s else ValueNone
                 | Expr.Const(Constant.Literal tok) ->
-                    let raw = nameOfTok lexed input tok
+                    let raw = nameOfTok lexed tok
                     let trimmed = raw.Trim([| '"' |])
                     if trimmed.Length > 0 then ValueSome trimmed else ValueNone
                 | _ -> ValueNone
 
     /// True iff the module-level attributes carry `[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]`.
-    let hasModuleSuffix (lexed: Lexed) (input: string) (attrs: Attributes<SyntaxToken> voption) : bool =
-        match findAttribute lexed input attrs [ "CompilationRepresentation" ] with
+    let hasModuleSuffix (lexed: Lexed) (attrs: Attributes<SyntaxToken> voption) : bool =
+        match findAttribute lexed attrs [ "CompilationRepresentation" ] with
         | ValueNone -> false
         | ValueSome oc ->
             match constructionExpr oc with
@@ -164,10 +161,10 @@ module VesperLibTypeTranslate =
                     match e with
                     | Expr.EnclosedBlock(_, inner, _) -> containsModuleSuffix inner
                     | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
-                        let name = longIdentShortName lexed input li
+                        let name = longIdentShortName lexed li
                         name = "ModuleSuffix"
                     | Expr.DotLookup(_, _, LongIdentOrOp.LongIdent li) ->
-                        let name = longIdentShortName lexed input li
+                        let name = longIdentShortName lexed li
                         name = "ModuleSuffix"
                     | _ -> false
 
@@ -176,17 +173,16 @@ module VesperLibTypeTranslate =
     /// True iff the module-level attributes carry `[<AutoOpen>]` — the module's
     /// members are in scope unqualified for a consumer of the package. Recorded
     /// as an ambient open prefix.
-    let isAutoOpen (lexed: Lexed) (input: string) (attrs: Attributes<SyntaxToken> voption) : bool =
-        findAttribute lexed input attrs [ "AutoOpen" ] |> ValueOption.isSome
+    let isAutoOpen (lexed: Lexed) (attrs: Attributes<SyntaxToken> voption) : bool =
+        findAttribute lexed attrs [ "AutoOpen" ] |> ValueOption.isSome
 
     /// True iff the type-level attributes carry `[<RequireQualifiedAccess>]` — the
     /// union's cases (and a module's members) are NOT in scope unqualified, so a
     /// bare `Red` for `[<RequireQualifiedAccess>] type Color = Red | …` must NOT
     /// resolve (F# forbids the short form). Drives the resolution-side suppression
     /// of bare RQA case names.
-    let isRequireQualifiedAccess (lexed: Lexed) (input: string) (attrs: Attributes<SyntaxToken> voption) : bool =
-        findAttribute lexed input attrs [ "RequireQualifiedAccess" ]
-        |> ValueOption.isSome
+    let isRequireQualifiedAccess (lexed: Lexed) (attrs: Attributes<SyntaxToken> voption) : bool =
+        findAttribute lexed attrs [ "RequireQualifiedAccess" ] |> ValueOption.isSome
 
     /// Resolve a long-identifier type name against `ctx.Types`, using the
     /// per-file open prefixes (newest first) as candidate qualifiers when
@@ -314,10 +310,10 @@ module VesperLibTypeTranslate =
     /// Source-text name of a typar (the part after `'` or `^`), or
     /// `ValueNone` for anonymous typars (whose constraint participation
     /// can't be addressed by name later).
-    let typarName (lexed: Lexed) (input: string) (t: Typar<SyntaxToken>) : string voption =
+    let typarName (lexed: Lexed) (t: Typar<SyntaxToken>) : string voption =
         match t with
         | Typar.Named(_, identTok)
-        | Typar.Static(_, identTok) -> ValueSome(nameOfTok lexed input identTok)
+        | Typar.Static(_, identTok) -> ValueSome(nameOfTok lexed identTok)
         | Typar.Anon _ -> ValueNone
 
     /// Walk a `when …` clause and emit `RawConstraint` entries into the
@@ -325,49 +321,44 @@ module VesperLibTypeTranslate =
     /// through directly; SRTP member traits and defaults are captured as
     /// opaque markers for Phase 5b. Unsupported constraint shapes
     /// (`Coercion`, `Enum`, …) silently drop in v1.
-    let captureConstraints
-        (lexed: Lexed)
-        (input: string)
-        (acc: ConstraintCollector)
-        (clauses: TyparConstraints<SyntaxToken>)
-        : unit =
+    let captureConstraints (lexed: Lexed) (acc: ConstraintCollector) (clauses: TyparConstraints<SyntaxToken>) : unit =
         for c in clauses.Constraints do
             match c with
             | Constraint.Equality(t, _, _) ->
-                match typarName lexed input t with
+                match typarName lexed t with
                 | ValueSome n -> acc.Add(RawConstraint.Trait(n, SemanticConstraintKind.Equality))
                 | ValueNone -> ()
             | Constraint.Comparison(t, _, _) ->
-                match typarName lexed input t with
+                match typarName lexed t with
                 | ValueSome n -> acc.Add(RawConstraint.Trait(n, SemanticConstraintKind.Comparison))
                 | ValueNone -> ()
             | Constraint.Struct(t, _, _) ->
-                match typarName lexed input t with
+                match typarName lexed t with
                 | ValueSome n -> acc.Add(RawConstraint.Trait(n, SemanticConstraintKind.Struct))
                 | ValueNone -> ()
             | Constraint.ReferenceType(t, _, _, _) ->
-                match typarName lexed input t with
+                match typarName lexed t with
                 | ValueSome n -> acc.Add(RawConstraint.Trait(n, SemanticConstraintKind.ReferenceType))
                 | ValueNone -> ()
             | Constraint.Nullness(t, _, _) ->
-                match typarName lexed input t with
+                match typarName lexed t with
                 | ValueSome n -> acc.Add(RawConstraint.Trait(n, SemanticConstraintKind.Nullness))
                 | ValueNone -> ()
             | Constraint.NotNull(t, _, _, _) ->
-                match typarName lexed input t with
+                match typarName lexed t with
                 | ValueSome n -> acc.Add(RawConstraint.Trait(n, SemanticConstraintKind.NotNull))
                 | ValueNone -> ()
             | Constraint.MemberTrait(staticTypars, _, _, _, _, memberSig, _) ->
                 let names =
                     match staticTypars with
                     | StaticTypars.Single t ->
-                        match typarName lexed input t with
+                        match typarName lexed t with
                         | ValueSome n -> [ n ]
                         | ValueNone -> []
                     | StaticTypars.OrList(_, items, _, _) ->
                         [
                             for k in 0 .. items.Length - 1 do
-                                match typarName lexed input items.[k] with
+                                match typarName lexed items.[k] with
                                 | ValueSome n -> yield n
                                 | ValueNone -> ()
                         ]
@@ -384,7 +375,7 @@ module VesperLibTypeTranslate =
                     match sign with
                     | ValueNone -> ()
                     | ValueSome(ident, CurriedSig(args, retTy)) ->
-                        match identOrOpName lexed input ident with
+                        match identOrOpName lexed ident with
                         | ValueNone -> ()
                         | ValueSome mName ->
                             // F# trait sigs are tupled by convention
@@ -402,11 +393,11 @@ module VesperLibTypeTranslate =
 
                             acc.Add(RawConstraint.MemberTrait(names, mName, argTys, retTy))
             | Constraint.Default(_, t, _, target) ->
-                match typarName lexed input t with
+                match typarName lexed t with
                 | ValueSome n -> acc.Add(RawConstraint.Default(n, target))
                 | ValueNone -> ()
             | Constraint.Coercion(typar = t; typ = target) ->
-                match typarName lexed input t with
+                match typarName lexed t with
                 | ValueSome n -> acc.Add(RawConstraint.Coercion(n, target))
                 | ValueNone -> ()
             | Constraint.DefaultConstructor _
@@ -528,20 +519,19 @@ module VesperLibTypeTranslate =
     let rec translateType
         (ctx: ExtractCtx)
         (lexed: Lexed)
-        (input: string)
         (opens: string list)
         (typars: TyparCollector)
         (constraints: ConstraintCollector)
         (typ: Type<SyntaxToken>)
         : Result<FrozenType, string> =
         match typ with
-        | Type.ParenType(_, inner, _) -> translateType ctx lexed input opens typars constraints inner
+        | Type.ParenType(_, inner, _) -> translateType ctx lexed opens typars constraints inner
 
         | Type.FunctionType(a, _, b) ->
-            match translateType ctx lexed input opens typars constraints a with
+            match translateType ctx lexed opens typars constraints a with
             | Error e -> Error e
             | Ok fa ->
-                match translateType ctx lexed input opens typars constraints b with
+                match translateType ctx lexed opens typars constraints b with
                 | Error e -> Error e
                 | Ok fb -> Ok(FTFun(fa, fb))
 
@@ -552,7 +542,7 @@ module VesperLibTypeTranslate =
 
             for i in 0 .. parts.Length - 1 do
                 if err.IsNone then
-                    match translateType ctx lexed input opens typars constraints parts.[i] with
+                    match translateType ctx lexed opens typars constraints parts.[i] with
                     | Error e -> err <- Some e
                     | Ok b -> items.Add b
 
@@ -561,12 +551,12 @@ module VesperLibTypeTranslate =
             | None -> Ok(FTTuple(EqArray.ofResizeArray items))
 
         | Type.VarType(Typar.Named(_, identTok)) ->
-            let name = nameOfTok lexed input identTok
+            let name = nameOfTok lexed identTok
             let idx = typars.IndexOf(name, TyparKind.Regular)
             Ok(FTTypar(TyparAxis.Declaring, idx))
 
         | Type.VarType(Typar.Static(_, identTok)) ->
-            let name = nameOfTok lexed input identTok
+            let name = nameOfTok lexed identTok
             let idx = typars.IndexOf(name, TyparKind.Static)
             Ok(FTTypar(TyparAxis.Declaring, idx))
 
@@ -577,7 +567,7 @@ module VesperLibTypeTranslate =
             Ok(FTTypar(TyparAxis.Declaring, idx))
 
         | Type.NamedType li ->
-            let name = longIdentName lexed input li
+            let name = longIdentName lexed li
 
             if isPrimitiveName name then
                 match dealiasPrimitiveAbbrev ctx opens name with
@@ -591,7 +581,7 @@ module VesperLibTypeTranslate =
                 | Ok compiled -> Ok(mkNominal ctx compiled EqArray.empty)
 
         | Type.GenericType(li, _, args, _, _) ->
-            let name = longIdentName lexed input li
+            let name = longIdentName lexed li
             let mutable err = None
             let items = ResizeArray<FrozenType>(args.Length)
 
@@ -599,7 +589,7 @@ module VesperLibTypeTranslate =
                 if err.IsNone then
                     match args.[i] with
                     | TypeArg.Type t ->
-                        match translateType ctx lexed input opens typars constraints t with
+                        match translateType ctx lexed opens typars constraints t with
                         | Error e -> err <- Some e
                         | Ok b -> items.Add b
                     | TypeArg.Measure _ -> err <- Some "Measure arg not supported"
@@ -613,9 +603,9 @@ module VesperLibTypeTranslate =
 
         | Type.SuffixedType(baseTy, li) ->
             // `'T list` ≡ `List<'T>`.
-            let name = longIdentName lexed input li
+            let name = longIdentName lexed li
 
-            match translateType ctx lexed input opens typars constraints baseTy with
+            match translateType ctx lexed opens typars constraints baseTy with
             | Error e -> Error e
             | Ok fb ->
                 // `'T array` is the rank-1 array intrinsic — the postfix-keyword
@@ -633,18 +623,18 @@ module VesperLibTypeTranslate =
             // rank = commas + 1; key by `array<rank>` so unification stays simple.
             let rank = commas.Length + 1
 
-            match translateType ctx lexed input opens typars constraints baseTy with
+            match translateType ctx lexed opens typars constraints baseTy with
             | Error e -> Error e
             | Ok fb -> Ok(FTConst(RuntimeNames.arrayKey rank, EqArray.singleton fb))
 
         | Type.WhenConstrainedType(inner, clauses) ->
-            captureConstraints lexed input constraints clauses
-            translateType ctx lexed input opens typars constraints inner
+            captureConstraints lexed constraints clauses
+            translateType ctx lexed opens typars constraints inner
 
         | Type.SubtypeConstraint(_, _, inner)
-        | Type.AnonymousSubtype(_, inner) -> translateType ctx lexed input opens typars constraints inner
+        | Type.AnonymousSubtype(_, inner) -> translateType ctx lexed opens typars constraints inner
 
-        | Type.DottedType(baseTy, _, _) -> translateType ctx lexed input opens typars constraints baseTy
+        | Type.DottedType(baseTy, _, _) -> translateType ctx lexed opens typars constraints baseTy
 
         | Type.UnionType(left, _, right) ->
             // A nullable reference type `T | null` (F# nullable refs, e.g.
@@ -656,7 +646,7 @@ module VesperLibTypeTranslate =
             // (not `… | null`) is genuinely unrepresentable.
             match right with
             | Type.Null _ ->
-                match translateType ctx lexed input opens typars constraints left with
+                match translateType ctx lexed opens typars constraints left with
                 | Error e -> Error e
                 | Ok fl -> Ok(FrozenType.MkUnion [ fl; FTConst(RuntimeNames.nullKey, EqArray.empty) ])
             | _ -> Error "Union types (e.g. `obj | null`) not supported"
@@ -672,7 +662,6 @@ module VesperLibTypeTranslate =
     let translateArgsSpec
         (ctx: ExtractCtx)
         (lexed: Lexed)
-        (input: string)
         (opens: string list)
         (typars: TyparCollector)
         (constraints: ConstraintCollector)
@@ -684,7 +673,7 @@ module VesperLibTypeTranslate =
             Ok(FTConst(RuntimeNames.unitKey, EqArray.empty))
         elif args.Length = 1 then
             let (ArgSpec(_, _, t)) = args.[0]
-            translateType ctx lexed input opens typars constraints t
+            translateType ctx lexed opens typars constraints t
         else
             let mutable err = None
             let items = ResizeArray<FrozenType>(args.Length)
@@ -693,7 +682,7 @@ module VesperLibTypeTranslate =
                 if err.IsNone then
                     let (ArgSpec(_, _, t)) = args.[i]
 
-                    match translateType ctx lexed input opens typars constraints t with
+                    match translateType ctx lexed opens typars constraints t with
                     | Error e -> err <- Some e
                     | Ok b -> items.Add b
 
@@ -708,7 +697,6 @@ module VesperLibTypeTranslate =
     let translateCurriedSig
         (ctx: ExtractCtx)
         (lexed: Lexed)
-        (input: string)
         (opens: string list)
         (typars: TyparCollector)
         (constraints: ConstraintCollector)
@@ -732,14 +720,14 @@ module VesperLibTypeTranslate =
             if err.IsNone then
                 let (struct (argsSpec, _)) = args.[i]
 
-                match translateArgsSpec ctx lexed input opens typars constraints argsSpec with
+                match translateArgsSpec ctx lexed opens typars constraints argsSpec with
                 | Error e -> err <- Some e
                 | Ok b -> argFs.Add b
 
         match err with
         | Some e -> Error e
         | None ->
-            match translateType ctx lexed input opens typars constraints retTy with
+            match translateType ctx lexed opens typars constraints retTy with
             | Error e -> Error e
             | Ok retF ->
                 let mutable acc = retF
@@ -749,12 +737,7 @@ module VesperLibTypeTranslate =
 
                 Ok acc
 
-    let registerExplicitTypars
-        (lexed: Lexed)
-        (input: string)
-        (typars: TyparCollector)
-        (defns: TyparDefns<SyntaxToken> voption)
-        : unit =
+    let registerExplicitTypars (lexed: Lexed) (typars: TyparCollector) (defns: TyparDefns<SyntaxToken> voption) : unit =
         match defns with
         | ValueNone -> ()
         | ValueSome(TyparDefns(_, items, _, _)) ->
@@ -763,9 +746,9 @@ module VesperLibTypeTranslate =
 
                 match typar with
                 | Typar.Named(_, identTok) ->
-                    let name = nameOfTok lexed input identTok
+                    let name = nameOfTok lexed identTok
                     typars.IndexOf(name, TyparKind.Regular) |> ignore
                 | Typar.Static(_, identTok) ->
-                    let name = nameOfTok lexed input identTok
+                    let name = nameOfTok lexed identTok
                     typars.IndexOf(name, TyparKind.Static) |> ignore
                 | Typar.Anon _ -> ()

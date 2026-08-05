@@ -10,29 +10,26 @@ module Pipeline =
     // that type's declaration for why the bare name would otherwise be the parser's.
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
-    /// A parsed file: the token stream and tree every pass runs on, the diagnostics
-    /// RECOVERY raised producing them, and the text those offsets index. A file can parse to
-    /// a COMPLETE tree and still have had every delimiter in it inserted and every missing
-    /// expression stubbed, so a successful parse carries diagnostics as routinely as a
-    /// failed one.
+    /// A parsed file: the token stream and tree every pass runs on, and the diagnostics
+    /// RECOVERY raised producing them. A file can parse to a COMPLETE tree and still have
+    /// had every delimiter in it inserted and every missing expression stubbed, so a
+    /// successful parse carries diagnostics as routinely as a failed one.
+    ///
+    /// The text is not a field: `Lexed` carries the string its offsets index, so a consumer
+    /// retaining this file cannot retain a different one.
     type ParsedFile =
         {
-            /// The text `Lexed`'s offsets index, VERBATIM as the parse was handed it — nothing
-            /// rewrites a user's source. A retention reads it from here rather than keeping its
-            /// own copy of the string it passed in.
-            Input: string
             Lexed: Lexed
             File: ImplementationFile<SyntaxToken>
             Diagnostics: Diagnostic list
         }
 
     /// A file no tree came out of. `Lexed` is present whenever LEXING succeeded, so the
-    /// recovery diagnostics raised before the parser gave up still have the token stream
-    /// their positions resolve against; only a lex failure has none. `Input` rides on both
-    /// arms for the same reason it rides on `ParsedFile`.
+    /// recovery diagnostics raised before the parser gave up still have the token stream —
+    /// and the text — their positions resolve against; only a lex failure has none, and a
+    /// whole-file lex failure names no place in the file anyway.
     type ParseFailure =
         {
-            Input: string
             Lexed: Lexed voption
             Diagnostics: Diagnostic list
         }
@@ -84,18 +81,16 @@ module Pipeline =
         | Result.Error e ->
             Error
                 {
-                    Input = source
                     Lexed = ValueNone
                     // A whole-file lex failure names no place in the file.
                     Diagnostics = [ Diagnostic.nowhere (Kind.LexFailure(sprintf "%A" e)) ]
                 }
         | Result.Ok lexed ->
-            let reader = Reader.ofLexed lexed source Set.empty
+            let reader = Reader.ofLexed lexed Set.empty
 
             let failed (kind: Kind) =
                 Error
                     {
-                        Input = source
                         Lexed = ValueSome lexed
                         Diagnostics = Diagnostic.nowhere kind :: ofParseDiagnostics reader.State.Diagnostics
                     }
@@ -103,7 +98,6 @@ module Pipeline =
             let parsed (file: ImplementationFile<SyntaxToken>) =
                 Ok
                     {
-                        Input = source
                         Lexed = lexed
                         File = file
                         Diagnostics = ofParseDiagnostics reader.State.Diagnostics

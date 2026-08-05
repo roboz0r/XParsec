@@ -148,7 +148,7 @@ module Parsing =
             | ValueSome token when isTriviaToken state token -> reader.Skip()
             | ValueSome token ->
                 let tIdx = tokenIndex reader
-                let text = lexed.GetTokenString(tIdx, state.Input)
+                let text = lexed.GetTokenString(tIdx)
                 reader.Skip()
 
                 match token.Token with
@@ -170,7 +170,7 @@ module Parsing =
                         match reader.Peek() with
                         | ValueSome fragToken when fragToken.Token = Token.StringFragment ->
                             let fragIdx = tokenIndex reader
-                            let fragText = lexed.GetTokenString(fragIdx, state.Input)
+                            let fragText = lexed.GetTokenString(fragIdx)
                             reader.Skip()
 
                             match System.Int32.TryParse(fragText) with
@@ -579,7 +579,7 @@ module Parsing =
                         ParseState.ifTrace state (fun t -> t.SplitRAttrBracketConsumed(token.StartIndex))
                         PositionedToken.Create(Token.KWRBracket, token.StartIndex + 1)
                     elif state.SplitPowerMinus then
-                        let span = state.Lexed.GetTokenSpan(reader.Index * 1<token>, state.Input)
+                        let span = state.Lexed.GetTokenSpan(reader.Index * 1<token>)
 
                         if span.Length >= 2 && span.[0] = '^' && span.[1] = '-' then
                             ParseState.ifTrace state (fun t -> t.SplitPowerMinusConsumed(token.StartIndex))
@@ -593,7 +593,7 @@ module Parsing =
                         // `;`, `)`) work after a generic instantiation.
                         // `reprocessedOperatorAfterTypeParams` handles the operator case
                         // (`>>`, `>=`, etc.) before this code path is reached.
-                        let span = state.Lexed.GetTokenSpan(reader.Index * 1<token>, state.Input)
+                        let span = state.Lexed.GetTokenSpan(reader.Index * 1<token>)
                         let charsConsumed = state.CharsConsumedAfterTypeParams
 
                         if span.Length > charsConsumed then
@@ -1458,7 +1458,7 @@ module Parsing =
 
                     match t.Index with
                     | TokenIndex.Regular iT ->
-                        let opSpan = state.Lexed.GetTokenSpan(iT, state.Input)
+                        let opSpan = state.Lexed.GetTokenSpan(iT)
                         let residual = opSpan.Slice(charsConsumed)
                         let residualTok = Lexing.classifyOpSpan residual
 

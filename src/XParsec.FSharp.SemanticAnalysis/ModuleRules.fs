@@ -9,7 +9,7 @@ open XParsec.FSharp.Parser
 /// key mint does. Narrowing the rule's inputs to this record is what lets one
 /// implementation serve both readers.
 ///
-///   * `Lexed` / `Input` — the source text the module's attributes are read out of.
+///   * `Lexed` — the tokens and text the module's attributes are read out of.
 ///   * `IsNominalTypeName` — does THIS file declare a record / union / class
 ///     by that short name? A live predicate, not a snapshot: each reader answers it from
 ///     its own name table.
@@ -17,7 +17,6 @@ open XParsec.FSharp.Parser
 type ModuleNaming =
     {
         Lexed: Lexed
-        Input: string
         IsNominalTypeName: string -> bool
     }
 
@@ -43,10 +42,7 @@ module ModuleRules =
     /// `ModuleDefn`, a signature `ModuleSignature`, and the trailing segment of a
     /// `module A.B.C` signature header. All three must name the holder class the same way.
     let holderNameOf (r: ModuleNaming) (attrs: Attributes<SyntaxToken> voption) (name: string) : string =
-        if
-            r.IsNominalTypeName name
-            || VesperLibTypeTranslate.hasModuleSuffix r.Lexed r.Input attrs
-        then
+        if r.IsNominalTypeName name || VesperLibTypeTranslate.hasModuleSuffix r.Lexed attrs then
             name + "Module"
         else
             name
@@ -54,7 +50,7 @@ module ModuleRules =
     /// `holderNameOf` over an implementation file's module header.
     let holderName (r: ModuleNaming) (md: ModuleDefn<SyntaxToken>) : string =
         let (ModuleDefn.ModuleDefn(attributes = attrs; ident = ident)) = md
-        holderNameOf r attrs (VesperLibTypeTranslate.nameOfTok r.Lexed r.Input ident)
+        holderNameOf r attrs (VesperLibTypeTranslate.nameOfTok r.Lexed ident)
 
     /// Every scope `c` sits in, OUTERMOST first — the declaring namespace, then each
     /// enclosing `module` — each paired with the dotted SOURCE path a local `open` names it
@@ -76,7 +72,7 @@ module ModuleRules =
 
         for md in c.Modules do
             let (ModuleDefn.ModuleDefn(ident = ident)) = md
-            let src = VesperLibTypeTranslate.nameOfTok r.Lexed r.Input ident
+            let src = VesperLibTypeTranslate.nameOfTok r.Lexed ident
             holder <- ModuleHolder.InModule(SymbolKeyOps.moduleKeyOf holder (holderName r md))
             path <- if path.Length = 0 then src else path + "." + src
             scopes.Add(path, holder)

@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
 /// `Inline.inlineExpand`'s trait-call resolution point needs a `PassContext` to mint a
 /// dispatched operator's total key. These direct-expansion tests are all primitive-`int`
@@ -19,7 +19,7 @@ let private analyse (input: string) =
 /// local type or provider member is consulted.
 let private ctx0: PassContext =
     let lexed, _ = parseFile "module M"
-    PassContext(realProvider.Value, Hashing.originSourceOfText "module M" lexed)
+    PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
 
 let private firstDecl (input: string) : TDecl =
     let tast = analyse input
@@ -53,7 +53,7 @@ let private declType (tast: TastFile) : SemType =
 let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
-    let source = Hashing.originSourceOfText input lexed
+    let source = Hashing.originSourceOfText lexed
     // The vocabulary is a pool root array; `declTree` unpools a template to the DU form the
     // cross-file wire (and `InlineThaw`) speaks — the very path a provider serves it through.
     let pools = Pipeline.analyse realProvider.Value source file
@@ -93,7 +93,6 @@ let private retainedSource (input: string) : OriginSource =
             BucketName = "Producer"
             Relative = "sq.fs"
         }
-        input
         lexed
 
 /// Every position a decl carries, in `TastConvert`'s own traversal order — the total walk of
@@ -147,7 +146,7 @@ let private publishedTemplate () : Wire.TDecl =
     let lexed, file = parseFile producerSrc
 
     let pools =
-        Pipeline.analyse realProvider.Value (Hashing.originSourceOfText producerSrc lexed) file
+        Pipeline.analyse realProvider.Value (Hashing.originSourceOfText lexed) file
 
     let pool = TastPoolBuilder.openOver pools
 
@@ -530,7 +529,7 @@ let tests =
                     "namespace Ns\n\nmodule M =\n    let k = 3\n    let inline addK x = x + k\n"
 
                 let lexed, file = parseFile input
-                let source = Hashing.originSourceOfText input lexed
+                let source = Hashing.originSourceOfText lexed
                 let sem = Pipeline.analyseSem realProvider.Value source file
                 let pools = Pipeline.analyse realProvider.Value source file
                 let pool = TastPoolBuilder.openOver pools
@@ -593,7 +592,7 @@ let tests =
                 // identity to name.
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
                 let lexed, file = parseFile input
-                let source = Hashing.originSourceOfText input lexed
+                let source = Hashing.originSourceOfText lexed
                 let sem = Pipeline.analyseSem realProvider.Value source file
                 let _, pools = Pipeline.analyseWithContext realProvider.Value source file
                 let frozen = TastUnpool.ofPools pools
@@ -653,7 +652,7 @@ let tests =
                 let lexed, file = parseFile input
 
                 let _, pools =
-                    Pipeline.analyseWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
+                    Pipeline.analyseWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
 
                 let frozen = TastUnpool.ofPools pools
 

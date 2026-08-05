@@ -231,7 +231,7 @@ let private checkBinderSpellings (src: string) (pools: FrozenPools) : int =
             written <- written + 1
 
             Expect.equal
-                (lexed.GetIdentifier(t, src))
+                (lexed.GetIdentifier(t))
                 name
                 (sprintf "binder %d's name is the identifier at its own anchor" i)
 

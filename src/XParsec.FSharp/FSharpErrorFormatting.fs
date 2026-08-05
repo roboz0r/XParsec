@@ -8,7 +8,7 @@ open XParsec.FSharp.Lexer
 
 let formatTokenError (error: ParseError<PositionedToken, ParseState>) =
     let state = error.Position.State
-    let input = state.Input
+    let input = state.Lexed.Input
     let tokens = state.Lexed.Tokens
 
     // 1. Map the token index to the character index in the original string

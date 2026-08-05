@@ -607,7 +607,7 @@ let interfaceImplTests =
                 let lexed, file = parseFile src
 
                 let _, tast =
-                    Pipeline.analyseSemWithContext provider (Hashing.originSourceOfText src lexed) file
+                    Pipeline.analyseSemWithContext provider (Hashing.originSourceOfText lexed) file
 
                 tast.Diagnostics |> Diagnostic.errors
 

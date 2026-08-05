@@ -281,7 +281,7 @@ module M =
                     match Lexing.lexString sigSrc with
                     | Result.Error e -> failtestf "lex failed: %A" e
                     | Result.Ok lexed ->
-                        let reader = Reader.ofLexed lexed sigSrc Set.empty
+                        let reader = Reader.ofLexed lexed Set.empty
 
                         match FSharpAst.parseSignature reader with
                         | Result.Error e -> failtestf "parse failed: %A" e
@@ -294,7 +294,6 @@ module M =
                                 Path = { BucketName = "P"; Relative = "p.fsi" }
                                 Absolute = "p.fsi"
                             }
-                        Input = sigSrc
                         Lexed = sigLexed
                         Ast = sigAst
                     }

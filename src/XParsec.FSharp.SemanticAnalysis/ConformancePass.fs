@@ -111,37 +111,37 @@ module ConformancePass =
             SigOnlyExemptions: Set<string>
         }
 
-    let private identText (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
+    let private identText (lexed: Lexed) (tok: SyntaxToken) : string =
         match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenString(iT, input)
+        | TokenIndex.Regular iT -> lexed.GetTokenString(iT)
         | TokenIndex.Virtual -> ""
 
-    let private longIdentText (lexed: Lexed) (input: string) (li: LongIdent<SyntaxToken>) : string =
-        li.Idents |> Seq.map (identText lexed input) |> String.concat "."
+    let private longIdentText (lexed: Lexed) (li: LongIdent<SyntaxToken>) : string =
+        li.Idents |> Seq.map (identText lexed) |> String.concat "."
 
     /// The dotted leading `module`/`namespace` path of a parsed file — the basis of
     /// F#'s `QualifiedNameOfFile` pairing key. `"global"` for an explicit
     /// `namespace global`; `""` for an anonymous module (no declaration).
-    let private leadingDeclPath (lexed: Lexed) (input: string) (ast: FSharpAst<SyntaxToken>) : string =
+    let private leadingDeclPath (lexed: Lexed) (ast: FSharpAst<SyntaxToken>) : string =
         match ast with
         | FSharpAst.SignatureFile sf ->
             match sf with
             | SignatureFile.Namespaces groups when groups.Length > 0 ->
                 match groups.[0] with
-                | NamespaceDeclGroupSignature.Named(longIdent = li) -> longIdentText lexed input li
+                | NamespaceDeclGroupSignature.Named(longIdent = li) -> longIdentText lexed li
                 | NamespaceDeclGroupSignature.Global _ -> "global"
             | SignatureFile.Namespaces _ -> ""
             | SignatureFile.NamedModule(NamedModuleSignature.NamedModuleSignature(longIdent = li)) ->
-                longIdentText lexed input li
+                longIdentText lexed li
             | SignatureFile.AnonymousModule _ -> ""
         | FSharpAst.ImplementationFile f ->
             match f with
             | ImplementationFile.Namespaces groups when groups.Length > 0 ->
                 match groups.[0] with
-                | NamespaceDeclGroup.Named(longIdent = li) -> longIdentText lexed input li
+                | NamespaceDeclGroup.Named(longIdent = li) -> longIdentText lexed li
                 | NamespaceDeclGroup.Global _ -> "global"
             | ImplementationFile.Namespaces _ -> ""
-            | ImplementationFile.NamedModule(NamedModule.NamedModule(longIdent = li)) -> longIdentText lexed input li
+            | ImplementationFile.NamedModule(NamedModule.NamedModule(longIdent = li)) -> longIdentText lexed li
             | ImplementationFile.AnonymousModule _ -> ""
         | _ -> ""
 
@@ -249,13 +249,12 @@ module ConformancePass =
                     | Ok sigParsed ->
                         let decls =
                             match sigParsed.Ast with
-                            | FSharpAst.SignatureFile sf -> Conformance.summariseSig sigParsed.Lexed sigParsed.Input sf
+                            | FSharpAst.SignatureFile sf -> Conformance.summariseSig sigParsed.Lexed sf
                             | _ -> []
 
                         let vals =
                             match sigParsed.Ast with
-                            | FSharpAst.SignatureFile sf ->
-                                Conformance.summariseSigVals sigParsed.Lexed sigParsed.Input sf
+                            | FSharpAst.SignatureFile sf -> Conformance.summariseSigVals sigParsed.Lexed sf
                             | _ -> []
 
                         let externs =
@@ -301,31 +300,28 @@ module ConformancePass =
                     | Ok sigParsed, Ok implParsed ->
                         let sigDecls =
                             match sigParsed.Ast with
-                            | FSharpAst.SignatureFile sf -> Conformance.summariseSig sigParsed.Lexed sigParsed.Input sf
+                            | FSharpAst.SignatureFile sf -> Conformance.summariseSig sigParsed.Lexed sf
                             | _ -> []
 
                         let implDecls =
                             match implParsed.Ast with
-                            | FSharpAst.ImplementationFile f ->
-                                Conformance.summariseImpl implParsed.Lexed implParsed.Input f
+                            | FSharpAst.ImplementationFile f -> Conformance.summariseImpl implParsed.Lexed f
                             | _ -> []
 
                         // Value-binding presence (Step 4.1): the `.fsi` `val`s and the
                         // `.fs` `let`s, each empty for the wrong file kind.
                         let sigVals =
                             match sigParsed.Ast with
-                            | FSharpAst.SignatureFile sf ->
-                                Conformance.summariseSigVals sigParsed.Lexed sigParsed.Input sf
+                            | FSharpAst.SignatureFile sf -> Conformance.summariseSigVals sigParsed.Lexed sf
                             | _ -> []
 
                         let implVals =
                             match implParsed.Ast with
-                            | FSharpAst.ImplementationFile f ->
-                                Conformance.summariseImplVals implParsed.Lexed implParsed.Input f
+                            | FSharpAst.ImplementationFile f -> Conformance.summariseImplVals implParsed.Lexed f
                             | _ -> []
 
-                        let sigPath = leadingDeclPath sigParsed.Lexed sigParsed.Input sigParsed.Ast
-                        let implPath = leadingDeclPath implParsed.Lexed implParsed.Input implParsed.Ast
+                        let sigPath = leadingDeclPath sigParsed.Lexed sigParsed.Ast
+                        let implPath = leadingDeclPath implParsed.Lexed implParsed.Ast
 
                         let mismatch =
                             if sigPath = implPath then

@@ -63,7 +63,7 @@ let tests =
                         true
                         ""
                         jsProvider.Value
-                        (Hashing.originSourceOfText input lexed)
+                        (Hashing.originSourceOfText lexed)
                         file
 
                 let getItemAccesses =

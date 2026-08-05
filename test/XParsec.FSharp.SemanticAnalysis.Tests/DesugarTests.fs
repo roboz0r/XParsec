@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText input lexed)
+    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
     Desugar.run ctx file
     ctx
 

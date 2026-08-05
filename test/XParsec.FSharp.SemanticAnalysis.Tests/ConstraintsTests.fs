@@ -7,14 +7,14 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyseNR (input: string) =
     let lexed, file = parseFile input
-    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText input lexed)
+    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     ctx
 
 let private analyseUnif (input: string) =
     let lexed, file = parseFile input
-    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText input lexed)
+    let ctx = PassContext(realProvider.Value, Hashing.originSourceOfText lexed)
     Desugar.run ctx file
     NameResolution.run ctx file
     Unification.run ctx file
@@ -24,7 +24,7 @@ let private analyseFull (input: string) =
     let lexed, file = parseFile input
 
     let ctx, _ =
-        Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
+        Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
 
     ctx
 

@@ -37,7 +37,6 @@ let private dummyTok: Anchor = Anchor.nowhere
 let private nowhereSource: OriginSource =
     {
         File = OriginFile.nowhere
-        Input = ""
         Lexed =
             match Lexing.lexString "" with
             | Result.Ok l -> l
@@ -61,7 +60,7 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * strin
         | Result.Error e -> failwithf "lex failed: %A" e
 
     let ast =
-        let reader = Reader.ofLexed lexed input Set.empty
+        let reader = Reader.ofLexed lexed Set.empty
 
         match FSharpAst.parseSignature reader with
         | Result.Ok a -> a
@@ -78,7 +77,6 @@ let private widgetContractOf (members: string) : IExternalSymbolProvider * strin
                         }
                     Absolute = "widget.fsi"
                 }
-            Input = input
             Lexed = lexed
             Ast = ast
         }
@@ -531,7 +529,7 @@ let tests =
                      \x20   end\n"
 
                 let lexed, file = TestHelpers.parseFile input
-                let source = Hashing.originSourceOfText input lexed
+                let source = Hashing.originSourceOfText lexed
                 let tast = Pipeline.analyse TestHelpers.jsProvider.Value source file
                 let errors = tast.Residue.Diagnostics |> Diagnostic.errors
 

@@ -42,8 +42,7 @@ let tests =
 
                 let lexed, file = parseFile "let v = hash 5"
 
-                let tast =
-                    Pipeline.analyseSem provider (Hashing.originSourceOfText "let v = hash 5" lexed) file
+                let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
 
                 Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) "no errors"
 

@@ -36,22 +36,17 @@ module Hashing =
     /// strings). UTF-8 so the digest is culture- and platform-independent.
     let hashString (s: string) : InputHash = hashBytes (Encoding.UTF8.GetBytes s)
 
-    /// THE site that mints an `OriginFile`, so a file's content hash is taken from the very
-    /// string that was parsed — not from a re-read of the path, which can already disagree with
-    /// what the `Lexed` indexes. That is what makes the mismatch check at
-    /// `OriginSources.tokenAt` mean what it says.
-    ///
-    /// The string is retained VERBATIM. A `Lexed` indexes the text it was lexed from, so
-    /// rewriting it here — line endings included — would put this file's own anchors out by a
-    /// character per preceding line, silently, the indices staying in range.
-    let originSource (path: OriginPath) (input: string) (lexed: Lexed) : OriginSource =
+    /// THE site that mints an `OriginFile`. The content hash is taken off the `Lexed`'s own
+    /// text, so it necessarily hashes the very string that was parsed rather than a re-read of
+    /// the path that can already disagree with what the indices address. That is what makes the
+    /// mismatch check at `OriginSources.tokenAt` mean what it says.
+    let originSource (path: OriginPath) (lexed: Lexed) : OriginSource =
         {
             File =
                 {
                     Path = path
-                    Content = hashString input
+                    Content = hashString lexed.Input
                 }
-            Input = input
             Lexed = lexed
         }
 
@@ -68,8 +63,8 @@ module Hashing =
             Relative = sprintf "<text:%s>" (hashString input).Hex
         }
 
-    let originSourceOfText (input: string) (lexed: Lexed) : OriginSource =
-        originSource (textOriginPath input) input lexed
+    let originSourceOfText (lexed: Lexed) : OriginSource =
+        originSource (textOriginPath lexed.Input) lexed
 
     /// Append a variable-length byte run PREFIXED by its length, so a hash built from a
     /// sequence of such runs is injective in the run boundaries: two different splittings of

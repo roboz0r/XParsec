@@ -39,14 +39,14 @@ let private testParseFileWithParser
         match Lexing.lexString input with
         | Error e -> failwithf "Lexing failed: %A" e
         | Ok lexed ->
-            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input definedSymbols
+            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed definedSymbols
 
             match parseFn reader with
             | Error e ->
                 failwithf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
             | Ok ast ->
                 let ctx = XParsec.FSharp.Debug.PrintContext(2)
-                XParsec.FSharp.Debug.printFSharpAst ctx input lexed ast
+                XParsec.FSharp.Debug.printFSharpAst ctx lexed ast
                 XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
                 XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
                 ctx.FlushToString()

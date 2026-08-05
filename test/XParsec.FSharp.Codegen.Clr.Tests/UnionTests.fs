@@ -410,7 +410,7 @@ let tests =
                     Pipeline.analyseSemFor
                         project.AssemblyName
                         (ClrSymbolProviders.buildContract defaultManifests)
-                        (Hashing.originSourceOfText src lexed)
+                        (Hashing.originSourceOfText lexed)
                         file
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

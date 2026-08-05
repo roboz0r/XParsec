@@ -64,7 +64,6 @@ module VesperLibTyparCapture =
     type DeferredCtx =
         {
             Lexed: Lexed
-            Input: string
             Opens: string list
             Typars: TyparCollector
         }

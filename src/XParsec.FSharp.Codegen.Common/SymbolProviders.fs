@@ -241,7 +241,7 @@ module SymbolProviders =
                         // ONE retention, and it is also what every body unpooled below records
                         // as its anchor domain — so the retained file and the file an entry
                         // names cannot come apart.
-                        let origin = Hashing.originSource parsed.File.Path parsed.Input parsed.Lexed
+                        let origin = Hashing.originSource parsed.File.Path parsed.Lexed
 
                         origins <- OriginSources.add origin origins
 

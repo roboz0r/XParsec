@@ -28,17 +28,15 @@ module AssemblyFiles =
     // that type's declaration for why the bare name would otherwise be the parser's.
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
-    /// A driver's `(path, source)` pair as the file every anchor resolves against. The
-    /// file's diagnostics resolve against it, and so does every anchor its analysis mints —
-    /// one value, so a path and a text a caller could transpose without the compiler
-    /// noticing cannot be paired wrongly.
-    let fileSource (assemblyName: string) (path: string) (input: string) (lexed: Lexed) : OriginSource =
+    /// A driver's file as the identity every anchor resolves against: the assembly it is
+    /// bucketed under and the path it is named by. The file's diagnostics resolve against it,
+    /// and so does every anchor its analysis mints.
+    let fileSource (assemblyName: string) (path: string) (lexed: Lexed) : OriginSource =
         Hashing.originSource
             {
                 BucketName = assemblyName
                 Relative = path
             }
-            input
             lexed
 
     /// One successfully analysed file of a multi-file assembly: what its diagnostics
@@ -64,9 +62,8 @@ module AssemblyFiles =
     /// A file that never reached analysis: a lex/parse failure (`Pipeline.parse`), surfaced
     /// as a file-level error rather than thrown. Such a file contributes NO view, so later
     /// files simply compose over the ones that did parse. The failure is carried as the
-    /// parser seam produced it, so the "`Lexed` present iff lexing succeeded" invariant —
-    /// and the text both it and the token stream resolve against — are stated once, on
-    /// `ParseFailure`, rather than restated here.
+    /// parser seam produced it, so the "`Lexed` present iff lexing succeeded" invariant is
+    /// stated once, on `ParseFailure`, rather than restated here.
     type UnparsedFile =
         {
             Path: string
@@ -95,14 +92,10 @@ module AssemblyFiles =
     /// its body, and a PRIOR file's namespace-direct declarations are reachable through
     /// that — including by the provider-layer probes (intrinsic resolution) that never see
     /// the file's local scope.
-    let private declaredNamespaces
-        (lexed: Lexed)
-        (input: string)
-        (file: ImplementationFile<SyntaxToken>)
-        : string list =
+    let private declaredNamespaces (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : string list =
         let identText (tok: SyntaxToken) =
             match tok.Index with
-            | TokenIndex.Regular iT -> lexed.GetTokenString(iT, input)
+            | TokenIndex.Regular iT -> lexed.GetTokenString(iT)
             | TokenIndex.Virtual -> ""
 
         match file with
@@ -151,7 +144,7 @@ module AssemblyFiles =
                 // bare `bool`. Without it a self-host package's operator bodies cannot
                 // name a primitive an earlier file of the SAME package declares.
                 let scoped =
-                    match declaredNamespaces parsed.Lexed parsed.Input parsed.File with
+                    match declaredNamespaces parsed.Lexed parsed.File with
                     | [] -> composed
                     | ns ->
                         ExternalSymbolProviders.stack
@@ -159,7 +152,7 @@ module AssemblyFiles =
                             (ns @ composed.AmbientOpenPrefixes |> List.distinct)
                             [ composed ]
 
-                let origin = fileSource assemblyName path parsed.Input parsed.Lexed
+                let origin = fileSource assemblyName path parsed.Lexed
                 let frozen = analyse assemblyName scoped origin parsed.File
                 let view = FrozenSignature.toProvider origin frozen
 
@@ -262,7 +255,7 @@ module AssemblyFiles =
         match e.Failure.Lexed with
         // No file was analysed, so no assembly claims this one; the source exists only to
         // resolve the positions the parser's own diagnostics carry.
-        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Path e.Failure.Input lexed) e.Failure.Diagnostics
+        | ValueSome lexed -> anchorDiagnostics (fileSource "" e.Path lexed) e.Failure.Diagnostics
         | ValueNone -> unpositionedDiagnostics e.Path e.Failure.Diagnostics
 
     /// Every analysed file's diagnostics, each anchored to ITS OWN file (path + source).

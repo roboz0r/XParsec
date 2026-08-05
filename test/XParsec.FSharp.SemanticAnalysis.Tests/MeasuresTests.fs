@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // on the `TypeVar` node).
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText input lexed) file
+    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with

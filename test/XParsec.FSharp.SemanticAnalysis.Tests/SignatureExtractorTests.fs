@@ -18,7 +18,7 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
         | Result.Ok lexed -> lexed
 
     let ast =
-        let reader = Reader.ofLexed lexed input Set.empty
+        let reader = Reader.ofLexed lexed Set.empty
 
         match FSharpAst.parseSignature reader with
         | Result.Error e -> failtestf "parse failed in %s: %A" relative e
@@ -34,7 +34,6 @@ let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
                     }
                 Absolute = relative
             }
-        Input = input
         Lexed = lexed
         Ast = ast
     }

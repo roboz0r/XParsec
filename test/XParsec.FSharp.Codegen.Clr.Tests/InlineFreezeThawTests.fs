@@ -129,7 +129,7 @@ let private freeze (src: string) : Pooled.TastFile = TastUnpool.ofPools (freezeP
 /// so the same identity the analysis stamped: an origin is derived from the content.
 let private sourceOf (src: string) : OriginSource =
     let lexed, _ = parseFile src
-    Hashing.originSourceOfText src lexed
+    Hashing.originSourceOfText lexed
 
 /// Realise a wire body against the file it was frozen from — the one reading there is, a
 /// `Wire.TDecl`'s anchors indexing the producer's tokens. What these tests assert about a
@@ -306,7 +306,7 @@ let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : in
     let lexed, file = parseFile src
 
     let tast =
-        TastUnpool.ofPools (Pipeline.analyse provider (Hashing.originSourceOfText src lexed) file)
+        TastUnpool.ofPools (Pipeline.analyse provider (Hashing.originSourceOfText lexed) file)
 
     Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) (sprintf "no errors for:\n%s" src)
 

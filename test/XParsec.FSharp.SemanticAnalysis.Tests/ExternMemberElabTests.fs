@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) : TastFile =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
 let private widgetSource =
     "module Widgets\n\

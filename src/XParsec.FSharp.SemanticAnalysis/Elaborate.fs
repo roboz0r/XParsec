@@ -235,7 +235,7 @@ module Elaborate =
                     let emittedName =
                         memberNameOfBinding ctx b
                         |> ValueOption.map (fun nm ->
-                            match VesperLibTypeTranslate.tryCompiledName ctx.Lexed ctx.Input b.attributes with
+                            match VesperLibTypeTranslate.tryCompiledName ctx.Lexed b.attributes with
                             | ValueSome cn -> cn
                             | ValueNone -> nm
                         )

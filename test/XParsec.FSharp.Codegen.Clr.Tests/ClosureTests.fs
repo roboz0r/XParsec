@@ -264,7 +264,7 @@ let tests =
                         XParsec.FSharp.Codegen.Clr.ClrSymbolProviders.buildContract defaultManifests
 
                     let lexed, file = parseFile src
-                    let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText src lexed) file
+                    let tast = Pipeline.analyseSem provider (Hashing.originSourceOfText lexed) file
 
                     if not (List.isEmpty tast.Diagnostics) then
                         failtestf "diagnostics: %A" (tast.Diagnostics |> List.map (fun d -> d.Message))

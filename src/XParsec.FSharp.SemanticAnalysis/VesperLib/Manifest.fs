@@ -32,7 +32,6 @@ module VesperLibManifest =
     type ParsedFile =
         {
             File: LibFile
-            Input: string
             Lexed: Lexed
             Ast: FSharpAst<SyntaxToken>
         }
@@ -57,7 +56,7 @@ module VesperLibManifest =
         match Lexing.lexString input with
         | Error _ -> Error(sprintf "Lex error in %s" file.Path.Relative)
         | Ok lexed ->
-            let reader = Reader.ofLexed lexed input Set.empty
+            let reader = Reader.ofLexed lexed Set.empty
 
             let result =
                 if file.Path.Relative.EndsWith ".fsi" then
@@ -70,7 +69,6 @@ module VesperLibManifest =
                 Ok
                     {
                         File = file
-                        Input = input
                         Lexed = lexed
                         Ast = ast
                     }

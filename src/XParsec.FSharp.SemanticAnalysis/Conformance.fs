@@ -139,25 +139,25 @@ module Conformance =
         | ConformanceError.ValueMissingInImpl n ->
             sprintf "value '%s' is declared in the signature (.fsi) but not defined in the implementation (.fs)" n
 
-    let private nameOfTok (lexed: Lexed) (input: string) (tok: SyntaxToken) : string =
+    let private nameOfTok (lexed: Lexed) (tok: SyntaxToken) : string =
         match tok.Index with
-        | TokenIndex.Regular iT -> lexed.GetTokenString(iT, input)
+        | TokenIndex.Regular iT -> lexed.GetTokenString(iT)
         | TokenIndex.Virtual -> ""
 
     /// The declared (short) name of a type from its `TypeName`. A type
     /// declaration always names a single ident, so the last segment is the name.
-    let private typeNameText (lexed: Lexed) (input: string) (tn: TypeName<SyntaxToken>) : string =
+    let private typeNameText (lexed: Lexed) (tn: TypeName<SyntaxToken>) : string =
         let (TypeName(ident = li)) = tn
 
         if li.Idents.Length = 0 then
             ""
         else
-            nameOfTok lexed input li.Idents.[li.Idents.Length - 1]
+            nameOfTok lexed li.Idents.[li.Idents.Length - 1]
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
     /// (`(# "System.Int32" #)` → `"System.Int32"`). Mirrors
     /// `NameResolution.ilIntrinsicString`.
-    let private ilReprString (lexed: Lexed) (input: string) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
+    let private ilReprString (lexed: Lexed) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
         let sb = System.Text.StringBuilder()
 
         for part in parts do
@@ -168,7 +168,7 @@ module Conformance =
             | StringPart.EscapePercent t
             | StringPart.VerbatimEscapeQuote t
             | StringPart.OrphanFormatSpecifier t
-            | StringPart.InvalidText t -> sb.Append(nameOfTok lexed input t) |> ignore
+            | StringPart.InvalidText t -> sb.Append(nameOfTok lexed t) |> ignore
             | StringPart.Expr _ -> ()
 
         sb.ToString()
@@ -225,15 +225,14 @@ module Conformance =
         | TypeDefn.Missing
         | TypeDefn.SkipsTokens _ -> ValueNone
 
-    let private implShape (lexed: Lexed) (input: string) (td: TypeDefn<SyntaxToken>) : ImplShape =
+    let private implShape (lexed: Lexed) (td: TypeDefn<SyntaxToken>) : ImplShape =
         match td with
         // The intrinsic-impl rule: an abbrev whose RHS is `(# … #)` is a
         // primitive *binding*, not a transparent alias (see
         // NameResolution.registerAbbreviationDefn).
         | TypeDefn.Abbrev(typ = Type.ILIntrinsic(kindTag = ValueSome _; instrParts = parts)) ->
-            ImplShape.IntrinsicClass(ilReprString lexed input parts)
-        | TypeDefn.Abbrev(typ = Type.ILIntrinsic(instrParts = parts)) ->
-            ImplShape.Intrinsic(ilReprString lexed input parts)
+            ImplShape.IntrinsicClass(ilReprString lexed parts)
+        | TypeDefn.Abbrev(typ = Type.ILIntrinsic(instrParts = parts)) -> ImplShape.Intrinsic(ilReprString lexed parts)
         | TypeDefn.Abbrev _ -> ImplShape.Other "abbrev"
         | TypeDefn.Record _ -> ImplShape.Other "record"
         | TypeDefn.Union _ -> ImplShape.Other "union"
@@ -262,12 +261,12 @@ module Conformance =
     /// Summarise a parsed signature (`.fsi`) file as its declared types, in
     /// source order. Namespace groups and nested modules are flattened (v1 has no
     /// namespace-/module-scoped types).
-    let summariseSig (lexed: Lexed) (input: string) (file: SignatureFile<SyntaxToken>) : SigDecl list =
+    let summariseSig (lexed: Lexed) (file: SignatureFile<SyntaxToken>) : SigDecl list =
         let acc = ResizeArray<SigDecl>()
 
         let addSig (ts: TypeSignature<SyntaxToken>) =
             let tn = sigTypeName ts
-            let name = typeNameText lexed input tn
+            let name = typeNameText lexed tn
 
             if name <> "" then
                 acc.Add
@@ -290,7 +289,7 @@ module Conformance =
 
     /// Summarise a parsed implementation (`.fs`) file as its defined types, in
     /// source order. Namespace groups and nested modules are flattened.
-    let summariseImpl (lexed: Lexed) (input: string) (file: ImplementationFile<SyntaxToken>) : ImplDecl list =
+    let summariseImpl (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : ImplDecl list =
         let acc = ResizeArray<ImplDecl>()
 
         for e in CstWalk.implFileElems file do
@@ -299,13 +298,13 @@ module Conformance =
                 for td in defns do
                     match implTypeName td with
                     | ValueSome tn ->
-                        let name = typeNameText lexed input tn
+                        let name = typeNameText lexed tn
 
                         if name <> "" then
                             acc.Add
                                 {
                                     Name = name
-                                    Shape = implShape lexed input td
+                                    Shape = implShape lexed td
                                     NameKey = nameKeyOf tn
                                 }
                     | ValueNone -> ()
@@ -407,10 +406,10 @@ module Conformance =
     /// not the `op_*` compiled name) — enough for cross-side PRESENCE matching, since
     /// the `.fsi` `val` and `.fs` `let` spell the same operator identically.
     /// `ValueNone` for active-pattern heads (compiled names are non-trivial; skipped).
-    let private identOrOpRaw (lexed: Lexed) (input: string) (io: IdentOrOp<SyntaxToken>) : string voption =
+    let private identOrOpRaw (lexed: Lexed) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
-        | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed input tok)
-        | IdentOrOp.ParenOp(_, OpName.SymbolicOp op, _) -> ValueSome(nameOfTok lexed input op)
+        | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed tok)
+        | IdentOrOp.ParenOp(_, OpName.SymbolicOp op, _) -> ValueSome(nameOfTok lexed op)
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDot _), _) -> ValueSome ".."
         | IdentOrOp.ParenOp(_, OpName.RangeOp(RangeOpName.DotDotDotDot _), _) -> ValueSome ".. .."
         | IdentOrOp.ParenOp(_, OpName.NilOp _, _) -> ValueSome "[]"
@@ -421,18 +420,18 @@ module Conformance =
     /// operator/active-pattern head (`Pat.Op` — NOT `Pat.OpNamed`, which is an
     /// *argument* application pattern), unwrapping `Pat.EnclosedBlock`/`Pat.Typed`.
     /// `identOrOpRaw` keys operators identically to the `.fsi` `val` side.
-    let rec private patHeadName (lexed: Lexed) (input: string) (p: Pat<SyntaxToken>) : (string * SyntaxToken) voption =
+    let rec private patHeadName (lexed: Lexed) (p: Pat<SyntaxToken>) : (string * SyntaxToken) voption =
         match p with
-        | Pat.NamedSimple ident -> ValueSome(nameOfTok lexed input ident, ident)
+        | Pat.NamedSimple ident -> ValueSome(nameOfTok lexed ident, ident)
         | Pat.Named(longIdent = li) when li.Idents.Length > 0 ->
             let t = li.Idents.[li.Idents.Length - 1]
-            ValueSome(nameOfTok lexed input t, t)
+            ValueSome(nameOfTok lexed t, t)
         | Pat.Op io ->
-            match identOrOpRaw lexed input io with
+            match identOrOpRaw lexed io with
             | ValueSome n -> ValueSome(n, identOrOpHeadTok io)
             | ValueNone -> ValueNone
         | Pat.EnclosedBlock(pat = inner)
-        | Pat.Typed(pat = inner) -> patHeadName lexed input inner
+        | Pat.Typed(pat = inner) -> patHeadName lexed inner
         | _ -> ValueNone
 
     /// A representative token for an `IdentOrOp` head, for `NodeKey` attachment.
@@ -443,7 +442,7 @@ module Conformance =
 
     /// Summarise a parsed signature (`.fsi`) as its module-level `val` bindings (incl.
     /// `[<Literal>]` vals), in source order, flattened across nested modules.
-    let summariseSigVals (lexed: Lexed) (input: string) (file: SignatureFile<SyntaxToken>) : ValDecl list =
+    let summariseSigVals (lexed: Lexed) (file: SignatureFile<SyntaxToken>) : ValDecl list =
         let acc = ResizeArray<ValDecl>()
 
         let addName (name: string) (keyTok: SyntaxToken) =
@@ -457,11 +456,11 @@ module Conformance =
         for e in CstWalk.sigFileElems file do
             match e with
             | ModuleSignatureElement.Val(ValSig(ident = io)) ->
-                match identOrOpRaw lexed input io with
+                match identOrOpRaw lexed io with
                 | ValueSome n -> addName n (identOrOpHeadTok io)
                 | ValueNone -> ()
             | ModuleSignatureElement.ValLiteral(binding = b) ->
-                match patHeadName lexed input b.headPat with
+                match patHeadName lexed b.headPat with
                 | ValueSome(n, t) -> addName n t
                 | ValueNone -> ()
             | _ -> ()
@@ -470,14 +469,14 @@ module Conformance =
 
     /// Summarise a parsed implementation (`.fs`) as its module-level `let` bindings,
     /// in source order, flattened across nested modules.
-    let summariseImplVals (lexed: Lexed) (input: string) (file: ImplementationFile<SyntaxToken>) : ValDecl list =
+    let summariseImplVals (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : ValDecl list =
         let acc = ResizeArray<ValDecl>()
 
         for e in CstWalk.implFileElems file do
             match e with
             | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) ->
                 for b in bs do
-                    match patHeadName lexed input b.headPat with
+                    match patHeadName lexed b.headPat with
                     | ValueSome(n, t) when n <> "" ->
                         acc.Add
                             {
@@ -514,18 +513,14 @@ module Conformance =
     /// value-presence check: type findings first, then value findings.
     let checkPair
         (sigLexed: Lexed)
-        (sigInput: string)
         (sigFile: SignatureFile<SyntaxToken>)
         (implLexed: Lexed)
-        (implInput: string)
         (implFile: ImplementationFile<SyntaxToken>)
         : ConformanceError list =
         let typeErrors =
-            check (summariseSig sigLexed sigInput sigFile) (summariseImpl implLexed implInput implFile)
+            check (summariseSig sigLexed sigFile) (summariseImpl implLexed implFile)
 
         let valueErrors =
-            checkValuePresence
-                (summariseSigVals sigLexed sigInput sigFile)
-                (summariseImplVals implLexed implInput implFile)
+            checkValuePresence (summariseSigVals sigLexed sigFile) (summariseImplVals implLexed implFile)
 
         typeErrors @ valueErrors

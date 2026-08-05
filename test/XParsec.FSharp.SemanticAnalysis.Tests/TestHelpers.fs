@@ -160,7 +160,7 @@ let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =
     match Lexing.lexString input with
     | Result.Error e -> failwithf "lex failed: %A" e
     | Result.Ok lexed ->
-        let reader = Reader.ofLexed lexed input Set.empty
+        let reader = Reader.ofLexed lexed Set.empty
 
         match FSharpAst.parseSignature reader with
         | Result.Error e -> failwithf "parse failed: %A" e
@@ -183,7 +183,6 @@ let freezeWithOrigin (src: string) : OriginSource * FrozenPools =
                 BucketName = testAsm
                 Relative = (Hashing.textOriginPath src).Relative
             }
-            src
             lexed
 
     origin, Pipeline.analyseFor testAsm realProvider.Value origin file
@@ -213,7 +212,7 @@ let rePoolFor (src: string) : Pooled.TastFile -> FrozenPools = TastPools.rePool 
 /// pair to take a test through inference as well.)
 let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassContext * ImplementationFile<SyntaxToken> =
     let lexed, file = parseFile input
-    let ctx = PassContext(provider, Hashing.originSourceOfText input lexed)
+    let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
     Passes.Desugar.run ctx file
     Passes.NameResolution.run ctx file
     ctx, file

@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
 let private declType (tast: TastFile) : SemType =
     match tast.Decls with
@@ -380,7 +380,7 @@ let interfaceTests =
                 let lexed, file = parseFile src
 
                 let tast =
-                    Pipeline.analyseSemFor "Vesper.Core" realProvider.Value (Hashing.originSourceOfText src lexed) file
+                    Pipeline.analyseSemFor "Vesper.Core" realProvider.Value (Hashing.originSourceOfText lexed) file
 
                 // Registering the abstract member (rather than rejecting it) means
                 // a clean analysis — the G1-era "member kind not supported" error

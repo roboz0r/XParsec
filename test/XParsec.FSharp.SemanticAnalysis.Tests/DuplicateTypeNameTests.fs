@@ -6,14 +6,14 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
 /// `analyse`, naming the unit being compiled. The assembly name is not part of any
 /// `SymbolKey`; it identifies the UNIT, which is what the "a unit may declare the types
 /// its own contract publishes" exemption is a statement about.
 let private analyseAs (assemblyName: string) (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSemFor assemblyName realProvider.Value (Hashing.originSourceOfText input lexed) file
+    Pipeline.analyseSemFor assemblyName realProvider.Value (Hashing.originSourceOfText lexed) file
 
 let private errors (tast: TastFile) =
     [

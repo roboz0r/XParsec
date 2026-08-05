@@ -985,7 +985,6 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member _.ModuleNaming: ModuleNaming =
         {
             Lexed = source.Lexed
-            Input = source.Input
             IsNominalTypeName = TypeRegistry.isNominalTypeName types
         }
 
@@ -1053,7 +1052,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =
         match token.Index with
-        | TokenIndex.Regular iT -> this.Lexed.GetTokenString(iT, this.Input)
+        | TokenIndex.Regular iT -> this.Lexed.GetTokenString(iT)
         | TokenIndex.Virtual -> ""
 
     /// Record how the source writes `binder` (see `BinderSpellings`). Takes the binder and
@@ -1072,7 +1071,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
         match at.Index with
         | TokenIndex.Virtual -> ()
         | TokenIndex.Regular i ->
-            match this.Lexed.GetIdentifier(i, this.Input) with
+            match this.Lexed.GetIdentifier(i) with
             | "" -> ()
             | name -> this.BinderSpellings.Set(binder, { Name = name; At = Anchor.ofToken at })
 
@@ -1094,7 +1093,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// source text, without copying out a substring. Empty for virtual tokens.
     member this.ReadableOf(token: SyntaxToken) : ReadableString =
         match token.Index with
-        | TokenIndex.Regular iT -> this.Lexed.GetTokenReadable(iT, this.Input)
+        | TokenIndex.Regular iT -> this.Lexed.GetTokenReadable(iT)
         | TokenIndex.Virtual -> ReadableString.Empty
 
     /// Report `kind` at `tok`. THE reporting member: one, not one per severity, because

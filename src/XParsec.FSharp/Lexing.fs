@@ -13,11 +13,32 @@ type token
 [<Measure>]
 type line
 
+[<CustomEquality; NoComparison>]
 type Lexed =
     {
+        /// The text `Tokens` index. A token carries offsets and not its characters, so this is
+        /// not context a consumer supplies — without it the table cannot be read at all.
+        Input: string
         Tokens: ReadableArrayM<PositionedToken, token>
         LineStarts: ReadableArrayM<int<token>, line>
     }
+
+    /// Lexing is a total function of `Input` and `lexString` is the only way to build one, so
+    /// equal text is equal tables — the whole comparison, and cheaper than the array walk the
+    /// default would do.
+    member this.Equals(that: Lexed) : bool = this.Input = that.Input
+
+    override this.Equals(other: obj) =
+        match other with
+        | :? Lexed as that -> this.Equals that
+        | _ -> false
+
+    override this.GetHashCode() = this.Input.GetHashCode()
+
+    /// So a generic caller — a `HashSet`, a `Dictionary` key, `EqualityComparer<_>.Default` —
+    /// reaches the typed comparison rather than boxing through the `obj` override.
+    interface IEquatable<Lexed> with
+        member this.Equals(that) = this.Equals that
 
     member this.FirstTokenOnLine(lineIndex: int<line>) =
         if lineIndex < 0<_> || int lineIndex >= this.LineStarts.Length then
@@ -72,7 +93,7 @@ type Lexed =
 
         startTokenIndex, endTokenIndex
 
-    member this.GetTokenString(i: int<token>, input: string) =
+    member this.GetTokenString(i: int<token>) =
         let tokens = this.Tokens
 
         if i < 0<_> || int i >= tokens.Length then
@@ -84,9 +105,9 @@ type Lexed =
         | Token.EOF -> ""
         | _ ->
             let t1 = tokens[i + 1<_>] // Next token is guaranteed to exist (EOF)
-            input.[int token.StartIndex .. (t1.StartIndex - 1)]
+            this.Input.[int token.StartIndex .. (t1.StartIndex - 1)]
 
-    member this.GetTokenSpan(i: int<token>, input: string) =
+    member this.GetTokenSpan(i: int<token>) =
         let tokens = this.Tokens
 
         if i < 0<_> || int i >= tokens.Length then
@@ -98,13 +119,13 @@ type Lexed =
         | Token.EOF -> ReadOnlySpan<char>()
         | _ ->
             let t1 = tokens[i + 1<_>] // Next token is guaranteed to exist (EOF)
-            input.AsSpan().Slice(token.StartIndex, (t1.StartIndex - token.StartIndex))
+            this.Input.AsSpan().Slice(token.StartIndex, (t1.StartIndex - token.StartIndex))
 
     /// A `ReadableString` view of token `i`'s source text — like
     /// `GetTokenString` but allocation-free (it slices `input` in place via
     /// the `ReadableString` view rather than copying out a substring). Lets a
     /// consumer re-run a parser over a token's text without materialising it.
-    member this.GetTokenReadable(i: int<token>, input: string) : ReadableString =
+    member this.GetTokenReadable(i: int<token>) : ReadableString =
         let tokens = this.Tokens
 
         if i < 0<_> || int i >= tokens.Length then
@@ -116,7 +137,7 @@ type Lexed =
         | Token.EOF -> ReadableString.Empty
         | _ ->
             let t1 = tokens[i + 1<_>] // Next token is guaranteed to exist (EOF)
-            ReadableString(input, token.StartIndex, t1.StartIndex - token.StartIndex)
+            ReadableString(this.Input, token.StartIndex, t1.StartIndex - token.StartIndex)
 
     /// The IDENTIFIER token `i` spells, as a span into `input` — the name a binding site
     /// introduces, with `` `` `` quoting stripped so `` ``my value`` `` reads as
@@ -128,7 +149,7 @@ type Lexed =
     /// materialise. What the lexer owns is which tokens are names and where a name's text
     /// begins and ends, so no consumer has to re-derive F#'s identifier rules from
     /// characters.
-    member this.GetIdentifierSpan(i: int<token>, input: string) : ReadOnlySpan<char> =
+    member this.GetIdentifierSpan(i: int<token>) : ReadOnlySpan<char> =
         let tokens = this.Tokens
 
         if i < 0<_> || int i >= tokens.Length then
@@ -137,18 +158,17 @@ type Lexed =
         let token = tokens[i]
 
         match token.Token with
-        | Token.Identifier -> this.GetTokenSpan(i, input)
+        | Token.Identifier -> this.GetTokenSpan(i)
         // The token spans the quotes, which are not part of the name.
         | Token.BacktickedIdentifier ->
-            let span = this.GetTokenSpan(i, input)
+            let span = this.GetTokenSpan(i)
             span.Slice(2, span.Length - 4)
         | _ -> ReadOnlySpan<char>()
 
     /// `GetIdentifierSpan` materialised — for a consumer that must RETAIN the name (the
     /// frozen binder column), which a span cannot outlive. The empty string is what "this
     /// token spells no name" reads as, no identifier being empty.
-    member this.GetIdentifier(i: int<token>, input: string) : string =
-        this.GetIdentifierSpan(i, input).ToString()
+    member this.GetIdentifier(i: int<token>) : string = this.GetIdentifierSpan(i).ToString()
 
 // Format specifications for printf formats are strings with % markers
 // that indicate format. Format placeholders consist of %[flags][width][.precision][type]
@@ -307,6 +327,7 @@ module LexBuilder =
             ReadableArrayM(state.LineStarts.ToReadableArray())
 
         {
+            Input = state.Source
             Tokens = tokens
             LineStarts = lineStarts
         }

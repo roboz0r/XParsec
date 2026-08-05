@@ -344,9 +344,7 @@ and [<Struct>] WarnDirective =
     }
 
 and [<CustomEquality; NoComparison>] ParseState =
-    // TODO: Refactor to separate the unchanged input/state from the mutable aspects like diagnostics and LastLine and frequently updated Context, to minimize the amount of data being copied on each state update.
     {
-        Input: string
         Lexed: Lexed
         Context: Offside list
         Diagnostics: Diagnostic list
@@ -514,9 +512,8 @@ module ParseState =
         if not (isNull state.Trace) then
             action state.Trace
 
-    let createWithTracing (lexed: Lexed) input definedSymbols (trace: TraceCallback) =
+    let createWithTracing (lexed: Lexed) definedSymbols (trace: TraceCallback) =
         {
-            Input = input
             Lexed = lexed
             Context = []
             Diagnostics = []
@@ -532,9 +529,8 @@ module ParseState =
             Trace = trace
         }
 
-    let create (lexed: Lexed) input definedSymbols =
+    let create (lexed: Lexed) definedSymbols =
         {
-            Input = input
             Lexed = lexed
             Context = []
             Diagnostics = []
@@ -704,20 +700,20 @@ module ParseState =
     let tokenString (token: SyntaxToken) (state: ParseState) =
         match token.Index with
         | TokenIndex.Virtual -> ""
-        | TokenIndex.Regular iT -> state.Lexed.GetTokenString(iT, state.Input)
+        | TokenIndex.Regular iT -> state.Lexed.GetTokenString(iT)
 
     let tokenStringIs (s: string) (token: SyntaxToken) (state: ParseState) =
         match token.Index with
         | TokenIndex.Virtual -> false
         | TokenIndex.Regular iT ->
-            let span = state.Lexed.GetTokenSpan(iT, state.Input)
+            let span = state.Lexed.GetTokenSpan(iT)
             span.SequenceEqual(s.AsSpan())
 
     let tokenStringStartsWith (s: string) (token: SyntaxToken) (state: ParseState) =
         match token.Index with
         | TokenIndex.Virtual -> false
         | TokenIndex.Regular iT ->
-            let span = state.Lexed.GetTokenSpan(iT, state.Input)
+            let span = state.Lexed.GetTokenSpan(iT)
             span.StartsWith(s.AsSpan())
 
     let isDefined (state: ParseState) (symbolToken: SyntaxToken) =
@@ -786,15 +782,14 @@ type WriterTraceCallback(lexed: Lexed, writer: System.IO.TextWriter) =
 
 [<RequireQualifiedAccess>]
 module Reader =
-    let ofLexed (lexed: Lexed) (input: string) (definedSymbols: Set<string>) : Reader<_, ParseState, _> =
-        let initialState = ParseState.create lexed input definedSymbols
+    let ofLexed (lexed: Lexed) (definedSymbols: Set<string>) : Reader<_, ParseState, _> =
+        let initialState = ParseState.create lexed definedSymbols
         Reader((lexed.Tokens.AsReadableArray()), initialState, 0)
 
     let ofLexedWithTracing
         (lexed: Lexed)
-        (input: string)
         (definedSymbols: Set<string>)
         (trace: TraceCallback)
         : Reader<_, ParseState, _> =
-        let initialState = ParseState.createWithTracing lexed input definedSymbols trace
+        let initialState = ParseState.createWithTracing lexed definedSymbols trace
         Reader((lexed.Tokens.AsReadableArray()), initialState, 0)

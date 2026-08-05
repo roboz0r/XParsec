@@ -26,7 +26,7 @@ let private readNormalised (path: string) =
 let private conform (sigSrc: string) (implSrc: string) : Conformance.ConformanceError list =
     let sigLexed, sigFile = parseSigFile sigSrc
     let implLexed, implFile = parseFile implSrc
-    Conformance.checkPair sigLexed sigSrc sigFile implLexed implSrc implFile
+    Conformance.checkPair sigLexed sigFile implLexed implFile
 
 let private externNames (decls: Conformance.SigDecl list) =
     decls
@@ -67,10 +67,9 @@ let tests =
                 let sigLexed, sigFile = parseSigFile sigSrc
                 let implLexed, implFile = parseFile implSrc
 
-                let externs = externNames (Conformance.summariseSig sigLexed sigSrc sigFile)
+                let externs = externNames (Conformance.summariseSig sigLexed sigFile)
 
-                let intrinsics =
-                    intrinsicNames (Conformance.summariseImpl implLexed implSrc implFile)
+                let intrinsics = intrinsicNames (Conformance.summariseImpl implLexed implFile)
 
                 Expect.equal externs intrinsics "extern set == intrinsic set"
                 Expect.equal (Set.count externs) 4 "four primitives are extern"
@@ -805,7 +804,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
 /// resolves them identically.
 let private frozenOf (src: string) : FrozenPools =
     let lexed, file = parseFile src
-    Pipeline.analyseForSelfHost "M" realProvider.Value (Hashing.originSourceOfText src lexed) file
+    Pipeline.analyseForSelfHost "M" realProvider.Value (Hashing.originSourceOfText lexed) file
 
 /// `val f: 'a -> 'b -> 'b` — the `.fsi` appearance-order scheme (`'a` = index 0).
 let private fScheme: FrozenType =

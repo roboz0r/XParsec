@@ -35,11 +35,7 @@ let tests =
                 let lexed, file = parseFile src
 
                 let tast =
-                    Pipeline.analyseForSelfHost
-                        "Vesper.List"
-                        analysisProvider
-                        (Hashing.originSourceOfText src lexed)
-                        file
+                    Pipeline.analyseForSelfHost "Vesper.List" analysisProvider (Hashing.originSourceOfText lexed) file
 
                 Expect.isEmpty tast.Residue.Diagnostics "list.fs analyses cleanly"
 
@@ -78,11 +74,7 @@ let tests =
                 let lexed, file = parseFile src
 
                 let tast =
-                    Pipeline.analyseForSelfHost
-                        "Vesper.Printf"
-                        analysisProvider
-                        (Hashing.originSourceOfText src lexed)
-                        file
+                    Pipeline.analyseForSelfHost "Vesper.Printf" analysisProvider (Hashing.originSourceOfText lexed) file
 
                 let analysisErrors = tast.Residue.Diagnostics |> Diagnostic.errors
 

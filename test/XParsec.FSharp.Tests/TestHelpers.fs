@@ -80,7 +80,7 @@ let private sprintToken (input: string) (pt: PositionedToken) (p1: int) =
 
     | t -> sprintf "%d, %A %s" p t isInComment
 
-let printLexed (input: string) (x: Lexed) =
+let printLexed (x: Lexed) =
     let rec f i =
         if i < x.Tokens.Length then
             let pt = x.Tokens[i * 1<token>]
@@ -89,9 +89,9 @@ let printLexed (input: string) (x: Lexed) =
                 x.Tokens
                 |> Seq.tryItem (i + 1)
                 |> Option.map (fun pt1 -> int pt1.StartIndex)
-                |> Option.defaultValue input.Length
+                |> Option.defaultValue x.Input.Length
 
-            let s = sprintToken input pt p1
+            let s = sprintToken x.Input pt p1
             printfn "%s" s
 
             f (i + 1)
@@ -185,7 +185,7 @@ let testLexed (input: string) (expected: _ list) =
             "" |> Expect.equal (lexed.Tokens |> List.ofSeq) expected
         with ex ->
             printfn "An error occurred: %s" (ex.Message)
-            printLexed input lexed
+            printLexed lexed
             reraise ()
     | Error err ->
         printfn "Lexing failed: %A" err
@@ -233,7 +233,7 @@ let testLexFile (filePath: string) =
     match lexString input with
     | Error err ->
         let pos = err.Position
-        printLexed input (LexBuilder.complete pos.Index pos.State)
+        printLexed (LexBuilder.complete pos.Index pos.State)
         ErrorFormatting.formatStringError input err |> printfn "%s"
         failwith "Lexing failed"
     | Ok lexed ->
@@ -268,14 +268,14 @@ let private testParseFileWithParser
         match Lexing.lexString input with
         | Error e -> failwithf "Lexing failed: %A" e
         | Ok lexed ->
-            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input definedSymbols
+            let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed definedSymbols
 
             match parseFn reader with
             | Error e ->
                 failwithf "Parsing failed:\n%s" (XParsec.FSharp.Parser.ErrorFormatting.splitAndFormatTokenErrors e)
             | Ok ast ->
                 let ctx = XParsec.FSharp.Debug.PrintContext(2)
-                XParsec.FSharp.Debug.printFSharpAst ctx input lexed ast
+                XParsec.FSharp.Debug.printFSharpAst ctx lexed ast
                 XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
                 XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
                 ctx.FlushToString()
@@ -432,7 +432,7 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
             }
 
         let reader =
-            XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed input Set.empty traceCallback
+            XParsec.FSharp.Parser.Reader.ofLexedWithTracing lexed Set.empty traceCallback
 
         let mutable taskResult = Unchecked.defaultof<_>
 
@@ -483,7 +483,7 @@ let parseWithStackProbe (stackSize: int) (timeout: System.TimeSpan) (filePath: s
         | Ok ast ->
             let parseOutput =
                 let ctx = XParsec.FSharp.Debug.PrintContext(2)
-                XParsec.FSharp.Debug.printFSharpAst ctx input lexed ast
+                XParsec.FSharp.Debug.printFSharpAst ctx lexed ast
                 XParsec.FSharp.Debug.printDiagnostics ctx input reader.State.Diagnostics
                 XParsec.FSharp.Debug.printWarnDirectives ctx reader.State.WarnDirectives
                 ctx.FlushToString()
@@ -541,7 +541,7 @@ let private tryParseCorpusFileWith
             System.Threading.Thread(
                 System.Threading.ThreadStart(fun () ->
                     try
-                        let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed input Set.empty
+                        let reader = XParsec.FSharp.Parser.Reader.ofLexed lexed Set.empty
 
                         match parseFn reader with
                         | Error e ->

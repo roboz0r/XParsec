@@ -164,7 +164,7 @@ let tests =
                     | Result.Error e -> failtestf "lex failed: %A" e
                     | Result.Ok lexed -> lexed
 
-                let ctx = PassContext(provider, Hashing.originSourceOfText input lexed)
+                let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
 
                 Expect.equal ctx.Intrinsics.Int BuiltinTypes.tyInt "int"
                 Expect.equal ctx.Intrinsics.Int64 BuiltinTypes.tyInt64 "int64"
@@ -404,7 +404,7 @@ let tests =
 
                 let input = "let r = 1 + 2\nlet h = hash 5"
                 let lexed, file = parseFile input
-                let ctx = PassContext(provider, Hashing.originSourceOfText input lexed)
+                let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file
@@ -440,7 +440,7 @@ let tests =
             // covered by the Codegen.Clr / Codegen.Js `UseTests` (full BCL / JS providers).
             let analyseErrors (provider: IExternalSymbolProvider) (input: string) =
                 let lexed, file = parseFile input
-                let ctx = PassContext(provider, Hashing.originSourceOfText input lexed)
+                let ctx = PassContext(provider, Hashing.originSourceOfText lexed)
                 Desugar.run ctx file
                 NameResolution.run ctx file
                 Unification.run ctx file

@@ -100,7 +100,7 @@ let printSection (ctx: PrintContext) (header: string) (f: unit -> unit) =
     ctx.WriteLine($"{header}:")
     indent ctx f
 
-let tokenKindString (input: string) (lexed: Lexed) (token: PositionedToken) (i: int<token>) =
+let tokenKindString (lexed: Lexed) (token: PositionedToken) (i: int<token>) =
     let rawToken = lexed.Tokens.[i]
 
     // If this token has been rewritten by a split (kind or start index differs from the
@@ -110,14 +110,14 @@ let tokenKindString (input: string) (lexed: Lexed) (token: PositionedToken) (i: 
     if rawToken.Token <> token.Token || rawToken.StartIndex <> token.StartIndex then
         $"{TokenInfo.withoutFlags token.Token}"
     else
-        let s = lexed.GetTokenString(i, input)
+        let s = lexed.GetTokenString(i)
 
         match OperatorInfo.TryCreate token with
         | ValueSome opInfo -> opInfo.GetName(s)
         | ValueNone -> $"{TokenInfo.withoutFlags rawToken.Token}"
 
 /// Adds a single token row to the print buffer.
-let printTokenRow (label: string) (ctx: PrintContext) (input: string) (lexed: Lexed) (token: SyntaxToken) =
+let printTokenRow (label: string) (ctx: PrintContext) (lexed: Lexed) (token: SyntaxToken) =
     let pt = token.PositionedToken
 
     match token.Index with
@@ -134,13 +134,13 @@ let printTokenRow (label: string) (ctx: PrintContext) (input: string) (lexed: Le
         let lit =
             let rawLit =
                 if len > 10 then
-                    input.[charPos .. charPos + 9] + "..."
+                    lexed.Input.[charPos .. charPos + 9] + "..."
                 else
-                    input.[charPos..charEnd]
+                    lexed.Input.[charPos..charEnd]
 
             rawLit.Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t")
 
-        let kind = tokenKindString input lexed pt iT
+        let kind = tokenKindString lexed pt iT
         ctx.AddTokenRow(label, $"'{lit}'", kind, $"tok=%4i{int iT}", $"pos=%4i{charPos}")
 
 // ---- Visitor factory ----
@@ -148,9 +148,9 @@ let printTokenRow (label: string) (ctx: PrintContext) (input: string) (lexed: Le
 /// Builds an AstVisitor<SyntaxToken> that writes debug output into ctx.
 /// EnterSection with a non-empty name prints "name:" and increases indentation.
 /// EnterSection with an empty name just increases indentation (like `indent`).
-let makeDebugVisitor (ctx: PrintContext) (input: string) (lexed: Lexed) : AstVisitor<SyntaxToken> =
+let makeDebugVisitor (ctx: PrintContext) (lexed: Lexed) : AstVisitor<SyntaxToken> =
     {
-        VisitToken = fun label tok -> printTokenRow label ctx input lexed tok
+        VisitToken = fun label tok -> printTokenRow label ctx lexed tok
         EnterSection =
             fun name ->
                 if name <> "" then
@@ -164,20 +164,20 @@ let makeDebugVisitor (ctx: PrintContext) (input: string) (lexed: Lexed) : AstVis
 
 // ---- Print functions (thin wrappers over AstTraversal walk functions) ----
 
-let printAccess (ctx: PrintContext) (input: string) (lexed: Lexed) (access: Access<SyntaxToken>) =
-    walkAccess (makeDebugVisitor ctx input lexed) access
+let printAccess (ctx: PrintContext) (lexed: Lexed) (access: Access<SyntaxToken>) =
+    walkAccess (makeDebugVisitor ctx lexed) access
 
-let printConstant (label: string) (ctx: PrintContext) (input: string) (lexed: Lexed) (x: Constant<SyntaxToken>) =
-    walkConstant (makeDebugVisitor ctx input lexed) label x
+let printConstant (label: string) (ctx: PrintContext) (lexed: Lexed) (x: Constant<SyntaxToken>) =
+    walkConstant (makeDebugVisitor ctx lexed) label x
 
-let printIdentOrOp (ctx: PrintContext) (input: string) (lexed: Lexed) (identOrOp: IdentOrOp<SyntaxToken>) =
-    walkIdentOrOp (makeDebugVisitor ctx input lexed) identOrOp
+let printIdentOrOp (ctx: PrintContext) (lexed: Lexed) (identOrOp: IdentOrOp<SyntaxToken>) =
+    walkIdentOrOp (makeDebugVisitor ctx lexed) identOrOp
 
-let printOpName (ctx: PrintContext) (input: string) (lexed: Lexed) (opName: OpName<SyntaxToken>) =
-    walkOpName (makeDebugVisitor ctx input lexed) opName
+let printOpName (ctx: PrintContext) (lexed: Lexed) (opName: OpName<SyntaxToken>) =
+    walkOpName (makeDebugVisitor ctx lexed) opName
 
-let printRangeOpName (ctx: PrintContext) (input: string) (lexed: Lexed) (rangeOpName: RangeOpName<SyntaxToken>) =
-    walkRangeOpName (makeDebugVisitor ctx input lexed) rangeOpName
+let printRangeOpName (ctx: PrintContext) (lexed: Lexed) (rangeOpName: RangeOpName<SyntaxToken>) =
+    walkRangeOpName (makeDebugVisitor ctx lexed) rangeOpName
 
 let printActivePatternOpName
     (ctx: PrintContext)
@@ -185,34 +185,34 @@ let printActivePatternOpName
     (lexed: Lexed)
     (activePatternOpName: ActivePatternOpName<SyntaxToken>)
     =
-    walkActivePatternOpName (makeDebugVisitor ctx input lexed) activePatternOpName
+    walkActivePatternOpName (makeDebugVisitor ctx lexed) activePatternOpName
 
-let printLongIdentOrOp (ctx: PrintContext) (input: string) (lexed: Lexed) (longIdentOrOp: LongIdentOrOp<SyntaxToken>) =
-    walkLongIdentOrOp (makeDebugVisitor ctx input lexed) longIdentOrOp
+let printLongIdentOrOp (ctx: PrintContext) (lexed: Lexed) (longIdentOrOp: LongIdentOrOp<SyntaxToken>) =
+    walkLongIdentOrOp (makeDebugVisitor ctx lexed) longIdentOrOp
 
-let printPat (ctx: PrintContext) (input: string) (lexed: Lexed) (pat: Pat<SyntaxToken>) =
-    walkPat (makeDebugVisitor ctx input lexed) pat
+let printPat (ctx: PrintContext) (lexed: Lexed) (pat: Pat<SyntaxToken>) =
+    walkPat (makeDebugVisitor ctx lexed) pat
 
-let printTypar (ctx: PrintContext) (input: string) (lexed: Lexed) (typar: Typar<SyntaxToken>) =
-    walkTypar (makeDebugVisitor ctx input lexed) typar
+let printTypar (ctx: PrintContext) (lexed: Lexed) (typar: Typar<SyntaxToken>) =
+    walkTypar (makeDebugVisitor ctx lexed) typar
 
-let printConstraint (ctx: PrintContext) (input: string) (lexed: Lexed) (c: Constraint<SyntaxToken>) =
-    walkConstraint (makeDebugVisitor ctx input lexed) c
+let printConstraint (ctx: PrintContext) (lexed: Lexed) (c: Constraint<SyntaxToken>) =
+    walkConstraint (makeDebugVisitor ctx lexed) c
 
-let printTyparDefns (ctx: PrintContext) (input: string) (lexed: Lexed) (typars: TyparDefns<SyntaxToken>) =
-    walkTyparDefns (makeDebugVisitor ctx input lexed) typars
+let printTyparDefns (ctx: PrintContext) (lexed: Lexed) (typars: TyparDefns<SyntaxToken>) =
+    walkTyparDefns (makeDebugVisitor ctx lexed) typars
 
-let printTypeArg (ctx: PrintContext) (input: string) (lexed: Lexed) (typeArg: TypeArg<SyntaxToken>) =
-    walkTypeArg (makeDebugVisitor ctx input lexed) typeArg
+let printTypeArg (ctx: PrintContext) (lexed: Lexed) (typeArg: TypeArg<SyntaxToken>) =
+    walkTypeArg (makeDebugVisitor ctx lexed) typeArg
 
-let printMeasure (ctx: PrintContext) (input: string) (lexed: Lexed) (measure: Measure<SyntaxToken>) =
-    walkMeasure (makeDebugVisitor ctx input lexed) measure
+let printMeasure (ctx: PrintContext) (lexed: Lexed) (measure: Measure<SyntaxToken>) =
+    walkMeasure (makeDebugVisitor ctx lexed) measure
 
-let printType (ctx: PrintContext) (input: string) (lexed: Lexed) (ty: Type<SyntaxToken>) =
-    walkType (makeDebugVisitor ctx input lexed) ty
+let printType (ctx: PrintContext) (lexed: Lexed) (ty: Type<SyntaxToken>) =
+    walkType (makeDebugVisitor ctx lexed) ty
 
-let printBinding (ctx: PrintContext) (input: string) (lexed: Lexed) (binding: Binding<SyntaxToken>) =
-    walkBinding (makeDebugVisitor ctx input lexed) binding
+let printBinding (ctx: PrintContext) (lexed: Lexed) (binding: Binding<SyntaxToken>) =
+    walkBinding (makeDebugVisitor ctx lexed) binding
 
 let printFieldInitializer
     (ctx: PrintContext)
@@ -220,49 +220,49 @@ let printFieldInitializer
     (lexed: Lexed)
     (fieldInit: FieldInitializer<SyntaxToken>)
     =
-    walkFieldInitializer (makeDebugVisitor ctx input lexed) fieldInit
+    walkFieldInitializer (makeDebugVisitor ctx lexed) fieldInit
 
-let printRules (ctx: PrintContext) (input: string) (lexed: Lexed) (rules: Rules<SyntaxToken>) =
-    walkRules (makeDebugVisitor ctx input lexed) rules
+let printRules (ctx: PrintContext) (lexed: Lexed) (rules: Rules<SyntaxToken>) =
+    walkRules (makeDebugVisitor ctx lexed) rules
 
-let printExpr (ctx: PrintContext) (input: string) (lexed: Lexed) (expr: Expr<SyntaxToken>) =
-    walkExpr (makeDebugVisitor ctx input lexed) expr
+let printExpr (ctx: PrintContext) (lexed: Lexed) (expr: Expr<SyntaxToken>) =
+    walkExpr (makeDebugVisitor ctx lexed) expr
 
-let printArgSpec (ctx: PrintContext) (input: string) (lexed: Lexed) (argSpec: ArgSpec<SyntaxToken>) =
-    walkArgSpec (makeDebugVisitor ctx input lexed) argSpec
+let printArgSpec (ctx: PrintContext) (lexed: Lexed) (argSpec: ArgSpec<SyntaxToken>) =
+    walkArgSpec (makeDebugVisitor ctx lexed) argSpec
 
-let printUncurriedSig (ctx: PrintContext) (input: string) (lexed: Lexed) (sign: UncurriedSig<SyntaxToken>) =
-    walkUncurriedSig (makeDebugVisitor ctx input lexed) sign
+let printUncurriedSig (ctx: PrintContext) (lexed: Lexed) (sign: UncurriedSig<SyntaxToken>) =
+    walkUncurriedSig (makeDebugVisitor ctx lexed) sign
 
-let printCurriedSig (ctx: PrintContext) (input: string) (lexed: Lexed) (sign: CurriedSig<SyntaxToken>) =
-    walkCurriedSig (makeDebugVisitor ctx input lexed) sign
+let printCurriedSig (ctx: PrintContext) (lexed: Lexed) (sign: CurriedSig<SyntaxToken>) =
+    walkCurriedSig (makeDebugVisitor ctx lexed) sign
 
-let printMemberSig (ctx: PrintContext) (input: string) (lexed: Lexed) (sign: MemberSig<SyntaxToken>) =
-    walkMemberSig (makeDebugVisitor ctx input lexed) sign
+let printMemberSig (ctx: PrintContext) (lexed: Lexed) (sign: MemberSig<SyntaxToken>) =
+    walkMemberSig (makeDebugVisitor ctx lexed) sign
 
-let printMethodOrPropDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (defn: MethodOrPropDefn<SyntaxToken>) =
-    walkMethodOrPropDefn (makeDebugVisitor ctx input lexed) defn
+let printMethodOrPropDefn (ctx: PrintContext) (lexed: Lexed) (defn: MethodOrPropDefn<SyntaxToken>) =
+    walkMethodOrPropDefn (makeDebugVisitor ctx lexed) defn
 
-let printMemberDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (memberDefn: MemberDefn<SyntaxToken>) =
-    walkMemberDefn (makeDebugVisitor ctx input lexed) memberDefn
+let printMemberDefn (ctx: PrintContext) (lexed: Lexed) (memberDefn: MemberDefn<SyntaxToken>) =
+    walkMemberDefn (makeDebugVisitor ctx lexed) memberDefn
 
-let printTypeDefnElement (ctx: PrintContext) (input: string) (lexed: Lexed) (elem: TypeDefnElement<SyntaxToken>) =
-    walkTypeDefnElement (makeDebugVisitor ctx input lexed) elem
+let printTypeDefnElement (ctx: PrintContext) (lexed: Lexed) (elem: TypeDefnElement<SyntaxToken>) =
+    walkTypeDefnElement (makeDebugVisitor ctx lexed) elem
 
-let printTypeName (ctx: PrintContext) (input: string) (lexed: Lexed) (typeName: TypeName<SyntaxToken>) =
-    walkTypeName (makeDebugVisitor ctx input lexed) typeName
+let printTypeName (ctx: PrintContext) (lexed: Lexed) (typeName: TypeName<SyntaxToken>) =
+    walkTypeName (makeDebugVisitor ctx lexed) typeName
 
-let printPrimaryConstrArgs (ctx: PrintContext) (input: string) (lexed: Lexed) (args: PrimaryConstrArgs<SyntaxToken>) =
-    walkPrimaryConstrArgs (makeDebugVisitor ctx input lexed) args
+let printPrimaryConstrArgs (ctx: PrintContext) (lexed: Lexed) (args: PrimaryConstrArgs<SyntaxToken>) =
+    walkPrimaryConstrArgs (makeDebugVisitor ctx lexed) args
 
-let printUnionCaseData (ctx: PrintContext) (input: string) (lexed: Lexed) (data: UnionTypeCaseData<SyntaxToken>) =
-    walkUnionCaseData (makeDebugVisitor ctx input lexed) data
+let printUnionCaseData (ctx: PrintContext) (lexed: Lexed) (data: UnionTypeCaseData<SyntaxToken>) =
+    walkUnionCaseData (makeDebugVisitor ctx lexed) data
 
-let printExceptionDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (exnDefn: ExceptionDefn<SyntaxToken>) =
-    walkExceptionDefn (makeDebugVisitor ctx input lexed) exnDefn
+let printExceptionDefn (ctx: PrintContext) (lexed: Lexed) (exnDefn: ExceptionDefn<SyntaxToken>) =
+    walkExceptionDefn (makeDebugVisitor ctx lexed) exnDefn
 
-let printTypeDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (typeDefn: TypeDefn<SyntaxToken>) =
-    walkTypeDefn (makeDebugVisitor ctx input lexed) typeDefn
+let printTypeDefn (ctx: PrintContext) (lexed: Lexed) (typeDefn: TypeDefn<SyntaxToken>) =
+    walkTypeDefn (makeDebugVisitor ctx lexed) typeDefn
 
 let printModuleFunctionOrValueDefn
     (ctx: PrintContext)
@@ -270,13 +270,13 @@ let printModuleFunctionOrValueDefn
     (lexed: Lexed)
     (defn: ModuleFunctionOrValueDefn<SyntaxToken>)
     =
-    walkModuleFunctionOrValueDefn (makeDebugVisitor ctx input lexed) defn
+    walkModuleFunctionOrValueDefn (makeDebugVisitor ctx lexed) defn
 
-let printImportDecl (ctx: PrintContext) (input: string) (lexed: Lexed) (decl: ImportDecl<SyntaxToken>) =
-    walkImportDecl (makeDebugVisitor ctx input lexed) decl
+let printImportDecl (ctx: PrintContext) (lexed: Lexed) (decl: ImportDecl<SyntaxToken>) =
+    walkImportDecl (makeDebugVisitor ctx lexed) decl
 
-let printModuleAbbrev (ctx: PrintContext) (input: string) (lexed: Lexed) (abbrev: ModuleAbbrev<SyntaxToken>) =
-    walkModuleAbbrev (makeDebugVisitor ctx input lexed) abbrev
+let printModuleAbbrev (ctx: PrintContext) (lexed: Lexed) (abbrev: ModuleAbbrev<SyntaxToken>) =
+    walkModuleAbbrev (makeDebugVisitor ctx lexed) abbrev
 
 let printCompilerDirective
     (ctx: PrintContext)
@@ -284,16 +284,16 @@ let printCompilerDirective
     (lexed: Lexed)
     (decl: CompilerDirectiveDecl<SyntaxToken>)
     =
-    walkCompilerDirective (makeDebugVisitor ctx input lexed) decl
+    walkCompilerDirective (makeDebugVisitor ctx lexed) decl
 
-let printModuleElem (ctx: PrintContext) (input: string) (lexed: Lexed) (elem: ModuleElem<SyntaxToken>) =
-    walkModuleElem (makeDebugVisitor ctx input lexed) elem
+let printModuleElem (ctx: PrintContext) (lexed: Lexed) (elem: ModuleElem<SyntaxToken>) =
+    walkModuleElem (makeDebugVisitor ctx lexed) elem
 
-let printModuleDefn (ctx: PrintContext) (input: string) (lexed: Lexed) (defn: ModuleDefn<SyntaxToken>) =
-    walkModuleDefn (makeDebugVisitor ctx input lexed) defn
+let printModuleDefn (ctx: PrintContext) (lexed: Lexed) (defn: ModuleDefn<SyntaxToken>) =
+    walkModuleDefn (makeDebugVisitor ctx lexed) defn
 
-let printModuleElems (ctx: PrintContext) (input: string) (lexed: Lexed) (elems: ModuleElems<SyntaxToken>) =
-    walkModuleElems (makeDebugVisitor ctx input lexed) elems
+let printModuleElems (ctx: PrintContext) (lexed: Lexed) (elems: ModuleElems<SyntaxToken>) =
+    walkModuleElems (makeDebugVisitor ctx lexed) elems
 
 let printNamespaceDeclGroup
     (ctx: PrintContext)
@@ -301,13 +301,13 @@ let printNamespaceDeclGroup
     (lexed: Lexed)
     (group: NamespaceDeclGroup<SyntaxToken>)
     =
-    walkNamespaceDeclGroup (makeDebugVisitor ctx input lexed) group
+    walkNamespaceDeclGroup (makeDebugVisitor ctx lexed) group
 
-let printImplementationFile (ctx: PrintContext) (input: string) (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) =
-    walkImplementationFile (makeDebugVisitor ctx input lexed) file
+let printImplementationFile (ctx: PrintContext) (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) =
+    walkImplementationFile (makeDebugVisitor ctx lexed) file
 
-let printFSharpAst (ctx: PrintContext) (input: string) (lexed: Lexed) (ast: FSharpAst<SyntaxToken>) =
-    walkFSharpAst (makeDebugVisitor ctx input lexed) ast
+let printFSharpAst (ctx: PrintContext) (lexed: Lexed) (ast: FSharpAst<SyntaxToken>) =
+    walkFSharpAst (makeDebugVisitor ctx lexed) ast
 
 /// Formats a DiagnosticCode as a short, stable string suitable for golden-file output: the
 /// code the seam presents to a consumer, plus the payload for the cases a golden wants to

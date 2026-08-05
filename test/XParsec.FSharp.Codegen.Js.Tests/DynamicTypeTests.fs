@@ -68,7 +68,7 @@ let private warningsWith (input: string) : Diagnostic list =
     let lexed, file = parseFile input
 
     let tast =
-        Pipeline.analyseSemForSelfHost dynProvider (Hashing.originSourceOfText input lexed) file
+        Pipeline.analyseSemForSelfHost dynProvider (Hashing.originSourceOfText lexed) file
 
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Warning)
 

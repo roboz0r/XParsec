@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private analyse (input: string) =
     let lexed, file = parseFile input
-    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText input lexed) file
+    Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
 /// This pass's verdict, asked of the KIND rather than of a substring of its sentence: what
 /// the pass found is what the diagnostic carries, so a reworded message cannot make these
@@ -66,10 +66,7 @@ let tests =
                 let lexed, file = parseFile "let x = 1"
 
                 let ctx, _ =
-                    Pipeline.analyseSemWithContext
-                        realProvider.Value
-                        (Hashing.originSourceOfText "let x = 1" lexed)
-                        file
+                    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
 
                 let freeTv = ctx.Store.NewTypeVar()
                 let freeTy = TyVar freeTv
@@ -120,10 +117,7 @@ let tests =
                 let lexed, file = parseFile "let id = fun x -> x"
 
                 let ctx, tast =
-                    Pipeline.analyseSemWithContext
-                        realProvider.Value
-                        (Hashing.originSourceOfText "let id = fun x -> x" lexed)
-                        file
+                    Pipeline.analyseSemWithContext realProvider.Value (Hashing.originSourceOfText lexed) file
 
                 let idKey =
                     match tast.Decls with
@@ -188,7 +182,7 @@ let tests =
                     let lexed, file = parseFile src
 
                     let tast =
-                        Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText src lexed) file
+                        Pipeline.analyseSem realProvider.Value (Hashing.originSourceOfText lexed) file
 
                     match tast.Decls with
                     | EqList [ TDecl.Let(TPat.NamedSimple(_, ty, _), _, _, _) ] -> ty

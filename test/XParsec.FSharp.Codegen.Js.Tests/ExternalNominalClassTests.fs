@@ -125,7 +125,7 @@ let private analyse (input: string) : Diagnostic list =
     let lexed, file = parseFile input
 
     let tast =
-        Pipeline.analyseSemForSelfHost boxProvider (Hashing.originSourceOfText input lexed) file
+        Pipeline.analyseSemForSelfHost boxProvider (Hashing.originSourceOfText lexed) file
 
     tast.Diagnostics |> Diagnostic.errors
 

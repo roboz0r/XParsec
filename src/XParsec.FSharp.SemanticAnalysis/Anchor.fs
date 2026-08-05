@@ -109,14 +109,16 @@ module OriginFile =
         }
 
 /// A producer file RETAINED past the parse that produced it, so that anchors of a tree unpooled
-/// from it stay readable. `Input` rides with the `Lexed` because a token carries offsets into
-/// the text and not the text itself, and the text is what a multi-source map publishes.
+/// from it stay readable.
 type OriginSource =
     {
         File: OriginFile
-        Input: string
         Lexed: Lexed
     }
+
+    /// The text the anchors index, and what a multi-source map publishes. Read off the
+    /// `Lexed` that owns it, so a retention cannot name one file at two contents.
+    member this.Input: string = this.Lexed.Input
 
 /// Every producer file whose anchors a compilation may have to resolve.
 ///
