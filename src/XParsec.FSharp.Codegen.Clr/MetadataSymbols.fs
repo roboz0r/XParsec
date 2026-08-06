@@ -11,10 +11,9 @@ open XParsec.FSharp.SemanticAnalysis
 // Resolves BCL types to `ExternalTypeShape` and their members to `FrozenType`
 // signature templates via `System.Reflection.MetadataLoadContext`.
 
-/// `System.Type` → `FrozenType` template mapping. Each template is over the
-/// declaring type's generic parameters (`FTTypar(Declaring,i)`, method-owned as
-/// `FTTypar(Method,j)`). Shapes that don't map yield `None` — skipped, never
-/// faked. Templates are inert data; no live `Type` escapes.
+/// `System.Type` → `FrozenType` template mapping, over the declaring type's generic
+/// parameters (`FTTypar(Declaring,i)`; method-owned ones as `FTTypar(Method,j)`).
+/// A shape that doesn't map yields `None`.
 module private MetadataMapping =
 
     /// Open-generic-definition name for a constructed generic, else `FullName`.
@@ -24,23 +23,15 @@ module private MetadataMapping =
         else
             t.FullName
 
-    /// `reverseCanon` is the dynamically-extracted `{ platform-repr → [canon] }` map
-    /// (`System.Int32 → [int]`), folded from the layer-1 providers' `IntrinsicReverseCanon`
-    /// — the reverse direction of `type int = (# "System.Int32" #)`. It is what lets a BCL
-    /// member's `System.Int32` parameter present as a Vesper `int` so semantic analysis
-    /// can call it (`int` and `System.Int32` are otherwise distinct, never-unifying
-    /// types). NOT a static table: a BCL type absent from the map is a real class. On CLR
-    /// each platform name maps to exactly one canon, so the list is a singleton and the
-    /// head is taken.
+    /// `reverseCanon` maps a platform repr to the canons it stands for (`"System.Int32"` →
+    /// `[int]`), so a BCL member's `System.Int32` parameter presents as `int` and is
+    /// callable. On the CLR the list is a singleton; a name absent from it is a real class.
     let rec tryBuildType (reverseCanon: Map<string, SymbolKey list>) (t: Type) : FrozenType option =
         let go = tryBuildType reverseCanon
 
         if t.IsByRef then
-            // `in`/`out`/`ref` all collapse to `T&` here — direction-agnostic.
-            // A C# `in` param additionally carries `modreq(InAttribute)` which is
-            // dropped; calling such a member would fail CLR member-ref binding until
-            // the modifier is threaded through the encoder (paired TODO at
-            // `mintMemberRef`, ClrExternalMembers.fs).
+            // `in`/`out`/`ref` all collapse to `T&` — direction-agnostic. A C# `in` param's
+            // `modreq(InAttribute)` is dropped, so calling one fails CLR member-ref binding.
             match go (t.GetElementType()) with
             | Some elem -> Some(FTConst(RuntimeNames.byrefKey, EqArray.singleton elem))
             | None -> None
@@ -74,26 +65,16 @@ module private MetadataMapping =
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
             | "System.Void" -> Some(FTConst(RuntimeNames.unitKey, EqArray.empty))
-            // Canonicalize a BCL type with an extracted canon eagerly at surfacing —
-            // both the sealed scalar leaves (`System.Int32 → int`) and the unsealed
-            // subtype ROOTS (`System.Object → obj`, `System.Exception → exn`). The
-            // roots' canon identities are now class-shaped (`IntrinsicClass` carries
-            // base + `.ctor`s), so ctor / `new` / subtype resolution keys on the canon
-            // directly — no unify-time string reconciliation. No `IsInterface` partition
-            // is needed: `reverseCanon` carries ONLY intrinsic (`TyConst`) canons — capability
-            // interfaces are deliberately omitted (they resolve to `TyClass` and reconcile via
-            // `CapabilityIdentity`, not this map) — so a BCL interface misses the lookup and
-            // falls through to the general `FTClass` arm below.
+            // A BCL name with a canon surfaces AS the canon — scalar leaves
+            // (`System.Int32` → `int`) and subtype roots (`System.Object` → `obj`,
+            // `System.Exception` → `exn`) alike. Anything else stays a nominal `FTClass`.
             | fullName when reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not) ->
                 Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))
             | fullName -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOf fullName 0, EqArray.empty))
 
-    /// `(per-parameter templates, Return)` for a method. `None` if any type doesn't map.
-    /// The parameter templates are UNCOLLAPSED — the caller collapses them with
-    /// `ExternalSymbols.tupledParams` for the `ExternalSignature.Parameters` (unit/single/tuple) and uses
-    /// the same array directly as the member key's structural `ArgSig` (one FrozenType per
-    /// value parameter, so `.Length` is the value-parameter arity). Computing them once
-    /// here is why the key needs no re-derivation and no rendered string.
+    /// `(per-parameter templates, return)` for a method; `None` if any type doesn't map.
+    /// UNCOLLAPSED — one entry per value parameter, so `.Length` is the value arity and the
+    /// array serves as a member key's structural `ArgSig` directly.
     let tryMethodSignature
         (reverseCanon: Map<string, SymbolKey list>)
         (m: MethodInfo)
@@ -116,10 +97,9 @@ module private MetadataMapping =
         else
             0
 
-    /// The `IntWidth` a BCL integral primitive's name denotes. The one place the .NET side of
-    /// the width correspondence is written; the F# side is `IntWidth.name`. `nativeint` /
-    /// `unativeint` are absent deliberately — `IntPtr` is not a constant a parameter default
-    /// or a metadata `Constant` row can carry.
+    /// The `IntWidth` a BCL integral primitive's name denotes. `System.IntPtr` /
+    /// `System.UIntPtr` are absent: neither a parameter default nor a metadata `Constant`
+    /// row can carry one.
     let private intWidthOfClrName (fullName: string) : IntWidth voption =
         match fullName with
         | "System.SByte" -> ValueSome IntWidth.SByte
@@ -147,11 +127,9 @@ module private MetadataMapping =
                 | "System.Double" -> Some(TConstValue.Float 0.0)
                 | _ -> None
 
-    /// Boxed `RawDefaultValue` → `TConstValue`, width for width: the fill lands in the
-    /// parameter's own slot rather than a wider/narrower one. The type test IS the width
-    /// witness here (the box's runtime type is all the metadata gives us), so each arm
-    /// names the `IntWidth` it found and encodes the value into `bits` — signed widths
-    /// sign-extend, unsigned ones zero-extend and reinterpret.
+    /// Boxed `RawDefaultValue` → `TConstValue`. The box's runtime type is the only width
+    /// witness metadata gives, so each arm names its own `IntWidth`; widening to `bits`
+    /// sign-extends the signed cases, zero-extends the unsigned (`uint64` reinterprets).
     let private constOfBoxed (v: obj) : TConstValue option =
         let inline integral (w: IntWidth) (bits: int64) = Some(TConstValue.Integral(w, bits))
 
@@ -235,14 +213,9 @@ module private MetadataMapping =
         : ExternalSignature =
         ExternalSignature.make (declaringTyparArity, methodTyparArity, parameters, ret)
 
-    /// The declaring type's `TypeKey`, read STRUCTURALLY off the reflection object: a
-    /// nested type's containment is `Type.DeclaringType`, so the key's holder chain is
-    /// built by recursion, never by cutting `FullName` on `.` and `+`. Reflection's
-    /// `Ns.Outer`1+Inner` display spelling is a rendering (`SymbolKeyOps.typeMetaName`);
-    /// it is not an input here. `Type.Name` is the innermost METADATA segment — its own
-    /// name plus its own `` `N `` — so it is parsed by `typeKeyOfSegment`, the exact
-    /// inverse of the segment renderer. A nested type reports its outer's namespace, which
-    /// is what the holder chain gives.
+    /// The declaring type's `TypeKey`, built by recursion through `Type.DeclaringType` —
+    /// never by cutting `FullName` on `.` and `+`. `Type.Name` is the innermost METADATA
+    /// segment (bare name plus its own `` `N ``), which `typeKeyOfSegment` parses.
     let rec declTypeKey (t: Type) : TypeKey =
         let t =
             if t.IsGenericType && not t.IsGenericTypeDefinition then
@@ -259,10 +232,9 @@ module private MetadataMapping =
 
         SymbolKeyOps.typeKeyOfSegment holder t.Name
 
-/// `IExternalSymbolProvider` over reference assembly paths via a shared `MetadataLoadContext`.
-/// `reverseCanon` is the extracted `{ platform-repr → [canon] }` map (`System.Int32 → [int]`)
-/// the leaf canonicalizes BCL primitive types through (see `MetadataMapping.tryBuildType`);
-/// `Map.empty` for a leaf with no Vesper.Core in scope (BCL types then stay nominal classes).
+/// `IExternalSymbolProvider` over reference-assembly paths, sharing one
+/// `MetadataLoadContext`. `reverseCanon` is `Map.empty` for a leaf with no Vesper.Core in
+/// scope — BCL primitives then stay nominal classes.
 type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyPaths: string seq) =
     let paths = Seq.toArray assemblyPaths
     let mlc = new MetadataLoadContext(PathAssemblyResolver paths)
@@ -293,10 +265,9 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         match resolveCache.TryGetValue name with
         | true, t -> t
         | _ ->
-            // Only surface types a consumer can actually reference; `Type.IsVisible`
-            // is true iff public top-level or public-nested in a visible chain.
-            // Resolving an external assembly's *internal* type is unsound — it lets it
-            // shadow a locally-declared one of the same name.
+            // `Type.IsVisible` is true iff public top-level, or public-nested in a
+            // visible chain. Surfacing an external assembly's *internal* type would let
+            // it shadow a locally-declared one of the same name.
             let tryAsm (asm: Assembly) : Type option =
                 try
                     match asm.GetType(name, false) |> Option.ofObj with
@@ -330,15 +301,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             resolveCache.[name] <- found
             found
 
-    /// The physical home of a reflected metadata type: the assembly it was loaded from
-    /// plus its namespace. This is the `key -> assembly` oracle for every shape this
-    /// provider publishes — the backend's `TypeRef` scope comes from HERE, never from
-    /// the key.
+    /// The physical home of a reflected type: the assembly it was loaded from plus its
+    /// namespace. The backend's `TypeRef` scope comes from here, never from the key.
     let originOf (t: Type) : SymbolOrigin =
         {
-            // A reflected type always has a home assembly; a null simple name is
-            // pathological (a nameless dynamic assembly), so fail loudly rather than
-            // fabricate one — nothing downstream can import from a nameless home.
+            // A nameless home (a dynamic assembly) is unimportable; don't fabricate one.
             Home =
                 match t.Assembly.GetName().Name with
                 | null -> failwithf "MetadataSymbols: reflected type '%s' has a null assembly simple name" t.FullName
@@ -352,13 +319,8 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         }
 
     /// A genuine public FIELD (`String.Empty`, `Vector3.X`, `ValueTuple.Item1`) as an
-    /// `ExternalMember` — a value member the property/method walks never see. Reads via
-    /// `ldfld`/`ldsfld` (not a `get_X` accessor), so `Storage = Field`; its shape is a
-    /// value member (no params, value in `Return`), identical to a property, so it reuses
-    /// `propertySignature` and keys under the `Property` identity (empty `argSig`).
-    /// `IsLiteral` (a `const`, lowers to `ldc` not a field load) and `IsSpecialName` (the
-    /// enum `value__`), plus unmappable field types, drop out as `None`. Shared by the
-    /// eager `enumerateClassMembers` field walk and the lazy `TryLookupMember` fallback.
+    /// `ExternalMember`: read by `ldfld`/`ldsfld`, so `Storage = Field`, but shaped and
+    /// keyed as a property. A `[<Literal>]` or the enum `value__` yields `None`.
     let fieldMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (f: FieldInfo) : ExternalMember option =
         if f.IsLiteral || f.IsSpecialName then
             None
@@ -375,9 +337,6 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             | None -> None
 
     /// A mapped method as an `ExternalMember`; `None` if its signature doesn't map.
-    /// Shared by the eager `enumerateClassMembers` method walk and the lazy
-    /// `TryLookupMember` per-type probe so the two paths can never drift on the shape
-    /// they mint for the same `MethodInfo`.
     let methodMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (m: MethodInfo) : ExternalMember option =
         MetadataMapping.tryMethodSignature reverseCanon m
         |> Option.map (fun (ps, ret) ->
@@ -395,7 +354,6 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         )
 
     /// A mapped property as an `ExternalMember`; `None` if its value type doesn't map.
-    /// Shared by the eager and lazy paths (see `methodMemberOf`).
     let propertyMemberOf
         (declKey: TypeKey)
         (origin: SymbolOrigin)
@@ -456,8 +414,6 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                 )
             )
 
-        // Genuine public FIELDS (`String.Empty`, `Vector3.X`, `ValueTuple.Item1`) —
-        // value members the property/method walks never see (see `fieldMemberOf`).
         let fields =
             t.GetFields declaredFlags |> Array.choose (fieldMemberOf declKey origin arity)
 
@@ -519,9 +475,6 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             | _ -> false
         )
 
-    // A real .NET type is never the synthetic grouping / native-attached JS shape, so
-    // `MemberLowering` stays at the `ReceiverFirst` default; only the metadata-derived
-    // fields are set here, so a future flag (e.g. R5's `Global`) is not restated.
     let decodeClassFlags (t: Type) : ExternalClassFlags =
         { ExternalClassFlags.Default with
             IsSealed = t.IsSealed
@@ -566,10 +519,8 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                 match resolveTypeLocked typeName with
                 | None -> [||]
                 | Some t ->
-                    // Per-type probes reading ONE type's own members (`DeclaredOnly`);
-                    // the inheritance walk that feeds them the receiver's base types (so
-                    // an *inherited* member resolves) is `candidates` below. Each member's
-                    // `declKey`/`origin` come from the type it is declared on.
+                    // The probes below read ONE type's own members (`DeclaredOnly`); each
+                    // member's `declKey`/`origin` come from the type it is declared on.
                     let commonOf (st: Type) =
                         let origin = originOf st
                         let declKey = MetadataMapping.declTypeKey st
@@ -631,18 +582,9 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                             | Some m -> [| m |]
                             | None -> [||]
 
-                    // The receiver's type plus the types it inherits members from, in
-                    // most-derived-first order.
-                    //   * A class or struct walks its base chain, which terminates at
-                    //     `System.Object` (whose `BaseType` is null): on the CLR every
-                    //     value ultimately inherits `ToString` / `Equals` / `GetHashCode`
-                    //     from `Object`, plus any un-overridden member of an intermediate
-                    //     base (`SystemException.Message`).
-                    //   * An interface walks its transitive base interfaces, then
-                    //     `System.Object` — an interface reference inherits the `Object`
-                    //     members too, but `GetInterfaces()` never yields `Object` (it is
-                    //     not an interface) and an interface's `BaseType` is null, so it
-                    //     is appended explicitly.
+                    // The receiver's type plus what it inherits members from, most-derived
+                    // first: a class or struct walks its base chain to `System.Object`; an
+                    // interface walks its base interfaces, then `Object`, appended by hand.
                     let candidates =
                         if t.IsInterface then
                             let objectTy =
@@ -657,11 +599,9 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                             baseChain t |> List.toArray
 
-                    // Dedupe collected method overloads by signature `(argSig, kind,
-                    // methodTyparArity)`: fed a most-derived-first array, `HashSet.Add` keeps
-                    // the first sighting, so a derived override drops its base twin while
-                    // overloads split across levels all survive. Re-sorted most-params-first
-                    // (stable) so `computeMember`'s `arr.[0]` is the widest overload.
+                    // Fed a most-derived-first array, `HashSet.Add` keeps the first sighting
+                    // of a signature, so an override drops its base twin and overloads split
+                    // across levels survive. Re-sorted most-params-first, so `[0]` is widest.
                     let dedupMethods (methods: ExternalMember[]) : ExternalMember[] =
                         let seen = System.Collections.Generic.HashSet<_>(HashIdentity.Structural)
 
@@ -673,22 +613,9 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                     if memberName = ".ctor" then
                         ctorsOn t
                     else
-                        // Resolve `memberName` under CLR by-name hiding: the MOST-DERIVED
-                        // declaration of the name wins, and lookup never falls through to a
-                        // base member of a DIFFERENT KIND. Concretely:
-                        //   * A property or field owns the name outright — it hides every
-                        //     base member (any kind) of that name.
-                        //   * Methods overload, so they are COLLECTED down the chain (an
-                        //     override drops its base twin; overloads split across levels all
-                        //     survive) — but a property/field on a lower level hides all
-                        //     further base methods, so collection stops at that level.
-                        // Walking most-derived first, the first level that declares the name
-                        // therefore decides everything: a non-method with no method seen above
-                        // it IS the answer; otherwise the methods gathered above it win and the
-                        // non-method (and everything below) is hidden. Within a single level,
-                        // precedence is property > method > field, mirroring the single-type
-                        // `enumerateClassMembers` order (real types never collide across kinds
-                        // at one level, so this only orders the theoretical IL case).
+                        // CLR by-name hiding: a property or field owns `memberName` outright
+                        // and hides every base member of it; methods collect down the chain
+                        // until such a level. Within one level, property > method > field.
                         let rec resolve (methods: ExternalMember[]) (i: int) : ExternalMember[] =
                             if i >= candidates.Length then
                                 dedupMethods methods
@@ -749,9 +676,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     interface IExternalSymbolResolver with
         member _.TryLookup _ = ValueNone
 
-        // Bare IL has no module chains, so a name IS the identity — the same condition
-        // `KeyedLeaf.ofNamed` mints under, so this scrape mints through the same spelling
-        // rather than restating it.
+        // Bare IL has no module chains, so a name IS the identity.
         member this.TryLookupType(name: string) =
             this.LookupTypeByName name
             |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
@@ -772,10 +697,9 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         member this.TryLookupMembers(key, memberName) =
             this.LookupMembersByName(SymbolKeyOps.qualifiedName key, memberName)
 
-        // The metadata index is keyed by (declaring name, member NAME), so a key is
-        // answered by the exact-identity selection out of that name's overload set — never
-        // by `LookupMemberByName`, whose best-by-arity collapse would answer a key with a
-        // SIBLING overload's entry.
+        // The caches are keyed by (declaring name, member NAME), so a key is answered by
+        // exact-identity selection out of that name's overload set; a best-by-arity
+        // collapse would answer it with a SIBLING overload's entry.
         member this.TryLookupMemberByKey(key: MemberKey) =
             this.LookupMembersByName(SymbolKeyOps.qualifiedName (SymbolKey.Type key.Decl), key.Name)
             |> ExternalSymbols.memberByKey key
@@ -791,9 +715,8 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
 module MetadataSymbols =
 
-    /// Host runtime TPA. A stamped `Origin` resolves to `System.Private.CoreLib`
-    /// (impl), not `System.Runtime` (ref); a future driver should supply the target
-    /// TFM's reference-pack paths instead.
+    /// Host runtime TPA, so a stamped `Origin` resolves to `System.Private.CoreLib`
+    /// (impl), not `System.Runtime` (ref).
     let runtimeAssemblyPaths () : string list =
         match AppContext.GetData "TRUSTED_PLATFORM_ASSEMBLIES" with
         | :? string as tpa when tpa.Length > 0 ->
@@ -808,11 +731,9 @@ module MetadataSymbols =
     let createWith (reverseCanon: Map<string, SymbolKey list>) (paths: string seq) : IExternalSymbolProvider =
         MetadataSymbolProvider(reverseCanon, paths) :> IExternalSymbolProvider
 
-    /// `createWith` with no primitive reverse map — BCL primitive types stay nominal
-    /// classes. For a leaf that resolves no Vesper primitive surface.
+    /// `createWith` with no reverse map — BCL primitives stay nominal classes.
     let create (paths: string seq) : IExternalSymbolProvider = createWith Map.empty paths
 
-    /// Process-wide provider over the host runtime's assemblies. A convenience for
-    /// tests (`MetadataSymbolsTests`); production composes a per-compilation leaf
-    /// seeded with the extracted reverse map via `SymbolProviders`.
+    /// Process-wide provider over the host runtime's assemblies — a test convenience;
+    /// production composes a per-compilation leaf seeded with the extracted reverse map.
     let provider: IExternalSymbolProvider = create (runtimeAssemblyPaths ())

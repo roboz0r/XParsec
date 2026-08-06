@@ -11,13 +11,10 @@ open EmitPattern
 open EmitDispatch
 
 /// Object / value construction: `new`, record literals + `{ r with … }`, union
-/// case construction, tuple values, and the closure `newobj` for a `Lambda`
-/// value. `buildLambda` only pushes captures (via `buildVarLoad`), so it carries
-/// no `Recur` seam; the rest evaluate sub-expressions through `recur`.
+/// case construction, tuple values, and the closure for a `Lambda` value.
 module EmitConstruct =
 
     let buildNew (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // Reached only via `EmitExpr`'s router, so the accessors below are total projections.
         let className = TastAccessor.exprNewClassName e
         let chosenCtor = TastAccessor.exprNewChosenCtor e
         let args = TastAccessor.exprChildren e
@@ -29,13 +26,11 @@ module EmitConstruct =
             | _ -> []
 
         // The external-ctor path filters candidates by arity off these; `chosenCtor`
-        // (the front end's recorded overload identity) disambiguates a same-arity set.
+        // then disambiguates a same-arity set.
         let argTypes = [ for a in args -> typeOfExpr a ]
 
-        // A project-local class is identified by the nominal `SymbolKey` on the
-        // construction's `TyClass` result type; an external ctor (no `TyClass`
-        // result, or a key not in `env.Classes`) routes through the provider by
-        // `className`.
+        // A project-local class is the `FTClass` key that `env.Classes` knows; anything
+        // else is an external ctor, resolved through the provider.
         let localClass =
             match ty with
             | FTClass(k, _) ->
@@ -46,15 +41,9 @@ module EmitConstruct =
 
         let argCount = args.Length
 
-        // Parameterless value-type construction (`Counter()`, `Span<char>()`) is
-        // the one shape that pushes no arguments and emits no `newobj`: the
-        // idiomatic CLR lowering is `initobj` on a zeroed scratch local, not a
-        // `newobj` against the synthesised parameterless `.ctor` (a struct's
-        // parameterless ctor only zero-inits anyway, and this avoids relying on
-        // the JIT tolerating an explicit value-type `.ctor()` call). Covers both
-        // a project-local struct and an *external* value type (`Span<char>` has
-        // no real parameterless ctor recipe — `default(Span<char>)`). Handled
-        // first so every other path shares the single push-then-construct seam.
+        // Parameterless value-type construction (`Counter()`, `Span<char>()`) pushes no
+        // arguments and emits no `newobj`: it is `initobj` on a zeroed scratch local —
+        // `Span<char>` has no parameterless ctor to call, it is `default(Span<char>)`.
         let isInitObj =
             argCount = 0
             && (
@@ -69,27 +58,16 @@ module EmitConstruct =
             b.Add(ILInstr.Initobj(env.Provider.TypeToken ty))
             b.Add(ILInstr.Ldloc slot)
         else
-            // Resolve the construction to the instruction that consumes the
-            // pushed args, THEN push exactly once. Keeping the push at this
-            // single seam — not inside each ctor arm — means no arm can forget
-            // it (a missing push would underflow the IL stack). The value→`obj`
-            // box for an `obj` parameter is now an explicit `Upcast` node from
-            // Elaborate, so codegen just pushes each argument raw.
+            // Resolve the construction to the instruction that consumes the pushed args,
+            // THEN push, below. A value→`obj` box is an explicit `Upcast` node from
+            // Elaborate, so each argument pushes raw.
             let emitNewobj =
                 match localClass with
                 | ValueSome(classKey, c) ->
-                    // A user class emitted into this assembly. The primary ctor's
-                    // arity equals its field count; a different arg count selects
-                    // a secondary ctor by arity — F# forbids two ctors of the same
-                    // signature, so arity is a key. The `val`-field form
-                    // (`type T = val …; new(…) = …`) has NO primary ctor
-                    // (`HasPrimaryCtor = false`), so every construction — including
-                    // a 0-arg `T()` that would otherwise match the (absent) primary
-                    // by field count — resolves to a secondary by arity.
+                    // The primary ctor's arity equals its field count; any other arg count
+                    // selects a secondary by arity — F# forbids two ctors of the same
+                    // signature, so arity is a key. `type T = val …; new(…)` has no primary.
                     if c.HasPrimaryCtor && argCount = List.length c.Fields then
-                        // Primary. Monomorphic: the ctor's `Def` token directly.
-                        // Generic: a `MemberRef` on the receiver's instantiated
-                        // `TypeSpec` (`Box<int>::.ctor`), as the generic-record path.
                         let ctorRef =
                             memberRef env c.Typars classKey tyArgs (UserMemberKind.ClassMember ClassMember.Ctor) c.Ctor
 
@@ -98,9 +76,6 @@ module EmitConstruct =
                         match c.SecondaryCtors |> List.tryFind (fun (a, _, _) -> a = argCount) with
                         | Some(_, _, h) when List.isEmpty c.Typars -> fun () -> b.Add(ILInstr.Newobj(h, argCount))
                         | Some(_, paramTys, h) ->
-                            // Generic secondary-ctor call site: a `MemberRef` on
-                            // the instantiated `TypeSpec` (`OnceEnum<int>::.ctor`),
-                            // keyed by the ctor's declared param signature.
                             let ctorRef =
                                 memberRef
                                     env
@@ -113,24 +88,17 @@ module EmitConstruct =
                             fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount))
                         | None -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount className
                 | ValueNone ->
-                    // The external ctor is identified by the construction's
-                    // result-type key (`ty = FTClass(key, _)` — also the
-                    // `PrintfFormat` printf-literal case); `className` survives
-                    // only for the error message. A `New` whose `ty` isn't a
-                    // `TyClass` is a defensive CST error path the project-local
-                    // arm already missed — it has no resolvable ctor.
+                    // An external ctor is identified by the construction's result-type key;
+                    // `className` survives only for the error message.
                     fun () ->
                         match ty with
                         | FTClass(ctorKey, _) ->
                             match env.Provider.TryEmitCtor(SymbolKey.Type ctorKey, chosenCtor, tyArgs, argTypes) with
                             | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
                             | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
-                        // A constructed heritable primitive (`new exn "boom"` /
-                        // `new System.Exception "boom"`, canonicalized at
-                        // resolution) types as the canon `FTConst`: resolve it to
-                        // its platform external key (`System.Exception`) and mint
-                        // the ctor there — the same resolution the `inherit exn(…)`
-                        // base-ctor chain uses.
+                        // `new exn "boom"` types as the canon `FTConst`, not a class:
+                        // resolve it to its platform key (`System.Exception`) and mint
+                        // the ctor there.
                         | FTConst(canonKey, args) when args.IsEmpty ->
                             let recipe =
                                 env.Provider.IntrinsicClassBase canonKey
@@ -149,26 +117,17 @@ module EmitConstruct =
             emitNewobj ()
 
     let buildRecordCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // Reached only via `EmitExpr`'s router, so `exprRecordConsFields` is a total projection.
         let srcFields = TastAccessor.exprRecordConsFields e
         let ty = TastAccessor.exprTy e
 
-        // The source-order initialiser list (`{ Y = …; X = … }`) is reordered
-        // to the type's *declaration* order before the ctor is invoked:
-        // the ctor's parameter slots correspond to
-        // declaration order so the field-store sequence in `buildRecordCtor`
-        // lines up. A generic record's `.ctor` is a `MemberRef` on its own
-        // `TypeSpec` (`Box\`1<!0>::.ctor`), exactly like a generic union's
-        // factory.
         let key, tyArgs = nominalShape "RecordCons" ty
 
         match env.Records.TryGetValue(SymbolKey.Type key) with
         | true, r ->
             let srcMap = Map.ofSeq srcFields
 
-            // Fields push in declaration order (the ctor's parameter layout).
-            // A value flowing into an `obj` field is boxed by an explicit
-            // `Upcast` node from Elaborate, so push each initialiser raw.
+            // A source-order initialiser list (`{ Y = …; X = … }`) pushes in the type's
+            // DECLARATION order, which is the ctor's parameter layout.
             for (fieldName, _, _) in r.Fields do
                 match Map.tryFind fieldName srcMap with
                 | Some e -> recur env b e
@@ -180,12 +139,8 @@ module EmitConstruct =
             b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
         | false, _ ->
             let qualName = SymbolKeyOps.typeMetaName key
-            // The record lives in a referenced assembly. The provider mints a
-            // `MemberRef` on its instantiated `TypeSpec`; field arguments are
-            // pushed in source order (the contract layer's field order is also
-            // the declaration order, which matches the ctor's parameter layout,
-            // so no reorder is required for the supported one-field `Ref<'T>`
-            // shape — multi-field external records will revisit).
+            // A record in a referenced assembly pushes in SOURCE order: the only such
+            // shape supported is the one-field `Ref<'T>`, where the two coincide.
             let fieldNames = [ for (n, _) in srcFields -> n ]
 
             match env.Provider.TryEmitRecordCons(key, tyArgs, fieldNames) with
@@ -197,17 +152,13 @@ module EmitConstruct =
             | ValueNone -> failwithf "Emit: no emitted record for '%s'" qualName
 
     let buildRecordClone (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // Reached only via `EmitExpr`'s router, so `exprRecordClone` is a total projection.
         let cloneView = TastAccessor.exprRecordClone e
         let source = cloneView.Source
         let overrides = cloneView.Overrides
         let ty = TastAccessor.exprTy e
 
-        // `{ r with X = v; … }` — evaluate `r` into a local, then per
-        // declaration-order field: push the override expression if it's in
-        // the override list, else `ldloc; ldfld` from the saved source. Then
-        // `newobj` the ctor. Direct field reads (no `MemberwiseClone`) keeps
-        // it BCL-only and works identically for a generic record.
+        // `{ r with X = v }` — spill `r` to a local, then per declaration-order field push
+        // the override if there is one, else `ldloc; ldfld` the saved source, then `newobj`.
         let key, tyArgs = nominalShape "RecordClone" ty
 
         match env.Records.TryGetValue(SymbolKey.Type key) with
@@ -240,29 +191,22 @@ module EmitConstruct =
         | false, _ -> failwithf "Emit: no emitted record for '%A'" key
 
     let buildUnionCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // Reached only via `EmitExpr`'s router, so `exprUnionConsCaseName` is a total projection.
         let caseName = TastAccessor.exprUnionConsCaseName e
         let args = TastAccessor.exprChildren e
         let ty = TastAccessor.exprTy e
 
-        // Local union table keys by the nominal `TypeKey`; the provider's
-        // cons recipe (FSharp.Core / Vesper list) selects on the same key.
         let key, tyArgs = nominalShape "UnionCons" ty
         let qualName = SymbolKeyOps.typeMetaName key
 
-        // A value-type arg flowing into a case field typed `obj` is boxed by an
-        // explicit `Upcast` node synthesised at Elaborate (which has the case field
-        // SemTypes this site lacks — `EmittedCase.Fields` carries only handles),
-        // so codegen just pushes each argument raw.
+        // A value flowing into a case field typed `obj` is boxed by an explicit `Upcast`
+        // node from Elaborate, so push each argument raw.
         for a in args do
             recur env b a
 
         match env.Unions.TryGetValue(SymbolKey.Type key) with
         | true, u ->
-            // Our own emitted union: `call` the case's static factory (the
-            // fields are already on the stack in declaration order). A
-            // monomorphic factory is a `Def` token; a generic one is a
-            // `MemberRef` on the instantiated `TypeSpec` (`List<int>::Cons`).
+            // Our own emitted union: `call` the case's static factory, the fields already
+            // on the stack in declaration order.
             let factoryRef =
                 memberRef
                     env
@@ -280,16 +224,12 @@ module EmitConstruct =
             | ValueNone -> failwithf "Emit: no union-cons recipe for %s.%s" qualName caseName
 
     let buildTuple (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // Reached only via `EmitExpr`'s router, so `exprChildren` is a total projection.
         let elems = TastAccessor.exprChildren e
         let ty = TastAccessor.exprTy e
 
-        // A standalone tuple *value* (the argument-list case is flattened at the
-        // call site instead). Push each element left-to-right, then `newobj` the
-        // `System.ValueTuple` ctor, leaving the struct on the stack. Arity ≥ 8
-        // nests: push slots 0–6, build the residual tail as a nested `TRest`
-        // value, then `newobj` the 8-arg `ValueTuple`8` ctor. Recurse by offset
-        // into `elems` to stay allocation-free.
+        // A standalone tuple VALUE; an argument list is flattened at the call site instead.
+        // Arity ≥ 8 nests: push slots 0–6, build the tail as a nested `TRest` value, then
+        // `newobj` the 8-arg `ValueTuple\`8` ctor.
         let refs = env.Provider.ValueTupleRefs(tupleElemTys ty)
 
         let rec buildFrom (refs: ValueTupleHandles) (start: int) : unit =
@@ -308,25 +248,14 @@ module EmitConstruct =
 
         buildFrom refs 0
 
-    /// The discovered `Closure` for a `Lambda` node — every construction path needs
-    /// it. Its absence is a broken invariant (discovery missed a lambda), so each
-    /// caller faults rather than silently degrading.
     let private closureOf (env: EmitEnv) (e: TastAccessor.ExprId) : Closure =
         match env.ClosureByNode.TryGetValue e with
         | true, closure -> closure
         | false, _ -> failwith "Emit: a Lambda value was not discovered as a closure"
 
-    /// A `Stack` (value-struct) closure is a readonly struct,
-    /// constructed BY-VALUE (NO `newobj`, NO cached `ldsfld`), leaving the struct
-    /// VALUE on the stack; the call site passes it into the constrained `!TF` slot,
-    /// so `constrained.` devirtualises with no box.
-    ///   * Captureless: a zero-field struct — `ldloca; initobj; ldloc`.
-    ///   * Capturing: `initobj` only zeroes a fieldless struct, so push each
-    ///     capture (in capture-field order) and `call` the value-type ctor
-    ///     (`buildStructCtor` stores `ldarg.(i+1)` into field `i`), writing through
-    ///     the `&slot` managed pointer. Value-type ctor stack discipline: address
-    ///     first, then args, then `call` (returns void, stack empty), then `ldloc`
-    ///     the now-initialised value.
+    /// A value-struct closure is built BY VALUE — no `newobj` — leaving the struct on the
+    /// stack for a constrained `!TF` slot. Value-type ctor stack discipline is address
+    /// first, then captures, then `call` (which returns void), then `ldloc` the result.
     let private buildValueStructClosure
         (env: EmitEnv)
         (b: IlBuilder)
@@ -354,13 +283,9 @@ module EmitConstruct =
 
         b.Add(ILInstr.Ldloc slot)
 
-    /// The v1 heap closure: push captures via the current resolver (a local in
-    /// `Main`, the param, or a capture inside an enclosing closure), then `newobj`
-    /// its ctor. A generic closure routes the `Newobj` through a `MemberRef` on
-    /// `<closure>$n<args>`, where `args` is the closure's typars zonked at the call
-    /// site (`!!i` inside the enclosing static method's body, `!i` inside an
-    /// enclosing closure's `Invoke`) — both encodings reference the same TypeVar
-    /// roots, and the parent's `TypeSpec` captures the use-site instantiation.
+    /// A heap closure: push its captures, then `newobj` its ctor. A generic one routes the
+    /// `Newobj` through a `MemberRef` on `<closure>$n<args>`, `args` being its typars as
+    /// seen at THIS construction site.
     let private buildHeapClosure (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let closure = closureOf env e
 
@@ -373,15 +298,9 @@ module EmitConstruct =
                 | true, ctor -> ctor
                 | false, _ -> failwith "Emit: closure constructor not yet emitted (leaves-first ordering broken)"
             else
-                // The closure's instantiation at *this* construction site, in the
-                // enclosing context's ambient. Its typar list is the enclosing class
-                // typars (the leading `DeclaringTypars` slots) followed by the
-                // enclosing member's method typars: a class typar is
-                // `FTTypar(Declaring, i)` (encoded `!i` in a member body) and a method
-                // typar `FTTypar(Method, j)` (`!!j`). A static-fn closure has
-                // `DeclaringTypars = 0`, so this is `[FTTypar(Method, j)]` — the prior
-                // encoding (`!!i` in a static-method body, `!i` inside an enclosing
-                // closure).
+                // The closure's typar list is the enclosing class typars (the leading
+                // `DeclaringTypars` slots, encoded `!i` in a member body) followed by the
+                // enclosing member's method typars (`!!j`).
                 let instArgs =
                     [ for i in 0 .. closure.DeclaringTypars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
                     @ [
@@ -392,15 +311,9 @@ module EmitConstruct =
 
         b.Add(ILInstr.Newobj(ctorHandle, List.length closure.Captures))
 
-    /// A `Lambda` value: construct its closure. The three construction modes
-    /// partition the closure space (`EmitTypes.closureIsCached`), so this is a flat
-    /// dispatch with no sub-expression evaluation (no `Recur` seam):
-    ///   * value-struct — by-value, keyed in `ClosureValueTypeByNode`;
-    ///   * cached singleton — stateless heap closure `ldsfld`'d once;
-    ///   * heap `newobj` (v1) — everything else.
+    /// A `Lambda` value: construct its closure — by value if it is a value-struct, else a
+    /// stateless one `ldsfld`s the singleton cached for it, else `newobj` on the heap.
     let buildLambda (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // Reached only via `EmitExpr`'s router; the node's discovered closure mode
-        // (value-struct / cached singleton / heap `newobj`) selects the construction.
         match env.ClosureValueTypeByNode.TryGetValue e with
         | true, closureFt -> buildValueStructClosure env b e closureFt
         | false, _ ->

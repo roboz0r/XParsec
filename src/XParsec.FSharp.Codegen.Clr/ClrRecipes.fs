@@ -17,8 +17,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     let encodeType te t = enc.EncodeType(te, t)
 
-    /// Uncurry a curried `FrozenType` function into `(params, return)`
-    /// A curried `p1 -> … -> pN -> ret` peels to `([p1; …; pN], ret)`.
+    /// `p1 -> … -> pN -> ret` peels to `([p1; …; pN], ret)`.
     let uncurryFrozen (t: FrozenType) : FrozenType list * FrozenType = TastLower.peelFunDomains -1 t
 
     let encodeListOf te inner = enc.EncodeListOf(te, inner)
@@ -176,23 +175,18 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    /// The `_tag : int32` discriminator field `MemberRef` on the referenced cons-list
-    /// `Vesper.Collections.List`1<elem>` — the slot a cross-package `match` against
-    /// `[]` / `::` reads. The cons-list keeps op-form case names (`op_Nil` /
-    /// `op_ColonColon`) in its extracted contract, so it never resolves through the
-    /// generic external-union path; like construction (`emitVesperListCons` /
-    /// `…Empty`), the match path special-cases it against the known emitted layout
-    /// (`Empty` tag 0, `Cons` tag 1; payload fields `Cons_0` / `Cons_1`).
+    /// The `_tag : int32` discriminator field on the referenced cons-list
+    /// `Vesper.Collections.List`1<elem>`, read by a cross-package `match` on `[]` / `::`.
+    /// Its contract keeps op-form names (`op_Nil` / `op_ColonColon`), unknown to the generic path.
     let emitVesperListTagField (elem: FrozenType) : EntityHandle =
         let typeSpec = vesperListTypeSpec elem
         let s = BlobBuilder()
         encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
         toEntity (ctx.MemberRef(typeSpec, "_tag", s))
 
-    /// One `Cons_<fieldIndex>` payload field `MemberRef` on the referenced cons-list
-    /// (`Cons_0` = head `'T`, `Cons_1` = tail `List<'T>`), instantiated at `elem`. The
-    /// signature blob encodes the field's *open* (declaring-typar) type so it matches
-    /// the emitted field definition; the sibling of `emitVesperListTagField`.
+    /// One `Cons_<fieldIndex>` payload field on the referenced cons-list (`Cons_0` = head
+    /// `'T`, `Cons_1` = tail `List<'T>`), instantiated at `elem`. The blob encodes the
+    /// field's *open* (declaring-typar) type, matching the emitted field definition.
     let emitVesperListConsField (elem: FrozenType) (fieldIndex: int) : EntityHandle =
         let typeSpec = vesperListTypeSpec elem
         let s = BlobBuilder()
@@ -205,7 +199,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         toEntity (ctx.MemberRef(typeSpec, sprintf "Cons_%d" fieldIndex, s))
 
     /// `Vesper.Fun`2<a,b>` as a `TypeSpec` — the interface a synthesised closure *implements*.
-    /// A closure derives from `System.Object`, not `FSharpFunc`.
     let funInterfaceSpec (a: FrozenType) (b: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
@@ -214,11 +207,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         encodeType (g.AddArgument()) b
         toEntity (ctx.TypeSpec tsB)
 
-    /// `Vesper.Fun`(len)<tys…>` as a `TypeSpec` — the FLAT interface a flat
-    /// value-struct closure of param-arity `len-1` implements (sibling of the curried
-    /// `funInterfaceSpec`). `tys` is the full type-arg list (the flat params followed
-    /// by the result), so `len` picks the `Fun`(len)` entity (`3`⇒`Fun`3`,
-    /// `4`⇒`Fun`4`, `5`⇒`Fun`5`).
+    /// `Vesper.Fun`(len)<tys…>` as a `TypeSpec` — the FLAT interface a flat value-struct
+    /// closure of param-arity `len-1` implements. `tys` is the flat params followed by the
+    /// result, so `len` picks the entity (`3`⇒`Fun`3`, `4`⇒`Fun`4`, `5`⇒`Fun`5`).
     let flatFunInterfaceSpecN (tys: FrozenType list) : EntityHandle =
         let len = List.length tys
         let tsB = BlobBuilder()
@@ -239,10 +230,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             | FTFun(FTFun(state, FTFun(t, _)), _) -> t, state
             | other -> failwithf "ClrProvider: List.fold has unexpected type %A" other
 
-        // The generic `fold` signature is encoded with two method typars carried as self-describing
-        // `FTTypar(Method, i)` nodes (`'State` ⇒ `!!0`, `'T` ⇒ `!!1`): the keystone `encodeType` arm
-        // maps them — and the `Fun` / `List` instances over them — to `!!i` straight off the node,
-        // exactly as the producer side emits the method's own signature. No ambient typar window.
+        // `fold`'s two method typars are self-describing `FTTypar(Method, i)` nodes (`'State` ⇒
+        // `!!0`, `'T` ⇒ `!!1`), which `encodeType` maps to `!!i` — no ambient typar window.
         let sT = FTTypar(TyparAxis.Method, 0)
         let eT = FTTypar(TyparAxis.Method, 1)
         let folderT = FTFun(sT, FTFun(eT, sT))
@@ -279,20 +268,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    /// The EXTERNAL head of the seq-interface witness
-    /// (`FrozenTypeBridge.pickInterfaceWitness` is the shared tail;
-    /// `EmitResolve.tryInterfaceWitness` is the project-local head). Given a
-    /// referenced-package nominal receiver `FTClass/FTUnion/FTRecord(key, args)` and a
-    /// wanted `ifaceKey`, look the type's shape up through the codegen symbol provider
-    /// (`ICodegenSymbols.TryLookupType`) and pick the matching
-    /// `ExternalClassShape.FrozenInterfaces` template (its args over the declaring
-    /// typars), instantiated at THIS receiver (`FTTypar(Declaring, i) := args.[i]`).
-    /// `ValueNone` for a non-nominal receiver, an unknown / non-class shape, or no
-    /// matching interface. Direct-declared interfaces only (the `.fsi` extractor's
-    /// `FrozenInterfaces` is the frozen direct-impl set), matching the project-local
-    /// witness's depth. Names compare on `qualifiedName` (arity suffix retained on both
-    /// sides — `FrozenInterfaces` from `nominalInterface`, `ifaceKey` from the frozen
-    /// constraint target).
+    /// The seq-interface witness for a referenced-package nominal receiver: pick the shape's
+    /// `FrozenInterfaces` template matching `ifaceKey` and instantiate it at this receiver
+    /// (`FTTypar(Declaring, i) := args.[i]`). Direct-declared interfaces only.
     let tryExternalInterfaceWitness (receiver: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
         match receiver with
         | FTClass(rKey, rArgs)
@@ -307,21 +285,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// General external module-function call: a `call` to a static method `<ns>::<name>` compiled into
-    /// a referenced package by our own backend, generalised from `emitFold`. `binding` is the callee's
-    /// own identity — the key `Elaborate` stamped on the reference — and `fnTy` the *use-site* curried
-    /// function type. The key is taken WHOLE rather than rebuilt from a `(module, name)` pair: a
-    /// top-level binding is held by a namespace, not a module, so a pair could not spell it and the
-    /// probe below would miss the very function the producer registered.
-    ///
-    /// The open method signature is reconstructed by the symbol layer: a curried monotype whose
-    /// method-own typars are already self-describing `FTTypar(Method, i)` nodes, so codegen never
-    /// authors a `TyVar`. The keystone `encodeType` arm maps those to `!!i`, matching
-    /// the producer's emitted signature; the use-site type arguments are then recovered by structurally
-    /// matching that open type against `fnTy` (`recoverOpenTypars`, method axis). A monomorphic method
-    /// needs no `MethodSpec`. `ValueNone` ⇒ the symbol is unknown to the provider, or carries no home
-    /// assembly (a project-local symbol the provider never sees), in which case the caller falls back to
-    /// its hard error.
+    /// A `call` to a static method `<ns>::<name>` compiled into a referenced package by our own
+    /// backend; `fnTy` is the *use-site* curried type. `binding` is taken WHOLE rather than rebuilt
+    /// from `(module, name)`: a top-level `let` is held by a namespace, which a pair cannot spell.
     let emitExternalCall (binding: BindingKey) (fnTy: FrozenType) : CallRecipe voption =
         let name = binding.Name
         let valueKey = SymbolKey.Binding binding
@@ -330,37 +296,26 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         match symbols.TryLookupOpenSignature valueKey with
         | ValueNone -> ValueNone
         | ValueSome openSig ->
-            // The symbol's open curried signature *template*, with its method typars already self-
-            // describing `FTTypar(Method, i)` (`ICodegenSymbols.TryLookupOpenSignature` instantiates +
-            // freezes in the symbol layer, so codegen authors no `TypeVar` and never touches
-            // `Instantiate`). Its nominal heads are already kind-correct (`'T option` ⇒
-            // `FTUnion`), so they encode + recover against the producer's emitted signature unchanged.
+            // The open curried signature *template*: its method typars are already
+            // `FTTypar(Method, i)` and its nominal heads kind-correct (`'T option` ⇒ `FTUnion`),
+            // so it encodes and recovers against the producer's emitted signature unchanged.
             let methodTyparArity = openSig.MethodTyparArity
 
-            // Peel exactly `n` top-level `->` groups off the open template — one per
-            // SOURCE argument group. Unlike `uncurryFrozen` (which peels every `->`),
-            // `peelFunDomains n` stops at the source arity, so a function-typed
-            // RESULT stays whole.
+            // Peel exactly `n` top-level `->` groups — one per SOURCE argument group. Unlike
+            // `uncurryFrozen`, which peels every `->`, this stops at the source arity, so a
+            // function-typed RESULT stays whole.
             let peelN n t = TastLower.peelFunDomains n t
 
-            // The flat parameter vector + `void`-vs-value decision come from the SOURCE
-            // `ValRepr` the symbol carries: its groups drive the tuple-flatten
-            // / lone-`unit`-erase (mirroring the producer's `compiledOf`), and the
-            // result peeled to exactly that arity decides `void`. The parameter TYPES
-            // come from peeling the open template (its method typars are already
-            // `FTTypar(Method, i)`, matching the producer's `!!i` slots). Without a
-            // captured `ValRepr` (a value, a metadata-layer symbol), fall back to the
-            // bare-`uncurryFrozen` reconstruction — the curried calling convention,
-            // correct for an all-`GSimple` signature. A `unit` source result is emitted
-            // genuine CLR `void` by the producer ("void everywhere"), so the
-            // member-ref must encode `void` too or a `System.ValueTuple` return misses
-            // the void method (`MissingMethodException`) — hence both arms read void
-            // from the same `isUnitReturn` of the (exactly-peeled) source result.
+            // A `unit` source result is emitted genuine CLR `void`, so encoding a
+            // `System.ValueTuple` return here would miss the void method (`MissingMethodException`).
             let isUnitReturn t =
                 match t with
                 | FTUnit -> true
                 | _ -> false
 
+            // The flat parameter vector and the void decision come from the SOURCE `ValRepr`
+            // groups (tuple-flatten, lone-`unit`-erase); the TYPES come from peeling the open
+            // template. Without a `ValRepr`, fall back to the all-curried shape.
             let flatParamTys, openRetTy, returnsVoid, recipeGroups =
                 match openSig.ValRepr with
                 | ValueSome vr ->
@@ -369,9 +324,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     let groupParamTys, retTy = peelN n openSig.Signature
 
                     if List.length groupParamTys <> n then
-                        // The producer peels the same arity off the same template, so a
-                        // well-formed contract always exposes `n` parameter groups here; a
-                        // shortfall is a corrupt contract, not a recoverable shape.
                         failwithf
                             "emitExternalCall: contract for %s declares %d source groups but its template has only %d"
                             compiledFullName
@@ -406,19 +358,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                 s
 
-            // A module function whose home is this compilation's OWN assembly resolves to its
-            // local `MethodDef`, not an `AssemblyRef`-based `MemberRef`. Probe the home-local
-            // registry first; on a miss (a genuinely-external / package symbol) mint the external
-            // member ref scoped by the home the resolved symbol carries (`openSig.Origin`) — the
-            // key alone names no assembly. The mono arm `call`s the base handle directly; the
-            // generic arm uses it as the `MethodSpec.Method` base (SRM accepts a `MethodDef`
-            // there), so only the base handle swaps — all signature / typar recovery is identical.
-            //
-            // The external fallback needs a declaring TYPE to scope the `MemberRef`, and
-            // only a module has one. A binding held directly by a namespace (a top-level
-            // `let`) has no such type in any assembly but the one that emitted it — where
-            // the probe above already found it — so `ValueNone` there is an honest "not
-            // callable from here", not a holder left to guess.
+            // A function homed in this compilation's OWN assembly resolves to its local `MethodDef`;
+            // on a miss, mint an external `MemberRef` scoped by `openSig.Origin` (the key alone
+            // names no assembly). Only a module gives that ref a declaring type — hence `ValueNone`.
             let callBaseOpt =
                 match env.LocalModuleFns.TryGetValue valueKey with
                 | true, defHandle -> ValueSome defHandle
@@ -433,23 +375,16 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 if methodTyparArity = 0 then
                     callBase
                 elif List.isEmpty openSig.Constraints then
-                    // Use-site instantiation: match the open template (its `FTTypar(Method, i)`) against
-                    // the call's concrete type, recovering each method arg by its index. No phantom
-                    // constraint typars, so every method typar is signature-reachable.
+                    // Match the open template's `FTTypar(Method, i)` against the call's concrete
+                    // type, recovering each method arg by index. No constraint typars here, so
+                    // every method typar is signature-reachable.
                     let _, methodArgs = recoverOpenTypars 0 methodTyparArity openSig.Signature fnTy
 
                     methodSpec callBase methodArgs
                 else
-                    // The EXTERNAL analogue of the
-                    // project-local phantom-typar solve (`EmitCall.buildAppCall`). The open
-                    // template carries a phantom constraint typar (`fold`'s enumerator `'E` in
-                    // `'S :> IStructSeq<'T,'E>`, in no param/result) that `recoverOpenTypars`
-                    // cannot recover — it would fail loud. Recover the signature-reachable slots
-                    // partially, then solve the phantom from `openSig.Constraints` via the source's
-                    // external seq impl (`tryExternalInterfaceWitness`), exactly as the in-assembly
-                    // path solves it from `env.Classes`. The member-ref's `genericParameterCount`
-                    // already encodes `methodTyparArity` (= 5 for `fold`), so the minted `MethodSpec`
-                    // carries the full method instantiation incl. `'E`.
+                    // The template carries a phantom constraint typar (`fold`'s enumerator `'E` in
+                    // `'S :> IStructSeq<'T,'E>`) that appears in no param or result, so
+                    // `recoverOpenTypars` would fail loud: recover partially, then solve it.
                     let instArr =
                         TastLower.matchInstantiationPartial methodTyparArity [ openSig.Signature ] [ fnTy ]
 
@@ -473,13 +408,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                     methodSpec callBase methodArgs
 
-            // `Grouped` carries the SOURCE grouping (the walker consumes
-            // `groups.Length` arguments and flattens each) AND the FLAT pop count
-            // `List.length flatParamTys` — what the `call` actually consumes and what
-            // drives the IlIr stack model (`Pushes - FlatArgCount`). The two diverge
-            // for a non-`GSimple` group (a tupled group is N flat from ONE
-            // argument; a lone `()` is ZERO from one); `Flat` is the all-`GSimple`
-            // fallback where they coincide.
+            // `Grouped` carries the SOURCE grouping (the walker consumes `groups.Length`
+            // arguments, flattening each) AND the FLAT pop count. They diverge for a
+            // non-`GSimple` group: a tupled group is N flat from ONE argument, a lone `()` zero.
             let arity =
                 match recipeGroups with
                 | ValueSome groups -> CallArity.Grouped(groups, List.length flatParamTys)
@@ -492,16 +423,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 {
                     Emit = fun il -> il.Encoder.Call callHandle
                     Arity = arity
-                    // A `void` call leaves nothing; the recipe consumer reifies the
-                    // `unit` value (a value-position result still needs one).
                     Pushes = if returnsVoid then 0 else 1
                 }
             )
 
     /// Member refs + the `AppendFormatted<T>` factory for lowering a `TExpr.Format` to the
-    /// `Vesper.Formatter` write-through handler. All members hang off the non-generic `Formatter` value
-    /// type, so the parent is a plain `TypeRef`; the generic `AppendFormatted` is a member ref to the
-    /// open generic method + a `MethodSpec` per hole.
+    /// `Vesper.Formatter` write-through handler. All members hang off the non-generic
+    /// `Formatter` value type, so the parent is a plain `TypeRef`.
     let buildFormatHandles () : FormatHandles =
         let ctorWriter =
             let s = BlobBuilder()
@@ -608,16 +536,15 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let appendBool = appendMember "AppendBool" (fun te -> te.Boolean())
         let appendOctal = appendMember "AppendOctal" (fun te -> te.Int32())
         let appendUnsigned = appendMember "AppendUnsigned" (fun te -> te.UInt32())
-        // `%08o` / `%05u` zero-pad members: same `(value, int32 width)` shape as the
-        // space-pad ones, so `appendMember` builds them — only the semantics differ.
+        // `%08o` / `%05u`: same `(value, int32 width)` shape as the space-pad members.
         let appendZeroPaddedOctal =
             appendMember "AppendZeroPaddedOctal" (fun te -> te.Int32())
 
         let appendZeroPaddedUnsigned =
             appendMember "AppendZeroPaddedUnsigned" (fun te -> te.UInt32())
 
-        // `instance void AppendZeroPaddedFloat(float64, string, int32)` — `%0w.pf` (value, "F<prec>"
-        // body, field width). Distinct arity from `appendMember`, so built here.
+        // `instance void AppendZeroPaddedFloat(float64, string, int32)` — `%0w.pf`
+        // (value, "F<prec>" body, field width).
         let appendZeroPaddedFloat =
             let s = BlobBuilder()
 
@@ -636,7 +563,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             toEntity (ctx.MemberRef(eFormatter.Value, "AppendZeroPaddedFloat", s))
 
         // `instance void AppendRightZeroPaddedFloat(float64, string, int32)` — `%-0w.pf`
-        // (value, "F<prec>" body, field width). Same shape as `AppendZeroPaddedFloat`.
+        // (value, "F<prec>" body, field width).
         let appendRightZeroPaddedFloat =
             let s = BlobBuilder()
 
@@ -756,10 +683,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             encodeType (specEnc.AddArgument()) ty
             toEntity (ctx.MethodSpec(toEntity memberRef, inst))
 
-        // `instance void AppendStructured<T>(!!0, int32, int32)` — `%A`. Generic
-        // like `appendFormatted`: a member ref to the open generic method + a
-        // `MethodSpec` binding `<T = ty>` per hole. The two `int32`s are the
-        // print-width budget then the print-size budget the walker pushes.
+        // `instance void AppendStructured<T>(!!0, int32, int32)` — `%A`. A member ref to the
+        // open generic method + a `MethodSpec` binding `<T = ty>` per hole; the two `int32`s
+        // are the print-width then the print-size budget the walker pushes.
         let appendStructured (ty: FrozenType) : EntityHandle =
             let s = BlobBuilder()
 
@@ -822,15 +748,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             NormalizePrecision = staticIntToInt "NormalizePrecision"
         }
 
-    // Local-or-external, resolved per call (see `ClrEnv.coreInterfaceEntity`): Core's own
-    // `TypeDef` when compiling Core, else the `TypeRef` through Core's `AssemblyRef`.
+    // Resolved per call: Core's own `TypeDef` when compiling Core, else the `TypeRef`
+    // through Core's `AssemblyRef`.
     let eFormatSink () = env.EFormatSink()
     let eStructuralFormattable () = env.EStructuralFormattable()
 
-    /// The `IFormatSink` member refs the synthesised `Format` body calls. Built
-    /// once (the handles are type-independent); each is `instance void` on
-    /// `Vesper.IFormatSink`. The `Format` body `callvirt`s these around the type's
-    /// fields, mirroring the hand-written `Point`/`Opt` impls.
+    /// The `instance void` `Vesper.IFormatSink` member refs a synthesised `Format` body
+    /// `callvirt`s around the type's fields. Type-independent, so built once.
     let formatSinkHandles =
         lazy
             (let sinkMember (name: string) (paramCount: int) (param0: SignatureTypeEncoder -> unit) : EntityHandle =
@@ -867,10 +791,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                  Child = sinkMember "Child" 1 (fun te -> te.Object())
              })
 
-    /// `instance void Format(IFormatSink)` — the signature of the synthesised
-    /// `IStructuralFormattable.Format` member. The param type is the bare
-    /// `Vesper.IFormatSink` `TypeRef`, encoded identically to the interface slot it
-    /// binds to (name + signature match, like the typed equality `Equals(Self)`).
+    /// `instance void Format(IFormatSink)` — the synthesised `IStructuralFormattable.Format`
+    /// member. The param is the bare `Vesper.IFormatSink` `TypeRef`, encoded identically to
+    /// the interface slot it binds to, so name + signature match.
     let structuralFormatSignature () : BlobBuilder =
         let s = BlobBuilder()
 
@@ -1013,12 +936,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         encodeType (g.AddArgument()) selfTy
         toEntity (ctx.TypeSpec tsB)
 
-    /// A `TypeSpec` token for an arbitrary `FrozenType`, for the type operand of
-    /// `isinst` / `castclass` / `box` / `unbox.any` (`:>` / `:?` / `:?>`).
-    /// `encodeType` maps user types to their `TypeDefinition`,
-    /// generic instances to instantiated specs, and externals through the
-    /// provider — a `TypeSpec` token is a legal `TypeDefOrRefOrSpec` operand for
-    /// all of them, so one path serves mono and generic targets alike.
+    /// A `TypeSpec` token for an arbitrary `FrozenType` — the type operand of `isinst` /
+    /// `castclass` / `box` / `unbox.any` (`:>` / `:?` / `:?>`). A `TypeSpec` is a legal
+    /// `TypeDefOrRefOrSpec` operand, so one path serves mono and generic targets alike.
     let typeToken (ty: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()

@@ -6,14 +6,8 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-/// The per-kind layout node builders: `partitionTypeDecls` + the private row helpers +
-/// the `buildXNodes` that map each partition slice to its `TypeNode` rows. Factored out
-/// of `Layout` so `Layout.fs` keeps only the per-file orchestration (`buildFile`), the
-/// assembly `combine`, and `deriveHandles`. Consumes the layout data model in `LayoutModel`
-/// and is consumed by `Layout.buildFile`.
 module internal LayoutNodes =
 
-    /// Single-walk partition of `tast.Decls` by `TTypeKind`.
     let partitionTypeDecls (decls: TastAccessor.DeclId list) : PartitionedTypeDecls =
         let interfaces = ResizeArray()
         let unions = ResizeArray()
@@ -46,12 +40,7 @@ module internal LayoutNodes =
                             Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
                             ValueKind = valueKind
                         }
-                // NUMERIC enum emission: a real `System.Enum` subclass.
-                // Only all-integer enums are partitioned here — string/mixed enums
-                // and all-illegal enums are dropped (their use sites fail
-                // loudly in `ClrEncoder`). The resolved case literals + the derived
-                // underlying width are read once here off the single source of truth
-                // (`TEnumCases`), so the emitter never re-derives them.
+                // A numeric enum emits a real `System.Enum` subclass.
                 | TTypeKindG.Enum cases ->
                     match TEnumCases.classify cases with
                     | ValueSome TEnumVariant.Numeric ->
@@ -74,11 +63,8 @@ module internal LayoutNodes =
                                 Underlying = underlying
                                 Cases = numericCases
                             }
-                    // STRING / MIXED enum emission: a `[<Struct>]` wrapper.
-                    // The resolved case literals (string text, or the int/string of a
-                    // mixed case) are read once here off `c.Value`; `IsMixed` drives
-                    // the `obj`-vs-`string` field + boxed construction in the emitter.
-                    // An all-illegal enum (`classify` = `ValueNone`) is still dropped.
+                    // A string / mixed enum emits a `[<Struct>]` wrapper; `IsMixed`
+                    // drives the `obj`-vs-`string` backing field in the emitter.
                     | ValueSome(TEnumVariant.String | TEnumVariant.Mixed as variant) ->
                         let structCases =
                             [
@@ -94,6 +80,7 @@ module internal LayoutNodes =
                                 IsMixed = (variant = TEnumVariant.Mixed)
                                 Cases = structCases
                             }
+                    // No case resolved to a legal literal — nothing to emit.
                     | ValueNone -> ()
                 | TTypeKindG.Class c ->
                     classes.Add
@@ -124,15 +111,13 @@ module internal LayoutNodes =
             StructEnums = List.ofSeq structEnums
         }
 
-    /// Metadata-layer typar names: the leading F# quote dropped, once, here
-    /// (so every consumer — `GenericParam` rows, the writer's row checks —
-    /// compares like with like).
+    /// Metadata typar names: `'T` → `T`.
     let private typarNames (typeParams: EqArray<string>) : string list =
         [ for n in typeParams -> n.TrimStart('\'') ]
 
-    /// An augmentation member's method row: interface-impl members force the
-    /// virtual/new-slot/final attrs so the runtime binds them to the
-    /// `InterfaceImpl`; a type's own members keep their natural attrs.
+    /// An augmentation member's method row: an interface-impl member forces the
+    /// virtual/new-slot/final attrs so the runtime binds it to the `InterfaceImpl`
+    /// row; a type's own member keeps its natural attrs.
     let private memberRow (key: SymbolKey) (index: int) (isIfaceImpl: bool) (mem: TastAccessor.TypeMember) : MethodRow =
         {
             Key = MethodKey.Member(key, index)
@@ -140,20 +125,14 @@ module internal LayoutNodes =
             Attrs =
                 if isIfaceImpl then ifaceEqualsAttrs
                 elif mem.IsStatic then staticMethodAttrs
-                // An `override` of a base virtual (Object's `Equals`/`GetHashCode`/
-                // `ToString` for an `inherit`-less class) reuses the base slot —
-                // `Public Virtual HideBySig`, no `NewSlot` — so the runtime binds it
-                // over the inherited method. A plain `member` stays non-virtual.
+                // An `override` reuses the base slot — `Public Virtual HideBySig`, no
+                // `NewSlot`. A plain `member` stays non-virtual.
                 elif mem.IsOverride then overrideMethodAttrs
                 else instanceMethodAttrs
         }
 
     /// A nominal type's own augmentation members followed by its user `interface …
-    /// with` impl members, as `MethodKey.Member` rows. Indexing follows the shared
-    /// `NominalMembers.indexed` contract (own at `[0..n)`, impl at `[n..)`) that
-    /// `NominalEmit` binds bodies against. Impl members are forced to `ifaceEqualsAttrs`
-    /// (virtual/new-slot/final) so the runtime binds each to its `InterfaceImpl` row.
-    /// Shared by the union, record, and class arms.
+    /// with` impl members, as `MethodKey.Member` rows.
     let private ownAndIfaceMemberRows
         (key: SymbolKey)
         (members: TastAccessor.TypeMember list)
@@ -162,7 +141,7 @@ module internal LayoutNodes =
         NominalMembers.indexed members interfaces
         |> List.map (fun (i, isIfaceImpl, m) -> memberRow key i isIfaceImpl m)
 
-    /// The equality triple's rows, in `NominalEmit` emission order.
+    /// `GetHashCode`, `Equals(obj)`, `Equals(Self)`.
     let private equalityRows (td: TastAccessor.TypeDecl) : MethodRow list =
         match td.EqualitySupport with
         | EqualityVerdict.Structural ->
@@ -185,8 +164,7 @@ module internal LayoutNodes =
             ]
         | _ -> []
 
-    /// The comparison pair's rows: the typed `CompareTo(Self)` first (its
-    /// handle feeds `CompareTo(object)`'s body).
+    /// `CompareTo(Self)` and `CompareTo(obj)`.
     let private comparisonRows (td: TastAccessor.TypeDecl) : MethodRow list =
         match td.ComparisonSupport with
         | ComparisonVerdict.Structural ->
@@ -204,13 +182,9 @@ module internal LayoutNodes =
             ]
         | _ -> []
 
-    /// The synthesised `IStructuralFormattable.Format` row (`%A`). Emitted for
-    /// *every* record / union, unconditionally — `%A` is orthogonal to the equality /
-    /// comparison verdicts (it renders a value's structure, never depending on whether the
-    /// type supports `=` / `<`), and the interface resolves local-or-external like any
-    /// nominal (`ClrEnv.coreInterfaceEntity`), so even `Vesper.Core`'s own records get a
-    /// row. A new virtual slot bound to the `InterfaceImpl` by name + signature, like the
-    /// typed `Equals(Self)`.
+    /// The synthesised `IStructuralFormattable.Format` row (`%A`), reserved for EVERY
+    /// record / union: `%A` renders a value's structure and so never depends on whether
+    /// the type supports `=` / `<`.
     let private formatRows (td: TastAccessor.TypeDecl) : MethodRow list =
         [
             {
@@ -220,12 +194,8 @@ module internal LayoutNodes =
             }
         ]
 
-    /// The capability co-slot rows, in `NominalEmit` emission order. `CapabilityCoSlots.required`
-    /// is a pure function of the type's implemented interfaces, and `NominalEmit` prepares
-    /// the bodies by calling it on the SAME interfaces — so a reserved row can never go
-    /// un-prepared, without a shared side table to keep in step. Each is a new virtual slot
-    /// the runtime binds to the inherited BCL interface method by name + signature, like the
-    /// typed `Equals(Self)`.
+    /// The capability co-slot rows: each a new virtual slot the runtime binds to the
+    /// inherited BCL interface method by name + signature, like the typed `Equals(Self)`.
     let private coSlotRows
         (symbols: ICodegenSymbols)
         (td: TastAccessor.TypeDecl)
@@ -241,18 +211,16 @@ module internal LayoutNodes =
         ]
 
     /// The module a declaration's key says holds it, or `ValueNone` for one declared
-    /// straight in a namespace. The key is the ONE place the containment lives —
-    /// `ModuleRules` builds it — so nothing here re-derives it from a name.
+    /// straight in a namespace.
     let private declaringModule (td: TastAccessor.TypeDecl) : ModuleKey voption =
         match td.Key with
         | SymbolKey.Type t ->
             match t.Holder with
             | TypeHolder.InModule m -> ValueSome m
             | TypeHolder.InNamespace _ -> ValueNone
-            // `InType` is the EXTERNAL nesting of a bare-IL type. Vesper source cannot
-            // declare a nested type, so a project-local decl never carries one; if one
-            // ever arrives it needs an enclosing SLOT, which this backend has no way to
-            // name — fail rather than emit it as a root under a truncated name.
+            // `InType` is the EXTERNAL nesting of a bare-IL type; source cannot declare
+            // a nested type, and a local one would need an enclosing SLOT this backend
+            // has no way to name.
             | TypeHolder.InType outer ->
                 failwithf "Layout: local type '%s' claims a CLR-nested holder '%s'" td.Name outer.Name
         | k -> failwithf "Layout: type declaration '%s' carries a non-type key %A" td.Name k
@@ -286,22 +254,12 @@ module internal LayoutNodes =
             Nested = []
         }
 
-    // COMPILER-GENERATED backing storage (ctor-param, instance-`let` and `static let`
-    // fields) is `assembly`, matching FSC: a lambda in a member body — or in a
-    // preamble initialiser — is lifted into a closure class nested in the enclosing
-    // MODULE, not in the class, so it reads the class's storage as a *different
-    // type* — reachable only assembly-wide. `private` would make that read fault at
-    // JIT time with `FieldAccessException`, and `public` would leak non-API storage.
-    // A declared `val` field is the user's own surface and stays `public`.
+    // Backing storage for ctor params and `let` bindings is `assembly`, like FSC: a
+    // lambda in a member body is lifted into a closure class nested in the enclosing
+    // MODULE, so `private` would fault its read at JIT with `FieldAccessException`.
     let private compilerGeneratedStorage = FieldAttributes.Assembly
 
     // ---- Per-kind node builders ------------------------------------------------------
-    //
-    // One `TypeNode list` per partition slice (plus the discovered closures). Each maps a
-    // slice to its by-kind rows and is a pure function of that slice + the one ambient fact
-    // a nominal row needs (`symbols`, for co-slots). `buildFile` calls them in the by-kind
-    // order the `TypeDef` table has always used; nothing here reads file-wide or
-    // later-derived state.
 
     let buildInterfaceNodes (interfaces: (TastAccessor.TypeDecl * Frozen.TAbstractMethod list) list) : TypeNode list =
         [
@@ -312,8 +270,7 @@ module internal LayoutNodes =
                         {
                             Key = MethodKey.InterfaceMethod(td.Key, i)
                             // An abstract property emits as its `get_<Name>` getter
-                            // slot (matching the impl's getter); a method keeps its
-                            // bare name.
+                            // slot; a method keeps its bare name.
                             Name = if m.IsProperty then "get_" + m.Name else m.Name
                             Attrs = abstractMethodAttrs
                         }
@@ -415,11 +372,9 @@ module internal LayoutNodes =
                 nominalNode (TypeSlotKind.Record rd.ValueKind) td fields methodRows
         ]
 
-    /// Per class: ctor-param backing fields, then explicit `val [mutable]`
-    /// instance fields (mutable ⇒ plain writable; immutable ⇒ `initonly`),
-    /// then the instance-`let` and `static let` backing fields. Methods: primary
-    /// `.ctor`, [`.cctor` when a static preamble exists], [secondary `.ctor`s], own
-    /// members, interface-impl members.
+    /// Per class: ctor-param backing fields, `val` fields (immutable ⇒ `initonly`),
+    /// then instance-`let` and `static let` storage. Methods: primary `.ctor`,
+    /// [`.cctor`], [secondary `.ctor`s], own members, interface-impl members.
     let buildClassNodes (symbols: ICodegenSymbols) (classes: ClassDecl list) : TypeNode list =
         [
             for cd in classes ->
@@ -472,14 +427,9 @@ module internal LayoutNodes =
                             }
                     ]
 
-                // The `val`-field *reference* form (`type T = val …; new(…) = …`)
-                // has no primary ctor — its secondaries are the only `.ctor`s, so
-                // a synthesised parameterless primary would collide with a
-                // parameterless `new()`. Suppress it there. Structs always keep
-                // their synthesised primary (a value type's other emission paths
-                // reference its `NominalCtor`, and F# forbids a struct
-                // parameterless ctor, so there is no collision). The no-secondary
-                // fallback keeps the primary so a ctor-less type still has one.
+                // A `val`-field reference type (`type T = val …; new(…) = …`) has no
+                // primary ctor — a synthesised parameterless one would collide with a
+                // `new()`. A struct keeps its primary: F# forbids `new()` there.
                 let emitPrimaryCtor =
                     cd.ValueKind <> ClassValueKind.RefType
                     || cd.HasPrimaryCtor
@@ -522,11 +472,9 @@ module internal LayoutNodes =
                 nominalNode (TypeSlotKind.Class(cd.IsSealed, cd.ValueKind)) td fields methodRows
         ]
 
-    /// Per numeric enum: the special-name `value__` instance field
-    /// (the underlying integral storage the CLR reads for `Enum.GetUnderlyingType`)
-    /// then one `public static literal` field per case (its constant integer is
-    /// attached as a `Constant` row in the writer's field pass). No methods —
-    /// equality/hashing/compare all come from the `System.Enum` base.
+    /// Per numeric enum: the special-name `value__` field the CLR reads for
+    /// `Enum.GetUnderlyingType`, then one `public static literal` field per case. No
+    /// methods — equality / hashing / compare all come from the `System.Enum` base.
     let buildEnumNodes (enums: EnumDecl list) : TypeNode list =
         [
             for ed in enums ->
@@ -564,12 +512,9 @@ module internal LayoutNodes =
                 nominalNode TypeSlotKind.Enum td fields []
         ]
 
-    /// Per string/mixed enum: a `[<Struct>]` wrapper. One instance
-    /// backing field (`string`, or `obj` when mixed) holding the case value, then
-    /// one `public static initonly` field per case (the constructed singleton, set
-    /// in the `.cctor`). Two methods: the `.ctor(field)` that stores the backing
-    /// field, and the `.cctor` that constructs each case. Methods are bound in
-    /// `Assembler.PrepareStructEnums`.
+    /// Per string/mixed enum, a `[<Struct>]` wrapper: one backing field (`string`, or
+    /// `obj` when mixed) holding the case value, one `public static initonly` field per
+    /// case singleton, and `.ctor(value)` + the `.cctor` that constructs each case.
     let buildStructEnumNodes (structEnums: StructEnumDecl list) : TypeNode list =
         [
             for sed in structEnums ->
@@ -590,9 +535,8 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.EnumBackingField td.Key
                                 Name = "value"
-                                // Immutable: written once by the `.ctor` (`stfld`
-                                // through the `newobj` temp address is legal on an
-                                // `initonly` instance field from within `.ctor`).
+                                // Written once by the `.ctor`, which is what `initonly`
+                                // permits.
                                 Attrs = FieldAttributes.Public ||| FieldAttributes.InitOnly
                                 Ty = fieldTy
                                 ClosureScope = ValueNone
@@ -601,18 +545,9 @@ module internal LayoutNodes =
                             {
                                 Key = FieldKey.EnumCaseField(td.Key, caseName)
                                 Name = caseName
-                                // `public static initonly E` — the closed set of
-                                // case singletons, `.cctor`-initialised (a struct
-                                // field cannot be `literal`; only a primitive can).
-                                // DEFERRED: the design wanted PRIVATE fields exposed
-                                // via public get-only properties (so construction is
-                                // not public API — the closed-set guarantee for
-                                // EXTERNAL consumers). The metadata writer has no
-                                // Property/MethodSemantics table, and within-assembly
-                                // access is `ldsfld` of the field directly, so the
-                                // fields are public for now. Revisit (add property
-                                // emission + private fields/ctor) if/when an external
-                                // consumer needs the encapsulated closed set.
+                                // `public static initonly E` — the case singletons,
+                                // `.cctor`-initialised (only a primitive field can be
+                                // `literal`).
                                 Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
                                 Ty = FTEnum td.TypeKey
                                 ClosureScope = ValueNone
@@ -636,13 +571,9 @@ module internal LayoutNodes =
                 nominalNode (TypeSlotKind.StructEnum sed.IsMixed) td fields methodRows
         ]
 
-    /// Per closure: capture fields; `.ctor` + `Invoke`. Closures synthesise
-    /// their typar names (`T0`, …) — only the count survives to codegen.
-    ///
-    /// A closure stays a ROOT even though it was lifted out of a module: its
-    /// `TypeSlotKey.Closure name` is its ONLY address and that name is already
-    /// globally unique, so nesting it would change its name / namespace / visibility
-    /// and add a `NestedClass` row for a type nothing resolves.
+    /// Per closure: capture fields; `.ctor` + `Invoke`. Closures synthesise their typar
+    /// names (`T0`, …) — only the count survives to codegen. A closure stays a ROOT even
+    /// though it was lifted out of a module: its name is already globally unique.
     let buildClosureNodes (closures: EmitTypes.Closure list) : TypeNode list =
         [
             for c in closures ->
@@ -661,10 +592,9 @@ module internal LayoutNodes =
                             }
                     ]
 
-                // The singleton field: `static readonly` of the closure's
-                // own type. Its `Ty` is unused — the writer mints the self-type
-                // signature from the closure's TypeDef handle, not from `Ty` (a
-                // closure type has no `FrozenType` the encoder resolves).
+                // The singleton field: `static readonly` of the closure's own type. Its
+                // `Ty` is unused — the writer mints the self-type signature from the
+                // closure's TypeDef handle (a closure type has no `FrozenType`).
                 let cachedFields =
                     [
                         if cached then

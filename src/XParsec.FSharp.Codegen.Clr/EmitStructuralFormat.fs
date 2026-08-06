@@ -3,27 +3,12 @@
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
 
-/// Synthesised `IStructuralFormattable.Format` body builders (`%A`). The
-/// `Format(IFormatSink sink)` body is straight-line `callvirt`s on the `sink` arg
-/// (`ldarg.1`) that speak the *semantic* sink protocol — `BeginRecord` /
-/// `Field(name)` / `Child(box value)` / `EndRecord` for records, `BeginCase(name)`
-/// / `Child(box payload)` / `EndCase` for union arms. The record/union layout
-/// policy (`{ F = ·; G = · }`, `None`, `Some ·`, `Case (·, ·)`) lives entirely in
-/// the runtime sink (`Vesper.Printf/structural-printer.clr.fs`), which lowers these
-/// frames into its `Doc` builders; the emitted body no longer replays the layout
-/// grammar, so the `%A` policy is patchable in the runtime rather than frozen into
-/// every assembly. Every field/payload is `box`ed and handed to `Child(obj)`; `box`
-/// on a reference type is a no-op (ECMA-335 III.4.1), so it is emitted uniformly —
-/// value fields, reference fields, and generic typar fields (`Some of 'T`) all take
-/// one `box`.
-///
-/// Lifted out of `Emit.fs` so all `%A`-body emission lives in one focused module;
-/// `NominalEmit` is the sole caller.
+/// Synthesised `IStructuralFormattable.Format` bodies (`%A`): straight-line `callvirt`s
+/// on the `sink` arg (`ldarg.1`) — `BeginRecord; (Field name; Child (box f))×n; EndRecord`
+/// for a record. The rendered layout is the runtime sink's job, not the body's.
 module internal EmitStructuralFormat =
 
-    /// `(label, field handle, field type)` per record field, declaration order.
-    /// `MkString` mints the literal `UserStringHandle`s the body pushes (codegen owns
-    /// the metadata context); `BoxToken` mints the `box` type token per field type.
+    /// `Fields` is `(label, field handle, field type)` in declaration order.
     type RecordFormatSupport =
         {
             Sink: FormatSinkHandles
@@ -32,8 +17,7 @@ module internal EmitStructuralFormat =
             Fields: (string * EntityHandle * FrozenType) list
         }
 
-    /// One union case for `Format` synthesis: its name and its `(field handle,
-    /// field type)` payload in declaration order.
+    /// `Fields` is the case payload in declaration order.
     type UnionFormatCase =
         {
             Name: string
@@ -50,9 +34,7 @@ module internal EmitStructuralFormat =
             Cases: UnionFormatCase list
         }
 
-    /// `sink.Text(str)` — push the sink, the literal, `callvirt Text`. Only the
-    /// total-safety empty-union fallback (`()`) still emits a raw literal; the
-    /// semantic record/union bodies speak `Field`/`BeginCase`/`Child` instead.
+    /// `sink.Text(str)` — push the sink, the literal, `callvirt Text`.
     let private sinkText
         (b: IlBuilder)
         (sink: FormatSinkHandles)
@@ -70,16 +52,15 @@ module internal EmitStructuralFormat =
         b.Add(ILInstr.Callvirt(h, 1, 0))
 
     /// `sink.<label>(name)` — a string-arg marker call (`Field(name)` /
-    /// `BeginCase(name)`): push the sink, the literal name, `callvirt` the label
-    /// entry.
+    /// `BeginCase(name)`).
     let private sinkLabel (b: IlBuilder) (mk: string -> UserStringHandle) (label: EntityHandle) (name: string) : unit =
         b.Add(ILInstr.Ldarg 1)
         b.Add(ILInstr.Ldstr(mk name))
         b.Add(ILInstr.Callvirt(label, 2, 0))
 
-    /// `sink.Child(box this.<field>)` — push the sink, load + box the field off
-    /// `this` (`ldarg.0`), `callvirt Child`. The `box` is uniform (a no-op on
-    /// reference types) so `Child` sees the runtime type behind the erased `obj`.
+    /// `sink.Child(box this.<field>)` — load the field off `this` (`ldarg.0`). The `box`
+    /// is uniform, a no-op on reference types (ECMA-335 III.4.1), so `Child` sees the
+    /// runtime type behind the erased `obj`.
     let private sinkChild
         (b: IlBuilder)
         (sink: FormatSinkHandles)
@@ -93,10 +74,8 @@ module internal EmitStructuralFormat =
         b.Add(ILInstr.Box(boxToken fty))
         b.Add(ILInstr.Callvirt(sink.Child, 2, 0))
 
-    /// `void Format(IFormatSink sink)` for a record. Emits the semantic frame
-    /// `BeginRecord; (Field name; Child (box field))×n; EndRecord` — 2+2n calls in
-    /// declaration order. The layout (`{ F = ·; G = · }`, the +2 hang, break policy)
-    /// is the runtime sink's job, not the emitted body's.
+    /// `void Format(IFormatSink sink)` for a record: `BeginRecord;
+    /// (Field name; Child (box field))×n; EndRecord`, 2+2n calls in declaration order.
     let buildRecordFormat (s: RecordFormatSupport) : ILBody =
         let b = IlBuilder()
         let sink = s.Sink
@@ -112,17 +91,13 @@ module internal EmitStructuralFormat =
         b.Add ILInstr.Ret
         b.Body
 
-    /// `void Format(IFormatSink sink)` for a union: switch on `_tag`, render the
-    /// active case. Each case arm emits `BeginCase(name); Child (box payload)×k;
-    /// EndCase` (2+k calls; a nullary case is `BeginCase(name); EndCase()`). The
-    /// runtime sink decides the rendered form from the observed child count and the
-    /// application-shaped frame mark (`None` / `Some ·` / `Case (·, ·)`).
+    /// `void Format(IFormatSink sink)` for a union: switch on `_tag`, then the active
+    /// arm emits `BeginCase(name); Child (box payload)×k; EndCase`. The sink derives
+    /// `None` / `Some ·` / `Case (·, ·)` from the observed child count.
     let buildUnionFormat (s: UnionFormatSupport) : ILBody =
         let b = IlBuilder()
         let sink = s.Sink
 
-        // The tag-switch dispatch (below) stays here; each case arm speaks the
-        // semantic `BeginCase`/`Child`/`EndCase` protocol in declaration order.
         let emitCase (c: UnionFormatCase) : unit =
             sinkLabel b s.MkString sink.BeginCase c.Name
 
@@ -136,10 +111,7 @@ module internal EmitStructuralFormat =
 
         match cases with
         | [] ->
-            // F# unions always have ≥1 case; the dispatch below indexes
-            // `cases.[n - 1]` as the fall-through, so guard the empty case here
-            // (mirrors the record `[]` arm — both unreachable in practice, total
-            // for safety).
+            // F# unions always have ≥1 case; the dispatch below indexes `cases.[n - 1]`.
             sinkText b sink s.MkString "()"
         | _ ->
             let endLabel = b.Label()

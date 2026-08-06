@@ -7,89 +7,54 @@ open XParsec.FSharp.SemanticAnalysis
 
 module EmitTypes =
 
-    /// One `FSharpFunc\`2<ParamTy, ResultTy>` subclass. `Node` is matched by its POOL ID
-    /// in the *lowered* tree shared by discovery and emission — the `…ByNode` tables key
-    /// on that id. `Captures` order = field order = ctor-arg order = order pushed at the
-    /// construction site.
+    /// One synthesised closure class: a `System.Object` implementing
+    /// `Vesper.Fun\`2<ParamTy, ResultTy>`. `Node`, its pool id, keys every `…ByNode` table.
+    /// `Captures` order = field order = ctor-arg order = order pushed at construction.
     type Closure =
         {
             Node: TastAccessor.ExprId
             Name: string
             ParamKey: BinderId
             ParamTy: FrozenType
-            /// The closure's parameter pattern. A `NamedSimple` / unit `Const`
-            /// binds `ldarg.1` directly through `ParamKey`; a `Tuple` pattern
-            /// (`fun (a, b) -> …`) is destructured out of the `ldarg.1`
-            /// `ValueTuple`n` value by `bindPattern` before the body runs, so
-            /// `ParamKey` is a synthetic placeholder for that slot.
+            /// The closure's parameter pattern. A `NamedSimple` / unit `Const` binds
+            /// `ldarg.1` directly through `ParamKey`; a `fun (a, b) -> …` tuple pattern is
+            /// destructured out of it, so `ParamKey` is a synthetic placeholder.
             ParamPat: TastAccessor.PatId
             ResultTy: FrozenType
             Body: TastAccessor.ExprId
             Captures: (BinderId * FrozenType) list
-            /// Binding key of the `let [rec] f = <this lambda>` this is the value
-            /// of. A recursive self-reference resolves to `this` (`ldarg.0`), so
-            /// it is not captured. `ValueNone` for an anonymous lambda.
+            /// Binding key of the `let [rec] f = <this lambda>` this is the value of. A
+            /// recursive self-reference resolves to `this` (`ldarg.0`), so it is not
+            /// captured. `ValueNone` for an anonymous lambda.
             SelfKey: BinderId voption
-            /// `> 0` ⇒ a *generic* closure: the *total* number of typars this
-            /// closure's `TypeDefinition` carries (`GenericParam` rows `T0…`). For a
-            /// static-fn closure this is the enclosing method's typar count, all
-            /// method-axis. For a *member-body* closure it is `DeclaringTypars` (the
-            /// enclosing class typars) + the member's own method typars. Its
-            /// signatures encode the body's typars onto the
-            /// closure class's `!i` (via `ClrEnv.ClosureTyparScope`); the
-            /// construction site `Newobj`s a `MemberRef` on the instantiated
-            /// `TypeSpec`.
+            /// `> 0` ⇒ a generic closure: the TOTAL number of `GenericParam` rows (`T0…`)
+            /// on its `TypeDefinition` — the enclosing class's typars, then the enclosing
+            /// method's. The construction site `Newobj`s a `MemberRef` on the `TypeSpec`.
             Typars: int
-            /// The closure's declaring-typar offset: its first `DeclaringTypars`
-            /// slots are the enclosing class's typars (a member-body closure on a
-            /// generic class). `0` for a static-fn closure (all typars method-axis).
-            /// Drives the `ClosureTyparScope` offset and the construction-site
-            /// instantiation split (declaring-axis args, then method-axis).
+            /// How many of `Typars` are the enclosing class's (a member-body closure on a
+            /// generic class); `0` for a static-fn closure, all of whose typars are
+            /// method-axis. Splits the construction-site instantiation into the two axes.
             DeclaringTypars: int
-            /// Stack vs heap representation, decided from the Regions verdict
-            /// (Axis 1 `LocalStack` ∧ Axis 2 `StackOnlyEligible`) and snapshotted
-            /// onto `TastFile.ClosureReprs`. `Heap` = the v1 reference-type
-            /// `Vesper.Fun<_,_>` subclass; `Stack` = the Regions verdict that a
-            /// readonly-struct shape is *admissible*. This is the front-end SNAPSHOT
-            /// — a *necessary* condition for the value-struct lowering, NOT the
-            /// codegen trigger (which is the stricter `IsValueStruct` gate below).
-            /// On its own it remains inert (it changes no IL).
+            /// The front-end verdict that a readonly-struct shape is ADMISSIBLE for this
+            /// closure. Necessary but not sufficient: `IsValueStruct` is the codegen gate.
             Repr: ClosureRepr
-            /// The CODEGEN decision to emit this closure as a
-            /// zero-alloc value-struct (`System.ValueType` base, by-value
-            /// construction, constrained-slot `!TF` override). `true` for a
-            /// monomorphic, *anonymous* lambda threaded through a constrained `Fun`
-            /// slot — captureless (`initobj`) or capturing (value-type ctor).
-            /// Distinct from `Repr`: the front-end `Stack` verdict is necessary but
-            /// not sufficient, so this is the single source of truth for the struct
-            /// path.
+            /// Emit this closure as a zero-alloc value struct: `System.ValueType` base,
+            /// by-value construction (`initobj` captureless, ctor capturing), and a
+            /// constrained-slot `!TF` override in place of a `callvirt`.
             IsValueStruct: bool
-            /// The FLAT `FunN` arity this closure implements (`1..4`). `1` (the
-            /// default / arity-1 path) is the single-arg `Vesper.Fun<P,R>` interface
-            /// with `Invoke(P):R`. `2` is the flat `Vesper.Fun`3<P1,P2,R>` interface
-            /// with one flat `Invoke(P1,P2):R`; `3`⇒`Fun`4`, `4`⇒`Fun`5` — the curried
-            /// N-arg source lambda `fun x y … -> …` peeled so the inner lambdas are NOT
-            /// separate closures. Always `1 + List.length ExtraParams`. Driven by the
-            /// node-keyed verdict (`TastFile.FunVerdicts`); only a value-struct closure
-            /// (`IsValueStruct`) is ever arity > 1 today.
+            /// The FLAT arity of the `Vesper.Fun` interface this closure implements: `1` ⇒
+            /// `Fun\`2<P,R>` with `Invoke(P):R`, `2` ⇒ `Fun\`3<P1,P2,R>` with one flat
+            /// `Invoke(P1,P2):R`, up to `4` ⇒ `Fun\`5`. Always `1 + ExtraParams.Length`.
             FunArity: int
-            /// The EXTRA flat parameters beyond the first, in flat order (each: binder
-            /// key, type, pattern — peeled from a successive inner `Lambda`). Empty for
-            /// the arity-1 path; length `FunArity - 1` (so `1..3` for flat arity `2..4`).
-            /// The closure's `Invoke` binds extra param `i` (0-based) to `ldarg.(2+i)`.
+            /// The extra flat parameters beyond the first, in flat order — peeled from
+            /// successive inner `Lambda`s of a curried `fun x y … -> …` so they do NOT
+            /// become their own closures. `Invoke` binds extra param `i` to `ldarg.(2+i)`.
             ExtraParams: (BinderId * FrozenType * TastAccessor.PatId) list
         }
 
-    /// A non-capturing (`Captures` empty), monomorphic (`Typars = 0`) closure is
-    /// STATELESS — a single shared instance suffices, so it is cached in a
-    /// `static readonly` singleton field on the closure type itself, `newobj`'d once
-    /// in the closure's `.cctor`, and every construction site `ldsfld`s it instead of
-    /// allocating (fsc's no-capture-closure caching). A capturing
-    /// closure differs per construction (caching would be wrong), and a generic one
-    /// needs a per-instantiation singleton (deferred) — both keep `newobj`.
-    /// A value-struct closure is constructed by-value (`initobj`),
-    /// never cached as a heap singleton — the two paths are mutually exclusive.
-    /// Only the heap non-capturing monomorphic closure caches.
+    /// A capture-free monomorphic heap closure is stateless, so one shared instance
+    /// suffices: it is `newobj`'d once into a singleton field by the closure's `.cctor`
+    /// and every construction site `ldsfld`s that instead of allocating.
     let closureIsCached (c: Closure) : bool =
         List.isEmpty c.Captures && c.Typars = 0 && not c.IsValueStruct
 
@@ -102,10 +67,9 @@ module EmitTypes =
             Fields: EntityHandle list
         }
 
-    /// An augmentation member on a union/class `TypeDefinition`. A property's
-    /// `Handle` is its `get_<name>` method; `ParamArity` excludes `this`. `Handle` is
-    /// the `Def` token (monomorphic); a generic type reaches the member through a
-    /// `MemberRef` on the instantiated `TypeSpec` built from `MetaName` + signature.
+    /// An augmentation member on a union/class `TypeDefinition`; `ParamArity` excludes
+    /// `this`, and a property's `Handle` is its `get_<name>` method. `Handle` is the `Def`
+    /// token — a generic type reaches the member by `MemberRef` off `MetaName` + signature.
     type EmittedMember =
         {
             Handle: EntityHandle
@@ -121,9 +85,8 @@ module EmitTypes =
         }
 
     /// One step of a class preamble, in declaration order — what the `.cctor` (static
-    /// sequence) or the primary `.ctor` (instance sequence) runs. `Store` names the
-    /// binder's already-resolved backing field: the enclosing builder knows whether that
-    /// is a `stsfld` or a `stfld` through `this`, so one step type serves both.
+    /// sequence) or the primary `.ctor` (instance sequence) runs. One step type serves
+    /// both: the enclosing builder decides whether `Store` is `stsfld` or `stfld`.
     [<RequireQualifiedAccess>]
     type PreambleStep =
         /// A `[static] let`: evaluate the initialiser and store it into the backing field.
@@ -142,33 +105,24 @@ module EmitTypes =
         /// not chain.
         | None
 
-    /// A union emitted into this assembly. `Typars` empty ⇒ a monomorphic union
-    /// (single sealed class, `Def`-token member access); non-empty ⇒ a generic
-    /// union whose members are reached via `ICodegenProvider.GenericUnionMemberRef`
-    /// (a `MemberRef` on the instantiated `TypeSpec`) rather than the `Def`-token
-    /// `TagField` / `EmittedCase.Factory` / `EmittedCase.Fields`. `Name` is the
-    /// registry key the provider mints refs against.
+    /// A union emitted into this assembly. `Typars` empty ⇒ monomorphic: a single sealed
+    /// class whose `TagField` / `Factory` / `Fields` handles are usable as `Def` tokens.
+    /// Non-empty ⇒ generic, and every member is reached by `MemberRef` off `Name` instead.
     type EmittedUnion =
         {
             Name: string
             Typars: string list
             TagField: EntityHandle
             Cases: Dictionary<string, EmittedCase>
-            /// Augmentation members keyed by source name. A name maps to a *list*
-            /// of overloads (declaration order — the type's own members first,
-            /// interface-impl members last), so an overloaded member
-            /// (`AppendFormatted(value:'T)` / `(value:'T, alignment:int)` / …) keeps
-            /// every signature; the call site disambiguates by argument types
-            /// (`EmitResolve.pickOverload`). A single-element list is the common,
-            /// non-overloaded case.
+            /// Augmentation members by source name, each mapping to the LIST of its
+            /// overloads — own members first, interface impls last. `Append(v:'T)` and
+            /// `Append(v:'T, width:int)` share a key; the call site picks by argument type.
             Members: Dictionary<string, EmittedMember list>
         }
 
-    /// A record emitted into this assembly: a sealed class, one public field per
-    /// record field, one ctor taking the fields in declaration order. `Fields` is
-    /// `(name, handle, declared type)` in declaration order. `Typars` empty ⇒
-    /// monomorphic (`Def`-token handles); non-empty ⇒ generic, reached via
-    /// `ICodegenProvider.GenericRecordMemberRef`.
+    /// A record emitted into this assembly: a sealed class, one public field per record
+    /// field, one ctor taking `Fields` — `(name, handle, declared type)` — in declaration
+    /// order. `Typars` empty ⇒ monomorphic (`Def`-token handles), non-empty ⇒ generic.
     type EmittedRecord =
         {
             Name: string
@@ -178,105 +132,70 @@ module EmitTypes =
             /// at use sites (box on `:>`, `unbox.any` on `:?>`), like the class flag.
             IsValueType: bool
             Ctor: EntityHandle
-            /// Augmentation members keyed by source name — same shape and role as
-            /// `EmittedUnion.Members` / `EmittedClass.Members`, so `resolveInstanceMember`
-            /// resolves a `r.Member` access on a record receiver on the same path. A
-            /// name maps to a *list* of overloads (declaration order), disambiguated by
-            /// argument types at the call site (`EmitResolve.pickOverload`).
+            /// Augmentation members, on the same terms as `EmittedUnion.Members`.
             Members: Dictionary<string, EmittedMember list>
         }
 
-    /// A class emitted into this assembly. Same `Members` shape as
-    /// `EmittedUnion`, so `resolveInstanceMember` / `resolveStaticMember` extend to
-    /// classes unchanged. `Typars` empty ⇒ monomorphic; non-empty ⇒ generic,
-    /// reached via `ICodegenProvider.UserGenericMemberRef (ClassMember _)`.
+    /// A class emitted into this assembly. `Typars` empty ⇒ monomorphic; non-empty ⇒
+    /// generic, and its members are reached by `MemberRef` rather than `Def` token.
     type EmittedClass =
         {
             Name: string
             Typars: string list
-            /// Primary-constructor backing fields, `(name, handle, type)` in
-            /// declaration order. Its *length* is the primary ctor's arity (a
-            /// `TExpr.New` matches against it), so explicit `val` fields are kept
-            /// out of it — they live in `InstanceFields`.
+            /// Primary-constructor backing fields, `(name, handle, type)` in declaration
+            /// order. Its LENGTH is the primary ctor's arity, which a `TExpr.New` matches
+            /// against — so explicit `val` fields stay out of it, in `InstanceFields`.
             Fields: (string * EntityHandle * FrozenType) list
-            /// Explicit `val [mutable] x: T` instance fields,
-            /// `(name, handle, type)`. Default-initialised (not set by the primary
-            /// ctor); a `this.x` `FieldGet`/`FieldSet` resolves its handle here.
+            /// Explicit `val [mutable] x: T` instance fields, `(name, handle, type)`.
+            /// Default-initialised (not set by the primary ctor); a `this.x`
+            /// `FieldGet`/`FieldSet` resolves its handle here.
             InstanceFields: (string * EntityHandle * FrozenType) list
             /// `true` for a `[<Struct>]` value type — drives `isValueType` at use
             /// sites (box on `:>`, `unbox.any` on `:?>`).
             IsValueType: bool
             Ctor: EntityHandle
-            /// `true` when a synthesised primary `.ctor` was emitted (so `Ctor` is a
-            /// real primary handle a `TExpr.New` of the field arity may target). For
-            /// the `val`-field form (`type T = val …; new(…) = …`) with secondary
-            /// ctors this is `false`: there is no primary, `Ctor` aliases the first
-            /// secondary, and every construction resolves to a secondary by arity.
+            /// `true` when a synthesised primary `.ctor` was emitted, so `Ctor` is a real
+            /// primary a `TExpr.New` of the field arity may target. `false` for `type T =
+            /// val …; new(…) = …`: `Ctor` aliases the first secondary, unusable as one.
             HasPrimaryCtor: bool
-            /// Augmentation members keyed by source name. A name maps to a *list*
-            /// of overloads (declaration order — the type's own members first,
-            /// interface-impl members last), so an overloaded member
-            /// (`AppendFormatted(value:'T)` / `(value:'T, alignment:int)` / …) keeps
-            /// every signature; the call site disambiguates by argument types
-            /// (`EmitResolve.pickOverload`). A single-element list is the common,
-            /// non-overloaded case.
+            /// Augmentation members, on the same terms as `EmittedUnion.Members`.
             Members: Dictionary<string, EmittedMember list>
-            /// `static let` backing fields keyed by source name; a
-            /// `TExpr.StaticFieldGet` resolves its `ldsfld` handle here. A mono class
-            /// stores the field `Def` token, a generic class a `MemberRef` on the
-            /// open self-`TypeSpec`.
+            /// `static let` backing fields keyed by source name; a `TExpr.StaticFieldGet`
+            /// resolves its `ldsfld` handle here. A mono class stores the field `Def`
+            /// token, a generic class a `MemberRef` on the open self-`TypeSpec`.
             StaticFields: Dictionary<string, EntityHandle>
-            /// Secondary constructors keyed by arity → (declared param types,
-            /// `.ctor` handle). A `TExpr.New` whose arg count differs from the
-            /// primary's selects the matching overload here. A monomorphic class
-            /// uses the `Def` handle directly; a generic one mints a `MemberRef` on
-            /// the instantiated `TypeSpec` from the param types (in declaring-typar
-            /// markers).
+            /// Secondary constructors keyed by arity → (declared param types, `.ctor`
+            /// handle). A `TExpr.New` whose arg count differs from the primary's selects
+            /// the matching overload here.
             SecondaryCtors: (int * FrozenType list * EntityHandle) list
-            /// The implemented-interface `FrozenType`
-            /// TEMPLATES, each written over THIS class's declaring typars (its arg
-            /// leaves are `FTTypar(TyparAxis.Declaring, i)`). Sourced from
-            /// `ClassDecl.Interfaces` (the `fst` of each impl pair). The codegen
-            /// analog of the front-end's `info.InterfaceImpls` that
-            /// `Engine.subtypeInterfacesOf` instantiates by the receiver's args —
-            /// `EmitResolve.tryInterfaceWitness` walks these to recover a phantom
-            /// enumerator typar's bound at a call site. Carried but UNREAD until that
-            /// solve calls the witness.
+            /// The implemented-interface TEMPLATES, each written over THIS class's
+            /// declaring typars (arg leaves are `FTTypar(TyparAxis.Declaring, i)`), for
+            /// instantiation at a receiver. Direct impls only — no base-class recursion.
             Interfaces: FrozenType list
         }
 
-    /// How an emitted enum's cases are loaded / compared — the two reprs share the
-    /// `EmittedEnum` registry but diverge in code generation.
+    /// How an emitted enum's cases are loaded and compared.
     type EmittedEnumRepr =
-        /// A numeric enum: a `System.Enum` subclass. A case's `static
-        /// literal` field is metadata-only (`ldsfld` on a `literal` throws
-        /// `MissingFieldException`), so code pushes the case's underlying integer
-        /// constant directly — both `E.A` and `| E.A` load `CaseValues.[case]`.
+        /// A numeric enum: a `System.Enum` subclass. Its case fields are `literal`, so
+        /// metadata-only (`ldsfld` on one throws `MissingFieldException`) — both `E.A` and
+        /// `| E.A` push the underlying integer `CaseValues.[case]` directly instead.
         | NumericEnum of CaseValues: Dictionary<string, TConstValue>
-        /// A string / mixed enum: a `[<Struct>]` wrapper. Each case is a
-        /// `public static initonly` field of the enum type, `.cctor`-initialised; an
-        /// `E.A` use site `ldsfld`s `CaseFields.[case]`. `IsMixed` selects the field
-        /// type (`obj` vs `string`); `BackingField` is the wrapper's single instance
-        /// field, and `CaseLits` the case → literal table both feeding the
-        /// `| E.A` pattern's field equality (compare the scrutinee's `BackingField`
-        /// against the case literal).
+        /// A string / mixed enum: a `[<Struct>]` wrapper whose cases are
+        /// `.cctor`-initialised `static initonly` fields, so `E.A` is `ldsfld
+        /// caseFields.[case]` and `| E.A` compares `backingField` against `caseLits.[case]`.
         | StructEnum of
             isMixed: bool *
             backingField: EntityHandle *
             caseFields: Dictionary<string, EntityHandle> *
             caseLits: Dictionary<string, TEnumLiteral>
 
-    /// An enum emitted into this assembly. Enums are monomorphic and have no
-    /// members; `Repr` carries the numeric-vs-struct code-generation data.
+    /// An enum emitted into this assembly — monomorphic and memberless, so `Repr` is all
+    /// there is to carry.
     type EmittedEnum = { Repr: EmittedEnumRepr }
 
-    /// An interface emitted into this assembly. Only its `Members` matter at use
-    /// sites: a method call on an interface-typed receiver (or, later, a
-    /// `constrained.` call on an interface-constrained typar) resolves the member
-    /// here and `callvirt`s the interface slot (`MethodKey.InterfaceMethod` handle).
-    /// Interfaces have no ctor / fields, so — unlike a class — that's all that's
-    /// carried. `Typars` empty ⇒ monomorphic. Same `Members` shape as
-    /// `EmittedClass`, so `resolveInstanceMember` reuses `pickOverload`.
+    /// An interface emitted into this assembly. Only `Members` matters at use sites: a call
+    /// on an interface-typed receiver resolves the member here and `callvirt`s its slot.
+    /// There is no ctor or field to carry. `Typars` empty ⇒ monomorphic.
     type EmittedInterface =
         {
             Name: string
@@ -284,88 +203,58 @@ module EmitTypes =
             Members: Dictionary<string, EmittedMember list>
         }
 
-    /// A named module holder's identity — the `ModuleKey` itself, as recorded in
-    /// `TastFile.ModuleMembers`. One static holder class per `module Foo = …`.
-    ///
-    /// A `ModuleKey`, not a `(namespace, name)` pair: modules NEST, and a pair can only
-    /// express the nesting by flattening the enclosing modules into the namespace column
-    /// — which is precisely the emission this backend no longer performs (a nested
-    /// module's holder is a class nested in its parent's holder). The key carries the
-    /// chain, so the holder tree and the `NestedClass` rows read straight off it.
+    /// One static holder class per `module Foo = …`, identified by the whole `ModuleKey`
+    /// rather than a `(namespace, name)` pair: modules nest, and the nesting chain is what
+    /// the holder tree and its `NestedClass` rows are read off.
     type HolderKey = ModuleKey
 
-    /// One flattened parameter of a `StaticFn`. A simple binder's `Slot` key is
-    /// referenced directly by the body (it resolves to the parameter's `ldarg`
-    /// index); a destructuring tuple parameter (`fun (a, b) -> …`) carries
-    /// `Pat = Some …` and a synthetic `Slot`, whose `ldarg` value
-    /// `buildStaticMethod` spills to a local and `bindPattern`s into the leaf
-    /// bindings — exactly as `buildClosureInvoke` does for a tuple closure param.
-    /// The type itself is platform-neutral, so it lives in `TastLower`; this alias
-    /// keeps the CLR call sites reading `StaticParam`.
+    /// One flattened parameter of a `StaticFn`. A simple binder's `Slot` key resolves
+    /// directly to the parameter's `ldarg` index; a `fun (a, b) -> …` destructuring
+    /// parameter carries `Pat = Some …` and a synthetic `Slot` spilled to a local first.
     type StaticParam = TastLower.StaticParam
 
-    /// A top-level function lowered to a **static method**: `let [rec] f p0 p1 …`
-    /// becomes `static f(p0, p1, …)`, curried parameters flattened. Eligible only
-    /// when the function never escapes as a value and captures no module-level
-    /// local (see `collectStaticFns`); a recursive self-call is a direct `call`.
+    /// A top-level function lowered to a static method: `let [rec] f p0 p1 …` becomes
+    /// `static f(p0, p1, …)`, curried parameters flattened. Eligible only when the function
+    /// never escapes as a value and captures no module-level local.
     type StaticFn =
         {
             Key: BinderId
-            /// This binding's stable handle key. The combined `MethodKey.StaticFn`
-            /// handle map keys on this rather than the per-file `Key` — a bare
-            /// `NodeKey` collides across files (same offset in two files).
-            ///
-            /// For a binding that HAS an exportable identity this IS that identity
-            /// (`ModuleBindingInfo.Key`) — the same key the front end stamped on every
-            /// reference to it — which is what lets a cross-file call re-home to this
-            /// method (`ClrEnv.LocalModuleFns`). A binding with no identity (one a later
-            /// `let` shadows, one peeled out of the entry expression) instead carries a
-            /// mint that no reference can spell; see `EmitClosures.residueEmission`.
+            /// The stable handle key, used instead of the per-file `Key`, a bare offset
+            /// that collides across files. An exportable binding carries exactly its own
+            /// identity, so a cross-file call re-homes here; others carry an unspellable mint.
             SymbolKey: SymbolKey
             Name: string
-            /// `Some holderKey` when from a named `module Foo = …`: emits as a
-            /// public static method on the `Foo` holder type. `None` ⇒ the
-            /// anonymous "Program" holder.
+            /// `Some holderKey` when from a named `module Foo = …`: emits as a public
+            /// static method on the `Foo` holder type. `None` ⇒ the anonymous "Program"
+            /// holder.
             Holder: HolderKey option
-            /// The flat, tuple-expanded, lone-unit-erased compiled parameters
-            /// (`CompiledForm.Params`): one CLR `ldarg` slot each. A tupled source
-            /// group `(x, y)` contributes N flat params (full F# flattening), so
-            /// `Params.Length` is the CLR method's parameter count — NOT the number
-            /// of source applications a call collapses (that is `Groups.Length`).
+            /// The flat, tuple-expanded, lone-unit-erased parameters: one CLR `ldarg` slot
+            /// each, so `Params.Length` is the emitted method's parameter count — NOT the
+            /// number of source applications a call collapses (that is `Groups.Length`).
             Params: StaticParam list
-            /// The SOURCE curried/tupled groups (`ValRepr.Groups`): how many source
-            /// applications a saturated call consumes (`Groups.Length`) and which of
-            /// them are tuple groups whose single argument the call site flattens to
-            /// N pushed values. Distinct from `Params` because the flat compiled
-            /// signature alone cannot tell `f(int,int)` (tupled group) from a genuine
-            /// single `(int*int)` param.
+            /// The SOURCE curried/tupled groups: `Groups.Length` applications make a
+            /// saturated call, and a tuple group's one argument flattens to N pushed values.
+            /// The flat signature cannot tell tupled `f(int,int)` from one `(int*int)` param.
             Groups: TastAccessor.ArgGroup list
             Body: TastAccessor.ExprId
             ResultTy: FrozenType
-            /// `true` when the source result type is `unit` — the method emits as
-            /// genuine CLR `void` (full F# fidelity, "void everywhere"), its
-            /// body pops the trailing `unit`, and a
-            /// value-position call reifies a `unit` after the `call`.
+            /// `true` when the source result type is `unit`: the method emits as genuine
+            /// CLR `void`, its body pops the trailing `unit`, and a value-position call
+            /// reifies a `unit` after the `call`.
             ReturnsVoid: bool
-            /// The binding's frozen typar bounds, method-axis-
-            /// indexed templates over the method typars (`FrozenConstraint.Coercion`).
-            /// Read by the call-site phantom-typar solve (`EmitCall`) to recover a
-            /// phantom typar (`fold`'s `'E`) no parameter/result mentions.
+            /// The binding's frozen typar bounds, method-axis-indexed templates over the
+            /// method typars. Read by the call-site phantom-typar solve to recover a
+            /// typar — `fold`'s `'E` — that no parameter or result mentions.
             Constraints: FrozenConstraint list
         }
 
-    /// A module-level value (`let x = e` at module scope) lowered to a `public
-    /// static` field, initialised by its holder's `.cctor`. `Holder` is always known:
-    /// a value on a NAMED module gets that module's holder class
-    /// (`collectModuleValues`), a top-level one the anonymous "Program" holder
-    /// (`collectProgramValues`). `Init` is the initialiser the `.cctor` evaluates and
-    /// `stsfld`s — taken from the lowered decls.
+    /// A module-level value (`let x = e` at module scope) lowered to a `public static`
+    /// field, whose holder's `.cctor` evaluates `Init` and `stsfld`s it. A value on a named
+    /// module gets that module's holder, a top-level one the anonymous "Program" holder.
     type ModuleValue =
         {
             Key: BinderId
-            /// This value's stable handle key, on the same terms as `StaticFn.SymbolKey`:
-            /// the binding's own identity when it has one, a mint no reference can spell
-            /// when it has none.
+            /// This value's stable handle key, on the same terms as `StaticFn.SymbolKey`.
             SymbolKey: SymbolKey
             Name: string
             Ty: FrozenType
@@ -373,87 +262,68 @@ module EmitTypes =
             Holder: HolderKey
         }
 
-    /// Emission handle + shape of a static-method function, resolved before any
-    /// body is built (the `MethodDefinition` handle is predicted from row order).
-    /// A call site `f a b` `call`s `Handle` with the first `ParamArity` args, then
-    /// `Invoke`s the result with any remainder. A generic method carries its typar
-    /// *count* and declared `ParamTys` (which embed `TyTypar(Method, i)`): the
-    /// call site recovers the instantiation by matching `ParamTys` against the
-    /// actual argument types by typar index and `call`s a `MethodSpec`. `Typars = 0`
-    /// ⇒ monomorphic (a plain `call`).
+    /// Emission handle + shape of a static-method function, resolved before any body is
+    /// built (the `MethodDefinition` handle is predicted from row order). A call site
+    /// `call`s `Handle` with the first `ParamArity` args, then `Invoke`s any remainder.
     type StaticMethodRef =
         {
             Handle: EntityHandle
-            /// The flat CLR parameter count (`StaticFn.Params.Length`) — the `call`
-            /// instruction's argument count. With tuple flattening this can exceed
-            /// the number of source applications a call collapses; the argument split
-            /// is driven by `Groups.Length`, not this.
+            /// The flat CLR parameter count — the `call` instruction's argument count.
+            /// Tuple flattening can push it past the number of source applications a call
+            /// collapses, which is `Groups.Length`.
             ParamArity: int
-            /// The SOURCE groups (mirrors `StaticFn.Groups`): `Groups.Length` source
-            /// applications collapse into one `call`, and each tuple group's single
-            /// argument is flattened to N pushed values at the call site.
+            /// The SOURCE groups, mirroring `StaticFn.Groups`.
             Groups: TastAccessor.ArgGroup list
             ResultTy: FrozenType
+            /// `0` ⇒ monomorphic, a plain `call`. Otherwise the call site recovers the
+            /// instantiation by matching `ParamTys` — whose leaves are
+            /// `FTTypar(TyparAxis.Method, i)` — against the actual argument types.
             Typars: int
             ParamTys: FrozenType list
             /// `true` ⇒ the method is CLR `void`: the `call` declares 0 results and a
             /// value-position consumer reifies a `unit` afterward.
             ReturnsVoid: bool
-            /// The method's frozen typar bounds (mirrors
-            /// `StaticFn.Constraints`), method-axis-indexed templates over the method
-            /// typars. Read by the call-site phantom-typar solve (`EmitCall`) to
-            /// recover a phantom typar (`fold`'s `'E`) from its bound's seq impl.
+            /// The method's frozen typar bounds, mirroring `StaticFn.Constraints`.
             Constraints: FrozenConstraint list
         }
 
-    /// The run-wide registries every builder needs: the provider seam, the
-    /// metadata writer, and the shared dictionaries that resolve a `Lambda` value
-    /// to its emitted closure, its `.ctor` handle, the nominal type tables, and a
-    /// top-level function to a direct `call`. Per-method state is layered on top
-    /// inside each builder as an `EmitEnv` (via `EmitEnv.ofContext`).
+    /// The run-wide registries every builder needs: the provider seam, the metadata writer,
+    /// and the shared tables resolving a `Lambda` to its emitted closure, a nominal to its
+    /// rows, and a top-level function to a direct `call`. Per-method state layers on top.
     type EmitContext =
         {
             Provider: ICodegenProvider
             Ctx: MetadataContext
             ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
             CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            /// A non-capturing, monomorphic closure's cached `instance` field:
-            /// a `Lambda` node here loads its one cached singleton
-            /// with `ldsfld` instead of `newobj`'ing per construction.
+            /// A cached closure singleton field: a `Lambda` node here `ldsfld`s its one
+            /// shared instance instead of `newobj`ing per construction.
             CachedClosureFieldByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            /// A captureless `Stack` (value-struct) closure
-            /// `Lambda` node → its synthetic encodable `FrozenType` (its by-value
-            /// local + the constrained-slot `MethodSpec` type-argument) and its
-            /// closure-`TypeDef` handle (`initobj` operand).
+            /// A value-struct closure `Lambda` node → the synthetic encodable `FrozenType`
+            /// of its by-value local, and (`ClosureTypeDefByNode`) the closure-`TypeDef`
+            /// handle that is the `initobj` operand.
             ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
             ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             Unions: Dictionary<SymbolKey, EmittedUnion>
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
             Interfaces: Dictionary<SymbolKey, EmittedInterface>
-            /// Numeric enums emitted into this assembly, by nominal `SymbolKey`. A
+            /// Enums emitted into this assembly, by nominal `SymbolKey`. A
             /// `StaticFieldGet` / `EnumCase` resolves a case's literal field here.
             Enums: Dictionary<SymbolKey, EmittedEnum>
             StaticMethods: Dictionary<BinderId, StaticMethodRef>
-            /// Module-level value bindings → their emitted `public static` field
-            /// (`ldsfld`). Shared by every body builder so a module value resolves
-            /// uniformly in any method/ctor/cctor.
+            /// Module-level value bindings → their emitted `public static` field, so a
+            /// module value resolves the same way in any method, `.ctor` or `.cctor`.
             ModuleValues: Dictionary<BinderId, EntityHandle>
-            /// The subset of top-level ("Program") values that are **initialised in
-            /// `Main`** via `stsfld` (the trailing values, after a top-level
-            /// `do`) → their field handle. `buildMain` emits the store here instead of
-            /// allocating a `Main` local; references still read `ldsfld` via
-            /// `ModuleValues`. Leading-prefix values are absent (their `.cctor`
-            /// initialises them), as are named-holder values.
+            /// The top-level values `Main` initialises by `stsfld` — those trailing a
+            /// top-level `do` — rather than allocating a `Main` local for. Reads still go
+            /// through `ModuleValues`; values a `.cctor` initialises are absent.
             MainInitValues: Dictionary<BinderId, EntityHandle>
         }
 
-    /// Per-method codegen state, layered on top of the run-wide `EmitContext`.
-    /// `Slots` maps the current method's locals to slot indices; `Args` maps a
-    /// method parameter to its `ldarg` index (closure `Invoke`: `this` 0, param 1;
-    /// static method: flattened params 0…N-1; `Main`: none). `SelfKey` is the
-    /// recursive self of a closure `Invoke` body (resolved to `this`).
-    /// `CaptureFields` resolves a closure's captures.
+    /// Per-method codegen state over the run-wide `EmitContext`. `Slots` maps this method's
+    /// locals to slot indices; `Args` maps a parameter to its `ldarg` index (closure
+    /// `Invoke`: `this` 0, param 1; static method: flat params 0…N-1; `Main`: none).
     type EmitEnv =
         {
             Provider: ICodegenProvider
@@ -461,11 +331,11 @@ module EmitTypes =
             Slots: Dictionary<BinderId, int>
             ClosureByNode: Dictionary<TastAccessor.ExprId, Closure>
             CtorHandleByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            /// Cached non-capturing closure singleton fields;
-            /// a `Lambda` value here `ldsfld`s instead of `newobj`ing.
+            /// Cached closure singleton fields; a `Lambda` value here `ldsfld`s instead of
+            /// `newobj`ing.
             CachedClosureFieldByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
-            /// Value-struct closures: synthetic encodable
-            /// `FrozenType` + closure-`TypeDef` handle per `Stack` `Lambda` node.
+            /// Value-struct closures: synthetic encodable `FrozenType` + closure-`TypeDef`
+            /// handle per value-struct `Lambda` node.
             ClosureValueTypeByNode: Dictionary<TastAccessor.ExprId, FrozenType>
             ClosureTypeDefByNode: Dictionary<TastAccessor.ExprId, EntityHandle>
             Args: Dictionary<BinderId, int>
@@ -475,21 +345,18 @@ module EmitTypes =
             Records: Dictionary<SymbolKey, EmittedRecord>
             Classes: Dictionary<SymbolKey, EmittedClass>
             Interfaces: Dictionary<SymbolKey, EmittedInterface>
-            /// Numeric enums emitted into this assembly (`EmitContext.Enums`), so a
-            /// `StaticFieldGet` / `EnumCase` in any body resolves a case literal field.
+            /// Enums emitted into this assembly, so a `StaticFieldGet` / `EnumCase` in any
+            /// body resolves a case's field here.
             Enums: Dictionary<SymbolKey, EmittedEnum>
             StaticMethods: Dictionary<BinderId, StaticMethodRef>
-            /// Module-level values (`let x = e` at module scope), lowered to a
-            /// `public static` field on their module holder and resolved here by
-            /// binding binder → field handle (`ldsfld`).
+            /// Module-level values, each lowered to a `public static` field on its module
+            /// holder and resolved here by binder → field handle (`ldsfld`).
             ModuleValues: Dictionary<BinderId, EntityHandle>
         }
 
-    /// A `Var` bound to an addressable local **slot** in `env` → its slot index. The
-    /// shared "is this expression an addressable local?" test behind the `ldloca`-a-local
-    /// arm of `loadStructReceiverAddr` (struct-receiver addressing), the `&`-address-of
-    /// intrinsic, and the struct-argument receiver spill — each of which then falls back
-    /// differently (recurse into a field, `failwith`, or spill to a temp).
+    /// A `Var` bound to an addressable local slot in `env` → its slot index. The shared
+    /// "is this an addressable local?" test in front of struct-receiver addressing, the
+    /// `&`-address-of intrinsic, and the struct-argument spill — each fails over its own way.
     [<return: Struct>]
     let (|LocalSlot|_|) (env: EmitEnv) (e: TastAccessor.ExprId) : int voption =
         match e with
@@ -499,13 +366,10 @@ module EmitTypes =
             | false, _ -> ValueNone
         | _ -> ValueNone
 
-    /// `EmitEnv` constructors layering per-method state over the run-wide
-    /// `EmitContext`, so a new shared registry is a change here — not in every
-    /// builder.
     module EmitEnv =
-        /// `args` maps each parameter to its `ldarg` index; locals (`Slots`)
-        /// always start empty. `selfKey` / `captureFields` are the
-        /// closure-`Invoke` extras — every other builder has neither.
+        /// `args` maps each parameter to its `ldarg` index; locals (`Slots`) always start
+        /// empty. `selfKey` / `captureFields` are the closure-`Invoke` extras — every
+        /// other builder passes neither.
         let create
             (ctx: EmitContext)
             (selfKey: BinderId voption)
@@ -538,31 +402,18 @@ module EmitTypes =
         let ofContext (ctx: EmitContext) (args: Dictionary<BinderId, int>) : EmitEnv =
             create ctx ValueNone (Dictionary()) args
 
-    /// The `ldc` for an integral constant — the single source of the integral load, so no
-    /// site can drift from another (the `Const` expression, the `Const` pattern, and
-    /// `EmitResolve`'s enum-case load all route here). The width decides the instruction and
-    /// nothing else does, so `IntWidth.isWide` is the whole test:
-    ///
-    /// `sbyte` / `byte` / `int16` / `uint16` / `int` / `uint32` all HAVE int32 as their CIL
-    /// stack type, so a bare `ldc.i4` of the value's low 32 bits is the whole load
-    /// (signedness is a type-level distinction the verifier reads off the slot, not the
-    /// load). The wide widths push `ldc.i8` — the 64-bit stack type is the only one that can
-    /// hold their magnitude. `nativeint` / `unativeint` are wide too, but their load is NOT
-    /// complete without the conversion `pushIntConst` adds.
+    /// The `ldc` for an integral constant. `sbyte` … `uint32` all have int32 as their CIL
+    /// stack type, so `ldc.i4` of the low 32 bits is the whole load; signedness is a
+    /// type-level distinction the verifier reads off the slot. Wider widths push `ldc.i8`.
     let intConstLoad (w: IntWidth) (bits: int64) : ILInstr =
         if IntWidth.isWide w then
             ILInstr.LdcI8 bits
         else
             ILInstr.LdcI4(int32 bits)
 
-    /// Push an integral constant as a complete, correctly-typed stack value.
-    ///
-    /// That is `intConstLoad` plus, for the pointer-width pair alone, a conversion: `native
-    /// int` is a distinct CIL stack type, so without it the value lands in a `native int`
-    /// slot as an int64 and the IL is unverifiable. `conv.i` sign-extends, `conv.u`
-    /// zero-extends — the signedness the width itself declares. No enum may be based on a
-    /// pointer-width integer, which is why the enum-case load can take the bare
-    /// `intConstLoad` and this wrapper is the only thing that knows about the conversion.
+    /// `intConstLoad` plus, for `nativeint` / `unativeint` alone, the `conv.i` / `conv.u`
+    /// their signedness calls for: `native int` is a distinct CIL stack type, and without
+    /// the conversion an int64 lands in a `native int` slot and the IL is unverifiable.
     let pushIntConst (b: IlBuilder) (w: IntWidth) (bits: int64) : unit =
         b.Add(intConstLoad w bits)
 
@@ -576,13 +427,8 @@ module EmitTypes =
                 )
             )
 
-    /// Materialise the `unit` value (`()`) on the stack. `unit` is the zero-field
-    /// BCL struct `System.ValueTuple` (its `prim-types-min.clr.fs` binding), not
-    /// FSharp.Core's null `Unit`, so the value is reified by zero-initialising a
-    /// scratch local: `ldloca; initobj System.ValueTuple; ldloc` (net +1). Every
-    /// site that leaves a unit result — `()`, a `for` loop, a `FieldSet`, a
-    /// `printfn` flush — funnels through here so the BCL-only representation stays
-    /// consistent (and the local's `unit` type encodes off the same repr).
+    /// Materialise `()` on the stack (net +1). `unit` is a zero-field struct, so the value
+    /// is reified by zero-initialising a scratch local: `ldloca; initobj; ldloc`.
     let buildUnitValue (env: EmitEnv) (b: IlBuilder) : unit =
         let slot = b.Local(FTConst(RuntimeNames.unitKey, EqArray.empty))
         b.Add(ILInstr.Ldloca slot)

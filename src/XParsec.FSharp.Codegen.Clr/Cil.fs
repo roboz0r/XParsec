@@ -4,14 +4,8 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-// Emits over SRM's `InstructionEncoder` (deterministic, PE-to-disk capable)
-// rather than `System.Reflection.Emit.ILGenerator`.
-//
-// One emission surface: untyped depth-tracked `emit*` helpers over a shared
-// `Il`. The dynamic TAST walker and the per-type templates build a reified
-// `IlIr` buffer; `IlIr.lower` replays it through these helpers (so the bytes are
-// what a hand-written emitter produces). `Il` tracks peak stack depth, so
-// finalisation hands `maxStack` to `AddMethodBody` with no separate pass.
+// Depth tracking lives here: each `emit*` adjusts `Il` by its own stack effect,
+// so a caller never adjusts as well.
 
 [<RequireQualifiedAccess>]
 module Cil =
@@ -53,13 +47,12 @@ module Cil =
         il.Encoder.LoadLocal(n)
         il.Adjust 1
 
-    /// Managed pointer to local slot `n` — the receiver for a value-type
-    /// instance call (the `Vesper.Formatter` ref-struct handler) / its in-place `.ctor`.
+    /// Managed pointer to local slot `n` — the receiver for a value-type instance
+    /// call, or the target of an in-place `initobj` / `.ctor`.
     let emitLdloca (il: Il) (n: int) : unit =
         il.Encoder.LoadLocalAddress(n)
         il.Adjust 1
 
-    /// The `unit` value: `()` is the null `Unit`.
     let emitLdnull (il: Il) : unit =
         il.Encoder.OpCode(ILOpCode.Ldnull)
         il.Adjust 1
@@ -73,9 +66,8 @@ module Cil =
         il.Encoder.Token(field)
         il.Adjust 0
 
-    // `ldflda` — like `ldfld` but pushes the field's *address* (a managed pointer),
-    // so a member call on a value-type field persists its mutation. Same net stack
-    // effect as `ldfld`: pops the receiver, pushes one value (here the address).
+    // `ldflda` — like `ldfld` but pushes the field's *address*, so a member call on
+    // a value-type field mutates it in place instead of a copy.
     let emitLdflda (il: Il) (field: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Ldflda)
         il.Encoder.Token(field)
@@ -105,120 +97,99 @@ module Cil =
         il.Adjust 1
 
     /// `isinst <type>` — replaces the object reference on the stack with the same
-    /// reference typed as `t` (or `null` when it isn't a `t`). Net stack-neutral.
+    /// reference typed as `t`, or `null` when it isn't a `t`.
     let emitIsinst (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Isinst)
         il.Encoder.Token(t)
         il.Adjust 0
 
     /// `castclass <type>` — checked reference downcast: throws
-    /// `InvalidCastException` when the object isn't a `t`, else retypes the
-    /// reference. Net stack-neutral.
+    /// `InvalidCastException` when the object isn't a `t`, else retypes the reference.
     let emitCastclass (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Castclass)
         il.Encoder.Token(t)
         il.Adjust 0
 
-    /// `box <type>` — boxes the value type `t` on the stack into an object
-    /// reference. Net stack-neutral (pops the value, pushes the boxed ref).
+    /// `box <type>` — boxes the value type `t` on the stack into an object reference.
     let emitBox (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Box)
         il.Encoder.Token(t)
         il.Adjust 0
 
-    /// `unbox.any <type>` — the value-type analogue of `castclass`: unboxes a
-    /// boxed `t` (or, for a ref type, behaves as `castclass`). Net stack-neutral.
+    /// `unbox.any <type>` — unboxes a boxed `t`; for a ref type, behaves as `castclass`.
     let emitUnboxAny (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Unbox_any)
         il.Encoder.Token(t)
         il.Adjust 0
 
-    /// `initobj <type>` — zero-initialise the value-type instance addressed by
-    /// the managed pointer on the stack (pops it, pushes nothing: net −1). Used to
-    /// reify the `unit` value, whose `System.ValueTuple` representation is a
-    /// zero-field struct.
+    /// `initobj <type>` — zero-initialise the value-type instance addressed by the
+    /// managed pointer on the stack, popping it (net −1).
     let emitInitobj (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Initobj)
         il.Encoder.Token(t)
         il.Adjust -1
 
-    /// `callvirt` against a metadata handle with the receiver + args already on
-    /// the stack. SRM has no `Callvirt` helper, so the opcode + token are emitted
-    /// by hand; depth adjusts by `pushes - argc` (`argc` includes the receiver).
+    /// SRM has no `Callvirt` helper, so the opcode + token go out by hand. `argc`
+    /// includes the receiver.
     let emitCallvirt (il: Il) (m: EntityHandle) (argc: int) (pushes: int) : unit =
         il.Encoder.OpCode(ILOpCode.Callvirt)
         il.Encoder.Token(m)
         il.Adjust(pushes - argc)
 
-    /// `constrained. <type>` — the prefix that makes the following `callvirt`
-    /// dispatch on a value-type receiver (a managed pointer) without boxing. Used by
-    /// the duck-typed struct enumerator loop (`List`1+Enumerator`) for
-    /// `MoveNext`/`Current`/`Dispose`. Net stack 0 (a prefix); the paired `callvirt`
-    /// does the operand adjust.
+    /// `constrained. <type>` — prefix making the following `callvirt` dispatch on a
+    /// value-type receiver (a managed pointer) without boxing. Net 0: a prefix emits
+    /// no operand traffic of its own, the paired `callvirt` does the adjust.
     let emitConstrained (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Constrained)
         il.Encoder.Token(t)
         il.Adjust 0
 
-    /// `newarr <elem>` — allocate a 1-D zero-based array of `elem`: pops the
-    /// element count, pushes the array reference. Net stack-neutral.
+    /// `newarr <elem>` — allocate a 1-D zero-based array of `elem`: pops the element
+    /// count, pushes the array reference.
     let emitNewarr (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Newarr)
         il.Encoder.Token(t)
         il.Adjust 0
 
-    /// `ldelem <elem>` — load the element at an index: pops the array reference
-    /// and the index, pushes the element (net −1). The generic `ldelem` (a.k.a.
-    /// `ldelem.any`) carries a type token, so it serves any element type.
+    /// `ldelem <elem>` — pops the array reference and the index, pushes the element.
+    /// The token-carrying form, so it serves any element type.
     let emitLdelem (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Ldelem)
         il.Encoder.Token(t)
         il.Adjust -1
 
-    /// `stelem <elem>` — store the element at an index: pops the array reference,
-    /// the index, and the value (net −3). The write mirror of `emitLdelem`; the
-    /// generic `stelem` (a.k.a. `stelem.any`) carries a type token, so it serves
-    /// any element type.
+    /// `stelem <elem>` — pops the array reference, the index and the value (net −3).
+    /// The token-carrying form, so it serves any element type.
     let emitStelem (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Stelem)
         il.Encoder.Token(t)
         il.Adjust -3
 
-    /// `ldobj <type>` — load the value a managed pointer points to: pops the
-    /// pointer, pushes the pointed-to value (net 0). The deref behind a by-ref
-    /// return (`span.[i]` = `call get_Item` → `ldobj T`); the generic
-    /// `ldobj` carries a type token, so it serves any element type.
+    /// `ldobj <type>` — pops a managed pointer, pushes the value it points to. The
+    /// deref behind a by-ref return: `span.[i]` is `call get_Item` (yields `T&`)
+    /// then `ldobj T`.
     let emitLdobj (il: Il) (t: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Ldobj)
         il.Encoder.Token(t)
         il.Adjust 0
 
-    /// `ldlen` — load an array's length as a native int: pops the array
-    /// reference, pushes the length (net 0). No type operand.
+    /// `ldlen` — pops the array reference, pushes its length as a native int.
     let emitLdlen (il: Il) : unit =
         il.Encoder.OpCode(ILOpCode.Ldlen)
         il.Adjust 0
 
     let emitRet (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Ret)
 
-    /// Map an F# inline-IL mnemonic (`"ceq"`, `"add"`, `"conv.i2"`) to its
-    /// `ILOpCode`. The value-level sibling of the type-level intrinsic repr map
-    /// (`IntrinsicRepr`): an operator `.fs` body (`(=)` → `ceq`, `(<)` → `clt`,
-    /// `(+)` → `add`) lowers to `TExpr.ILIntrinsic` carrying the mnemonic, and
-    /// codegen interprets it here rather than special-casing the operator name.
-    /// Scoped to the stack-balanced single-result ops the equality / comparison /
-    /// arithmetic surface needs; `ValueNone` for anything else (operand-bearing
-    /// branches, loads/stores) the simple value-op emitter can't model. Mnemonics
-    /// are lower-case with `.`-separated suffixes, matching F# `(# … #)` syntax.
+    /// Map an F# inline-IL mnemonic to its `ILOpCode`: an operator body `(# "ceq" … #)`
+    /// lowers to a `TExpr.ILIntrinsic` carrying the string. `ValueNone` outside the
+    /// pop-n-push-1 ops — a branch or a load/store needs an operand this can't carry.
     let tryOpCodeOfMnemonic (mnemonic: string) : ILOpCode voption =
         match mnemonic with
-        // Comparison (each leaves an int32 bool).
         | "ceq" -> ValueSome ILOpCode.Ceq
         | "cgt" -> ValueSome ILOpCode.Cgt
         | "cgt.un" -> ValueSome ILOpCode.Cgt_un
         | "clt" -> ValueSome ILOpCode.Clt
         | "clt.un" -> ValueSome ILOpCode.Clt_un
-        // Arithmetic.
         | "add" -> ValueSome ILOpCode.Add
         | "add.ovf" -> ValueSome ILOpCode.Add_ovf
         | "add.ovf.un" -> ValueSome ILOpCode.Add_ovf_un
@@ -233,7 +204,6 @@ module Cil =
         | "rem" -> ValueSome ILOpCode.Rem
         | "rem.un" -> ValueSome ILOpCode.Rem_un
         | "neg" -> ValueSome ILOpCode.Neg
-        // Bitwise / shift.
         | "and" -> ValueSome ILOpCode.And
         | "or" -> ValueSome ILOpCode.Or
         | "xor" -> ValueSome ILOpCode.Xor
@@ -241,7 +211,6 @@ module Cil =
         | "shl" -> ValueSome ILOpCode.Shl
         | "shr" -> ValueSome ILOpCode.Shr
         | "shr.un" -> ValueSome ILOpCode.Shr_un
-        // Conversions (each pops one, pushes one).
         | "conv.i1" -> ValueSome ILOpCode.Conv_i1
         | "conv.i2" -> ValueSome ILOpCode.Conv_i2
         | "conv.i4" -> ValueSome ILOpCode.Conv_i4
@@ -257,10 +226,8 @@ module Cil =
         | "conv.r.un" -> ValueSome ILOpCode.Conv_r_un
         | _ -> ValueNone
 
-    /// Emit a value-producing inline-IL op whose `argCount` operands are already
-    /// on the stack (pushed by the caller). Every op in `tryOpCodeOfMnemonic`'s
-    /// scope leaves exactly one result, so the net stack delta is `1 - argCount`
-    /// (binary ops `-1`, unary conversions `0`).
+    /// The `argCount` operands are already on the stack and the op leaves exactly one
+    /// result, so the delta is `1 - argCount`: `-1` for `add`, `0` for `conv.i4`.
     let emitIntrinsicValueOp (il: Il) (code: ILOpCode) (argCount: int) : unit =
         il.Encoder.OpCode code
         il.Adjust(1 - argCount)
@@ -288,26 +255,22 @@ module Cil =
         il.Encoder.Branch(ILOpCode.Beq, label)
         il.Adjust -2
 
-    /// Terminates the path; the depth tracker still settles to the post-pop
-    /// value for any merge that follows.
+    /// Pops the exception object. The path terminates here, so the tracked depth
+    /// matters only until the next `Mark` resets it.
     let emitThrow (il: Il) : unit =
         il.Encoder.OpCode(ILOpCode.Throw)
         il.Adjust -1
 
     /// `leave <label>` — the only legal exit from a protected region. The runtime
-    /// clears the entire evaluation stack as a side effect; from the linear
-    /// emitter's POV the path terminates, so the depth tracker isn't adjusted
-    /// (the next reachable Mark resets it from `analyze`'s LabelDepths).
+    /// clears the whole evaluation stack, so no adjustment: the path terminates and
+    /// the next `Mark` resets the depth.
     let emitLeave (il: Il) (label: LabelHandle) : unit =
         il.Encoder.Branch(ILOpCode.Leave, label)
 
-    /// `endfinally` — terminator inside a finally handler. Depth at this point
-    /// is 0 (CLI requirement); no adjustment needed.
+    /// `endfinally` — terminator closing a finally handler; the depth is already 0.
     let emitEndFinally (il: Il) : unit = il.Encoder.OpCode(ILOpCode.Endfinally)
 
-    /// `maxStack` comes from the tracked peak depth — no separate pass.
-    /// `encodeLocals` is invoked only when locals exist, so callers with no
-    /// provider (hand-written bodies) can pass any encoder.
+    /// `maxStack` is the peak depth `Il` tracked while `emit` ran — no separate pass.
     let buildBody
         (encodeLocals: FrozenType list -> StandaloneSignatureHandle)
         (bodyStream: MethodBodyStreamEncoder)

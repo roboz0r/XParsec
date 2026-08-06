@@ -10,14 +10,6 @@ open EmitLower
 open EmitResolve
 open EmitPattern
 
-/// The expression-emission dispatcher. `buildExpr` is a thin router: trivial
-/// leaf arms (`Const` / `Null` / `Var`) stay inline; every structured case
-/// delegates to a per-concern `Emit*` module, passing `buildExpr` itself as the
-/// `Recur` back-edge (the one seam that crosses a file boundary — see
-/// `EmitDispatch`). The router matches each node's `ExprShape` *exhaustively* — the
-/// shapes the CLR backend does not yet emit (`TryWith`/`Range`/`TraitCall`)
-/// are explicit `failwith` arms, not a catch-all — so adding an `ExprShape` case breaks
-/// the build here and forces a routing decision.
 module EmitExpr =
 
     let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
@@ -25,16 +17,14 @@ module EmitExpr =
         | ExprShape.Const ->
             match TastAccessor.exprConstValue e with
             | TConstValue.String s -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
-            // The load follows from the width alone (`EmitTypes.pushIntConst` — shared with
-            // the `Const` pattern and the enum-case load).
             | TConstValue.Integral(w, bits) -> EmitTypes.pushIntConst b w bits
             | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
             | TConstValue.Float x -> b.Add(ILInstr.LdcR8 x)
             | TConstValue.Float32 x -> b.Add(ILInstr.LdcR4 x)
             | TConstValue.Char c -> b.Add(ILInstr.LdcI4(int c))
             | TConstValue.Decimal d ->
-                // Materialise via `Decimal..ctor(lo, mid, hi, isNegative, scale)` from
-                // the value's bit representation — the same shape F#/Roslyn emit.
+                // `Decimal..ctor(lo, mid, hi, isNegative, scale)` from the value's bits:
+                // `GetBits` packs sign and scale into element 3.
                 let bits = System.Decimal.GetBits d
                 let flags = bits.[3]
                 b.Add(ILInstr.LdcI4 bits.[0]) // lo
@@ -43,12 +33,7 @@ module EmitExpr =
                 b.Add(ILInstr.LdcI4(if flags < 0 then 1 else 0)) // sign (high bit of flags)
                 b.Add(ILInstr.LdcI4((flags >>> 16) &&& 0xFF)) // scale
                 b.Add(ILInstr.Newobj(env.Provider.DecimalCtor, 5))
-            | TConstValue.Unit ->
-                // `()` literal — reify the `unit` value (a zero-field `System.ValueTuple`
-                // struct, not FSharp.Core's null `Unit`). Pushed when a closure
-                // invocation needs a unit arg (`c ()`) or a unit value is otherwise
-                // reified.
-                EmitTypes.buildUnitValue env b
+            | TConstValue.Unit -> EmitTypes.buildUnitValue env b
 
         | ExprShape.Null -> b.Add ILInstr.Ldnull
 
@@ -56,16 +41,9 @@ module EmitExpr =
             let binding = TastAccessor.exprVarBinding e
 
             if env.StaticMethods.ContainsKey binding then
-                // A generic module value (`let empty : SetTree<'T> = …` at module scope)
-                // lowers to a zero-arg generic static method on its holder (a non-generic
-                // module holder cannot host a `SetTree<'T>` field). A module value is
-                // never applied, so — unlike a static function, which `collectStaticFns`
-                // proves is always saturated and therefore only ever reaches codegen as an
-                // `App` head — it appears here as a bare `Var`. (Hence: a bare `Var`
-                // whose key is a static method is always one of these 0-arg value
-                // methods.) Emit a 0-arg `call` to its `MethodSpec`, the instantiation
-                // recovered by matching the method's declared result template against this
-                // reference's own type.
+                // A generic module value (`let empty : SetTree<'T> = …`) lowers to a 0-arg
+                // generic static method, since a non-generic holder cannot host a
+                // `SetTree<'T>` field. Its instantiation comes from this use's own type.
                 let varTy = TastAccessor.exprTy e
                 let sm = env.StaticMethods.[binding]
 
@@ -101,12 +79,8 @@ module EmitExpr =
 
         | ExprShape.App -> EmitCall.buildAppCall buildExpr env b e
 
-        // A bare external value with no application — a zero-arg module value such
-        // as `Set.empty` (the `[<GeneralizableValue>]` generic value compiled to a
-        // generic static method `SetModule.Empty<'T>()`). Route it through the same
-        // head dispatch as an application with no arguments: `buildAppCall`
-        // collects an empty argument list, `TryEmitCall` emits the 0-arg recipe, and
-        // the generic instantiation is read from the value's (result) type.
+        // A bare external value — `Set.empty`, compiled to `SetModule.Empty<'T>()` — takes
+        // the same head dispatch as an application, with an empty argument list.
         | ExprShape.External -> EmitCall.buildAppCall buildExpr env b e
 
         | ExprShape.FieldGet -> EmitMember.buildFieldGet buildExpr env b e
@@ -130,25 +104,13 @@ module EmitExpr =
         | ExprShape.Downcast -> EmitIntrinsic.buildDowncast buildExpr env b e
         | ExprShape.TypeTest -> EmitIntrinsic.buildTypeTest buildExpr env b e
 
-        // Not yet emitted by the CLR backend. This shape still occurs in the frozen tree
-        // (closure discovery walks `TryWith` bodies), so it reaches the emitter rather than
-        // being lowered away. An explicit arm keeps the dispatch exhaustive over
-        // `ExprShape`: a newly added shape breaks the build here and forces a routing
-        // decision instead of silently falling through.
+        // Nothing lowers `TryWith` away — closure discovery walks its bodies — so it
+        // survives to here.
         | ExprShape.TryWith -> failwithf "Emit: unsupported expression: %A" e
 
-        // NOT a target gap: `..` is an ordinary operator in F# (`val inline (..): ^T -> ^T ->
-        // seq<^T>`), so a range wants no node of its own at all, and `TExpr.Range` exists only
-        // to carry the rejection of a use this compiler does not yet materialise a seq for.
-        // Every surviving one was already reported at Elaborate (`RangeNotFirstClassValue`);
-        // the counted for-in lowering, which mints `ForTo`, consumes the one supported form.
-        // So reaching here means emitting a program already known bad — and the arm disappears
-        // with the node once `(..)` resolves through the contract like any other operator.
+        // A surviving `Range` was reported at Elaborate as `RangeNotFirstClassValue`.
         | ExprShape.Range -> failwithf "Emit: unsupported expression: %A" e
 
-        // Not "unsupported" but IMPOSSIBLE here: the specialization table is expanded, and
-        // trait calls are grounded, before emission — so neither edge survives to the time
-        // the router runs. Shared with the JS backend so the two say one thing.
         | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
         | ExprShape.CallerExpr -> TastLower.callerExprUnexpanded ()
         | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)

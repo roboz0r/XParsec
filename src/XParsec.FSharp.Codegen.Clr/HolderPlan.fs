@@ -4,77 +4,56 @@ open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// One predicted method row of the holder plan:
-/// a value-bearing holder's `.cctor`, a static-method function, or the anonymous
-/// "Program" holder's `.cctor` (initialises the leading-prefix top-level
-/// values; sits immediately before the holder-less fns).
+/// One predicted method row of the holder plan: a value-bearing holder's `.cctor`, a
+/// static-method function, or the anonymous "Program" holder's `.cctor`, which
+/// initialises the leading-prefix top-level values just before the holder-less fns.
 type MethodSlot =
     | HolderCctor of Emit.HolderKey
     | HolderFn of Emit.StaticFn
     | ProgramCctor
 
-/// The module-level emission plan, computed
-/// once — purely — from the lowered decls: which top-level bindings are module
-/// values vs static-method functions, the holder emission order, the method-row
-/// plan, and the module-value field-row order. The `Assembler` constructor
-/// *predicts* `MethodDef` / `FieldDef` handles from positions in these lists
-/// and `EmitStaticMethods` walks the *same* lists to emit, so prediction and
-/// emission cannot drift.
+/// The module-level emission plan, computed once — purely — from the lowered decls: which
+/// top-level bindings are module values vs static-method functions, the holder emission
+/// order, the method-row plan, and the module-value field-row order.
 type HolderPlan =
     {
-        /// The lowered decls AFTER `bridgeStaticFnEscapes` — every non-saturated
-        /// reference to a static-eligible function eta-expanded to a wrapper closure.
-        /// This is the single decl list every downstream pass (closure discovery,
-        /// `buildMain`) must walk, so they see the same rewritten nodes the holder
-        /// plan was computed from.
+        /// The lowered decls AFTER bridging — every non-saturated reference to a
+        /// static-eligible function eta-expanded to a wrapper closure. Downstream passes
+        /// walk THIS list, so they see the nodes the plan was computed from.
         Lowered: TastAccessor.DeclId list
-        /// Module-level values lowered to `public static` fields on their named
-        /// holders, in declaration order (see `collectModuleValues` for the
-        /// classification rules); every reference is an `ldsfld` — never a
-        /// `Main` local or a closure capture.
+        /// Module-level values lowered to `public static` fields on their named holders,
+        /// in declaration order; every reference is an `ldsfld` — never a `Main` local or
+        /// a closure capture.
         ModuleValues: Emit.ModuleValue list
         ModuleValueKeys: HashSet<BinderId>
-        /// Top-level (implicit-"Program"-module) ground values placed in the
-        /// Program holder's `.cctor` as `static initonly` fields — the leading
-        /// prefix (no top-level `do` before them), in declaration order. Their
-        /// initialisers run in the `.cctor` before `Main`.
+        /// Top-level (implicit-"Program"-module) ground values placed in the Program
+        /// holder's `.cctor` as `static initonly` fields — the leading prefix (no top-level
+        /// `do` before them), in declaration order, initialised before `Main` runs.
         ProgramCctorValues: Emit.ModuleValue list
-        /// Top-level ground values that follow a top-level `do` — written by `Main`
-        /// via `stsfld` (plain mutable `static` fields), in declaration order
-        /// Their keys join `MainInitValues` at emit.
+        /// Top-level ground values that FOLLOW a top-level `do`: plain mutable `static`
+        /// fields, written by `Main` via `stsfld`, in declaration order.
         ProgramMainValues: Emit.ModuleValue list
-        /// Top-level functions lowered to static methods, in declaration order
-        /// (see `collectStaticFns` for the eligibility rules).
+        /// Top-level functions lowered to static methods, in declaration order.
         StaticFns: Emit.StaticFn list
         StaticFnKeys: HashSet<BinderId>
         /// Each static fn's method-axis typar count by binding key; a closure
         /// walked from a generic static fn's body inherits this.
         StaticFnTypars: Dictionary<BinderId, int>
-        /// Functions on the anonymous "Program" holder: they follow the named
-        /// holders' methods (and `Main` follows them), unchanged.
+        /// Functions on the anonymous "Program" holder: they follow the named holders'
+        /// methods, and `Main` follows them.
         HolderlessFns: Emit.StaticFn list
         /// The holders this plan gives METHODS or VALUES to, fn-bearing ones in
         /// first-appearance order then any value-only holder. NOT the emitted holder set:
-        /// a module that holds only TYPES gets a holder class too, and so does an
-        /// ancestor of a nested holder — both are discovered from the type decls in
-        /// `Layout.build`, which is the one place the holder TREE is built.
+        /// a module holding only TYPES, and an ancestor of a nested holder, get one too.
         OrderedNamedHolders: Emit.HolderKey list
-        /// A holder's module values in declaration order (`holderValues`). A
-        /// `Dictionary` because a `ModuleKey` is equatable but not ORDERED (its
-        /// namespace path is an `EqArray`, which has no comparison).
         ValuesByHolder: Dictionary<Emit.HolderKey, Emit.ModuleValue list>
-        /// Which methods a holder owns and in what order *within* that holder: a
-        /// `.cctor` when it has values, then its fns; then the Program holder's
-        /// `.cctor` and its holder-less fns. The `Assembler`'s Prepare pass walks it to
-        /// bind every holder-owned method body.
-        ///
-        /// NOT a row order: `MethodDef` rows are the pre-order flattening of
-        /// `Layout`'s `TypeNode` tree, so a holder's methods are contiguous because they
-        /// hang off its node — not because a side list happened to list them together.
+        /// Which methods a holder owns and in what order *within* that holder: a `.cctor`
+        /// when it has values, then its fns; then the Program holder's `.cctor` and its
+        /// holder-less fns. NOT a row order — `MethodDef` rows are the layout tree's.
         MethodPlan: MethodSlot list
         /// Every module-level value that gets a static FIELD — named-holder values in
-        /// holder order, then the Program holder's. The `Assembler` maps each to its
-        /// written field handle; the field ROW order is the layout tree's, not this.
+        /// holder order, then the Program holder's. The field ROW order is the layout
+        /// tree's, not this.
         AllModuleValues: Emit.ModuleValue list
     }
 
@@ -91,33 +70,21 @@ module HolderPlan =
     /// method / field emission orders.
     let create
         (moduleMembers: Map<BinderId, ModuleBindingInfo>)
-        // Forwarded to `collectStaticFns` to populate
-        // `StaticFn.Constraints`, which drives the call-site phantom-typar solve
-        // (`EmitCall`). The emitted arity is re-derived independently by the
-        // `Emit.staticFnTypars` body sweep.
+        // Forwarded to populate `StaticFn.Constraints`, which drives the call-site
+        // phantom-typar solve; the emitted arity is re-derived independently below.
         (genericFnSchemes: Map<BinderId, FrozenConstraint list>)
         (programHolder: Emit.HolderKey)
         (refStructNsNames: HashSet<string * string>)
         (lowered0: TastAccessor.DeclId list)
         : HolderPlan =
         // How every top-level decl of this file emits (name, holder, handle key), decided
-        // ONCE — before bridging, which rewrites expressions inside decls but neither adds
-        // nor removes a top-level binder, so the same table is valid for `lowered` below.
-        // Every collector reads it, so none of them can name a binding differently from
-        // another, and the shadowing rule it applies is stated in exactly one place.
+        // before bridging — which rewrites expressions inside decls but neither adds nor
+        // removes a top-level binder, so the same table is valid for `lowered` below.
         let emissions = Emit.emissions moduleMembers programHolder lowered0
 
-        // The capture-only eligible set drives bridging: a value-use of a function
-        // that survives as a static method becomes a curried bridge; a capture-demoted
-        // function keeps its closure (no bridge). It is computed on the UN-bridged
-        // decls against the top-level *storage* set (module / program / generic values
-        // are `ldsfld` / `call`, never captures) and then reused verbatim by
-        // `collectStaticFns` below — so the set bridging assumed and the set emitted as
-        // static methods are provably identical (see `staticEligible`). A binding that
-        // bridging flips from a value to a static-fn candidate (e.g. `let g = f` where
-        // `f` is eligible) does not perturb the capture analysis: both module-value and
-        // static-fn keys are non-capturing, so the storage set computed pre-bridge is a
-        // sound seed.
+        // Drives bridging: a value-use of a function that survives as a static method
+        // becomes a curried bridge; a capture-demoted one keeps its closure. The top-level
+        // *storage* set — an `ldsfld` / `call` target, never a capture.
         let preResolvedTopLevel =
             let s = HashSet<BinderId>()
 
@@ -132,72 +99,54 @@ module HolderPlan =
 
             s
 
-        // `gather` once on the un-bridged decls: the same `CompiledFn list` feeds the
-        // capture-eligibility analysis AND the bridge's arity table, so they cannot
-        // disagree about which functions exist. `collectStaticFns` re-gathers the
-        // POST-bridge `lowered` (bridging can turn a `let g = f` value into a lambda
-        // that now peels to groups), so exactly two gathers run, not three.
+        // One `gather` on the UN-bridged decls feeds both the capture-eligibility analysis
+        // and the bridge's arity table; the collectors below re-gather the POST-bridge
+        // decls, since bridging can turn a `let g = f` value into a lambda that peels.
         let fns0 = CompiledFns.gather lowered0
         let eligible = Emit.staticEligible preResolvedTopLevel fns0
 
-        // Eta-expand every non-saturated reference to an eligible function so it stays
-        // a flat static method and the escape becomes a wrapper closure (F#/JS model).
-        // Everything below is computed on the BRIDGED decls; `lowered` is published on
-        // the plan so closure discovery / `buildMain` walk the same rewritten nodes.
+        // Eta-expand every non-saturated reference to an eligible function so it stays a
+        // flat static method and the escape becomes a wrapper closure. Everything below is
+        // computed on the BRIDGED decls, which are published on the plan.
         let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
 
         let moduleValues = Emit.collectModuleValues emissions lowered
         let moduleValueKeys = HashSet<BinderId>(moduleValues |> List.map (fun mv -> mv.Key))
 
-        // Top-level (implicit-"Program"-module) ground values — holderless `let`s in
-        // an exe's last file. Collected unclassified
-        // here; the leading/trailing partition runs below once `staticFnKeys`
-        // is known. Their keys are real storage (Program-holder fields), so they
-        // also join `resolvedTopLevel` (the capture/static-fn analysis treats them as
-        // bound, never a captured local).
+        // Top-level (implicit-"Program"-module) ground values — holderless `let`s in an
+        // exe's last file, collected unclassified; the leading/trailing partition runs
+        // below, once `staticFnKeys` is known. Their keys are real storage, never captures.
         let programValues =
             Emit.collectProgramValues emissions programHolder refStructNsNames lowered
 
         let programValueKeys =
             HashSet<BinderId>(programValues |> List.map (fun mv -> mv.Key))
 
-        // A *generic* module value (`let empty : SetTree<'T> = …`) cannot become a
-        // static *field* — a non-generic module holder has no type parameter to
-        // type it — so it lowers to a zero-arg *generic static method* on its
-        // holder (real F#'s representation of a generic value); a reference `call`s
-        // its `MethodSpec`. They join the static-method machinery as 0-param fns
-
+        // A *generic* module value (`let empty : SetTree<'T> = …`) cannot become a static
+        // FIELD — a non-generic holder has no type parameter to type it — so it lowers to a
+        // zero-arg generic static METHOD; a reference `call`s its `MethodSpec`.
         let genericModuleValues = Emit.collectGenericModuleValues emissions lowered
 
         let genericModuleValueKeys =
             HashSet<BinderId>(genericModuleValues |> List.map (fun fn -> fn.Key))
 
-        // The static-method functions: the eligible set (computed pre-bridge, reused
-        // here) projected onto the bridged decls. A binding bridging newly turned into
-        // a lambda whose key was never eligible is skipped here and falls to closure
-        // discovery.
+        // The static-method functions: the eligible set (computed pre-bridge) projected
+        // onto the bridged decls. A binding bridging newly turned into a lambda whose key
+        // was never eligible is skipped here and falls to closure discovery.
         let collectedFns =
             Emit.collectStaticFns emissions genericFnSchemes eligible (CompiledFns.gather lowered)
 
-        // Generic module values emit exactly like static fns (signature, body,
-        // handle, holder method slot); merge them in so every downstream pass —
-        // the `staticMethods` registry, the holder method plan, `discoverClosures`'
-        // non-captured set — treats them uniformly. Appended last, so each lands in
-        // its holder's method group after the holder's ordinary functions.
+        // Generic module values emit exactly like static fns (signature, body, handle,
+        // holder method slot); merge them in so every downstream pass treats them
+        // uniformly. Appended last, so each lands after its holder's ordinary functions.
         let staticFns = collectedFns @ genericModuleValues
 
         let staticFnKeys = HashSet<BinderId>(eligible)
         staticFnKeys.UnionWith genericModuleValueKeys
 
-        // Leading/trailing placement: partition the top-level program values into the leading
-        // prefix (`.cctor`, `initonly`) vs the values that follow a top-level
-        // statement (`Main`, mutable). The classifier is the *only* site this
-        // decision is made (a future effect-graph policy is a drop-in replacement): a value runs in the cctor iff no top-level code
-        // that executes in `Main` precedes it — i.e. no `do` (`TDecl.Expression`) and
-        // no residue `Main`-local `let` (one that is neither a module value, a static
-        // fn, nor itself a program value). A named-holder value / static fn runs in a
-        // *method* (its holder's cctor / a static method), not in `Main`, so it does
-        // not advance the partition.
+        // Partition the top-level program values into the leading prefix (`.cctor`,
+        // `initonly`) vs those following a top-level statement (`Main`, mutable): a value
+        // runs in the cctor iff nothing that executes in `Main` precedes it.
         let programByKey = Dictionary<BinderId, Emit.ModuleValue>()
 
         for mv in programValues do
@@ -212,16 +161,14 @@ module HolderPlan =
                 match TastAccessor.declKind d with
                 | DeclShape.Expression -> seenMainCode <- true
                 | DeclShape.Let ->
-                    // A simple (`NamedSimple`) binder yields `ValueSome`; any other
-                    // pattern (a residue destructuring `let`) yields `ValueNone`.
+                    // Any pattern but a simple named binder yields `ValueNone`.
                     match TastAccessor.patBinder (TastAccessor.declLet d).Binding with
                     | ValueSome k ->
                         match programByKey.TryGetValue k with
                         | true, mv -> (if seenMainCode then main else cctor).Add mv
                         | _ ->
-                            // Not a program value: a static fn / named-holder value runs
-                            // in a method (no Main effect); anything else is a residue
-                            // Main local whose init runs in `Main`.
+                            // Not a program value: a static fn / named-holder value runs in
+                            // a method (no `Main` effect); anything else initialises in `Main`.
                             if not (staticFnKeys.Contains k || moduleValueKeys.Contains k) then
                                 seenMainCode <- true
                     | ValueNone -> seenMainCode <- true // residue destructuring `let` → `Main`
@@ -229,9 +176,8 @@ module HolderPlan =
 
             List.ofSeq cctor, List.ofSeq main
 
-        // Every module-value initialiser must resolve entirely to other module
-        // values / static methods inside its holder `.cctor` — fail targeted
-        // here rather than deep in `buildVarLoad`.
+        // Every module-value initialiser must resolve entirely to other module values /
+        // static methods inside its holder `.cctor`.
         Emit.validateModuleValueInits moduleValueKeys staticFnKeys moduleValues
 
         // A leading program value's `.cctor` init may also reference other
@@ -240,14 +186,9 @@ module HolderPlan =
         cctorRefKeys.UnionWith programValueKeys
         Emit.validateModuleValueInits cctorRefKeys staticFnKeys programCctorValues
 
-        // The emitted generic-method arity is the max
-        // `FTTypar(Method, i)` index over params + result + BODY. The body sweep is
-        // the change — it catches a phantom constraint typar (`fold`'s enumerator
-        // `'E`) that param/result cannot see but that survives un-grounded in the
-        // `for-in` enumerator descriptor, so `fold` emits at its true arity and the
-        // call site solves `'E` from its bound. It deliberately does NOT use the
-        // front-end `scheme.Quantified.Length`, which over-counts a quantified-but-
-        // body-erased typar (the `SetTree.compare` regression).
+        // The emitted generic-method arity is the max `FTTypar(Method, i)` index over
+        // params + result + BODY. The body sweep catches a phantom constraint typar
+        // (`fold`'s enumerator `'E`) that params and result cannot see.
         let staticFnTypars = Dictionary<BinderId, int>()
 
         for fn in staticFns do
@@ -277,7 +218,8 @@ module HolderPlan =
 
             fnHolders @ valueOnly
 
-        // `Dictionary`, not `Map`: a `ModuleKey` is equatable but not ordered.
+        // `Dictionary`, not `Map`: a `HolderKey` is equatable but not ordered — its
+        // namespace path is an `EqArray`, which has no comparison.
         let valuesByHolderIndex = Dictionary<Emit.HolderKey, Emit.ModuleValue list>()
 
         for (h, vs) in valuesByHolder do
@@ -333,8 +275,7 @@ module HolderPlan =
                     for h in orderedNamedHolders do
                         yield! valuesOf h
                     // The Program holder's: `initonly` (cctor) ones first, then the
-                    // `Main`-written mutable ones; both resolve to an `ldsfld` via
-                    // `moduleValueFields`.
+                    // `Main`-written mutable ones.
                     yield! programCctorValues
                     yield! programMainValues
                 ]

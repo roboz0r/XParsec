@@ -9,56 +9,35 @@ open XParsec.FSharp.Codegen.Common
 
 module internal Layout =
 
-    /// Build ONE file's contribution to the type HIERARCHY, and its slice of
-    /// the ranged tables. By kind: namespace-level interfaces / unions / records / classes
-    /// / enums → closures → the root modules' holders. A module's holder is immediately
-    /// followed by the types it holds — in that same by-kind order — and by its nested
-    /// modules' holders. The single `<Module>` pseudo-type (TypeDef row 1) and the single
-    /// Program holder are NOT minted here: they belong to the assembly, so `combine` mints
-    /// them once around the concatenated files. The shared `ClosureNamer` is threaded in so
-    /// a multi-file driver can keep closure TypeDef names unique assembly-wide. Reuses the
-    /// existing lowering/discovery passes unchanged and carries their products.
+    /// Build ONE file's contribution to the type HIERARCHY: its namespace-level nominals,
+    /// then closures, then root-module holders — each holder carrying the types it holds
+    /// and its child holders. The shared `ClosureNamer` keeps closure names unique.
     let buildFile
         (closureNamer: Emit.ClosureNamer)
         (symbols: ICodegenSymbols)
         (project: ProjectInfo)
         (pools: FrozenPools)
         : FileLayout =
-        // The file's trees as columns, with an append-only overlay stacked over them.
-        // Every node this emission DERIVES — the eta bridges, the closure-verdict
-        // retypes, a `use`'s dispose synthetic — is appended to the overlay, and every
-        // id the canonical pool already handed out keeps naming the same node, which is
-        // what lets the derived nodes be minted mid-emit rather than in one batch.
+        // An append-only overlay over the file's frozen trees: every node this emission
+        // derives is appended, and every id the frozen pool handed out keeps naming the
+        // same node — so derived nodes can be minted mid-emit rather than in one batch.
         let pool = TastPoolBuilder.openOver pools
 
-        // The specialization graph is spliced HERE, before any node-keyed table is built off
-        // the decls: `Emit.lower` drops `type` decls, so an edge inside a member body is
-        // invisible to it and must be reached through the declaration shape, which
-        // `InlineExpand.expand` does. `Origins` is unread on this target — the CLR publishes
-        // no source map — but it costs the walk nothing to record and is the same product the
-        // JS backend consumes.
+        // Inline expansion runs before any node-keyed table is built off the decls, and
+        // over the DECLARATIONS rather than the lowered list: lowering drops `type` decls,
+        // so an inline call inside a member body would otherwise be invisible.
         let expansion = InlineExpand.expand pool (TastAccessor.roots pool |> List.ofArray)
         let decls = expansion.Decls
 
-        // The binder-keyed side tables this lowering consumes, indexed at the dense id the
-        // columns already address a binder by. Nothing is undone on the way in: a
-        // `HolderPlan` / closure-discovery lookup is keyed by the very id the decl's own
-        // head pattern carries, so it can only ever name a binder this tree bears.
+        // The binder-keyed side tables this lowering consumes, at the dense id the columns
+        // already address a binder by.
         let moduleMembers = Map.ofArray pools.ModuleMembers
         let closureReprs = Map.ofArray pools.ClosureReprs
         let genericFnSchemes = Map.ofArray pools.GenericFnSchemes
 
-        // A source lambda's verdict, on the lambda ID SPACE: a lambda's dense id is its
-        // `ExprPoolId`, so a discovered lambda's verdict is a lookup on the node itself
-        // rather than a key recomputed from its token. Keyed by the NODE (id + the pool
-        // that issued it), not the bare id: two files' pools both number from 0, so a bare
-        // id would not miss across files — it would silently name a different node.
-        //
-        // Read on the EXPANDED tree, so a lambda the expansion re-authored — every lambda with
-        // an inline call anywhere beneath it, since re-pointing a child mints a new row — is
-        // followed back down its authorship chain to the frozen node the table was filed
-        // against. Without that the verdict is silently absent and a value-struct closure emits
-        // as an ordinary heap one.
+        // A source lambda's verdict, keyed by NODE (id + issuing pool): two files' pools
+        // both number from 0, so a bare id would not miss across files — it would
+        // silently name a different node.
         let funVerdicts =
             let frozen =
                 pools.FunVerdicts
@@ -67,6 +46,9 @@ module internal Layout =
 
             let d = Dictionary<TastAccessor.ExprId, FunVerdict>(frozen)
 
+            // Expansion re-authors every lambda with an inline call beneath it, so each
+            // derived node inherits the verdict filed against the frozen node it came
+            // from — without this a value-struct closure emits as an ordinary heap one.
             for (node, v) in InlineExpand.Derivation.resolveAll expansion.Derived frozen do
                 d.[node] <- v
 
@@ -74,10 +56,8 @@ module internal Layout =
 
         let lowered0 = Emit.lower decls
         // The anonymous "Program" holder's key — a module of that name in the global
-        // namespace. It owns the holder-less fns + `Main` + the top-level value fields /
-        // `.cctor`. Its type slot is `TypeSlotKey.Program`, not `TypeSlotKey.Holder`, so
-        // this key never names a holder class: it exists only to tag those values'
-        // `Holder` field.
+        // namespace, owning the holder-less fns + `Main` + the top-level values. It tags
+        // those values' `Holder` field; the type slot is `TypeSlotKey.Program`.
         let programHolder =
             SymbolKeyOps.moduleKeyOf (ModuleHolder.InNamespace NamespaceKey.Global) project.ModuleName
 
@@ -99,29 +79,22 @@ module internal Layout =
             ]
             |> HashSet
 
-        // `HolderPlan.create` eta-expands every non-saturated reference to a
-        // static-eligible module function (`bridgeStaticFnEscapes`) — keeping the flat
-        // static method and adding a wrapper closure (F#/JS model) — and publishes the
-        // bridged decls as `plan.Lowered`. That single rewritten list feeds both
-        // closure discovery and `buildMain`, so they see the same nodes the plan was
-        // computed from.
+        // The plan eta-expands every non-saturated reference to a static-eligible module
+        // function — keeping the flat static method, adding a wrapper closure — and
+        // republishes the rewritten decls, which is what closure discovery must walk.
         let plan =
             HolderPlan.create moduleMembers genericFnSchemes programHolder refStructNsNames lowered0
 
         let lowered = plan.Lowered
 
-        // Member bodies never pass through `Emit.lower` — they need no lowering at all;
-        // they arrive from the freeze ready to emit. Partitioned **once** here and
-        // published as `Partitioned`, so closure discovery and `buildMember` walk the
-        // same node IDS — the `…ByNode` tables key on them.
+        // Member bodies never pass through lowering — they arrive from the freeze ready to
+        // emit. Partitioned once and published, so closure discovery and body emission
+        // walk the same node IDS, which the `…ByNode` tables key on.
         let partitioned = LayoutNodes.partitionTypeDecls decls
 
-        // Closure-discovery roots from every (expanded) member body and class-preamble
-        // expression, each tagged with its declaring type's typar count (0 ⇒
-        // monomorphic). A preamble initialiser or `do` body is emitted into the `.ctor` /
-        // `.cctor` from these very nodes, so a lambda in one (a function-valued `let`,
-        // `let bump x = …`) is a closure exactly as a member body's is — omit it and its
-        // construction site finds no discovered closure.
+        // Closure-discovery roots: every member body AND every class-preamble expression.
+        // A preamble initialiser is emitted into the `.ctor` / `.cctor` from these very
+        // nodes, so a lambda in one is a closure exactly as a member body's is.
         let memberRoots =
             [
                 let root
@@ -167,20 +140,15 @@ module internal Layout =
                 plan.StaticFnKeys
                 plan.ModuleValueKeys
                 plan.StaticFnTypars
-                // The node-keyed value-struct closure verdicts,
-                // snapshotted in `Pipeline` like `ClosureReprs`.
-                // `discoverClosures` marks a source-lambda argument a value-struct (and
-                // at what flat arity) by node membership — no structural re-derivation.
+                // Which source lambdas are value-structs, by node membership.
                 funVerdicts
                 closureReprs
                 lowered
                 memberRoots
 
-        // Each type's node carries its own field and method rows: the rows the writer
-        // walks ARE the rows its range claims, since both are `List.collect`s over the
-        // same flattening. The by-kind builders are module-level (`buildXNodes`), so this
-        // stays a slim orchestration over the partition slices + discovered closures, in
-        // the by-kind order the `TypeDef` table has always used.
+        // Each type's node carries its own field and method rows, so the rows the writer
+        // walks ARE the rows its range claims: both are `List.collect`s over the same
+        // flattening.
         let interfaceNodes = LayoutNodes.buildInterfaceNodes partitioned.Interfaces
 
         let unionNodes = LayoutNodes.buildUnionNodes symbols partitioned.Unions
@@ -191,9 +159,8 @@ module internal Layout =
         let structEnumNodes = LayoutNodes.buildStructEnumNodes partitioned.StructEnums
         let closureNodes = LayoutNodes.buildClosureNodes closures
 
-        // Every nominal type, in the by-kind order the `TypeDef` table has always used.
-        // That order now applies *within* each holder (and among the roots) rather than
-        // globally: filtering this list by holder preserves it.
+        // Every nominal type, by kind. The order applies *within* each holder (and among
+        // the roots), since filtering this list by holder preserves it.
         let nominalNodes =
             interfaceNodes
             @ unionNodes
@@ -203,19 +170,10 @@ module internal Layout =
             @ structEnumNodes
 
         // ---- Holder discovery ------------------------------------------------------
-        //
-        // A holder class is needed for every module that HOLDS something emitted, and
-        // for every module on the way down to it — a `NestedClass` row needs its
-        // enclosing `TypeDef` to exist. Three sources, and all three are necessary:
-        //
-        //   * the plan's holders — modules with static fns / module values;
-        //   * every module named in an emitted TYPE's holder chain — a module that holds
-        //     only types has no binding, so the plan never names it;
-        //   * their ANCESTORS — a nested module `A.B` is a class nested in `A`'s holder,
-        //     which must exist even when `A` itself holds nothing directly.
-        //
-        // Ancestors-first, first-appearance order, deduplicated: a parent is therefore
-        // always discovered before its children.
+
+        // Every module that holds an emitted binding or type needs a holder class, and so
+        // does every ancestor on the way down to it — a `NestedClass` row needs its
+        // enclosing `TypeDef`. Ancestors first, first-appearance order, deduplicated.
         let orderedHolders =
             let seen = HashSet<ModuleKey>()
             let acc = ResizeArray<ModuleKey>()
@@ -240,8 +198,7 @@ module internal Layout =
 
         let holderMethodRows (h: Emit.HolderKey) : MethodRow list =
             [
-                // The `.cctor` initialises the holder's module values; it precedes the
-                // fns exactly as `HolderPlan.MethodPlan` prepares them.
+                // The `.cctor` initialises the holder's module values.
                 if not (List.isEmpty (HolderPlan.holderValues plan h)) then
                     yield
                         {
@@ -320,11 +277,9 @@ module internal Layout =
             )
             |> List.map holderNode
 
-        // The single `<Module>` pseudo-type and the single Program holder are minted by
-        // `combine`, not here — they belong to the assembly, not a file. This file hands
-        // over its placeable roots (namespace-level nominals, then closures, then root
-        // holders — each carrying its own subtree) and the flat key set for the
-        // completeness check.
+        // The `<Module>` pseudo-type and the Program holder belong to the ASSEMBLY, so
+        // they are minted around the combined files, not here. This hands over the
+        // placeable roots and the flat key set for the completeness check.
         {
             Roots =
                 (nominalNodes |> List.filter (fun n -> n.Enclosing.IsNone))
@@ -342,22 +297,17 @@ module internal Layout =
             ClosureByNode = closureByNode
             Partitioned = partitioned
             FunVerdicts = funVerdicts
-            // The entry flag is the whole-assembly OutputKind decision, made by `combine`
-            // (an executable's LAST file is the entry file); a file cannot know it alone.
+            // Which file is the entry file is a whole-assembly decision; stamped below.
             EmitEntryPoint = false
         }
 
-    /// Assemble the files into the whole `AssemblyLayout`: PREPEND the single `<Module>`
-    /// pseudo-type (so it is TypeDef row 1 for the assembly), APPEND the single Program
-    /// holder, flatten the concatenated roots into the `TypeDef` table, and run the
-    /// completeness check ONCE over the combined set. The singular lowering products stay
-    /// exposed for the Assembler; for a single file they are that file's.
+    /// Assemble the files into the whole `AssemblyLayout`: PREPEND the `<Module>`
+    /// pseudo-type (so it is TypeDef row 1), APPEND the Program holder, flatten the
+    /// concatenated roots into the `TypeDef` table, then check completeness once.
     let combine (project: ProjectInfo) (files: FileLayout list) : AssemblyLayout =
-        // The entry file carries the program entry point (`Main` + the anonymous "Program"
-        // holder). For an executable it is the LAST file — F#'s rule that only the final
-        // file may hold top-level expressions — and a library has none. Stamp the flag onto
-        // exactly that file (`buildFile` left every file FALSE, unaware of the
-        // whole-assembly OutputKind decision) so `PrepareMain` fires once.
+        // The entry file carries `Main`. For an executable it is the LAST file — F#'s rule
+        // that only the final file may hold top-level expressions — and a library has
+        // none.
         let entryIndex =
             match project.OutputKind with
             | Exe -> List.length files - 1
@@ -376,12 +326,9 @@ module internal Layout =
             | Some f -> ValueSome f
             | None -> ValueNone
 
-        // Only the entry file may carry top-level VALUE bindings — the anonymous "Program"
-        // holder's static fields, written by its `.cctor` (leading prefix) or `Main`
-        // (trailing). These come from a file's implicit-module top-level `let`s, which only
-        // an executable's last file has; a non-entry file with any is a front-end error. A
-        // namespace-level `let` (a holder-less FN) is NOT top-level code — a library may
-        // carry those on the Program holder — so it is aggregated below, not rejected here.
+        // Only the entry file may carry top-level VALUE bindings; a non-entry file with any
+        // is a front-end error. A namespace-level `let` (a holder-less FN) is not top-level
+        // code — a library may carry those — so it is aggregated below, not rejected here.
         files
         |> List.iteri (fun i f ->
             if not f.EmitEntryPoint then
@@ -398,9 +345,9 @@ module internal Layout =
                         (List.length p.ProgramCctorValues + List.length p.ProgramMainValues)
         )
 
-        // A holder `TypeSlotKey` contributed by two files is a same-FQN module split across
-        // files — a front-end error the front end should already reject. Assert it here so a
-        // duplicate holder TypeDef row can never reach `deriveHandles` (an opaque throw).
+        // A holder contributed by two files is a same-FQN module split across files.
+        // Rejected by name here rather than as an opaque duplicate-key throw when the
+        // handles are derived.
         let holderSeen = HashSet<TypeSlotKey>()
 
         for f in files do
@@ -413,8 +360,8 @@ module internal Layout =
                             k
                 | _ -> ()
 
-        // The single `<Module>` pseudo-type is minted once here, not per file, so it is
-        // TypeDef row 1 for the whole assembly no matter how many files are combined.
+        // Minted here, not per file, so it is TypeDef row 1 for the whole assembly no
+        // matter how many files are combined.
         let moduleNode =
             {
                 Slot =
@@ -431,17 +378,9 @@ module internal Layout =
                 Nested = []
             }
 
-        // The single Program holder, minted once here (not per file). Its top-level value
-        // FIELDS + `.cctor` + `Main` come from the ENTRY file alone (only the last file of
-        // an executable has top-level value bindings / `Main`; a library has neither):
-        // leading-prefix values are `initonly` (written by the `.cctor`), values after a
-        // top-level `do` are plain mutable `static` (written by `Main`). Its holder-less
-        // static FNS aggregate across EVERY file — a namespace-level `let` in any file lands
-        // here — in file order, each prepared by its owning file's `MethodPlan`.
-        //
-        // `Main` belongs to this node's method list, which is what puts it inside the
-        // Program type's `MethodList` range: the row and the range that claims it are
-        // now the same list, so no ordering convention is left to preserve.
+        // The Program holder's value fields come from the ENTRY file alone: a value before
+        // the first top-level `do` is `initonly`, written by the `.cctor`; one after it is
+        // plain mutable `static`, written by `Main`.
         let programFields =
             match entryFile with
             | ValueNone -> []
@@ -472,15 +411,9 @@ module internal Layout =
             | ValueSome f -> not (List.isEmpty f.Plan.ProgramCctorValues)
             | ValueNone -> false
 
-        // Every file's holder-less fns, in file order, on the one Program holder.
-        //
-        // This is the one place two files' bindings share a TYPE, so it is the one place
-        // their identities can collide: a top-level binding is keyed by its file's
-        // NAMESPACE, and two files that declare the same namespace (or none) can both
-        // declare `let f`. F# keeps them apart by giving each header-less file an implicit
-        // module named after the FILE, which this front end has no file identity to mint —
-        // so the collision is real and this refuses it by name rather than letting
-        // `deriveHandles` throw an opaque duplicate-key `ArgumentException`.
+        // Every file's holder-less fns, in file order, on the one Program holder. Two files
+        // declaring the same namespace can both declare `let f` — F# tells them apart by an
+        // implicit module named after each FILE, which this front end cannot mint.
         let holderlessFnRows =
             let seen = HashSet<SymbolKey>()
 
@@ -500,9 +433,8 @@ module internal Layout =
                             }
             ]
 
-        // The Program holder exists when there is any top-level code or namespace-level fn
-        // to hold it: an entry point (`Main`), leading-prefix value fields, or any
-        // holder-less fn across the files.
+        // The Program holder exists only if it would hold something: `Main`, a top-level
+        // value field, or a holder-less fn from any file.
         let programNodes =
             if
                 entryFile.IsSome
@@ -533,8 +465,7 @@ module internal Layout =
 
                                 yield! holderlessFnRows
 
-                                // `Main` is emitted iff there is an entry file — only an
-                                // executable has one, and it is what makes that file the entry.
+                                // Only an executable has an entry file, and only it has `Main`.
                                 if entryFile.IsSome then
                                     yield
                                         {
@@ -549,23 +480,19 @@ module internal Layout =
             else
                 []
 
-        // The roots, by kind: `<Module>` first (it must be TypeDef row 1), then the files'
-        // namespace-level types / closures / root holders (each carrying its own subtree),
-        // and the Program holder last.
+        // `<Module>` first — it must be TypeDef row 1 — and the Program holder last.
         let roots = moduleNode :: (files |> List.collect (fun f -> f.Roots)) @ programNodes
 
-        // The `TypeDef` table: the pre-order flattening. Every table the writer walks is
-        // a projection of it, so a type's row range and the rows in that range cannot
-        // disagree — there is no second enumeration to fall out of step.
+        // The `TypeDef` table is this pre-order flattening, and every table the writer
+        // walks is a projection of it — so a type's row range and the rows in that range
+        // cannot disagree.
         let rec flatten (n: TypeNode) : TypeNode list = n :: List.collect flatten n.Nested
 
         let types = List.collect flatten roots
 
-        // The ONE invariant the derivation cannot make true by construction:
-        // COMPLETENESS. Every node built above must be placed in the tree exactly once —
-        // none dropped (a holder whose discovery missed it), none duplicated (a nominal
-        // landing in both the roots and a module's `Nested`). Both are set questions, so
-        // ask them as such — once, over the whole assembly.
+        // Completeness: every node built above must be placed in the tree exactly once —
+        // none dropped (a holder discovery missed), none duplicated (a nominal landing in
+        // both the roots and a module's `Nested`).
         let builtKeys =
             [
                 yield moduleNode.Slot.Key
@@ -589,23 +516,14 @@ module internal Layout =
             Types = types
             Fields = types |> List.collect (fun n -> n.Fields)
             Methods = types |> List.collect (fun n -> n.Methods)
-            // Assembly-level: does any file carry the entry point (the PE serialises with an
-            // entry point)?
+            // Whether the PE serialises with an entry point.
             EmitEntryPoint = entryFile.IsSome
             Files = files
         }
 
-    /// Plan the whole assembly from every tast: build one layout per file and combine them.
-    /// The ONE `ClosureNamer` is created here and threaded through every `buildFile`, so
-    /// closure TypeDef names stay unique assembly-wide across files. `combine` selects the
-    /// entry file, rejects top-level code outside it, and mints the shared `<Module>` /
-    /// Program roots once. Single-file output is byte-identical to the pre-split `build`.
-    ///
-    /// File order carries no meaning beyond that: a file is planned from its own tast
-    /// alone. In particular the `%A` `Format` row is reserved for every record / union
-    /// regardless of where the `%A` interfaces are declared — they resolve local-or-external
-    /// like any nominal (`ClrEnv.coreInterfaceEntity`), and IL imposes no declaration order
-    /// within an assembly, so a record may precede the interface it implements.
+    /// Plan the whole assembly: one layout per file, combined. Beyond selecting the entry
+    /// file, file ORDER carries no meaning — a file is planned from its own tast alone, and
+    /// IL imposes no declaration order, so a record may precede the interface it implements.
     let buildMany (symbols: ICodegenSymbols) (project: ProjectInfo) (tasts: FrozenPools list) : AssemblyLayout =
         let closureNamer = Emit.ClosureNamer()
         let files = tasts |> List.map (buildFile closureNamer symbols project)
@@ -615,11 +533,9 @@ module internal Layout =
     let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: FrozenPools) : AssemblyLayout =
         buildMany symbols project [ tast ]
 
-    /// Derive every handle from the layout once: TypeDef handle = position in the
-    /// pre-order flattening + 1; first-field / first-method handles by prefix-summing
-    /// each node's OWN row lists — the very lists `AssemblyLayout.Fields` / `.Methods`
-    /// are collected from, so the prediction and the rows are the same data (an empty
-    /// range naturally points past the end of the previous owner's range).
+    /// Derive every handle from the layout once: a TypeDef handle is its position in the
+    /// pre-order flattening + 1; first-field / first-method handles prefix-sum each node's
+    /// own row lists, the very lists `AssemblyLayout.Fields` / `.Methods` collect.
     let deriveHandles (layout: AssemblyLayout) : LayoutHandles =
         let typeDefs = Dictionary<TypeSlotKey, TypeDefinitionHandle>()
         let firstFields = Dictionary<TypeSlotKey, FieldDefinitionHandle>()

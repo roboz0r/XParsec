@@ -7,16 +7,10 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
 // Every ranged-table row enumerated as data; handle = position in the layout.
-// One source of truth for row order; the writer walks it mechanically and
-// forward-handle arithmetic derives from prefix sums over these lists only.
 
-/// The method attribute sets, shared by the layout's method enumeration and
-/// the `prepare` phase (so the writer's predicted-vs-actual row check compares
-/// like with like).
 [<AutoOpen>]
 module internal MethodAttrSets =
 
-    /// An abstract interface method (no body).
     let abstractMethodAttrs =
         MethodAttributes.Public
         ||| MethodAttributes.Abstract
@@ -31,22 +25,19 @@ module internal MethodAttrSets =
 
     let staticMethodAttrs = staticFactoryAttrs
 
-    // Non-virtual `public hidebysig` instance method (the union/record/class is
-    // sealed, so `call` dispatch is correct).
+    // Non-virtual: the union / record / class is sealed, so `call` dispatch is correct.
     let instanceMethodAttrs = MethodAttributes.Public ||| MethodAttributes.HideBySig
 
-    // A synthesised `Object.Equals`/`GetHashCode` override: reuse the base
-    // virtual slot (no `NewSlot`) so name + signature matching makes it the
-    // override.
+    // An `Object.Equals` / `GetHashCode` override: no `NewSlot`, so it reuses the
+    // base virtual slot, matched by name + signature.
     let overrideMethodAttrs =
         MethodAttributes.Public
         ||| MethodAttributes.Virtual
         ||| MethodAttributes.HideBySig
 
-    // Typed `IEquatable<Self>::Equals(Self)` / `IComparable<Self>::CompareTo`
-    // and interface-impl members: a *new* virtual slot (`Object` has none to
-    // reuse), `Final` since sealed. The runtime binds it to the
-    // `InterfaceImpl` by name + signature.
+    // Typed `IEquatable<Self>::Equals(Self)` / `IComparable<Self>::CompareTo` and
+    // interface-impl members: a *new* virtual slot (`Object` has none to reuse), `Final`
+    // since sealed. The runtime binds it to the `InterfaceImpl` by name + signature.
     let ifaceEqualsAttrs =
         MethodAttributes.Public
         ||| MethodAttributes.Virtual
@@ -67,9 +58,8 @@ module internal MethodAttrSets =
         ||| MethodAttributes.SpecialName
         ||| MethodAttributes.RTSpecialName
 
-    // A closure derives from `System.Object` and *implements* the
-    // `Vesper.Fun\`2::Invoke` interface slot by name + signature; `Final`
-    // because a sealed closure has no further overrides.
+    // A closure *implements* the `Vesper.Fun\`2::Invoke` interface slot by name +
+    // signature; `Final` because a sealed closure has no further overrides.
     let invokeAttrs =
         MethodAttributes.Public
         ||| MethodAttributes.Virtual
@@ -77,17 +67,12 @@ module internal MethodAttrSets =
         ||| MethodAttributes.NewSlot
         ||| MethodAttributes.Final
 
-    /// A property is emitted (and referenced) as `get_<name>`; a method keeps
-    /// its name.
     let memberMetaName (mem: TastAccessor.TypeMember) : string =
         match mem.Kind with
         | TMemberKind.Property -> "get_" + mem.Name
         | TMemberKind.Method -> mem.Name
 
-/// Identity of one `TypeDefinition` row in the layout. Reuses existing
-/// identities: nominal types by `SymbolKey`, closures by their
-/// synthesized unique name, holders by `Emit.HolderKey`. Structural equality;
-/// a collision is a bug that should fail loudly (dictionary add throws).
+/// Identity of one `TypeDefinition` row in the layout.
 [<RequireQualifiedAccess>]
 type internal TypeSlotKey =
     | ModulePseudo
@@ -96,8 +81,7 @@ type internal TypeSlotKey =
     | Holder of Emit.HolderKey
     | Program
 
-/// Which `Add*` recipe the writer uses for a `TypeSlot` — the only decision
-/// left at write time.
+/// Which `Add*` recipe the writer uses for a `TypeSlot`.
 [<RequireQualifiedAccess>]
 type internal TypeSlotKind =
     | ModulePseudo
@@ -106,30 +90,27 @@ type internal TypeSlotKind =
     /// `valueKind` selects reference vs `[<Struct>]` value type (flips the
     /// `System.ValueType` base) — a record is always sealed and never byref-like.
     | Record of valueKind: ClassValueKind
-    /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs
-    /// `[<Struct>]` value type (flips sequential layout + `Sealed` + the
-    /// `ValueType` base) vs `[<IsByRefLike>]` byref-like (additionally stamps the
-    /// `IsByRefLikeAttribute` custom attribute).
+    /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs `[<Struct>]`
+    /// value type (flips sequential layout + `Sealed` + the `ValueType` base) vs
+    /// `[<IsByRefLike>]`, which additionally stamps `IsByRefLikeAttribute`.
     | Class of isSealed: bool * valueKind: ClassValueKind
     | Closure
     /// A numeric enum: a sealed `System.Enum` subclass — no methods, a
     /// special-name `value__` instance field, and one `static literal` field per case.
     | Enum
-    /// A string / mixed enum: a sealed `[<Struct>]` value type over a
-    /// single field (`string`, or `obj` when `isMixed`), with a `.ctor` setting it,
-    /// per-case `static initonly` fields, and a `.cctor` constructing them. `isMixed`
-    /// is carried only for documentation symmetry with the writer; the base is
-    /// always `System.ValueType`.
+    /// A string / mixed enum: a sealed `[<Struct>]` value type over a single field
+    /// (`string`, or `obj` when `isMixed`), with a `.ctor` setting it, per-case
+    /// `static initonly` fields, and a `.cctor` constructing them.
     | StructEnum of isMixed: bool
     /// A named module holder; `HasCctor` ⇔ it owns module values (drops
     /// `BeforeFieldInit`).
     | Holder of hasCctor: bool
-    /// The anonymous "Program" holder (holder-less fns + `Main` + the top-level value fields). `hasCctor` ⇔ it owns leading-prefix values (drops
-    /// `BeforeFieldInit`, its `.cctor` runs before `Main`).
+    /// The anonymous "Program" holder (holder-less fns + `Main` + the top-level value
+    /// fields). `hasCctor` ⇔ it owns leading-prefix values (drops `BeforeFieldInit`;
+    /// its `.cctor` runs before `Main`).
     | Program of hasCctor: bool
 
-/// Identity of one `Field` row in the layout — who resolves this
-/// handle at `Bind` time. Structural; a collision fails loudly.
+/// Identity of one `Field` row in the layout.
 [<RequireQualifiedAccess>]
 type internal FieldKey =
     | UnionTag of SymbolKey
@@ -139,10 +120,9 @@ type internal FieldKey =
     | ClassCtorParamField of SymbolKey * name: string
     /// An explicit `val [mutable] x: T` instance field.
     | ClassInstanceField of SymbolKey * name: string
-    /// An instance-`let` binder's backing field (a class-preamble `let`, stored by the
-    /// primary `.ctor`). Distinct from `ClassInstanceField` — the `val` form is the
-    /// user's own surface, this is compiler-generated storage — but both resolve by
-    /// name at a `this.x` use site.
+    /// A class-preamble `let` binder's compiler-generated backing field, stored by the
+    /// primary `.ctor`. Distinct from `ClassInstanceField` (the user's own `val`), but
+    /// both resolve by name at a `this.x` use site.
     | ClassLetField of SymbolKey * name: string
     /// A `static let` backing field.
     | ClassStaticField of SymbolKey * name: string
@@ -159,32 +139,26 @@ type internal FieldKey =
     /// A non-capturing, monomorphic closure's `static readonly` singleton field —
     /// the one cached instance every construction site `ldsfld`s.
     | ClosureCached of closure: string
-    /// A module-level value's `public static` holder field, keyed by its
-    /// `SymbolKey` (declaring holder + emitted name) so the ONE combined field-def
-    /// map stays injective across files and under entry-file shadowing —
-    /// a bare per-file `NodeKey` collides on both axes (`Emit.ModuleValue.SymbolKey`).
+    /// A module-level value's `public static` holder field, keyed by `SymbolKey`
+    /// (declaring holder + emitted name) so the combined field-def map stays injective
+    /// across files and under entry-file shadowing.
     | ModuleValue of SymbolKey
 
-/// One `Field` row: the i-th entry of `AssemblyLayout.Fields` is table row
-/// i+1. The layout stores only def-table rows; whether a *use site* routes
-/// through a `MemberRef` on an open self-`TypeSpec` (generic types/closures) stays a `Bind`-time policy.
+/// One `Field` row: the i-th entry of `AssemblyLayout.Fields` is table row i+1.
 type internal FieldSlot =
     {
         Key: FieldKey
         Name: string
         Attrs: FieldAttributes
         Ty: FrozenType
-        /// A *generic* closure's capture field encodes its signature inside the
-        /// ambient closure-typar scope (the body's typars re-project onto the
-        /// closure class's slots) — the writer brackets the `AddField` call in
-        /// `EnterClosureTyparScope`/`ExitClosureTyparScope`. `ValueSome d` carries
-        /// the closure's declaring-typar offset; `ValueNone` ⇒ no closure scope.
+        /// `ValueSome d` ⇒ encode this field's signature inside the closure-typar scope
+        /// at declaring-typar offset `d`, so the body's typars re-project onto the closure
+        /// class's slots (a *generic* closure's captures); `ValueNone` ⇒ no such scope.
         ClosureScope: int voption
     }
 
-/// Identity of one `MethodDef` row in the layout. Indexed cases
-/// (`Member`, `SecondaryCtor`, `InterfaceMethod`) use the position in the
-/// declaring type's own list so same-named overloads can't collide; a class's
+/// Identity of one `MethodDef` row in the layout. Indexed cases use the position in the
+/// declaring type's own list, so same-named overloads can't collide; a class's
 /// interface-impl members continue the `Member` index past its own members.
 [<RequireQualifiedAccess>]
 type internal MethodKey =
@@ -209,24 +183,21 @@ type internal MethodKey =
     | CapCoSlot of SymbolKey * CoSlot
     | ClosureCtor of closure: string
     | ClosureInvoke of closure: string
-    /// A non-capturing, monomorphic closure's `.cctor` — `newobj`s the closure once
-    /// and `stsfld`s it into `FieldKey.ClosureCached`. Present only
-    /// for a cached closure; a capturing/generic closure has none.
+    /// A non-capturing, monomorphic closure's `.cctor` — `newobj`s the closure once and
+    /// `stsfld`s it into `ClosureCached`. A capturing / generic closure has none.
     | ClosureCctor of closure: string
     | HolderCctor of Emit.HolderKey
     /// The anonymous "Program" holder's `.cctor` — initialises the
     /// leading-prefix top-level values; at most one per assembly.
     | ProgramCctor
-    /// A top-level function lowered to a static method, keyed by its `SymbolKey`
-    /// (declaring holder + emitted name) so the ONE combined method-def map stays
-    /// injective across files and under entry-file shadowing — a bare
-    /// per-file `NodeKey` collides on both axes (`Emit.StaticFn.SymbolKey`).
+    /// A top-level function lowered to a static method, keyed by `SymbolKey` (declaring
+    /// holder + emitted name) so the combined method-def map stays injective across files
+    /// and under entry-file shadowing.
     | StaticFn of SymbolKey
     | Main
 
-/// One `MethodDef` row: the i-th entry of `AssemblyLayout.Methods` is table
-/// row i+1. Carries the row identity (name + attrs); the signature / body /
-/// params are bound late (`PreparedMethod`), against resolved handles.
+/// One `MethodDef` row: the i-th entry of `AssemblyLayout.Methods` is table row i+1.
+/// The signature / body / params are bound late (`PreparedMethod`).
 type internal MethodRow =
     {
         Key: MethodKey
@@ -234,38 +205,32 @@ type internal MethodRow =
         Attrs: MethodAttributes
     }
 
-/// A bound method row ready to write: signature and body built at the Bind /
-/// Prepare phase against resolved handles (body-stream order is free — only
-/// the `MethodDef` row order matters, and the writer takes that from
-/// `AssemblyLayout.Methods`).
+/// A bound method row ready to write: signature and body built at the Bind / Prepare
+/// phase against resolved handles.
 type internal PreparedMethod =
     {
         Signature: BlobBuilder
         /// `-1` ⇒ abstract (no body).
         BodyOffset: int
         ParamNames: string list
-        /// `GenericParam` rows owned by this method (metadata names, quote
-        /// already dropped), added by the writer once the real handle exists.
+        /// `GenericParam` rows owned by this method (metadata names, quote already dropped).
         MethodTypars: string list
     }
 
-/// The Prepare-minted handles a `TypeDefinition` row needs at write time,
-/// keyed by `TypeSlotKey`. Pre-minted because a generic parent's / interface's
-/// `TypeSpec` encoding can depend on ambient state only live during the
-/// type's Prepare window (e.g. the closure-typar scope).
+/// The Prepare-minted handles a `TypeDefinition` row needs at write time, keyed by
+/// `TypeSlotKey`. Pre-minted because a generic parent's / interface's `TypeSpec` encoding
+/// can depend on ambient state live only during that type's Prepare window.
 type internal TypeRowExtras =
     {
         /// One `InterfaceImpl` entity handle per implemented interface.
         Interfaces: EntityHandle list
-        /// The IL `TypeDefinition.BaseType` handle: `Object` for unions /
-        /// records / closures and parent-less classes, the parent's resolved
-        /// handle for an `inherit` clause, `System.ValueType` for a struct.
+        /// The IL `TypeDefinition.BaseType` handle: `Object` for unions / records /
+        /// closures and parent-less classes, the parent's resolved handle for an
+        /// `inherit` clause, `System.ValueType` for a struct.
         BaseType: EntityHandle
     }
 
-/// One `TypeDefinition` row. It carries NO row counts: a type's field / method rows
-/// are the lists on its `TypeNode`, and every prefix sum is taken over those — so
-/// there is nothing here that could disagree with them.
+/// One `TypeDefinition` row. Its field / method rows are the lists on its `TypeNode`.
 type internal TypeSlot =
     {
         Key: TypeSlotKey
@@ -273,50 +238,39 @@ type internal TypeSlot =
         /// The `TypeDef` namespace column. EMPTY for a nested type — a nested type's
         /// namespace is its enclosing type's, which is the CLR rule.
         Namespace: string
-        /// Metadata name, already arity-suffixed (`SymbolKeyOps.arityName`). ONE
-        /// segment: the holder chain lives in `TypeNode.Enclosing` (a `NestedClass`
-        /// row), never in the name.
+        /// Metadata name, already arity-suffixed (`Map\`2`). ONE segment: the holder chain
+        /// lives in `TypeNode.Enclosing` (a `NestedClass` row), never in the name.
         MetaName: string
         /// Metadata-layer typar names (leading F# quote dropped).
         Typars: string list
     }
 
 /// One node of the emitted type HIERARCHY: a `TypeDefinition` row together with the
-/// ranged-table rows it owns and the types nested inside it. The `TypeDef` table IS
-/// the pre-order flattening of the roots, and `AssemblyLayout`'s `Types` / `Fields` /
-/// `Methods` are `List.collect`s over that flattening — so a type's range and the rows
-/// in it agree BY DERIVATION, not by a count kept in step by hand.
-///
-/// `Enclosing` is `ValueNone` for a root (`<Module>`, a namespace-level type, a
-/// closure, a root module's holder, `Program`) and `ValueSome` for a type the CLR
-/// nests — exactly the types that get a `NestedClass` row and nested visibility.
+/// ranged-table rows it owns and the types nested inside it. The `TypeDef` table is the
+/// pre-order flattening of the roots.
 type internal TypeNode =
     {
         Slot: TypeSlot
+        /// `ValueNone` for a root (`<Module>`, a namespace-level type, a closure, a root
+        /// module's holder, `Program`); `ValueSome` for a type the CLR nests — exactly the
+        /// types that get a `NestedClass` row and nested visibility.
         Enclosing: TypeSlotKey voption
         Fields: FieldSlot list
         Methods: MethodRow list
         Nested: TypeNode list
     }
 
-/// One file's contribution to the assembly, as data — everything a file produces
-/// on its own, BEFORE the single `<Module>` pseudo-type and the single Program
-/// holder are minted (both belong to the assembly, not a file, so
-/// `Layout.combine` mints them once and `Layout.buildFile` never does). A
-/// multi-file driver builds one of these per source file and hands the list to
-/// `combine`.
+/// One file's contribution to the assembly, as data — everything a file produces on its
+/// own, BEFORE the single `<Module>` pseudo-type and the single Program holder, which
+/// belong to the assembly and are minted once when the files are combined.
 type internal FileLayout =
     {
-        /// This file's placeable ROOT nodes — its namespace-level nominals, its
-        /// closures, its root-module holders (each carrying its own nested subtree)
-        /// — with the `<Module>` and Program roots deliberately absent. `combine`
-        /// concatenates these across files between the one `<Module>` head and the
-        /// one Program tail.
+        /// This file's placeable ROOT nodes — its namespace-level nominals, its closures,
+        /// its root-module holders (each carrying its own nested subtree). The `<Module>`
+        /// and Program roots are deliberately absent.
         Roots: TypeNode list
-        /// This file's contribution to the completeness check's built-key set: every
-        /// nominal, closure and holder key it built, independently of how they were
-        /// placed in the tree. `combine` adds the `<Module>` and Program keys and asks
-        /// the set question once over the whole assembly.
+        /// Every nominal, closure and holder key this file built, independently of how they
+        /// were placed in the tree — the input to the completeness check.
         BuiltKeys: TypeSlotKey list
         Lowered: TastAccessor.DeclId list
         Plan: HolderPlan
@@ -324,59 +278,46 @@ type internal FileLayout =
         ClosureByNode: Dictionary<TastAccessor.ExprId, EmitTypes.Closure>
         Partitioned: PartitionedTypeDecls
         /// This file's source-lambda value-struct closure verdicts, keyed by the lambda
-        /// NODE — the id together with the pool that issued it. A bare `ExprPoolId` is
-        /// only meaningful relative to that pool: two files' pools both number from 0,
-        /// so a foreign file's id would not miss, it would silently name a DIFFERENT
-        /// node. The handle carries its pool and a `PoolBuilder` compares by reference,
-        /// so a cross-file lookup misses like any other absent key and per-file scoping
-        /// is no longer the thing keeping this sound.
+        /// NODE — the id together with the pool that issued it, so an id from another
+        /// file's pool misses instead of silently naming a different node.
         FunVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>
-        /// Whether this file carries the entry point (`Main`). `buildFile` leaves it FALSE
-        /// — the OutputKind decision belongs to the whole assembly, not a file — and
-        /// `combine` stamps it TRUE on the single entry file (an executable's last) and
-        /// FALSE on all others, so `PrepareMain` fires exactly once.
+        /// Whether this file carries the entry point (`Main`): TRUE on the single entry
+        /// file (an executable's last), FALSE on every other.
         EmitEntryPoint: bool
     }
 
-/// The planned assembly: the ranged-table rows as data, plus the lowering
-/// products the plan was computed from (computed once here, consumed by the
-/// emission passes — they must never re-derive them; see
-/// `feedback_walkelems_order_ctor_params`).
+/// The planned assembly: the ranged-table rows as data, plus the lowering products the
+/// plan was computed from — computed once here and consumed by the emission passes, which
+/// must never re-derive them.
 type internal AssemblyLayout =
     {
         /// The `TypeDef` table: the PRE-ORDER flattening of the type hierarchy, so each
         /// holder is immediately followed by the types it holds. Index 0 = `<Module>`;
         /// the i-th entry is TypeDef row i+1.
         Types: TypeNode list
-        /// The full `Field` table in row order — the fields of `Types`, in `Types`
-        /// order. Derived, never assembled a second time.
+        /// The full `Field` table in row order — the fields of `Types`, in `Types` order.
         Fields: FieldSlot list
-        /// The full `MethodDef` table in row order — the methods of `Types`, in `Types`
-        /// order. Derived, never assembled a second time.
+        /// The full `MethodDef` table in row order — the methods of `Types`, in `Types` order.
         Methods: MethodRow list
         /// The Program slot's presence is a layout decision: exe (`Main`) or
         /// holder-less fns. True iff some file carries the entry point.
         EmitEntryPoint: bool
-        /// The per-file products this layout was combined from — one per source file.
-        /// Every per-file datum the emission passes need (lowered decls, holder plan,
-        /// closures, partition, closure verdicts, the entry flag) lives here, keyed so a
-        /// file's bodies resolve their own file-local nodes; the shared registries and the
-        /// one combined row space live on the Assembler.
+        /// The per-file products this layout was combined from — one per source file, so a
+        /// file's bodies resolve their own file-local nodes.
         Files: FileLayout list
     }
 
 /// The resolved handle lookup derived from the layout once: `TypeSlotKey` →
-/// `TypeDefinitionHandle` (position), plus each type's first-field /
-/// first-method handle from prefix-summing `FieldCount`/`MethodCount`.
-/// **No handle arithmetic exists outside this derivation.**
+/// `TypeDefinitionHandle` (position), plus each type's first-field / first-method handle
+/// from prefix-summing the row lists its node owns.
 type internal LayoutHandles =
     {
         TypeDefs: Dictionary<TypeSlotKey, TypeDefinitionHandle>
         FirstFields: Dictionary<TypeSlotKey, FieldDefinitionHandle>
         FirstMethods: Dictionary<TypeSlotKey, MethodDefinitionHandle>
         MethodDefs: Dictionary<MethodKey, MethodDefinitionHandle>
-        /// Total ranged-table rows the layout owns — writer-level row-count
-        /// checks compare the real builder counts against these.
+        /// Total ranged-table rows the layout owns; the writer checks the real builder
+        /// counts against these.
         TotalFields: int
         TotalMethods: int
     }

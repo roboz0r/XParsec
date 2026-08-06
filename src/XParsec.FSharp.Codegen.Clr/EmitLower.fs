@@ -3,26 +3,15 @@ namespace XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-/// CLR-specific lowering: re-exports of the platform-neutral lowering utilities that
-/// live in `SemanticAnalysis.TastLower` (so both codegen backends share them without
-/// referencing each other). Existing CLR call sites keep using `EmitLower.*`.
-///
-/// Codegen owns NO per-operator dispatch. An operator is an ordinary external value
-/// whose contract body `Passes.InlineExpansion` splices by `SymbolKey` at every
-/// saturated use site — including the `App` its own pre-freeze eta mints for an
-/// operator used as a VALUE (`List.fold (+) 0 xs`). Inline IL reaches codegen only as
-/// the `ILIntrinsic` node a contract's per-primitive `when ^T : …` clause carries.
 module EmitLower =
 
     let typeOfExpr = TastAccessor.exprTy
     let typeOfPat = TastAccessor.patTy
-    // `inline` so the call sites keep `TastLower.receiverShape`'s inlining (a plain
-    // re-export `let` would demote it to an allocated function value).
+    // `inline` so call sites keep `TastLower.receiverShape`'s own inlining.
     let inline receiverShape ty = TastLower.receiverShape ty
     let matchInstantiation = TastLower.matchInstantiation
     let matchInstantiationPartial = TastLower.matchInstantiationPartial
     let iterChildren = TastAccessor.iterChildren
     let peelLambda = TastLower.peelLambda
 
-    /// The CLR backend's `lower`: the shared, platform-neutral `TastLower.lower`.
     let lower (decls: TastAccessor.DeclId list) : TastAccessor.DeclId list = TastLower.lower decls

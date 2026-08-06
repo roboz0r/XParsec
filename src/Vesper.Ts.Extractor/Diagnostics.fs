@@ -86,9 +86,8 @@ type MapCtx =
 /// the same runtime values: the numeric/string/bool primitives ride `IntrinsicRepr`
 /// (canon `.fsi` names, per-target platform reprs), `obj` is the universal supertype,
 /// and Vesper arrays ARE native JS arrays. Registering these as `Js.*` nominals would
-/// DOUBLE-REPRESENT them and fight the intrinsic subsumes/canonName machinery (see
-/// `reference_intrinsic_repr_overloaded_canonname_codegen` /
-/// `reference_null_undefined_already_survive_js`). This list MIRRORS the front-end
+/// DOUBLE-REPRESENT them and fight the intrinsic subsumes/canonName machinery.
+/// This list MIRRORS the front-end
 /// intrinsic set — `RuntimeNames.numericTypeNames` ∪ {string, bool, unit, obj} ∪ the
 /// native array `[]` — but spelled with the TS-lib INTERFACE names (capitalised
 /// wrappers). The lowercase primitive TYPES (`string`/`number`/`boolean`/`void`) are

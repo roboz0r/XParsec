@@ -10,12 +10,6 @@ open System.Reflection.PortableExecutable
 /// referenced assemblies the shared framework does not carry).
 module Materialise =
 
-    /// The simple names this PE's metadata declares an `AssemblyRef` to. Used to
-    /// close the bundle over *transitive* references: a `%A` program's PE names
-    /// `Vesper.Printf` (the formatter) but not `Vesper.Core`, yet `Vesper.Printf`
-    /// (whose `RuntimeFormatState` implements the Core-owned `IFormatSink`)
-    /// references it — so a bundle missing `Vesper.Core`
-    /// throws `FileNotFoundException` the moment `%A` runs. Same for `Vesper.List`.
     let private referencedAssemblyNames (path: string) : string list =
         use fs = File.OpenRead path
         use pe = new PEReader(fs)
@@ -25,10 +19,9 @@ module Materialise =
             for h in md.AssemblyReferences -> md.GetString((md.GetAssemblyReference h).Name)
         ]
 
-    /// The serialised PE bytes.
     let toBytes (artifact: ClrArtifact) : byte[] = artifact.Pe.ToArray()
 
-    /// The only side effect: write the PE to `OutputPath` when one is set.
+    /// Write the PE to `OutputPath`, if one is set.
     let materialise (artifact: ClrArtifact) : unit =
         match artifact.OutputPath with
         | Some path ->
@@ -36,9 +29,8 @@ module Materialise =
             artifact.Pe.WriteContentTo(stream)
         | None -> ()
 
-    /// TFM + shared-framework version read straight off the host runtime: the
-    /// emitted `AssemblyRef`s bind against exactly the assemblies loaded in this
-    /// process, so the produced app must run on the same major.
+    /// TFM + framework version off the host runtime: the emitted `AssemblyRef`s bind
+    /// against this process's own assemblies, so the app must run on the same major.
     let private hostFramework () : string * string =
         let v = System.Environment.Version
         sprintf "net%d.%d" v.Major v.Minor, sprintf "%d.%d.0" v.Major v.Minor
@@ -63,9 +55,8 @@ module Materialise =
             ]
         )
 
-    /// Materialise a *runnable* framework-dependent app: the PE, its
-    /// `runtimeconfig.json`, and a copy of every referenced assembly the shared
-    /// framework does *not* carry, into the PE's directory. After this,
+    /// The PE, its `runtimeconfig.json` and a copy of every referenced assembly the
+    /// shared framework does not carry, into the PE's directory — after which
     /// `dotnet <OutputPath>` runs the program. Requires `OutputPath`.
     let materialiseApp (project: ProjectInfo) (artifact: ClrArtifact) : unit =
         match artifact.OutputPath with
@@ -87,15 +78,9 @@ module Materialise =
                 runtimeConfigJson tfm frameworkVersion
             )
 
-            // The source for a simple name is the `ProjectInfo.References` entry
-            // that supplied it; for the one host-resolved fallback the provider still
-            // allows — FSharp.Core (the cold-printf island) — the host-loaded copy,
-            // unless a reference already overrides it. `Vesper.Printf` is now an
-            // ordinary referenced package: its on-disk
-            // path comes from `References`, never the host (the C# DLL is off the TPA).
-            // A name with no source (the BCL) resolves from the shared framework and is
-            // skipped. A reference the PE never bound against is absent from the set, so
-            // a happy-path bundle stays FSharp.Core-free.
+            // Where to copy a simple name from: its `ProjectInfo.References` entry, or for
+            // FSharp.Core alone the host-loaded copy when no reference overrides it. A name
+            // with no source is a BCL name, resolved from the shared framework, so skipped.
             let referenceSources =
                 let fromProject =
                     project.References
@@ -111,12 +96,9 @@ module Materialise =
                 fromProject
                 |> withFallback "FSharp.Core" (fun () -> typeof<Microsoft.FSharp.Core.Unit>.Assembly.Location)
 
-            // Close the ship set over transitive references: starting from the PE's
-            // own `AssemblyRef`s, pull in every assembly a shipped (resolvable) one
-            // references. Only names with a known source are walked, so the BCL /
-            // shared-framework names terminate the recursion (no source ⇒ no copy,
-            // no further walk). This is what carries `Vesper.Core` into a `%A`
-            // bundle whose PE only names `Vesper.Printf`.
+            // Ship set closed over transitive references — a `%A` program's PE names
+            // `Vesper.Printf`, which needs `Vesper.Core` beside it or `%A` throws
+            // `FileNotFoundException`. A name with no source ends the walk.
             let shipNames =
                 let rec close (seen: Set<string>) (frontier: string list) : Set<string> =
                     match frontier with
@@ -137,8 +119,7 @@ module Materialise =
             for refName in shipNames do
                 match Map.tryFind refName referenceSources with
                 | Some src ->
-                    // The loader probes the app base by *simple name*, so the
-                    // destination file is always `<simpleName>.dll`.
+                    // The loader probes the app base by simple name: `<simpleName>.dll`.
                     let dst = Path.Combine(dir, refName + ".dll")
 
                     if

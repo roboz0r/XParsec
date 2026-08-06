@@ -5,19 +5,9 @@ open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 
-/// `ICodegenProvider` over the BCL + the referenced assemblies. A thin shell over the collaborators
-/// that hold the real implementation:
-///   `ClrEnv`            — metadata context, reference identities, registries, ambient typar state;
-///   `ClrEncoder`        — `FrozenType` → signature encoding + the signature-blob builders;
-///   `ClrGenerics`       — `TypeSpec`/`MemberRef` minting for generic user unions/records/classes/closures;
-///   `ClrExternalMembers`— external member/ctor/field refs and generic-static-method specs;
-///   `ClrRecipes`        — call/ctor/format recipes and the structural equality/comparison member refs.
-///
-/// `reprs` is this file's own `{ intrinsic canon key -> IL representation }` map
-/// (`TastFile.IntrinsicReprKeys`); `references` maps an assembly's
-/// simple name to the identity read off its file, so an emitted `AssemblyRef` matches that exact
-/// artifact; `symbols` is the front end's resolution provider — pass
-/// `ExternalSymbolProviders.nullProvider` on paths that emit no external member access.
+/// `ICodegenProvider` over the BCL + the referenced assemblies — a thin shell forwarding to the
+/// collaborators constructed below. `reprs` maps an intrinsic canon key to its IL representation;
+/// `references` maps an assembly's simple name to the identity read off its own file.
 type ClrProvider
     (
         ctx: MetadataContext,
@@ -61,7 +51,7 @@ type ClrProvider
     member _.RegisterUserValueType(key: TypeKey) : unit = env.UserValueTypes.Add key |> ignore
 
     /// Register a *generic* union's shape (typar names + cases) so member refs can be minted on its
-    /// `TypeSpec`. A no-op for a monomorphic union (its `Def` tokens are used).
+    /// `TypeSpec`. A monomorphic union uses its `Def` tokens instead.
     member _.RegisterGenericUnion
         (key: TypeKey, typars: EqArray<string>, cases: (string * (string * FrozenType) list) list)
         : unit =
@@ -133,38 +123,22 @@ type ClrProvider
 
     member _.FunInterfaceSpec(a: FrozenType, b: FrozenType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
-    /// The flat `Vesper.Fun`(len)<tys…>` interface `TypeSpec` a flat value-struct
-    /// closure of param-arity `len-1` implements (`tys` = flat params ++ result).
     member _.FlatFunInterfaceSpecN(tys: FrozenType list) : EntityHandle = recipes.FlatFunInterfaceSpecN(tys)
 
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
-    /// `interface IEnumerable<'T>` carries its `'T` arg as a `TyTypar(Declaring, i)`
-    /// the encoder resolves to the declaring type's `!i` directly. Drives each class
-    /// `InterfaceImpl` row's interface handle.
+    /// `interface IEnumerable<'T>` carries its `'T` as `FTTypar(Declaring, i)`, which the
+    /// encoder resolves to the declaring type's `!i`.
     member _.TypeSpecOf(ty: FrozenType) : EntityHandle = enc.TypeSpecOf ty
 
-    /// The `InterfaceImpl.Interface` handle for a user class's implemented
-    /// interface. A *generic* interface (`IEnumerable<int>`) needs a
-    /// `TypeSpec` carrying its instantiation; a *non-generic* one (`IEnumerable`,
-    /// `IComparable`) references its `TypeRef` directly — the runtime rejects a
-    /// `TypeSpec` that merely wraps a plain class in the interface-impl table (the
-    /// structural-equality path uses the bare `IComparable` `TypeRef` for the same
-    /// reason). A generic interface arg encodes off its `TyTypar(Declaring, i)` node.
+    /// The `InterfaceImpl.Interface` handle for a user class's implemented interface. A generic
+    /// interface (`IEnumerable<int>`) needs a `TypeSpec` carrying its instantiation; a non-generic
+    /// one (`IEnumerable`, `IComparable`) must reference its `TypeRef`/`TypeDef` directly.
     member _.InterfaceHandleOf(ty: FrozenType) : EntityHandle =
         match ty with
         | FTClass(key, args) when args.IsEmpty ->
-            // LOCAL-FIRST, like every other nominal reference (`encodeType`'s project-local
-            // arms, the `INVARIANT` at `ClrEncoder`'s `FTClass` arm): a project-local
-            // interface — INCLUDING a same-assembly CROSS-FILE one, which a later file
-            // resolved as `External` (home-stamped to our OWN assembly) — has an emitted
-            // `TypeDef` registered via `RegisterUserType`, and its `InterfaceImpl` row must
-            // name that `TypeDef`, not an `AssemblyRef`-scoped `TypeRef` back to ourselves.
-            // A non-generic local type must be the bare `TypeDef` (the runtime can't load a
-            // `TypeSpec` for a non-generic type — "Could not load TypeSpec"). The external
-            // table is consulted only on a `userTypes` MISS (a genuinely referenced-package
-            // interface). Was external-first, which self-`AssemblyRef`'d a cross-file
-            // interface impl (`externalClassRef` succeeds for it — it is in the projected
-            // view — so the local fallback was never reached).
+            // LOCAL-FIRST: a same-assembly CROSS-FILE interface resolves as `External` home-stamped
+            // to our OWN assembly, yet its `InterfaceImpl` row must name the registered `TypeDef`,
+            // not an `AssemblyRef`-scoped `TypeRef` back to ourselves.
             match env.UserTypes.TryGetValue key with
             | true, h -> h
             | false, _ ->
@@ -184,8 +158,8 @@ type ClrProvider
     member _.ClosureSelfFieldSignature(closureTypeHandle: EntityHandle) : BlobBuilder =
         enc.ClosureSelfFieldSignature closureTypeHandle
 
-    /// Register a *generic* closure's shape so its member refs can be minted on its `TypeSpec`. A
-    /// monomorphic closure (`Closure.Typars = []`) is *not* registered — its `Def` tokens are used.
+    /// Register a *generic* closure's shape so its member refs can be minted on its `TypeSpec`.
+    /// A monomorphic closure (`typarCount = 0`) uses its `Def` tokens instead.
     member _.RegisterClosure
         (
             name: string,
@@ -206,22 +180,9 @@ type ClrProvider
                 DefHandle = defHandle
             }
 
-    /// Register a captureless `Stack` (value-struct) closure
-    /// under a synthetic project-local `TypeKey` and return the `FrozenType` that
-    /// names it. A closure has no `FrozenType` of its own (it is keyed by
-    /// `TypeSlotKey.Closure name`, codegen-only), but a value-struct closure must be
-    /// *encodable* — its by-value local, its `initobj`, and the constrained-slot
-    /// `MethodSpec` type-argument all reference it. Minting an `FTClass(synthKey, [])` and
-    /// registering `synthKey → defHandle` in `userTypes` + `userValueTypes` makes the SHARED
-    /// `encodeType` value-type arm (`ELEMENT_TYPE_VALUETYPE`) emit it — no new
-    /// encoder/MethodSpec path needed. The registration is ALSO what makes the key local:
-    /// `encodeType`'s project-local arms are `userTypes` membership, so the synthetic type
-    /// encodes as a `TypeDef` exactly because it is in the table.
-    /// The synthetic key's `name` is never used for emission (only the handle is),
-    /// so the closure name suffices. The key is placed in the reserved `<closure>`
-    /// namespace — a sigil no source-declared type can produce — so it provably
-    /// cannot collide with a real `userTypes` key; the guard below fails fast if
-    /// that invariant is ever broken.
+    /// Give a captureless value-struct closure an *encodable* `FrozenType`: it is keyed
+    /// `TypeSlotKey.Closure name`, which no signature can encode, yet its by-value local, `initobj`
+    /// and `MethodSpec` argument all need one. Registering here is what makes it a local `TypeDef`.
     member _.RegisterStackClosureValueType(name: string, defHandle: EntityHandle) : FrozenType =
         let typeKey = SymbolKeyOps.typeKeyOf "<closure>" name
 
@@ -238,20 +199,15 @@ type ClrProvider
     member _.GenericClosureMemberRef(name: string, args: FrozenType list, which: ClosureMember) : EntityHandle =
         generics.GenericClosureMemberRef(name, args, which)
 
-    /// Enter / exit closure-typar mode around a generic closure's own ctor / Invoke /
-    /// field-signature / locals / member-ref emission: the enclosing method's
-    /// `TyTypar(Method, i)` (which the closure body embeds) re-project onto the
-    /// closure *class*'s `GenericTypeParameter i` rather than `!!i`. This is the
-    /// only ambient typar mode that survives.
+    /// Wrap a generic closure's own ctor / `Invoke` / field / locals / member-ref emission: the
+    /// enclosing method's `FTTypar(Method, i)`, which the closure body embeds, re-projects onto
+    /// the closure *class*'s `!(declaringTypars + i)` rather than `!!i`.
     member _.EnterClosureTyparScope(declaringTypars: int) : unit =
         env.ClosureTyparScope <- ValueSome declaringTypars
 
-    /// INVARIANT: Enter/Exit is only used from an *unscoped* context — the
-    /// `Assembler` field and closure passes are flat loops, never nested — so Exit
-    /// resets to `ValueNone` rather than restoring a saved value. Code that flips
-    /// the scope *mid-encoding of another signature* (`ClrGenerics`) must instead
-    /// save `env.ClosureTyparScope` and restore it, not call Exit, or it would
-    /// clobber the outer scope.
+    /// INVARIANT: Exit resets to `ValueNone` rather than restoring a saved value, so Enter/Exit
+    /// is only safe from an unscoped context. Code flipping the scope *mid-encoding of another
+    /// signature* must save and restore `env.ClosureTyparScope` instead of calling Exit.
     member _.ExitClosureTyparScope() : unit = env.ClosureTyparScope <- ValueNone
 
     member _.EncodeAbstractType(te: SignatureTypeEncoder, t: FrozenType) : unit = enc.EncodeAbstractType(te, t)
@@ -303,9 +259,7 @@ type ClrProvider
 
     member _.CompareToTypedSignature(selfTy: FrozenType) : BlobBuilder = enc.CompareToTypedSignature selfTy
 
-    /// `%A` structural-format synthesis. The `IStructuralFormattable`
-    /// `InterfaceImpl` a synthesised record/DU declares; the `IFormatSink` member
-    /// refs its `Format` body calls; and the `Format(IFormatSink) : void` signature.
+    /// The `IStructuralFormattable` `InterfaceImpl` a `%A`-formattable synthesised record/DU declares.
     member _.StructuralFormattableInterface: EntityHandle =
         recipes.StructuralFormattableInterface
 
@@ -352,17 +306,8 @@ type ClrProvider
             if compiledName = "List.fold" then
                 ValueSome(recipes.EmitFold(fnTy))
             else
-                // General external module-function call: route by the Elaborate-stamped key
-                // — WHOLE, so a binding held by a namespace (a top-level `let` in a sibling
-                // file) routes as readily as a module-held one — and mint a `call`
-                // (+ `MethodSpec` when generic) to the static method our backend emitted.
-                // `EmitExternalCall` returns `ValueNone` when the symbol is unknown to the
-                // provider or unreachable from here, falling through to the caller's hard
-                // error. A non-binding key (an operator-as-value) is not a module function
-                // at all, and operators are expanded to `TExpr.ILIntrinsic` by `Emit.lower`
-                // before emission anyway. (Every lowerable printf call is now a
-                // `TExpr.Format` lowered in Elaborate, so no `printfn` App reaches here —
-                // the cold recipe is gone.)
+                // Only a binding key names a module function; an operator-as-value does not,
+                // and operators are expanded to `TExpr.ILIntrinsic` before emission anyway.
                 match key with
                 | ValueSome(SymbolKey.Binding binding) -> recipes.EmitExternalCall(binding, fnTy)
                 | _ -> ValueNone
@@ -376,27 +321,22 @@ type ClrProvider
                 | [ e ] -> e
                 | other -> failwithf "ClrProvider: list type expects one type argument, got %A" other
 
-            // The cons recipe is selected by the receiver's nominal `SymbolKey`:
-            // FSharp.Core's `list` vs the Vesper cons-list, recognised by
-            // key identity rather than by string name.
+            // FSharp.Core's `list` vs the Vesper cons-list, distinguished by key identity
+            // rather than by string name.
             if RuntimeNames.isFsharpCoreListKey key then
                 match caseName with
                 | "Cons" -> ValueSome(recipes.EmitListCons(elem ()))
                 | "Nil" -> ValueSome(recipes.EmitListNil(elem ()))
                 | _ -> ValueNone
             elif RuntimeNames.isVesperListKey key then
-                // `Empty` (the `[]` operator case) is the empty terminator post-`list.fs`
-                // cutover; `Cons` the binary case.
                 match caseName with
                 | "Cons" -> ValueSome(recipes.EmitVesperListCons(elem ()))
                 | "Empty" -> ValueSome(recipes.EmitVesperListEmpty(elem ()))
                 | _ -> ValueNone
             else
-                // A referenced-package union case (`Some` / `None`): `call` the
-                // emitted static case factory `<caseName>(fields…) : Union<…>` on
-                // the instantiated `TypeSpec`. The fields are already on the stack
-                // in declaration order, so the
-                // recipe is a static `call` pushing the one union value back.
+                // A referenced-package union case (`Some` / `None`): `call` the emitted static
+                // case factory `<caseName>(fields…) : Union<…>` on the instantiated `TypeSpec`,
+                // its fields already on the stack in declaration order.
                 match ext.ExternalUnionFactory(SymbolKey.Type key, caseName, tyArgs) with
                 | ValueSome(handle, argCount) ->
                     ValueSome
@@ -437,11 +377,8 @@ type ClrProvider
             ext.ExternalRecordField(key, tyArgs, fieldName)
 
         member _.ExternalUnionTag(key, tyArgs, caseName) =
-            // The cons-list keeps op-form case names (`op_Nil` / `op_ColonColon`) in
-            // its extracted contract, so it never resolves through the generic
-            // external-union path; mirror construction (`TryEmitUnionCons`) and
-            // special-case the cross-package `match` against its known emitted layout
-            // (`Empty` tag 0, `Cons` tag 1).
+            // The cons-list is invisible to the generic external-union path, so match it
+            // against its known emitted layout: `Empty` is tag 0, `Cons` tag 1.
             if RuntimeNames.isVesperListKey key then
                 let elem =
                     match tyArgs with
@@ -462,9 +399,8 @@ type ClrProvider
                     | [ e ] -> e
                     | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
 
-                // Only `Cons` carries fields: `Cons_0` is the head (`elem`), `Cons_1`
-                // the tail (`List<elem>`). The returned type is informational (the
-                // match compiler binds the field local off the sub-pattern's own type).
+                // Only `Cons` carries fields: `Cons_0` is the head (`elem`), `Cons_1` the tail
+                // (`List<elem>`).
                 match caseName, fieldIndex with
                 | "Cons", 0 -> ValueSome(recipes.EmitVesperListConsField(elem, 0), elem)
                 | "Cons", 1 -> ValueSome(recipes.EmitVesperListConsField(elem, 1), FTUnion(key, EqArray.ofList tyArgs))

@@ -13,14 +13,12 @@ open System.Reflection.PortableExecutable
 [<AutoOpen>]
 module internal Handles =
 
-    /// Widen a specific metadata handle to `EntityHandle`. Done explicitly to
-    /// stay off F#'s implicit-conversion warning, which `TreatWarningsAsErrors`
-    /// would fail; SRTP picks the `-> EntityHandle` overload over `-> Handle`.
+    /// Widen a metadata handle to `EntityHandle`. Explicit, because F#'s
+    /// implicit-conversion warning is an error here; the SRTP call picks the
+    /// `-> EntityHandle` overload over `-> Handle`.
     let inline toEntity (h: ^T) : EntityHandle =
         (^T: (static member op_Implicit: ^T -> EntityHandle) h)
 
-/// Deeply stateful (the SRM writers are), but the mutation never leaks past
-/// `compile`.
 type MetadataContext() =
     let mb = MetadataBuilder()
     let ilBuilder = BlobBuilder()
@@ -31,19 +29,15 @@ type MetadataContext() =
     member _.Builder = mb
     member _.IlBuilder = ilBuilder
 
-    /// Simple names of every assembly an `AssemblyRef` row was minted for — the
-    /// emitted PE's actual reference set. `materialiseApp` copies the ones it has a
-    /// source for (a project reference, or a host-loaded FSharp.Core / Vesper.Printf
-    /// fallback); the BCL refs have no source and resolve from the shared framework.
+    /// Simple names of every assembly an `AssemblyRef` row was minted for — the emitted
+    /// PE's actual reference set.
     member _.ReferencedAssemblyNames: string list = List.ofSeq asmRefNames
 
     /// Cheap to recreate per body — the struct just wraps `ilBuilder`.
     member _.BodyStream = MethodBodyStreamEncoder(ilBuilder)
 
-    // Handle = row number = add order, so the next row's handle derives from
-    // the builder's own row count. Callers must read these rather than maintain
-    // a parallel count — a hand-kept counter can silently drift from the adds,
-    // shifting every downstream predicted handle.
+    // Handle = row number = add order, so the next row's handle derives from the
+    // builder's own row count; a caller-side parallel counter drifts from the adds.
     member _.FieldRowCount: int = mb.GetRowCount(TableIndex.Field)
 
     /// The handle the *next* `AddParameter` will return (a method's `ParamList`
@@ -132,11 +126,9 @@ type MetadataContext() =
     member _.MethodSpec(meth: EntityHandle, instantiation: BlobBuilder) : MethodSpecificationHandle =
         mb.AddMethodSpecification(meth, mb.GetOrAddBlob(instantiation))
 
-    /// Attach a custom attribute to `owner`, constructed via `ctor` (a `.ctor`
-    /// `MemberRef`/`MethodDef`) with the serialised argument `value` blob. For a
-    /// parameterless attribute the blob is the fixed prolog `01 00 00 00`
-    /// (prolog `0x0001`, zero named args). SRM sorts the `CustomAttribute` table
-    /// by parent at serialisation, so rows may be added in any order.
+    /// `ctor` is a `.ctor` `MemberRef`/`MethodDef`; `value` is the serialised argument
+    /// blob — `01 00 00 00` (prolog `0x0001`, zero named args) for a parameterless
+    /// attribute. SRM sorts the table by parent, so add order is free.
     member _.AddCustomAttribute(owner: EntityHandle, ctor: EntityHandle, value: BlobBuilder) : CustomAttributeHandle =
         mb.AddCustomAttribute(owner, ctor, mb.GetOrAddBlob(value))
 
@@ -145,13 +137,9 @@ type MetadataContext() =
     member _.AddField(attrs: FieldAttributes, name: string, signature: BlobBuilder) : FieldDefinitionHandle =
         mb.AddFieldDefinition(attrs, mb.GetOrAddString(name), mb.GetOrAddBlob(signature))
 
-    /// A `Constant` row for a `[<Literal>]` static field (an enum case carrying its
-    /// underlying integer). `parent` is the field's `FieldDefinitionHandle`; `value`
-    /// is the boxed underlying primitive (`int`/`byte`/`uint32`/`int64`) whose runtime
-    /// type SRM maps to the `ConstantTypeCode`. SRM sorts the `Constant` table by its
-    /// `Parent` coded index on serialize, so rows may be added in any order — but the
-    /// enum field pass adds them in ascending field order anyway (one per literal field
-    /// as it is written).
+    /// A `Constant` row for a `[<Literal>]` static field — an enum case carrying its
+    /// underlying integer. `value` is that primitive, boxed (`int`/`byte`/`uint32`/`int64`);
+    /// its runtime type is what SRM maps to the `ConstantTypeCode`. Add order is free.
     member _.AddConstant(parent: EntityHandle, value: obj) : ConstantHandle = mb.AddConstant(parent, value)
 
     /// Methods must be added in the order types will claim them.
@@ -208,12 +196,9 @@ type MetadataContext() =
         )
         |> ignore
 
-    /// A concrete `TypeDefinition` with an arbitrary base (`Object` for a union or
-    /// a closure — a closure now *implements* `Vesper.Fun` via `InterfaceImpl`
-    /// rather than deriving from `FSharpFunc`). `ns`
-    /// empty ⇒ global. Callers must add this type's fields and methods (in type
-    /// order) before the `TypeDefinition` row, since `firstField` / `firstMethod`
-    /// start its contiguous ranges.
+    /// A concrete `TypeDefinition` with an arbitrary base; `ns` empty ⇒ global.
+    /// Callers must add this type's fields and methods (in type order) BEFORE the
+    /// `TypeDefinition` row — `firstField` / `firstMethod` start its contiguous ranges.
     member _.AddClass
         (
             attrs: TypeAttributes,
@@ -235,13 +220,9 @@ type MetadataContext() =
             firstMethod
         )
 
-    /// The `abstract sealed` (static) holder for top-level members. `firstField`
-    /// points past any preceding closure fields (the holder owns none), so its
-    /// field range stays empty. `ns` is empty for the anonymous "Program" holder and for
-    /// a NESTED module's holder (its namespace is its enclosing holder's), and
-    /// `"Vesper.Collections"` for a root compiled F# module (`ListModule`) — all the same
-    /// `abstract sealed` static-class shape. `attrs` is the caller's (it owns the
-    /// `BeforeFieldInit` and nested-visibility decisions).
+    /// The `abstract sealed` (static) holder for top-level members: it owns no fields, so
+    /// `firstField` points past any preceding rows and its field range stays empty. `ns`
+    /// is empty for the anonymous "Program" holder and for a NESTED module's holder.
     member _.AddProgramType
         (
             attrs: TypeAttributes,
@@ -263,10 +244,8 @@ type MetadataContext() =
             firstMethod
         )
 
-    /// An interface `TypeDefinition` — **nil base** (interfaces have none). `ns`
-    /// empty ⇒ global. An interface has no fields, so `firstField` points past
-    /// any preceding rows. Generic-parameter rows are added separately via
-    /// `AddGenericParameter`.
+    /// An interface `TypeDefinition` — **nil base** (interfaces have none); `ns` empty ⇒
+    /// global. An interface has no fields, so `firstField` points past any preceding rows.
     member _.AddInterfaceType
         (
             attrs: TypeAttributes,
@@ -287,30 +266,21 @@ type MetadataContext() =
             firstMethod
         )
 
-    /// `nested` is a class nested in `enclosing` — the `NestedClass` row that carries an
-    /// F# module's containment of the types it declares. The row is the ONLY place the
-    /// nesting lives: a nested `TypeDef` spells one bare name segment and an empty
-    /// namespace column (the `+` of `Ns.Outer+Inner` is a reflection DISPLAY convention).
-    ///
-    /// SRM validates on serialize that the table is sorted by the NESTED handle, so
-    /// callers must add each row while writing the nested type — the `TypeDef` walk is
-    /// ascending, so that ordering is free.
+    /// The `NestedClass` row is where nesting lives: a nested `TypeDef` spells one bare
+    /// name segment and an empty namespace column (`Ns.Outer+Inner` is a reflection DISPLAY
+    /// convention). SRM validates the table is sorted by the NESTED handle.
     member _.AddNestedType(nested: TypeDefinitionHandle, enclosing: TypeDefinitionHandle) : unit =
         mb.AddNestedType(nested, enclosing)
 
-    /// `typeDef` declares that it implements `interfaceType` (a `TypeDef` /
-    /// `TypeRef` / `TypeSpec` — a closure's instantiated `Vesper.Fun\`2<a,b>`).
-    /// SRM validates the `InterfaceImpl` table is sorted by the `Class` column on
-    /// serialize, so callers must add rows in ascending `typeDef` order (the
-    /// closure `TypeDefinition`s are emitted ascending, so per-closure addition in
-    /// that loop is already sorted).
+    /// `interfaceType` is a `TypeDef` / `TypeRef` / `TypeSpec` (a closure's instantiated
+    /// `Vesper.Fun\`2<a,b>`). SRM validates the `InterfaceImpl` table is sorted by the
+    /// `Class` column, so callers must add rows in ascending `typeDef` order.
     member _.AddInterfaceImplementation(typeDef: TypeDefinitionHandle, interfaceType: EntityHandle) : unit =
         mb.AddInterfaceImplementation(typeDef, interfaceType) |> ignore
 
-    /// `owner` is a `TypeDefinition` or `MethodDefinition`. SRM requires all
-    /// `GenericParam` rows globally sorted by `CodedIndex.TypeOrMethodDef(owner)`
-    /// then `index` (validated on serialize) — type and method owners interleave,
-    /// so callers must collect every row and sort before adding.
+    /// `owner` is a `TypeDefinition` or `MethodDefinition`. SRM requires `GenericParam`
+    /// rows globally sorted by `CodedIndex.TypeOrMethodDef(owner)` then `index`, and the
+    /// two owner kinds interleave — so collect every row and sort before adding.
     member _.AddGenericParameter(owner: EntityHandle, index: int, name: string) : GenericParameterHandle =
         mb.AddGenericParameter(owner, GenericParameterAttributes.None, mb.GetOrAddString(name), index)
 

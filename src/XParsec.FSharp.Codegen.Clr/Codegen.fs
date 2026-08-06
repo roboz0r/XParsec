@@ -2,14 +2,6 @@ namespace XParsec.FSharp.Codegen.Clr
 
 open XParsec.FSharp.SemanticAnalysis
 
-// Entry points: the `compile` / `materialise` pair.
-// `compile` is deterministic given the same inputs; `materialise` (re-exported
-// from `Materialise`) is the only side effect. `Layout.build` enumerates every
-// ranged-table row as data; the Bind phase pre-fills the registries from the
-// layout; the Prepare phase builds every signature/body against resolved
-// handles; the write/finalise tail walks the layout mechanically. `assemble`
-// sequences the phases — no ordering exists for a caller to get wrong.
-
 module Codegen =
 
     let private assemble
@@ -18,16 +10,11 @@ module Codegen =
         (project: ProjectInfo)
         (tasts: FrozenPools list)
         : ClrArtifact =
-        // A compilation is an ordered SEQUENCE of frozen files emitted into one assembly;
-        // `Layout.buildMany` combines them and the Bind/Prepare loops below iterate every
-        // file. A single-file compile is the length-1 case — byte-identical to before.
         let asm = Assembler(symbols, project, tasts, bclReferences)
 
-        // Bind, per file: pre-fill the registries with layout-derived handles, so any
-        // prepared body can reference any type / member / factory / static fn / closure
-        // ctor with no emission-order discipline. Each file binds against its own
-        // `EmitContext` (NodeKey-keyed tables are file-local); the nominal registries and
-        // the combined row space are shared on the Assembler.
+        // Bind, per file: pre-fill the registries with layout-derived handles, so a prepared
+        // body can reference any type / member / factory / closure ctor whatever the emission
+        // order. `EmitContext` is file-local; the nominal registries are shared.
         for f in asm.Files do
             for ud in f.Layout.Partitioned.Unions do
                 NominalEmit.register asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
@@ -44,9 +31,8 @@ module Codegen =
 
             asm.BindClosures f
 
-        // Prepare, per file: build every signature + body against the resolved handles,
-        // using that file's `EmitContext`. `PrepareMain` gates itself on the file that
-        // carries the entry point, so it fires for the entry file alone.
+        // Prepare, per file: build every signature + body against the resolved handles.
+        // `PrepareMain` fires only for the file the layout gave the entry point.
         for f in asm.Files do
             asm.PrepareInterfaces f
 
@@ -79,24 +65,14 @@ module Codegen =
         asm.WriteMethods()
         asm.Finalise()
 
-    /// A SEQUENCE of frozen files → one in-memory PE artifact. The `symbols` provider
-    /// must already carry every cross-file surface the files reference — the caller
-    /// composes `composite(each file's projected view ++ external)` so a call into a
-    /// prior file's exported module function finds its open signature (which
-    /// `ClrRecipes.emitExternalCall` then re-homes to the LOCAL `MethodDef` via
-    /// `localModuleFns`); types / records / unions resolve through the shared nominal
-    /// registries the Bind pass fills. Only the LAST file may carry top-level
-    /// expressions, so it alone owns `Main` + the Program holder + the entry point.
-    ///
-    /// This is the general entry; `compile` is the length-1 case. Codegen stays agnostic
-    /// of the front-end `AssemblyFiles.FrozenFile`: the caller owns view-composition and
-    /// hands over the already-composed provider + the bare `FrozenPools` list.
+    /// A SEQUENCE of frozen files → one in-memory PE artifact. `symbols` must already carry
+    /// every cross-file surface the files reference; the caller composes that view. Only the
+    /// LAST file may carry top-level expressions, so it alone owns `Main` and the entry point.
     let compileFiles (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tasts: FrozenPools list) : ClrArtifact =
         assemble [] symbols project tasts
 
-    /// `compileFiles` with the compilation's own BCL surface threaded into the emitted-
-    /// `AssemblyRef` identity map (see `compileWithBclReferences`). `compileFiles` is
-    /// this with `[]`.
+    /// `compileFiles` with the compilation's own BCL surface threaded into the emitted
+    /// `AssemblyRef` identity map. `compileFiles` is this with `[]`.
     let compileFilesWithBclReferences
         (bclReferences: string list)
         (symbols: IExternalSymbolProvider)
@@ -105,26 +81,15 @@ module Codegen =
         : ClrArtifact =
         assemble bclReferences symbols project tasts
 
-    /// TAST + symbol context → in-memory PE artifact. `ProjectInfo.OutputKind`
-    /// decides (via the layout) whether `Main` + the "Program" holder exist
-    /// and whether the PE serialises with an entry point.
-    ///
-    /// Cross-package `val inline` bodies are not threaded here: they are spliced
-    /// pre-freeze by `Passes.InlineExpansion`, reaching the front end on the resolved
-    /// entries of the same `symbols` provider, so codegen takes no inline-body map. The
-    /// published TEMPLATES are a separate root array (`FrozenPools.InlineTemplates`) that
-    /// emission never walks; an `inline` binding's ordinary compiled function is in
-    /// `Roots` like any other and IS emitted.
-    /// The single-file case of `compileFiles`.
+    /// TAST + symbol context → in-memory PE artifact; the single-file case of `compileFiles`.
+    /// `ProjectInfo.OutputKind` decides (via the layout) whether `Main` + the "Program"
+    /// holder exist and whether the PE serialises with an entry point.
     let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: FrozenPools) : ClrArtifact =
         compileFiles symbols project [ tast ]
 
-    /// `compile` with the compilation's own BCL surface (a TFM ref pack +
-    /// `<Reference>`s) threaded into the emitted-`AssemblyRef` identity map, so the
-    /// bootstrap `System.Runtime` / `System.Console` refs bind the reference set
-    /// rather than the host's `System.Private.CoreLib`. `bclReferences` feeds
-    /// identity ONLY — it is never `ProjectInfo.References`, so `materialiseApp` does
-    /// not ship a (body-less) reference assembly. `compile` is this with `[]`.
+    /// `compile` with the compilation's own BCL surface (a TFM ref pack + `<Reference>`s) in
+    /// the emitted-`AssemblyRef` identity map, so `System.Runtime` / `System.Console` bind the
+    /// reference set, not the host's `System.Private.CoreLib`. Identity only, never shipped.
     let compileWithBclReferences
         (bclReferences: string list)
         (symbols: IExternalSymbolProvider)
@@ -133,15 +98,13 @@ module Codegen =
         : ClrArtifact =
         compileFilesWithBclReferences bclReferences symbols project [ tast ]
 
-    /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
-    /// directly — the testable seam for hand-written bodies, independent of any
-    /// TAST.
+    /// Assemble a hand-written `Main` body that drives the untyped `Il` surface directly —
+    /// the test seam for a body written with no TAST.
     let assembleMainEmit (symbols: IExternalSymbolProvider) (project: ProjectInfo) (build: Il -> unit) : ClrArtifact =
         AssemblerScaffold.assembleWith symbols project (fun _ _ -> build)
 
-    /// Provider-aware variant: the build callback sees the wired
-    /// `ICodegenProvider` so the test seam can reference BCL primitives without
-    /// setting up a TAST.
+    /// Provider-aware variant: the build callback sees the wired `ICodegenProvider`, so the
+    /// test seam can reference BCL primitives.
     let assembleMainEmitWithProvider
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)

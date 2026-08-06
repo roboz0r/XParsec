@@ -16,10 +16,8 @@ module EmitClosures =
                 match TastAccessor.patBinder p with
                 | ValueSome k -> acc.Add k
                 | ValueNone -> ()
-            // An or-pattern binds nothing (name resolution drops its binders), so it is
-            // NOT walked for the binders in its alternatives; every other composite is.
-            // Leaves (`Wildcard`/`Null`/`EnumCase`/`Const`) have no `patChildren`, so the
-            // recursion bottoms out there without an arm of their own.
+            // An or-pattern binds nothing — name resolution drops its binders — so its
+            // alternatives are not walked; every other composite is.
             | PatShape.Or -> ()
             | _ ->
                 for sub in TastAccessor.patChildren p do
@@ -28,13 +26,8 @@ module EmitClosures =
         go p
         List.ofSeq acc
 
-    /// A `let name = <lambda> in body` — a simple-named binder whose value is a lambda.
-    /// This is the shape that anchors an inner closure to its binder name (the binder is
-    /// scoped across its own value, not only the body). → the binder key, the lambda
-    /// value, and the body. Declines any other `Let` (a tuple/record binder, or a
-    /// non-lambda value) and any non-`Let`. Single-sources the binder-vs-value shape test
-    /// the two closure walks below share (was spelled once via `patKind`, once via
-    /// `patBinder`).
+    /// `let name = <lambda> in body` — the shape that anchors an inner closure to its binder
+    /// name. A tuple/record binder or a non-lambda value declines.
     [<return: Struct>]
     let private (|LetBoundLambda|_|)
         (e: TastAccessor.ExprId)
@@ -46,20 +39,9 @@ module EmitClosures =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// Walk `body`, invoking `onFree key ty` once per `Var` reference not shadowed
-    /// by `bound` — the single source of truth for closure free-variable scoping.
-    /// `freeVars` and `freeVarKeys` differ only in how they seed `bound` and what
-    /// they record; the scoping skeleton (every binder that introduces names —
-    /// lambdas, lets, `for`/`match`/`try` arms) lives here so a new binder form is
-    /// handled in one place. Mutates `bound` in place across the walk (push on
-    /// entering a binder's scope, pop on exit); pass a private set.
-    ///
-    /// A `let rec f = <lambda>` binds `f` in its own value: the recursive
-    /// self-reference resolves to the closure's `this` (`discoverClosures`'
-    /// `selfKey`), never a free variable — so the name is scoped across both the
-    /// value and the body. Otherwise an enclosing closure gains a phantom capture
-    /// and an enclosing module function is wrongly dropped from the
-    /// static-method-eligible set.
+    /// Walk `body`, invoking `onFree key ty` once per `Var` not shadowed by `bound`, which is
+    /// mutated in place — pass a private set. `let rec f = <lambda>` scopes `f` across its own
+    /// VALUE too: the self-reference is the closure's `this`, not a phantom capture.
     let private walkFreeRefs
         (bound: HashSet<BinderId>)
         (onFree: BinderId -> FrozenType -> unit)
@@ -128,8 +110,8 @@ module EmitClosures =
         (body: TastAccessor.ExprId)
         : (BinderId * FrozenType) list =
         let bound = HashSet<BinderId>()
-        // Every leaf the parameter pattern binds is in scope — for a tuple param
-        // (`fun (a, b) -> …`) that is each element binding, not the placeholder slot.
+        // Every leaf the parameter pattern binds — for `fun (a, b) -> …` that is `a` and
+        // `b`, not the placeholder slot.
         for k in paramKeys do
             bound.Add k |> ignore
 
@@ -160,31 +142,20 @@ module EmitClosures =
         walkFreeRefs bound (fun key _ -> acc.Add key |> ignore) body
         acc
 
-    /// What a top-level decl EMITS as: the metadata name, the holder class it lands on
-    /// (`ValueNone` ⇒ the anonymous "Program" holder, which the CLR needs because it has no
-    /// namespace-level member), and the stable handle key the combined
-    /// `MethodKey.StaticFn` / `FieldKey.ModuleValue` maps are keyed by.
-    ///
-    /// Both cases below fill it, and only one of them is an identity. That is the whole
-    /// reason it is a named record: a reader must not mistake the residue naming for a
-    /// symbol a consumer could resolve.
+    /// What a top-level decl emits as. Filled two ways — from a recorded identity, or minted
+    /// as residue — and only the first is a symbol a consumer could resolve.
     type Emission =
         {
             Name: string
-            /// `None` ⇒ the anonymous "Program" holder. The `option` (not `voption`) shape
-            /// is `StaticFn.Holder`'s, so a collector hands this straight through.
+            /// `None` ⇒ the anonymous "Program" holder, which the CLR needs because it has
+            /// no namespace-level member.
             Holder: HolderKey option
             SymbolKey: SymbolKey
         }
 
-    /// The emission of a module-level binding, whose exportable identity the front end
-    /// recorded (one is filed for every module-level `let` with a simple binder — in a
-    /// `module` or at the top level alike). Name and key come
-    /// STRAIGHT off that identity, so the vocabulary a consumer resolves and the metadata
-    /// this writes cannot drift; `ModuleBindingInfo.Key` is the one place either is derived
-    /// from. A top-level binding's identity is held by its file's namespace, which no CLR
-    /// type corresponds to, so it emits on the Program holder — an emission choice that
-    /// leaves the identity untouched.
+    /// Name and key come straight off the front end's recorded identity, filed for every
+    /// module-level `let` with a simple binder. A top-level binding's identity belongs to its
+    /// file's NAMESPACE, which no CLR type corresponds to, so it emits on the Program holder.
     let private declaredEmission (info: ModuleBindingInfo) : Emission =
         {
             Name = info.Name
@@ -195,20 +166,9 @@ module EmitClosures =
             SymbolKey = info.Key
         }
 
-    /// The emission of a top-level decl that carries NO exportable identity, so its name
-    /// and handle key have to be minted rather than recovered. Two decls are like that:
-    ///
-    ///   * one the front end never saw as a module element — a `let` that
-    ///     `TastLower.lower` peeled out of the entry expression, which the parser had
-    ///     folded into a top-level statement chain (a value written AFTER a top-level
-    ///     `do`). It is a local of the entry expression that happens to need storage.
-    ///   * one whose name a LATER binding in the same holder re-binds. The later binding
-    ///     owns the name from then on, so nothing outside can reach this one.
-    ///
-    /// The mint is the source name the frozen binder column spells it with (a binder no
-    /// source names — one the freeze minted — takes `value`) suffixed with the binder's own
-    /// SLOT, which keeps its field/method row and its handle key unique WITHOUT claiming to
-    /// be an identity anyone could resolve.
+    /// Mints `<source name>$<binder slot>` (`value$3` when no source names the binder) for a
+    /// decl with no exportable identity: a `let` lowered out of the entry expression (a value
+    /// written after a top-level `do`), or one a LATER binding in the same holder re-binds.
     let private residueEmission (programHolder: HolderKey) (pool: PoolBuilder) (k: BinderId) : Emission =
         let (BinderId slot) = k
 
@@ -225,17 +185,9 @@ module EmitClosures =
             SymbolKey = SymbolKeyOps.valueKey (ModuleHolder.InModule programHolder) name
         }
 
-    /// How EVERY top-level decl of a file emits, decided in ONE pass so the answer cannot
-    /// differ between the collectors that ask (module values, program values, generic
-    /// values, static fns) — they each see a slice of the decls, and shadowing is a fact
-    /// about the whole list.
-    ///
-    /// A binding takes its recorded identity (`declaredEmission`) only if it still OWNS its
-    /// name: `let x = 1` followed by `let x = x + 10` binds one name twice, so both carry
-    /// the same identity — which is what shadowing means — and only the LAST of them can be
-    /// named from outside. The earlier ones still need storage (the second's initialiser
-    /// reads the first), so they take the residue mint, which is what keeps the metadata
-    /// row and the handle key injective while the vocabulary stays single-valued.
+    /// How EVERY top-level decl of a file emits — decided over the whole list, because
+    /// shadowing is: `let x = 1` then `let x = x + 10` carries one identity, so only the LAST
+    /// takes it and the earlier ones, which still need storage, take the residue mint.
     let emissions
         (moduleMembers: Map<BinderId, ModuleBindingInfo>)
         (programHolder: HolderKey)
@@ -271,13 +223,9 @@ module EmitClosures =
 
         result
 
-    /// The shared classification shell behind `collectModuleValues` /
-    /// `collectGenericModuleValues` / `collectProgramValues`: a non-`inline`,
-    /// non-`Lambda` `let name = value`. `tyOk` selects which type shapes qualify (fully
-    /// ground vs. open-but-encodable); `project` builds the caller's row from the
-    /// resolved binding key, type, init value, and the decl's `Emission` — whose
-    /// `Holder` says which of the two homes it takes, so a caller that wants only one
-    /// of them returns `None` on the other.
+    /// Every non-`inline`, non-`Lambda` `let name = value`. `tyOk` selects which type shapes
+    /// qualify; `project` builds the caller's row, returning `None` to decline (a caller that
+    /// wants only named-holder values declines a Program-holder `Emission`, and vice versa).
     let private classifyModuleValues
         (emissions: Dictionary<BinderId, Emission>)
         (tyOk: FrozenType -> bool)
@@ -299,16 +247,9 @@ module EmitClosures =
             | _ -> None
         )
 
-    /// Classify which top-level bindings are **module values**: a non-inline
-    /// `let name = <plain value>` (no lambda parameters) on a *named* module
-    /// holder, whose type is fully ground — no open typar (a generic value
-    /// compiles to a generic method, not a field) and no `FTUnknown` (a leaked
-    /// inference metavar the front end never resolved; such a value keeps its
-    /// current treatment rather than crashing contract extraction). Each becomes
-    /// a `public static` field on its holder, initialised by the holder's
-    /// `.cctor`, and every reference is an `ldsfld` — never a `Main` local or a
-    /// closure capture. Generic values, function values (lambdas), and top-level
-    /// ("Program") values are out of scope and keep their current treatment.
+    /// The **module values**: a non-inline `let name = <plain value>` on a NAMED module
+    /// holder whose type is fully ground. Each becomes a `public static` field initialised by
+    /// the holder's `.cctor`; every reference is an `ldsfld`, never a local or a capture.
     let collectModuleValues
         (emissions: Dictionary<BinderId, Emission>)
         (decls: TastAccessor.DeclId list)
@@ -318,8 +259,7 @@ module EmitClosures =
             emissions
             ftIsGround
             (fun k ty value em ->
-                // Only a *named*-holder ground value is a field here; a top-level
-                // (Program-holder) ground value is `collectProgramValues`' job.
+                // Only a NAMED-holder ground value is a field here.
                 match em.Holder with
                 | None -> None
                 | Some holder ->
@@ -334,17 +274,9 @@ module EmitClosures =
                         }
             )
 
-    /// True when `t` is free of leaked inference metavars (`FTUnknown`) and of
-    /// body-local typars (`FTLocalTypar` — a typar bound by a local `let`'s own
-    /// scheme, which this backend has no axis for until generic closures exist).
-    /// Neither is a type the front end grounded, so neither can be encoded into a
-    /// signature. A generic module value carrying one keeps its current (skipped)
-    /// treatment rather than crashing the encoder, exactly as `collectModuleValues`
-    /// already excludes them from the ground-field path. `FTLocalTypar` rides here
-    /// rather than at a hard error because it is REACHABLE on a legal program
-    /// (`let f () = let g = fun x -> x in (g, g)` compiles today, boxing the phantom
-    /// typar) — the gate is "this site needs a representation", not "this leaf
-    /// reached the backend".
+    /// No leaked inference metavar (`FTUnknown`) and no body-local typar (`FTLocalTypar`);
+    /// neither is grounded, so neither encodes into a signature. A value carrying one is
+    /// skipped, not an error — `let f () = let g = fun x -> x in (g, g)` is a legal program.
     let rec private ftNoUnknown (t: FrozenType) : bool =
         match t with
         | FTUnknown _
@@ -357,34 +289,15 @@ module EmitClosures =
     let typeKeyNsName (t: TypeKey) : string * string =
         t.Namespace.Dotted, SymbolKeyOps.typeNestedName t
 
-    /// Classify the *generic* module-level values (`let empty : SetTree<'T> = …`)
-    /// — a non-`inline`, non-`Lambda` `let` whose type carries an open typar
-    /// (`FTTypar`, freeze-quantified to the method axis) and no leaked `FTUnknown`.
-    /// A non-generic module holder has no type parameter to type a `SetTree<'T>`
-    /// *field*, so — like real F#'s representation of a generic value — each lowers
-    /// to a zero-arg generic static method on its holder (a "generic property" on
-    /// the module's static class), returning the initialiser; every reference
-    /// `call`s its `MethodSpec` (the instantiation recovered from the reference's
-    /// own type). They are returned as ordinary `StaticFn`s (0 params) so the
-    /// layout / registry / holder-method machinery picks them up uniformly; the only
-    /// bespoke handling is the value-position `call` at the reference site
-    /// (`EmitExpr.buildExpr`). A function-typed generic value (a stored closure) is
-    /// still deferred.
-    ///
-    /// Both a value on a named holder and a top-level one classify; the latter declares
-    /// no module, so it emits on the Program holder (`Holder = None`) under its own name.
-    /// Position-independent — a method is computed on demand. A non-generalisable
-    /// generic value never reaches here: the front end's value restriction
-    /// (`InferGeneralize.shouldGeneralise`) keeps an expansive parameterless binding
-    /// monomorphic (and `Validation.checkValueRestriction` errors a mutable one), so
-    /// its type is either ground or an `FTUnknown` the `tyOk` gate rejects.
+    /// The GENERIC module-level values (`let empty : SetTree<'T> = …`). A module holder has no
+    /// type parameter to type a `SetTree<'T>` field, so each lowers to a zero-arg generic
+    /// static method — an ordinary 0-param `StaticFn` — and a reference `call`s its `MethodSpec`.
     let collectGenericModuleValues
         (emissions: Dictionary<BinderId, Emission>)
         (decls: TastAccessor.DeclId list)
         : StaticFn list =
-        // Open (`not ftIsGround`) but encodable (`ftNoUnknown`) and not itself a
-        // function type — a function-typed generic value (a stored closure, which
-        // a non-lambda `let f : 'T -> 'T = id` can still produce) is still deferred.
+        // Open but encodable, and not itself a function type: a stored closure — which a
+        // non-lambda `let f : 'T -> 'T = id` can still produce — is deferred.
         let tyOk ty =
             not (ftIsGround ty)
             && ftNoUnknown ty
@@ -406,48 +319,37 @@ module EmitClosures =
                         Name = em.Name
                         Holder = em.Holder
                         Params = []
-                        // A generic module VALUE is never applied (it reaches codegen
-                        // as a bare `Var`, see `EmitExpr`): no source groups, and it
-                        // returns a value (never `void`).
+                        // A generic module VALUE is never applied — it reaches codegen as a
+                        // bare `Var` — so it has no source groups and never returns `void`.
                         Groups = []
                         Body = value
                         ResultTy = ty
                         ReturnsVoid = false
-                        // A generic module VALUE carries no front-end
-                        // function scheme bounds; `staticFnTypars` still derives its
-                        // emitted typar count.
+                        // A generic module VALUE carries no front-end scheme bounds.
                         Constraints = []
                     }
             )
 
-    /// Classify the *top-level* ground values: a non-`inline`, non-`Lambda`,
-    /// non-function `let name = <value>` that declares no enclosing module, whose type is
-    /// fully ground. Each becomes a `public static` field on the anonymous "Program"
-    /// holder; the leading/trailing `.cctor`-vs-`Main` placement is decided later in
-    /// `HolderPlan.create`. Generic top-level values are handled by
-    /// `collectGenericModuleValues`' holderless fallback; function-typed values (a stored
-    /// closure) are deferred, as for a named holder.
+    /// The TOP-LEVEL ground values — those declaring no enclosing module. Each becomes a
+    /// `public static` field on the anonymous "Program" holder; whether it initialises in
+    /// the `.cctor` or in `Main` is decided later.
     let collectProgramValues
         (emissions: Dictionary<BinderId, Emission>)
         (programHolder: HolderKey)
-        // `(ns, name)` of every `[<Struct; IsByRefLike>]` type declared in this
-        // assembly. `EmitLower.lower` strips type decls, so the caller computes this
-        // from `tast.Decls`.
+        // `(ns, name)` of every `[<Struct; IsByRefLike>]` type declared in this assembly.
+        // Lowering strips type decls, so the caller computes this from the unlowered decls.
         (refStructNsNames: HashSet<string * string>)
         (decls: TastAccessor.DeclId list)
         : ModuleValue list =
-        // A `[<Struct; IsByRefLike>]` value cannot be a static field (the CLR confines
-        // a byref-like type to the stack) — and never needs to be (a ref struct can't
-        // be read from a member / cctor anyway). Such a top-level value stays a `Main`
-        // local; a byref (`FTConst("byref", _)`) likewise.
+        // The CLR confines a byref-like type to the stack, so a `[<Struct; IsByRefLike>]`
+        // value — or a byref — stays a `Main` local rather than becoming a static field.
         let isFieldEmittable (ty: FrozenType) =
             match ty with
             | FTClass(key, _) -> not (refStructNsNames.Contains(typeKeyNsName key))
             | FTByref _ -> false
             | _ -> true
 
-        // Ground (a field, not a generic method), not a stored closure (`FTFun`), and
-        // storable as a static field.
+        // Ground (a field, not a generic method), not a stored closure, and storable.
         let tyOk ty =
             ftIsGround ty
             && (
@@ -462,8 +364,7 @@ module EmitClosures =
             emissions
             tyOk
             (fun k ty value em ->
-                // A named-holder value (`module Foo`) takes the named-holder path; only a
-                // value that declares no module becomes a Program-holder field here.
+                // A named-holder value (`module Foo`) takes the named-holder path.
                 match em.Holder with
                 | Some _ -> None
                 | None ->
@@ -478,12 +379,9 @@ module EmitClosures =
                         }
             )
 
-    /// A module value's initialiser runs in its holder's `.cctor`, where only
-    /// other module values (`ldsfld`) and static-method functions (direct `call`)
-    /// resolve — any other top-level reference (an anonymous "Program" value, a
-    /// function that escaped to a closure) would need a `Main` local no `.cctor`
-    /// can see. Fail here, with the offending value and reference named, instead
-    /// of deep in `buildVarLoad`'s generic "no binding" crash.
+    /// A module value's initialiser runs in its holder's `.cctor`, where only other module
+    /// values (`ldsfld`) and static-method functions (direct `call`) resolve — any other
+    /// top-level reference would need a `Main` local no `.cctor` can see.
     let validateModuleValueInits
         (moduleValueKeys: HashSet<BinderId>)
         (staticFnKeys: HashSet<BinderId>)
@@ -497,42 +395,16 @@ module EmitClosures =
                         mv.Name
                         free
 
-    /// Eta-expand every NON-saturated reference to a static-method-`eligible` module
-    /// function so the function stays a flat static method even though it is *also*
-    /// used as a value / under-applied. This is F#'s one model — a module `let f … = …`
-    /// ALWAYS compiles to a flat static method; a value-use compiles to a closure that
-    /// `call`s it — and the model the JS backend (`curryAdapter`) already mirrors. The
-    /// escape is an ADDITIVE bridge: it never removes the flat method.
-    ///
-    /// The flat method is a function's ABI: a publicly reachable function's `.fsi`
-    /// advertises it independently of how the function is used inside its producing
-    /// assembly, so a cross-assembly consumer decurries it into a flat member-ref and
-    /// `call`s it; the bridge keeps that method present. Each value-use / partial
-    /// application becomes a curried closure that `call`s the method — realised by
-    /// eta-expanding `f` to its full SOURCE arity at every non-saturated occurrence:
-    ///   * a bare value-use  `f`     → `fun a0 … a(n-1) -> f a0 … a(n-1)`
-    ///   * an under-application `f x` → `(fun a0 … a(n-1) -> f a0 … a(n-1)) x`
-    /// After the rewrite every surviving `Var f` heads a saturated (≥ arity) application, so
-    /// `collectStaticFns` emits `f` as a static method; the synthesised eta-lambdas are
-    /// ordinary closures whose body is a saturated direct `call` to it (the "wrapper
-    /// that calls it"). Exported and holderless escapers are treated alike — both keep
-    /// their flat method, matching F# (which emits the static method for non-exported
-    /// module functions too).
-    ///
-    /// Bridging is gated on the `eligible` set (`staticEligible`), NOT on escape: a
-    /// function demoted by the *capture* axis is absent from `eligible`, so its
-    /// value-uses are left as ordinary closure-object references — eta-expanding them
-    /// would wrap a closure in a closure. The pass is a no-op when no eligible function
-    /// has a non-saturated reference (the corpus before any escaper lands).
+    /// Eta-expand every NON-saturated reference to an `eligible` function to its source arity,
+    /// keeping the flat static method a cross-assembly consumer `call`s:
+    ///   `f` → `fun a0 … a(n-1) -> f a0 … a(n-1)`, and `f x` → that lambda applied to `x`.
     let bridgeStaticFnEscapes
         (eligible: HashSet<BinderId>)
         (fns: CompiledFns.CompiledFn list)
         (decls: TastAccessor.DeclId list)
         : TastAccessor.DeclId list =
-        // Each eligible function's source arity (its curried group count) — the number
-        // of parameters the eta-expansion peels, and the argument count at or above which a
-        // reference is a saturated direct `call`. `fns` is the SAME pre-bridge
-        // `gather` `staticEligible` ran on, threaded in so the two cannot disagree.
+        // Each eligible function's source arity: the parameters the eta-expansion peels, and
+        // the argument count at or above which a reference is a saturated direct `call`.
         let arity = Dictionary<BinderId, int>()
 
         for f in fns do
@@ -542,17 +414,14 @@ module EmitClosures =
         if arity.Count = 0 then
             decls
         else
-            // `fun a0 … a(n-1) -> f a0 … a(n-1)`, typed from the reference's own
-            // curried type: peel `n` domains for the params + each `App` node's
-            // result type. A tuple / unit source group needs no special case — the
-            // single fresh param carries the group's (possibly tuple / unit) domain
-            // and is passed as one argument, exactly as the saturated-call site
-            // (`EmitCall`) re-flattens it from `StaticFn.Groups`.
+            // `fun a0 … a(n-1) -> f a0 … a(n-1)`, typed from the reference's own curried
+            // type. A tuple / unit source group needs no special case: the single fresh
+            // param carries the group's domain and is passed as one argument.
             let buildEta (fVar: TastAccessor.ExprId) (n: int) : TastAccessor.ExprId =
                 let tok = TastAccessor.exprTok fVar
 
-                // Each peeled `->` as a `(domain, codomain)` pair: the fresh param's
-                // type and the intermediate `App` result type.
+                // Each peeled `->` as `(domain, codomain)`: the fresh param's type and the
+                // intermediate `App` result type.
                 let levels = TastLower.peelFuns n (typeOfExpr fVar)
 
                 if List.length levels <> n then
@@ -563,9 +432,8 @@ module EmitClosures =
 
                 let keys = levels |> List.map (fun _ -> TastPoolBuilder.mintBinder fVar.Pool)
 
-                // The bridge's nodes are DERIVED — they exist in no frozen tree — so they
-                // are appended to the same pool `fVar` lives in, which is what lets the
-                // spliced `fVar` ride into them by the id it already had.
+                // The bridge's nodes are DERIVED — in no frozen tree — so they append to the
+                // same pool `fVar` lives in, letting the spliced `fVar` keep its own id.
                 let pool = fVar.Pool
 
                 let argTriples =
@@ -589,17 +457,14 @@ module EmitClosures =
 
                     match head with
                     | TastAccessor.EVar k when arity.ContainsKey k && List.length args < arity.[k] ->
-                        // Under-application: partially apply the eta closure. The head is
-                        // a freshly minted closure, so this application is genuinely new.
+                        // Under-application: partially apply the eta closure.
                         TastAccessor.mintAppChain
                             (buildEta head arity.[k])
                             (args |> List.map (fun (a, t, tk) -> rw a, t, tk))
                     | _ ->
                         // The application STANDS: a saturated (or over-applied) eligible head
-                        // stays a direct `call` and everything else recurses, so only the
-                        // arguments and a non-eligible head can move. Rewriting in place
-                        // keeps each `App`'s own id — the rows that did not change are not
-                        // re-appended.
+                        // stays a direct `call`, so only the arguments and a non-eligible
+                        // head can move.
                         TastAccessor.mapAppChain
                             (fun h ->
                                 match h with
@@ -610,27 +475,11 @@ module EmitClosures =
                             e
                 | _ -> TastAccessor.mapChildren rw e
 
-            // A `type` decl surfaces no `DeclExprChildren`, so the mapping is already the
-            // identity on one — no arm needed to spare it.
             decls |> List.map (TastAccessor.mapDeclExpr rw)
 
-    /// The static-method-eligible top-level functions — the ONE genuinely
-    /// CLR-intrinsic demotion axis (capture), computed on its own so the bridge pass
-    /// (`bridgeStaticFnEscapes`) can run *before* `collectStaticFns` knows the answer.
-    /// A candidate is `let [rec] f p0 … = body` whose value peels to ≥ 1 source group;
-    /// it is eligible unless it captures a module-level *local*: its free variables
-    /// (minus its parameters, self, and the module-value / static-fn keys, which are
-    /// `ldsfld` / direct `call`) must all themselves be eligible. A value-local
-    /// reference would need a capture field, which a static method has no `this` to
-    /// hold. This is a fixpoint, resolved by removing offenders until stable.
-    ///
-    /// There is **no escape axis** — an escaping function keeps its flat static method
-    /// and the escape becomes a curried bridge (F#/JS model). The set is invariant
-    /// under eta-expansion: a candidate's capture set is its OWN body's free vars, and
-    /// bridging only rewrites references in *other* bodies, leaving the referent free
-    /// through the synthesised lambda (the free-var walk sees through it). So the same
-    /// set drives bridging on the un-bridged decls and `collectStaticFns` on the
-    /// bridged decls — there is no second derivation that could disagree.
+    /// The static-method-eligible top-level functions. `let [rec] f p0 … = body` is eligible
+    /// unless it captures a module-level LOCAL — a capture field needs a `this` a static method
+    /// has none of — so its free vars must all be eligible too. A fixpoint over the offenders.
     let staticEligible (moduleValueKeys: HashSet<BinderId>) (fns: CompiledFns.CompiledFn list) : HashSet<BinderId> =
         let candidates = Dictionary<BinderId, CompiledFns.CompiledFn>()
         let order = ResizeArray<BinderId>()
@@ -645,13 +494,9 @@ module EmitClosures =
                 seq {
                     for k in order do
                         let c = candidates.[k]
-                        // A reference to a module value is an `ldsfld`, not a captured
-                        // module-level local — treat those keys as bound so a function
-                        // over them stays static-method eligible. The keys a parameter
-                        // binds: a simple/unit param binds its own `Slot`; a tuple
-                        // param binds each leaf the pattern names (the flat compiled
-                        // params expose each leaf binder, so references to those leaves
-                        // count as bound, not as captures).
+                        // A module-value reference is an `ldsfld`, not a capture, so those
+                        // keys count as bound. A simple/unit param binds its own `Slot`; a
+                        // tuple param binds each leaf the pattern names.
                         let paramBound =
                             c.Params
                             |> List.collect (fun p ->
@@ -664,9 +509,7 @@ module EmitClosures =
                 }
             )
 
-        // Escape no longer demotes: every gathered function starts eligible; only the
-        // capture fixpoint below removes one (its free vars reach outside the eligible
-        // set, own self-reference allowed).
+        // Every gathered function starts eligible; only the capture fixpoint removes one.
         let eligible = HashSet<BinderId>(order)
         let mutable changed = true
 
@@ -683,20 +526,12 @@ module EmitClosures =
 
         eligible
 
-    /// Build the **static-method** `StaticFn`s from the precomputed `eligible` set
-    /// (`staticEligible`): each gathered function whose key is eligible, named by the
-    /// file's `emissions` table (a named-holder source name, or the same source name on
-    /// the "Program" holder for a top-level function — the CLR having no namespace-level
-    /// method to put it on). Taking `eligible` as input — rather than recomputing it —
-    /// guarantees the set bridging assumed and the set emitted as static methods are the
-    /// same. A gathered function NOT in `eligible` (capture-demoted, or a binding
-    /// `bridgeStaticFnEscapes` newly turned into a lambda whose key was never eligible) is
-    /// left for closure discovery.
+    /// Each gathered function whose key is in the precomputed `eligible` set, named by the
+    /// file's `emissions` table. A function NOT in the set — capture-demoted, or a binding
+    /// bridging newly turned into a lambda — is left for closure discovery.
     let collectStaticFns
         (emissions: Dictionary<BinderId, Emission>)
-        // Per-binding frozen typar bounds from the front-end
-        // scheme. Looked up by `c.Key`; absent ⇒ no bounds. Carried onto
-        // `StaticFn.Constraints` and read by the call-site phantom-typar solve.
+        // Per-binding frozen typar bounds from the front-end scheme; absent ⇒ no bounds.
         (genericFnSchemes: Map<BinderId, FrozenConstraint list>)
         (eligible: HashSet<BinderId>)
         (fns: CompiledFns.CompiledFn list)
@@ -726,35 +561,13 @@ module EmitClosures =
                         }
         ]
 
-    /// A generic static method's type-parameter count: `freeze` quantified the
-    /// module-`let`'s free typars to `FTTypar(Method, i)` (params left-to-right,
-    /// then return, then any body-only index), so the count is `max i + 1` over the
-    /// method's parameter + result types AND the body. Parameter/result positions
-    /// reconstruct the declared signature; the body sweep additionally catches a
-    /// PHANTOM constraint typar (`fold`'s enumerator `'E`) that appears in
-    /// NO param/result but survives un-grounded as a real `FTTypar(Method, idx_E)`
-    /// leaf in the `for-in` enumerator descriptor — so `fold` emits at its true
-    /// arity (e.g. 5) and the call site solves `'E` from its bound. Using the body
-    /// (rather than the front-end `scheme.Quantified.Length`) keeps a quantified-but-
-    /// erased typar — one `instantiate`/the body grounded to a concrete type, so it
-    /// occurs at no frozen index — OUT of the count: emitting a slot for it would
-    /// leave an unrecoverable `MethodSpec` arg (the `SetTree.compare` over-count
-    /// regression). `0` ⇒ a monomorphic method, emitted unchanged. The backend's
-    /// `FTTypar(Method, i)` encoder maps these to `!!i` directly (no ambient window).
-    /// A closure walked from this fn's body inherits the count on its `Closure.Typars`.
-    ///
-    /// This is the PRODUCER arity; it MUST STAY IN LOCKSTEP with the CONSUMER's dependent-typar
-    /// fixpoint — the same method, built here then consumed across a package boundary, has to
-    /// agree on its arity or the consumer's `MethodSpec` arg count mismatches this emitted IL.
-    /// Nothing
-    /// structural ties the two (this sweeps the frozen `TExpr` body; the consumer folds
-    /// `SemType` bounds), so the graduation test guards divergence end to end.
+    /// `max i + 1` over every `FTTypar(Method, i)` in the params, result AND body — the body
+    /// catching `fold`'s enumerator `'E`, present only in its `for-in` descriptor. Counting
+    /// occurrences drops an ERASED typar, whose slot would leave an unrecoverable arg.
     let staticFnTypars (fn: StaticFn) : int =
         let mutable maxIx = -1
 
-        // The method-axis index sweep descends into EVERY child (carried type-level
-        // computations included — producer/consumer arity must stay in lockstep); a
-        // `Declaring`-axis typar can't occur in a module-level static fn and falls
+        // A `Declaring`-axis typar can't occur in a module-level static fn, so it falls
         // through the child walk as a leaf.
         let rec go (t: FrozenType) =
             match t with
@@ -768,10 +581,8 @@ module EmitClosures =
 
         go fn.ResultTy
 
-        // Sweep the body for the only method indices that param/result cannot see: a
-        // phantom constraint typar lives in a `for-in` enumerator descriptor's
-        // `ConstrainedInterface` ifaceArgs (and the enumerator type itself). Walk
-        // every subexpression's own type plus those descriptor types.
+        // The only method indices param/result cannot see live in a `for-in` enumerator
+        // descriptor: its `ConstrainedInterface` ifaceArgs and the enumerator type itself.
         let goEnum (en: Frozen.ForInEnumerator) =
             match en with
             | ForInEnumeratorG.Interface -> ()
@@ -798,18 +609,8 @@ module EmitClosures =
         goExpr fn.Body
         maxIx + 1
 
-    /// Enumerate every `Lambda` in the lowered tree leaves-first (a closure before
-    /// any closure that constructs it), with its capture set; returns a dictionary
-    /// mapping each lambda NODE to its `Closure`. `staticFnKeys`'
-    /// outer lambdas are *not* closures (only their bodies are walked for inner
-    /// closures), since a reference to one is a direct call. A closure walked from
-    /// a generic static fn's body inherits that fn's `staticFnTypars` on its
-    /// `Closure.Typars`; an inner closure inherits the enclosing closure's set.
-    /// A closure-discovery root from a *type member body*: the member's body paired with
-    /// the number of typars in scope at its construction site — the declaring type's
-    /// typar count (the closure re-projects those onto its own class typars, the
-    /// same `Typars` count a static-fn closure inherits). `0` for a monomorphic
-    /// type, so its member closures stay the plain monomorphic-closure path.
+    /// A closure-discovery root from a type MEMBER body: the body plus the typars in scope at
+    /// its construction site, which the closure re-projects onto its own class typars.
     type MemberClosureRoot =
         {
             /// The declaring type's typar count — the closure's declaring-typar
@@ -821,16 +622,9 @@ module EmitClosures =
             Body: TastAccessor.ExprId
         }
 
-    /// The source-lambda argument nodes that lower onto a zero-alloc
-    /// value-struct, each mapped to the FLAT `FunN` arity its constrained slot
-    /// demands (`1` for `Fun<_,_>`, `2` for `Fun<_,_,_>`). The decision is the
-    /// verdict `inferApp` recorded when the
-    /// `subsumes(TyFun, Fun`2`/`Fun`3`)` arm fired — codegen no longer
-    /// re-derives it structurally (the prior all-`GSimple` + bare-method-typar walk
-    /// was a fragile reconstruction of what `subsumes` already knew, and could not
-    /// see an external combinator head). The freeze re-keyed it onto the lambda's own
-    /// `ExprId`, so there is nothing here to recompute. Walking every lambda and
-    /// testing membership covers project-local and external heads in one path.
+    /// The source-lambda nodes that lower onto a zero-alloc value-struct, each mapped to the
+    /// FLAT arity its constrained slot demands (`1` for `Fun<_,_>`, `2` for `Fun<_,_,_>`). The
+    /// front end recorded that against the lambda's own node, so this only tests membership.
     let private collectStackLambdaArgs
         (funVerdicts: IReadOnlyDictionary<TastAccessor.ExprId, FunVerdict>)
         (decls: TastAccessor.DeclId list)
@@ -859,38 +653,22 @@ module EmitClosures =
 
         stackNodes
 
-    /// Mints the `TypeDef` name for each discovered closure. The name IS the
-    /// closure's slot key (`TypeSlotKey.Closure name` / `closureByName`),
-    /// resolved assembly-wide by name — so one `ClosureNamer` threaded across
-    /// every `discoverClosures` call is what keeps those keys unique across the
-    /// whole assembly.
-    ///
-    /// The default policy names closures `<closure>$0`, `<closure>$1`, … in
-    /// discovery order and IGNORES the source context it is handed. F#'s own
-    /// `<bound-name>@<line>` scheme (debuggable) is deliberately NOT the default:
-    /// because the name is the global TypeDef key it must be (1) UNIQUE across
-    /// files — the same `let f = fun…` source line recurs in every compilation
-    /// file — and (2) TOTAL — an anonymous lambda has no bound name at all.
-    /// `<bound-name>@<line>` satisfies neither without an added disambiguator and
-    /// an anonymous-lambda fallback, so the monotonic counter is the
-    /// correct-by-construction default. `NextName` still receives the closure
-    /// node and its enclosing binder so a richer, debuggable policy can later be
-    /// slotted in here alone.
+    /// Mints `<closure>$0`, `<closure>$1`, … in discovery order. The name IS the closure's
+    /// TypeDef slot key, resolved assembly-wide by name, so ONE namer threaded across every
+    /// `discoverClosures` call is what keeps those keys unique across the whole assembly.
     type ClosureNamer() =
         let mutable counter = 0
 
-        /// Return the next closure name, then advance (return-current-then-
-        /// increment — the exact timing the inline counter had). `node` is the
-        /// closure's source expression (its `NodeKey`/offset recoverable via
-        /// `NodeKey.ofToken (TastAccessor.exprTok node) …`); `selfKey` is the
-        /// enclosing `let f = fun…` binder (`ValueNone` for an anonymous lambda).
-        /// Both are the context a `<bound-name>@<line>` policy would need; the
-        /// counter policy ignores them.
+        /// `node` and `selfKey` are the context a debuggable `<bound-name>@<line>` policy
+        /// would need — a counter ignores them, but only this member would have to change.
         member _.NextName(_node: TastAccessor.ExprId, _selfKey: BinderId voption) : string =
             let name = sprintf "<closure>$%d" counter
             counter <- counter + 1
             name
 
+    /// Every `Lambda` in the lowered tree, leaves-first — a closure before any closure that
+    /// constructs it — with its capture set. A `staticFnKeys` outer lambda is NOT a closure, so
+    /// only its body is walked; the closures found there inherit its typars.
     let discoverClosures
         (namer: ClosureNamer)
         (staticFnKeys: HashSet<BinderId>)
@@ -904,25 +682,18 @@ module EmitClosures =
         let order = ResizeArray<TastAccessor.ExprId>()
         let lookup = Dictionary<TastAccessor.ExprId, Closure>()
 
-        // Source lambdas threaded through a constrained `Fun`2`/`Fun`3`
-        // slot — eligible for the value-struct closure shape, mapped to their flat
-        // arity (1 or 2). The node-keyed verdict (`TastFile.FunVerdicts`).
+        // Source lambdas threaded through a constrained `Fun`2`/`Fun`3` slot, mapped to
+        // their flat arity (1 or 2).
         let stackLambdaArgs = collectStackLambdaArgs funVerdicts decls memberRoots
 
-        // A module-level value is a `public static` field (`ldsfld`), so — like a
-        // static-method reference — it is resolved without a capture. Fold both
-        // into the non-captured set.
+        // A module-level value is an `ldsfld` and a static-method reference is a direct
+        // `call`, so neither needs a capture.
         let nonCaptured = HashSet<BinderId>(staticFnKeys)
         nonCaptured.UnionWith moduleValueKeys
 
-        // `selfKey` is the binding key when this node is the immediate value of a
-        // `let f = …` lambda — a recursive self-reference resolves to `this`.
-        // `currentTypars` is the *total* typar count inherited from the enclosing
-        // static method / member (or, for inner closures, the enclosing closure
-        // verbatim); `declaringOffset` is how many of those are the enclosing
-        // class's typars (the leading slots) — `0` for a static-fn closure.
-        // The arity of a value-struct lambda node (1 by default; 2 for a
-        // flat `Fun`3` slot). Only an anonymous monomorphic lambda the verdict reached.
+        // `1` by default, `2` for a flat `Fun`3` slot — and only for an ANONYMOUS
+        // monomorphic lambda the verdict reached, which is what `selfKey` / `currentTypars`
+        // gate on here.
         let valueStructArity (currentTypars: int) (selfKey: BinderId voption) (e: TastAccessor.ExprId) : int =
             if currentTypars = 0 && ValueOption.isNone selfKey then
                 match stackLambdaArgs.TryGetValue e with
@@ -931,19 +702,19 @@ module EmitClosures =
             else
                 1
 
+        // `currentTypars` is the typar count inherited from the enclosing method / closure, of
+        // which `declaringOffset` leading slots are the enclosing class's (`0` for a static-fn
+        // closure). `selfKey` is set on a `let f = …` value: its self-reference is `this`.
         let rec go (currentTypars: int) (declaringOffset: int) (selfKey: BinderId voption) (e: TastAccessor.ExprId) =
-            // A FLAT (`Fun`(arity+1)`) value-struct lambda of arity `2..4` peels its
-            // `arity - 1` inner `Lambda` levels into the SAME closure's extra
-            // parameters (one flat `Invoke(a,b,…)`), so those inner lambdas are NOT
-            // walked as independent closures — recurse into the DEEPEST body instead.
-            // Every other node walks children first (leaves-first).
+            // A flat value-struct lambda of arity `2..4` peels its inner `Lambda` levels into
+            // the SAME closure's extra params (one `Invoke(a,b,…)`), so those inner lambdas
+            // are not independent closures — recurse into the DEEPEST body instead.
             let flatInner =
                 let arity = valueStructArity currentTypars selfKey e
 
                 if arity >= 2 then
-                    // Unwrap all `arity` nested `Lambda` levels down to the DEEPEST
-                    // body; if the shape isn't that saturated nesting, fall through
-                    // (`ValueNone`) and this node walks its children normally.
+                    // `ValueNone` if the shape isn't that saturated nesting, and this node
+                    // walks its children normally.
                     let rec peel n (cur: TastAccessor.ExprId) =
                         if n = 0 then
                             ValueSome cur
@@ -960,8 +731,7 @@ module EmitClosures =
              | ValueSome inner -> go currentTypars declaringOffset ValueNone inner
              | ValueNone ->
                  match e with
-                 // A `let x = <lambda>` binder anchors an inner closure to its name
-                 // (`selfKey`), scoped across the lambda value.
+                 // The binder anchors an inner closure to its name, scoped across the value.
                  | LetBoundLambda(k, value, body) ->
                      go currentTypars declaringOffset (ValueSome k) value
                      go currentTypars declaringOffset ValueNone body
@@ -974,12 +744,9 @@ module EmitClosures =
                 (body: TastAccessor.ExprId)
                 (lamTy: FrozenType)
                 =
-                // A flat (`Fun`(arity+1)`) value-struct closure of arity `2..4` peels
-                // its `arity - 1` inner `NamedSimple` lambdas — each contributes one
-                // extra flat param, walking `body`/`resultTy` down to the innermost body
-                // and its codomain (one `FTFun(_, r)` unwrapped per level). Arity-1 keeps
-                // the curried `ResultTy = codomain`. A shape that isn't the expected
-                // saturated nesting falls back to arity-1.
+                // Each peeled inner `NamedSimple` lambda contributes one extra flat param,
+                // walking `body` / `resultTy` down to the innermost body and its codomain.
+                // Arity-1 — and any shape that isn't the expected nesting — stays curried.
                 let arity = valueStructArity currentTypars selfKey e
 
                 let peeled =
@@ -1016,13 +783,8 @@ module EmitClosures =
 
                         1, [], body, resultTy
 
-                // Keyed by the closure's binder (`let f = …`). An anonymous lambda
-                // (no `SelfKey`) or a binder the snapshot didn't reach defaults to
-                // `Heap` — the only shape the v1 heap path emits.
-                //
-                // `Repr` is the front-end Regions SNAPSHOT (inert on its own).
-                // Keyed by the closure's binder; an anonymous lambda or an
-                // unreached binder defaults to `Heap`.
+                // The front-end regions snapshot, keyed by the closure's binder (`let f = …`).
+                // An anonymous lambda or a binder the snapshot didn't reach defaults to `Heap`.
                 let repr =
                     match selfKey with
                     | ValueSome k ->
@@ -1031,26 +793,18 @@ module EmitClosures =
                         | None -> ClosureRepr.Heap
                     | ValueNone -> ClosureRepr.Heap
 
-                // Bind every leaf each param pattern introduces (a tuple's element
-                // bindings), not the placeholder `ParamKey` — those leaves are
-                // parameters, never captures. A flat closure binds ALL its params
-                // (the peeled inner `Lambda`s' binders too), against the inner body.
+                // Every leaf each param pattern introduces (a tuple's element bindings), not
+                // the placeholder `ParamKey` — those leaves are parameters, never captures.
+                // A flat closure binds the peeled inner lambdas' binders too.
                 let paramBound =
                     patKeys paramPat
                     @ (extraParams |> List.collect (fun (_, _, ppat) -> patKeys ppat))
 
                 let captures = freeVars nonCaptured paramBound selfKey body
 
-                // The CODEGEN value-struct trigger — the stricter gate
-                // (necessary-not-sufficient `Repr` is NOT consulted). An *anonymous*
-                // lambda (`ValueNone` selfKey — a `let`-bound closure keeps its heap
-                // shape) threaded through a constrained `Fun`2`/`Fun`3` slot, monomorphic;
-                // the node-keyed verdict (`valueStructArity` ≥ 1 ⇒ in the table). A
-                // CAPTURING such lambda is also a value-struct (captures stored by
-                // value); the flat-2 arity is supported too. A plain value struct
-                // copies by value, so passing it into
-                // the combinator stays escape-free (no `ref struct`). Everything else is
-                // heap.
+                // The codegen trigger, stricter than `Repr` — which is NOT consulted: an
+                // ANONYMOUS monomorphic lambda (a `let`-bound one keeps its heap shape) in a
+                // constrained `Fun`2`/`Fun`3` slot. Captures are allowed, stored by value.
                 let isValueStruct =
                     currentTypars = 0 && ValueOption.isNone selfKey && stackLambdaArgs.ContainsKey e
 
@@ -1088,17 +842,14 @@ module EmitClosures =
                     | ValueSome p -> registerClosure p (TastAccessor.patTy pat) pat body lamTy
                     | ValueNone -> ()
                 | PatShape.Const when TastAccessor.patConstValue pat = TConstValue.Unit ->
-                    // A `fun () ->` unit binder has no name to reference, but the
-                    // closure's `Invoke` still allocates `ldarg.1` for the unit
-                    // value the caller pushes; mint a synthetic placeholder so the
-                    // `args` map (and `freeVars`'s bound set) still has a key.
+                    // A `fun () ->` binder has no name, but `Invoke` still allocates
+                    // `ldarg.1` for the unit value the caller pushes — mint a placeholder so
+                    // the args map has a key for it.
                     registerClosure (TastPoolBuilder.mintBinder pat.Pool) (TastAccessor.patTy pat) pat body lamTy
                 | PatShape.Tuple ->
-                    // A tuple-param lambda (`fun (a, b) -> …`). The single `ldarg.1`
-                    // carries the `ValueTuple`n` value; mint a synthetic placeholder
-                    // for that slot — `buildClosureInvoke` `bindPattern`s the leaf
-                    // element bindings out of it. The param's `FTTuple` (`patTy pat`) is
-                    // what the closure's `Invoke` signature encodes.
+                    // `fun (a, b) -> …`: the single `ldarg.1` carries the `ValueTuple`n`, so
+                    // mint a placeholder for that slot and let `Invoke` destructure `a` / `b`
+                    // out of it. The `Invoke` signature encodes the param's `FTTuple`.
                     registerClosure (TastPoolBuilder.mintBinder pat.Pool) (TastAccessor.patTy pat) pat body lamTy
                 | _ -> failwithf "Emit: closure parameter destructuring is out of scope: %A" pat
             | _ -> ()
@@ -1114,9 +865,8 @@ module EmitClosures =
                 match TastAccessor.patBinder letd.Binding with
                 | ValueSome k ->
                     if staticFnKeys.Contains k then
-                        // A static-method function's lambda is not a closure, but its body
-                        // may still construct inner closures — walk only the body. The
-                        // closures inherit the method's typars.
+                        // The outer lambda is not a closure, but its body may construct inner
+                        // ones, which inherit the method's typars.
                         let _, body = peelLambda letd.Value
                         go (typarsForStaticFn k) 0 ValueNone body
                     else
@@ -1125,13 +875,9 @@ module EmitClosures =
             | TastAccessor.DExpression(e, _) -> go 0 0 ValueNone e
             | _ -> ()
 
-        // Type member bodies: a lambda inside a member body is a closure too —
-        // `buildMember` walks the same expanded body, so the
-        // node-identity keys in `lookup` match its `buildExpr`. A member body sees
-        // no static-fn `selfKey` (a recursive `let rec` inside it would, but the
-        // member itself dispatches as a call, not a captured value). The closure's
-        // typar list is the declaring class typars (offset 0) followed by the
-        // member's own method typars.
+        // A member body sees no `selfKey`: the member dispatches as a call, not a captured
+        // value. Its closures' typar list is the declaring class typars (offset 0) followed
+        // by the member's own method typars.
         for root in memberRoots do
             go (root.DeclaringTypars + root.MethodTypars) root.DeclaringTypars ValueNone root.Body
 

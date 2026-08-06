@@ -10,23 +10,17 @@ open EmitResolve
 open EmitPattern
 open EmitDispatch
 
-/// The control-flow joins — `match`, `if/then/else`, and statement sequencing.
-/// Each leaves exactly one value; the builder's linear depth tracker is reset to
-/// the post-branch base before every join so later statement-discards stay
-/// correct (`IlIr.analyze` re-derives the buffer's true merge depths).
+/// The control-flow joins — `match`, `if/then/else`, statement sequencing. The builder's
+/// linear depth tracker follows one arm only, so both branching forms `SetDepth` back to
+/// the pre-branch base before the join.
 module EmitMatch =
 
     let buildMatch (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // Reached only via `EmitExpr`'s router, so `exprMatch` is a total projection.
         let view = TastAccessor.exprMatch e
         let scrutinee = view.Scrutinee
         let arms = view.Arms
-        // Evaluate the scrutinee once into a local, then test each arm in
-        // order: on a mismatch branch to the next arm; on a match (and a
-        // passing guard) emit the body and branch to the shared end. The
-        // builder's depth tracker is reset to the post-scrutinee base before
-        // each arm and before the end label (every body leaves one result);
-        // `IlIr.analyze` re-derives the buffer's merge depths.
+        // The scrutinee is evaluated once into a local; a mismatching arm — or a failing
+        // guard — branches to the next arm's test.
         let scrutSlot = b.Local(typeOfExpr scrutinee)
         recur env b scrutinee
         b.Add(ILInstr.Stloc scrutSlot)
@@ -53,16 +47,11 @@ module EmitMatch =
         b.Add(ILInstr.Mark endLabel)
 
     let buildIfThenElse (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // Reached only via `EmitExpr`'s router, so `exprIfThenElse` is a total projection.
         let view = TastAccessor.exprIfThenElse e
         let cond = view.Cond
         let thenExpr = view.ThenExpr
         let elseExpr = view.ElseExpr
-        // `<cond>; brfalse else; <then>; br end; else: <else>; end:`. Both
-        // arms leave one value; the builder's linear depth tracker (which
-        // follows only the then-arm) is reset to the post-`brfalse` base
-        // before the else-arm so subsequent statement-discards stay correct —
-        // the *buffer's* merge depths are re-derived by `IlIr.analyze`.
+        // `<cond>; brfalse else; <then>; br end; else: <else>; end:`.
         let elseLabel = b.Label()
         let endLabel = b.Label()
         recur env b cond
@@ -76,10 +65,8 @@ module EmitMatch =
         b.Add(ILInstr.Mark endLabel)
 
     let buildSequential (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
-        // Reached only via `EmitExpr`'s router, so `exprChildren` is a total projection.
-        // Every item but the last is a unit-typed statement: emit it and
-        // discard whatever value it leaves (popping back to the pre-item
-        // depth); the last item leaves the sequence's result.
+        // Every item but the last is a statement: pop whatever it leaves, back to the
+        // pre-item depth. The last item leaves the sequence's result.
         let items = TastAccessor.exprChildren e
         let n = items.Length
 

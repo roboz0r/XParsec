@@ -5,9 +5,8 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// A single CLR compilation's inputs, MSBuild-shaped. `BclReferences` is a DRIVER-level input
-/// by design and must NOT accrete onto `ProjectInfo`; `SelfManifest` is the package this
-/// compilation IS — a referenced package is RESOLVED against, the self package DEFINED.
+/// A single CLR compilation's inputs, MSBuild-shaped. `Manifests` are the packages this
+/// compilation resolves against; `SelfManifest` is the one it DEFINES.
 type ClrCompilation =
     {
         Project: ProjectInfo
@@ -32,18 +31,13 @@ module ClrCompilation =
 /// set, returning front-end errors rather than throwing.
 module ClrDriver =
 
-    // Front-end failures are user errors and surface as `Diagnostic`s. Codegen exceptions
-    // are NOT caught: a malformed emission is a compiler bug and must fail loudly.
     let private driverDiagnostic (message: string) : Diagnostic =
         Diagnostic.nowhere (Kind.Driver message)
 
-    /// The ANALYSIS diagnostics that block emission. One definition, because `compile` and
-    /// `compileCached` claim to gate identically and two copies is how that stops being true.
+    /// The ANALYSIS diagnostics that block emission.
     let private blockingErrors (tast: FrozenPools) : Diagnostic list =
         Diagnostic.errors tast.Residue.Diagnostics
 
-    /// ONE binding for the provider build and for the cache digest, which are computed in
-    /// different functions: a digest naming a different target would alias two targets' trees.
     let private clrTarget: string = Target.Clr
 
     /// Compile `source` to an in-memory PE against the compilation's own reference set. A
@@ -82,17 +76,9 @@ module ClrDriver =
                 SelfManifest = inputs.SelfManifest
             }
 
-    /// `compile`, routing the per-file front end through the frozen-compile cache against an
-    /// already-folded `digest`. A HIT skips parse + analyse + freeze; an errored front end is
-    /// returned as `Error` and NOT stored.
-    ///
-    /// The provider is built OUTSIDE the cache, on BOTH paths, because codegen consumes it
-    /// even on a hit — the cache elides only the front end, never emission. That is sound
-    /// only because the key covers every input the provider is built from as well as the
-    /// source: `compilationDigest` fills `Hashing.CompilationInputs` from exactly the four
-    /// arguments handed to `buildContractWithRefs`, plus the home assembly the minted keys
-    /// are rooted at. A digest folded from OTHER inputs than `inputs` is the one way to
-    /// misuse this, and is why `compilationDigest` takes the same `ClrCompilation` this does.
+    /// `compile` through the frozen-compile cache: a HIT skips parse + analyse + freeze, and an
+    /// errored front end comes back as `Error` and is NOT stored. Emission is never elided, so
+    /// the provider is built on both paths — and `digest` must be folded from THESE `inputs`.
     let compileCachedWith
         (store: ICacheStore)
         (digest: Hashing.CompilationDigest)
@@ -144,8 +130,7 @@ module ClrDriver =
         : Result<ClrArtifact, Diagnostic list> =
         compileCachedWith store (compilationDigest inputs) inputs source
 
-    /// THE shared multi-file glue seam: an ordered `(path, source)` list analysed as one
-    /// assembly, emitted as ONE PE — so emission composes ALL the files' views at once and a
+    /// An ordered `(path, source)` list analysed as one assembly and emitted as ONE PE, so a
     /// cross-file reference is re-homed to a local `MethodDef`. Diagnostics come back
     /// anchored to their own file rather than thrown.
     let compileAssemblyWith

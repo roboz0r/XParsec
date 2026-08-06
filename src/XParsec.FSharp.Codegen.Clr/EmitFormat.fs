@@ -6,20 +6,10 @@ open XParsec.FSharp.SemanticAnalysis.PrintfHoleForm
 open EmitTypes
 open EmitLower
 
-/// `ExprShape.Format` lowering, lifted out of `EmitExpr`. Self-contained apart from
-/// recursing into the expression compiler, which is passed in as `buildExpr`
-/// (the node lives behind a ref-struct local + sink, so it can't ride the
-/// `CallRecipe` model the rest of the call sites use).
 module EmitFormat =
-    /// Lower a `Format` node to the `Vesper.Formatter` write-through handler: a
-    /// ref-struct local constructed in place, then each segment folded
-    /// left-to-right (`AppendLiteral` for a literal run, `AppendFormatted<T>`
-    /// for a hole — its arg evaluated *here*, at its position), then a trailing
-    /// newline (printfn-style sinks) and flush, or `ToStringAndClear` for the
-    /// string sink. The node yields a value: the `unit` (zero-field
-    /// `System.ValueTuple`) of the writing sinks, or the result string of
-    /// `sprintf`. Not a `CallRecipe` — the recipe
-    /// model can't interleave literals/args around a ref-struct local + sink.
+    /// Lower a `Format` node against the `Vesper.Formatter` ref-struct handler:
+    /// construct it in place, fold the segments left-to-right (each hole's arg
+    /// evaluated at its position), then flush — or `ToStringAndClear` for `sprintf`.
     let buildFormat
         (buildExpr: EmitEnv -> IlBuilder -> TastAccessor.ExprId -> unit)
         (env: EmitEnv)
@@ -63,9 +53,7 @@ module EmitFormat =
             b.Add(ILInstr.Call(fh.CtorBuilder, 4, 0))
 
         // A float field form whose precision is a runtime star (`%.*f`/`%.*e`/`%.*g`/
-        // `%+.*f`): the source type letter + whether it is forced-sign (`Some space`).
-        // Any other form (static precision, or non-float) returns `None` and lowers via
-        // the static `toDotNetFormat` projection instead.
+        // `%+.*f`): its type letter, plus `Some space` when the form is forced-sign.
         let dynFloatOf (fmt: FieldFormat) : (char * bool option) option =
             match fmt with
             | FieldFormat.Fixed Prec.Star -> Some('f', None)
@@ -74,13 +62,9 @@ module EmitFormat =
             | FieldFormat.ForcedSign(space, Prec.Star, typeChar, _) -> Some(typeChar, Some space)
             | _ -> None
 
-        // A forced-sign FLOAT at a *static* precision, no zero-pad (`%+.Nf`/`% .Nf`/`%+e`/
-        // `% e`/`%+g`/`%+G`, and their width-as-alignment forms): `(typeChar, space,
-        // precision)`. Every float letter routes to the signed dynamic handler with a
-        // constant precision — it formats via a standard `"F<prec>"`/`"e<prec>"` body
-        // (round-half-to-even) then composes the sign, unlike the half-away .NET *section*
-        // format the fixed `'f'` form used to ride. Only the integer `'d'` stays on the
-        // section format (`toDotNetFormat`); integers carry no rounding.
+        // A forced-sign float at a *static* precision, no zero-pad (`%+.Nf`/`%+e`/`%+G`).
+        // It still routes to the signed dynamic handler: that rounds half-to-even via a
+        // `"F<prec>"` body, where a .NET *section* format would round half-away.
         let constSignedFloat (fmt: FieldFormat) : (char * bool * int) option =
             match fmt with
             | FieldFormat.ForcedSign(space, Prec.Const n, typeChar, Option.None) when
@@ -93,31 +77,25 @@ module EmitFormat =
                 Some(typeChar, space, n)
             | _ -> None
 
-        // A forced-sign fixed float that *also* zero-pads (`%+08.2f`/`% 08.2f`):
-        // `(space, "F<prec>" body, width)`. Formats the `"F<prec>"` body (half-to-even),
-        // forces the sign, then zero-pads after it to `width` — `AppendForcedSignZeroPaddedFloat`.
+        // A forced-sign fixed float that *also* zero-pads (`%+08.2f`/`% 08.2f`): the
+        // sign is composed first, then the zero-padding fills after it to `width`.
         let constSignedZeroPadFloat (fmt: FieldFormat) : (bool * string * int) option =
             match fmt with
             | FieldFormat.ForcedSign(space, Prec.Const n, 'f', Option.Some w) -> Some(space, "F" + string n, w)
             | _ -> None
 
-        // Emit one hole's handler call. `starWidthLocal`/`starPrecLocal = Some slot` for
-        // a hole whose width (`%*d`/`%*A`) / precision (`%.*f`/`%.*A`) is a runtime star:
-        // the value has already been guarded/clamped/normalized and spilled to that int
-        // local *before* the value expression (curried evaluation order: width, then
-        // precision, then value), so the alignment / width-budget / precision operand
-        // loads the local instead of a compile-time constant. `None` for a dim that is
-        // static (or a plain hole).
+        // Emit one hole's handler call. A `Some slot` marks a runtime star (`%*d`,
+        // `%.*f`) whose value was guarded and spilled to that int local BEFORE the value
+        // expression, so the operand loads the local rather than a constant.
         let emitHole
             (hole: Pooled.HoleSpec)
             (arg: TastAccessor.ExprId)
             (starWidthLocal: int option)
             (starPrecLocal: int option)
             =
-            // Push the alignment operand for an `Alignment`, returning whether one was
-            // pushed. `Star` loads the pre-spilled width local; `Const` a literal;
-            // `None` pushes `dflt` when the member always takes an operand (the
-            // `AppendBool`/`AppendUnsigned`/`AppendOctal` members), else nothing.
+            // Push the alignment operand, returning whether one was pushed. `None`
+            // pushes `dflt` for the members that always take an operand
+            // (`AppendBool` / `AppendUnsigned` / `AppendOctal`), else nothing.
             let pushAlign (align: Alignment) (dflt: int option) : bool =
                 match align with
                 | Alignment.Star _ ->
@@ -136,11 +114,9 @@ module EmitFormat =
                         true
                     | None -> false
 
-            // `%A`: `AppendStructured<T>(value, widthBudget, sizeBudget)`. The width
-            // budget resolves the `%0A`/`%NA`/plain default (80) statically, or — for
-            // `%*A` (`PrintWidth.Star`) — loads the clamped runtime width local; the
-            // size budget resolves F#'s `PrintSize` node count (`%.NA`, default 10000).
-            // The generic member boxes the value C#-side, so no explicit box in the IL.
+            // `%A`: `AppendStructured<T>(value, widthBudget, sizeBudget)`. Each budget
+            // resolves statically (`%NA` / `%.NA`), or loads the runtime local spilled
+            // for `%*A` / `%.*A`.
             let percentA (width: PrintWidth) (size: PrintSize) =
                 b.Add(ILInstr.Ldloca slot)
                 buildExpr env b arg
@@ -161,13 +137,9 @@ module EmitFormat =
 
                 b.Add(ILInstr.Call(fh.AppendStructured hole.Ty, 4, 0))
 
-            // A float field form routed through the dynamic-precision member: a *runtime*
-            // precision (`%.*f`/`%.*e`/`%.*g`/`%+.*f` — `pushPrec` loads the spilled
-            // precision local) or a forced-sign scientific / compact form at a *static*
-            // precision (`%+e`/`%+g` — `pushPrec` a constant, since notation can't ride a
-            // section format). Pushes (value, typeChar, precision, alignment[, space]).
-            // `alignment` is the width slot — a `Star` loads the spilled width local, a
-            // `Const` a literal, `None` 0.
+            // The dynamic-precision float member — either a runtime precision (`%.*f`,
+            // `pushPrec` loads the spilled local) or a forced-sign `%+e`/`%+g` at a
+            // static one. Pushes (value, typeChar, precision, alignment[, space]).
             let dynamicFloat (typeChar: char) (signedSpace: bool option) (align: Alignment) (pushPrec: unit -> unit) =
                 b.Add(ILInstr.Ldloca slot)
                 buildExpr env b arg
@@ -181,10 +153,8 @@ module EmitFormat =
                     b.Add(ILInstr.LdcI4(if space then 1 else 0))
                     b.Add(ILInstr.Call(fh.AppendDynamicPrecisionSignedFloat, 6, 0))
 
-            // `%+08.2f`/`% 08.2f`: `AppendForcedSignZeroPaddedFloat(value, "F<prec>" body,
-            // width, space)` — formats the body (half-to-even), forces the sign, then
-            // zero-pads after it. The width rides inside the `FieldFormat` (there is no
-            // separate alignment slot for a zero-pad form).
+            // `%+08.2f`: format the `"F<prec>"` body, force the sign, then zero-pad after
+            // it. The width rides inside the `FieldFormat`, not in an alignment slot.
             let forcedSignZeroPadFloat (space: bool) (body: string) (width: int) =
                 b.Add(ILInstr.Ldloca slot)
                 buildExpr env b arg
@@ -217,11 +187,9 @@ module EmitFormat =
                 | PrintfSpec.HoleKind.BoolText
                 | PrintfSpec.HoleKind.Octal
                 | PrintfSpec.HoleKind.Unsigned ->
-                    // A dedicated handler member `(value, int alignment)` — no
-                    // .NET format string. The alignment is always pushed (0 ⇒ no
-                    // padding), from the star width local when present; `%u`'s
-                    // `int`→`uint` is a free CLI-stack reinterpret, so the arg is
-                    // emitted unchanged.
+                    // A dedicated `(value, int alignment)` member, no .NET format string;
+                    // alignment `0` means no padding. `%u`'s `int`→`uint` is a free
+                    // CLI-stack reinterpret, so the arg is emitted unchanged.
                     let handle =
                         match kind with
                         | PrintfSpec.HoleKind.BoolText -> fh.AppendBool
@@ -235,11 +203,9 @@ module EmitFormat =
 
                 | PrintfSpec.HoleKind.OctalZeroPad
                 | PrintfSpec.HoleKind.UnsignedZeroPad ->
-                    // `AppendZeroPadded{Octal,Unsigned}(value, width)` — the field
-                    // width rides in the alignment slot as a `Const` (the projection
-                    // guarantees it; a star never reaches the zero-pad forms). `%u`'s
-                    // `int`→`uint` is a free CLI-stack reinterpret, so the arg is
-                    // emitted unchanged, like `Unsigned`.
+                    // `AppendZeroPadded{Octal,Unsigned}(value, width)` — the field width
+                    // rides in the alignment slot as a `Const`, since a star never
+                    // reaches the zero-pad forms.
                     let handle =
                         match kind with
                         | PrintfSpec.HoleKind.OctalZeroPad -> fh.AppendZeroPaddedOctal
@@ -257,12 +223,9 @@ module EmitFormat =
 
                 | PrintfSpec.HoleKind.ZeroPaddedFloat
                 | PrintfSpec.HoleKind.RightZeroPaddedFloat ->
-                    // `AppendZeroPaddedFloat(value, body, width)` (`%0w.pf`, and the
-                    // scientific / compact `%014e`/`%010g` over the `"e6"`/`"g6"` body)
-                    // zero-pads *after any sign*; `AppendRightZeroPaddedFloat` (`%-0w.pf`)
-                    // pads on the RIGHT instead. Both take the format body in `format` and
-                    // the field width in the alignment slot as a `Const` (guaranteed by the
-                    // projection; a star never reaches the zero-pad forms).
+                    // `AppendZeroPaddedFloat(value, body, width)` (`%0w.pf`, `%014e`)
+                    // zero-pads AFTER any sign; `%-0w.pf` pads on the right instead. The
+                    // width rides in the alignment slot as a `Const`, never a star.
                     let fmt =
                         match format with
                         | Some f -> f
@@ -284,11 +247,7 @@ module EmitFormat =
                     b.Add(ILInstr.LdcI4 width)
                     b.Add(ILInstr.Call(handle, 4, 0))
 
-                | PrintfSpec.HoleKind.Structured ->
-                    // `toDotNetFormat` only projects `FieldFormat`s, so `Structured`
-                    // never reaches here — `%A` is emitted by `percentA` from
-                    // `HoleForm.PercentA`.
-                    failwith "Emit: %A reached the Field projection (unreachable)"
+                | PrintfSpec.HoleKind.Structured -> failwith "Emit: %A reached the Field projection (unreachable)"
 
             match hole.Source with
             | HoleSpecSource.RawFormat fmt ->
@@ -296,9 +255,8 @@ module EmitFormat =
                 // format string with no printf placeholder.
                 field PrintfSpec.HoleKind.Formatted fmt Alignment.None
             | HoleSpecSource.Classified(HoleForm.Callback _) ->
-                // `%a`/`%t` callback holes ride a `CallbackHole` segment whose residue
-                // string is spliced directly (see the segment loop); a callback spec's
-                // `HoleForm` is provenance only and never reaches this field projection.
+                // `%a`/`%t` ride a `CallbackHole` segment whose residue string is spliced
+                // directly; a callback spec's `HoleForm` is provenance only.
                 failwith "Emit: callback hole reached the Field projection (unreachable)"
             | HoleSpecSource.Classified(HoleForm.PercentA(width, size)) -> percentA width size
             | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)) ->
@@ -326,19 +284,16 @@ module EmitFormat =
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
             | FormatSegG.Hole(hole, arg) -> emitHole hole arg None None
             | FormatSegG.CallbackHole(_, residue) ->
-                // `%a`/`%t`: Elaborate already lowered the callback (+ any scratch sink) to
-                // an ordinary residue-*string* expr; splice it exactly like a literal —
-                // codegen has no sink knowledge. (`sprintf` = the callback's return;
-                // writer/builder = a `{ let s = new … in cb s …; s.ToString() }` block.)
+                // `%a`/`%t`: the callback (and any scratch sink) was already lowered to an
+                // ordinary residue-*string* expr, so splice it exactly like a literal —
+                // codegen has no sink knowledge.
                 b.Add(ILInstr.Ldloca slot)
                 buildExpr env b residue
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
             | FormatSegG.DynHole d ->
-                // Curried application evaluates the dimension args *before* the value,
-                // but the handler members take them *after* the value — so spill each
-                // present dim (width first, then precision) to a local, then emit the
-                // value. (Invariant: `d.Spec.Source`'s star classification agrees with
-                // which of `d.Width`/`d.Precision` are present — same placeholder.)
+                // Curried application evaluates the dimension args BEFORE the value, but
+                // the handler members take them AFTER it — so spill each present dim
+                // (width first, then precision) to a local, then emit the value.
                 let wLocal =
                     match d.Width with
                     | ValueNone -> None
@@ -353,19 +308,15 @@ module EmitFormat =
 
                         match starWidthClamp form with
                         | ValueSome StarWidthClamp.Guard ->
-                            // Padding forms: F# throws on a negative width. Guard, then
-                            // negate *after* the guard for a `-`-flag left-justify (the
+                            // The `-`-flag left-justify negates AFTER the guard (the
                             // members read a negative alignment as left-justify), so a
-                            // negative width still throws rather than right-justifying.
+                            // negative runtime width still throws.
                             b.Add(ILInstr.Call(fh.GuardTotalWidth, 1, 1))
 
                             match form with
                             | HoleForm.Field(_, Alignment.Star true) -> b.Add(ILInstr.Un ILOpCode.Neg)
                             | _ -> ()
-                        | ValueSome StarWidthClamp.Clamp ->
-                            // `%*A`: a negative budget renders flat (F# does not throw),
-                            // so clamp to 0 rather than guard-throwing.
-                            b.Add(ILInstr.Call(fh.ClampWidth, 1, 1))
+                        | ValueSome StarWidthClamp.Clamp -> b.Add(ILInstr.Call(fh.ClampWidth, 1, 1))
                         | ValueNone ->
                             failwith "Emit: DynHole star width without a star-carrying spec (invariant broken)"
 
@@ -379,10 +330,6 @@ module EmitFormat =
                         let l = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
                         buildExpr env b precExpr
 
-                        // `normalizePrecision` (clamp 0..99) applies ONLY on the two-star
-                        // float-field path (`printf.fs:632`); the prec-star-only paths keep
-                        // the raw precision (`:649-657`) and `%A` sets `PrintSize` raw
-                        // (`:1114`). The shared classifier owns that rule.
                         match d.Spec.Source with
                         | HoleSpecSource.Classified form when normalizesStarPrecision form ->
                             b.Add(ILInstr.Call(fh.NormalizePrecision, 1, 1))
@@ -409,8 +356,6 @@ module EmitFormat =
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b
         | FormatSinkG.ToWriter(_, nl) ->
-            // `fprintfn` appends the trailing `\n` before flushing, exactly as the
-            // `ToStdOut`/`ToStdErr nl` sinks do; `fprintf` (`nl = false`) does not.
             if nl then
                 b.Add(ILInstr.Ldloca slot)
                 b.Add(ILInstr.Ldstr(env.Ctx.UserString "\n"))
@@ -420,8 +365,7 @@ module EmitFormat =
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b
         | FormatSinkG.ToBuilder _ ->
-            // `bprintf` has no newline variant, so no trailing `\n` — just flush the
-            // buffered text to the `StringBuilder` sink and yield unit.
+            // `bprintf` has no newline variant — no trailing `\n`, just flush.
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b

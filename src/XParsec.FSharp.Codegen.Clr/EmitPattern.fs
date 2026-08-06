@@ -9,10 +9,8 @@ open EmitTypes
 open EmitLower
 open EmitResolve
 
-/// The recur-free core of expression emission: variable loads, tuple
-/// destructuring, the match-test compiler, the irrefutable binder, and the
-/// match-failure fallthrough. None of these call back into `buildExpr`, so they
-/// carry no `Recur` seam and are compiled ahead of every arm-group module.
+/// Variable loads, tuple destructuring, the match-test compiler and the irrefutable
+/// binder. Nothing here takes a `Recur`, so nothing calls back into `buildExpr`.
 module EmitPattern =
 
     /// Load a variable for the current method: a method parameter (`ldarg.i`),
@@ -24,7 +22,7 @@ module EmitPattern =
         | false, _ ->
 
             match env.SelfKey with
-            | ValueSome s when s = key -> b.Add(ILInstr.Ldarg 0) // `this` — the recursive self
+            | ValueSome s when s = key -> b.Add(ILInstr.Ldarg 0)
             | _ ->
                 match env.CaptureFields.TryGetValue key with
                 | true, field ->
@@ -35,15 +33,9 @@ module EmitPattern =
                     | true, slot -> b.Add(ILInstr.Ldloc slot)
                     | false, _ ->
                         // A module-level value (`let x = e` at module scope) is a
-                        // `public static` field on its module holder; load it with
-                        // `ldsfld`. Last arm: a
-                        // module value is never an arg/self/capture/local.
+                        // `public static` field on its module holder — `ldsfld`.
                         match env.ModuleValues.TryGetValue key with
                         | true, field -> b.Add(ILInstr.Ldsfld field)
-                        // Name the surrounding binder counts so a missing capture /
-                        // local / arg is pinpointable rather than anonymous (a
-                        // member body has `selfKey`/args; a static fn has args only;
-                        // a closure `Invoke` has capture fields).
                         | false, _ ->
                             failwithf
                                 "Emit: no binding for variable %O (selfKey=%A captures=%d slots=%d args=%d)"
@@ -53,18 +45,14 @@ module EmitPattern =
                                 env.Slots.Count
                                 env.Args.Count
 
-    /// The element types of a tuple `FrozenType`. A hard failure if the front end
-    /// typed a tuple pattern / value as something other than `FTTuple` — an internal
-    /// invariant break, not user error.
     let tupleElemTys (ty: FrozenType) : FrozenType list =
         match ty with
         | FTTuple xs -> EqArray.toList xs
         | other -> failwithf "Emit: expected a tuple type, got: %A" other
 
-    /// Emit the `ldfld` chain that reads element `index` of a `ValueTuple` value
-    /// already on the stack. Arity ≤ 7 is a single `Item{i+1}` load; in the nested
-    /// ≥ 8 layout an index ≥ 7 loads `Rest` then chases the residual index into the
-    /// nested tuple, recursively.
+    /// Read element `index` of a `ValueTuple` already on the stack. Arity ≤ 7 is one
+    /// `Item{i+1}` load; in the nested ≥ 8 layout an index ≥ 7 loads `Rest` and chases
+    /// the residual index into the nested tuple.
     let rec emitTupleItemLoad (b: IlBuilder) (refs: ValueTupleHandles) (index: int) : unit =
         match refs.Rest with
         | ValueSome rest when index >= 7 ->
@@ -72,12 +60,9 @@ module EmitPattern =
             emitTupleItemLoad b rest.Nested (index - 7)
         | _ -> b.Add(ILInstr.Ldfld refs.ItemFields.[index])
 
-    /// Decompose a `ValueTuple` value held in local `srcSlot`: for each
-    /// non-wildcard element, load its slot (`emitTupleItemLoad`, Rest-chasing for
-    /// arity ≥ 8) into a fresh local and hand that to `recur` (a wildcard binds
-    /// nothing, so its field load is skipped). A tuple never branches on shape, so
-    /// this is the one tuple-destructuring primitive behind both the match compiler
-    /// (`buildMatchTest`) and the irrefutable binder (`bindPattern`).
+    /// Decompose a `ValueTuple` held in local `srcSlot`: load each non-wildcard
+    /// element into a fresh local and hand that to `recur`. A wildcard binds nothing,
+    /// so its field load is skipped.
     let destructureTuple
         (env: EmitEnv)
         (b: IlBuilder)
@@ -100,50 +85,29 @@ module EmitPattern =
                 recur fldSlot subPat
         )
 
-    /// The built-in scalars whose CLR representation is a VALUE type: every numeric
-    /// (`RuntimeNames.numericTypeNames`, the shared source) plus this site's own two
-    /// non-numeric extras. `string` / `obj` / `unit` are absent — reference types.
+    /// The scalars whose CLR representation is a VALUE type. `string` / `obj` / `unit`
+    /// are absent — reference types.
     let private valueTypePrimitiveNames: Set<string> =
         RuntimeNames.numericTypeNames |> Set.add "bool" |> Set.add "char"
 
-    /// Whether a (zonked) `FrozenType` is a CLR value type — drives the box vs
-    /// no-op choice on `:>` and the `unbox.any` vs `castclass` choice on `:?>`
-    /// (and the type-test pattern's `isinst` bind). User records / unions /
-    /// classes are reference types (rung 2); the BCL primitives bound as
-    /// `TyConst` are value types. `string` / `obj` are reference types despite
-    /// being `TyConst`.
+    /// A CLR value type: one of the scalars above, or a `[<Struct>]` class / record —
+    /// emitted into this assembly, or living in a referenced package.
     let isValueType (env: EmitEnv) (ty: FrozenType) : bool =
         match ty with
-        // Numeric primitives (incl. `decimal`) share `RuntimeNames.numericTypeNames`;
-        // `bool` / `char` are the two non-numeric value-type scalars. `string` / `obj`
-        // are `TyConst` but reference types, so they're excluded (not in the set).
-        // Matched by KEY (`isPrimitiveKeyIn` compares the `Vesper` intrinsic identity, not
-        // the display name), so a user type named `int` elsewhere is not a value type here.
         | FTConst(key, _) -> RuntimeNames.isPrimitiveKeyIn valueTypePrimitiveNames key
-        // A user-declared `[<Struct>]` type emitted into this assembly:
-        // the `EmittedClass.IsValueType` flag drives
-        // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type. A
-        // struct that lives in a *referenced* package (not in `env.Classes`) is
-        // recognised the same way via the provider's external value-type flag —
-        // the contract/metadata layer's `IsValueType`.
         | FTClass(key, _) ->
             match env.Classes.TryGetValue(SymbolKey.Type key) with
             | true, c -> c.IsValueType
             | false, _ -> env.Provider.IsExternalValueType(SymbolKey.Type key)
-        // A user-declared `[<Struct>]` record: the `EmittedRecord.IsValueType` flag,
-        // or the provider's external value-type flag for one in a referenced package.
         | FTRecord(key, _) ->
             match env.Records.TryGetValue(SymbolKey.Type key) with
             | true, r -> r.IsValueType
             | false, _ -> env.Provider.IsExternalValueType(SymbolKey.Type key)
         | _ -> false
 
-    /// Test a pattern against the value already stored in local `scrutSlot`:
-    /// branch to `nextLabel` on mismatch, and bind any pattern variables. A
-    /// `Const` compares (`bne.un` skips the arm); `Wildcard` / `NamedSimple`
-    /// always match (the latter aliases its binding to `scrutSlot`, so
-    /// `emitVarLoad` resolves it to the same local — no copy). Union / tuple /
-    /// record patterns land in later rung-2 slices.
+    /// Test a pattern against the value in local `scrutSlot`: branch to `nextLabel` on
+    /// a mismatch, and bind any pattern variables. `NamedSimple` aliases its binder to
+    /// `scrutSlot` rather than copying, so a later load resolves to the same local.
     let rec buildMatchTest
         (env: EmitEnv)
         (b: IlBuilder)
@@ -151,8 +115,8 @@ module EmitPattern =
         (nextLabel: int)
         (pat: TastAccessor.PatId)
         : unit =
-        // `ldfld` a field of the scrutinee into a fresh local, then test its
-        // sub-pattern against that local (a named sub-pattern just aliases it).
+        // `ldfld` a field of the scrutinee into a fresh local, then test the
+        // sub-pattern against that local.
         let extractField (fieldRef: EntityHandle) (subPat: TastAccessor.PatId) =
             let fldSlot = b.Local(typeOfPat subPat)
             b.Add(ILInstr.Ldloc scrutSlot)
@@ -171,16 +135,9 @@ module EmitPattern =
             let enumKey = enumCase.EnumKey
             let caseName = enumCase.CaseName
 
-            // v1 = equality only; binds nothing (a named case is a singleton). The
-            // comparison depends on the enum's repr:
-            //  * NUMERIC (5a): load the scrutinee (an enum value) and the case's
-            //    underlying integer constant, then `bne.un`. The scrutinee value type
-            //    is treated as its underlying integer for the compare.
-            //  * STRING/MIXED (5b): the wrapper holds a `string` / `obj` field; compare
-            //    the scrutinee's field against the case literal via
-            //    `EqualityComparer<field>.Default.Equals` — the same field-equality
-            //    recipe records use (string equality for `string`, structural object
-            //    equality for the boxed `obj`), NOT a `ceq` (reference) compare.
+            // A named case is a singleton, so this is equality only and binds nothing. A
+            // string / mixed enum compares its backing field via
+            // `EqualityComparer<field>.Default.Equals`, not a reference `ceq`.
             match env.Enums.TryGetValue enumKey with
             | true,
               {
@@ -217,9 +174,6 @@ module EmitPattern =
                 b.Add loadCase
                 b.Add(ILInstr.BneUn nextLabel)
         | PatShape.Null ->
-            // `null` pattern: match only a null scrutinee. A non-null value
-            // (`brtrue`) skips the arm; null falls through to the body. Binds
-            // nothing.
             b.Add(ILInstr.Ldloc scrutSlot)
             b.Add(ILInstr.Brtrue nextLabel)
         | PatShape.Const ->
@@ -227,10 +181,8 @@ module EmitPattern =
             b.Add(ILInstr.Ldloc scrutSlot)
 
             match value with
-            // The scrutinee slot carries the constant's own width, and so does the
-            // load (`pushIntConst`, shared with the `Const` expression) — including the
-            // pointer-width conversion a `nativeint` slot needs before `bne.un`
-            // compares it.
+            // The load carries the constant's own width, including the pointer-width
+            // conversion a `nativeint` needs before `bne.un` compares it.
             | TConstValue.Integral(w, bits) -> pushIntConst b w bits
             | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
             | TConstValue.Char c -> b.Add(ILInstr.LdcI4(int c))
@@ -240,26 +192,20 @@ module EmitPattern =
         | PatShape.Union ->
             let caseName = TastAccessor.patUnionCaseName pat
             let ty = TastAccessor.patTy pat
-            // Local union table keys by the nominal `TypeKey`; the external union
-            // provider lookups take the qualified compiled name derived from it.
             let key, tyArgs = nominalShape "union pattern" ty
             let qualName = SymbolKeyOps.typeMetaName key
 
-            // The discriminator field + its value for this case, and a per-index
-            // field-ref source, resolved from either the local emitted union or a
-            // *referenced-package* one (`match o with Some x -> …`)
-            // The emit sequence below is identical for both — only the
-            // handle source differs (local `Def`/`MemberRef` tokens vs the provider's
-            // refs minted off the external union shape, which keeps the field names +
-            // declaration-order tagging in lockstep with the union emitter).
+            // The tag field, this case's tag value, and a per-index field-ref source —
+            // from the union emitted here, or the provider's refs for one in a
+            // referenced package (`match o with Some x -> …`).
             let tagRef, tagValue, fieldRef =
                 match env.Unions.TryGetValue(SymbolKey.Type key) with
                 | true, u ->
                     let c = u.Cases.[caseName]
 
-                    // Tag / field access is a `Def` token for a monomorphic union, but
-                    // a `MemberRef` on the instantiated `TypeSpec` for a generic one
-                    // (`List<int>::_tag` etc.) — see `EmittedUnion.Typars`
+                    // Tag / field access is a `Def` token for a monomorphic union, but a
+                    // `MemberRef` on the instantiated `TypeSpec` for a generic one
+                    // (`List<int>::_tag`).
                     let tagRef =
                         memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember UnionMember.Tag) u.TagField
 
@@ -300,11 +246,8 @@ module EmitPattern =
         | PatShape.Record ->
             let fields = TastAccessor.patRecordFields pat
             let ty = TastAccessor.patTy pat
-            // A record pattern never fails on shape (no tag to compare): for each
-            // named sub-pattern, `ldfld` the field into a fresh local and recurse
-            // — only the sub-patterns themselves can branch to `nextLabel`. A
-            // wildcard sub-pattern is skipped (it would always match), exactly
-            // like the union arm above.
+            // A record pattern never fails on shape — there is no tag to compare, so
+            // only its sub-patterns can branch to `nextLabel`.
             let key, tyArgs = nominalShape "record pattern" ty
 
             match env.Records.TryGetValue(SymbolKey.Type key) with
@@ -328,9 +271,7 @@ module EmitPattern =
                         | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
             | false, _ -> failwithf "Emit: no emitted record for pattern on '%A'" key
         | PatShape.Tuple ->
-            // A tuple pattern never fails on shape (a `ValueTuple`n` has no tag):
-            // decompose each element and recurse — only the sub-patterns can branch
-            // to `nextLabel`, exactly like the union / record arms above.
+            // A `ValueTuple` has no tag, so only the sub-patterns can branch.
             destructureTuple
                 env
                 b
@@ -341,12 +282,9 @@ module EmitPattern =
         | PatShape.TypeTestAs ->
             let testTy = TastAccessor.patTypeTestTestTy pat
             let inner = TastAccessor.patChild pat 0
-            // `:? T as x` → `isinst T` then a null check: a non-`T` value yields
-            // null (`brfalse` skips the arm). On a match the cast-down value is
-            // stored to a `T`-typed local; for a value-type target the `isinst`
-            // result is a boxed `T`, so `unbox.any` it back to the unboxed slot.
-            // The inner pattern (the `as`-name) then binds against that local
-            // (a `NamedSimple` just aliases it — same as the other arms).
+            // `:? T as x` → `isinst T` then a null check (`brfalse` skips the arm). For a
+            // value-type target `isinst` leaves a boxed `T`, so `unbox.any` it into the
+            // `T`-typed local the inner pattern binds against.
             let token = env.Provider.TypeToken testTy
             b.Add(ILInstr.Ldloc scrutSlot)
             b.Add(ILInstr.Isinst token)
@@ -369,14 +307,8 @@ module EmitPattern =
                 buildMatchTest env b castSlot nextLabel inner
         | PatShape.Or ->
             let alts = TastAccessor.patChildren pat
-            // `p1 | … | pn`: test each alternative against the same scrutinee, in
-            // order. The first that matches falls through to `matchedLabel` (the
-            // arm body); a failing alternative branches to the next alternative's
-            // test; the last alternative's failure is the whole arm's failure
-            // (`nextLabel`). Each `buildMatchTest` is depth-neutral, so no
-            // `SetDepth` is needed between alternatives. Alternatives bind nothing
-            // (name resolution drops or-pattern binders), so there is no binder to
-            // reconcile across the join.
+            // Every alternative tests the same scrutinee and binds nothing — name
+            // resolution rejects an or-pattern that binds.
             let matchedLabel = b.Label()
             let n = alts.Length
 
@@ -393,13 +325,9 @@ module EmitPattern =
 
             b.Add(ILInstr.Mark matchedLabel)
 
-    /// Bind an *irrefutable* pattern against a value already in local `srcSlot` — the
-    /// shared destructuring binder for `let` / `for-in` (and, in Step 5, a tuple
-    /// lambda parameter). Unlike the match compiler's `buildMatchTest`, this never
-    /// branches: a `let` / `for` pattern is assumed to match on shape. A
-    /// `NamedSimple` aliases its binding directly to `srcSlot` (no copy, exactly as
-    /// the match arm does); a `Tuple` `ldfld`s each `ValueTuple`n` `Item` field into
-    /// a fresh local and recurses; `Wildcard` / `Const` bind nothing.
+    /// Bind an *irrefutable* pattern against the value in local `srcSlot` — the `let` /
+    /// `for-in` destructuring binder. It emits no branch at all: shape is assumed to
+    /// match rather than tested, and `NamedSimple` aliases `srcSlot` rather than copying.
     let rec bindPattern (env: EmitEnv) (b: IlBuilder) (srcSlot: int) (pat: TastAccessor.PatId) : unit =
         match TastAccessor.patKind pat with
         | PatShape.Wildcard -> ()
@@ -412,10 +340,8 @@ module EmitPattern =
             destructureTuple env b srcSlot (TastAccessor.patTy pat) (TastAccessor.patChildren pat) (bindPattern env b)
         | _ -> failwithf "Emit: destructuring pattern is out of scope: %A" pat
 
-    /// The fallthrough a `match` reaches when no arm matched — `throw new
-    /// System.Exception("…")`. An exhaustive match never reaches it at runtime,
-    /// but it keeps the emitted IL well-formed (and gives a non-exhaustive one
-    /// defined behaviour).
+    /// The fallthrough when no arm matched — a `throw` terminates the path off the last
+    /// arm, and gives a non-exhaustive match defined behaviour.
     let buildMatchFailure (env: EmitEnv) (b: IlBuilder) : unit =
         b.Add(ILInstr.Ldstr(env.Ctx.UserString "The match cases were incomplete"))
         b.Add(ILInstr.Newobj(env.Provider.ExceptionCtor, 1))

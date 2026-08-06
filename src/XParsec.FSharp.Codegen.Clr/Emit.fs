@@ -8,13 +8,8 @@ open EmitTypes
 open EmitPattern
 open EmitExpr
 
-/// The codegen TAST walker, split across modules: `EmitLower` (External-as-value
-/// eta-reification; inline expansion — operators included —
-/// ran pre-freeze in `Passes.InlineExpansion`), `EmitClosures` (closure / static-method
-/// discovery), `EmitExpr` (`TastAccessor.ExprId` -> IL via the depth-tracked `Cil` helpers),
-/// and this `Emit` (the method/body builders codegen calls). The shared data
-/// types live in `EmitTypes`. This module re-exports the public surface of the
-/// helper modules so callers keep using `Emit.*`.
+/// The method and body builders codegen calls. Re-exports the helper modules' public
+/// surface so callers keep using `Emit.*`.
 module Emit =
 
     type Closure = EmitTypes.Closure
@@ -52,10 +47,9 @@ module Emit =
     let staticFnTypars = EmitClosures.staticFnTypars
     let discoverClosures = EmitClosures.discoverClosures
 
-    /// Build the `Main` body from the *lowered* decls. Each top-level `let`
-    /// binds a `Main` local — except a function lowered to a static method,
-    /// which has no value here; each effectful expression is emitted in source
-    /// order; then `ldc.i4.0; ret`. (Inline bindings were removed by `lower`.)
+    /// Build the `Main` body from the lowered decls: each top-level `let` binds a
+    /// `Main` local, each effectful expression is emitted in source order, then
+    /// `ldc.i4.0; ret`.
     let buildMain (ctx: EmitContext) (decls: TastAccessor.DeclId list) : ILBody =
         let b = IlBuilder()
         let env = EmitEnv.ofContext ctx (Dictionary())
@@ -67,22 +61,17 @@ module Emit =
             | DeclShape.Let ->
                 let dl = TastAccessor.declLet d
 
-                // A simple (`NamedSimple`) binding carries the single binder its guards
-                // dispatch on; any other binding shape (a destructuring tuple/record/…)
-                // binds through nested sub-patterns and takes the fall-through arm.
                 match TastAccessor.patBinder dl.Binding with
                 // A function emitted as a static method has no Main local.
                 | ValueSome binding when ctx.StaticMethods.ContainsKey binding -> ()
-                // A top-level ("Program") value that follows a top-level `do`: its
-                // `public static` field is written **here**, in `Main`, in source order —
-                // not in the Program `.cctor` (which runs before `Main`). A reference reads
-                // `ldsfld` via `ModuleValues`. (Checked before the `ModuleValues` skip,
-                // which it would otherwise match.)
+                // A top-level value that follows a top-level `do`: its `public static`
+                // field is written here, in source order — not in the Program `.cctor`,
+                // which runs before `Main`.
                 | ValueSome binding when ctx.MainInitValues.ContainsKey binding ->
                     buildExpr env b dl.Value
                     b.Add(ILInstr.Stsfld ctx.MainInitValues.[binding])
-                // A module-level value is a `public static` field initialised by its
-                // holder's `.cctor`; a reference loads it with `ldsfld`, so it needs no Main local.
+                // A module-level value is a `public static` field its holder's `.cctor`
+                // initialises; a reference `ldsfld`s it, so it needs no Main local.
                 | ValueSome binding when ctx.ModuleValues.ContainsKey binding -> ()
                 | ValueSome binding ->
                     let slot = b.Local dl.Ty
@@ -90,11 +79,8 @@ module Emit =
                     buildExpr env b dl.Value
                     b.Add(ILInstr.Stloc slot)
                 // A destructuring top-level `let (a, b) = tupleExpr`: evaluate the value
-                // once into a Main local, then `bindPattern` (irrefutable) pulls each leaf
-                // into its own slot — the same destructuring `EmitBindings.buildLet` does
-                // for an in-expression `let`. Without this arm the binding was silently
-                // dropped by the catch-all below, so a later use of `a` / `b` hit
-                // "Emit: no binding for variable".
+                // once into a Main local, then `bindPattern` pulls each leaf into its
+                // own slot.
                 | ValueNone ->
                     let slot = b.Local(EmitLower.typeOfExpr dl.Value)
                     buildExpr env b dl.Value
@@ -117,17 +103,14 @@ module Emit =
         let args = Dictionary<BinderId, int>()
         args.[closure.ParamKey] <- 1 // `this` is 0; the single applied parameter is 1
 
-        // A flat (`Fun`(N+1)`) value-struct closure has EXTRA flat parameters (the
-        // peeled inner-`Lambda` binders): extra param `i` (0-based) is `ldarg.(2+i)`.
+        // A flat closure's extra (peeled inner-`Lambda`) parameters: extra param `i`,
+        // 0-based, is `ldarg.(2+i)`.
         closure.ExtraParams |> List.iteri (fun i (pk, _, _) -> args.[pk] <- 2 + i)
 
         let env = EmitEnv.create ctx closure.SelfKey captureFields args
 
         // A destructuring tuple parameter (`fun (a, b) -> …`): `ldarg.1` holds the
-        // `ValueTuple`n` value; spill it to a local and `bindPattern` the leaf
-        // element bindings out of it before the body runs. A
-        // `NamedSimple` / unit param needs none of this — it resolves through
-        // `args.[ParamKey] = 1` directly.
+        // `ValueTuple`n`; spill it to a local and `bindPattern` the leaves out of it.
         match TastAccessor.patKind closure.ParamPat with
         | PatShape.Tuple ->
             let slot = b.Local closure.ParamTy
@@ -140,21 +123,17 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a static-method function's body: bind each flattened
-    /// parameter to its `ldarg` index (a static method has no `this`, so the
-    /// first parameter is `ldarg.0`), evaluate the body leaving its result on the
-    /// stack, then `ret`. A recursive self-call resolves to a direct `call`
-    /// through `staticMethods` (the `App` arm), so no self-binding is needed.
+    /// Build a static-method function's body: bind each flattened parameter to its
+    /// `ldarg` index (no `this`, so the first parameter is `ldarg.0`), evaluate the
+    /// body onto the stack, then `ret`.
     let buildStaticMethod (ctx: EmitContext) (fn: StaticFn) : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BinderId, int>()
         fn.Params |> List.iteri (fun i p -> args.[p.Slot] <- i)
         let env = EmitEnv.ofContext ctx args
 
-        // A destructuring tuple parameter (`fun (a, b) -> …`): its `ldarg.i` holds
-        // the `ValueTuple`n` value; spill it to a local and `bindPattern` the leaf
-        // bindings out before the body runs — exactly as `buildClosureInvoke` does
-        // for a tuple closure parameter. Simple/unit params resolve through `args`.
+        // A destructuring tuple parameter: its `ldarg.i` holds the `ValueTuple`n`;
+        // spill it to a local and `bindPattern` the leaves out of it.
         fn.Params
         |> List.iteri (fun i p ->
             match p.Pat with
@@ -168,11 +147,9 @@ module Emit =
 
         buildExpr env b fn.Body
 
-        // A `unit`-returning module function emits genuine CLR `void`: the
-        // body leaves the `unit`-as-value `System.ValueTuple` on the stack (every
-        // Vesper expression yields a value), so pop it before `ret` — the same pop
-        // `buildMember` performs for a `void` member. A body that terminates
-        // (`raise`/`Throw`) leaves depth 0; any deeper stack is a codegen bug.
+        // Every Vesper expression yields a value, so a `void` body leaves the
+        // `unit`-as-`ValueTuple` on the stack — pop it before `ret`. A body that
+        // terminates (`raise`) already left depth 0.
         if fn.ReturnsVoid then
             match b.Depth with
             | 0 -> ()
@@ -182,12 +159,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a union augmentation member's body. An instance member's
-    /// `this` is `ldarg.0` (`thisKey`), its parameters `ldarg.1…`; a static
-    /// member's parameters start at `ldarg.0`. The body leaves its result on the
-    /// stack, then `ret`. Member bodies don't synthesise closures (the closure
-    /// discovery pass walks only value/expression decls), so an empty
-    /// closure/ctor map is passed.
+    /// Build a nominal member's body: an instance member's `this` is `ldarg.0` and its
+    /// parameters `ldarg.1…`, a static member's parameters start at `ldarg.0`. Member
+    /// bodies synthesise no closures, so an empty capture map is passed.
     let buildMember
         (ctx: EmitContext)
         (thisKey: BinderKeyG<BinderId> voption)
@@ -197,9 +171,8 @@ module Emit =
         (body: TastAccessor.ExprId)
         : ILBody =
         let b = IlBuilder()
-        // Keyed in the REFERENCE domain: a body loads a parameter through a `TExpr.Var`,
-        // which names it by the raw identity, so each definition site widens as it is
-        // given its `ldarg` index.
+        // Keyed by raw identity: a body loads a parameter through a `Var` that names it
+        // that way, so each definition site widens as it takes its `ldarg` index.
         let args = Dictionary<BinderId, int>()
 
         let baseIdx =
@@ -209,38 +182,25 @@ module Emit =
                 1
             | ValueNone -> 0
 
-        // `base` loads the same object reference as `this` —
-        // `ldarg.0`. The `CallVia.Base` discriminator on the member access, not
-        // the receiver load, is what makes the dispatch non-virtual.
+        // `base` loads the same `ldarg.0` as `this`; the `CallVia.Base` discriminator on
+        // the member access, not the receiver load, makes the dispatch non-virtual.
         match baseKey with
         | ValueSome k -> args.[BinderKey.identity k] <- 0
         | ValueNone -> ()
 
         prms
         |> EqArray.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- baseIdx + i)
-        // Carry `this` as the env's `SelfKey` too (it is already in `args` at 0,
-        // so this is inert for ordinary var loads — `buildVarLoad` consults `Args`
-        // first). It lets the struct-receiver address path recognise a `this`
-        // self-call (`this.AppendLiteral …`): `this` is *already* a managed
-        // pointer (`ldarg.0` is the byref receiver), so it must be loaded directly
-        // rather than spilled to a value temp — a spill copies the struct and a
-        // mutating self-call would not persist.
+        // `this` as `SelfKey` too, so the struct-receiver path recognises a self-call:
+        // `ldarg.0` is already the byref receiver and must be loaded directly — spilling
+        // it to a value temp copies the struct and a mutating self-call would not persist.
         let env =
             EmitEnv.create ctx (ValueOption.map BinderKey.identity thisKey) (Dictionary()) args
 
         buildExpr env b body
 
-        // A `void`-returning interface-impl member (e.g. `IDisposable.Dispose`):
-        // the body normally leaves the `unit`-as-value `System.ValueTuple` on the
-        // stack (every Vesper expression yields a value), but a `void` method must
-        // `ret` empty-stacked — pop the residual unit first. A body that *terminates*
-        // (ends in `raise`/`Throw`, e.g. `ICollection<'T>.Add` on a read-only set)
-        // leaves nothing (the builder reset depth to 0 at the throw), and the
-        // fall-through is unreachable: emitting a `Pop` there yields an unreachable
-        // instruction `IlIr.analyze` rejects as unbalanced. So the only two valid
-        // post-body depths are 1 (pop the residual unit) and 0 (terminated, nothing
-        // to pop). Any deeper stack is a codegen bug — fail loudly here rather than
-        // discarding it silently into valid-but-wrong IL.
+        // A `void` method must `ret` empty-stacked, so pop the residual
+        // `unit`-as-`ValueTuple`. A body that terminates (`raise`) already left depth 0,
+        // and a `Pop` there would be unreachable — the IL balance check rejects it.
         if voidReturn then
             match b.Depth with
             | 0 -> ()
@@ -250,12 +210,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a secondary constructor body: run the `let`-preamble into locals,
-    /// then chain to the primary `.ctor`
-    /// (`ldarg.0; <primaryArgs>; call instance void Self::.ctor`). There is no
-    /// base-ctor call — the primary ctor performs it. `this` is `ldarg.0`; the
-    /// overload's parameters are `ldarg.1…`. The body never synthesises closures,
-    /// so an empty closure/ctor map is passed (as `buildMember`).
+    /// Build a secondary constructor body: run the `let`-preamble into locals, then
+    /// chain the primary `.ctor` (`ldarg.0; <primaryArgs>; call instance void
+    /// Self::.ctor`). No base-ctor call — the primary performs it.
     let buildSecondaryCtor
         (ctx: EmitContext)
         (prms: EqArray<BinderKeyG<BinderId> * FrozenType>)
@@ -283,16 +240,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a secondary constructor body of the explicit field-init form
-    /// (`new(args) = { f = e; … }`): run the `let`-preamble
-    /// into locals, then store each `field = expr` initialiser through `this`
-    /// (`ldarg.0; <init>; stfld field`). Unlike `buildSecondaryCtor` there is
-    /// **no** primary `.ctor` chain — fields not listed are left default
-    /// (zero)-initialised, which is exactly the value-type construction
-    /// contract (`newobj` passes `&temp` after zeroing it). `this` is `ldarg.0`;
-    /// the overload's parameters are `ldarg.1…`. `fieldInits` pairs each field's
-    /// resolved handle with its (already op-expanded) initialiser, in source
-    /// order.
+    /// Build the explicit field-init secondary ctor (`new(args) = { f = e; … }`): run
+    /// the `let`-preamble, then `ldarg.0; <init>; stfld field` per initialiser, in
+    /// source order. NO primary chain — unlisted fields stay zero-initialised.
     let buildSecondaryCtorFieldInit
         (ctx: EmitContext)
         (prms: EqArray<BinderKeyG<BinderId> * FrozenType>)
@@ -319,9 +269,7 @@ module Emit =
         b.Body
 
     /// Run a preamble `do` body for effect: every Vesper expression yields a value, so
-    /// the `unit` it leaves must be popped before the next step. A body that
-    /// *terminates* (`raise`) reset the builder's depth to 0 and leaves nothing; any
-    /// deeper stack is a codegen bug.
+    /// pop the `unit` before the next step. A terminating body (`raise`) left depth 0.
     let private buildForEffect (env: EmitEnv) (b: IlBuilder) (body: TastAccessor.ExprId) : unit =
         buildExpr env b body
 
@@ -330,18 +278,9 @@ module Emit =
         | 1 -> b.Add ILInstr.Pop
         | n -> failwithf "class-preamble `do` body left %d values on the stack (expected 0 or 1)" n
 
-    /// Build a class primary `.ctor` body: chain to the base ctor (`ldarg.0;
-    /// <baseArgs>; call instance void Base::.ctor(…)` — the parent's, an external base's,
-    /// or `Object`'s; a value type does not chain), store each ctor param into its
-    /// backing field, then run the instance preamble in declaration order.
-    ///
-    /// The order is the semantics (probed): `inherit Base(…)` runs first, then the
-    /// preamble top-to-bottom. The base args reference the derived class's primary-ctor
-    /// params (`ctorParams` → `ldarg.1…`) because `this` is unusable until the base call
-    /// returns; the preamble instead reads ctor params through their *fields*, which the
-    /// stores above have already filled (Elaborate rewrites a ctor-param reference in a
-    /// preamble entry to a `FieldGet` on `this`), so `thisKey` — mapped to `ldarg.0` — is
-    /// the only binder its expressions need.
+    /// Build a class primary `.ctor`: chain the base ctor (a value type chains none),
+    /// store each ctor param into its backing field, then run the instance preamble.
+    /// Base args read params as `ldarg.1…`; `this` is unusable until the chain returns.
     let buildClassPrimaryCtor
         (ctx: EmitContext)
         (chain: CtorChain)
@@ -354,9 +293,8 @@ module Emit =
         let args = Dictionary<BinderId, int>()
         args.[BinderKey.identity thisKey] <- 0
         ctorParams |> List.iteri (fun i (k, _) -> args.[BinderKey.identity k] <- 1 + i)
-        // `this` is the env's `SelfKey` as well as `Args.[thisKey] = 0` (as `buildMember`
-        // does): on a value type `ldarg.0` is the byref receiver, so a self-call must
-        // load it directly rather than spill a copy.
+        // `this` as `SelfKey`: on a value type `ldarg.0` is the byref receiver, so a
+        // self-call must load it directly rather than spill a copy.
         let env =
             EmitEnv.create ctx (ValueSome(BinderKey.identity thisKey)) (Dictionary()) args
 
@@ -388,11 +326,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a `.cctor` body from a static preamble: run each step in declaration order
-    /// — a `let` initialiser `stsfld`ed into its backing field, a `static do` body run
-    /// for effect — then `ret`. The body sees no `this` / params (a `.cctor` is
-    /// parameterless), so the env mirrors `buildMember`'s static path with empty
-    /// arg/slot maps.
+    /// Build a `.cctor` body from a static preamble, in declaration order: a `let`
+    /// initialiser `stsfld`ed into its backing field, a `static do` body run for
+    /// effect. A `.cctor` is parameterless, so the env carries no args.
     let buildStaticCctor (ctx: EmitContext) (steps: PreambleStep list) : ILBody =
         let b = IlBuilder()
         let env = EmitEnv.ofContext ctx (Dictionary())
@@ -424,10 +360,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// A non-capturing, monomorphic closure's `.cctor`: `newobj` the
-    /// closure once and `stsfld` it into the singleton `instance` field. Runs before
-    /// the first `ldsfld` of that field (every construction site), so a stateless
-    /// lambda allocates exactly once instead of per construction.
+    /// A non-capturing, monomorphic closure's `.cctor`: `newobj` the closure once into
+    /// the singleton `instance` field, so a stateless lambda allocates once rather than
+    /// per construction site.
     let buildCachedClosureCctor (ctorHandle: EntityHandle) (cachedField: EntityHandle) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Newobj(ctorHandle, 0))
@@ -435,12 +370,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// A value-type (`[<Struct>]`) primary constructor: store each ctor-param into
-    /// its backing field and return. Unlike `buildClosureCtor` there is **no**
-    /// chained base-`.ctor` call — `System.ValueType` has no accessible
-    /// constructor and value types do not chain. `ldarg 0` is the managed pointer
-    /// to the value being initialised (`newobj` on a value type passes `&temp`),
-    /// so `stfld` writes through it exactly as for a reference type.
+    /// A value-type (`[<Struct>]`) primary constructor: store each ctor param into its
+    /// backing field and return. NO chained base `.ctor` — `System.ValueType` has none
+    /// accessible. `ldarg 0` is the managed pointer `newobj` passes (`&temp`).
     let buildStructCtor (fields: EntityHandle list) : ILBody =
         let b = IlBuilder()
 
@@ -454,13 +386,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a string/mixed enum's `.cctor`: for each case, push its
-    /// literal (already lowered to the `pushLit` instruction prefix — `ldstr` for a
-    /// string, `ldc;box` for a mixed int), `newobj` the wrapper's single-arg `.ctor`,
-    /// and `stsfld` the constructed singleton into the case's `static initonly`
-    /// field. Runs before the first `ldsfld` of any case field (every `E.A` use
-    /// site), so the closed set is materialised exactly once. `cases` is the
-    /// `(caseField, pushLit)` list in declaration order.
+    /// Build a string/mixed enum's `.cctor`: per case, push its literal (`pushLit` —
+    /// `ldstr`, or `ldc;box` for a mixed int), `newobj` the wrapper's single-arg
+    /// `.ctor`, `stsfld` the singleton into the case's `static initonly` field.
     let buildStructEnumCctor (ctorHandle: EntityHandle) (cases: (EntityHandle * ILInstr list) list) : ILBody =
         let b = IlBuilder()
 
@@ -472,10 +400,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a union case's static factory body: allocate via the union's
-    /// parameterless ctor, stamp the discriminant `tag`, store each factory
-    /// parameter into its field, and return the object. `fieldHandles` are in
-    /// declaration order = the factory's parameter order (static `ldarg.i`).
+    /// Build a union case's static factory: `newobj` via the union's parameterless
+    /// ctor, stamp the discriminant `tag`, store each parameter into its field, return.
+    /// `fieldHandles` are in declaration order = the factory's `ldarg.i` order.
     let buildUnionFactory
         (unionCtor: EntityHandle)
         (tag: int)
@@ -498,22 +425,14 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// The resolved handles a monomorphic union's synthesised `Equals(object)` /
-    /// `GetHashCode()` bodies need. Codegen builds this from the concrete
-    /// `ClrProvider`; the bodies below stay decoupled from how the BCL refs are
-    /// minted (the per-field-type recipes are passed as functions).
-    ///
-    /// **Why a flat field walk works.** Every value is built through a case
-    /// factory (`emitUnionFactory`), which sets only its *own* case's payload
-    /// fields; a DU is immutable, so a field belonging to any other case is
-    /// always its default. So once the tags match, comparing / hashing *every*
-    /// field (not just the active case's) is equivalent to a per-case
-    /// walk, and needs no `_tag` switch — fewer branches, same result.
+    /// The resolved handles a union's synthesised `Equals` / `GetHashCode` bodies need.
+    /// A case factory sets only its own case's payload fields and a DU is immutable, so
+    /// once the tags match, walking EVERY field equals a per-case walk — no tag switch.
     type UnionEqualitySupport =
         {
             /// The union's own `TypeDefinition` — the `isinst` target.
             SelfType: EntityHandle
-            /// `TyUnion(name, [])` — the type of the cast `other` local.
+            /// `FTUnion(key, args)` — the type of the cast `other` local.
             SelfTy: FrozenType
             TagField: EntityHandle
             /// `(field handle, field type)` across every case, declaration order.
@@ -532,12 +451,9 @@ module Emit =
             HashCodeToHashCode: EntityHandle
         }
 
-    /// The tag-then-field comparison shared by both equality entry points
-    /// (the `Equals(object)` override and the typed `IEquatable<Self>::Equals`):
-    /// `this` is `ldarg.0`, `other` is pushed by `loadOther` (already a non-null
-    /// `Self`). Tags must match, then each field via `EqualityComparer<F>.Default`
-    /// (total equality — a `float` field gets `NaN = NaN` in this structural context).
-    /// Any mismatch branches to `falseLabel`; on fall-through the operands are equal.
+    /// The tag-then-field walk shared by both equality entry points: tags must match,
+    /// then each field via `EqualityComparer<F>.Default` (total equality — a `float`
+    /// field gets `NaN = NaN` here). Any mismatch branches to `falseLabel`.
     let private buildTagAndFieldEquality
         (s: UnionEqualitySupport)
         (b: IlBuilder)
@@ -559,10 +475,8 @@ module Emit =
             b.Add(ILInstr.Callvirt(s.ComparerEquals fieldTy, 3, 1))
             b.Add(ILInstr.Brfalse falseLabel)
 
-    /// `override bool Equals(object obj)` for a monomorphic union: `obj is Self`
-    /// (also rejects `null`), then the shared tag/field walk. Any failure jumps to
-    /// the shared `false` tail (whose merge depth `IlIr.analyze` derives — no
-    /// manual `SetDepth`).
+    /// `override bool Equals(object obj)` for a union: `obj is Self` (which also
+    /// rejects `null`), then the shared tag/field walk.
     let buildUnionEquals (s: UnionEqualitySupport) : ILBody =
         let b = IlBuilder()
         let other = b.Local s.SelfTy
@@ -583,13 +497,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` a
-    /// monomorphic union implements. `other` (`ldarg.1`) is already `Self`,
-    /// so no `isinst` — just a `null` guard, then the same tag/field walk. This is
-    /// the boxing-free path `EqualityComparer<Self>.Default` (now a
-    /// `GenericEqualityComparer`, since the union declares `IEquatable<Self>`)
-    /// reaches, so it — not `Equals(object)` — is the one a nested DU field
-    /// recurses through.
+    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals`. `other` is
+    /// already `Self`, so a `null` guard replaces the `isinst`. This is the boxing-free
+    /// path `EqualityComparer<Self>.Default` takes, so a nested DU field recurses here.
     let buildUnionEqualsTyped (s: UnionEqualitySupport) : ILBody =
         let b = IlBuilder()
         let falseLabel = b.Label()
@@ -606,11 +516,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// `override int GetHashCode()` for a monomorphic union: a `System.HashCode`
-    /// accumulator seeded with the `_tag`, then every field added through it
-    /// (`HashCode.Add<T>` itself routes through `EqualityComparer<T>.Default`),
-    /// then `ToHashCode()`. Equal values hash equal:
-    /// the tag distinguishes cases and inactive-case fields are uniformly default.
+    /// `override int GetHashCode()` for a union: a `System.HashCode` seeded with the
+    /// `_tag`, every field added through it, then `ToHashCode()`. Equal values hash
+    /// equal — the tag distinguishes cases and inactive-case fields are default.
     let buildUnionGetHashCode (s: UnionEqualitySupport) : ILBody =
         let b = IlBuilder()
         let hc = b.Local s.HashCodeLocal
@@ -631,24 +539,18 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a record's `.ctor` body: chain to `Object::.ctor()`, then store each
-    /// ctor argument into the matching field. Structurally identical to
-    /// `buildClosureCtor`, named separately so call sites read as record emission.
+    /// Build a record's `.ctor` body: chain `Object::.ctor()`, then store each ctor
+    /// argument into the matching field.
     let buildRecordCtor (baseCtor: EntityHandle) (fields: EntityHandle list) : ILBody = buildClosureCtor baseCtor fields
 
-    /// The record-shaped analogue of `UnionEqualitySupport`: every field is
-    /// compared / hashed via `EqualityComparer<F>.Default` / `HashCode.Add<F>`,
-    /// but there is **no `_tag`** to compare or seed — a record
-    /// is one nameless "case", so the union walk minus the tag is the record
-    /// triple. Fields are declaration-order (same store/read order the ctor
-    /// uses). Both generic and monomorphic records share this support shape; the
-    /// caller mints the field handles as `Def` tokens or `MemberRef`s on the
-    /// type's own `TypeSpec` (`Box\`1<!0>::Value`).
+    /// The record-shaped analogue of `UnionEqualitySupport`: no `_tag` to compare or
+    /// seed. Fields are in declaration order; the caller mints their handles as `Def`
+    /// tokens or `MemberRef`s on the type's own `TypeSpec` (`Box\`1<!0>::Value`).
     type RecordEqualitySupport =
         {
             /// The record's own `TypeDefinition` — the `isinst` target.
             SelfType: EntityHandle
-            /// `TyRecord(name, …)` — the type of the cast `other` local.
+            /// `FTRecord(key, args)` — the type of the cast `other` local.
             SelfTy: FrozenType
             /// `(field handle, field type)` in declaration order.
             Fields: (EntityHandle * FrozenType) list
@@ -659,11 +561,8 @@ module Emit =
             HashCodeToHashCode: EntityHandle
         }
 
-    /// The field-by-field comparison shared by both record equality entry
-    /// points (the `Equals(object)` override and the typed
-    /// `IEquatable<Self>::Equals`): same shape as `buildTagAndFieldEquality`
-    /// minus the leading tag compare. Any field mismatch branches to
-    /// `falseLabel`; on fall-through the operands are field-wise equal.
+    /// The field walk shared by both record equality entry points — the union's, minus
+    /// the leading tag compare. Any field mismatch branches to `falseLabel`.
     let private buildRecordFieldEquality
         (s: RecordEqualitySupport)
         (b: IlBuilder)
@@ -679,15 +578,9 @@ module Emit =
             b.Add(ILInstr.Callvirt(s.ComparerEquals fieldTy, 3, 1))
             b.Add(ILInstr.Brfalse falseLabel)
 
-    /// `override bool Equals(object obj)` for a record: `obj is Self` (also
-    /// rejects null), then the shared field-by-field walk. Same structure as
-    /// `buildUnionEquals` minus the tag compare.
-    ///
-    /// `isVt` ⇒ the record is a `[<Struct>]` value type. `isinst` on a value type
-    /// yields a *boxed* reference (or null), which cannot be stored into the
-    /// value-typed `other` local directly: the boxed result is tested for null and
-    /// then `unbox.any`-ed to the unboxed value. (`ldarg.0`'s own fields still read
-    /// through `ldfld` on the byref `this` — the shared walk is unchanged.)
+    /// `override bool Equals(object obj)` for a record. `isVt` ⇒ a `[<Struct>]` record:
+    /// `isinst` on a value type yields a BOXED reference, which is null-tested and then
+    /// `unbox.any`-ed into the value-typed `other` local.
     let buildRecordEquals (isVt: bool) (s: RecordEqualitySupport) : ILBody =
         let b = IlBuilder()
         let other = b.Local s.SelfTy
@@ -719,12 +612,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals` the
-    /// record implements. For a reference record `other` (`ldarg.1`) may be `null`,
-    /// so a null guard precedes the field walk; a `[<Struct>]` value-type record
-    /// (`isVt`) passes `other` BY VALUE — it can never be null and `brfalse` on a
-    /// value type is invalid IL — so the guard is dropped. The field walk itself is
-    /// identical (`ldarg.1`'s fields read via `ldfld` on the value on the stack).
+    /// `bool Equals(Self other)` — the typed `IEquatable<Self>::Equals`. A `[<Struct>]`
+    /// record (`isVt`) passes `other` BY VALUE: it can never be null and `brfalse` on a
+    /// value type is invalid IL, so the null guard is dropped.
     let buildRecordEqualsTyped (isVt: bool) (s: RecordEqualitySupport) : ILBody =
         let b = IlBuilder()
         let falseLabel = b.Label()
@@ -742,9 +632,8 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// `override int GetHashCode()` for a record: a `System.HashCode`
-    /// accumulator with every field added through `HashCode.Add<T>`, then
-    /// `ToHashCode()`. No tag seed — a record has one shape.
+    /// `override int GetHashCode()` for a record: every field added through
+    /// `HashCode.Add<T>`, then `ToHashCode()`. No tag seed — a record has one shape.
     let buildRecordGetHashCode (s: RecordEqualitySupport) : ILBody =
         let b = IlBuilder()
         let hc = b.Local s.HashCodeLocal
@@ -760,18 +649,15 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Comparison support for a monomorphic union: like `UnionEqualitySupport`
-    /// minus hashing, plus the `Comparer`/`IComparable` handles the `CompareTo`
-    /// bodies need. Tags are compared first via `sub` (small case indices, so
-    /// safe), then each field via `Comparer<F>.Default.Compare`, returning the
-    /// first non-zero result (lexicographic). Same flat walk as equality —
-    /// inactive-case fields are always default (per the case factory).
+    /// Comparison support for a union: tags compared first via `sub` (case indices are
+    /// small, so it cannot overflow), then each field via `Comparer<F>.Default.Compare`,
+    /// returning the first non-zero result.
     type UnionComparisonSupport =
         {
             /// The union's own `TypeDefinition` — the `isinst` target the
             /// `CompareTo(object)` boxing entry uses to cast and type-check.
             SelfType: EntityHandle
-            /// `TyUnion(name, …)` — the type of the cast `other` local and the
+            /// `FTUnion(key, args)` — the type of the cast `other` local and the
             /// param type of the typed `CompareTo(Self)`.
             SelfTy: FrozenType
             TagField: EntityHandle
@@ -784,18 +670,14 @@ module Emit =
             /// `System.ArgumentException::.ctor(string)` — the
             /// `CompareTo(object)` body throws this on a non-`Self` arg.
             ArgumentExceptionCtor: EntityHandle
-            /// `UserStringHandle` for the `"Object type mismatch"` literal the
-            /// `CompareTo(object)` body pushes onto the stack. Codegen mints
-            /// this via `ctx.UserString` before building the support struct
-            /// (the builder owns no metadata context).
+            /// The `"Object type mismatch"` literal `CompareTo(object)` throws with.
+            /// Minted by the caller — the builder owns no metadata context.
             MismatchMessage: UserStringHandle
         }
 
-    /// The tag-then-field lex comparison shared by both entry points (the
-    /// `CompareTo(object)` override and the typed `IComparable<Self>::CompareTo`):
-    /// `this` is `ldarg.0`, `other` is loaded by `loadOther` (already non-null
-    /// `Self`). The first non-zero result is left in `cLocal` and `brtrue`-ed to
-    /// `returnLabel`; on fall-through every comparison returned 0.
+    /// The tag-then-field lex comparison shared by both `CompareTo` entry points. The
+    /// first non-zero result is left in `cLocal` and `brtrue`-ed to `returnLabel`; on
+    /// fall-through every comparison returned 0.
     let private buildTagAndFieldComparison
         (s: UnionComparisonSupport)
         (b: IlBuilder)
@@ -823,12 +705,9 @@ module Emit =
             b.Add(ILInstr.Ldloc cLocal)
             b.Add(ILInstr.Brtrue returnLabel)
 
-    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo`
-    /// the union implements. A `null` `other` sorts
-    /// before any non-null value (matching BCL convention), so this returns `1`
-    /// in that case; otherwise the shared tag/field lex walk. The walk stores
-    /// its current `c` in a local and branches to a shared return label as soon
-    /// as `c != 0`; on fall-through every comparison was equal, so it returns `0`.
+    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo` the union
+    /// implements. A `null` `other` sorts before any non-null value (BCL convention),
+    /// so this returns `1`; otherwise the shared tag/field lex walk.
     let buildUnionCompareTo (s: UnionComparisonSupport) : ILBody =
         let b = IlBuilder()
         let c = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
@@ -850,12 +729,9 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// `int CompareTo(object obj)` — the non-generic
-    /// `IComparable::CompareTo(object)` entry the union implements. Matches
-    /// F#'s convention: `null` sorts first (returns `1`), a non-`Self` argument
-    /// throws `ArgumentException`, otherwise delegate to the typed
-    /// `CompareTo(Self)`. Uses `isinst` + a `Self`-typed local to avoid an
-    /// explicit `castclass` (same pattern `buildUnionEquals` uses).
+    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo` the union
+    /// implements. `null` sorts first (returns `1`), a non-`Self` argument throws
+    /// `ArgumentException`, otherwise delegate to the typed `CompareTo(Self)`.
     let buildUnionCompareToObj (s: UnionComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
         let b = IlBuilder()
         let other = b.Local s.SelfTy
@@ -882,9 +758,7 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Mirror of `RecordEqualitySupport` for the comparison pair. Same shape
-    /// as `UnionComparisonSupport` minus the tag — a record is one nameless
-    /// "case", so the union walk minus the tag compare is the record pair.
+    /// Mirror of `UnionComparisonSupport` for a record: the same shape minus the tag.
     type RecordComparisonSupport =
         {
             SelfType: EntityHandle
@@ -897,10 +771,8 @@ module Emit =
             MismatchMessage: UserStringHandle
         }
 
-    /// The field-by-field lex comparison shared by both record `CompareTo`
-    /// entry points. Same shape as the union tag-and-field comparison, minus the
-    /// leading tag compare. The first non-zero result is stored in `cLocal`
-    /// and branched to `returnLabel`; on fall-through every field was equal.
+    /// The field-by-field lex comparison shared by both record `CompareTo` entry points.
+    /// The first non-zero result lands in `cLocal` and branches to `returnLabel`.
     let private buildRecordFieldComparison
         (s: RecordComparisonSupport)
         (b: IlBuilder)
@@ -919,18 +791,14 @@ module Emit =
             b.Add(ILInstr.Ldloc cLocal)
             b.Add(ILInstr.Brtrue returnLabel)
 
-    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo`
-    /// the record implements. For a reference record a `null` `other` sorts before
-    /// any non-null value (returns `1`); a `[<Struct>]` value-type record (`isVt`)
-    /// passes `other` BY VALUE — it can never be null and `brfalse` on a value type
-    /// is invalid IL — so the null guard is dropped and only the field lex walk runs.
+    /// `int CompareTo(Self other)` — the typed `IComparable<Self>::CompareTo` the record
+    /// implements. A `[<Struct>]` record (`isVt`) passes `other` BY VALUE: never null,
+    /// and `brfalse` on a value type is invalid IL, so the null guard is dropped.
     let buildRecordCompareTo (isVt: bool) (s: RecordComparisonSupport) : ILBody =
         let b = IlBuilder()
         let c = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
         let returnLabel = b.Label()
 
-        // The `null`-`other` arm only exists for a reference record (a value-type
-        // `other` is by value and can never be null).
         if not isVt then
             let nullLabel = b.Label()
             b.Add(ILInstr.Ldarg 1)
@@ -957,17 +825,9 @@ module Emit =
 
         b.Body
 
-    /// `int CompareTo(object obj)` — the non-generic
-    /// `IComparable::CompareTo(object)` entry the record implements. Same
-    /// shape as `buildUnionCompareToObj` (the record's
-    /// `RecordComparisonSupport` and the union's `UnionComparisonSupport`
-    /// share the relevant fields here — `SelfType` / `ArgumentExceptionCtor`
-    /// / `MismatchMessage`).
-    ///
-    /// `isVt` ⇒ a `[<Struct>]` value-type record. `isinst` yields a boxed reference
-    /// which is `unbox.any`-ed to the by-value `Self` the typed `CompareTo(Self)`
-    /// expects; the receiver `ldarg.0` is the byref `this`, which `call` on the
-    /// value type's own instance method takes directly.
+    /// `int CompareTo(object obj)` — the non-generic `IComparable::CompareTo` the record
+    /// implements. `isVt` ⇒ `isinst` yields a boxed reference, `unbox.any`-ed to the
+    /// by-value `Self` the typed `CompareTo(Self)` takes; `ldarg.0` is the byref `this`.
     let buildRecordCompareToObj (isVt: bool) (s: RecordComparisonSupport) (typedCompareTo: EntityHandle) : ILBody =
         let b = IlBuilder()
         let nullLabel = b.Label()
@@ -1009,16 +869,12 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    // The capability co-slot shims (`CoSlot`). Each forwards to the authored capability
-    // member through `capabilityMember` — a `MethodDef` on a mono type, a self-`TypeSpec`
-    // `MemberRef` on a generic one — so a `call` (not `callvirt`) binds the exact method.
-    // The receiver is `ldarg.0`: an object reference for a class/union, a managed pointer
-    // for a struct enumerator, and `call` on a value type's own instance method takes the
-    // pointer directly — so one shape serves both.
+    // Each co-slot shim forwards through a `call`, not a `callvirt`, so the exact method
+    // binds. The receiver is `ldarg.0` — an object reference for a class, a managed
+    // pointer for a struct enumerator, which `call` on its own instance method takes.
 
-    /// `IEnumerator IEnumerable.GetEnumerator()` — the non-generic co-slot. Forwards to the
-    /// capability's `GetEnumerator`, whose `IEnumerator`1<T>` return already IS an
-    /// `IEnumerator`, so no cast is needed.
+    /// `IEnumerator IEnumerable.GetEnumerator()` — forwards to the capability's
+    /// `GetEnumerator`, whose `IEnumerator`1<T>` return already IS an `IEnumerator`.
     let buildEnumerableGetEnumeratorCoSlot (capabilityGetEnumerator: EntityHandle) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Ldarg 0)
@@ -1026,9 +882,8 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// `object IEnumerator.get_Current()` — the non-generic co-slot. Forwards to the
-    /// capability's `Current` and boxes its `'T` (`elemType` is the element's type token —
-    /// for a generic enumerator, the declaring typar `!0`).
+    /// `object IEnumerator.get_Current()` — forwards to the capability's `Current` and
+    /// boxes its `'T` (`elemType`; the declaring typar `!0` for a generic enumerator).
     let buildEnumeratorCurrentCoSlot (capabilityCurrent: EntityHandle) (elemType: EntityHandle) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Ldarg 0)
@@ -1037,9 +892,8 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// `void IEnumerator.Reset()` — the co-slot with no capability member to forward to:
-    /// the pull protocol has no rewind. Throws, as every non-resettable BCL enumerator
-    /// does (F#'s own sequence enumerators included).
+    /// `void IEnumerator.Reset()` — no capability member to forward to: the pull protocol
+    /// has no rewind, so it throws, as non-resettable BCL enumerators do.
     let buildEnumeratorResetCoSlot (notSupportedExceptionCtor: EntityHandle) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Newobj(notSupportedExceptionCtor, 0))

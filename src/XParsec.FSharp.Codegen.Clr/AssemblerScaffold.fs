@@ -6,9 +6,6 @@ open System.Reflection.Metadata.Ecma335
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// Stateless helpers shared by the converged `Assembler` and the `Codegen`
-/// facade: signature builders and the hand-written-body test seam
-/// (`assembleWith`).
 module internal AssemblerScaffold =
 
     /// `int Main(string[])` — the synthesised entry point's signature.
@@ -41,33 +38,20 @@ module internal AssemblerScaffold =
         | FTUnit -> true
         | _ -> false
 
-    /// The metadata parameter types of an abstract member after F#'s
-    /// nullary-`unit` elision: `member : unit -> X` is a *no-arg* method, so a
-    /// sole leading `unit` argument is dropped (matching concrete-member emission
-    /// and the BCL slots these conform to — `IDisposable.Dispose()`,
-    /// `IFormatSink.Line()`). Shared by the signature encoder and the `Param`-row /
-    /// name emission so the two never disagree on arity (a mismatch makes the
-    /// emitted method un-reflectable: "parameters and signature don't match").
+    /// An abstract member's metadata parameter types: `abstract M : unit -> X` is a
+    /// *no-arg* method, so a sole leading `unit` argument is dropped.
     let abstractMethodParamTys (m: Frozen.TAbstractMethod) : FrozenType list =
         let paramTys, _ = uncurry m.Signature
 
         match paramTys with
         | [ single ] when isUnitTy single -> []
-        // A multi-arg abstract member (`abstract Invoke : 'A * 'B -> 'C`) is modelled
-        // with a single tupled domain, but F# emits it as an N-param method — and the
-        // conforming impl member (`member _.Invoke(a, b)`) emits N params too. Flatten
-        // a sole leading tuple back to N parameters so the slot signature matches the
-        // impl's `Param` rows; otherwise the runtime can't bind the impl to the slot
-        // ("does not have an implementation"). This mirrors the external-method tuple
-        // flattening in `ClrExternalMembers` (a genuine single `(('A*'B))` param is not
-        // expressible in an abstract member sig, so there is no ambiguity here).
+        // `abstract Invoke : 'A * 'B -> 'C` has one tupled domain but emits as 2 params,
+        // as its conforming `member _.Invoke(a, b)` does; flatten so the runtime can bind
+        // the impl to the slot.
         | [ FTTuple elems ] when elems.Length >= 2 -> EqArray.toList elems
         | _ -> paramTys
 
-    /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method. The
-    /// signature's open typars are self-describing `TyTypar` nodes (Elaborate remaps the
-    /// declaring axis to `!i` and the method axis to `!!j`), encoded by the provider's
-    /// `EncodeAbstractType` (the same `encodeType` the executable path uses).
+    /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method.
     let abstractMethodSignature (provider: ClrProvider) (m: Frozen.TAbstractMethod) : BlobBuilder =
         let _, retTy = uncurry m.Signature
         let paramTys = abstractMethodParamTys m
@@ -78,9 +62,8 @@ module internal AssemblerScaffold =
             .Parameters(
                 List.length paramTys,
                 // `-> unit` encodes as genuine `void`, not the `unit`-as-`ValueTuple`
-                // value convention: an abstract slot is `callvirt`ed for effect, and a
-                // conforming impl must bind to a `void` slot (cf. NominalEmit's
-                // `returnsVoid` on the implementer side).
+                // value: an abstract slot is `callvirt`ed for effect, and a conforming
+                // impl must bind to a `void` slot.
                 (fun (ret: ReturnTypeEncoder) ->
                     if isUnitTy retTy then
                         ret.Void()
@@ -95,14 +78,9 @@ module internal AssemblerScaffold =
 
         blob
 
-    /// Shared assembly scaffolding for a hand-written `Main` body: module +
-    /// assembly rows, a `Main` whose body comes from `build`, the `<Module>`
-    /// pseudo-type, and the holder class. The hand-written body forms no function
-    /// value / list literal / external member access (so `Vesper.Fun` / `Vesper.List`
-    /// are never needed and `references` is empty), but it DOES name primitives —
-    /// whose reprs are read from `symbols` (the single source: the real Vesper.Core
-    /// provider the caller supplies), not a codegen-local table. Own-file intrinsics
-    /// are empty: a hand-written body declares no `(# … #)` types of its own.
+    /// Assembly scaffolding for a hand-written `Main` body: module + assembly rows, a
+    /// `Main` whose body comes from `build`, the `<Module>` pseudo-type and the holder
+    /// class. Primitive reprs are read from the caller's `symbols`.
     let assembleWith
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
@@ -111,6 +89,8 @@ module internal AssemblerScaffold =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
+        // No own-file intrinsics and no assembly references: a hand-written body declares
+        // no `(# … #)` types of its own and forms no function value or list literal.
         let provider =
             ClrProvider(ctx, System.Collections.Generic.Dictionary(), Map.empty, symbols)
 

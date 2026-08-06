@@ -4,16 +4,9 @@ open Expecto
 open XParsec.FSharp.Codegen.Common.StructuralFormatRecipe
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The `%A` output *grammar* (record /
-// union forms) is lifted to `Codegen.Common.StructuralFormatRecipe`, the single
-// source of truth. The CLR backend lowers the recipe to IL directly (the
-// end-to-end `PrintfSpecTests` prove that path byte-identical, flat and
-// broken). The JS central shape-keyed walker (`Vesper.Printf.mjs`) deliberately does NOT consume the
-// recipe — it reconstructs the same grammar dynamically. Parity between the two
-// is held by THIS differential test, not by a shared call path: the *expected*
-// record/union strings below are rendered straight from the recipe, and the
-// *actual* strings come from running the JS runtime. They can drift only if this
-// test is missing — so it is load-bearing (Decisions/risks in the plan).
+// Expected record/union strings are rendered from the `StructuralFormatRecipe` grammar;
+// actual ones come from running the JS runtime, which rebuilds that grammar dynamically
+// rather than reading it. No call path ties them, so this differential is what does.
 
 // A flat interpretation of a `SinkOp` sequence — the never-break layout the JS
 // runtime always produces (`width` accepted but unused; CLR `%0A` mode). `Line`

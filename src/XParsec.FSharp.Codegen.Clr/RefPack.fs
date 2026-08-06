@@ -4,11 +4,9 @@ open System
 open System.IO
 open System.Runtime.InteropServices
 
-/// Locates the installed .NET SDK's reference pack for a target TFM
-/// (`Microsoft.NETCore.App.Ref`). MSBuild-shaped in spirit: the REAL mechanism is
-/// an explicit `dllPaths` set (a `dotnet build` integration hands us the resolved
-/// reference list). This resolver is only the no-MSBuild CONVENIENCE for driving a
-/// compilation against a pinned TFM without an MSBuild invocation.
+/// Locates the installed SDK's `Microsoft.NETCore.App.Ref` pack for a target TFM — the
+/// no-MSBuild convenience path for compiling against a pinned TFM. The primary mechanism
+/// is an explicit `dllPaths` set, resolved by whatever drives the build.
 module RefPack =
 
     let private isWindows = RuntimeInformation.IsOSPlatform OSPlatform.Windows
@@ -49,10 +47,8 @@ module RefPack =
                 "/usr/lib/dotnet"
         ]
 
-    /// A pack version directory's numeric prefix as a `System.Version`. A preview
-    /// suffix (`9.0.0-preview.1`) orders on the part before `-`; it therefore ties
-    /// with its own release (`9.0.0`), which is acceptable — the two do not coexist
-    /// in a real install.
+    /// A pack version directory's numeric prefix as a `System.Version`: a preview suffix
+    /// (`9.0.0-preview.1`) orders on the part before `-`, tying with its own release.
     let private parseVersion (name: string) : Version option =
         let core =
             match name.IndexOf '-' with
@@ -74,10 +70,9 @@ module RefPack =
             | _ -> None
         | None -> None
 
-    /// Resolve the reference-assembly `.dll` set for `tfm` from the installed SDK's
-    /// `Microsoft.NETCore.App.Ref` pack. Among pack version directories whose
-    /// `ref/<tfm>` subdirectory exists and whose major matches the TFM's, the HIGHEST
-    /// by `System.Version` ordering wins. `Error` names what was probed.
+    /// The reference-assembly `.dll` set for `tfm`. Among pack version directories whose
+    /// `ref/<tfm>` exists and whose major matches the TFM's, the HIGHEST by `System.Version`
+    /// wins. `Error` names what was probed.
     let resolve (tfm: string) : Result<string list, string> =
         match tfmMajor tfm with
         | None -> Error(sprintf "RefPack: cannot parse a major version from TFM '%s'" tfm)
@@ -85,9 +80,8 @@ module RefPack =
             let roots = candidateRoots ()
             let packRel = Path.Combine("packs", "Microsoft.NETCore.App.Ref")
 
-            // Root discovery order is a PRIORITY order (an explicitly-set `DOTNET_ROOT`
-            // must not be outvoted by a higher pack version in a standard install
-            // location — the dotnet host itself treats it as an override). Version
+            // Root order is a PRIORITY order: an explicitly-set `DOTNET_ROOT` must not be
+            // outvoted by a higher pack version in a standard install location, so version
             // ordering picks the best pack only WITHIN the first root that has one.
             let bestIn (root: string) : string option =
                 let packDir = Path.Combine(root, packRel)
