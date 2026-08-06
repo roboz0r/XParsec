@@ -6,20 +6,13 @@ open EmitJsCapabilities
 open EmitJsTypes
 open EmitJsContext
 
-/// Emission of a type's MEMBERS: free receiver-first member functions, and the attached
-/// class-method forms a capability impl becomes (`[Symbol.iterator]` generators,
-/// `[Symbol.for("vesper.X")]` protocol slots, the `[Symbol.dispose]()` method, plain
-/// `Object`/interface overrides). Each recurses into emission only for a member BODY, so
-/// it takes `buildExpr` as a callback; `buildProgram` passes the walker in.
+/// A type's members: free receiver-first functions, and the class methods a capability
+/// impl becomes.
 module EmitJsMembers =
 
-    /// Re-bind a receiver binder (a member's `ThisKey`, or the class-level one the
-    /// instance preamble reads its fields through) to JS `this` via a leading `const`,
-    /// leaving the body's `TExpr.Var(thisKey)` references intact. Empty when the binder
-    /// already resolves to `this` (avoids a no-op `const this = this;`).
+    /// `const r = this;` — binds the receiver name a member body or a class preamble's
+    /// entries already use. Empty when that name is already `this`.
     let thisAlias (ctx: WalkCtx) (k: BinderKeyG<BinderId>) : JsStatement list =
-        // The body's references name the receiver in the reference domain, so the alias is
-        // spelled off the same widened identity.
         let recvName = binderNameOf ctx.Pool (BinderKey.identity k)
 
         if recvName = "this" then
@@ -33,13 +26,10 @@ module EmitJsMembers =
         | ValueSome k -> thisAlias ctx k
         | ValueNone -> []
 
-    /// Emit a plain (non-generator) ATTACHED instance method: receiver bound to JS
-    /// `this` (not a curried param), the member's params curried-free, body returned.
-    /// The runtimes dispatch by method presence — `Vesper.Core.eq` calls `a.Equals(b)`,
-    /// `Vesper.Comparison.cmp` calls `a.CompareTo(b)`, `Vesper.Core.hashOf` calls
-    /// `x.GetHashCode()`, `use` calls `obj[Symbol.dispose]()` — so a capability impl's
-    /// slot IS its member body; only the `key` (a plain `Named`, a `Symbol.dispose`
-    /// member-access, or a `Symbol.for("vesper.X")` registry call) tells them apart.
+    /// Emit a plain (non-generator) ATTACHED instance method: receiver bound to JS `this`, the
+    /// member's params curried-free, body returned. The runtimes dispatch on a REGISTRY SYMBOL,
+    /// never a named method — `eq` calls `a[Symbol.for("vesper.equality")](b)` — so a capability
+    /// impl's slot IS its member body, and only `key` tells the slots apart.
     let emitPlainMethod
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
@@ -53,8 +43,7 @@ module EmitJsMembers =
             Generator = false
         }
 
-    /// An interface-impl / `Object`-override member (`Equals`/`CompareTo`/`GetHashCode`
-    /// or a user interface method) as a name-keyed attached method.
+    /// An interface-impl or `override` member as a name-keyed method `M(a) { … }`.
     let emitAttachedMethod
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
@@ -62,30 +51,16 @@ module EmitJsMembers =
         : JsClassMethod =
         emitPlainMethod buildExpr ctx (JsMethodKey.Named m.Name) m
 
-    /// Emit an enumerable-capability `GetEnumerator` impl as a native
-    /// `*[Symbol.iterator]()` GENERATOR — the JS realisation of "implement `seq<'T>`
-    /// ⇒ emit the target iteration protocol". The generator binds the enumerator the
-    /// impl returns (`const e = <GetEnumerator body>`, with `this` re-bound via
-    /// `thisBinding`), then drives the F# enumerator protocol (`MoveNext(): bool` +
-    /// `Current`) into JS's: `while (e.MoveNext()) yield e.Current()`. `yield` makes the
-    /// protocol adaptation free — it auto-produces the `{ value, done }` iterator
-    /// results, so no object literal is built. The enumerator is itself an
-    /// `IEnumerator<'T>` implementer, so its `MoveNext`/`Current` are ATTACHED JS methods
-    /// (`e.MoveNext()` / `e.Current()`), dispatched directly on the runtime object — not
-    /// the free receiver-first form a regular member call lowers to.
+    /// A `GetEnumerator` impl as a native generator:
+    /// `*[Symbol.iterator]() { const e = <body>; while (e.MoveNext()) yield e.Current(); }`.
     let emitIteratorMethod
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (m: TastAccessor.TypeMember)
         : JsClassMethod =
-        // A fresh enumerator binder, so it can't shadow a source binder the
-        // `GetEnumerator` body itself introduces.
         let eName = freshTemp ctx.Pool "_e"
         let eIdent = JsExpr.Identifier(eName, ValueNone)
 
-        // Direct attached calls on the enumerator object: `e.MoveNext()` / `e.Current()`
-        // (its `IEnumerator<'T>` impl members are attached methods, the property `Current`
-        // emitted as a zero-arg method).
         let attachedCall (name: string) =
             JsExpr.Call(JsExpr.Member(eIdent, JsExpr.Identifier(name, ValueNone), false, ValueNone), [], ValueNone)
 
@@ -97,19 +72,13 @@ module EmitJsMembers =
             ]
 
         {
-            // `Symbol.iterator` — a native well-known symbol, distinct from a registry
-            // `Symbol.for("…")` call (the eq/comp/hash sub-slice).
             Key = JsMethodKey.Computed(nativeSymbol "iterator")
             Params = []
             Body = body
             Generator = true
         }
 
-    /// Emit a disposable-capability `Dispose` impl as a NATIVE well-known
-    /// `[Symbol.dispose]()` method — the JS analogue of the CLR `IDisposable::Dispose`
-    /// slot, driven by `use`'s `obj[Symbol.dispose]()` lowering. A plain
-    /// (non-generator) method keyed by the `Symbol.dispose` member-access node, NOT a
-    /// `Symbol.for("…")` registry call.
+    /// A `Dispose` impl as the native `[Symbol.dispose]() { … }` method that `use` calls.
     let emitDisposeMethod
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
@@ -117,13 +86,8 @@ module EmitJsMembers =
         : JsClassMethod =
         emitPlainMethod buildExpr ctx (JsMethodKey.Computed symbolDispose) m
 
-    /// Emit an eq/comp/hash capability impl as a COMPUTED-KEY method
-    /// `[Symbol.for("vesper.X")](params) { … }` — the registry-symbol dispatch slot the
-    /// `Vesper.Core` / `Vesper.Comparison` runtimes look for (`a[Symbol.for("vesper.equality")](b)`,
-    /// `a[Symbol.for("vesper.comparison")](b)`, `x[Symbol.for("vesper.hash")]()`). A registry
-    /// symbol is present ONLY on a type that opted into the protocol, so it can't collide with a
-    /// foreign object carrying an unrelated `.Equals`/`.CompareTo`/`.GetHashCode`. `registryName`
-    /// is the registry key (`vesper.equality` etc.).
+    /// An eq/comp/hash impl as a registry-symbol slot: `registryName` of `vesper.equality`
+    /// emits `[Symbol.for("vesper.equality")](b) { … }`, which the runtime `eq` calls.
     let emitProtocolMethod
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
@@ -166,11 +130,8 @@ module EmitJsMembers =
         // A member function is an arrow value, never reassigned → always `const`.
         topLevelBinding ctx false name init
 
-    /// Emit every class-method form of a partitioned member set, in the one place the
-    /// partition→emitter mapping lives: attached dispatch slots, `[Symbol.iterator]`
-    /// generators, `[Symbol.for("vesper.X")]` protocol methods, and the
-    /// `[Symbol.dispose]()` method. (`Free` members are emitted elsewhere as free
-    /// functions.) Shared by the pending-class and pending-union emission.
+    /// Every class-method form of a partitioned member set; its `Free` members become
+    /// top-level functions via `emitMemberFn` instead.
     let emitCapabilityMethods
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)

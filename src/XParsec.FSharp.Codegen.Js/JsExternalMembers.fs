@@ -304,7 +304,7 @@ module JsExternalMembers =
 
         JsExpr.Identifier(JsImports.addRef imports memberName valueRef, loc)
 
-    /// Aliased from the declaring type's runtime-js module. Only a Vesper-provided runtime can
+    /// Aliased from the declaring type's JS runtime module. Only a Vesper-provided runtime can
     /// satisfy this export shape — a real npm package cannot export a mangled name.
     let mangledMemberAccess
         (provider: IExternalSymbolProvider)

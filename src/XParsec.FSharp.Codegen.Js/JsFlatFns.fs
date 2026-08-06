@@ -6,47 +6,22 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open JsEmitHelpers
 
-/// The Fable-style FLAT module-function helpers, decoupled from the `EmitJs`
-/// walker. Each function that needs to lower a sub-expression takes a
-/// `build: TastAccessor.ExprId -> JsExpr` callback (the `EmitJs.buildExpr ctx` closure),
-/// exactly as the CLR backend's `EmitCall.flattenGroupPushes` takes a `recur`.
-/// Keeping this cluster out of the `buildExpr` mutual-recursion group is what lets
-/// it live in its own file and keeps `EmitJs` legible.
-///
-/// The lone-unit-erase / tuple-flatten dispatch is NOT re-derived here: it is
-/// `CompiledFns.flattenPlan` (shared with the CLR backend); this module only renders
-/// each `FlatStep` as a `JsExpr`.
 module JsFlatFns =
 
-    /// `e[j]` — a positional read of a tuple value (a JS array), used to flatten a
-    /// tuple-group argument into its compiled flat parameters.
+    /// A tuple value is a JS array, so element `j` of `e` reads as `e[j]`.
     let indexMember (e: JsExpr) (j: int) : JsExpr =
         JsExpr.Member(e, JsExpr.Literal(JsLiteral.Number(string j), ValueNone), true, ValueNone)
 
-    /// Does a value-use of a module function with these source groups need a curried
-    /// adapter? `TastLower.needsCurryAdapter`: only when the flat call shape differs
-    /// from the curried one (arity ≥ 2, or a tuple group); a single `GSimple` / lone
-    /// `GUnit` is flat-==-curried (JS ignores the surplus `undefined`), so a bare alias
-    /// is enough.
     let needsAdapter = TastLower.needsCurryAdapter
 
-    /// One flat compiled parameter's JS name: a simple binder reads its own slot; a
-    /// destructuring leaf (a nested tuple element) renders as a `[a, b]` pattern.
+    /// One flat parameter's JS name; a tuple pattern renders as a `[a, b]` destructuring.
     let paramNameOf (pool: PoolBuilder) (p: TastLower.StaticParam) : string =
         match p.Pat with
         | None -> binderNameOf pool p.Slot
         | Some pat -> lambdaParamName pool pat
 
-    /// The SOURCE groups of an EXTERNAL module function, read off the provider's
-    /// recorded `ValRepr` (the cross-assembly compiled-form contract, Step C). The
-    /// `External` node carries the Elaborate-stamped resolved `SymbolKey`, so the FQN the
-    /// provider keys symbols by is `SymbolKeyOps.qualifiedName key` directly — the SAME
-    /// string the CLR backend builds from the key in `ClrProvider.TryEmitCall` /
-    /// `ClrRecipes.emitExternalCall`. No ambient-prefix re-resolution (and no hard
-    /// failure when it diverges): codegen reads what the front end already resolved.
-    /// `ValueNone` when there is no key (a test mock) or the symbol carries no `ValRepr`
-    /// (a value, a hand-authored runtime primitive, a metadata-layer symbol) — the call
-    /// then keeps the curried convention (correct for an all-`GSimple` signature).
+    /// An external module function's SOURCE groups. `ValueNone` — no `key`, or a symbol with
+    /// no `ValRepr` — leaves its call and its value-use curried, one argument at a time.
     let externalGroups
         (provider: IExternalSymbolProvider)
         (key: SymbolKey voption)
@@ -58,10 +33,8 @@ module JsFlatFns =
             | ValueNone -> ValueNone
         | ValueNone -> ValueNone
 
-    /// Render a `CompiledFns.FlatStep` list as the flat JS argument list: a scalar `Arg`
-    /// built directly; a `TupleLiteral`'s elements built element-wise; a `TupleValue` read
-    /// positionally — a pure value inline (`v[j]`), an impure one spilled to a temporary
-    /// (returned in the snd; the caller binds it via `wrapSpills` so it evaluates once).
+    /// A tuple argument becomes N positional reads, so an impure one is spilled to a `_tg`
+    /// temporary (the snd) instead of being read N times; `wrapSpills` binds it.
     let renderFlatSteps
         (pool: PoolBuilder)
         (build: TastAccessor.ExprId -> JsExpr)
@@ -93,9 +66,6 @@ module JsFlatFns =
 
         List.ofSeq flat, List.ofSeq spills
 
-    /// Flatten a saturated call's LEADING arguments (one per source group) to the flat
-    /// compiled argument list. The lone-unit-erase / literal-vs-value tuple dispatch is
-    /// `CompiledFns.flattenPlan`'s, shared with the CLR backend.
     let flattenGroupArgs
         (pool: PoolBuilder)
         (build: TastAccessor.ExprId -> JsExpr)
@@ -104,8 +74,8 @@ module JsFlatFns =
         : JsExpr list * (string * JsExpr) list =
         CompiledFns.flattenPlan groups leadingArgs |> renderFlatSteps pool build
 
-    /// Wrap a flat call in an IIFE binding each spilled tuple value once, so an impure
-    /// tuple argument flattened to N reads is still evaluated exactly once.
+    /// Bind the spilled values in an IIFE around the call, evaluating each once:
+    /// `((_tg4) => callee(_tg4[0], _tg4[1]))(arg)`.
     let wrapSpills (spills: (string * JsExpr) list) (call: JsExpr) (loc: JsLoc voption) : JsExpr =
         match spills with
         | [] -> call
@@ -116,9 +86,8 @@ module JsFlatFns =
                 loc
             )
 
-    /// A saturated module-function call: collapse the leading arguments (one per
-    /// source group) into a single flat `callee(flatArgs…)`, then fold any residual
-    /// over-application on as unary calls.
+    /// One argument per source group collapses into one flat call, and any surplus folds on
+    /// unary: `f a b c` against two groups emits `f(a, b)(c)`.
     let emitFlatCall
         (pool: PoolBuilder)
         (build: TastAccessor.ExprId -> JsExpr)
@@ -137,11 +106,9 @@ module JsFlatFns =
         rest
         |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ build a ], ValueNone)) flatCall
 
-    /// Wrap a flat `callee` in a curried adapter matching its SOURCE arity, so a
-    /// value-use / partial application sees the same currying a curried consumer
-    /// expects: `(c0) => (c1) => callee(c0, c1)`. A tuple group's single curried
-    /// parameter is destructured into the flat call's positional reads; a lone unit
-    /// parameter is accepted and dropped.
+    /// Re-curry a flat `callee` to its SOURCE arity, one arrow per group:
+    /// `(c0) => (c1) => callee(c0, c1)`. A tuple group's one parameter is read positionally
+    /// (`(c0) => callee(c0[0], c0[1])`); a lone unit parameter is taken and dropped.
     let curryAdapter
         (pool: PoolBuilder)
         (callee: JsExpr)

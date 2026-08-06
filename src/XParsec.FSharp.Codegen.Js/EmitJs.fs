@@ -9,38 +9,8 @@ open EmitJsCapabilities
 open EmitJsTypes
 open EmitJsContext
 
-/// The `TAST → JsAst` walker. Its top-level dispatch is TOTAL over `ExprShape` with no
-/// `_` fallthrough, so a node kind added to the TAST breaks THIS build (as it already does
-/// on CLR) instead of being absorbed as a runtime "unsupported expression"; an
-/// un-implemented shape is an explicit `failwithf` arm, failing loudly rather than
-/// dropping silently.
-///
-/// Durable conventions:
-///   * Functions are **curried unary arrows** — `Lambda` → nested `(a) => (b) => …`,
-///     `App` → unary calls (`f a b` → `f(a)(b)`). Tail self-recursion trampolines to
-///     `while (true)` with param-shadow mutation for constant stack.
-///   * Operator bodies arrive pre-spliced as `ILIntrinsic` `$N`-templates, already
-///     JS-emit-able. `TastLower.lower` drops `type` decls — record/union/member shapes
-///     are read off the un-lowered decls in `collectTypes`.
-///   * Records/unions emit as data-only JS `class`es (positional ctor; union = base
-///     `tag` + one `extends`-subclass per case). Members emit as free, curried,
-///     *receiver-first* functions — never prototype methods (match + the structural
-///     runtime read `.tag`/own-keys, never `instanceof`).
-///   * `Match` lowers to an IIFE testing each arm in order, an unmatched value throwing.
-///
-/// The `buildExpr`-free foundation (`WalkCtx`, name/type resolution, `compileMatchPattern`)
-/// lives in `EmitJsContext`; the printf/format projection in `EmitJsFormat`; the member /
-/// capability-method emitters in `EmitJsMembers`. Those reach back into this walker only
-/// through the `buildExpr` callback `buildProgram` threads in.
+/// The `TAST → JsAst` walker. Functions emit as curried unary arrows: `f a b` → `f(a)(b)`.
 module EmitJs =
-
-    // The Fable-style FLAT module-function helpers — flat-call collapse, the curried
-    // adapter, external-`ValRepr` resolution — live in `JsFlatFns`, decoupled from this
-    // walker via a `build` callback (mirroring the CLR `EmitCall.flattenGroupPushes`
-    // `recur` parameter). The EXTERNAL-member lowerings — provider flags, the `exn`
-    // repr climb, the attached / erased / mangled call shapes — live in
-    // `JsExternalMembers` on the same seam. Only the trampoline-coupled
-    // `emitFlatModuleFn` / `trampolineOrExpr` stay in this recursion group.
 
     // ---- The walker ----------------------------------------------------------
 
@@ -50,10 +20,8 @@ module EmitJs =
         match TastAccessor.exprKind e with
         | ExprShape.Const -> constExpr (TastAccessor.exprConstValue e) loc
 
-        // A bare reference to a local module FUNCTION is a value-use (an escape): it
-        // wraps the flat function in an inline curried adapter so a higher-order
-        // consumer (or a partial application) sees the SOURCE-shaped currying. A simple
-        // single-arg / lone-unit function needs no adapter (flat == curried there).
+        // A module function compiles FLAT (`add(a, b)`), so a bare value-use must re-curry it:
+        // `let f = add` emits `(c0) => (c1) => add(c0, c1)`.
         | ExprShape.Var ->
             let k = TastAccessor.exprVarBinding e
 
@@ -63,9 +31,8 @@ module EmitJs =
             | true, cf when JsFlatFns.needsAdapter cf.Groups -> JsFlatFns.curryAdapter ctx.Pool ident cf.Groups loc
             | _ -> ident
 
-        // An external module function — imported from its package's JS runtime module.
-        // A value-use of a multi-arg / tupled external function gets the same curried
-        // adapter (its producer emits flat); a saturated call flattens at the `App` arm.
+        // An external module function, imported from its package's JS runtime module. Its
+        // producer emits flat too, so a value-use gets the same curried adapter.
         | ExprShape.External ->
             let ext = TastAccessor.exprExternal e
 
@@ -83,8 +50,7 @@ module EmitJs =
             let i = TastAccessor.exprIfThenElse e
             JsExpr.Conditional(buildExpr ctx i.Cond, buildExpr ctx i.ThenExpr, buildExpr ctx i.ElseExpr, loc)
 
-        // A `Sequential` in expression position is a comma expression (top-level it
-        // expands to statements via `buildStatements`).
+        // In expression position a `Sequential` is a JS comma expression.
         | ExprShape.Sequential -> JsExpr.Sequence([ for x in TastAccessor.exprChildren e -> buildExpr ctx x ], loc)
 
         // A tuple `(a, b, …)` is a JS array `[a, b, …]`; a pattern reads elements by index.
@@ -92,18 +58,15 @@ module EmitJs =
 
         | ExprShape.Let ->
             match e with
-            // Pure `let` in expression position: substitute into uses (collapse operator
-            // templates). A *mutable* binder (assigned in the body) is excluded — it must
-            // stay a real binding so its writes land; it falls to the IIFE arm, where the
-            // arrow parameter is the (reassignable) mutable cell.
+            // Pure `let` in expression position: substitute into uses. A *mutable* binder is
+            // excluded — it must stay a real binding so its writes land — and falls below.
             | InlinableLet ctx reduced -> buildExpr ctx reduced
             | _ ->
                 let l = TastAccessor.exprLet e
 
                 match l.Binding with
-                // Non-pure (or mutable) `let` in expression position: JS has no let-expression,
-                // so lowers to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once,
-                // and (for a mutable binder) reassignable as the arrow parameter.
+                // JS has no let-expression, so a non-pure (or mutable) `let` lowers to an IIFE
+                // `((x) => <body>)(<value>)`: evaluated once, and reassignable as the parameter.
                 | TastAccessor.PNamedNaming naming ->
                     JsExpr.Call(
                         JsExpr.Arrow([ binderName naming ], JsFnBody.Expr(buildExpr ctx l.Body), ValueNone),
@@ -113,15 +76,12 @@ module EmitJs =
 
                 | _ ->
                     match TastAccessor.patKind l.Binding with
-                    // `let _ = value in body` — a Wildcard binder discards the value, kept only for
-                    // its effects (`let _ = renderInto buf` over `|> ignore`, which leaves a bare
-                    // recipe value). A pure value contributes nothing, so drop it; otherwise a comma
-                    // sequence evaluates `value` then yields `body` (JS has no let-expression).
+                    // `let _ = value in body` keeps the value only for its effects: a pure value
+                    // drops, else a comma sequence evaluates it then yields `body`.
                     | PatShape.Wildcard when isPureValue l.Value -> buildExpr ctx l.Body
                     | PatShape.Wildcard -> JsExpr.Sequence([ buildExpr ctx l.Value; buildExpr ctx l.Body ], loc)
-                    // A destructuring `let (a, b) = value in body` — the same IIFE, its
-                    // arrow parameter the array destructuring a tuple parameter already
-                    // takes, so the value is read once and each leaf binds positionally.
+                    // A destructuring `let (a, b) = value in body` — the same IIFE, its arrow
+                    // parameter the array destructuring a tuple parameter already takes.
                     | PatShape.Tuple ->
                         JsExpr.Call(
                             JsExpr.Arrow(
@@ -137,22 +97,13 @@ module EmitJs =
         // Anonymous lambda — no binder key, so no self-tail-call analysis applies.
         | ExprShape.Lambda -> emitFunction ctx ValueNone e
 
-        // Application. A SATURATED call to a module function (local or external)
-        // collapses all its arguments into a single FLAT call (`f(a, b)`, tuple groups
-        // flattened, lone unit dropped); any residual over-application folds on as unary
-        // calls. Everything else — closures, members, under-applied module functions —
-        // keeps the curried `f(a)(b)` shape (one unary call per `App`); an under-applied
-        // module function reaches its head's curried adapter through this fallback.
+        // A SATURATED call to a module function (local or external) collapses all its
+        // arguments into a single FLAT call (`f(a, b)`; tuple groups flattened, lone unit
+        // dropped). Everything else keeps the curried `f(a)(b)`, one unary call per `App`.
         | ExprShape.App ->
             let av = TastAccessor.exprApp e
             let head, appArgs = TastAccessor.collectAppChain [] e
 
-            // Flat dispatch: a capability-protocol member call (`tryCapabilityCall` —
-            // `src.GetEnumerator()`, `e.MoveNext()`, `e.Dispose()`) folds head + the lone
-            // `unit` argument into its JS form; a native attached-member call
-            // (`JsExternalMembers.tryAttachedCall`) folds every argument into ONE
-            // `receiver.member(args)`; else a saturated module-function call collapses to a
-            // flat call; anything else keeps the curried unary fallback.
             let folded =
                 match tryCapabilityCall ctx.Capabilities ctx.Imports (buildExpr ctx) head appArgs loc with
                 | ValueSome call -> ValueSome call
@@ -161,12 +112,9 @@ module EmitJs =
             match folded with
             | ValueSome call -> call
             | ValueNone ->
-                // Resolve an application head that names a module function to its flat callee
-                // + SOURCE groups — a local `CompiledFns` entry or an external `ValRepr`. The
-                // groups are non-empty by construction (both `gather` and the external
-                // `ValRepr` capture require ≥ 1 source group), so the saturation predicate
-                // below is written ONCE for both kinds: a flat call exactly when the argument
-                // count is at least the group count. Anything else keeps the curried fallback.
+                // An application head naming a module function → its flat callee + SOURCE
+                // groups. The groups are non-empty by construction, so saturation is the
+                // argument count reaching the group count; anything else stays curried.
                 let flatHead: (JsExpr * TastAccessor.ArgGroup list) voption =
                     let identAt name = JsExpr.Identifier(name, locOf ctx head)
 
@@ -194,9 +142,8 @@ module EmitJs =
                     JsFlatFns.emitFlatCall ctx.Pool (buildExpr ctx) callee groups appArgs loc
                 | _ -> JsExpr.Call(buildExpr ctx av.Fn, [ buildExpr ctx av.Arg ], loc)
 
-        // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args
-        // reordered from source order to the class's *declaration*-order
-        // positional constructor.
+        // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args reordered from
+        // source order to the class's *declaration*-order positional constructor.
         | ExprShape.RecordCons ->
             let info = recordInfoOf ctx "RecordCons" (TastAccessor.exprTy e)
             let srcMap = Map.ofSeq (TastAccessor.exprRecordConsFields e)
@@ -211,10 +158,9 @@ module EmitJs =
 
             JsExpr.New(nominalCtorRef ctx info.Home info.Name ValueNone, args, loc)
 
-        // `{ r with X = v; … }` → reconstruction `new R(…)`: each field takes its
-        // override if listed, else reads `<src>.field`. `<src>` is read once per
-        // copied field, so a bare `Var` is spliced inline; any other source is bound
-        // once through an IIFE binder (avoids re-evaluating / duplicating it).
+        // `{ r with X = v; … }` → reconstruction `new R(…)`: each field takes its override
+        // if listed, else reads `<src>.field`. `<src>` is read once per copied field, so a
+        // bare `Var` splices inline and any other source binds once through an IIFE.
         | ExprShape.RecordClone ->
             let rc = TastAccessor.exprRecordClone e
             let info = recordInfoOf ctx "RecordClone" (TastAccessor.exprTy e)
@@ -239,16 +185,13 @@ module EmitJs =
 
                 JsExpr.Call(JsExpr.Arrow([ sName ], JsFnBody.Expr newExpr, ValueNone), [ buildExpr ctx rc.Source ], loc)
 
-        // `r.X` → `r.X` — a member access on the record's like-named property
-        // (the emitted class stores each field under its source field name).
+        // `r.X` → `r.X`: the emitted class stores each field under its source field name.
         | ExprShape.FieldGet ->
             let fg = TastAccessor.exprFieldGet e
             JsExpr.Member(buildExpr ctx fg.Receiver, JsExpr.Identifier(fg.FieldName, ValueNone), false, loc)
 
-        // `r.X <- v` → `(r.X = v)` — a mutable (`val mutable`) instance-field write,
-        // the field analogue of the mutable-local `Assignment` arm. Unit-typed in F#,
-        // so the yielded value is unused; in statement position `buildStatements`
-        // wraps it as an expression statement.
+        // `r.X <- v` → `(r.X = v)`, a `val mutable` instance-field write. Unit-typed in F#,
+        // so the yielded value is unused; statement position wraps it as a statement.
         | ExprShape.FieldSet ->
             let fs = TastAccessor.exprFieldSet e
 
@@ -258,29 +201,26 @@ module EmitJs =
                 loc
             )
 
-        // A union constructor `Case e0 e1 …` → `new <Union>_<Case>(args…)`. The
-        // args already arrive in declaration (field) order, so — unlike a record
-        // literal — no reordering is needed; the subclass constructor stores them
-        // positionally under the case's field names.
+        // A union constructor `Case e0 e1 …` → `new <Union>_<Case>(args…)`. The args already
+        // arrive in declaration (field) order, so — unlike a record literal — no reordering.
         | ExprShape.UnionCons ->
             let info = unionInfoOf ctx "UnionCons" (TastAccessor.exprTy e)
             let c = unionCaseFromInfo info "UnionCons" (TastAccessor.exprUnionConsCaseName e)
 
             // A local union's class is in this file; an external union's case class is
-            // imported from its home module (no local re-emit).
+            // imported from its home module, never re-emitted here.
             let callee = nominalCtorRef ctx info.Home c.ClassName loc
 
             JsExpr.New(callee, [ for a in TastAccessor.exprChildren e -> buildExpr ctx a ], loc)
 
-        // External exception construction → `new <exn repr>(msg)`. The repr is sourced
-        // from the `inherit` chain via `exnReprOf`; only the leading message arg is kept
-        // (`Error` has no slot for further args). Non-`exn`-subtype external `New` fails loudly.
+        // External exception construction → `new <exn repr>(msg)`, the repr sourced from the
+        // `inherit` chain; only the leading message arg is kept, as `Error` has no slot for
+        // further ones. An external type that is no `exn` subtype has no analogue and faults.
         | ExprShape.New ->
             let ty = TastAccessor.exprTy e
             let args = TastAccessor.exprChildren e
-            // A locally-emitted class constructs by its emitted name with positional
-            // args (the ctor stores each into the like-named field). Resolved before
-            // the external `exn`-repr path.
+            // A locally-emitted class constructs by its emitted name with positional args,
+            // the ctor storing each into the like-named field.
             let localClassName =
                 match TastLower.receiverShape ty with
                 | ValueSome(key, _) ->
@@ -289,20 +229,14 @@ module EmitJs =
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
 
-            // A GLOBAL (ambient) external class — its home is a global pack (`Js.Map`,
-            // `Js.Widget`) — constructs by its BARE export name with NO import: the JS
-            // runtime provides it intrinsically. `Global` rides the HOME (the resolved
-            // shape's `ExternalClassFlags.Global`, reached via the receiver-shape key),
-            // so this fires for an es2015-home type but not a real package. The bare
-            // name is the key's simple name (`Js.Widget` → `Widget`). Resolved after
-            // the local-class path and before the external `exn`-repr fallback.
+            // A GLOBAL (ambient) external class constructs by its BARE export name with NO
+            // import — the JS runtime provides it intrinsically. That name is the key's
+            // simple name (`Js.Widget` → `Widget`).
             let globalClassName =
                 match TastLower.receiverShape ty with
                 | ValueSome(key, _) ->
                     JsExternalMembers.classFlagsOf ctx.Provider key
                     |> ValueOption.filter (fun flags -> flags.Global)
-                    // Backend name emission: the global class is `new`d under the name the
-                    // runtime knows it by.
                     |> ValueOption.map (fun _ ->
                         let (DisplayName name) = SymbolKeyOps.typeSimpleName key
                         name
@@ -328,16 +262,9 @@ module EmitJs =
                         "EmitJs: construction of external type '%s' has no JS analogue (only `exn` subtypes lower to `new <exn repr>`)"
                         (TastAccessor.exprNewClassName e)
 
-        // A member access through a LOCAL interface slot (`(r :> IRank).Rank`): the impl
-        // is an ATTACHED method on the receiver's class (the plain-attached partition), so
-        // dispatch as a flat member access `receiver.<member>(args)` — the free-function
-        // `<Type>__<member>` form names no emitted function for an interface member. The
-        // member's declaring type being a local interface is the signal (not the node's
-        // `CallVia` — see `WalkCtx.LocalInterfaces`). An interface-impl PROPERTY emits as a
-        // zero-arg attached method, so its read is the same member access called with no
-        // args. Otherwise the member is on a local record/union: each is a free
-        // receiver-first function. (The `LocalInterfaces` test is inside the arm, not a
-        // `when` guard, so the payload view is materialized once — never in a guard.)
+        // A LOCAL interface slot's impl is an ATTACHED method on the receiver's class, so it
+        // dispatches as `receiver.<member>(args)` — no free `<Type>__<member>` function is
+        // emitted for an interface member. An impl PROPERTY is a zero-arg attached method.
         | ExprShape.PropertyGet ->
             let pg = TastAccessor.exprPropertyGet e
 
@@ -359,13 +286,9 @@ module EmitJs =
 
         | ExprShape.StaticPropertyGet -> Members.localFn ctx (TastAccessor.exprStaticPropertyGetKey e) true true loc
 
-        // An enum-case reference `E.Ci` → a property read on the frozen object map.
-        // `StaticFieldGet` is the general static-field carrier (a class `static let`
-        // backing-field read also lowers to it), so route to `enumCaseAccess` ONLY
-        // when the node's type is the enum itself (`FTEnum`, stamped by Unification's
-        // enum arm). A non-enum key is a class `static let` backing field, stored as a
-        // property on the emitted class object (`ClassName.field`) — the store analogue
-        // is `StaticFieldSet`.
+        // `StaticFieldGet` is the general static-field carrier, so an enum-case reference
+        // `E.Ci` (a property read on the frozen object map) is recognised by the node's TYPE
+        // being the enum. Any other key is a `static let` backing field, `ClassName.field`.
         | ExprShape.StaticFieldGet ->
             let sfg = TastAccessor.exprStaticFieldGet e
 
@@ -374,7 +297,6 @@ module EmitJs =
             | _ -> staticFieldRef ctx sfg.Key sfg.FieldName loc
 
         // `x <- v` on a `static let mutable` backing field → `(ClassName.field = v)`.
-        // Unit-typed like `FieldSet`; the yielded value is unused in statement position.
         | ExprShape.StaticFieldSet ->
             let sfs = TastAccessor.exprStaticFieldSet e
             JsExpr.Assign(staticFieldRef ctx sfs.Key sfs.FieldName loc, buildExpr ctx sfs.Value, loc)
@@ -385,10 +307,9 @@ module EmitJs =
                 (Members.localFn ctx (TastAccessor.exprStaticMethodCallKey e) true false loc)
                 (EqArray.ofArray (TastAccessor.exprChildren e))
 
-        // A member on an external type, reached WITHOUT being applied — the CALL forms fold
-        // in the `App` head-case, off the same `MemberDispatch`. A STATIC member has no
-        // native lowering yet, so every dispatch but the erased one falls to the mangled
-        // import. A capability-member read (`e.Current`) is recognised ahead of all of them.
+        // A member on an external type, reached WITHOUT being applied; the call forms fold at
+        // the `App` head off the same `MemberDispatch`. A STATIC member has no native
+        // lowering, so every dispatch but the erased one falls to the mangled import.
         | ExprShape.ExternalMember ->
             match e with
             | CapabilityRead ctx.Capabilities ctx.Imports (recv, emit) -> emit (buildExpr ctx recv) loc
@@ -428,10 +349,9 @@ module EmitJs =
                         em.Storage.IsValueMember
                         loc
 
-        // `match scrut with …` → an IIFE binding the scrutinee once, then testing each
-        // arm in order and `return`ing the first whose pattern (+ guard) matches; an
-        // unmatched value `throw`s. Sequential test (not `switch(tag)`) so it covers
-        // guards, constants, nested patterns, and non-union scrutinees uniformly.
+        // `match scrut with …` → an IIFE binding the scrutinee once, testing each arm in
+        // order and `return`ing the first that matches; an unmatched value `throw`s. Tested
+        // sequentially, not as `switch(tag)`, so guards and nested patterns fit uniformly.
         | ExprShape.Match ->
             let m = TastAccessor.exprMatch e
             let mv = freshTemp ctx.Pool "_m"
@@ -446,36 +366,28 @@ module EmitJs =
 
             JsExpr.Call(JsExpr.Arrow([ mv ], JsFnBody.Block body, loc), [ buildExpr ctx m.Scrutinee ], loc)
 
-        // A mutable-local / array-element write `lhs <- rhs` → the JS assignment
-        // expression `(lhs = rhs)`. Unit-typed in F#, so its yielded value is unused;
-        // in statement position `buildStatements` wraps it as an expression statement.
+        // A mutable-local / array-element write `lhs <- rhs` → the JS assignment expression
+        // `(lhs = rhs)`. Unit-typed in F#, so its yielded value is unused.
         | ExprShape.Assignment ->
             let a = TastAccessor.exprAssignment e
             JsExpr.Assign(buildExpr ctx a.Lhs, buildExpr ctx a.Rhs, loc)
 
-        // `while cond do body` in expression position. JS `while` is a statement, so it
-        // lowers to a zero-arg IIFE `(() => { while (<cond>) { <body> } })()` that yields
-        // `undefined` (the F# `unit` result). Statement position keeps the bare loop —
-        // see `buildStatements`.
+        // JS `while` is a statement, so `while cond do body` in expression position lowers to
+        // a zero-arg IIFE `(() => { while (<cond>) { <body> } })()` yielding `undefined`.
         | ExprShape.While ->
             let w = TastAccessor.exprWhile e
             let loop = JsStatement.While(buildExpr ctx w.Cond, buildStatements ctx w.Body)
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block [ loop ], loc), [], loc)
 
-        // `for i = a to b do body` in expression position — same IIFE wrapper as `while`;
-        // `buildStatements` produces the hoisted-limit `const` + the `for` statement.
+        // `for i = a to b do body` in expression position — the same IIFE wrapper as `while`.
         | ExprShape.ForTo -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
 
-        // `for x in source do body` in expression position — same IIFE wrapper as `for…to`
-        // (the loop yields `unit`); `buildStatements` produces the `for…of`.
+        // `for x in source do body` in expression position — the same IIFE wrapper.
         | ExprShape.ForIn -> JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block(buildStatements ctx e), loc), [], loc)
 
-        // `use x = value in body` in expression position. JS `try/finally` is a
-        // statement, so it lowers to a zero-arg IIFE that parks the binder, `return`s
-        // the body's value from the `try`, and disposes in the `finally`. The body is
-        // a single expression (`Sequential` becomes a comma expression, a nested `let`
-        // its own IIFE), so returning `buildExpr ctx body` preserves the result through
-        // the disposal in the `finally`.
+        // JS `try/finally` is a statement, so `use x = value in body` in expression position
+        // lowers to a zero-arg IIFE parking the binder, `return`ing the body's value from the
+        // `try` and disposing in the `finally`.
         | ExprShape.Use ->
             let u = TastAccessor.exprUse e
             let name = useBinderName ctx u.Binding
@@ -486,10 +398,8 @@ module EmitJs =
             let block = [ JsStatement.Const(name, buildExpr ctx u.Value); tryFinally ]
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block block, loc), [], loc)
 
-        // `try body finally cleanup` in expression position. As with `use` (which desugars
-        // through the same JS `try/finally`), the region has a value, but JS `try/finally`
-        // is a statement — so wrap it in a zero-arg IIFE that `return`s the body's value from
-        // the `try` and runs `cleanup` (a unit expression) for effect in the `finally`.
+        // `try body finally cleanup` in expression position — the same zero-arg IIFE `use`
+        // takes, `return`ing the body's value and running `cleanup` for effect.
         | ExprShape.TryFinally ->
             let tf = TastAccessor.exprTryFinally e
 
@@ -498,35 +408,26 @@ module EmitJs =
 
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block [ tryFinally ], loc), [], loc)
 
-        // `e :> obj` (value→`obj` box, synthesised at Elaborate for an `obj` parameter/field).
-        // JS is dynamically typed — every value is already a boxed `obj` — so the box is a
-        // no-op; emit the source verbatim. The downcast `e :?> T` is likewise identity (no
-        // runtime nominal type to check).
+        // JS is dynamically typed — every value is already a boxed `obj` — so `e :> obj` is a
+        // no-op emitting its source verbatim, and `e :?> T` is likewise identity.
         | ExprShape.Upcast
         | ExprShape.Downcast -> buildExpr ctx (TastAccessor.exprChild e 0)
 
-        // `expr when ^T : int = …`: the clauses are a COMPILE-TIME selection made when a
-        // splice pins the operand type (`Inline.inlineExpand`). Reaching the backend means
-        // no type was pinned — this is the `inline` binding's ordinary compiled form, or a
-        // use of it as a first-class value — and the node carries `defaultExpr` for
-        // precisely that case. Emit the default, as the CLR backend does; a clause is an
-        // optimisation over it, never a different meaning.
+        // `expr when ^T : int = …` clauses are a COMPILE-TIME selection made when a splice
+        // pins the operand type. Reaching the backend means none was pinned, so emit the
+        // default; a clause is an optimisation over it, never a different meaning.
         | ExprShape.StaticOptimization -> buildExpr ctx (TastAccessor.exprStaticOptimizationDefault e)
 
-        // The tokenful array intrinsics — `Array.zeroCreate` / `arr.[i]` / `arr.[i] <- v`
-        // / `arr.Length`, desugared to `newarr`/`ldelem`/`stelem`/`ldlen` (the same
-        // mnemonics the CLR backend reads; they are target-neutral, the element-type
-        // operand is dropped on JS). They reach the backend because their inline bodies
-        // live in `ops-platform.js.fs` (`array.fs`'s `zeroCreate` for `newarr`).
+        // The array intrinsics carry the same `newarr`/`ldelem`/`stelem`/`ldlen` mnemonics the
+        // CLR backend reads: target-neutral, with the element-type operand dropped on JS.
         | ExprShape.ILIntrinsic ->
             let args = TastAccessor.exprChildren e
 
             match TastAccessor.exprILIntrinsicOpCode e with
             | "newarr" ->
-                // `Array.zeroCreate count` → `Array(count).fill(null)`: a *dense* array (not
-                // the sparse `new Array(count)`), so `Object.keys` / iteration observe every
-                // slot. Unset slots read as `null`, not the element type's zero — the JS
-                // zero-init erasure corner (callers fill before reading).
+                // `Array.zeroCreate count` → `Array(count).fill(null)`: DENSE, not the sparse
+                // `new Array(count)`, so `Object.keys` / iteration observe every slot. Unset
+                // slots read as `null`, not the element type's zero.
                 match args with
                 | [| count |] ->
                     let alloc =
@@ -558,11 +459,9 @@ module EmitJs =
                 | [| arr |] -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
                 | _ -> failwith "EmitJs: 'ldlen' expects one operand (the array)"
 
-            // The empty-string identity intrinsic `(# "" x : 'U #)` — FSharp.Core's
-            // erasing reinterpret (`retype`, the primitive `dynamic` enter/exit builds on).
-            // It has NO runtime effect: emit the lone operand verbatim, re-typed (the CLR
-            // emits nothing likewise). Handled before the generic `$N`-template expander,
-            // which would (correctly) reject an operand-bearing template with no hole.
+            // The empty-string identity intrinsic `(# "" x : 'U #)` is FSharp.Core's erasing
+            // reinterpret: NO runtime effect, so emit the lone operand verbatim. Handled ahead
+            // of the `$N`-template expander, which rejects an operand-bearing template.
             | "" when args.Length = 1 -> buildExpr ctx args.[0]
 
             | opCode -> JsExpr.Raw(EmitJsFormat.expandTemplate buildExpr ctx opCode (List.ofArray args), loc)
@@ -574,43 +473,29 @@ module EmitJs =
             match fv.Sink with
             | FormatSinkG.ToStdOut true -> JsExpr.Call(console "log", [ arg ], loc)
             | FormatSinkG.ToStdErr true -> JsExpr.Call(console "error", [ arg ], loc)
-            // `sprintf` (`State = unit`, `Residue = string`): the spliced concatenation
-            // IS the result string, yielded directly as a value (no console call).
+            // For `sprintf` the spliced concatenation IS the result string, yielded as a value.
             | FormatSinkG.ToString -> arg
             | other -> failwithf "EmitJs: unsupported format sink %A" other
 
-        // Not yet emitted by the JS backend — legitimate F# the walker has no lowering for,
-        // not unknown nodes. `TryWith` is the plainest: JS has `try`/`catch` and `TryFinally`
-        // already shows the IIFE shape, so what is missing is the catch-side arm matching.
-        // `TypeTest` (`e :? T`) is the expression form of the gap `compileMatchPattern`
-        // already refuses as `PatShape.TypeTestAs` — this backend gives values no runtime
-        // nominal identity to test.
+        // Legitimate F# the walker has no lowering for yet: `TryWith` wants catch-side arm
+        // matching, and `TypeTest` (`e :? T`) has no runtime nominal identity to test on this
+        // backend — the expression form of the gap `compileMatchPattern` also refuses.
         | ExprShape.Null
         | ExprShape.TryWith
         | ExprShape.TypeTest -> failwithf "EmitJs: unsupported expression %A" e
 
-        // NOT a target gap: `..` is an ordinary operator in F# (`val inline (..): ^T -> ^T ->
-        // seq<^T>`), so a range wants no node of its own at all, and `TExpr.Range` exists only
-        // to carry the rejection of a use this compiler does not yet materialise a seq for.
-        // Every surviving one was already reported at Elaborate (`RangeNotFirstClassValue`);
-        // the counted for-in lowering, which mints `ForTo`, consumes the one supported form.
-        // So reaching here means emitting a program already known bad — and the arm disappears
-        // with the node once `(..)` resolves through the contract like any other operator.
+        // NOT a target gap: `..` is an ordinary F# operator, so a range wants no node of its
+        // own, and `Range` exists only to carry a use no seq is materialised for. Elaborate
+        // reports every one it mints, so reaching here means a program already known bad.
         | ExprShape.Range -> failwithf "EmitJs: unsupported expression %A" e
 
-        // Not "unsupported" but IMPOSSIBLE here: the specialization table is expanded, and
-        // trait calls are grounded, before emission — so neither edge survives to the time
-        // the walker runs. Arms of their own so the fault names the invariant rather than the
-        // node, and the same ones the CLR router raises.
         | ExprShape.InlineCall -> TastLower.inlineCallUnexpanded (TastAccessor.exprInlineCallSpec e)
         | ExprShape.CallerExpr -> TastLower.callerExprUnexpanded ()
         | ExprShape.TraitCall -> TastLower.traitCallUnresolved (TastAccessor.exprTraitCallMemberName e)
 
-    /// Build one `match` arm's statements: when the pattern matches (and the guard,
-    /// if any, passes) the arm `return`s its body. An always-matching arm
-    /// (wildcard / bare variable, `test = None`) emits a bare `Block` so its
-    /// bindings stay scoped (two arms may bind the same source name); a refutable
-    /// arm guards that block with `if (test)`.
+    /// Build one `match` arm's statements: a matching pattern (and passing guard) `return`s
+    /// the body. An always-matching arm emits a bare `Block` so its bindings stay scoped —
+    /// two arms may bind the same source name; a refutable arm guards it with `if (test)`.
     and private buildMatchArm (ctx: WalkCtx) (access: JsExpr) (arm: TastAccessor.Arm) : JsStatement list =
         let test, binds = compileMatchPattern ctx access arm.Pat
 
@@ -627,11 +512,9 @@ module EmitJs =
         | None -> [ JsStatement.Block inner ]
         | Some t -> [ JsStatement.If(t, inner, []) ]
 
-    /// The body of a function whose params are `names`: a `while (true)` trampoline
-    /// (`buildTailBody`) when `selfKey` names the binding and its body makes a saturated
-    /// tail self-call at `arity` (constant-stack recursion), else the plain expression.
-    /// `arity` is the SOURCE-group count — for a flat module fn it differs from
-    /// `names.Length` (tuple groups expand, lone unit erases), so the caller passes it.
+    /// The body of a function whose params are `names`: a `while (true)` trampoline when
+    /// `selfKey`'s body makes a saturated tail self-call at `arity`, else the plain expression.
+    /// `arity` is the SOURCE-group count, which for a flat module fn differs from `names`.
     and private trampolineOrExpr
         (ctx: WalkCtx)
         (selfKey: BinderId voption)
@@ -647,23 +530,17 @@ module EmitJs =
                 ]
         | _ -> JsFnBody.Expr(buildExpr ctx body)
 
-    /// Emit a function value as nested *unary* arrows. When `selfKey` names the
-    /// binding and its body makes a saturated tail self-call, the innermost arrow
-    /// becomes a `while (true)` trampoline for constant-stack recursion; else the
-    /// innermost body is the plain expression. The nested-unary shape keeps every
-    /// arrow's param in scope at the innermost body, which is what lets the trampoline
+    /// Emit a function value as nested *unary* arrows. That shape keeps every arrow's param
+    /// in scope at the innermost body, which is what lets a `while (true)` trampoline there
     /// write them back and `continue`.
     and emitFunction (ctx: WalkCtx) (selfKey: BinderId voption) (lam: TastAccessor.ExprId) : JsExpr =
         let loc = locOf ctx lam
         let names, body = peelLambdas ctx.Pool lam
         nestUnaryArrows loc names (trampolineOrExpr ctx selfKey (List.length names) names body)
 
-    /// Build the statements of a self-tail-call trampoline's loop body, walking
-    /// tail position. A saturated tail self-call writes its arguments back to the
-    /// parameter variables — through per-argument temporaries first, so an
-    /// argument that reads a parameter (`sum (n-1) (acc+n)`) sees the *old* value
-    /// — then `continue`s. Tail `if`/`let`/`Sequential`-tail thread through;
-    /// every other tail expression `return`s its value.
+    /// Build the statements of a self-tail-call trampoline's loop body, walking tail
+    /// position. A saturated tail self-call writes its arguments back to the parameter
+    /// variables and `continue`s; every other tail expression `return`s its value.
     and buildTailBody
         (ctx: WalkCtx)
         (selfKey: BinderId)
@@ -676,10 +553,8 @@ module EmitJs =
         match e with
         | InlinableLet ctx reduced -> recur reduced
         | TailSelfCall selfKey arity args ->
-            // `_tc<i>` temporaries: evaluate every new argument before any write-back,
-            // so a self-call arg that mentions a parameter reads its pre-iteration
-            // value. (Not collision-proof against a source param literally named
-            // `_tc0` — synthetic names are keyed off strings, not `NodeKey`s.)
+            // `_tc<i>` temporaries: evaluate every new argument before any write-back, so a
+            // self-call arg mentioning a parameter reads its pre-iteration value.
             let tmp i = "_tc" + string i
 
             [ for i, a in List.indexed args -> JsStatement.Const(tmp i, buildExpr ctx a) ]
@@ -703,8 +578,7 @@ module EmitJs =
                     binding :: recur l.Body
                 | _ ->
                     match TastAccessor.patKind l.Binding with
-                    // `let _ = value in body` — discard the value (effects only); body stays in tail
-                    // position. A pure value drops away (see `buildExpr`).
+                    // `let _ = value in body` — the body stays in tail position.
                     | PatShape.Wildcard when isPureValue l.Value -> recur l.Body
                     | PatShape.Wildcard -> buildStatements ctx l.Value @ recur l.Body
                     | _ -> [ JsStatement.Return(buildExpr ctx e) ]
@@ -725,18 +599,15 @@ module EmitJs =
                     [ JsStatement.Return(buildExpr ctx e) ]
             | _ -> [ JsStatement.Return(buildExpr ctx e) ]
 
-    /// Curry `base` over `args` — one unary `Call` per argument, in source order
-    /// (`base(a)(b)…`). Shared by the `MethodCall` / `StaticMethodCall` lowerings.
+    /// Curry `base` over `args` — one unary `Call` per argument, in source order:
+    /// `base(a)(b)…`.
     and private applyArgs (ctx: WalkCtx) (baseExpr: JsExpr) (args: EqArray<TastAccessor.ExprId>) : JsExpr =
         args
         |> EqArray.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
 
     /// Emit a local module FUNCTION as one FLAT arrow over its compiled parameters
     /// (`let f x y` → `(x, y) => …`; tuple groups flattened, a lone unit erased to
-    /// `() => …`). When every group is a plain binder and the body makes a saturated
-    /// tail self-call, the body becomes a `while (true)` trampoline — the flat
-    /// parameters are the mutated slots (only the all-`GSimple` shape maps a self-call's
-    /// arguments one-to-one onto them).
+    /// `() => …`). A trampoline mutates those flat parameters in place.
     and private emitFlatModuleFn
         (ctx: WalkCtx)
         (k: BinderId)
@@ -755,18 +626,14 @@ module EmitJs =
 
         JsExpr.Arrow(names, trampolineOrExpr ctx selfKey (List.length cf.Groups) names cf.Body, loc)
 
-    /// `receiver.<member>` for a call dispatched through a local interface slot — the
-    /// member resolves to the attached method `partitionClassMembers` emitted on the
-    /// receiver's class. Shared by the `PropertyGet`/`MethodCall` `CallVia.Interface` arms.
+    /// `receiver.<member>` for a call dispatched through a local interface slot — the member
+    /// resolves to the attached method emitted on the receiver's class, under its JS name.
     and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (receiver: TastAccessor.ExprId) (key: SymbolKey) : JsExpr =
-        // Backend name emission: the attached method is reached under its JS member name.
         let (DisplayName memberName) = SymbolKeyOps.simpleName key
         JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(memberName, ValueNone), false, loc)
 
-    /// A value bound to a name (a module value, or a `let` binder). A `Lambda`
-    /// value routes through `emitFunction` carrying its binder key, so a
-    /// recursive binding (`let rec`) can recognise its own tail calls; any other
-    /// value is a plain `buildExpr`.
+    /// A value bound to a name. A `Lambda` value carries its binder key down, so a recursive
+    /// binding (`let rec`) can recognise its own tail calls.
     and emitBound (ctx: WalkCtx) (k: BinderId) (value: TastAccessor.ExprId) : JsExpr =
         match TastAccessor.exprKind value with
         | ExprShape.Lambda -> emitFunction ctx (ValueSome k) value
@@ -776,8 +643,8 @@ module EmitJs =
     /// becomes a `const`; anything else is one `ExpressionStatement`.
     and buildStatements (ctx: WalkCtx) (e: TastAccessor.ExprId) : JsStatement list =
         match e with
-        // Pure, immutable binder: substitute away so synthetic operand lets don't
-        // surface as `const`s. A mutable binder is excluded (see `buildExpr`).
+        // Pure, immutable binder: substitute away so synthetic operand lets don't surface
+        // as `const`s.
         | InlinableLet ctx reduced -> buildStatements ctx reduced
         | _ ->
             match TastAccessor.exprKind e with
@@ -798,19 +665,18 @@ module EmitJs =
                     binding :: buildStatements ctx l.Body
                 | _ ->
                     match TastAccessor.patKind l.Binding with
-                    // `let _ = value in body` — emit the discarded value as its own statement(s)
-                    // (effects only), then the body. A pure value drops away (see `buildExpr`).
+                    // `let _ = value in body` — the discarded value emits as its own
+                    // statement(s), for its effects, then the body.
                     | PatShape.Wildcard when isPureValue l.Value -> buildStatements ctx l.Body
                     | PatShape.Wildcard -> buildStatements ctx l.Value @ buildStatements ctx l.Body
                     | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
-            // `while cond do body` as a bare loop statement (no IIFE wrapper needed here).
+            // `while cond do body` as a bare loop statement — no IIFE wrapper needed here.
             | ExprShape.While ->
                 let w = TastAccessor.exprWhile e
                 [ JsStatement.While(buildExpr ctx w.Cond, buildStatements ctx w.Body) ]
-            // `for i = a to b do body` — F# evaluates `b` once, so hoist the limit into a
-            // `const` before the loop; the JS `for` then counts `i` from `a` up to that
-            // limit inclusive. (JS numbers are doubles, so the CLR overflow-at-MaxValue
-            // dance the IL backend needs is unnecessary — `i <= limit` is safe.)
+            // F# evaluates `b` once, so the limit hoists into a `const` before the loop and
+            // `i` counts up to it inclusive. JS numbers are doubles, so `i <= limit` is safe
+            // without the overflow-at-MaxValue dance the IL backend needs.
             | ExprShape.ForTo ->
                 let ft = TastAccessor.exprForTo e
                 let name = binderNameOf ctx.Pool ft.Var
@@ -825,13 +691,9 @@ module EmitJs =
                         buildStatements ctx ft.Body
                     )
                 ]
-            // `for x in source do body` — lower to a JS `for…of`, which drives the source's
-            // own `Symbol.iterator` at runtime. Only the `Interface` enumerator (a source
-            // typed `IEnumerable<'T>`) reaches JS codegen, and it carries no member keys (the
-            // CLR backend mints the `IEnumerator` interface slots itself; JS defers to the
-            // iterator protocol), so there is nothing to resolve — `for…of` over the source is
-            // the whole lowering. A duck-typed `Pattern` enumerator never type-checks against
-            // the BCL-free JS provider, so it is unsupported here.
+            // `for x in source do body` → a JS `for…of`, which drives the source's own
+            // `Symbol.iterator` at runtime. The `Interface` enumerator carries no member keys
+            // to resolve — JS defers to the iterator protocol where the CLR mints slots.
             | ExprShape.ForIn ->
                 let fi = TastAccessor.exprForIn e
 
@@ -846,12 +708,8 @@ module EmitJs =
                         [
                             JsStatement.ForOf(name, buildExpr ctx fi.Source, buildStatements ctx fi.Body)
                         ]
-                    // Destructuring binder — `for (k, v) in map` over `[K,V]` pairs: bind a
-                    // fresh loop temp and reuse `compileMatchPattern` (the SAME lowering
-                    // `let (k, v) = …` uses) to deconstruct it into the body head. The binder
-                    // must be irrefutable — a `Some test` means a nested refutable sub-pattern,
-                    // which a `for … in` binder cannot express, so reject it rather than emit
-                    // the binds without the guard.
+                    // Destructuring binder — `for (k, v) in map`: a fresh loop temp deconstructed
+                    // into the body head. It must be irrefutable; a `Some test` is not.
                     | PatShape.Tuple ->
                         let tmp = freshTemp ctx.Pool "_forin"
 
@@ -866,8 +724,7 @@ module EmitJs =
                     failwith
                         "EmitJs: duck-typed `for...in` (Pattern enumerator) is unsupported on JS; only IEnumerable<'T> sources lower to `for...of`"
             // `use x = value in body` — park the binder in a `const`, run the body inside a
-            // `try`, and dispose the binder in the `finally` (the IL backend's exception
-            // region, lowered to JS `try/finally`). The body keeps statement position.
+            // `try`, dispose in the `finally`. The body keeps statement position.
             | ExprShape.Use ->
                 let u = TastAccessor.exprUse e
                 let name = useBinderName ctx u.Binding
@@ -876,9 +733,8 @@ module EmitJs =
                     JsStatement.Const(name, buildExpr ctx u.Value)
                     JsStatement.TryFinally(buildStatements ctx u.Body, disposeStmts ctx u.Dispose name)
                 ]
-            // `try body finally cleanup` in statement position — the body and cleanup both
-            // keep statement position (no IIFE needed, unlike the expression form), mapping
-            // straight onto JS `try/finally`.
+            // In statement position the body and cleanup stay statements, mapping straight
+            // onto JS `try/finally` with no IIFE.
             | ExprShape.TryFinally ->
                 let tf = TastAccessor.exprTryFinally e
 
@@ -887,11 +743,8 @@ module EmitJs =
                 ]
             | _ -> [ JsStatement.Expression(buildExpr ctx e) ]
 
-    /// The JS binder name for a single-binder loop/scope pattern (`use x = …`,
-    /// `for x in …`). A wildcard binder has no source name, so it gets a fresh
-    /// temporary — the value is still bound (parked/iterated) even though the body
-    /// can't name it. Only simple/wildcard binders are supported; a destructuring
-    /// binder (e.g. a tuple pattern) is rejected.
+    /// The JS binder name for a single-binder loop/scope pattern (`use x = …`, `for x in …`).
+    /// A wildcard gets a fresh temporary: still bound, though the body cannot name it.
     and private patBinderName (ctx: WalkCtx) (prefix: string) (binding: TastAccessor.PatId) : string =
         match binding with
         | TastAccessor.PNamedNaming naming -> binderName naming
@@ -902,14 +755,9 @@ module EmitJs =
 
     and private useBinderName (ctx: WalkCtx) (binding: TastAccessor.PatId) : string = patBinderName ctx "_use" binding
 
-    /// The `finally` body that disposes a `use` binder: a null-guarded disposal call.
-    /// F# `use` is null-safe — JS loose `!= null` catches both `null` and `undefined`
-    /// (matching the `Null` pattern convention). The disposal capability's JS slot is the
-    /// native `binder[Symbol.dispose]()` — the same slot a disposable impl emits its method
-    /// under (`emitDisposeMethod`) — whether the binder is a project-local impl or an external
-    /// one reached through the capability interface (`use e = src.GetEnumerator()`, since
-    /// `enumerator<'T> : disposable`). Only the carve-out (`ViaOwnMember`) calls a keyed
-    /// member's free receiver-first function.
+    /// The `finally` body that disposes a `use` binder: a null-guarded disposal call, since
+    /// F# `use` is null-safe and JS loose `!= null` catches both `null` and `undefined`. The
+    /// capability's JS slot is the same `binder[Symbol.dispose]()` a disposable impl emits.
     and private disposeStmts (ctx: WalkCtx) (dispose: Disposal) (name: string) : JsStatement list =
         let binder = JsExpr.Identifier(name, ValueNone)
 
@@ -918,9 +766,8 @@ module EmitJs =
 
         let disposeCall =
             match dispose with
-            // The capability's slot: a COMPUTED member access on the well-known symbol, no
-            // args. The CLR-only interface `slot` key the node carries is irrelevant here —
-            // JS names its own slot.
+            // The CLR-only interface `slot` key the node carries is irrelevant here — JS
+            // names its own slot.
             | Disposal.ViaCapability _ -> disposeSlotCall binder ValueNone
             // Ref-struct carve-out / an external type's own pattern `Dispose()`: call the
             // keyed member's free receiver-first function.
@@ -934,19 +781,9 @@ module EmitJs =
 
         [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
 
-    /// A class's instance preamble as the TAIL of its primary constructor, in declaration
-    /// order — which is load-bearing, and is why the entries emit as ctor statements
-    /// rather than as class-field initialisers.
-    ///
-    /// A preamble `let` is an instance FIELD (the same lowering a ctor param already gets,
-    /// with the value coming from an initialiser rather than an argument), so it emits as
-    /// `this.<name> = <init>;` — including a `let mutable` (a field, never a ref cell: a
-    /// closure over it must capture `this`, so every reader shares one storage) and a
-    /// function-valued `let` (a field holding an arrow closed over `this`; assigned before
-    /// any call can read it, so `let rec` needs nothing extra). A binder's field is named
-    /// by its SOURCE name — sound only because a preamble binder may not shadow a ctor
-    /// param or an earlier binder (the front-end rejects it); binder uniquification is a
-    /// separate, cross-cutting pass.
+    /// A class's instance preamble as the TAIL of its primary constructor — declaration order
+    /// is load-bearing, hence ctor statements rather than class-field initialisers. Every `let`
+    /// is an instance FIELD `this.<name> = <init>`, `let mutable` too: one storage, no ref cell.
     let private emitInstancePreamble (ctx: WalkCtx) (p: EmitJsTypes.ClassPreamble) : JsStatement list =
         [
             yield! EmitJsMembers.thisAlias ctx p.ThisKey
@@ -966,11 +803,9 @@ module EmitJs =
                 | TPreambleEntryG.Do e -> yield! buildStatements ctx e
         ]
 
-    /// A `val`-form class's explicit `new(args) = let … in { f = e; … }` → the JS
-    /// constructor it IS: the ctor's own parameters, its `let`s as `const` locals, then
-    /// one `this.f = e` store per field initialiser. Fields the source leaves out stay
-    /// absent — F# zero-initialises them, and naming them here would need a per-field
-    /// default this backend has no source for.
+    /// A `val`-form class's explicit `new(args) = let … in { f = e; … }` → the JS constructor
+    /// it IS: its own parameters, its `let`s as `const` locals, then one `this.f = e` store
+    /// per field initialiser. Fields the source leaves out stay absent.
     let private emitExplicitCtor (ctx: WalkCtx) (sc: TastAccessor.SecondaryCtor) : JsCtor =
         {
             Params = [ for (pk, _) in sc.Params -> binderNameOf ctx.Pool (BinderKey.identity pk) ]
@@ -982,11 +817,9 @@ module EmitJs =
                 ]
         }
 
-    /// A class's `static let` / `static do` preamble → module-load statements that
-    /// initialise the class's static backing fields. A `static let x = init` stores
-    /// `ClassName.x = init`; the read/write sites resolve the same `ClassName.x` slot
-    /// (`staticFieldRef`). Entries run in declaration order — load-bearing, exactly as the
-    /// instance preamble — so an initialiser may read an earlier `static let`.
+    /// A class's `static let` / `static do` preamble → module-load statements storing the
+    /// `ClassName.x` slot. Declaration order is load-bearing: an initialiser may read an earlier
+    /// `static let`.
     let private emitStaticPreamble
         (ctx: WalkCtx)
         (className: string)
@@ -1008,21 +841,14 @@ module EmitJs =
                 | TPreambleEntryG.Do e -> yield! buildStatements ctx e
         ]
 
-    /// The whole frozen file → a `Program`. Type declarations become JS `class`es first
-    /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
-    /// and `type` decls drop out, leaving module values and effectful expressions.
+    /// The whole frozen file → a `Program`. Type declarations become JS `class`es first, as
+    /// classes are not hoisted; lowering the rest drops `let inline` templates and `type` decls.
     let buildProgram (ctx0: WalkCtx) : JsProgram =
-        // The specialization graph is spliced HERE, before anything reads a decl: the type
-        // collection below walks member bodies and `TastLower.lower` walks nothing else, so
-        // an edge left standing in a member body would reach the emit router with no body to
-        // emit. `expansion.Origins` is where the entry material came from — what a
-        // multi-source map publishes.
+        // The specialization graph splices HERE, before anything reads a decl: an edge left
+        // standing in a member body would reach the emit router with no body to emit.
         let expansion =
             InlineExpand.expand ctx0.Pool (TastAccessor.roots ctx0.Pool |> List.ofArray)
 
-        // What a declaration DECLARES, when it declares something with an identity:
-        // a `type`'s own key, a module `let`'s exported value key. A statement declares
-        // nothing, and neither does a binding whose head names no single value.
         let moduleMembers = TastPoolBuilder.moduleMembers ctx0.Pool
 
         let declaredSymbol (d: TastAccessor.DeclId) : SymbolKey voption =
@@ -1037,14 +863,9 @@ module EmitJs =
                 | _ -> ValueNone
             | DeclShape.Expression -> ValueNone
 
-        // Declared to be the TARGET'S OWN, in either of the two ways the front end records:
-        // `type x = (# "repr" #)` names a platform representation (`int` IS `number`, and
-        // the `inline` operator members it carries are splice templates, not exports), and
-        // `[<Global>]` names a target global (`undefined`) whose definition would restate
-        // itself and could not initialise. Either way there is nothing to emit, and
-        // references emit the intrinsic the front end splices at each of them.
-        //
-        // Dropped before anything reads a decl, so no table registers one either.
+        // Declared to be the TARGET'S OWN: `type x = (# "repr" #)` names a platform
+        // representation (`int` IS `number`) and `[<Global>]` a target global (`undefined`).
+        // Neither can emit a definition, and each reference emits the front end's splice.
         let intrinsicReprs = TastPoolBuilder.intrinsicReprKeys ctx0.Pool
         let globals = TastPoolBuilder.globalValueKeys ctx0.Pool
 
@@ -1056,9 +877,8 @@ module EmitJs =
                 | ValueNone -> true
             )
 
-        // Where each spliced node was WRITTEN, for the map, plus the authorship chain those
-        // origins are keyed along — the walk keeps deriving nodes (the `InlinableLet` splice),
-        // so it takes over the expansion's relation rather than reading a finished one.
+        // Where each spliced node was WRITTEN, plus the authorship chain those origins are keyed
+        // along. The walk keeps deriving nodes, so it takes that relation over unfinished.
         let reached = System.Collections.Generic.HashSet<OriginPath>()
 
         for KeyValue(node, origin) in expansion.Origins do
@@ -1067,16 +887,9 @@ module EmitJs =
 
         InlineExpand.Derivation.absorb ctx0.Derivation expansion.Derived
 
-        // The producer files this program actually reached get a slot in the map's `sources[]`.
-        // Publication walks the RETENTION (`OriginSources.toList`, which yields in `OriginPath`
-        // order) and keeps the ones the expansion named, rather than walking the expansion in
-        // whatever order its dictionary enumerates: the array is then a function of the input,
-        // and two builds of one program publish the same map.
-        //
-        // Every file the expansion named IS retained — the provider that served the body and the
-        // retention are halves of one `SymbolProviders.Contract` — so this publishes the whole of
-        // what the walk will go on to ask for, and `EmitJsContext.locOf` faults on an origin file
-        // missing from the map rather than answering with the call site's position.
+        // The producer files this program reached get a slot in the map's `sources[]`. It walks
+        // the RETENTION, which yields in path order, keeping what the expansion named — not the
+        // expansion's dictionary order — so two builds of one program publish the same map.
         match ctx0.Resolver with
         | ValueNone -> ()
         | ValueSome r ->
@@ -1088,18 +901,16 @@ module EmitJs =
 
         let lowered = TastLower.lower decls
 
-        // The top-level module functions and their flat compiled form — the same
-        // `Codegen.Common.CompiledFns` analysis the CLR backend reads. Drives the FLAT
-        // (Fable-style) emission of every module function and the argument-collapsing of
-        // its saturated call sites.
+        // The top-level module functions and their flat compiled form, from the same analysis
+        // the CLR backend reads. Drives both FLAT emission and saturated-call collapsing.
         let compiledFns =
             System.Collections.Generic.Dictionary<BinderId, CompiledFns.CompiledFn>()
 
         for f in CompiledFns.gather lowered do
             compiledFns.[f.Key] <- f
 
-        // The file's locally-declared interface keys — drives the attached-method
-        // dispatch of a `(r :> ILocal).M()` / `.Prop` access (see `WalkCtx.LocalInterfaces`).
+        // The file's locally-declared interface keys, which drive the attached-method
+        // dispatch of a `(r :> ILocal).M()` / `.Prop` access.
         let localInterfaces = System.Collections.Generic.HashSet<TypeKey>()
 
         for decl in decls do
@@ -1122,9 +933,8 @@ module EmitJs =
                 LocalInterfaces = localInterfaces
             }
 
-        // Class decls (with their attached instance methods) are built now — their
-        // method bodies need the full ctx, unlike record/union decls which carry no
-        // bodies. They join the record/union decls ahead of members and the body.
+        // Class decls (with their attached instance methods) are built now — their method
+        // bodies need the full ctx, unlike record/union decls, which carry no bodies.
         let classDecls =
             [
                 for pc in collected.PendingClasses ->
@@ -1147,10 +957,8 @@ module EmitJs =
                     )
             ]
 
-        // Unions whose interface impls became base-class methods are built now too —
-        // their `[Symbol.iterator]` / protocol bodies need the full ctx (the method
-        // bodies may `new` a class), exactly like the pending classes. They render
-        // base-first so the case subclasses inherit the protocol members.
+        // Unions whose interface impls became base-class methods need the full ctx too. They
+        // render base-first, so the case subclasses inherit the protocol members.
         let pendingUnionDecls =
             [
                 for pu in collected.PendingUnions ->
@@ -1163,24 +971,23 @@ module EmitJs =
                     )
             ]
 
-        // Member functions emitted after the class decls (they reference the classes
-        // via `new`/match, and `const` arrows are not hoisted) and before the body.
+        // Member functions emit after the class decls — they reference the classes via
+        // `new`/match, and `const` arrows are not hoisted — and before the body.
         let memberDecls =
             [
                 for (typeName, m) in collected.Members -> EmitJsMembers.emitMemberFn buildExpr ctx typeName m
             ]
 
-        // Static preambles run at module load AFTER every class + member const-arrow is
-        // defined (a `static let` may call a static member) and BEFORE the body reads a
-        // static field. Declaration order across classes matches `collectTypes`.
+        // Static preambles run at module load AFTER every class + member const-arrow is defined
+        // (a `static let` may call a static member) and BEFORE the body reads a static field.
         let staticPreambleStmts =
             [
                 for pc in collected.PendingClasses do
                     yield! emitStaticPreamble ctx pc.Name pc.StaticPreamble
             ]
 
-        // A module binder mutated by a later module-level `Assignment` (a top-level
-        // `let mutable m … m <- e`) must emit as `let`/`export let`, not `const`.
+        // A module binder mutated by a later module-level `Assignment` must emit as
+        // `let`/`export let`, not `const`.
         let reassignedAtTop (k: BinderId) =
             lowered
             |> List.exists (fun d ->
@@ -1201,8 +1008,7 @@ module EmitJs =
                         match dl.Binding with
                         | TastAccessor.PNamed k ->
                             let value = dl.Value
-                            // A module FUNCTION emits FLAT (Fable-style); a plain value
-                            // routes through `emitBound` (closures stay curried).
+                            // A module FUNCTION emits FLAT; a plain value stays curried.
                             let init =
                                 match ctx.CompiledFns.TryGetValue k with
                                 | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx value)
@@ -1213,9 +1019,8 @@ module EmitJs =
                     | DeclShape.Type -> failwithf "EmitJs: unsupported declaration %A" decl
             ]
 
-        // Imports lead the program; local class decls follow — classes are not hoisted
-        // and must precede every `new`/match site. External union case classes are not
-        // emitted here: a `UnionCons` imports them from the union's home module.
+        // Imports lead the program; local class decls follow, classes not being hoisted and
+        // so needing to precede every `new`/match site.
         {
             Body =
                 JsImports.importStatements ctx.Imports

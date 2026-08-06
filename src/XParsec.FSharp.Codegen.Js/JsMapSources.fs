@@ -3,17 +3,12 @@ namespace XParsec.FSharp.Codegen.Js
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-/// What the emission accumulates FOR THE MAP, and nothing else: the char-offset → (line,
-/// column) index a V3 map's coordinates are, and the set of producer files one emission
-/// attributed a node to. It reads no tree and holds no walk state, which is why it sits here
-/// rather than in `EmitJsContext` — the walker's context merely CARRIES a `MapSources` from
-/// `EmitJs.buildProgram`, which discovers the files, to the driver, which publishes them
-/// (`JsSourceMap.build`).
+/// The char-offset → (line, column) index over a file's text, and the producer files one
+/// emission attributed a node to — the entries after slot 0 of the emitted map's `"sources"`.
 module JsMapSources =
 
-    /// Maps a source char offset to 0-based (line, column) — V3 source-map
-    /// coordinates. `Starts.[n]` is the char offset at which line `n` begins.
-    /// Columns count UTF-16 code units, as V3 maps require.
+    /// `Starts.[n]` is the char offset line `n` begins at — `"a\nbc"` gives `[| 0; 2 |]`.
+    /// `Length` is that text's length, which bounds a resolved offset.
     type LineIndex = { Starts: int[]; Length: int }
 
     module LineIndex =
@@ -30,8 +25,8 @@ module JsMapSources =
                 Length = source.Length
             }
 
-        /// Resolve a char offset within the text of `source` — an index into the map's
-        /// `sources[]` — to a `JsLoc`. Clamps past-end offsets to the last line.
+        /// `source` is the emitted map's `"sources"` slot holding the text `offset` indexes.
+        /// A past-end offset clamps to the end of the last line.
         let resolve (idx: LineIndex) (source: int) (offset: int) : JsLoc =
             let offset = max 0 (min offset idx.Length)
             let starts = idx.Starts
@@ -50,9 +45,7 @@ module JsMapSources =
                 Column = offset - starts.[lo]
             }
 
-    /// A producer file this emission attributed at least one node to: its slot in the finished
-    /// `sources[]`, what the map publishes for it, and the line starts that turn a token offset
-    /// in that text into V3 coordinates.
+    /// `Slot` is this file's position in the emitted map's `"sources"`; `Lines` is over `Published.Content`.
     type ProducerSource =
         {
             Slot: int
@@ -60,15 +53,6 @@ module JsMapSources =
             Lines: LineIndex
         }
 
-    /// The producer files ONE emission reached, in publication order.
-    ///
-    /// Mutable and shared with the driver for the same reason `WalkCtx.Pool` is: WHICH producers
-    /// a program reaches is settled by splicing the specialization graph, which happens inside
-    /// `EmitJs.buildProgram`, while the map that must publish them is built by whoever called it.
-    ///
-    /// Index 0 of the finished `sources[]` is the CONSUMING file and is not held here, so the
-    /// first `publish` takes slot 1 — which is why a build that reaches no retained producer
-    /// publishes exactly the single-element array it always did.
     type MapSources =
         private
             {
@@ -84,16 +68,9 @@ module JsMapSources =
                 ByPath = Dictionary()
             }
 
-        /// Give `src` the next slot. THE mutator, so `Ordered`'s position and `Slot` cannot
-        /// come apart — a mapping whose source index disagreed with the array would resolve
-        /// into the wrong file's text and still decode cleanly.
-        ///
-        /// The published PATH is `<package>/<relative>`. Not `Absolute`: a build-machine path
-        /// leaks the layout of the machine that compiled and resolves nowhere in a browser.
-        /// Not the bare `Relative` either: two packages may each publish an `ops.fs`, and a
-        /// `sources[]` with two identical names is unusable. The package-qualified form is
-        /// unique across the manifest set, machine-independent, and the shape a bundler's
-        /// `sourceRoot` (or a debugger's path mapping) is built to prefix.
+        /// The emitted map's `"sources"` opens with the file being compiled, so the first
+        /// `publish` here takes slot 1: `["app.fs", "Vesper.Core/math/z.fs", …]`. Paths are
+        /// package-qualified because two packages may each ship a `math/z.fs`.
         let publish (src: OriginSource) (m: MapSources) : unit =
             let entry =
                 {
@@ -109,16 +86,12 @@ module JsMapSources =
             m.Ordered.Add entry
             m.ByPath.[src.File.Path] <- entry
 
-        /// The slot `file` was published at, or `ValueNone` when it was not published. Every file
-        /// an emission reaches IS published (`EmitJs.buildProgram` walks the whole retention), so
-        /// `ValueNone` is a broken invariant rather than a position to fall back from —
-        /// `EmitJsContext.locOf` faults on it instead of reading the consuming file's anchor.
+        /// `ValueNone` is a broken invariant, not a position to fall back from: the caller
+        /// resolving a node's map position throws rather than reading the consuming file's text.
         let tryFind (file: OriginPath) (m: MapSources) : ProducerSource voption =
             match m.ByPath.TryGetValue file with
             | true, entry -> ValueSome entry
             | _ -> ValueNone
 
-        /// The producers as the map publishes them, in slot order — appended AFTER the
-        /// consuming file, which owns index 0.
         let published (m: MapSources) : JsMapSource list =
             [ for entry in m.Ordered -> entry.Published ]

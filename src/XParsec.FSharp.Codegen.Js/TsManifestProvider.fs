@@ -8,56 +8,23 @@ open Vesper.Ts.Manifest
 open XParsec.FSharp.Codegen.Js.TsManifestTranslate
 open XParsec.FSharp.Codegen.Js.TsManifestMembers
 
-/// Layer-2 provider backed by a TS-derived JSON manifest (`Vesper.Ts.Manifest`),
-/// the consumer end of the extractor→manifest→provider slice. It is the JS analog
-/// of `MetadataSymbols` (which reads .NET assemblies via `MetadataLoadContext`):
-/// here the "metadata oracle" is the serialised manifest the TS extractor emitted,
-/// and this maps its type-description grammar into the seam's `ExternalTypeShape`
-/// / `ExternalSymbol` / `FrozenType`. It mirrors `MetadataSymbolProvider`'s
-/// concrete-type shape: a named provider type (`TsManifestSymbolProvider`) whose
-/// ctor resolves the manifest into `let` fields, with `IExternalSymbolProvider`
-/// implemented as its interface members.
-///
-/// This module assembles and loads the provider (free-function/value symbols,
-/// overload grouping, the `IExternalSymbolProvider` maps); type translation lives
-/// in `TsManifestTranslate` (TsManifestTypes.fs) and member/type-shape building in
-/// `TsManifestMembers` (TsManifestMembers.fs).
-///
-/// MVP scope: non-generic `Interface` members (primitive-typed) + free
-/// `Function`s. `Class` is handled too; the remaining grammar (unions, dynamic,
-/// structural, generics, import shapes) is mapped conservatively or deferred —
-/// see the inline TODOs.
+/// A parsed TS manifest → an `IExternalSymbolProvider`: value symbols (free functions and
+/// variables), the type/synthetic-type table, and the by-name lookup maps over both.
 module TsManifestProvider =
 
     let private singleSignature (name: string) (sigs: Schema.Signature list) : Schema.Signature =
-        // The bare free-function path is single-signature ONLY: `providerOfManifest`
-        // routes overloaded (N>1) free functions into a synthetic per-module grouping
-        // type before this is reached, so the N>1 arm is now a defensive guard (it
-        // should be unreachable from `funcs`). Throwing — rather than silently picking
-        // the first — keeps that invariant load-bearing.
         match sigs with
         | [ s ] -> s
         | [] -> failwithf "symbol '%s' has no call signature" name
         | _ -> failwithf "symbol '%s' has %d overloads; overload sets not yet supported" name (List.length sigs)
 
-    /// The origin + declaring holder shared by free-function and variable symbols: both
-    /// resolve their `import … from '<moduleSpec>'` through `JsImports.addRef`, which reads
-    /// the home off the symbol's `SymbolOrigin` (`Origin.InAssembly moduleSpec` — for a TS
-    /// package the "assembly" IS the module specifier). A symbol whose origin has no home
-    /// cannot be imported and emit fails loudly.
-    ///
-    /// One namespace fact serves both slots: the symbol's `SymbolOrigin` and its key's
-    /// declaring holder are the SAME `NamespaceKey`, so they cannot disagree about where
-    /// the export lives. A TS `export namespace` is a NAMESPACE (that is what `mint` makes
-    /// of it for a type), so a top-level export of one is a binding held directly by that
-    /// namespace — never a module.
+    /// A TS `export namespace Foo` mints a namespace, so `Foo.bar`'s holder is `InNamespace Foo`.
     let private declaringHolder (ctx: TranslateCtx) (nsPath: string) : SymbolOrigin * ModuleHolder =
         let origin = originFor ctx nsPath
         origin, ModuleHolder.InNamespace origin.Namespace
 
-    /// `import` is the manifest's per-export shape, mapped faithfully through the ONE
-    /// `importFormOfShape` (a TS `export default` → `Default` → DEFAULT import; an
-    /// `export =` → `CommonJs`; a namespace module → `Namespace`; else `Named`).
+    /// The symbol constructors mint `Origin = SymbolOrigin.Empty`; the module spec stamped
+    /// here becomes the `'<mod>'` of `import x from '<mod>'`, and a home-less origin throws.
     let private stampValueSymbol
         (origin: SymbolOrigin)
         (import: Schema.ImportShape)
@@ -77,12 +44,8 @@ module TsManifestProvider =
         | Schema.Export.Function(name, signatures, import) ->
             let sg = singleSignature name signatures
 
-            // A TRAILING optional parameter (`mitt(all?)`) is dropped from the curried
-            // signature: a zero-arg use site (`mitt()`) applies to `unit`, so a sole trailing
-            // optional collapses the function to `unit -> ret`. (Only trailing optionals
-            // drop — an optional followed by a required one keeps its slot; TS forbids
-            // that ordering anyway.) The runtime default (`n = n || new Map`) supplies the
-            // omitted argument, mirroring how `OptionalDefaults` elides member arguments.
+            // Trailing optionals drop out of the curried signature: `mitt(all?)` freezes as
+            // `unit -> ret`, and the JS-side default (`n = n || new Map`) supplies the arg.
             let requiredParams =
                 sg.Params |> List.rev |> List.skipWhile (fun p -> p.Optional) |> List.rev
 
@@ -93,15 +56,7 @@ module TsManifestProvider =
 
             let frozenTy =
                 List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen ctx sg.Returns)
-            // Registered/keyed under the dotted qualified name, which the builder RENDERS
-            // from the key's holder chain — so the registration name and the identity
-            // cannot drift. The module-spec stamp (`stampValueSymbol`) is the analog of
-            // `toTypeShape`'s `originFor`/`TypeKey`.
-            //
-            // A GENERIC free function (`identity<T>`) carries its own typars as
-            // `FTTypar(Declaring,i)` (via `toFrozen`); `sg.TypeParams` is their count, so
-            // `scheme` freshens them per use site — genuinely polymorphic, not the frozen
-            // markers the former `mono` froze in place.
+
             let origin, decl = declaringHolder ctx nsPath
 
             let sym =
@@ -111,11 +66,7 @@ module TsManifestProvider =
             Some(sym.Name, sym)
         | _ -> None
 
-    /// A `Variable` export → a singleton VALUE symbol, resolved by name via
-    /// `TryLookup` exactly like a free function but carrying the variable's type
-    /// directly (a VALUE, not a function). `isConst` carries no front-end distinction
-    /// at this seam (JS lowering reads the imported binding by name regardless of
-    /// mutability), so it is not consumed here.
+    /// `_isConst` is dropped: the imported binding is read by name either way.
     let private toValueSymbol
         (ctx: TranslateCtx)
         (nsPath: string)
@@ -123,7 +74,6 @@ module TsManifestProvider =
         : (string * ExternalSymbol) option =
         match ex with
         | Schema.Export.Variable(name, ty, _isConst, import) ->
-            // `monoFrozen` alone would leave the `Empty` origin `stampValueSymbol` fixes.
             let origin, decl = declaringHolder ctx nsPath
 
             let sym =
@@ -133,35 +83,19 @@ module TsManifestProvider =
             Some(sym.Name, sym)
         | _ -> None
 
-    /// Build the manifest's resolved state (every map/guard, EAGERLY) and serve it as a
-    /// by-name leaf. The store view is derived from these functions, so the two
-    /// `TryLookupType` entry points cannot drift apart.
+    /// Resolves the whole manifest EAGERLY — every map and guard — into a by-name leaf.
     let private manifestLeaf (man: Schema.PackageManifest) : ExternalSymbolProviders.NamedLeaf =
         let pkg = man.Package
-        // Flat single-file package: the module specifier IS the package name. A
-        // later tier supplies nested namespace paths here instead of `pkg` directly.
+        // Flat single-file package: the module specifier IS the package name.
         let moduleSpec = pkg
 
-        // A MOUNTED pack (`TsGlobalHomes.mountFor` non-empty) mounts every export under
-        // its Vesper-facing namespace: start the flatten at that prefix, so `es2015`'s
-        // `Map` registers as `Js.Map` (nsPath `Js`) and a `node/fs` export registers
-        // under `Node.Fs`, and every downstream site — `mint`/`originFor`/`buildCtx`/
-        // `toTypeShape`/`funcs`/synthetic types — picks up the prefix from the SAME
-        // `flatExports`. `mountPrefix = ""` for a real flat package (flatten at root).
         let mountPrefix = TsGlobalHomes.mountFor man.Package
 
-        // Global rides the HOME, and is a SEPARATE axis from the mount: a global pack's
-        // types are import-free, but a node module MOUNTS (`Node.Fs`) while STILL
-        // requiring a real import — so this is `isGlobalHome`, NOT `mountPrefix <> ""`.
-        // Stamped onto every class/interface shape below.
         let isGlobalPack = TsGlobalHomes.isGlobalHome man.Package
 
+        // Flattening FROM the mount prefix is what registers `es2015`'s `Map` as `Js.Map`.
         let flatExports = flatten mountPrefix man.Exports
 
-        // ONE pre-pass mints every declared `Interface`/`Class` identity (see
-        // `TsManifestTranslate.mint`/`buildCtx`) over ALL flat exports before any
-        // per-export walk, so a member signature that names a type declared LATER
-        // (mitt's `mitt` referencing `Emitter`) still resolves.
         let ctx = buildCtx moduleSpec mountPrefix man.Refs flatExports
 
         let regularTypes =
@@ -173,9 +107,6 @@ module TsManifestProvider =
         let syntheticTypes =
             buildOverloadGroupingTypes ctx moduleSpec isGlobalPack flatExports
 
-        // Guard the synthetic name against a real exported type of the same qualified
-        // name (structurally possible only when a same-module type matches the
-        // capitalised module segment): silently shadowing it would corrupt resolution.
         let regularTypeNames = regularTypes |> List.map fst |> Set.ofList
 
         do
@@ -185,9 +116,6 @@ module TsManifestProvider =
                         "synthetic free-function-overload grouping type '%s' collides with a real exported type of the same name; rename the module or the type"
                         qn
 
-        // The structural erasing nominal is homed under the reserved `@struct` namespace,
-        // which a real export's qualified name cannot spell — but keep the same collision
-        // guard as the grouping type rather than trusting that reservation silently.
         do
             for (qn, _) in structuralTypes do
                 if Set.contains qn regularTypeNames then
@@ -195,10 +123,8 @@ module TsManifestProvider =
 
         let types = (regularTypes @ syntheticTypes @ structuralTypes) |> Map.ofList
 
-        // Free functions and singleton VARIABLES both resolve by name via `TryLookup`,
-        // so they share the one value map (a variable is a value, not a function).
-        // OVERLOADED functions are excluded here — they resolve through their synthetic
-        // type's static members (`TryLookupMembers`), not by bare name.
+        // Free functions and variables share this by-name map. An OVERLOADED function is
+        // excluded: it resolves as a static of its synthetic grouping type, not by bare name.
         let funcs =
             (flatExports
              |> List.choose (fun (nsPath, ex) ->
@@ -214,15 +140,8 @@ module TsManifestProvider =
             | Some(ExternalTypeShape.Class shape) -> shape.Members |> Array.filter (fun m -> m.Name = memberName)
             | _ -> [||]
 
-        // The TS index signatures `{ [k: K]: V }` a type carries, keyed by the SAME
-        // qualified name its members register under (so `TryLookupIndexSignature` and
-        // `TryLookupMember` share one key). A named `Interface`/`Class` keys by its
-        // `declaredIdentity` qn; an anonymous `Structural` shape (field-bearing OR a
-        // fieldless bare `{ [k: K]: V }`) keys by its `structuralKey` (the same identity
-        // `toFrozen` freezes it to). Each `(key,
-        // value)` `Schema.TypeRef` pair is `toFrozen`ed over the type's declaring typars —
-        // a generic `Dict<T>`'s value `T` stays `FTTypar(Declaring,0)`, realised against
-        // the receiver's args at the lookup site. First-declaration-wins on a duplicate qn.
+        // The TS `{ [k: K]: V }` signatures a type carries, under the SAME qualified name its
+        // members register under, so one key answers a member and an index lookup alike.
         let indexSigs =
             let named =
                 flatExports
@@ -281,10 +200,8 @@ module TsManifestProvider =
         with ex ->
             Error(sprintf "Failed to read TS manifest '%s': %s" path ex.Message)
 
-    /// Compose TS-manifest providers as the JS layer-2 metadata tail (the slot
-    /// `JsNativeSymbols.buildJsNativeContractFor` uses), behind referenced-package
-    /// contracts. `manifestPaths` are the `.fsi` package manifests; `tsManifestPaths`
-    /// are the extractor's JSON outputs.
+    /// The TS-manifest providers as the JS layer-2 metadata tail, behind referenced-package
+    /// contracts. `manifestPaths` are `.fsi` package manifests, `tsManifestPaths` extractor JSON.
     let buildContractFor
         (target: string)
         (manifestPaths: string list)
@@ -299,10 +216,6 @@ module TsManifestProvider =
             )
 
         SymbolProviders.buildContractWithMetadata "tsmanifest" tsProviders target manifestPaths
-        // Resolve the covariant `number → float` identity of the retained TS token at the
-        // Codegen.Js seam (the front end stays number-agnostic). Wraps the COMPOSED
-        // provider so the assertion reads the merged forward axis.
+        // Wraps the COMPOSED stack: its `float` must-repr-to-`number` check reads the merged axis.
         |> NumberCovariance.wrap
-        // One general per-lookup cache atop the whole stack (the `stack` fall-through and
-        // the `number` rewrite otherwise re-run on every hit of a hot symbol).
         |> ExternalSymbolProviders.memoize

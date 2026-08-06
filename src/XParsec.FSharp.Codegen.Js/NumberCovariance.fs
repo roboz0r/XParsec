@@ -2,14 +2,9 @@ namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.SemanticAnalysis
 
-/// Resolves the TS `number` token against the Vesper numeric types by the variance of
-/// the position it occupies. A JS `number` value IS a `float`, but it is WIDER than any
-/// one Vesper numeric — it stands for the whole `int|float|float32|…` family that shares
-/// the JS `number` repr. So a `number` read (covariant) is `float`; a `number` written
-/// (contravariant parameter) stays the token, left for the arg seam to widen to the
-/// family; a `number` in an invariant generic slot — read AND written — is the family
-/// union. `float` as the covariant target is asserted, not assumed: `float` must itself
-/// repr to `number`, else this fails loud.
+/// Resolves the TS `number` token by the variance of its position: a JS `number` is a `float`
+/// but stands for the whole `int|float|float32|…` family sharing that repr. Read → `float`;
+/// written → the token, for the arg seam to widen; invariant (read AND written) → the union.
 module NumberCovariance =
 
     [<Literal>]
@@ -30,9 +25,8 @@ module NumberCovariance =
                 FloatCanon
                 other
 
-        // The `number` TOKEN is a platform name the manifest owns (`opaqueKey`, global
-        // namespace) — never a Vesper identity — so it is recognised by KEY, and a Vesper
-        // type named `number` in some namespace cannot be mistaken for it.
+        // The `number` token is a manifest-owned platform name, never a Vesper identity: matching
+        // by KEY means a Vesper type also named `number` cannot be mistaken for it.
         let numberKey = RuntimeNames.opaqueKey NumberToken
 
         let familyUnion =

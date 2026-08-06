@@ -2,25 +2,17 @@ namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.SemanticAnalysis
 
-/// A hand-authored JS runtime module a compiled program imports and ships beside its
-/// output. One ESM module per Vesper package whose functions a program reaches at
-/// run time. The source is a committed `.mjs` asset declared by the package manifest's
-/// `runtime-js` key; the backend resolves the set and materialises the referenced ones.
+/// A committed `.mjs` shipped beside the compiled output — one of the assets a package
+/// manifest's `[targets.js] runtime` key names.
 type JsRuntimeModule =
     {
-        /// The emitted file name (`Vesper.List.mjs`), written beside the output and
-        /// named in the `import … from "./<FileName>"` specifier.
+        /// `Vesper.List.mjs` — written beside the output, named in `import … from "./<FileName>"`.
         FileName: string
-        /// The verbatim ESM source (read from the committed `.mjs` asset).
         Source: string
     }
 
 /// Where a `.mjs` sits in the emitted output tree, relative to the output ROOT: the
 /// package directory it belongs to (`ValueNone` = the root itself) and its file name.
-///
-/// A specifier is rendered BETWEEN two of these, never as a fixed prefix: a package
-/// member reaching a sibling, a root program reaching that same module, and a package
-/// member reaching a root-level asset are three different spellings of one relation.
 [<Struct>]
 type JsModulePath =
     {
@@ -30,8 +22,7 @@ type JsModulePath =
 
 module JsModulePath =
 
-    /// A committed runtime ASSET: referenced and copied to the output root, one per
-    /// package — the analogue of an app's `.dll` beside its executable.
+    /// A committed runtime ASSET: copied to the output ROOT, one per package.
     let asset (fileName: string) : JsModulePath =
         {
             Package = ValueNone
@@ -39,9 +30,7 @@ module JsModulePath =
         }
 
     /// The module BASE NAME of a source file: its name without extensions, minus a trailing
-    /// `.js` target segment (`ops-platform.js.fs` → `ops-platform`). That is the key the
-    /// manifest pairs a body with its `.fsi` contract under, so a module is named for the
-    /// declarations it implements rather than for which target's body it happens to be.
+    /// `.js` target segment (`ops-platform.js.fs` → `ops-platform`).
     let baseName (relative: string) : string =
         let noExt = System.IO.Path.GetFileNameWithoutExtension relative
 
@@ -57,9 +46,9 @@ module JsModulePath =
             FileName = baseName relative + ".mjs"
         }
 
-    /// The specifier a module emitted in `fromPackage` (`ValueNone` = the output root)
-    /// names `target` by. The hop out of a package directory is COMPUTED, so nothing here
-    /// assumes the importer is a program at the root.
+    /// The specifier a module in `fromPackage` (`ValueNone` = the output root) names
+    /// `target` by: `./f.mjs` within one package, `../pkg/f.mjs` across packages,
+    /// `../f.mjs` out to a root asset.
     let specifierFrom (fromPackage: string voption) (target: JsModulePath) : string =
         let toRoot =
             match fromPackage with
@@ -71,12 +60,8 @@ module JsModulePath =
         | ValueSome p -> toRoot + p + "/" + target.FileName
         | ValueNone -> toRoot + target.FileName
 
-/// The home of something this build IMPORTS: the assembly it belongs to, and — when the
-/// producer knew it — the declaring source file. The backend's own home type, minted from
-/// a provider `Origin` at the one seam that still has an unresolved one to refuse
-/// (`JsHome.tryOfOrigin`), so nothing downstream re-asks whether a home names an assembly.
-/// By the time a home is one of these the local/external verdict is already past, and an
-/// origin naming nothing is a compiler bug rather than a fall-back.
+/// The home of something this build IMPORTS: an assembly, refined to a declaring source
+/// file where the producer knew one.
 [<Struct>]
 type JsHome =
     {
@@ -88,8 +73,7 @@ type JsHome =
 
 module JsHome =
 
-    /// The backend home a provider `Origin` names. `ValueNone` for an origin that names no
-    /// assembly — the one place that question is asked.
+    /// The backend home a provider `Origin` names. `ValueNone` for one naming no assembly.
     let tryOfOrigin (home: Origin) : JsHome voption =
         match home.AssemblyOption with
         | ValueNone -> ValueNone
@@ -100,82 +84,62 @@ module JsHome =
                     DeclaringFile = home.DeclaringFile
                 }
 
-    /// `tryOfOrigin`, for a caller past the local/external verdict: `what` names the thing
-    /// whose home is missing, for the failure.
+    /// The home an `Origin` names; fails when it names no assembly, quoting `what`.
     let ofOrigin (what: string) (home: Origin) : JsHome =
         match tryOfOrigin home with
         | ValueSome h -> h
         | ValueNone -> failwithf "JS codegen: %s carries no home assembly" what
 
-    /// A whole package's home — a committed runtime asset, or an entry the backend
-    /// synthesises for a module it names itself. No declaring file: there is no source.
+    /// A whole package's home — no declaring file, so it resolves to the package's
+    /// committed asset rather than to a per-file module.
     let ofAssembly (assembly: string) : JsHome =
         {
             Assembly = assembly
             DeclaringFile = ValueNone
         }
 
-/// The accumulating import specifiers for one imported MODULE: where it sits, the asset
-/// to ship for it (if it is one), the set of NAMED `(exportName, alias)` bindings, and
-/// the at-most-one DEFAULT binding (`$alias` for an `import $alias from '<spec>'`). A TS
-/// default export cannot be imported by name, so it rides its own slot; the printer
-/// combines them into `import D, { a, b }`.
+/// The accumulating import for one MODULE: `(exportName, alias)` named bindings plus at
+/// most one default and one namespace binding. A TS default export cannot be imported by
+/// name, so it rides its own slot; the two print as `import D, { a as $x } from "<spec>"`.
 type private ImportEntry =
     {
         Path: JsModulePath
         /// The committed asset to materialise beside the output. `ValueNone` for a module
         /// this build EMITS — a sibling file of the package being compiled writes itself.
         Asset: JsRuntimeModule voption
-        /// `(exportName, alias)` pairs — structure, not pre-rendered `name as alias`
-        /// strings; `JsPrint` owns the `as` spelling. A `HashSet` because re-recording
-        /// a repeat reference must be a no-op; `importStatements` sorts on read.
         Named: System.Collections.Generic.HashSet<string * string>
         mutable Default: string option
-        /// The at-most-one `import * as <binding>` namespace local for this module
-        /// (`Schema.ImportShape.Namespace`). Its own statement — a namespace clause
-        /// cannot ride the `{ named }` braces — so it is emitted beside any default/
-        /// named import for the same source.
+        /// The `import * as <binding>` local. Its own statement: a namespace clause cannot
+        /// ride the `{ named }` braces, so it is emitted beside the module's other import.
         mutable Namespace: string option
     }
 
-/// An external VALUE reference, as the import machinery needs it: WHAT is referenced
-/// (the key — a nominal identity, which is all a key is), WHERE it lives, and HOW its
-/// home module exports it. The home and the form are facts of the RESOLVED SHAPE, never
-/// of the key, so a provider-resolved value pairs its key with the `SymbolOrigin.Home`
-/// the provider stamped (`EmitJsContext.externalValueRef`), and a codegen-synthesised
-/// runtime entry — no front-end symbol resolves to it — names its own runtime module.
+/// An external VALUE to import: what is referenced, the module it lives in, and how that
+/// module exports it. The home comes from the provider's resolved symbol, so an unkeyed
+/// node or a provider miss leaves it empty and `addRef` throws rather than importing.
 type JsValueRef =
     {
-        /// `ValueNone` for a node the front end left unkeyed: `addRef` has nothing to
-        /// import and fails loudly.
         Key: SymbolKey voption
-        /// The home module the export is imported from. `ValueNone` for a node whose
-        /// resolved shape names none — `addRef` has nothing to import and fails loudly.
         Home: JsHome voption
         Form: ImportForm
     }
 
-/// Per-compilation accumulator for the module imports a program needs. `addRef` /
-/// `addMemberRef` are called by the expression walker; each imported module is recorded
-/// once, on first reference. `importStatements` yields the leading `import` block;
-/// `assets` yields the committed modules to materialise beside the output.
+/// Per-compilation accumulator for the module imports a program needs — each imported
+/// module recorded once, on first reference by the expression walker.
 type JsImports =
     private
         {
-            /// Package/assembly name → its committed runtime asset. A subset is actually
-            /// referenced.
+            /// Package/assembly name → its committed runtime asset; only the referenced
+            /// subset ships.
             Runtime: Map<string, JsRuntimeModule>
             /// The package directory the module being emitted sits in — every specifier
             /// is rendered from it. `ValueNone` for a program at the output root.
             SelfPackage: string voption
-            /// Imported module → its accumulating import entry.
             Entries: System.Collections.Generic.Dictionary<JsModulePath, ImportEntry>
         }
 
 module JsImports =
 
-    /// `selfPackage` is the package directory the module under emission sits in — one
-    /// member of a package build. `ValueNone` is a program at the output root.
     let createIn (selfPackage: string voption) (runtime: Map<string, JsRuntimeModule>) : JsImports =
         {
             Runtime = runtime
@@ -186,9 +150,8 @@ module JsImports =
     /// A program emitted at the output root.
     let create (runtime: Map<string, JsRuntimeModule>) : JsImports = createIn ValueNone runtime
 
-    /// The module a `home` is imported from. A home refined to its DECLARING FILE names one
-    /// module of that package's directory — the per-file artifact this backend emits; an
-    /// assembly-only home is served by the package's committed asset.
+    /// The module `home` is imported from: a home refined to its DECLARING FILE names that
+    /// file's module in its package directory; an assembly-only home, the committed asset.
     let private moduleOf (imports: JsImports) (home: JsHome) (what: string) : JsModulePath * JsRuntimeModule voption =
         match home.DeclaringFile with
         | ValueSome f -> JsModulePath.ofSource f.BucketName f.Relative, ValueNone
@@ -197,8 +160,7 @@ module JsImports =
             | Some rt -> JsModulePath.asset rt.FileName, ValueSome rt
             | None -> failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" what home.Assembly
 
-    /// The entry for `home`'s module, recording it on first lookup. Fails loudly when the
-    /// home names no module to import from.
+    /// The entry for `home`'s module, recording it on first lookup.
     let private entryFor (imports: JsImports) (home: JsHome) (what: string) : ImportEntry =
         let path, asset = moduleOf imports home what
 
@@ -217,24 +179,11 @@ module JsImports =
             imports.Entries.[path] <- entry
             entry
 
-    /// Resolve an `External` value node to its local import identifier, recording the
-    /// import. `ref.Form` is the resolved symbol's `ExternalSymbol.ImportForm` (read off
-    /// the provider seam by the caller), selecting the import-statement shape:
-    ///   • `Named`            → a named specifier `{ name as $<ns>_<name> }`, returns
-    ///     the alias;
-    ///   • `Default`/`CommonJs` → a DEFAULT binding (the alias binds the module's
-    ///     default export / `module.exports`, no named specifier), returns the alias.
-    ///     `export =` binds `module.exports` to the same default slot under the
-    ///     esModuleInterop lowering, so `CommonJs` rides the `Default` path;
-    ///   • `Namespace`        → an `import * as <nsLocal>` binding, returns the
-    ///     MEMBER path `<nsLocal>.<name>` (the export is read off the namespace
-    ///     object).
-    /// The alias/namespace-local is `$`-prefixed (`$` is illegal in F#, so
-    /// collision-free). Fails loudly for a package with no authored runtime module.
+    /// The local identifier for an external value, recording the import `ref.Form` picks:
+    /// `Named` → `import { f as $_f }` → `$_f`; `Default`/`CommonJs` → `import $_f` → `$_f`
+    /// (`export =` binds `module.exports` to the default slot); `Namespace` → `$ns_m.f`.
     let addRef (imports: JsImports) (compiledName: string) (ref: JsValueRef) : string =
-        // An external value is a BINDING whose resolved shape names a home module. A
-        // project-local binding has no module to import from, so it is unsupported here —
-        // the same error a non-binding key gets, stated once.
+        // No module to import from: an unkeyed node, a type/member key, or a provider miss.
         let unsupported () =
             failwithf "JS codegen: unsupported external value '%s' (key %A)" compiledName ref.Key
 
@@ -245,32 +194,21 @@ module JsImports =
 
         match ref.Home with
         | ValueNone -> unsupported ()
-        // A GLOBAL pack's export (its home is a `TsGlobalHomes.isGlobalHome`) is
-        // provided by the JS runtime intrinsically: emit its BARE export name, record
-        // NO import. Global rides the HOME, so this is decided by the resolved shape's
-        // home — the SAME single-source fact the provider mounted the pack under `Js` by.
-        // (A Global class's construction bypasses `addRef` entirely via the
-        // external-new arm; this covers a Global pack's free-function / variable
-        // exports.) A node module MOUNTS under a namespace too (`node/fs → Node.Fs`)
-        // but is NOT a global home, so it falls through to a real import below.
+        // A global pack's export is a JS-runtime intrinsic: bare name, NO import recorded.
         | ValueSome home when TsGlobalHomes.isGlobalHome home.Assembly -> b.Name
         | ValueSome home ->
             let asm = home.Assembly
             let name = b.Name
             let entry = entryFor imports home (sprintf "external value '%s'" compiledName)
 
-            // The alias is `$<holder>_<name>` with every `.` underscored. An UNQUALIFIED
-            // binding's holder is the global namespace (`""`), so the leading `.` of the
-            // join survives as a leading `_` (`$_f`) — the shape the emitted import lines
-            // (and their tests) expect. Joining here rather than through `qualifiedName`
-            // (which drops the empty holder) keeps that spelling exact.
+            // `$<holder>_<name>`, every `.` underscored. An UNQUALIFIED binding's holder is
+            // the global namespace (`""`), so the join's leading `.` survives as `_`:
+            // `makeBox` → `$_makeBox`.
             let alias =
                 "$" + (SymbolKeyOps.holderFullName b.Decl + "." + name).Replace('.', '_')
 
-            // Bind an at-most-one module slot (`Default`/`Namespace`), ENFORCED: a
-            // second, different local would silently clobber the first in the emitted
-            // `import` line; re-recording the SAME local is the normal repeat-reference
-            // no-op. `slotDesc` names the slot for the diagnostic.
+            // At-most-one module slot, ENFORCED: a second, different local would silently
+            // clobber the first in the emitted `import` line; the SAME local is the no-op.
             let bindOnce (current: string option) (set: string -> unit) (slotDesc: string) (local: string) : unit =
                 match current with
                 | Some prev when prev <> local ->
@@ -291,26 +229,22 @@ module JsImports =
                 entry.Named.Add((name, alias)) |> ignore
                 alias
             | ImportForm.Namespace ->
-                // One namespace local per module; a member is read off it (`ns.name`).
-                // The local derives from the module (not the export), so every Namespace
-                // ref to `asm` shares it.
+                // The local derives from the MODULE, not the export, so every `Namespace`
+                // ref to `asm` shares one `import * as $ns_m` and reads `$ns_m.name` off it.
                 let nsLocal = "$ns_" + asm.Replace('.', '_').Replace('/', '_')
                 bindOnce entry.Namespace (fun v -> entry.Namespace <- Some v) "namespace import" nsLocal
                 nsLocal + "." + name
 
-    /// Resolve an external union's case class to its local import identifier, importing
-    /// the class export `className` from `home`'s module aliased as `$<asm>_<className>`
-    /// (the assembly disambiguates a same-named class from another package). Used by a
-    /// `UnionCons` on an external union, whose case classes are imported rather than
-    /// re-emitted. Fails loudly for a home that names no module.
+    /// The local identifier for an external class, importing `className` from `home`'s
+    /// module as `$<asm>_<className>` — the assembly disambiguates same-named classes.
     let addTypeRef (imports: JsImports) (home: JsHome) (className: string) : string =
         let entry = entryFor imports home (sprintf "external type '%s'" className)
         let alias = "$" + home.Assembly.Replace('.', '_') + "_" + className
         entry.Named.Add((className, alias)) |> ignore
         alias
 
-    /// Resolve an external member reference to its local import identifier, aliasing
-    /// the export from `home`'s module as `$<exportName>`. Member analogue of `addRef`.
+    /// The local identifier for an external member, importing the export from `home`'s
+    /// module as `$<exportName>`.
     let addMemberRef (imports: JsImports) (home: JsHome) (exportName: string) : string =
         let entry = entryFor imports home (sprintf "external member '%s'" exportName)
         let alias = "$" + exportName
@@ -318,36 +252,28 @@ module JsImports =
         alias
 
     /// The leading `import … from "<spec>"` block — one statement per imported module,
-    /// specifiers and modules sorted (deterministic). `List.sort` on the
-    /// `(exportName, alias)` pairs is ordinal (F# structural string comparison),
-    /// matching the emitted-text order the former pre-rendered `name as alias`
-    /// `SortedSet` produced.
+    /// modules and specifiers sorted so the emitted text is deterministic.
     let importStatements (imports: JsImports) : JsStatement list =
         [
             for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) do
                 let entry = kv.Value
                 let source = JsModulePath.specifierFrom imports.SelfPackage entry.Path
-                // A default/named import statement, only when the entry has such a
-                // binding (a pure-namespace module has none).
+
                 if entry.Default.IsSome || entry.Named.Count > 0 then
                     JsStatement.Import(entry.Default, entry.Named |> List.ofSeq |> List.sort, source)
-                // A `import * as ns` statement rides its own line beside the above.
+
                 match entry.Namespace with
                 | Some binding -> JsStatement.ImportNamespace(binding, source)
                 | None -> ()
         ]
 
-    /// The modules the emitted `import` block names, sorted as it emits them. An entry is
-    /// only ever created by a reference that then binds something, so this is exactly the
-    /// set of specifier targets — what a package build checks resolves to a module it
-    /// writes, without reading back the generated text.
+    /// The modules the emitted `import` block names, sorted as it emits them.
     let importedModules (imports: JsImports) : JsModulePath list =
         [ for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) -> kv.Key ]
 
-    /// The committed runtime ASSETS referenced during the walk, sorted by module. Each is
-    /// a self-contained leaf (no asset `.mjs` imports another), so the referenced set is
-    /// exactly the set to materialise — no transitive closure needed. A per-file module of
-    /// a package under compilation is not here: that build writes it.
+    /// The committed runtime ASSETS referenced during the walk, sorted by module. Only the
+    /// directly referenced ones: an asset that imports another asset is not closed over.
+    /// A per-file module of the package under compilation is not here — that build writes it.
     let assets (imports: JsImports) : JsRuntimeModule list =
         [
             for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) do

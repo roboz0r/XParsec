@@ -3,21 +3,15 @@ namespace XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// Layer-2 provider supplying the core JS runtime types the backend references.
-/// Hand-authored stubs; the seam where a `tsc`-derived metadata format will plug in.
-///
-/// The referenced runtime type today is `Error` — the native type `exn`'s
-/// `(# "Error" #)` repr. `exnReprOf` resolves `exn`'s intrinsic repr through this
-/// provider to the `Error` class, so every `exn` subtype lowers to `new Error(message)`.
-/// The `message` property is what an `exn`-typed receiver's member access resolves to.
+/// Hand-authored stub shapes for the JS runtime types the backend resolves BY NAME.
+/// `Error` is the name `exn`'s `(# "Error" #)` repr carries, so `MyExn "boom"` lowers to
+/// `new Error("boom")` and an `exn`-typed receiver's member probe lands on this shape.
 module JsNativeSymbols =
 
     /// The synthetic home "assembly" the stub types report — a label, not a real reference.
     [<Literal>]
     let private RuntimeAssembly = "Vesper.Js.Runtime"
 
-    /// The home every stub shape reports. It rides the SHAPE's `SymbolOrigin`, never the
-    /// key: a key is a nominal identity and carries no assembly.
     let private runtimeHome: Origin = Origin.InAssembly(AssemblyName RuntimeAssembly)
 
     let private errorOrigin: SymbolOrigin =
@@ -37,7 +31,7 @@ module JsNativeSymbols =
 
     let private unitTy: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
 
-    /// `new Error(message: string)` — the JS `Error` constructor as an `ExternalMember`.
+    /// `new Error(message: string)`.
     let private errorCtor: ExternalMember =
         ExternalMember.ctor
             errorTypeKey
@@ -66,37 +60,9 @@ module JsNativeSymbols =
                 Origin = errorOrigin
             }
 
-    // The capability interfaces (`System.IDisposable` / `IEquatable\`1` / `IComparable\`1`)
-    // are NO LONGER fabricated here — a BCL-spelled impl on JS now resolves through the
-    // source-level compat shim `capabilities-compat.js.fsi`, which abbreviates each BCL
-    // spelling to the canonical BCL-free `Vesper.*`. Only the ITERATION interfaces below
-    // (`IEnumerable\`1` / `IEnumerator\`1`) remain fabricated: `seq<'T>`'s abbreviation
-    // needs a shape to resolve against, and retrofitting `seq` onto the capability
-    // mechanism is out of scope.
-
     let private boolTy: FrozenType = FTConst(RuntimeNames.boolKey, EqArray.empty)
 
-    /// The single declaring typar `'T` (axis Declaring, index 0).
     let private selfTypar: FrozenType = FTTypar(TyparAxis.Declaring, 0)
-
-    // --- System.Collections.Generic.IEnumerable<'T> / IEnumerator<'T> -----------
-    //
-    // The iteration capability surface, the enumerable analogue of the erased
-    // `IEquatable\`1` / `IComparable\`1` above. On JS these BCL interfaces are ERASED
-    // at runtime (a class implementing `seq<'T>` lowers to a native `[Symbol.iterator]`
-    // generator that drives the enumerator's `MoveNext()` / `Current`); they exist
-    // here as PROVIDER METADATA only so a Vesper class can WRITE the impl —
-    // `interface System.Collections.Generic.IEnumerable<int> with member GetEnumerator …`
-    // — and the front-end's interface-ness check (`Unification.fs`) + conformance
-    // (`checkInterfaceConformance`, which checks only the named interface's OWN
-    // members) accept it. `CapabilityIds.Enumerable` resolves to `IEnumerable\`1` off
-    // the `seq` abbreviation, so the codegen capability match keys on this exact name.
-    //
-    // The modelled member surface is the minimal pair the `[Symbol.iterator]` adapter
-    // drives, NOT the full BCL shape (no inherited `IEnumerator`/`IDisposable` members):
-    // `IEnumerator\`1` carries `MoveNext(): bool` + `Current: 'T`, and the conformance
-    // check requires exactly those of an implementer — so a Vesper enumerator declares
-    // just `interface IEnumerator<int> with member MoveNext … member Current …`.
 
     let private collectionsGenericNs = "System.Collections.Generic"
 
@@ -116,14 +82,12 @@ module JsNativeSymbols =
 
     let private ienumerableKey: SymbolKey = SymbolKey.Type ienumerableTypeKey
 
-    /// The compiled qualified name of the erased `IEnumerable\`1` interface — the name
-    /// `for … in` recognition matches (`pickEnumerableElem`). A provider that wants a
-    /// foreign type treated as `seq<'T>` injects this name into the type's interface set.
+    /// `System.Collections.Generic.IEnumerable\`1`. A provider makes a foreign type
+    /// enumerable by adding this NAME (never a key) to the type's interface set.
     let enumerableInterfaceName: string = SymbolKeyOps.qualifiedName ienumerableKey
 
-    /// An instance interface member of an erased interface. `declaringTyparArity` is the
-    /// declaring interface's generic arity (`1` for `IEnumerable<'T>`/`IEnumerator<'T>`,
-    /// `0` for the non-generic `System.IDisposable`).
+    /// An instance member of an erased interface — `declaringTyparArity` is `1` for
+    /// `IEnumerable<'T>`, the arity `'T` is baked against.
     let private mkIfaceMember
         (origin: SymbolOrigin)
         (declaringTyparArity: int)
@@ -145,9 +109,6 @@ module JsNativeSymbols =
             Origin = origin
         }
 
-    /// Pair an erased class-interface shape with the map key DERIVED from its head
-    /// `SymbolKey` (`SymbolKeyOps.qualifiedName`), so the qualified-name string is never
-    /// re-spelled.
     let private erasedClassEntry (key: SymbolKey) (shape: ExternalTypeShape) : string * ExternalTypeShape =
         SymbolKeyOps.qualifiedName key, shape
 
@@ -163,7 +124,9 @@ module JsNativeSymbols =
                 Origin = origin
             }
 
-    /// `IEnumerator<'T>` — `MoveNext(): bool` + the `Current: 'T` property.
+    /// `IEnumerator<'T>` — `MoveNext(): bool` + the `Current: 'T` property. Conformance
+    /// demands exactly the members listed here, so adding the BCL's inherited `Reset` /
+    /// `object Current` would force every implementer to write them too.
     let private ienumeratorShape: ExternalTypeShape =
         mkErasedClassIface
             1
@@ -189,11 +152,8 @@ module JsNativeSymbols =
                     (FTClass(ienumeratorTypeKey, EqArray.ofSeq [ selfTypar ]))
             |]
 
-    /// The JS-native type table. `Error` is keyed by its bare global name; the
-    /// iteration interfaces by their arity-suffixed qualified name (the form
-    /// `tryResolveExternalTypeKey` probes). The capability interfaces
-    /// (`System.IDisposable` / `IEquatable\`1` / `IComparable\`1`) are deliberately
-    /// ABSENT — they resolve through the `capabilities-compat.js.fsi` source shim.
+    /// Keyed as a by-name lookup spells it: bare `Error` for the global, arity-suffixed
+    /// `System.Collections.Generic.IEnumerable\`1` for the generic interfaces.
     let private types: Map<string, ExternalTypeShape> =
         Map
             [
@@ -202,14 +162,12 @@ module JsNativeSymbols =
                 erasedClassEntry ienumeratorKey ienumeratorShape
             ]
 
-    /// All overloads of `memberName` on `typeName`, read off the shape's `Members`.
     let private membersOf (typeName: string) (memberName: string) : ExternalMember[] =
         match Map.tryFind typeName types with
         | Some(ExternalTypeShape.Class shape) -> shape.Members |> Array.filter (fun m -> m.Name = memberName)
         | _ -> [||]
 
-    /// The layer-2 provider for JS-native runtime types — a by-name leaf; the store view is
-    /// derived from it, so the two lookups cannot drift.
+    /// The stub table as a provider.
     let provider: IExternalSymbolProvider =
         ExternalSymbolProviders.ofNamedLeaf
             { ExternalSymbolProviders.NamedLeaf.empty with
@@ -226,22 +184,13 @@ module JsNativeSymbols =
                 TryLookupMembers = fun (typeName, memberName) -> membersOf typeName memberName
             }
 
-    /// The JS-native layer-2 leaf factory: the JS-native tail instead of BCL reflection,
-    /// so `Vesper.Exceptions` contract types resolve through `exn`'s `(# "Error" #)` repr
-    /// without a BCL type colliding on the home-assembly invariant. Reverse-map
-    /// independent (the JS leaf canonicalizes nothing). The single seam both conveniences
-    /// below route through, so they share the `"jsnative"` contract-cache entry.
+    /// The metadata tail a JS compile ends in — these stubs where a CLR compile puts BCL
+    /// reflection. It reads nothing from the reverse-canon map its argument carries.
     let private jsNativeMetaTail: SymbolProviders.MetaTailFactory =
         fun _ -> [ provider ]
 
-    /// THE JS-native contract for a manifest set: the provider stack, the collected inline
-    /// bodies, the producer files those bodies are anchored in, and the manifest set itself.
-    /// `"jsnative"` keeps the contract-cache entry distinct from the `"bcl"` one.
-    ///
-    /// What `Codegen.compileWith` takes, whole. The projections below exist for callers that
-    /// resolve symbols and nothing else (analysis, introspection); a caller that EMITS takes
-    /// the contract, because a source map's positions are only readable against the anchor
-    /// domain of the same collection the provider serves bodies from.
+    /// The JS-native contract for a manifest set, whole. A compile takes this; the
+    /// projections below are for callers that only resolve or introspect.
     let jsNativeContractFor (target: string) (manifestPaths: string list) : SymbolProviders.Contract =
         SymbolProviders.buildContractWith "jsnative" jsNativeMetaTail target manifestPaths
 
@@ -249,18 +198,10 @@ module JsNativeSymbols =
     let buildJsNativeContractFor (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
         (jsNativeContractFor target manifestPaths).Provider
 
-    /// The raw cross-package inline-body map for the JS-native contract — introspection
-    /// seam for the `OpsPlatformJs` tests (shares the `"jsnative"` cache entry with
-    /// `buildJsNativeContractFor`). The JS-side counterpart of the (CLR-side)
-    /// `ClrSymbolProviders.contractInlineBodiesFor`. JS-target only: the JS-native leaf
-    /// resolves no BCL types, so it cannot build the CLR (`target = None`) collection.
+    /// The contract's inline bodies alone, for a caller that only introspects them.
     let jsNativeInlineBodiesFor (target: string) (manifestPaths: string list) : Map<string, InlineBody> =
         (jsNativeContractFor target manifestPaths).BodiesByName
 
-    /// The producer files the JS-native contract's inline bodies were unpooled from, retained so
-    /// their anchors stay readable — the same cached collection the two above project. The
-    /// introspection seam for the RETENTION itself (`OpsPlatformJsTests` checks each retained
-    /// file against the disk it claims to describe); a compile never takes this alone, since a
-    /// body's positions are readable only against the collection that served the body.
+    /// The producer files the contract's inline bodies were unpooled from, alone.
     let jsNativeInlineOriginsFor (target: string) (manifestPaths: string list) : OriginSources =
         (jsNativeContractFor target manifestPaths).Origins

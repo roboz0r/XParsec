@@ -1,221 +1,190 @@
 namespace XParsec.FSharp.Codegen.Js
 
-/// A 0-based source position — V3 source-map coordinates: WHICH of the map's `sources[]`
-/// the position is in, then `Line`, then `Column` counted in UTF-16 code units.
-///
-/// `Source` is not bookkeeping for a map that happens to publish one file. A node copied out
-/// of an inline specialization was written in the PRODUCER's file, so a position that named
-/// only a line would name that line of whichever file the reader assumed — an answer that is
-/// in range, plausible, and wrong.
+/// A 0-based V3 source-map position: `Source` indexes the map's `sources[]` (a node copied out
+/// of an inline specialization belongs to the PRODUCER's file), `Column` counts UTF-16 units.
 [<Struct>]
 type JsLoc = { Source: int; Line: int; Column: int }
 
-/// One entry of a V3 map's parallel `sources[]` / `sourcesContent[]` arrays: the name a
-/// debugger is given for a file, and the text embedded for it. The two travel together
-/// because the arrays are index-aligned and a map that pairs them wrongly resolves every
-/// position into the wrong text.
+/// One entry of a V3 map's index-aligned `sources[]` / `sourcesContent[]` arrays: the name a
+/// debugger is given for a file, and the text embedded for it.
 type JsMapSource = { Path: string; Content: string }
 
-/// One case of an emitted union. `ClassName` is the emitted subclass name
-/// (`<Union>_<Case>`); `Tag` is the declaration-order integer the base-class `tag`
-/// field carries; `Fields` are the case's declaration-order field names (positional
-/// fields synthesised as `Item` / `Item1` / `Item2` / …, named fields verbatim).
+/// One case of an emitted union:
+/// `class <ClassName> extends <Union> { constructor(<Fields>) { super(<Tag>); … } }`.
 type JsUnionCaseDecl =
     {
+        /// The F# case name, verbatim — the string the base class's `cases()` reports.
         CaseName: string
+        /// The emitted subclass name, `<Union>_<Case>`.
         ClassName: string
+        /// Declaration index, passed as `super(<Tag>)` and read back off the base's `tag`.
         Tag: int
+        /// Ctor parameters in declaration order, each stored to `this.<field>`.
         Fields: string list
     }
 
-/// `Literal` payload. `Number` and `BigInt` carry the *already-formatted* numeric
-/// text (round-trippable), so the printer never re-formats and can't drift from
-/// the value the walker resolved.
 [<RequireQualifiedAccess>]
 type JsLiteral =
+    /// `"a\nb"` — the DECODED text; the printer quotes it and re-escapes every control char.
     | String of string
     /// A `number` literal — the formatted text of an int32 / byte / float / float32 `Const`.
     | Number of raw: string
     /// A `bigint` literal — the digits of an int64 `Const`, printed with the trailing `n`.
     | BigInt of digits: string
+    /// `true` / `false`.
     | Boolean of bool
 
 /// One piece of a `Raw` template expansion: a verbatim chunk of the `$N` template
-/// string, or a substituted operand expression (which the printer wraps in
-/// parentheses for the precedence-by-construction guarantee).
+/// string, or a substituted operand expression.
 [<RequireQualifiedAccess>]
 type JsRawSeg =
+    /// Template text spliced in as written (`" + "`, `".charCodeAt("`).
     | Verbatim of string
+    /// A substituted operand; prints as `(<e>)`, so no operator precedence can straddle it.
     | Hole of JsExpr
 
 and [<RequireQualifiedAccess>] JsExpr =
+    /// A bare name, `x`. Also how the keywords `null` / `undefined` and any JS global reach
+    /// the output — there is no separate case for them.
     | Identifier of name: string * loc: JsLoc voption
+    /// `42`, `"s"`, `9n`, `true`.
     | Literal of JsLiteral * loc: JsLoc voption
     /// `object.property` when `computed = false`, `object[property]` when `computed = true`.
     | Member of object: JsExpr * property: JsExpr * computed: bool * loc: JsLoc voption
+    /// `callee(a, b, …)`. An arrow callee is parenthesised first — `((x) => …)(v)`.
     | Call of callee: JsExpr * arguments: JsExpr list * loc: JsLoc voption
+    /// `new callee(a, b, …)`.
     | New of callee: JsExpr * arguments: JsExpr list * loc: JsLoc voption
-    /// `test ? consequent : alternate`. The printer parenthesises the whole node.
+    /// `test ? consequent : alternate`.
     | Conditional of test: JsExpr * consequent: JsExpr * alternate: JsExpr * loc: JsLoc voption
     /// `(a, b, …)`: evaluate each in order, yield the last.
     | Sequence of expressions: JsExpr list * loc: JsLoc voption
     /// `[a, b, …]`. A tuple is a JS array; a tuple pattern indexes it positionally.
     | Array of elements: JsExpr list * loc: JsLoc voption
-    /// A `$N`-template `ILIntrinsic` expanded to verbatim text + parenthesised operand
-    /// holes; the whole wrapped in parentheses by the printer. Not an ESTree node.
+    /// A `$N`-template `ILIntrinsic` expanded to verbatim text + operand holes. Not an
+    /// ESTree node.
     | Raw of segments: JsRawSeg list * loc: JsLoc voption
-    /// `(p0, …) => body`. F# functions emit as chains of *unary* arrows so currying
-    /// and partial application fall out for free.
+    /// `(p0, …) => body`. Arity is whatever `parameters` holds: a curried F# lambda is a
+    /// CHAIN of unary arrows, a flat module function one n-ary arrow.
     | Arrow of parameters: string list * body: JsFnBody * loc: JsLoc voption
-    /// `left <op> right` — the whole parenthesised (universal-parenthesization), so no
-    /// precedence table is needed.
+    /// `left <op> right` — `operator` is verbatim JS text (`===`, `>>>`), not the F# spelling.
     | Binary of operator: string * left: JsExpr * right: JsExpr * loc: JsLoc voption
     /// `left <op> right` for the short-circuiting `&&` / `||`. Kept distinct from
     /// `Binary` for ESTree exactness; the printer treats them identically.
     | Logical of operator: string * left: JsExpr * right: JsExpr * loc: JsLoc voption
-    /// `(target = value)` — an assignment *expression* (unit-typed in F#, so its
-    /// yielded value is unused). `target` is a mutable-local `Identifier` (`x <- v`)
-    /// or a computed `Member` (`arr.[i] <- v`). Distinct from the trampoline's
-    /// `JsStatement.Assign`, whose target is a bare name only.
+    /// `(target = value)` — an assignment *expression*, unit-typed in F#. `target` is an
+    /// `Identifier` (`x <- v`) or a `Member`, computed (`arr[i] = v`) or not (`r.X = v`).
     | Assign of target: JsExpr * value: JsExpr * loc: JsLoc voption
 
-/// An arrow function's body: a concise expression (`=> e`) or a brace-delimited
-/// statement block (`=> { … }`) — the latter is the self-tail-call loop form.
+/// An arrow function's body.
 and [<RequireQualifiedAccess>] JsFnBody =
+    /// A concise body — `=> e`, no braces and no `return`.
     | Expr of JsExpr
+    /// `=> { … }` — a statement block, and the form a self-tail-call loop needs.
     | Block of JsStatement list
 
 and [<RequireQualifiedAccess>] JsStatement =
-    /// An expression evaluated for effect.
+    /// `<e>;` — an expression evaluated for effect, its value discarded.
     | Expression of JsExpr
+    /// `const <name> = <init>;` — the default for an F# binder the body never assigns.
     | Const of name: string * init: JsExpr
-    /// `let <name> = <init>;` — a *reassignable* local binding for a `let mutable`
-    /// (a binder the body mutates via `Assignment`); an immutable binder stays `Const`.
+    /// `let <name> = <init>;` — a *reassignable* local for a `let mutable`; an immutable
+    /// binder stays `Const`.
     | Let of name: string * init: JsExpr
-    /// `export const <name> = <init>;` — top-level binding in library compile mode.
-    /// `reassignable` selects `export let` for a binder the module later mutates
-    /// (`Assignment`), mirroring the script-mode `Let`/`Const` split; a `const` export
-    /// would make the later write a runtime `TypeError`.
+    /// `export const <name> = <init>;` — a top-level binding in library compile mode;
+    /// `reassignable` selects `export let` for a binder the module later mutates.
     | Export of name: string * init: JsExpr * reassignable: bool
-    /// `import <default>, { <name> as <alias>, … } from "<source>";`. `defaultBinding`
-    /// is the local name a TS DEFAULT export binds to (`None` for a named-only import);
-    /// each `named` entry is an `(exportName, alias)` pair — STRUCTURE, rendered to the
-    /// `name as alias` spelling by `JsPrint`, never pre-formatted by the producer. At
-    /// least one of the two is non-empty.
+    /// `import <default>, { <name> as <alias>, … } from "<source>";`. `defaultBinding` is the
+    /// local name a TS DEFAULT export binds to; each `named` entry is an `(exportName, alias)`
+    /// pair. Both empty prints the invalid `import  from "…";`, so one must be non-empty.
     | Import of defaultBinding: string option * named: (string * string) list * source: string
-    /// `import * as <binding> from "<source>";` — a namespace-object import, the
-    /// lowering of a `Schema.ImportShape.Namespace` export. Its own statement (a
-    /// namespace clause cannot ride the braces of a `{ named }` import), emitted
-    /// beside any default/named `Import` for the same source.
+    /// `import * as <binding> from "<source>";` — its own statement, since a namespace clause
+    /// cannot ride the braces of a `{ named }` import for the same source.
     | ImportNamespace of binding: string * source: string
     /// `if (test) { … } else { … }`. An empty alternate prints without the `else`.
     | If of test: JsExpr * consequent: JsStatement list * alternate: JsStatement list
     /// `while (test) { … }` — the self-tail-call trampoline.
     | While of test: JsExpr * body: JsStatement list
-    /// `for (let <var> = <init>; <var> <= <limit>; <var>++) { … }` — the F#
-    /// `for i = a to b do` counted loop. `<limit>` is a value the emitter has
-    /// already hoisted into a binding (F# evaluates `b` once), so re-reading it
-    /// per iteration is side-effect-free.
+    /// `for (let <var> = <init>; <var> <= <limit>; <var>++) { … }` — the F# `for i = a to b do`
+    /// counted loop. `<limit>` is re-read each iteration, so it must be a binding, not a call.
     | For of var: string * init: JsExpr * limit: JsExpr * body: JsStatement list
-    /// `for (const <binder> of <source>) { … }` — the F# `for x in source do` loop
-    /// over an enumerable. JS drives the source's own `Symbol.iterator` at runtime, so
-    /// no enumerator/MoveNext/Current plumbing is emitted (unlike the IL backend).
+    /// `for (const <binder> of <source>) { … }` — the F# `for x in source do`. JS drives the
+    /// source's own `Symbol.iterator`, so no MoveNext/Current plumbing is emitted.
     | ForOf of binder: string * source: JsExpr * body: JsStatement list
+    /// `return <e>;`
     | Return of JsExpr
+    /// `continue;` — re-enters the `While` trampoline after the parameter write-back.
     | Continue
     /// `target = value;` — param-shadow mutation in a self-tail-call.
     | Assign of target: string * value: JsExpr
     /// `this.<field> = <value>;` — a constructor's field store.
     | FieldStore of field: string * value: JsExpr
-    /// A record's or class's emitted JS class: its single `ctor`, plus any `methods`
-    /// attached as instance methods on the class (a record passes `[]`).
-    /// Attached methods carry the runtime dispatch slots of a custom-equality /
-    /// custom-comparison class (`Equals`/`CompareTo`/`GetHashCode`), bodied with
-    /// the receiver bound to JS `this`. `export` is set in library mode so a
-    /// consumer can `import` the class rather than re-emit it.
+    /// `[export ]class <name> { constructor(…) { … } <methods…> }` — a record's or class's
+    /// emitted class. `methods` are attached instance methods, receiver bound to JS `this`
+    /// (a record passes `[]`).
     | Class of name: string * ctor: JsCtor * methods: JsClassMethod list * export: bool
-    /// A union's emitted JS classes: a `baseName` base class (`tag` + `cases()` + a
-    /// non-enumerable `$type` brand getter returning `brand`, the type's qualified name)
-    /// plus one `extends`-subclass per case carrying its named fields after `super(tag)`.
-    /// No shared runtime base: default equality/comparison/hashing is structural (the
-    /// `Vesper.Core`/`Vesper.Comparison` runtimes dispatch on `$type` + own-keys); a
-    /// type with custom equality/comparison emits its own `Equals`/`CompareTo` and the
-    /// runtimes pick it up by method presence. `export` (library mode) exports every
-    /// class so consumers import them. `baseMethods` are the union's capability
-    /// protocol members (`[Symbol.iterator]`, eq/comp/hash) — they attach to the BASE
-    /// class so every case subclass inherits them and dispatch lands on a case instance.
+    /// `[export ]class <baseName>` carrying `tag`, `cases()` and a `$type` getter returning
+    /// `brand` (the type's qualified name), plus one `extends`-subclass per case whose fields
+    /// follow `super(tag)`. `baseMethods` attach to the BASE: every subclass inherits them.
     | Union of
         baseName: string *
         brand: string *
         cases: JsUnionCaseDecl list *
         baseMethods: JsClassMethod list *
         export: bool
-    /// An enum's emitted JS repr: a module-scope frozen object map
-    /// `[export ]const Name = Object.freeze({ C1: v1, … });`. The step-6 repr for ALL
-    /// three variants (numeric / string / mixed) — JS is untyped, so a number, a
-    /// string, or a mix of them is the same object-map shape; `E.Ci` is a property
-    /// read, and there is NO reverse map (v1 needs equality only). `cases` are in
-    /// declaration order with their already-formatted literal value; `export` is set
-    /// in library mode so a consumer can `import` the enum object.
+    /// `[export ]const <name> = Object.freeze({ C1: v1, … });` — one shape for numeric, string
+    /// and mixed enums alike. `E.Ci` is a property read; there is NO reverse value→name map.
     | Enum of name: string * cases: (string * JsLiteral) list * export: bool
     /// A bare lexical block `{ … }` — scopes a match arm's pattern bindings so two
     /// arms binding the same name don't collide as sibling `const`s.
     | Block of body: JsStatement list
+    /// `throw <e>;`
     | Throw of JsExpr
-    /// `try { … } finally { … }` — the lowering of an F# `use` binding. `tryBody`
-    /// runs the `use` body; `finallyBody` disposes the binder on every exit
-    /// (a null-guarded `x.Dispose()` call), matching F#'s null-safe RAII semantics.
+    /// `try { … } finally { … }` — an F# `try…finally`, or a `use` binding whose
+    /// `finallyBody` disposes the binder.
     | TryFinally of tryBody: JsStatement list * finallyBody: JsStatement list
-    /// `yield <e>;` — emitted only inside a generator method body (`Generator = true`
-    /// on the enclosing `JsClassMethod`). The iteration adapter's `[Symbol.iterator]`
-    /// generator yields each enumerator element, so `yield x` auto-produces the
-    /// `{ value: x, done: false }` iterator result (and end-of-body the `{ done: true }`).
+    /// `yield <e>;` — valid only inside a generator method body (`Generator = true` on the
+    /// enclosing `JsClassMethod`).
     | Yield of JsExpr
 
-/// An instance method attached to an emitted JS class — `Name(params) { body }`.
-/// Distinct from a free, receiver-first member function: an attached method binds
-/// the receiver to JS `this`, so the runtime can dispatch on method presence
-/// (`a.Equals(b)`, `a.CompareTo(b)`, `x.GetHashCode()`).
-///
-/// A class method's name slot. `Named n` prints a plain identifier header
-/// (`Equals(params)`); `Computed e` prints a computed-key header `[<e>](params)`
-/// where `e` is the symbol-KEY EXPRESSION (`Symbol.iterator`, a member access, or
-/// `Symbol.for("vesper.equality")`, a call). The two are mutually exclusive, so a
-/// computed method can't also carry a never-printed descriptive name.
+/// A class method's name slot.
 and JsMethodKey =
+    /// A plain identifier header — `Named "Equals"` prints `Equals(params)`.
     | Named of string
+    /// A computed-key header, `[<e>](params)`: `[Symbol.iterator]`, `[Symbol.for("vesper.hash")]`.
     | Computed of JsExpr
 
-/// One instance method of an emitted class / union base class. `Generator` prefixes
-/// the header with `*` (`*[Symbol.iterator]()`) so the body may `yield` — the
-/// iteration adapter's form.
+/// One instance method of an emitted class / union base class:
+/// `[*]<Key>(<Params>) { <Body> }`.
 and JsClassMethod =
     {
+        /// `Equals(…)` or `[Symbol.iterator](…)`.
         Key: JsMethodKey
+        /// Parameter names, printed `(p0, p1, …)`.
         Params: string list
+        /// The statements between the header's braces.
         Body: JsStatement list
+        /// Prefixes the header with `*`, so `Body` may `yield`.
         Generator: bool
     }
 
-/// The one JS constructor an emitted class gets: `constructor(Params) { Body }`.
-/// `Params` and `Body` are the constructor's OWN, never derived from the field list:
-/// a `val`-form class's `new(args) = { f = e; … }` need not take one parameter per
-/// field, and deriving them would leave the unnamed fields `undefined` at every site.
+/// The one JS constructor an emitted class gets: `constructor(<Params>) { <Body> }`.
 and JsCtor =
     {
+        /// The ctor's OWN parameter names, not the field list — `new(args) = { f = e }`
+        /// need not take one parameter per field.
         Params: string list
+        /// The stores and preamble; a union subclass's `super(<tag>);` is printed before it.
         Body: JsStatement list
     }
 
-/// The shapes a `JsCtor` is built in.
+/// The `JsCtor` shapes an emitted class is built from.
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module JsCtor =
 
-    /// The shape a record, a union base/case, and a primary-ctor class share: each
-    /// declaration-order field is a like-named parameter stored into its property.
-    /// `tail` runs after the stores (a class's instance preamble, whose initialisers
-    /// read the parameters back through `this`).
+    /// Each declaration-order field becomes a like-named parameter stored into `this.<field>`;
+    /// `tail` runs after the stores (a class's instance preamble).
     let positional (fields: string list) (tail: JsStatement list) : JsCtor =
         {
             Params = fields

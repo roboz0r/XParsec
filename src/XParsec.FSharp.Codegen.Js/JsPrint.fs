@@ -2,11 +2,6 @@ namespace XParsec.FSharp.Codegen.Js
 
 open System.Text
 
-/// Double-quoted string-literal escaping shared by the JS printer (string
-/// literals in emitted code) and the source-map JSON writer. The escaping is a
-/// strict superset safe for both contexts: the five named escapes plus a
-/// `\uXXXX` fallback for every other control char (< 0x20), which neither a JS
-/// string literal nor JSON may carry raw.
 module internal JsEscape =
 
     let quoted (s: string) : string =
@@ -26,19 +21,12 @@ module internal JsEscape =
         sb.Append('"') |> ignore
         sb.ToString()
 
-/// `JsProgram → source text + V3 source map`. The printer builds an intermediate
-/// layout `Doc` from the AST and renders it in one pass: rendering tracks the
-/// generated line/column and emits a mapping for every `Mark` node.
-///
-/// `Doc` is the structural subset of a Wadler/Leijen pretty-printer —
-/// `Text`/`Cat`/`Line`/`Nest` + a source-position `Mark`, with no width-driven
-/// `group`/best-fit (blocks always break, argument lists always inline). Indentation
-/// is carried by `Nest`; source mappings fall out of `Mark` during the render pass.
+/// `JsProgram` → source text + V3 source map. The AST becomes a layout `Doc`, rendered in
+/// one pass that tracks the generated line/column and emits a mapping at every `Mark`.
+/// Layout is fixed: a statement block always breaks, an argument list never does.
 module JsPrint =
 
-    /// One generated→source correspondence. `Src*` are 0-based source coordinates, read
-    /// against the map's `sources[SrcIndex]` — never against "the" source, since an inlined
-    /// body's line belongs to the file that body was written in.
+    /// One generated→source correspondence. `SrcIndex` indexes the map's `sources[]`.
     type Mapping =
         {
             GenLine: int
@@ -48,8 +36,7 @@ module JsPrint =
             SrcCol: int
         }
 
-    /// The printer's result: the emitted ESM text plus the mappings collected
-    /// while rendering it (in generated-order: ascending line then column).
+    /// The emitted ESM text plus the mappings collected while rendering it.
     type PrintResult =
         {
             Source: string
@@ -65,8 +52,8 @@ module JsPrint =
 
     // ---- The layout document -------------------------------------------------
 
-    /// A break-only layout document. `Line` is a hard break (newline + current
-    /// indentation); `Nest` widens indentation; `Mark` records a source mapping.
+    /// A break-only layout document: `Line` is an unconditional break (newline + current
+    /// indent), so no layout decision depends on line width.
     type private Doc =
         | Nil
         | Text of string
@@ -79,10 +66,8 @@ module JsPrint =
     let private cat (docs: Doc list) = Cat docs
     let private text (s: string) = Text s
 
-    /// One indentation level = two spaces.
     let private indent (d: Doc) = Nest(2, d)
 
-    /// Wrap a doc in a source `Mark` when the node carries a `loc`.
     let private marked (loc: JsLoc voption) (d: Doc) =
         match loc with
         | ValueSome l -> Mark(l, d)
@@ -111,8 +96,8 @@ module JsPrint =
                      else
                          text "." ++ expr property))
         | JsExpr.Call(callee, args, loc) ->
-            // An arrow callee must be parenthesised so `(args)` doesn't extend the
-            // arrow body — `((x) => …)(v)`, not `(x) => …(v)`.
+            // `((x) => …)(v)`, not `(x) => …(v)`: an unparenthesised arrow callee would
+            // swallow the argument list into its body.
             let calleeDoc =
                 match callee with
                 | JsExpr.Identifier _
@@ -142,8 +127,7 @@ module JsPrint =
         | JsExpr.Sequence(exprs, loc) -> marked loc (text "(" ++ commaList (List.map expr exprs) ++ text ")")
         | JsExpr.Array(elements, loc) -> marked loc (text "[" ++ commaList (List.map expr elements) ++ text "]")
         | JsExpr.Raw(segments, loc) ->
-            // Universal parenthesization: wrap the whole template and each operand hole
-            // in `(…)` — precedence-correct by construction, zero JS-grammar knowledge.
+            // Both the template and every hole are wrapped: `$0 + $1` prints `((a) + (b))`.
             let seg s =
                 match s with
                 | JsRawSeg.Verbatim v -> text v
@@ -157,11 +141,9 @@ module JsPrint =
                 | JsFnBody.Block stmts -> block stmts
 
             marked loc (text "(" ++ commaList (List.map text parameters) ++ text ") => " ++ bodyDoc)
-        // `(target = value)` — whole node parenthesised, like `Binary`, so it is
-        // safe in a comma sequence / expression-statement position.
+        // `(target = value)` — parenthesised, so it is safe as a comma-sequence operand.
         | JsExpr.Assign(target, value, loc) ->
             marked loc (text "(" ++ expr target ++ text " = " ++ expr value ++ text ")")
-        // Both `Binary` and `Logical` print `(left <op> right)` — whole node parenthesised.
         | JsExpr.Binary(op, left, right, loc)
         | JsExpr.Logical(op, left, right, loc) ->
             marked
@@ -174,8 +156,6 @@ module JsPrint =
                  ++ expr right
                  ++ text ")")
 
-    /// A brace-delimited statement block: `{` then one indented statement per
-    /// line, then the closing `}` at the enclosing indentation.
     and private block (stmts: JsStatement list) : Doc =
         text "{"
         ++ indent (cat [ for s in stmts -> Line ++ statement s ])
@@ -190,15 +170,13 @@ module JsPrint =
         ++ Line
         ++ text "}"
 
-    /// `constructor(params) { … }`. `prologue` precedes the ctor's own body — a union
-    /// subclass's `super(tag);`; a class and a union base pass none.
+    /// `constructor(<params>) { … }`; `prologue` prints first — a union subclass's `super(3);`.
     and private ctorDecl (ctor: JsCtor) (prologue: Doc list) : Doc =
         memberDecl
             (text "constructor(" ++ commaList (List.map text ctor.Params) ++ text ")")
             (prologue @ [ for s in ctor.Body -> statement s ])
 
-    /// `[export ]class Name [extends Base] { member… }`. `export` is set in library
-    /// mode so a consumer can import the type rather than re-emit it.
+    /// `[export ]class Name [extends Base] { member… }`.
     and private classDecl (export: bool) (name: string) (extends: string option) (members: Doc list) : Doc =
         let ext =
             match extends with
@@ -213,9 +191,7 @@ module JsPrint =
         ++ Line
         ++ text "}"
 
-    /// One instance method of an emitted class or union base class. `Generator`
-    /// prefixes `*` (so the body may `yield`); `Computed` renders a `[expr]` key
-    /// (`[Symbol.iterator]`, `[Symbol.for("vesper.X")]`) instead of the string name.
+    /// `*[Symbol.iterator](p0) { … }` — `Generator` prints the `*`, a `Computed` key the `[…]`.
     and private methodDecl (m: JsClassMethod) : Doc =
         let star = if m.Generator then text "*" else Nil
 
@@ -240,10 +216,8 @@ module JsPrint =
             ++ expr init
             ++ text ";"
         | JsStatement.Import(defaultBinding, named, source) ->
-            // `import D from`, `import { a, b } from`, or `import D, { a, b } from` — a TS
-            // default export binds positionally (no braces), named bindings ride the braces.
-            // Every named binding is aliased (`$`-prefixed aliases are collision-free with
-            // export names), so the `name as alias` spelling renders unconditionally.
+            // `import D from "m";` / `import { a as $a } from "m";` / both, comma-separated.
+            // Every named binding carries a `$`-prefixed alias, so `as` renders unconditionally.
             let namedClause =
                 if List.isEmpty named then
                     None
@@ -308,8 +282,8 @@ module JsPrint =
                     None
                     [
                         yield ctorDecl (JsCtor.positional [ "tag" ] []) []
-                        // Non-enumerable type brand (prototype getter, so absent from
-                        // own-keys): the structural runtime distinguishes types by it.
+                        // `get $type() { return "Mod.U"; }` — a prototype getter, so absent from
+                        // own-keys; the structural runtime's equality and comparison read it.
                         yield memberDecl (text "get $type()") [ text (sprintf "return %s;" (JsEscape.quoted brand)) ]
                         yield
                             memberDecl
@@ -319,8 +293,8 @@ module JsPrint =
                                     ++ commaList [ for c in cases -> text (JsEscape.quoted c.CaseName) ]
                                     ++ text "];"
                                 ]
-                        // Capability protocol members (`[Symbol.iterator]`, eq/comp/hash):
-                        // attached to the BASE class so every case subclass inherits them.
+                        // `[Symbol.iterator]`, equality, hash — attached to the BASE class, so
+                        // every case subclass inherits them.
                         for m in baseMethods -> methodDecl m
                     ]
 
@@ -335,10 +309,7 @@ module JsPrint =
 
             cat (baseClass :: [ for c in cases -> Line ++ subclass c ])
         | JsStatement.Enum(name, cases, export) ->
-            // The frozen object map `const Name = Object.freeze({ C1: v1, … });`.
-            // Case names print verbatim as object keys (F# identifiers, the same
-            // verbatim treatment record/union field names get); literal values reuse
-            // the shared `literal` formatter.
+            // Case names print verbatim as object keys: `Object.freeze({ Red: 0, … })`.
             let entries =
                 [
                     for (caseName, value) in cases -> text caseName ++ text ": " ++ text (literal value)
@@ -352,8 +323,6 @@ module JsPrint =
 
     // ---- Rendering -----------------------------------------------------------
 
-    /// Render a `Doc` to text + V3 mappings in one pass. `Nest` carries indentation
-    /// to each `Line`, so there is no mutable indent to balance.
     let private render (doc: Doc) : PrintResult =
         let sb = StringBuilder()
         let maps = ResizeArray<Mapping>()
@@ -399,9 +368,8 @@ module JsPrint =
         render (cat [ for s in program.Body -> statement s ++ Line ])
 
 
-/// V3 source-map document: base64-VLQ `mappings` + embedded `sourcesContent`.
-/// Hand-rolled JSON. Each segment is `[genColΔ, srcIndexΔ, srcLineΔ, srcColΔ]`;
-/// the optional name index is never emitted.
+/// V3 source-map JSON: base64-VLQ `mappings` + embedded `sourcesContent`. A segment is
+/// `[genColΔ, srcIndexΔ, srcLineΔ, srcColΔ]`; the optional 5th name index is never emitted.
 module JsSourceMap =
 
     [<Literal>]
@@ -426,13 +394,12 @@ module JsSourceMap =
 
         sb.ToString()
 
-    /// Encode the collected mappings into the V3 `mappings` field.
-    /// `maps` is already in ascending generated order.
+    /// The `mappings` field: `;` ends a generated line, `,` separates segments within one.
+    /// `maps` must already be in ascending generated order.
     let private encodeMappings (maps: JsPrint.Mapping list) : string =
         let sb = StringBuilder()
-        // Generated column resets each line; the source index, line and column are cumulative
-        // deltas that run across line boundaries. A map with one source therefore encodes the
-        // same bytes it did before there could be more than one: every source-index delta is 0.
+        // Generated column resets each line; source index, line and column are cumulative
+        // deltas that run across line boundaries.
         let mutable curLine = 0
         let mutable prevGenCol = 0
         let mutable prevSrcIndex = 0
@@ -463,9 +430,8 @@ module JsSourceMap =
 
         sb.ToString()
 
-    /// Build the V3 JSON document mapping generated `file` back to `sources`, whose ORDER is
-    /// the index space every mapping's `SrcIndex` names — so the caller that assigned those
-    /// indices is the caller that must pass the list in that order.
+    /// The V3 JSON mapping generated `file` back to `sources`, whose ORDER is the index space
+    /// every mapping's `SrcIndex` names.
     let build (file: string) (sources: JsMapSource list) (maps: JsPrint.Mapping list) : string =
         let jsonArray (quoted: JsMapSource -> string) =
             sources |> List.map quoted |> String.concat ","

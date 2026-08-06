@@ -6,15 +6,11 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// Leaf helpers for the walker — no `WalkCtx`, no back-calls into expression
-/// emission. Covers identifier naming, literal formatting, pure-`let` substitution,
-/// and curried-arrow / tail-self-call shaping. `EmitJs` opens this module.
+/// Leaf helpers for the walker: no `WalkCtx` parameter, no back-calls into expression emission.
 module JsEmitHelpers =
 
     // ---- Variable names ------------------------------------------------------
 
-    /// JS reserved words that are legal F# identifiers. A collision is suffixed with `$`
-    /// (illegal in F#, so collision-free); binder and uses both go through `binderName`.
     let jsReserved =
         Set.ofList
             [
@@ -61,16 +57,8 @@ module JsEmitHelpers =
     let jsSafe (name: string) =
         if Set.contains name jsReserved then name + "$" else name
 
-    /// An F# identifier as a JS one. F# admits characters JS does not — an apostrophe
-    /// (`x'`), and inside `` `` `` quoting anything at all (`` ``my value`` ``) — so every
-    /// character JS rejects becomes `_`, and a leading digit (legal only inside quoting)
-    /// takes a `_` prefix.
-    ///
-    /// NOT injective, and deliberately not made so: `x'` and `x_` already collided before
-    /// quoted names were spelled at all, and inventing a suffix scheme here would rename
-    /// every ordinary binder to buy a case the source has to go out of its way to write.
-    /// The mangle is the backend's whole contribution to naming — the frozen column holds
-    /// the source's own text, because a target dialect's rules are the backend's.
+    /// `x'` → `x_`, and so for every other character JS rejects; a leading digit (legal only in
+    /// a quoted F# identifier) takes a `_` prefix. NOT injective: `x'` and `x_` both give `x_`.
     let jsIdent (name: string) : string =
         let legal (c: char) =
             System.Char.IsLetterOrDigit c || c = '_' || c = '$'
@@ -82,85 +70,47 @@ module JsEmitHelpers =
         else
             mangled
 
-    /// A binder's NAMING → its emitted JS name. A binder the source spells takes that
-    /// identifier, mangled for the target dialect and nothing more (`jsIdent`, plus a
-    /// suffix for a JS reserved word). A binder no source spells is NAMED AFTER ITS SLOT
-    /// (`_s<n>`), which is unique by construction because the slot is the identity.
     let binderName (n: BinderNaming) : string =
         match n with
         | BinderNaming.Source name -> jsSafe (jsIdent name)
         | BinderNaming.Minted(BinderId slot) -> "_s" + string slot
 
-    /// The emitted JS name of a binder named by ID — a `ForTo` loop variable, a flattened
-    /// parameter's slot, a `Var`'s referent. The pool holds the naming, so a caller with
-    /// an id and the node's pool needs nothing else.
     let binderNameOf (pool: PoolBuilder) (b: BinderId) : string =
         binderName (TastPoolBuilder.binderNaming pool b)
 
-    /// A name for a binding the emitter INVENTS — a match scrutinee, a hoisted loop limit,
-    /// a wildcard parameter's slot. No source spells it, so it takes the identity every
-    /// unspelled binder takes: a slot minted from this file's pool, which is a fresh number
-    /// per mint and therefore distinct from every other name this function can return.
-    ///
-    /// NOT the introducing node's token. A token is unique only per SOURCE POSITION, and an
-    /// inlined body puts its whole tree on the call site's one token — so two temporaries of
-    /// one spliced body would take the same name, which for two parameters of a single arrow
-    /// or two `const`s of a single block is a JS `SyntaxError`, not a shadow.
-    ///
-    /// `prefix` names WHAT the temporary is, for a reader of the emitted JS; the slot is
-    /// what makes it unique.
     let freshTemp (pool: PoolBuilder) (prefix: string) : string =
         let (BinderId slot) = TastPoolBuilder.mintBinder pool
         prefix + string slot
 
     // ---- Scalar constants ----------------------------------------------------
 
-    /// Format a `double` round-trippably for a JS `number` literal. `NaN` /
-    /// `Infinity` / `-Infinity` map to the matching JS globals.
+    /// A `double` as a JS `number` literal; `"R"` so the text reads back as the same value.
     let formatDouble (d: double) : string =
         if System.Double.IsNaN d then "NaN"
         elif System.Double.IsPositiveInfinity d then "Infinity"
         elif System.Double.IsNegativeInfinity d then "-Infinity"
         else d.ToString("R", CultureInfo.InvariantCulture)
 
-    /// A scalar `Const` value → its JS expression. Shared by `buildExpr` and `Const` patterns.
+    /// A scalar `Const` value → its JS expression.
     let constExpr (value: TConstValue) (loc: JsLoc voption) : JsExpr =
         match value with
-        // An integral literal's TEXT is `IntWidth.render` — its decimal at the width's own
-        // signedness — and its JS FORM follows from the width alone:
-        //
-        //   * `nativeint` / `unativeint` ship no JS repr at all. A program mentioning either
-        //     is rejected by `SemanticAnalysis.PlatformTypes` long before emission.
-        //   * the wide widths ARE JS BigInts (`prim-types-int.js.fs`: `type int64 =
-        //     (# "bigint" #)`), so they emit a BigInt literal (`10n`). A plain number would
-        //     silently lose the magnitudes past 2^53 that the width exists to carry — and
-        //     would make `10UL / 3UL` true division.
-        //   * everything narrower is a plain JS `number`: its range (≤ 2³²-1) fits a double
-        //     exactly, so the value emits verbatim (signedness is not a property of the JS
-        //     number, only of the width mask its operators carry).
         | TConstValue.Integral(w, _) when IntWidth.isNative w ->
             failwith "EmitJs: nativeint literals have no representation on the target platform"
+        // `10L` → `10n`: a plain number would lose the magnitudes past 2^53 the width carries.
         | TConstValue.Integral(w, bits) when IntWidth.isWide w ->
             JsExpr.Literal(JsLiteral.BigInt(IntWidth.render w bits), loc)
         | TConstValue.Integral(w, bits) -> JsExpr.Literal(JsLiteral.Number(IntWidth.render w bits), loc)
         | TConstValue.Float d -> JsExpr.Literal(JsLiteral.Number(formatDouble d), loc)
         | TConstValue.Float32 f -> JsExpr.Literal(JsLiteral.Number(formatDouble (float f)), loc)
         | TConstValue.Bool b -> JsExpr.Literal(JsLiteral.Boolean b, loc)
-        // A `char` is a length-1 JS string (no distinct char type).
+        // JS has no char type; a `char` is a length-1 string.
         | TConstValue.Char c -> JsExpr.Literal(JsLiteral.String(string c), loc)
         | TConstValue.String s -> JsExpr.Literal(JsLiteral.String s, loc)
-        // The unit value is `undefined` — JS has no unit, and `undefined` is the
-        // harmless value a discarded effectful expression yields.
+        // JS has no unit value; `()` is `undefined`.
         | TConstValue.Unit -> JsExpr.Identifier("undefined", loc)
         | TConstValue.Decimal _ -> failwithf "EmitJs: decimal literals are not supported"
 
-    /// A resolved enum-case literal → its JS object-map value literal (the
-    /// frozen object map `{ C1: v1, … }`). A string case is the string verbatim; an
-    /// integral case reuses the canonical `constExpr` int formatting (number / bigint
-    /// for `int64`) — the single source of truth — so the enum map can't drift from
-    /// scalar-`Const` emission. The integral arm always yields a `Literal`
-    /// (`constExpr` maps every integral `TConstValue` to one), so a non-`Literal`
-    /// here is a producer bug.
+    /// A resolved enum case → its value in the emitted frozen map `{ C1: v1, … }`.
     let enumLiteral (lit: TEnumLiteral) : JsLiteral =
         match lit with
         | TEnumLiteral.String s -> JsLiteral.String s
@@ -171,16 +121,13 @@ module JsEmitHelpers =
 
     // ---- Pure-`let` substitution ---------------------------------------------
 
-    /// A value safe to duplicate at use sites: no side effects, no evaluation-order
-    /// dependence. Covers `Const`/`Var` and `ILIntrinsic` templates over pure args.
+    /// Safe to DUPLICATE at a use site: no side effects, no evaluation-order dependence.
     let rec isPureValue (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
         | ExprShape.Const
         | ExprShape.Var -> true
-        // The array intrinsics touch allocated / mutable state, so duplicating one at
-        // a use site (what substitution does) is unsound — `newarr` would re-allocate
-        // a fresh array each time, and `ldelem`/`ldlen` would re-read after an
-        // intervening `stelem`. The scalar `$N` templates remain pure.
+        // Duplicating one of these would re-allocate (`newarr`) or re-read after an
+        // intervening `stelem`.
         | ExprShape.ILIntrinsic ->
             match TastAccessor.exprILIntrinsicOpCode e with
             | "newarr"
@@ -190,8 +137,6 @@ module JsEmitHelpers =
             | "ldobj"
             | "ldloca" -> false
             | _ -> TastAccessor.exprChildren e |> Array.forall isPureValue
-        // A pure `let` chain is pure when both value and body are — the recursive
-        // collapse reduces it to a clean template rather than an IIFE.
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
 
@@ -200,15 +145,7 @@ module JsEmitHelpers =
             | _ -> false
         | _ -> false
 
-    /// Replace every `Var k` in `e` with `value`. Used only for a pure `value`, so
-    /// duplicating it across multiple uses is semantics-preserving.
-    ///
-    /// Every node the substitution RE-AUTHORS is recorded in `derivation` — `mapChildren` mints
-    /// a fresh row as soon as a child moved, so every ancestor of a substituted `Var` becomes a
-    /// new node. A fact KEYED BY NODE (which producer file an inlined node was written in) would
-    /// otherwise be lost silently: the derived node simply looks like one nothing was ever
-    /// recorded about. The table, not a `WalkCtx`, is what crosses this seam — the helpers here
-    /// know nothing of the walk.
+    /// Replaces every `Var k` in `e` with `value`; sound only where `value` is duplicable.
     let rec substVar
         (derivation: InlineExpand.Derivation)
         (k: BinderId)
@@ -222,12 +159,6 @@ module JsEmitHelpers =
             InlineExpand.Derivation.authored derivation e result
             result
 
-    /// Is the binder `k` ever assigned (`k <- …`) within `e`? A `let mutable` whose
-    /// cell stays a stack local surfaces as a `Let` binder plus `Assignment(Var k, …)`
-    /// writes (a closure-captured one is promoted to a ref cell by `RefCellPromotion`
-    /// and never reaches here). A mutable binder must NOT be pure-substituted away —
-    /// the substitution would replace its reads with the initial value and corrupt the
-    /// assignment lhs — and emits as a reassignable `let`, not a `const`.
     let rec isAssignedIn (k: BinderId) (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
         | ExprShape.Assignment ->
@@ -242,29 +173,14 @@ module JsEmitHelpers =
                 TastAccessor.existsChild (isAssignedIn k) e
         | _ -> TastAccessor.existsChild (isAssignedIn k) e
 
-    /// Does `value` read a variable that `body` later reassigns? F# `let x = value`
-    /// takes a *snapshot* of `value` at the bind point; substituting `value` into `x`'s
-    /// uses re-reads it at each use, so if `value` reads a var that `body` mutates
-    /// (`let x = m … m <- e … x`), the uses would observe the post-mutation value
-    /// instead of the snapshot. `isPureValue` alone is not enough — a `Var` read is
-    /// pure/effect-free but not *stable* across an intervening assignment. Only the
-    /// duplicating `NamedSimple` substitution needs this; the `Wildcard` case drops the
-    /// value unread, so a non-stable-but-pure value is safe to discard there.
+    /// `let x = value` SNAPSHOTS at the bind point, but substituting re-reads at every use: in
+    /// `let x = m in (m <- e; x)` the uses would see the post-assignment `m`. Purity is not enough.
     let rec valueReadsAssignedIn (body: TastAccessor.ExprId) (value: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind value with
         | ExprShape.Var -> isAssignedIn (TastAccessor.exprVarBinding value) body
         | _ -> TastAccessor.existsChild (valueReadsAssignedIn body) value
 
-    /// A `NamedSimple` `let` whose value is safe to inline into its uses, reduced to
-    /// its substituted body. The value must be duplicable (`isPureValue`), the binder
-    /// never reassigned in the body (else the substitution would corrupt the assignment
-    /// lhs and the binder must stay a real reassignable `let`), and the value must not
-    /// read a var the body later mutates (F#'s bind-point snapshot — see
-    /// `valueReadsAssignedIn`). Every `buildExpr`/`buildStatements`/`buildTailBody` site
-    /// that collapses a pure `let` matches through here so the guard lives in one place.
-    ///
-    /// `derivation` is `substVar`'s: every `buildExpr` site reaches this through
-    /// `EmitJsContext.(|InlinableLet|_|)`, which supplies the walk's own table.
+    /// A `let x = v` whose `v` is safe to inline, reduced to its substituted body.
     let reduceInlinableLet (derivation: InlineExpand.Derivation) (e: TastAccessor.ExprId) : TastAccessor.ExprId option =
         match TastAccessor.exprKind e with
         | ExprShape.Let ->
@@ -285,13 +201,9 @@ module JsEmitHelpers =
 
     // ---- Functions -----------------------------------------------------------
 
-    /// A lambda parameter → its JS binding form. A parameter no source spells (`_`, `()`)
-    /// takes a `freshTemp`, never a hole (a JS array hole shifts the later positions); a
-    /// tuple becomes `[a, b]` destructuring. Every binding one parameter vector introduces
-    /// — destructuring leaves included — is therefore distinct, which is what a FLAT arrow
-    /// binding the whole vector at once requires of it.
-    // TODO: tuple leaves smuggle a destructuring pattern through a `string` (emitted
-    // verbatim). `Arrow.parameters` wants a real `JsPattern` for object-destructuring.
+    /// A lambda parameter → its JS binding text: a name, or `[a, b]` for a tuple.
+    // TODO: the tuple case smuggles destructuring syntax through a `string`, emitted verbatim;
+    // `JsExpr.Arrow`'s parameter list wants a real pattern type for object-destructuring.
     let rec lambdaParamName (pool: PoolBuilder) (p: TastAccessor.PatId) : string =
         match p with
         | TastAccessor.PNamedNaming naming -> binderName naming
@@ -304,28 +216,23 @@ module JsEmitHelpers =
                 "[" + System.String.Join(", ", parts) + "]"
             | _ -> failwithf "EmitJs: unsupported lambda parameter pattern %A" p
 
-    /// Peel a curried `Lambda` chain into its parameter names and the innermost
-    /// body. The inverse of the nested-arrow emission.
     let rec peelLambdas (pool: PoolBuilder) (e: TastAccessor.ExprId) : string list * TastAccessor.ExprId =
         match TastAccessor.exprKind e with
         | ExprShape.Lambda ->
             let l = TastAccessor.exprLambda e
-            // Named left to right, so a reader of the emitted arrows sees the temporaries
-            // of one function in ascending order.
+            // Minted left to right, so temporaries ascend across the emitted arrows.
             let name = lambdaParamName pool l.Param
             let names, inner = peelLambdas pool l.Body
             name :: names, inner
         | _ -> [], e
 
-    /// `["a"; "b"]` → `(a) => (b) => <innermost>`. Shared by lambda and member emission.
+    /// `["a"; "b"]` → `(a) => (b) => <innermost>`.
     let rec nestUnaryArrows (loc: JsLoc voption) (names: string list) (innermost: JsFnBody) : JsExpr =
         match names with
         | [ last ] -> JsExpr.Arrow([ last ], innermost, loc)
         | n :: rest -> JsExpr.Arrow([ n ], JsFnBody.Expr(nestUnaryArrows loc rest innermost), loc)
         | [] -> failwith "EmitJs: nestUnaryArrows on an empty parameter list"
 
-    /// Active pattern for a fully-saturated tail self-call — shared by the detector
-    /// (`hasTailSelfCall`) and rewriter (`buildTailBody`) so they can't drift.
     let (|TailSelfCall|_|) (selfKey: BinderId) (arity: int) (e: TastAccessor.ExprId) : TastAccessor.ExprId list option =
         match TastAccessor.exprKind e with
         | ExprShape.App ->
@@ -339,10 +246,6 @@ module JsEmitHelpers =
             | _ -> None
         | _ -> None
 
-    /// Is `e`, in tail position, a fully-saturated self-call of the function
-    /// bound to `selfKey` (arity `arity`)? Recurses through the constructs that
-    /// preserve tail position (`if`/`let`/`Sequential`-tail); a saturated tail
-    /// self-call is what the trampoline rewrites to param mutation + `continue`.
     let rec hasTailSelfCall (selfKey: BinderId) (arity: int) (e: TastAccessor.ExprId) : bool =
         match TastAccessor.exprKind e with
         | ExprShape.IfThenElse ->

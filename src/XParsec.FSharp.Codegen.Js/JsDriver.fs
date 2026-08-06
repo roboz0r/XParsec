@@ -4,69 +4,48 @@ open System.IO
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
-/// One EMITTING source file of a package build, compiled to its own ESM module. A source
-/// that lowers to no statements produces none of these — it has no module, rather than an
-/// empty one.
+/// One EMITTING source file of a package build, compiled to its own `.mjs`.
 type JsPackageModule =
     {
-        /// The source file this was compiled from, as the manifest names it.
+        /// The path this was compiled from (`a/one.fs`) — what a diagnostic is blamed on.
         Source: string
-        /// Where the module sits in the output tree. THE identity an importer's specifier
-        /// is rendered against, so the writer and the importer name one value rather than
-        /// two strings that have to agree.
         Path: JsModulePath
         Artifact: JsArtifact
     }
 
-/// A compiled JS package: one `.mjs` per emitting source file, all inside a directory
-/// named for the package, plus the `index.mjs` barrel that re-exports them so a consumer
-/// has one specifier to name the package by. Pools are never merged and each module keeps
-/// its own 1:1 source map — a package is a DIRECTORY of per-file modules, not one module
-/// fused from many files.
+/// A compiled JS package: `<Name>/<file>.mjs` per emitting source, each with its own 1:1
+/// source map, plus the `index.mjs` barrel a consumer names the whole package by.
 type JsPackage =
     {
         Name: string
         Modules: JsPackageModule list
         /// The generated `index.mjs` source.
         Barrel: string
-        /// The committed runtime ASSETS the package's modules import — copied to the
-        /// output ROOT, beside the package directory, since a consumer names them from
-        /// there too.
+        /// The runtime assets the modules import, written to the output ROOT:
+        /// `<root>/Vesper.Core.mjs` beside `<root>/<Name>/`.
         RuntimeAssets: JsRuntimeModule list
     }
 
-/// The library-level production JS driver: analyse an ordered multi-file assembly, gate on
-/// its diagnostics, and emit ONE `.mjs` per emitting file. The per-assembly counterpart of
-/// `Codegen.compileWith`, and the JS twin of `ClrDriver.compileAssemblyWith` — which emits
-/// one PE for the same input, because the CLR's artifact is per-ASSEMBLY where this one is
-/// per-FILE.
+/// The production JS driver: an ordered multi-file assembly in, a directory of one `.mjs`
+/// per emitting file out.
 module JsDriver =
 
-    /// The barrel's file name — the specifier a consumer names the whole package by.
     [<Literal>]
     let BarrelFileName = "index.mjs"
 
-    /// The resolution contract for a compilation that IS a package: its declared
-    /// references plus the package's own manifest last, over the JS-native leaf. The JS
-    /// tail resolves no BCL metadata and canonicalizes nothing, so — unlike the CLR's —
-    /// nothing has to be seeded from the package's own reverse axis.
+    /// The resolution contract for a compilation that IS a package, over the JS-native leaf.
     let contractForSelf (target: string) (selfManifest: string) (references: string list) : SymbolProviders.Contract =
         JsNativeSymbols.jsNativeContractFor target (SymbolProviders.selfStack (Some selfManifest) references)
 
-    /// `export * from "./<base-name>.mjs";` per emitting module, in file order — the barrel
-    /// body. A package whose files all lower to nothing gets an empty barrel, which is
-    /// still a resolvable specifier.
+    /// `export * from "./shapes.mjs";` per emitting module, in file order. A package whose
+    /// files all lower to nothing gets an empty barrel, which still resolves.
     let private barrelOf (modules: JsPackageModule list) : string =
         modules
         |> List.map (fun m -> sprintf "export * from \"./%s\";\n" m.Path.FileName)
         |> String.concat ""
 
-    /// The sources that claim one `.mjs`, as a diagnostic against each of them. A module
-    /// path is a BASE NAME, which drops directories, so two sources whose names differ only
-    /// by directory claim one file — and the second write would replace the first with no
-    /// other sign. That is a fact of the FILE LIST the caller handed over, so it is
-    /// returned rather than thrown: the driver's contract is that a bad input comes back as
-    /// diagnostics and only a compiler bug escapes as an exception.
+    /// The sources that claim one `.mjs`, blamed individually. A module path is a base name,
+    /// so `a/one.fs` and `b/one.fs` both claim `one.mjs`; the second write would win silently.
     let private modulePathCollisions
         (packageName: string)
         (modules: JsPackageModule list)
@@ -88,13 +67,9 @@ module JsDriver =
                 | _ -> ()
         ]
 
-    /// Every specifier the emitted modules name must resolve to something this build
-    /// writes: a surviving per-file module, or a runtime asset copied to the output root.
-    /// A file dropped for emitting nothing is decided per FILE while the reference to it is
-    /// decided per CONSUMER, so nothing but this ties the two — and a dangling ESM
-    /// specifier otherwise surfaces only when Node loads the package. Unlike a module-path
-    /// collision this is not a property of the input: the emitter chose both the drop and
-    /// the reference, so a mismatch is a compiler bug and fails loudly.
+    /// The EMITTED modules' imports, each against what this build writes. An asset's own
+    /// imports are NOT checked, nor closed over: `Vesper.Seq.mjs` imports `./Vesper.Core.mjs`,
+    /// which is written only if the program reached Core directly too.
     let private checkResolvable
         (packageName: string)
         (modules: JsPackageModule list)
@@ -114,14 +89,7 @@ module JsDriver =
                         m.Path.FileName
                         (JsModulePath.specifierFrom m.Path.Package target)
 
-    /// Compile an ordered `(path, source)` list as ONE assembly named `packageName`,
-    /// through `analyse` (`Pipeline.analyseFor` for a package consumer,
-    /// `analyseForSelfHost` for a BCL-free package), emitting one module per emitting file.
-    ///
-    /// Each file is emitted against the provider the front end CARRIED back from analysing
-    /// it, so an `External` node resolves at emission to the same symbol the front end
-    /// resolved it to, and a cross-file reference names the declaring file's module through
-    /// the origin that view stamped.
+    /// Compile an ordered `(path, source)` list as ONE assembly named `packageName`.
     let compileAssemblyWith
         (analyse: AssemblyFiles.AnalyseFile)
         (contract: SymbolProviders.Contract)
@@ -130,10 +98,8 @@ module JsDriver =
         : Result<JsPackage, AssemblyFiles.AnchoredDiagnostic list> =
         AssemblyFiles.analyseGated analyse packageName contract.Provider files
         |> Result.bind (fun analysed ->
-            // The package's own files are producers like any referenced package: a node
-            // spliced out of one stays readable only against that file's own text. A file
-            // can only splice from one BEFORE it, so the whole assembly's retention covers
-            // every emission.
+            // A spliced node reads only against its declaring file's own text, so the
+            // assembly's own sources join the references' before any file is emitted.
             let origins = OriginSources.addAll analysed.Origins contract.Origins
 
             let emitted =
@@ -164,9 +130,6 @@ module JsDriver =
                                 project
                                 file.Frozen
 
-                        // A source that lowers to no statements (an intrinsic-repr-only file)
-                        // gets no module at all — an absent `.mjs` says what an empty one
-                        // would not.
                         if not artifact.IsEmpty then
                             {
                                 Source = relative
@@ -194,10 +157,8 @@ module JsDriver =
                     }
         )
 
-    /// Write `package` under the output `root`: its modules and barrel into
-    /// `<root>/<Name>/`, and the referenced runtime assets into `<root>` itself. The split
-    /// is the model — a package BUILD produces a directory, a referenced asset is copied
-    /// beside the consumer that names it, as a `.dll` sits beside the app referencing it.
+    /// Write `package` under the output `root`: its modules and barrel into `<root>/<Name>/`,
+    /// the runtime assets into `<root>` itself.
     let materialise (root: string) (package: JsPackage) : unit =
         // Creating the package directory creates the root it sits in.
         let dir = Path.Combine(root, package.Name)

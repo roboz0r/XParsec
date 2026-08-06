@@ -5,39 +5,21 @@ open XParsec.FSharp.Codegen.Common
 open Vesper.Ts.Manifest
 open XParsec.FSharp.Codegen.Js.TsManifestTranslate
 
-/// Member and type-shape building for the TS-manifest provider: expand a manifest
-/// type's members into seam `ExternalMember`s (with per-overload `MemberKey`s) and
-/// each type-flavoured export into an `ExternalTypeShape`. Consumed by
-/// `TsManifestProvider`.
+/// A manifest export → the seam's `ExternalMember`s, one per overload signature, and its
+/// `ExternalTypeShape`.
 module internal TsManifestMembers =
 
-    /// The count of TRAILING optional parameters (`readFile(path, cb, opts?)` ⇒ 1) a
-    /// call may omit — carried onto the member's `OptionalDefaults` so the SHARED
-    /// optional-fill seam (`InferExternalCall.tryFillOptionalCall`, which admits an
-    /// under-applied arity, and `ElaborateExpr.optionalDefaultNode`, which synthesises the
-    /// omitted slots) permits `api.readFile(path, cb)`. Each omitted slot is
-    /// `TConstValue.Unit`, whose JS value repr IS `undefined` — the correct absence
-    /// value for an omitted TS optional. (The `undefined` TYPE is a DISTINCT identity
-    /// from `unit`, see `prim-types-undefined.js.fs`; the fill exploits only the shared
-    /// `unit`→`undefined` VALUE repr, never the type, and the fill node is never
-    /// re-unified against the parameter type.)
-    ///
-    /// A REST parameter (`...args: T[]`) is NOT counted: an omitted rest means ZERO
-    /// args, which a single-`undefined` fill would wrongly materialise as one supplied
-    /// element — variadic rest lowering is deferred, so a trailing rest stays a required
-    /// array param. TS forbids a required parameter after an optional one, so the
-    /// optionals are always a trailing run; counting from the end is exact.
+    /// TRAILING optionals a call may omit (`readFile(path, cb, opts?)` ⇒ 1). TS forbids a
+    /// required parameter after an optional, so counting from the end is exact. A trailing
+    /// REST is NOT one: omitting `...args: T[]` means ZERO args, not one `undefined`.
     let private trailingOptionalCount (ps: Schema.Param list) : int =
         ps
         |> List.rev
         |> List.takeWhile (fun p -> p.Optional && not p.Rest)
         |> List.length
 
-    /// Expand a `.ctor` member's N overload signatures into N `ExternalMember.ctor`s —
-    /// the canonical seam constructor (`Name = ".ctor"`, instance, non-property, keyed
-    /// `MemberKey(declKey, ".ctor", argSig, Method)`), the exact shape
-    /// `InferCtor.inferExternalCtorOn` → `TryLookupMembers(name, ".ctor")` →
-    /// `pickBestOverload` expects. Each ctor's `argSig` interns its parameter shape.
+    /// One seam ctor per overload signature, each keyed by its own interned `argSig`;
+    /// `ExternalMember.ctor` bakes the `.ctor` name and method kind a lookup asks for.
     let private expandCtor
         (ctx: TranslateCtx)
         (declKey: TypeKey)
@@ -50,12 +32,8 @@ module internal TsManifestMembers =
             ExternalMember.ctor declKey (signatureOf ctx declTyparArity sg) (EqArray.ofList argSig) origin []
         )
 
-    /// Expand a named method's N overload signatures into N `ExternalMember`s — one per
-    /// call signature, each keyed `MemberKey(declKey, name, argSig, kind)` so that
-    /// `TryLookupMembers` returns the full candidate set and overload-keyed lookups see
-    /// distinct members (a single-signature method expands to a list of one). Mirrors
-    /// `expandCtor`, but builds the records directly (no `.ctor` name/kind to bake) and
-    /// carries the InterfaceMethod-vs-Method `kind` chosen by the caller.
+    /// One `ExternalMember` per overload signature, each keyed by its own interned `argSig`
+    /// so a by-name lookup sees them as distinct candidates rather than one member.
     let expandMethod
         (ctx: TranslateCtx)
         (declKey: TypeKey)
@@ -112,18 +90,9 @@ module internal TsManifestMembers =
 
             expandMethod ctx declKey origin declTyparArity kind mem
 
-    /// Split a flat `heritage` list into implemented/extended INTERFACES (`FrozenInterfaces`)
-    /// and the single base CLASS (`FrozenBaseType`). The schema's `heritage` is a FLAT
-    /// `TypeRef list` that does NOT, by itself, record which entry is the base class vs an
-    /// interface (no schema field — and adding one is a deliberate contract bump we avoid).
-    /// So we DISAMBIGUATE by resolving each entry's name against the manifest's own type
-    /// table (`ctx.TryFindType`): a name registered as an interface → interface slot, as a
-    /// class → base-type slot. An entry we cannot resolve locally (a cross-package base, or
-    /// any non-`Named` ref) DEFAULTS to the interface slot — a cross-package base CLASS is
-    /// far rarer than a cross-package interface, and mis-slotting only loses base-member
-    /// lookup for that rare case while never corrupting interface resolution. TS guarantees
-    /// at most one base class, so a single `FrozenBaseType` slot suffices (last
-    /// class-resolved entry wins if a malformed manifest somehow lists two).
+    /// The schema's `heritage` is FLAT — nothing in it marks which entry is the base class —
+    /// so each entry's name is resolved against the manifest's own type table: a class takes
+    /// the single base slot, an interface or an unresolved cross-package name the list.
     let private classifyHeritage
         (ctx: TranslateCtx)
         (heritage: Schema.TypeRef list)
@@ -132,35 +101,21 @@ module internal TsManifestMembers =
         let mutable baseTy = ValueNone
 
         for h in heritage do
-            // Heritage entries are always NOMINAL (a class/interface ref); a structural
-            // or union base is not expressible in TS, so a non-`Named` entry is a genuine
-            // anomaly — throw rather than silently drop a declared supertype.
+            // TS cannot express a structural or union supertype, so a non-nominal entry
+            // is a corrupt manifest, not a shape to drop.
             let name, args =
                 match h with
                 | Schema.TypeRef.Named(name, args) -> name, args
                 | other -> failwithf "heritage entry is not a nominal type reference: %A" other
 
-            // Suffix the heritage entry's bare name by its applied arg count before the
-            // table lookup (THE LAW, see `mint`): a GENERIC base/interface
-            // (`extends Foo<T>`) must classify under `` Foo`1 `` — `arityName` is a
-            // no-op at arity 0, so a non-generic base is byte-identical.
+            // The table keys by the arity-suffixed name: `extends Foo<T>` classifies under
+            // `` Foo`1 ``. `arityName` is a no-op at arity 0.
             match ctx.TryFindType(SymbolKeyOps.arityName name (List.length args)) with
-            | Some id when not id.IsInterface ->
-                // Resolves to a CLASS in this package → the single base class slot (full
-                // `FrozenType`). TS guarantees at most one base class; a second would
-                // overwrite, which only a malformed manifest could produce.
-                baseTy <- ValueSome(toFrozen ctx h)
+            | Some id when not id.IsInterface -> baseTy <- ValueSome(toFrozen ctx h)
             | _ ->
-                // An interface, or an unresolved (cross-package) name → the interface slot
-                // as a `(compiled-name, type-args)` pair, matching the metadata layer's
-                // `buildClassInterfaces` shape (which keys by the arity-suffixed
-                // `metadataName`). The stored name MUST be arity-suffixed — the subtype
-                // walk / inherited-member walk compare it against a nominal target whose
-                // name is `arityName`'d (THE LAW), so a generic `extends Foo<T>` stored bare
-                // as `Foo` would never match `` Foo`1 ``. `arityName` is a no-op at arity 0.
-                // Cross-package defaults here because a cross-package base CLASS is far rarer
-                // than a cross-package interface, and mis-slotting only loses base-member
-                // lookup for that rare case.
+                // The STORED name is arity-suffixed too: a capability recogniser mints the
+                // interface key from this string alone, with no arity in hand, so a generic
+                // `extends Foo<T>` stored bare as `Foo` would match nothing.
                 interfaces.Add(
                     SymbolKeyOps.arityName name (List.length args),
                     args |> List.map (toFrozen ctx) |> Array.ofList
@@ -169,19 +124,13 @@ module internal TsManifestMembers =
         interfaces.ToArray(), baseTy
 
     /// TypeScript escapes a `[Symbol.iterator]()` method as `__@iterator@<symbolId>`; the
-    /// trailing id varies by lib, so match by prefix. The extractor carries this member
-    /// verbatim — the provider reads it here to home the type.
+    /// trailing id varies by lib (`@1`, `@112`), so match by prefix.
     [<Literal>]
     let private symbolIteratorPrefix = "__@iterator"
 
-    /// A TS `[Symbol.iterator](): Iterator<T>` IS the `seq<'T>` capability on JS (both are
-    /// the native iterator protocol). This backend judgment lives here, not in
-    /// SemanticAnalysis: peel the element — the first type arg of the iterator the signature
-    /// returns (`IterableIterator<T>` → `T`; `Map`'s `IterableIterator<[K,V]>` → the `[K,V]`
-    /// tuple), over the declaring typars so `instantiateInterfaces` substitutes the
-    /// receiver's args. `None` when the member is absent or its return is not an applied
-    /// nominal. The element is later injected as the erased `IEnumerable\`1` interface so
-    /// `for … in` recognition (`pickEnumerableElem`) admits the type.
+    /// A TS `[Symbol.iterator](): Iterator<T>` IS the `seq<'T>` capability on JS — both are
+    /// the native iterator protocol. The element is the FIRST type arg of the returned
+    /// iterator: `IterableIterator<T>` → `T`, `Map`'s `IterableIterator<[K,V]>` → `[K,V]`.
     let private tryIteratorElement (ctx: TranslateCtx) (members: Schema.Member list) : FrozenType voption =
         members
         |> List.tryPick (fun m ->
@@ -206,9 +155,6 @@ module internal TsManifestMembers =
         : (string * ExternalTypeShape) option =
         let build name tp members heritage isInterface =
             let origin = originFor ctx nsPath
-            // The identity comes FROM the ctx table (`declaredIdentity`), never
-            // re-minted here, so the registered shape and `ctx.Resolve`'s answer agree
-            // by construction — see `mint` for the map-key/`TypeKey` split.
             let qn, key = declaredIdentity ctx nsPath name tp
 
             let mems =
@@ -218,10 +164,9 @@ module internal TsManifestMembers =
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
 
-            // Home a `[Symbol.iterator]`-bearing type as `seq<'T>` by injecting the erased
-            // `IEnumerable\`1` head with the peeled element: the existing `tryForInEnumerator`
-            // arm then admits it and `for … in` lowers to `for..of`, no front-end or emit
-            // change — the capability just has to appear in the interface set.
+            // Adding the erased `IEnumerable\`1` head with the peeled element is what makes
+            // `for … in` over this type lower to `for..of`: the recogniser scans the
+            // interface set by name for the enumerable capability.
             let frozenInterfaces =
                 match tryIteratorElement ctx members with
                 | ValueSome elem ->
@@ -237,17 +182,13 @@ module internal TsManifestMembers =
                         Members = mems
                         FrozenInterfaces = frozenInterfaces
                         FrozenBaseType = frozenBaseType
-                        // A real manifest Interface/Class is a native object: its instance
-                        // members live ON it as prototype/own methods, so JS emit must lower
-                        // them as `receiver.member(args)`, not receiver-first free-fn imports
-                        // (Vesper's own-runtime tree-shaking form). The synthetic erased
-                        // grouping type (`providerOfManifest`) uses `ErasedBare` instead —
-                        // its members go through the bare-export path anyway.
+                        // A manifest type is a native object: its instance members live ON it
+                        // as prototype/own methods, so a call emits `receiver.member(args)`,
+                        // not a receiver-first free function.
                         Flags =
                             { ExternalClassFlags.Default with
                                 MemberLowering = MemberLowering.AttachedNative
-                                // Global rides the HOME: a global pack's types are
-                                // import-free (bare-name emit), a real package's are not.
+                                // A global pack's types emit as bare names, with no `import`.
                                 Global = isGlobal
                             }
                         Origin = origin
@@ -258,27 +199,13 @@ module internal TsManifestMembers =
         | Schema.Export.Interface(name, tp, members, heritage, _index) -> build name tp members heritage true
         | Schema.Export.Class(name, tp, members, heritage, _import, _index) -> build name tp members heritage false
         | Schema.Export.TypeAlias(name, tp, target) ->
-            // `type X = …` maps onto the seam's transparent abbreviation shape: a use
-            // site of `name` expands to the target's `FrozenType` (via
-            // `FrozenTypeBridge.instantiateDeclaring`), so alias-to-union / -primitive /
-            // -structural all resolve through the same `toFrozen` the members use. `tp`
-            // is the alias's declaring-axis arity: a generic alias `Pair<A,B>` expands
-            // `FTTypar(Declaring,0/1)` against the two use-site args.
-            //
-            // The map key shares `mint`'s qualified-name spelling (so a generic alias's
-            // use site — `arityName "Pair" 2` at lookup — hits this key; a no-op at
-            // arity 0), but an alias never enters the ctx table: the resolver must MISS
-            // it so it stays `FTConst` and expands through this `Abbrev`.
+            // `type X = …` is a transparent abbreviation: a use of `name` expands to the
+            // target's `FrozenType`. `mint`, not `declaredIdentity` — an alias never enters
+            // the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
             Some(fst (mint nsPath name tp), ExternalTypeShape.Abbrev(tp, toFrozen ctx target))
         | Schema.Export.Enum(name, members) ->
-            // A TS enum → `ExternalTypeShape.Enum`: the closed name→value case table
-            // the front end resolves `(x: E)` / `E.Ci` against (the enum's nominal
-            // identity) and JS imports the object map for. The wire `LiteralValue`
-            // (numeric / string) carries straight onto `ExternalEnumCaseValue`; the
-            // numeric / string / mixed variant falls out of the values, never baked.
-            // A `None` (computed / non-constant) member is DROPPED — it has no value
-            // to reference by, so it is unrepresentable as a case; dropping mirrors the
-            // authored JS emission, which omits an unresolved case from the object map.
+            // A computed (non-constant) member has no value to reference it by, so it
+            // cannot be a case at all and is dropped.
             let origin = originFor ctx nsPath
 
             let cases =
@@ -304,16 +231,9 @@ module internal TsManifestMembers =
             Some(qualify nsPath name, ExternalTypeShape.Enum(cases, origin))
         | _ -> None
 
-    /// Build the ERASING structural nominals for a manifest. Pre-scan EVERY TypeRef
-    /// reachable from this manifest's exports (variable types, function/member
-    /// signatures, member types, heritage) for anonymous OBJECT shapes, recursing into
-    /// their fields so nested shapes register too, deduped by canonical shape-hash. Each
-    /// unique shape becomes an ERASING nominal: an interface (data-only, no ctor) whose
-    /// Property members lower to native `receiver.field` reads, homed under the reserved
-    /// synthetic namespace so `.field` resolves and NOTHING is emitted for the type.
-    /// Member REGISTRATION is per-manifest (each provider scans only its own exports);
-    /// structural IDENTITY (`structuralKey`) is cross-manifest by construction — see
-    /// `structuralKey`.
+    /// One ERASING nominal per distinct anonymous object shape reachable from the exports,
+    /// deduped by shape-hash: a ctor-less interface whose Property members lower to native
+    /// `receiver.field` reads, and for which NOTHING is emitted.
     let buildStructuralTypes
         (ctx: TranslateCtx)
         (flatExports: (string * Schema.Export) list)
@@ -332,9 +252,6 @@ module internal TsManifestMembers =
                     Namespace = SymbolKeyOps.namespaceKey structuralHome
                 }
 
-            // One Property member per field, through the SAME `toExternalMembers`
-            // Property arm a real interface uses — the field's type freezes via `ctx`
-            // (a nested structural field resolves to its OWN registered shape).
             let members =
                 fields
                 |> List.collect (fun (fname, fty) ->
@@ -362,35 +279,16 @@ module internal TsManifestMembers =
                     FrozenBaseType = ValueNone
                     Flags =
                         { ExternalClassFlags.Default with
-                            // A structural field is an INSTANCE property read through a
-                            // receiver, so it lowers `receiver.field` via the native
-                            // attached path — NOT `ErasedBare`, which holds only static
-                            // members and is an invariant break on an instance receiver.
                             MemberLowering = MemberLowering.AttachedNative
-                            // Import-free: an anonymous erased shape has no home module
-                            // to import — the type itself emits nothing.
+                            // No home module to import: the shape itself emits nothing.
                             Global = true
                         }
                     Origin = origin
                 }
         )
 
-    /// The deterministic SIMPLE name of the synthetic grouping type that holds a
-    /// module's overloaded free functions as static members. F# has no free-function
-    /// overloading, so a TS `export function format(x:string);
-    /// export function format(x:number);` cannot ride the name-keyed `funcs` map; the
-    /// overloads are grouped as static members of ONE synthetic type and the call
-    /// (`Util.format(x)`) erases at JS emit to the bare export (`format(x)`).
-    ///
-    /// Rule (stable for the golden): take the LAST '/'-segment of the module
-    /// specifier — handling scoped/pathed specs like `@scope/util` → `util` — and
-    /// upper-case its first character (`util` → `Util`). Derives from the MODULE
-    /// specifier, never a user identifier, so the only way it can collide with a real
-    /// exported type is a same-module type whose name equals the capitalised module
-    /// segment; the caller guards that collision by throwing (it would otherwise
-    /// silently shadow a real type) rather than mangling the name (which would diverge
-    /// from the erase contract that keys off the bare member name, not the
-    /// grouping-type name).
+    /// The grouping type's simple name: the LAST '/'-segment of the module specifier
+    /// (`@scope/util` → `util`), first character upper-cased (`util` → `Util`).
     let private syntheticTypeName (moduleSpec: string) : string =
         let lastSeg =
             match moduleSpec.Split('/') |> Array.filter (fun s -> s <> "") |> Array.tryLast with
@@ -402,9 +300,8 @@ module internal TsManifestMembers =
         else
             string (System.Char.ToUpperInvariant lastSeg.[0]) + lastSeg.Substring 1
 
-    /// An overloaded (N>1 call signature) free-function export, bound for the
-    /// synthetic per-namespace grouping type — F# has no free-function overloading,
-    /// so it cannot ride the name-keyed `funcs` map (the last overload would win).
+    /// A free-function export with N>1 call signatures, bound for its namespace's
+    /// grouping type.
     type private OverloadedFn =
         {
             NsPath: string
@@ -413,23 +310,15 @@ module internal TsManifestMembers =
             Import: Schema.ImportShape
         }
 
-    /// Synthesize one erased grouping type per (nsPath) GROUP of overloaded free
-    /// functions: its static members are the overloads, expanded with `expandMethod`
-    /// (the member-overload expansion) so each carries its own argSig `MemberKey`, and
-    /// the member name stays the REAL export name so the erase lowers `Util.format` to
-    /// the bare `format`. Grouped by namespace path so namespaced overloads land in a
-    /// sibling synthetic type under their qualified name.
-    ///
-    /// A single-signature function stays a BARE free function (the name-keyed `funcs`
-    /// map / `TryLookup`); only N>1-signature exports partition in here.
+    /// F# has no free-function overloading, so `export function format(x: string); export
+    /// function format(x: number);` cannot ride the name-keyed `funcs` map. Such exports
+    /// become statics of one synthetic type per namespace; `Util.format(x)` erases to `format(x)`.
     let buildOverloadGroupingTypes
         (ctx: TranslateCtx)
         (moduleSpec: string)
         (isGlobalPack: bool)
         (flatExports: (string * Schema.Export) list)
         : (string * ExternalTypeShape) list =
-        // Partition free functions by call-signature count: an OVERLOADED one (N>1
-        // signatures) is grouped into a synthetic per-module static-method type.
         let overloadedFns =
             flatExports
             |> List.choose (fun (nsPath, ex) ->
@@ -448,11 +337,8 @@ module internal TsManifestMembers =
         overloadedFns
         |> List.groupBy (fun fn -> fn.NsPath)
         |> List.map (fun (nsPath, fns) ->
-            // The group's UNIFORM import form, stamped on the erased type's flags so
-            // `erasedGroupingRef` lowers `Util.format(x)` to the right import shape.
-            // The overloads of one grouping share a home module, so they share an
-            // import form; a MIXED group is a manifest anomaly (a single module cannot
-            // be both `export =` and named-export) — throw rather than silently pick.
+            // One home module ⇒ one import form: a module cannot be both `export =` and
+            // named-export, so a mixed group is a corrupt manifest.
             let groupImportForm =
                 let forms = fns |> List.map (fun fn -> importFormOfShape fn.Import) |> List.distinct
 
@@ -465,18 +351,16 @@ module internal TsManifestMembers =
                         many
 
             let simpleName = syntheticTypeName moduleSpec
-            // The synthetic type's identity goes through the same `mint` spelling
-            // (arity 0 — the grouping type is never generic) even though it never
-            // enters the ctx table: it resolves via `TryLookupType`/`TryLookupMembers`
-            // by qualified name, never through `ctx.Resolve`.
+            // `mint`, not `declaredIdentity`: the grouping type never enters the ctx table
+            // — it is found by qualified name through the seam's lookups.
             let qn, declKey = mint nsPath simpleName 0
             let origin = originFor ctx nsPath
 
             let members =
                 fns
                 |> List.collect (fun fn ->
-                    // Reuse the member-overload expansion: wrap the free function's
-                    // signatures as a synthetic STATIC method named after the real export.
+                    // The member name stays the REAL export name: that is what the erase
+                    // emits as the callee.
                     let mem: Schema.Member =
                         {
                             Name = fn.Name
@@ -502,13 +386,10 @@ module internal TsManifestMembers =
                     Flags =
                         { ExternalClassFlags.Default with
                             MemberLowering = MemberLowering.ErasedBare
-                            // Global rides the HOME: a global pack's grouping type is
-                            // import-free like its real types.
                             Global = isGlobalPack
-                            // The group's import form, consumed by `erasedGroupingRef`
-                            // to pick `import { format }` (Named) vs `import format`
-                            // (Default/CommonJs) vs `import * as util; util.format`
-                            // (Namespace).
+                            // Picks the emitted import: `import { format }` (Named),
+                            // `import format` (Default/CommonJs), `import * as util` plus
+                            // `util.format` (Namespace).
                             ImportForm = groupImportForm
                         }
                     Origin = origin
