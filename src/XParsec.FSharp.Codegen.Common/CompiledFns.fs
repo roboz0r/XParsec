@@ -2,28 +2,14 @@ namespace XParsec.FSharp.Codegen.Common
 
 open XParsec.FSharp.SemanticAnalysis
 
-/// Backend-agnostic compiled-form analysis of a file's top-level module functions —
-/// the facts both the CLR and JS backends need to lower a `let f … = …`. `gather`
-/// returns each function's flat compiled signature (`CompiledForm`): the SOURCE arity
-/// groups (how many source applications a saturated call collapses), the tuple-expanded
-/// / lone-unit-erased flat params, and the `void`-vs-value return — derived via the
-/// same `TastLower.peelValRepr` + `compiledOf` builders Elaborate runs.
-///
-/// The flat form is a function's ABI: a publicly reachable function ALWAYS exports it.
-/// A value-use / under-application is
-/// therefore ADDITIVE — it signals a curried bridge is *also* required, never that the
-/// flat form is suppressed. Both backends share this model: the flat method is always
-/// emitted and an escaping reference *adds* a curried bridge — the JS backend via
-/// `curryAdapter`, the CLR backend via `EmitClosures.bridgeStaticFnEscapes` (which
-/// derives saturation from the applied arguments directly). The only CLR-private demotion left is
-/// the *capture* axis (`EmitClosures.staticEligible`), genuinely intrinsic to a
-/// `this`-less static method and orthogonal to escape.
+/// Backend-agnostic compiled form of a file's top-level `let f … = …` bindings — the flat
+/// parameters and `void`-vs-value return both the CLR and JS backends lower from. A
+/// value-use never suppresses the flat form; it ADDS a curried bridge alongside it.
 module CompiledFns =
 
-    /// One top-level module-function binding's compiled form. `Groups.Length` is the
-    /// number of source applications a saturated call consumes; `Params` is the flat
-    /// CLR/JS parameter vector (a tupled group expands to N flat params, a lone unit
-    /// group erases to none); `Body` is the residual after the groups are peeled.
+    /// One top-level module function's compiled form. `Groups.Length` is the source
+    /// applications a saturated call consumes; `Params` is the flat parameter vector —
+    /// a tuple group expands to N, a lone unit group erases to 0, so the lengths differ.
     type CompiledFn =
         {
             Key: BinderId
@@ -31,62 +17,47 @@ module CompiledFns =
             Params: TastLower.StaticParam list
             Body: TastAccessor.ExprId
             ResultTy: FrozenType
-            /// `true` when the source result is `unit` — CLR `void` / JS no return value.
+            /// `true` when `ResultTy` is `unit` — CLR `void` / JS no return value.
             ReturnsVoid: bool
         }
 
-    /// One source group's contribution to a saturated call's FLAT pushed-argument
-    /// vector — the backend-neutral result of the lone-unit-erase / tuple-flatten
-    /// dispatch. Both backends interpret a `FlatStep list`: the CLR pushes IL, the JS
-    /// builds `JsExpr`s. The dispatch (and the failwith on a mistyped tuple group)
-    /// lives once in `flattenPlan`; only the per-step emission is backend-specific.
+    /// One source group's contribution to a saturated call's FLAT argument vector. The CLR
+    /// pushes each step as IL, the JS builds `JsExpr`s.
     [<RequireQualifiedAccess>]
     type FlatStep =
         /// A scalar group (`GSimple` / non-lone `GUnit`): emit the argument as one value.
         | Arg of TastAccessor.ExprId
-        /// A tupled group whose argument is a literal `Tuple`: emit each element (one
-        /// value per element), each evaluated directly.
+        /// A tupled group whose argument is a literal `Tuple`: emit one value per element.
         | TupleLiteral of EqArray<TastAccessor.ExprId>
         /// A tupled group whose argument is a tuple *value*: N values read positionally
-        /// from it (`elemTys` are its element types; `N = elemTys.Length`). The CLR
-        /// spills to a local + reads `ItemN`; the JS reads `v[j]` (spilling an impure
-        /// value through an IIFE). Both decide how from `elemTys`/the value itself.
+        /// (`N = elemTys.Length`). The CLR spills to a local and reads `ItemN`; the JS
+        /// reads `v[j]`, spilling an impure value through an IIFE.
         | TupleValue of value: TastAccessor.ExprId * elemTys: FrozenType list
 
-    /// A literal `Tuple` node's elements, for the shared arity-driven open.
     let private tupleElemsOf (a: TastAccessor.ExprId) : TastAccessor.ExprId list voption =
         match TastAccessor.exprKind a with
         | ExprShape.Tuple -> ValueSome(List.ofArray (TastAccessor.exprChildren a))
         | _ -> ValueNone
 
-    /// The push plan for a TUPLED member call's ONE argument, opened to the `arity` positions
-    /// the member's key declares.
-    ///
-    /// The argument is ALWAYS openable: Elaborate destructures a tuple VALUE (`M t`) into the
-    /// literal tuple a syntactic `M(a, b)` writes, against this same key, so both spellings
-    /// reach the same N-parameter member ref by the same route. Anything else here is a
-    /// malformed node, not a call anyone could write — a member's positional read never has to
-    /// second-guess the argument's shape.
+    /// The push plan for a TUPLED member call's ONE argument, opened to the `arity`
+    /// positions the member's key declares. Elaborate rewrites `w.M t` into
+    /// `let (a, b) = t in w.M(a, b)`, so both spellings arrive as a literal tuple.
     let tupledMemberPlan (what: string) (arity: int) (arg: TastAccessor.ExprId) : FlatStep list =
         match SymbolKeyOps.openTupledArg tupleElemsOf arity arg with
         | ValueSome opened -> [ for a in opened -> FlatStep.Arg a ]
         | ValueNone ->
             failwithf "%s expects %d tupled arguments but its argument is typed %A" what arity (TastAccessor.exprTy arg)
 
-    /// Flatten a saturated call's LEADING arguments (one per SOURCE group) into the
-    /// backend-neutral push plan: a lone `()` group contributes nothing; a `GSimple` /
-    /// non-lone `GUnit` one `Arg`; a `GTuple` either a `TupleLiteral` (its argument is a
-    /// literal `Tuple`) or a `TupleValue` (any other tuple-typed expression). The single
-    /// home of the lone-unit-erase / literal-vs-value tuple dispatch the CLR
-    /// (`EmitCall.flattenGroupPushes`) and JS (`EmitJs.flattenGroupArgs`) interpreters
-    /// share.
+    /// Flatten a saturated call's LEADING arguments (one per SOURCE group): a lone `()`
+    /// group contributes nothing; a `GSimple` / non-lone `GUnit` one `Arg`; a `GTuple` a
+    /// `TupleLiteral` (literal `Tuple` argument) or a `TupleValue` (any other).
     let flattenPlan (groups: TastAccessor.ArgGroup list) (leadingArgs: TastAccessor.ExprId list) : FlatStep list =
         let isLone = TastLower.isLoneUnitGroup groups
 
         [
             for g, a in List.zip groups leadingArgs do
                 match g with
-                | ArgGroupG.GUnit _ when isLone -> () // lone unit erased — contributes nothing
+                | ArgGroupG.GUnit _ when isLone -> ()
                 | ArgGroupG.GUnit _
                 | ArgGroupG.GSimple _ -> FlatStep.Arg a
                 | ArgGroupG.GTuple _ ->
@@ -98,9 +69,9 @@ module CompiledFns =
                         | other -> failwithf "flattenPlan: tuple-group argument is not a tuple type: %A" other
         ]
 
-    /// Gather every top-level `let f … = …` whose value peels to ≥ 1 source group
-    /// (a function, not a zero-param value), in declaration order. Must be called on
-    /// already-`lower`ed decls (the curried `Lambda` chain still present in `value`).
+    /// Gather every top-level `let f … = …` whose value peels to ≥ 1 source group (a
+    /// function, not a zero-param value), in declaration order. Needs decls already
+    /// flattened by `TastLower.lower`, which leaves the curried `Lambda` chain intact.
     let gather (decls: TastAccessor.DeclId list) : CompiledFn list =
         [
             for d in decls do
@@ -114,7 +85,7 @@ module CompiledFns =
 
                             let vr: TastLower.ValRepr =
                                 {
-                                    Typars = 0 // unused by `compiledOf`; the real count is a backend concern
+                                    Typars = 0 // `compiledOf` reads only `Groups` / `ResultTy`
                                     Groups = groups
                                     ResultTy = resultTy
                                 }

@@ -1,7 +1,7 @@
 namespace XParsec.FSharp.Codegen.Common
 
-/// Backend target tag constants — the `[targets.<t>]` table names a manifest keys its
-/// per-target lists under. The CLR is an ordinary target here, not an unnamed base.
+/// Backend target tag constants — the `<t>` a package manifest's `[targets.<t>]` table
+/// keys its per-target file lists under.
 [<RequireQualifiedAccess>]
 module Target =
 

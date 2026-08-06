@@ -7,88 +7,40 @@ open XParsec.FSharp.SemanticAnalysis
 /// Builds the symbol-resolution provider stack.
 module SymbolProviders =
 
-    /// Layer-2 tail FACTORY: given the extracted `{ platform-repr → [canon] }` reverse
-    /// map (folded from the layer-1 providers' `IntrinsicReverseCanon`), produce the
-    /// metadata leaf. A factory rather than a fixed list so the leaf can be seeded with
-    /// the reverse map — it canonicalizes a BCL `System.Int32` to the Vesper `int`
-    /// through it (`MetadataSymbols.tryBuildType`), driven by the dynamically-analysed
-    /// `type int = (# "System.Int32" #)` relationship rather than a static table.
-    /// Non-CLR backends inject their own (reverse-independent) factory via
-    /// `buildContractWithMetadata`. The dependency-order composition itself lives in
-    /// `ReferencedProject.composeOrdered` (the SA layer), shared with the in-assembly
-    /// test fixtures; this is the same type.
+    /// Layer-2 tail FACTORY over the `{ platform-repr → [canon] }` map folded from the
+    /// layer-1 providers' `IntrinsicReverseCanon` — the reverse direction of
+    /// `type int = (# "System.Int32" #)`. A factory, not a fixed list, so the leaf is seeded.
     type MetaTailFactory = ReferencedProject.MetaTailFactory
 
-    /// Dependency-ordered manifests and each package's transitive `depends-on` closure.
-    /// A cycle or missing dependency is a hard error.
+    /// Dependency-ordered manifests, and each package's transitive `depends-on` closure.
     let private orderedManifestsWithDeps (manifestPaths: string list) : string list * (string -> string list) =
         match ReferencedProject.buildClosureWithDeps manifestPaths with
         | Result.Ok(ordered, transitiveDeps) -> ordered, transitiveDeps
         | Result.Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
-    /// The manifest stack for a compilation that IS a package: its declared references
-    /// plus the package's OWN manifest, last (it depends on them). Each `.fs` is therefore
-    /// checked against the package's own `.fsi` contracts, which is what F# does — and the
-    /// only channel a prior file's TYPE ABBREVIATION (`type int32 = int`) reaches a later
-    /// one through, since an abbreviation lives in the per-file pass context and no frozen
-    /// signature carries it.
-    ///
-    /// A type therefore arrives twice, contract and local definition. Both mint the SAME
-    /// `SymbolKey` (a key names what a symbol is, never where it lives), so the local-first
-    /// probes in codegen bind the local definition on either route.
+    /// The manifest stack for a compilation that IS a package: its declared references, then
+    /// the package's OWN manifest last. That `.fsi` route is the only channel a prior file's
+    /// `type int32 = int` reaches a later one through — freezing carries no abbreviation.
     let selfStack (selfManifest: string option) (manifestPaths: string list) : string list =
         match selfManifest with
         | Some p -> manifestPaths @ [ p ]
         | None -> manifestPaths
 
-    /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 leaf
-    /// FACTORY. Common names no concrete leaf — the CLR backend injects its BCL
-    /// `MetadataSymbols` tail (`ClrSymbolProviders.bclMetaTail`), the JS backend its
-    /// JS-native tail. Uncached.
+    /// Compose the layer-1 contract stack ahead of a caller-supplied layer-2 leaf FACTORY.
+    /// Common names no concrete leaf — the CLR backend injects its BCL reflection tail. Uncached.
     let buildWith (metaTail: MetaTailFactory) (target: string) (manifestPaths: string list) : IExternalSymbolProvider =
         ReferencedProject.composeContract metaTail target manifestPaths
 
-    /// Mint the `this`-first inline `TDecl.Let` for a concrete `member inline` — the
-    /// member-sourced twin of the `let inline` value case. An accessor
-    /// `member inline _.M p0 p1 = body` IS the inline function
-    /// `M this p0 p1 = body`: `this` (the member's `ThisKey` / `ThisTy`) prepended
-    /// as the OUTERMOST curried lambda param, then the value params in order; a STATIC
-    /// member (`ThisKey = ValueNone`) prepends no `this`. The curried lambda and its
-    /// `declTy` (the outer lambda's own function type, carrying the declaring + method
-    /// typars in curried-param order) match the exact shape `inlineExpand` consumes.
-    /// Only a `member inline` is a splice template; a non-`inline` member is a real
-    /// callable and yields `None`. The DECLARATION says which, so a member whose body is
-    /// an ordinary expression (`System.String.Concat(x, y)`) publishes exactly as an
-    /// inline-IL one does — body shape is not consulted.
-    ///
-    /// `inline` is the same contract the value half already runs on: `InlineTemplates`
-    /// publishes every `let inline` regardless of body shape. What both still owe is the
-    /// accessibility check F# spells FS1113 ("marked inline but its implementation makes
-    /// use of an internal or private function which is not sufficiently accessible"). A
-    /// class's compiler-generated backing storage (primary-ctor params, preamble `let`s,
-    /// `static let`s) is emitted `FieldAttributes.Assembly`, so a `FieldGet` on it CANNOT
-    /// be read from a consumer assembly — and an `inline` member body, unlike a
-    /// module-level `let inline`, is in scope to name one.
-    ///
-    /// Lifted off the FROZEN member, so the published body is `FrozenType` like every
-    /// other thing crossing the provider seam. The wrapping lambdas are minted into the
-    /// pool the member's body already lives in — the body is spliced BY ID, so nothing is
-    /// copied to wrap it — and the finished declaration is unpooled back to the DU because
-    /// that is the form the package wire carries (a pool id is meaningless in the
-    /// consumer's own pool).
-    ///
-    /// `origin` is the file the member's body was written in, which a member cannot say of
-    /// itself: it is a node, and only the collection that opened the pool knows which file the
-    /// pool is.
+    /// Mint the `this`-first inline `TDecl.Let` for a `member inline`: an accessor
+    /// `member inline _.M p0 p1 = body` IS the inline function `M this p0 p1 = body`, `this`
+    /// the OUTERMOST curried param (a static member, `ThisKey = ValueNone`, prepends none).
     let liftMemberBody (origin: OriginSource) (m: TastAccessor.TypeMember) : InlineBody option =
         if not m.IsInline then
             None
         else
             let pool = m.Body.Pool
-            // EVERY node minted below takes this one anchor, so the wrapper adds no position
-            // the body did not already have: the finished tree's anchor domain is exactly the
-            // member body's own file, and nothing here can index a second one. That is what
-            // lets the collection stamp ONE origin over the whole lifted declaration.
+            // Every node minted below takes the body's own anchor, so the lifted tree indexes
+            // exactly one file and the collection can stamp ONE origin over the whole thing.
             let bodyTok = TastAccessor.exprTok m.Body
 
             let curried =
@@ -105,21 +57,17 @@ module SymbolProviders =
             let mutable resultTy = m.ReturnTy
 
             // Fold innermost-last so the outermost lambda's type is the whole curried
-            // function (`this -> p0 -> … -> ret`), exactly as `translateFun` folds a
-            // source lambda.
+            // function (`this -> p0 -> … -> ret`).
             for i = curried.Length - 1 downto 0 do
                 let (pk, pty) = curried.[i]
                 let lamTy = FTFun(pty, resultTy)
-                // The minted `NamedSimple` IS the parameter's definition site, so it is
-                // built from the identity the declaration's key slot holds.
                 let param = TastAccessor.mintNamedPat pool (BinderKey.identity pk) pty bodyTok
                 body <- TastAccessor.mintLambda param body lamTy bodyTok
                 resultTy <- lamTy
 
             let declTy = resultTy
-            // The `TDecl.Let` binder is unread by `inlineExpand` (it matches
-            // `TDecl.Let(_, value, _, declTy)`); this binder is unread filler that keeps
-            // the node total, so it is minted rather than taken from anything.
+            // `inlineExpand` matches `TDecl.Let(_, value, _, declTy)`, so this binder is
+            // filler that keeps the node total — minted rather than taken from anything.
             let decl =
                 TastAccessor.mintLetDecl
                     (TastAccessor.mintNamedPat pool (TastPoolBuilder.mintBinder pool) declTy bodyTok)
@@ -127,10 +75,8 @@ module SymbolProviders =
                     true
                     declTy
 
-            // ParamAttrs aligned to curried position: a leading (default) entry for
-            // `this` holds value-param attribute indices at their curried offset. A
-            // member param carries no decoded compiler attribute today, so every
-            // entry is `ParamAttrs.Default`.
+            // One entry per curried position, so `this` takes a leading default. No member
+            // param carries a decoded attribute today, so every entry is `ParamAttrs.Default`.
             let paramAttrs = Array.create curried.Length ParamAttrs.Default
 
             Some(InlineBody.anchoredIn origin (TastPoolBuilder.declTree pool decl.Id) paramAttrs)
@@ -141,18 +87,14 @@ module SymbolProviders =
         (origin: OriginSource)
         (tast: FrozenPools)
         : KeyedInlineBody list * KeyedInlineBody list =
-        // The file's trees as columns, with an append-only overlay for the curried lambda
-        // chains `liftMemberBody` wraps each lifted body in. The overlay is
-        // discarded with this call: what leaves is the unpooled DU template, never an id.
+        // The file's trees as columns, plus an append-only overlay for the wrapper lambdas.
+        // The overlay dies with this call.
         let pool = TastPoolBuilder.openOver tast
 
-        // Every body this function publishes, whichever list it lands in, is unpooled off THIS
-        // pool — which is `tast`, which is `origin` frozen. So the domain is a fact of the
-        // call, fixed once here rather than restated per comprehension.
         let anchored = InlineBody.anchoredIn origin
 
-        // The published VALUE templates, unpooled off their own pool roots — the wire form
-        // is DU-typed because a pool id means nothing in the consuming file's pool.
+        // Unpooled off their own pool roots: the wire form is DU-typed because a pool id
+        // means nothing in the consuming file's pool.
         let values =
             [
                 for iv in tast.InlineTemplates ->
@@ -165,10 +107,8 @@ module SymbolProviders =
         let members =
             [
                 for d in TastAccessor.roots pool do
-                    // A `member inline` on ANY member-bearing host (class / union /
-                    // record — `TTypeKindG.members`) is a splice template. A non-`inline`
-                    // member is a real callable and is skipped by `liftMemberBody`, so a
-                    // union/record augmentation with an ordinary member is unaffected.
+                    // A `member inline` on ANY member-bearing host (class / union / record)
+                    // is a splice template; `liftMemberBody` skips every other member.
                     match TastAccessor.declKind d with
                     | DeclShape.Type ->
                         let tdecl = TastAccessor.declType d
@@ -196,7 +136,7 @@ module SymbolProviders =
 
         values, members
 
-    /// One pass over a manifest set's splice sources: the templates they publish, and the
+    /// One pass over a manifest set's splice sources: the templates published, and the
     /// producer file each was declared in.
     type CollectedInlineBodies =
         {
@@ -205,9 +145,8 @@ module SymbolProviders =
             Origins: OriginSources
         }
 
-    /// Load cross-package inline bodies from manifests' `impl` files. Type-checked and
-    /// frozen once against `provider`. Emitted in manifest/decl order so a later body wins
-    /// a clash downstream (`Map.ofList` / `byKey.[k] <-`).
+    /// Load cross-package inline bodies from manifests' `impl` files, type-checked and
+    /// frozen once against `provider`. Manifest/decl order, so a later body wins a clash.
     let inlineBodies
         (target: string)
         (provider: IExternalSymbolProvider)
@@ -219,7 +158,7 @@ module SymbolProviders =
 
         for manifestPath in manifestPaths do
             match ReferencedProject.loadManifest manifestPath with
-            // A malformed manifest already failed `build`; nothing to add here.
+            // `orderedManifestsWithDeps` already failed on a malformed manifest.
             | Result.Error _ -> ()
             | Result.Ok manifest ->
                 let dir = Path.GetDirectoryName manifestPath
@@ -238,9 +177,6 @@ module SymbolProviders =
                     match VesperLib.parseFileFull file with
                     | Result.Error _ -> ()
                     | Result.Ok parsed ->
-                        // ONE retention, and it is also what every body unpooled below records
-                        // as its anchor domain — so the retained file and the file an entry
-                        // names cannot come apart.
                         let origin = Hashing.originSource parsed.File.Path parsed.Lexed
 
                         origins <- OriginSources.add origin origins
@@ -255,12 +191,9 @@ module SymbolProviders =
                         match implFile with
                         | None -> ()
                         | Some f ->
-                            // The FROZEN file is the publish surface: its `InlineBodies`
-                            // carry the minted keys, and every type in a body is
-                            // `FrozenType` — no live `UnionFind` cell can cross to a
-                            // consumer. `manifest.Name` is the home assembly the keys are
-                            // rooted at, the same one `ReferencedProject.wrap` stamps onto
-                            // the package's symbols, so the two agree by construction.
+                            // `manifest.Name` is the home assembly the published keys are
+                            // rooted at — the same one the package's own symbols are
+                            // stamped with, so a served key and a resolved one agree.
                             let _, tast = Pipeline.analyseWithContextFor manifest.Name provider origin f
 
                             let values, members = collectInlineBodies origin tast
@@ -275,42 +208,28 @@ module SymbolProviders =
         }
 
 
-    /// One manifest set's composed contract: the manifest set itself, the provider stack a
-    /// compile resolves against, the collected bodies by simple name, and the producer sources
-    /// their anchors index.
-    ///
-    /// A record and not a tuple because the members stopped being memorable by position;
-    /// `Origins` in particular is the half a caller is most likely to forget exists, and a name
-    /// is what stops it being dropped on the floor a second time.
-    ///
-    /// The whole VALUE is what a backend takes, never a pair of members chosen at a call site:
-    /// a provider from one manifest set beside an anchor domain from another resolves a served
-    /// body's position against a file that was never retained, and the wrong answer is in range
-    /// (see `OriginFile`). Travelling as one value is what makes that unrepresentable.
+    /// One manifest set's composed contract. A backend takes the WHOLE value: a provider from
+    /// one manifest set beside an anchor domain from another resolves a served body's position
+    /// against a file that was never retained, and the wrong answer is in range.
     type Contract =
         {
             /// The normalised manifest paths this contract was built from — the set whose
-            /// per-target runtime ASSETS (`runtimeModules`) back the imports
-            /// of a program compiled against it. Held so the assets and the symbols a program
-            /// resolves cannot be drawn from two different manifest sets.
+            /// per-target runtime ASSETS (`runtimeModules`) back a compiled program's imports.
             ManifestPaths: string list
             Provider: IExternalSymbolProvider
-            /// Simple name → body. NOT a provider channel (the provider folds a body onto the
-            /// entry that owns its key); the introspection seam tests assert against.
+            /// Simple name → body. NOT a resolution channel (the provider folds a body onto
+            /// the entry that owns its key); the introspection seam tests assert against.
             BodiesByName: Map<string, InlineBody>
             /// The producer files the collected bodies were unpooled from, retained so their
-            /// anchors stay readable. Cached WITH the provider: they are the same collection,
-            /// and re-parsing to recover them would give a second answer for what each file
-            /// contains.
+            /// anchors stay readable. Re-parsing to recover them would give a second answer.
             Origins: OriginSources
         }
 
     module Contract =
 
-        /// The contract of the EMPTY manifest set: no package resolves, no body is served, and
-        /// so nothing is anchored anywhere but the compiling file. The value a compile of a
-        /// program that references no external symbol takes — a real contract rather than an
-        /// absent one, so no consumer has to carry a "there is no contract" arm.
+        /// The contract of the EMPTY manifest set: nothing resolves, nothing is served, nothing
+        /// is anchored but the compiling file. A real value, so no consumer carries a
+        /// "there is no contract" arm.
         let empty: Contract =
             {
                 ManifestPaths = []
@@ -319,13 +238,11 @@ module SymbolProviders =
                 Origins = OriginSources.empty
             }
 
-    /// Cache keyed by normalised manifest set + target + metadata tag. Each set is
-    /// parsed, analysed, and composed once.
+    /// Cache keyed by normalised manifest set + target + metadata tag.
     let private contractCache =
         System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Contract>>(System.StringComparer.Ordinal)
 
-    /// Build and cache the provider stack + inline bodies + producer sources for a manifest
-    /// set. `BodiesByName` is exposed via `contractInlineBodies` for tests.
+    /// Build and cache the provider stack, inline bodies and producer sources for a manifest set.
     let private buildContractCached
         (cacheTag: string)
         (metaTail: MetaTailFactory)
@@ -333,9 +250,8 @@ module SymbolProviders =
         (manifestPaths: string list)
         : Contract =
         let normalised = manifestPaths |> List.map Path.GetFullPath
-        // The target AND the metadata-layer tag are part of the cache identity: the JS
-        // and CLR collections of the same set freeze different `impl` bodies, and a
-        // backend (`cacheTag = "jsnative"`) composes a different layer-2 provider.
+        // Target AND metadata tag are part of the cache identity: the JS and CLR collections
+        // of one manifest set freeze different `impl` bodies over different layer-2 leaves.
         let key = cacheTag + "|" + target + "|" + String.concat ";" normalised
 
         contractCache
@@ -358,10 +274,6 @@ module SymbolProviders =
                          let byKey =
                              System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
 
-                         // Both channels arrive already keyed by a resolved identity — a
-                         // VALUE by the key its home file minted at freeze, a MEMBER by the
-                         // key the provider resolved at collection. Nothing here re-derives
-                         // an identity from a spelling.
                          for v in collected.Values do
                              byKey.[v.Key] <- v.Body
 
@@ -377,9 +289,6 @@ module SymbolProviders =
                              )
 
                          {
-                             // The NORMALISED list — the very one the cache key was taken from,
-                             // so the set a consumer resolves runtime assets against is the set
-                             // this contract's symbols were collected from.
                              ManifestPaths = normalised
                              Provider = served
                              BodiesByName = byName
@@ -388,11 +297,9 @@ module SymbolProviders =
             )
             .Value
 
-    /// Cached contract for a manifest set, over a caller-supplied layer-2 leaf FACTORY.
-    /// The seam every backend's convenience layer wraps with its concrete leaf
-    /// (`ClrSymbolProviders` injects BCL metadata, the JS backend its JS-native tail).
-    /// `cacheTag` keeps each backend's collection of the same manifest set distinct in
-    /// `contractCache`.
+    /// Cached contract for a manifest set, over a caller-supplied layer-2 leaf FACTORY — the
+    /// seam each backend wraps with its concrete leaf. `cacheTag` keeps each backend's
+    /// collection of the same manifest set distinct.
     let buildContractWith
         (cacheTag: string)
         (metaTail: MetaTailFactory)
@@ -401,9 +308,8 @@ module SymbolProviders =
         : Contract =
         buildContractCached cacheTag metaTail target manifestPaths
 
-    /// `buildContractWith` with a backend-injected, reverse-map-independent layer-2
-    /// `metaTail` (a non-CLR backend supplies its own leaf), wrapped as a constant
-    /// factory. `cacheTag` prevents the backend's entry from aliasing another's.
+    /// `buildContractWith` over a FIXED layer-2 leaf, wrapped as a constant factory — for a
+    /// backend whose tail reads nothing from the reverse-canon map.
     let buildContractWithMetadata
         (cacheTag: string)
         (metaTail: IExternalSymbolProvider list)

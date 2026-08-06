@@ -1,10 +1,8 @@
 namespace XParsec.FSharp.Codegen.Common
 
 /// Target-neutral `%A` *grammar* oracle — the record / union output forms
-/// (`{ F = ·; G = · }`, `None`, `Some ·`, `Case (·, ·)`) as pure data. The JS
-/// shape-keyed walker is checked against this by a cross-target differential test;
-/// the CLR runtime encodes the same forms independently in `structural-printer.clr.fs`,
-/// so both targets are pinned to this grammar without either consuming it directly.
+/// (`{ F = ·; G = · }`, `None`, `Some ·`, `Case (·, ·)`) as pure data. No emitter reads
+/// it: its one consumer is the test pinning the JS runtime's walker to these forms.
 module StructuralFormatRecipe =
 
     /// One step of a record / union's layout. `FormatChild`/`FormatArg` name a field
@@ -23,9 +21,7 @@ module StructuralFormatRecipe =
         | FormatChild of childIndex: int
         | FormatArg of argIndex: int
 
-    /// The record form `{ F = ·; G = · }`. First label opens `{ `; each subsequent
-    /// field prefixes `;` + soft `Line` + `label = `. Fields hang at +2 when the group
-    /// breaks. F# records always have ≥1 field; `[]` stays total (`{ }`).
+    /// The record form `{ F = ·; G = · }` — fields hang at +2 when the group breaks.
     let recordRecipe (fieldNames: string list) : SinkOp list =
         match fieldNames with
         | [] -> [ Text "{ }" ]
@@ -45,10 +41,9 @@ module StructuralFormatRecipe =
                 EndGroup
             ]
 
-    /// One union case: nullary is a bare identifier (`None`); a single payload renders
-    /// via `FormatArg` inside an application (parenthesised in arg position,
-    /// `Some (Some 3)`); a multi-field payload is a parenthesised tuple of
-    /// `FormatChild`ren (`Case (a, b)` — the tuple's own parens disambiguate).
+    /// One union case: nullary is a bare identifier (`None`); a single payload renders via
+    /// `FormatArg`, parenthesised in arg position (`Some (Some 3)`); a multi-field payload
+    /// is a parenthesised tuple of `FormatChild`ren (`Case (a, b)`).
     let unionCaseRecipe (caseName: string) (arity: int) : SinkOp list =
         match arity with
         | 0 -> [ Text caseName ]
