@@ -34,9 +34,11 @@ param(
         "XParsec.CLArgs",
         "XParsec.FSharp",
         "XParsec.FSharp.Codegen.Clr",
+        "XParsec.FSharp.Codegen.Common",
         "XParsec.FSharp.Codegen.Js",
         "XParsec.FSharp.SemanticAnalysis",
         "XParsec.Json",
+        "XParsec.Toml",
         "Vesper.Ts.Manifest.Schema",
         "Vesper.Ts.Extractor",
         "Vesper.UnionFind"
