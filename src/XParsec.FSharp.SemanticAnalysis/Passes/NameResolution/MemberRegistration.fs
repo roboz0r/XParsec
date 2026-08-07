@@ -802,12 +802,21 @@ module NameResolutionMemberRegistration =
                 | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
                 | ValueNone ->
                     // Heritable-local arm: a `(# class … #)` intrinsic of THIS file. One read
-                    // yields both the repr and the `class`-tag verdict.
-                    match ctx.Types.IntrinsicReprKeys.TryGetValue(TypeRegistry.intrinsicKeyOf ctx.Types name) with
-                    | true, repr when repr.Heritable ->
-                        // The EXTERNAL type the repr names, not the opaque value-repr `TyConst`.
-                        reprToExternalBase repr.Platform
-                    | _ -> resolveThroughProvider ()
+                    // yields both the repr and the `class`-tag verdict. An `inherit` parent is
+                    // an ARBITRARY written name — a record, a typo, a provider class — so the
+                    // name → key step must be allowed to miss here.
+                    let heritableLocalRepr =
+                        match TypeRegistry.tryIntrinsicKeyOf ctx.Types name with
+                        | ValueNone -> ValueNone
+                        | ValueSome canon ->
+                            match ctx.Types.IntrinsicReprKeys.TryGetValue canon with
+                            | true, repr when repr.Heritable -> ValueSome repr.Platform
+                            | _ -> ValueNone
+
+                    match heritableLocalRepr with
+                    // The EXTERNAL type the repr names, not the opaque value-repr `TyConst`.
+                    | ValueSome platform -> reprToExternalBase platform
+                    | ValueNone -> resolveThroughProvider ()
 
     /// Fill `BaseType` / `BaseCtorArgs` on a class with an `inherit` clause. The parent is
     /// resolved against the referent's registered DETAIL, not its identity, so it cannot be
@@ -937,17 +946,17 @@ module NameResolutionMemberRegistration =
                 info.ThisKey <- x.ThisKey
             | ValueNone -> ()
         // An inline intrinsic-abbrev host (`type X = (# … #) with member …`): stamp its
-        // augmentation members + `ThisKey` as the union/record arms do. An intrinsic binding
-        // is non-generic, so the name off the claim addresses the name-keyed host table.
+        // augmentation members + `ThisKey` as the union/record arms do. The host is filed
+        // under the intrinsic's CANON key, which the claim's name resolves to.
         | TypeDefn.Abbrev(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
-            match ctx.Types.IntrinsicAbbrevHost.TryGetValue id.Name with
-            | true, info ->
+            match TypeRegistry.tryIntrinsicAbbrevHostByCanon ctx.Types id.Name with
+            | ValueSome info ->
                 requireInlineMembers ctx id.Name elems
                 let x = extract info.DeclSite.Key info.TypeParams elems
                 info.Members <- x.Members
                 info.InterfaceImpls <- x.InterfaceImpls
                 info.ThisKey <- x.ThisKey
-            | false, _ -> ()
+            | ValueNone -> ()
         | _ -> ()
 
     /// The nominal a `SemType` names DIRECTLY, if any. A type argument is NOT direct: a

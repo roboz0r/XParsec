@@ -270,6 +270,14 @@ module internal TsManifestTranslate =
 
     // ─── TypeRef → FrozenType (member signature templates) ─────────────────
 
+    /// The contract intrinsics a manifest may spell that neither shared primitive core
+    /// holds: `undefined` (JS-only) and `bigint` (not a fixed-width scalar). Spelled as
+    /// the identities' own names, so this cannot name a type that does not exist.
+    let private manifestSpellableExtras: Set<string> =
+        [ RuntimeNames.undefinedKey; RuntimeNames.bigintKey ]
+        |> Seq.map SymbolKeyOps.intrinsicName
+        |> Set.ofSeq
+
     let rec toFrozen (ctx: TranslateCtx) (t: Schema.TypeRef) : FrozenType =
         let nominal name (args: FrozenType[]) =
             // A name missing BOTH tables is either a primitive spelled canonically — mint the
@@ -281,8 +289,7 @@ module internal TsManifestTranslate =
                     || RuntimeNames.referencePrimitiveNames.Contains name
                     // Contract intrinsics absent from both cores. `null` is NOT here: it has no
                     // `Vesper` namespace, so it mints the bare `nullKey` on the opaque branch.
-                    || name = "undefined"
-                    || name = "bigint"
+                    || manifestSpellableExtras.Contains name
 
                 if isVesperPrimitive then
                     FTConst(RuntimeNames.primitiveKey name, EqArray.ofSeq args)

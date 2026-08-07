@@ -249,9 +249,17 @@ module VesperLibTypeTranslate =
                         | ValueSome(_, compiled) -> Ok compiled
                         | ValueNone -> Error(sprintf "Unresolved type name '%s'" name)
 
-    let isPrimitiveName (s: string) =
-        RuntimeNames.numericTypeNames.Contains s
-        || RuntimeNames.referencePrimitiveNames.Contains s
+    let private primitiveNames: Set<string> =
+        RuntimeNames.numericTypeNames + RuntimeNames.referencePrimitiveNames
+
+    /// For a SOURCE-WRITTEN name, before any identity exists for it — the one position where
+    /// a bare spelling is all there is (it may still be an ALIAS, which no key spells).
+    let isPrimitiveName (s: string) = primitiveNames.Contains s
+
+    /// `isPrimitiveName` for a caller holding the resolved identity: exact, because the key
+    /// carries the `Vesper` namespace and the arity a bare spelling cannot.
+    let private isPrimitiveKey =
+        RuntimeNames.isKeyIn (RuntimeNames.numericKeys @ RuntimeNames.referencePrimitiveKeys)
 
     /// Source-text name of a typar (the part after `'` or `^`), or `ValueNone` for an
     /// anonymous one, whose constraint participation cannot be addressed by name later.
@@ -395,8 +403,7 @@ module VesperLibTypeTranslate =
                 // (`int32 = int`). One abbreviating a NON-primitive (`bool = Boolean`, no
                 // in-scope shape) keeps the key its own name mints.
                 match mkNominal ctx compiled EqArray.empty with
-                | FTConst(key, args) when args.IsEmpty && isPrimitiveName (SymbolKeyOps.intrinsicName key) ->
-                    ValueSome(FTConst(key, EqArray.empty))
+                | FTConst(key, args) when args.IsEmpty && isPrimitiveKey key -> ValueSome(FTConst(key, EqArray.empty))
                 | _ -> ValueNone
             | _ -> ValueNone
         | Error _ -> ValueNone

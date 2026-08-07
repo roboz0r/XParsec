@@ -82,18 +82,21 @@ type PassContextTypes =
         FieldIndex: Dictionary<string, EqArray<RecordTypeInfo>>
         /// Reverse index: member name → bucket of declaring (class, member) entries.
         ClassMemberIndex: Dictionary<string, EqArray<ClassMemberIndexEntry>>
-        /// Vesper type name → target representation, from `type int = (# "System.Int32" #)`.
-        /// NOT transparent like `Abbreviation`: a use resolves to `TyConst name`, not the RHS.
-        IntrinsicReprTypes: Dictionary<string, string>
-        /// `IntrinsicReprTypes` addressed by contract-sourced `SymbolKey` rather than declared
-        /// name, plus the `class`-tag verdict: a key projected back to a name loses its arity.
+        /// An intrinsic binding's contract-sourced `SymbolKey` → its target representation,
+        /// from `type int = (# "System.Int32" #)`, plus the `class`-tag verdict. NOT
+        /// transparent like `Abbreviation`: a use resolves to `TyConst key`, not the RHS.
+        /// Key-addressed because a key projected back to a name loses its arity.
         IntrinsicReprKeys: Dictionary<SymbolKey, IntrinsicReprInfo>
         /// This file's own intrinsics: bare declared name → `SymbolKey` qualified by the
-        /// declaring `namespace`. The VALUE carries the arity, the table key does not.
+        /// declaring `namespace`. The VALUE carries the arity, the table key does not. THE
+        /// name → key index for intrinsics: every other intrinsic table is key-addressed, so
+        /// a name is resolved here once and the key travels from there.
         IntrinsicKeys: Dictionary<string, SymbolKey>
         /// Inline intrinsic-abbrevs carrying `with member …` augmentations
-        /// (`type widget = (# "object" #) with member …`), keyed by bare short name.
-        IntrinsicAbbrevHost: Dictionary<string, IntrinsicAbbrevInfo>
+        /// (`type widget = (# "object" #) with member …`), keyed by the abbrev's CANON key —
+        /// the namespace-homed identity a use site's `TyConst` carries, not its holder-homed
+        /// nominal claim. A name reaches it only through `IntrinsicKeys`.
+        IntrinsicAbbrevHost: Dictionary<SymbolKey, IntrinsicAbbrevInfo>
         /// Reverse index: record short name (NO arity suffix, as written) → the `TypeKey`s
         /// claiming it. A bare name yields a *candidate set*, never one entry.
         RecordNames: Dictionary<string, ResizeArray<TypeKey>>
@@ -136,7 +139,6 @@ module PassContextTypes =
             CtorIndex = Dictionary<_, _>()
             FieldIndex = Dictionary<_, _>()
             ClassMemberIndex = Dictionary<_, _>()
-            IntrinsicReprTypes = Dictionary<_, _>()
             IntrinsicReprKeys = Dictionary<_, _>()
             IntrinsicKeys = Dictionary<_, _>()
             IntrinsicAbbrevHost = Dictionary<_, _>()
@@ -158,11 +160,20 @@ module PassContextTypes =
 module TypeRegistry =
 
     /// The identity key for a locally-declared intrinsic (`int`, `[]`, a user intrinsic-abbrev),
-    /// stamped at registration. Falls back to the by-name mint for a name never stamped.
+    /// stamped at registration. Deliberately WITHOUT a by-name mint fallback: registration
+    /// stamps every `IntrinsicRepr` claim, so a miss means the caller is asking about a name
+    /// that never claimed one, and a minted `Vesper`-homed arity-0 key would match nothing.
     let intrinsicKeyOf (types: PassContextTypes) (name: string) : SymbolKey =
         match types.IntrinsicKeys.TryGetValue name with
         | true, k -> k
-        | _ -> RuntimeNames.primitiveKey name
+        | _ -> failwithf "Internal error: intrinsic '%s' has no stamped identity key" name
+
+    /// `intrinsicKeyOf` for a caller that does not know whether `name` names a local
+    /// intrinsic at all — the lookup arm of the name → key index.
+    let tryIntrinsicKeyOf (types: PassContextTypes) (name: string) : SymbolKey voption =
+        match types.IntrinsicKeys.TryGetValue name with
+        | true, k -> ValueSome k
+        | _ -> ValueNone
 
     // --- Key-addressed mechanism (shared by Record, Union and Class) --------------
 
@@ -595,6 +606,12 @@ module TypeRegistry =
     let tryAbbrevByKey (types: PassContextTypes) (key: TypeKey) : AbbreviationInfo voption =
         tryByTypeKey types.Abbreviation key
 
+    /// Resolve an abbreviation by the `(name, arity)` a well-known identity SPELLS, rather
+    /// than by that identity.
+    let tryAbbrevSpelling (types: PassContextTypes) (useSite: UseSite) (spelling: TypeKey) : AbbreviationInfo voption =
+        tryAbbrevArity types useSite spelling.Name spelling.TyparArity
+
+    /// Register a union under its own `TypeKey`. See `registerRecord`.
     let registerUnion (types: PassContextTypes) (info: UnionTypeInfo) : unit =
         registerKeyed types.Union types.UnionNames info.Name info.TypeKey info
 
@@ -609,6 +626,23 @@ module TypeRegistry =
     /// Resolve a union by its project-local `TypeKey`.
     let tryUnionByKey (types: PassContextTypes) (key: TypeKey) : UnionTypeInfo voption = tryByTypeKey types.Union key
 
+    /// The inline intrinsic-abbrev host a NAME denotes: the name is resolved to the
+    /// intrinsic's canon key through `IntrinsicKeys` — the one name → key index — and the
+    /// host read by that key. A name that claimed no intrinsic identity misses here rather
+    /// than matching a same-named entry, so a bare read cannot reach a host across the
+    /// namespace or arity its key records.
+    let tryIntrinsicAbbrevHostByCanon (types: PassContextTypes) (name: string) : IntrinsicAbbrevInfo voption =
+        match tryIntrinsicKeyOf types name with
+        | ValueNone -> ValueNone
+        | ValueSome key ->
+            match types.IntrinsicAbbrevHost.TryGetValue key with
+            | true, info -> ValueSome info
+            | false, _ -> ValueNone
+
+    let private tryIntrinsicAbbrevHostByName (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
+        tryIntrinsicAbbrevHostByCanon types name
+        |> ValueOption.map (fun info -> info :> IInterfaceImplHost)
+
     /// A union, record or inline intrinsic-abbrev host by bare short name, as the shared
     /// `IInterfaceImplHost`. Classes are excluded — they fill through their own path.
     let tryNonClassMemberHost (types: PassContextTypes) (useSite: UseSite) (name: string) : IInterfaceImplHost voption =
@@ -617,13 +651,13 @@ module TypeRegistry =
         | ValueNone ->
             match tryRecord types useSite name with
             | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
-            | ValueNone ->
-                match types.IntrinsicAbbrevHost.TryGetValue name with
-                | true, info -> ValueSome(info :> IInterfaceImplHost)
-                | false, _ -> ValueNone
+            | ValueNone -> tryIntrinsicAbbrevHostByName types name
 
     /// The key-addressed twin of the above, for what a DECLARATION names — two sibling modules
-    /// may each declare `T`. An intrinsic binding still answers by NAME: its table is name-keyed.
+    /// may each declare `T`. Every kind answers by KEY, but by a DIFFERENT key for the
+    /// intrinsic arm, which is why the name is still a parameter: an intrinsic binding carries
+    /// two, the holder-homed claim `key` naming it here and the namespace-homed canon
+    /// addressing the host table, which the name resolves to through `IntrinsicKeys`.
     let tryNonClassMemberHostByKey
         (types: PassContextTypes)
         (key: TypeKey)
@@ -634,10 +668,7 @@ module TypeRegistry =
         | ValueNone ->
             match tryByTypeKey types.Record key with
             | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
-            | ValueNone ->
-                match types.IntrinsicAbbrevHost.TryGetValue name with
-                | true, info -> ValueSome(info :> IInterfaceImplHost)
-                | false, _ -> ValueNone
+            | ValueNone -> tryIntrinsicAbbrevHostByName types name
 
     /// The declaring union of a registered case: the case carries its union's `TypeKey`, so no
     /// use site — a caller holding a case got it from a scoped read.

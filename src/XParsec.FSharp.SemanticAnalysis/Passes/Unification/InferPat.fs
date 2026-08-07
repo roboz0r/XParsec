@@ -17,7 +17,7 @@ module internal UnificationInferPat =
     /// abbreviation expands eagerly to the union RHS; a bare program leaves the container
     /// flexible — a fresh TyVar in `ctx.ListLiterals` — for a consumer to pin.
     let private consListTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
-        match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "list" 1 with
+        match TypeRegistry.tryAbbrevSpelling ctx.Types UseSite.unbounded RuntimeNames.vesperListAbbrevKey with
         | ValueSome info ->
             forceFill ctx info
             expandAbbreviation ctx tok info (EqArray.singleton elemTy)

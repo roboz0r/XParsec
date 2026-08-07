@@ -234,7 +234,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             Prefixes = provider.AmbientOpenPrefixes
         }
 
-    // `IntrinsicReprTypes` holds ONLY this file's own intrinsic bindings
+    // `IntrinsicReprKeys` holds ONLY this file's own intrinsic bindings
     // (`type int = (# "System.Int32" #)`); a referenced package's ride the provider.
     let types = PassContextTypes.empty ()
 
@@ -289,18 +289,20 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val IntrinsicCanonCache = Dictionary<SymbolKey, SymbolKey>() with get
 
     /// A platform runtime name (`"number"`) → the `.fsi` canon identities sharing that repr.
-    /// `lazy`: the first read must come AFTER name resolution filled `IntrinsicReprTypes`.
+    /// `lazy`: the first read must come AFTER name resolution filled `IntrinsicReprKeys`.
     member val IntrinsicReverseCanon: Lazy<Dictionary<string, SymbolKey list>> =
         lazy
             (let d = Dictionary<string, SymbolKey list>()
 
              for KeyValue(platform, canons) in provider.IntrinsicReverseCanon do
                  d.[platform] <- canons
-             // Local intrinsics are stored short name -> platform repr; invert so a raw platform
+             // Local intrinsics are stored canon key -> platform repr; invert so a raw platform
              // name reconciles inside a `--compiling-fslib` file, REPLACING the provider's canons.
-             for KeyValue(short, platform) in types.IntrinsicReprTypes do
-                 if platform <> short then
-                     d.[platform] <- [ TypeRegistry.intrinsicKeyOf types short ]
+             // A degenerate repr — the platform spelling IS the intrinsic's own name — carries
+             // no reconciliation and is skipped.
+             for KeyValue(canon, repr) in types.IntrinsicReprKeys do
+                 if repr.Platform <> SymbolKeyOps.intrinsicName canon then
+                     d.[repr.Platform] <- [ canon ]
 
              d) with get
 

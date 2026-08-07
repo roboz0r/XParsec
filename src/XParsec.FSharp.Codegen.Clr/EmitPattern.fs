@@ -87,14 +87,14 @@ module EmitPattern =
 
     /// The scalars whose CLR representation is a VALUE type. `string` / `obj` / `unit`
     /// are absent — reference types.
-    let private valueTypePrimitiveNames: Set<string> =
-        RuntimeNames.numericTypeNames |> Set.add "bool" |> Set.add "char"
+    let private isValueTypePrimitive =
+        RuntimeNames.isKeyIn (RuntimeNames.boolKey :: RuntimeNames.charKey :: RuntimeNames.numericKeys)
 
     /// A CLR value type: one of the scalars above, or a `[<Struct>]` class / record —
     /// emitted into this assembly, or living in a referenced package.
     let isValueType (env: EmitEnv) (ty: FrozenType) : bool =
         match ty with
-        | FTConst(key, _) -> RuntimeNames.isPrimitiveKeyIn valueTypePrimitiveNames key
+        | FTConst(key, _) -> isValueTypePrimitive key
         | FTClass(key, _) ->
             match env.Classes.TryGetValue(SymbolKey.Type key) with
             | true, c -> c.IsValueType

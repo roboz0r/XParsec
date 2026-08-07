@@ -205,7 +205,7 @@ module NameResolutionTypeRegistration =
         | TypeDefn.Enum(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Enum))
         | TypeDefn.Abbrev(typeName = tn; typ = rhs) ->
             // An `(# … #)` RHS is a primitive BINDING, not a transparent alias: it lands in
-            // `IntrinsicReprTypes`, not `Abbreviation`. The claim it holds on its declared
+            // `IntrinsicReprKeys`, not `Abbreviation`. The claim it holds on its declared
             // name is identical either way.
             let kind =
                 match rhs with
@@ -786,8 +786,9 @@ module NameResolutionTypeRegistration =
         sb.ToString()
 
     /// Register a `type X = …` abbreviation. An `(# … #)` RHS is a primitive BINDING, not a
-    /// transparent alias: it lands in `IntrinsicReprTypes` as name → IL string, so the name
-    /// resolves to `TyConst name`. Only the ENTRY registers; the RHS is forced at GROUP CLOSE.
+    /// transparent alias: it lands in `IntrinsicReprKeys` as canon key → IL string, so the
+    /// name resolves to `TyConst key`. Only the ENTRY registers; the RHS is forced at GROUP
+    /// CLOSE.
     let registerAbbreviationDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
@@ -798,24 +799,24 @@ module NameResolutionTypeRegistration =
 
             // Only an `(# … #)` RHS may carry a `with member …` augmentation — a transparent
             // alias (`type bad = int with member …`) has no nominal identity to hang a member
-            // on. Registered as a host without withdrawing the name from `IntrinsicReprTypes`.
+            // on. Registered as a host without withdrawing the type from `IntrinsicReprKeys`.
             let registerMemberHostIfAny () =
                 match ext with
                 | ValueNone -> ()
                 | ValueSome _ ->
                     // The self-type key is the contract-sourced intrinsic identity, read through
                     // `intrinsicKeyOf` so it agrees with the abbrev's use-site key even when the
-                    // declaring namespace is not `Vesper`.
+                    // declaring namespace is not `Vesper`. It also ADDRESSES the host table, so
+                    // the lookup key and the self-type key are the same one value.
                     let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
 
-                    ctx.Types.IntrinsicAbbrevHost.[name] <-
+                    ctx.Types.IntrinsicAbbrevHost.[selfKey] <-
                         IntrinsicAbbrevInfo(name, typeParams, id.DeclSite, key, selfKey)
 
             match rhs with
             | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
                 let repr = ilIntrinsicString ctx parts
-                ctx.Types.IntrinsicReprTypes.[name] <- repr
-                // The same repr on the KEY axis, so a consumer holding a resolved intrinsic key
+                // Filed on the KEY axis alone, so a consumer holding a resolved intrinsic key
                 // never has to project it back to a name. The `class` tag rides the same entry:
                 // heritability is a property of this repr.
                 ctx.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf ctx.Types name] <-

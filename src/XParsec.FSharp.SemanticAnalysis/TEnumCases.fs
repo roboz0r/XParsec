@@ -42,13 +42,13 @@ module TEnumCases =
         | TConstValue.Integral(IntWidth.Int32, _) -> false
         | _ -> true
 
-    /// The underlying primitive type NAME: all-numeric → the first explicit width if any,
+    /// The underlying primitive TYPE: all-numeric → the first explicit width if any,
     /// else `int`; all-string → `string`; mixed → `obj`; no resolved case → `ValueNone`.
-    let underlyingTypeName (cases: EqArray<TEnumCaseG<'tok>>) : string voption =
+    let underlyingTypeKey (cases: EqArray<TEnumCaseG<'tok>>) : SymbolKey voption =
         match classify cases with
         | ValueNone -> ValueNone
-        | ValueSome TEnumVariant.String -> ValueSome "string"
-        | ValueSome TEnumVariant.Mixed -> ValueSome RuntimeNames.objAbbrevName
+        | ValueSome TEnumVariant.String -> ValueSome RuntimeNames.stringKey
+        | ValueSome TEnumVariant.Mixed -> ValueSome RuntimeNames.objKey
         | ValueSome TEnumVariant.Numeric ->
             let mutable explicit = ValueNone
 
@@ -56,12 +56,20 @@ module TEnumCases =
                 match c.Value with
                 | ValueSome(TEnumLiteral.Int v) when isExplicitWidth v ->
                     if explicit.IsNone then
-                        explicit <- ValueSome(IntWidth.name (integralWidth v))
+                        explicit <- ValueSome(RuntimeNames.intWidthKey (integralWidth v))
                 | _ -> ()
 
             match explicit with
             | ValueSome w -> ValueSome w
-            | ValueNone -> ValueSome "int"
+            | ValueNone -> ValueSome RuntimeNames.intKey
+
+    /// How a width is SPELLED to the user, off the same identity the enum is typed by, so
+    /// the message cannot name a type the enum was not given.
+    let private widthDisplayName (v: TConstValue) : string =
+        let (DisplayName n) =
+            SymbolKeyOps.simpleName (RuntimeNames.intWidthKey (integralWidth v))
+
+        n
 
     /// A `System.Enum` has exactly ONE underlying type, so `| A = 1uy | B = 2L` is illegal.
     /// Returns the first offending case's token with the two width names (first-seen, then
@@ -73,7 +81,7 @@ module TEnumCases =
         for c in cases do
             match c.Value with
             | ValueSome(TEnumLiteral.Int v) when isExplicitWidth v && result.IsNone ->
-                let w = IntWidth.name (integralWidth v)
+                let w = widthDisplayName v
 
                 match seen with
                 | ValueNone -> seen <- ValueSome w

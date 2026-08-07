@@ -621,9 +621,9 @@ module internal ElaborateTypeDecls =
         (name: string)
         (ext: TypeExtensionElements<SyntaxToken> voption)
         : (TDecl * (TyVarId * SemType) list) option =
-        match ctx.Types.IntrinsicAbbrevHost.TryGetValue name with
-        | false, _ -> None
-        | true, info ->
+        match TypeRegistry.tryIntrinsicAbbrevHostByCanon ctx.Types name with
+        | ValueNone -> None
+        | ValueSome info ->
             let markers = mkDeclTyparEnv ctx.Store info.TypeParams
             let env = ResizeArray markers
             let declTypars = [ for (n, _) in info.TypeParams -> n ]

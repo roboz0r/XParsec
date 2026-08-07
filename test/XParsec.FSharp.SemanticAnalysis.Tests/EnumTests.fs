@@ -28,9 +28,9 @@ let private enumCases (tast: TastFile) =
     | EqList [ TDecl.Type { Kind = TTypeKindG.Enum cases } ] -> cases
     | other -> failwithf "expected a single enum TDecl.Type, got %A" other
 
-/// The derived underlying primitive type name of the single surfaced enum.
-let private underlying (input: string) : string voption =
-    analyse input |> enumCases |> TEnumCases.underlyingTypeName
+/// The derived underlying primitive type identity of the single surfaced enum.
+let private underlying (input: string) : SymbolKey voption =
+    analyse input |> enumCases |> TEnumCases.underlyingTypeKey
 
 let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
@@ -173,25 +173,28 @@ let tests =
             // --- Step 2: underlying-type derivation (where width lives) ----------
 
             test "underlying type: unsuffixed numeric cases default to int (≡ I32)" {
-                Expect.equal (underlying "type C = | A = 0 | B = 1") (ValueSome "int") "unsuffixed → int"
+                Expect.equal (underlying "type C = | A = 0 | B = 1") (ValueSome RuntimeNames.intKey) "unsuffixed → int"
             }
 
             test "underlying type: an explicit byte width names byte" {
-                Expect.equal (underlying "type W = | A = 1uy | B = 2uy") (ValueSome "byte") "byte width"
+                Expect.equal (underlying "type W = | A = 1uy | B = 2uy") (ValueSome RuntimeNames.byteKey) "byte width"
             }
 
             test "underlying type: unsuffixed cases adopt the single explicit width" {
                 // The rule: all explicit widths must agree; unsuffixed `Int` cases
                 // adopt the explicit width if present (here `2L` → int64), else int.
-                Expect.equal (underlying "type E = | A = 0 | B = 2L") (ValueSome "int64") "adopts int64"
+                Expect.equal (underlying "type E = | A = 0 | B = 2L") (ValueSome RuntimeNames.int64Key) "adopts int64"
             }
 
             test "underlying type: a string enum is string" {
-                Expect.equal (underlying "type D = | Up = \"u\" | Down = \"d\"") (ValueSome "string") "string"
+                Expect.equal
+                    (underlying "type D = | Up = \"u\" | Down = \"d\"")
+                    (ValueSome RuntimeNames.stringKey)
+                    "string"
             }
 
             test "underlying type: a mixed enum boxes to obj" {
-                Expect.equal (underlying "type M = | A = 1 | B = \"x\"") (ValueSome "obj") "mixed → obj"
+                Expect.equal (underlying "type M = | A = 1 | B = \"x\"") (ValueSome RuntimeNames.objKey) "mixed → obj"
             }
 
             test "uniform-width invariant: differing explicit widths are a hard ERROR" {

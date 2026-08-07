@@ -87,9 +87,9 @@ module EmitResolve =
         | FTEnum k -> SymbolKeyOps.typeMetaName k
         | FTFun _ -> "->"
         | FTTuple _ -> "tuple"
-        | FTOr _ -> "obj"
+        | FTOr _ -> SymbolKeyOps.qualifiedName RuntimeNames.objKey
         // A literal erases to its base primitive — match on that head.
-        | FTLiteral v -> v.BaseName
+        | FTLiteral v -> SymbolKeyOps.qualifiedName (RuntimeNames.literalBaseKey v)
         | FTKeyOf _
         | FTIndexedAccess _
         | FTConditional _ ->
@@ -286,7 +286,7 @@ module EmitResolve =
     /// cannot be based on, `nativeint` included, so the bare load needs no width conversion.
     let enumIntLoad (v: TConstValue) : ILInstr * FrozenType =
         let w, bits = TEnumCases.integralValue v
-        EmitTypes.intConstLoad w bits, FTConst(RuntimeNames.primitiveKey (IntWidth.name w), EqArray.empty)
+        EmitTypes.intConstLoad w bits, FTConst(RuntimeNames.intWidthKey w, EqArray.empty)
 
     /// Push a string/mixed enum case literal as the wrapper `.ctor`'s single argument: a
     /// string case is `ldstr` (a ref, assignable to a `string` or `obj` field unboxed); a

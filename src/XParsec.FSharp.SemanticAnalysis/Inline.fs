@@ -66,22 +66,26 @@ module Inline =
         | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 (staticOptTypesMatch store) xs ys
         | _ -> false
 
-    /// Approximate `when ^T : struct` for the value-type primitives the operator surface can
-    /// reach; anything else is treated as non-struct. Names arrive dealiased (`int32`→`int`,
-    /// `single`→`float32`, `double`→`float`), so only the canonical spellings are listed.
+    /// The value-type primitives the operator surface can reach.
+    let private isStructPrimitive =
+        RuntimeNames.isKeyIn
+            [
+                RuntimeNames.intKey
+                RuntimeNames.int64Key
+                RuntimeNames.byteKey
+                RuntimeNames.floatKey
+                RuntimeNames.float32Key
+                RuntimeNames.boolKey
+                RuntimeNames.charKey
+                RuntimeNames.decimalKey
+            ]
+
+    /// Approximate `when ^T : struct` for the primitives above; anything else is treated as
+    /// non-struct. Matched by KEY, so a user type spelling one of these names in its own
+    /// namespace cannot satisfy a `struct` constraint it does not meet.
     let private isStructType (t: SemType) : bool =
         match t with
-        | TyConst(key, _) ->
-            match SymbolKeyOps.intrinsicName key with
-            | "int"
-            | "int64"
-            | "byte"
-            | "float"
-            | "float32"
-            | "bool"
-            | "char"
-            | "decimal" -> true
-            | _ -> false
+        | TyConst(key, _) -> isStructPrimitive key
         | _ -> false
 
     /// The declaring `TypeKey` of an operand that can CARRY a static operator member, and so

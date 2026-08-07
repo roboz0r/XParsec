@@ -118,27 +118,31 @@ module Regions =
             | ValueNone -> TyVar root.Id
         | _ -> t
 
+    /// The primitives that do not allocate. `string` is a reference type but its values
+    /// are interned/shared rather than allocated at a use site, so it belongs here with
+    /// the scalars.
+    let private isNonAllocatingPrimitive =
+        RuntimeNames.isKeyIn
+            [
+                RuntimeNames.intKey
+                RuntimeNames.int64Key
+                RuntimeNames.byteKey
+                RuntimeNames.floatKey
+                RuntimeNames.float32Key
+                RuntimeNames.decimalKey
+                RuntimeNames.boolKey
+                RuntimeNames.unitKey
+                RuntimeNames.stringKey
+            ]
+
     /// Does this type represent an allocation we should track? Primitive scalars
     /// and `unit` don't allocate; closures, tuples and named composites do.
     /// Unresolved shapes resolve as non-allocating — conservative on "don't stamp".
     let rec private isAllocation (store: TypeStore) (t: SemType) : bool =
         match resolveLink store t with
-        | TyConst(key, _) ->
-            let name = SymbolKeyOps.intrinsicName key
-
-            // `single` / `double` are abbreviations of `float32` / `float`, so only the
-            // canonical spellings are listed.
-            match name with
-            | "int"
-            | "int64"
-            | "byte"
-            | "float"
-            | "float32"
-            | "decimal"
-            | "bool"
-            | "unit"
-            | "string" -> false
-            | _ -> true
+        // Matched by KEY: a user type merely SPELLED `int` is a nominal composite and
+        // does allocate, so a name-only test would wrongly stop tracking it.
+        | TyConst(key, _) -> not (isNonAllocatingPrimitive key)
         | TyFun _
         | TyTuple _ -> true
         | TyRecord _ -> true

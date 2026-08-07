@@ -39,7 +39,7 @@ module internal UnificationInferLiteralExpr =
     /// abbreviation resolves eagerly to that RHS; a bare program leaves the container
     /// flexible for a later consumer to pin (`RegisterListLiteral`).
     and listLiteralTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
-        match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "list" 1 with
+        match TypeRegistry.tryAbbrevSpelling ctx.Types UseSite.unbounded RuntimeNames.vesperListAbbrevKey with
         | ValueSome info ->
             forceFill ctx info
             expandAbbreviation ctx tok info (EqArray.singleton elemTy)

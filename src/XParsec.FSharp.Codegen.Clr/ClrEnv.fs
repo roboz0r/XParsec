@@ -65,7 +65,7 @@ module internal ClrSinkKeys =
     let textWriter: SymbolKey = RuntimeNames.opaqueKey RuntimeNames.textWriterTypeName
 
     /// The `Vesper.Printf` write-through format handler — a printf recipe's handler local.
-    let formatter: SymbolKey = RuntimeNames.opaqueKey "Vesper.Formatter"
+    let formatter: SymbolKey = RuntimeNames.opaqueKey RuntimeNames.formatterTypeName
 
     /// The `System.HashCode` accumulator local of a synthesised `GetHashCode`.
     let hashCode: SymbolKey = RuntimeNames.opaqueKey "System.HashCode"
@@ -150,8 +150,14 @@ type internal ClrEnv
             valueTupleEntities.[arity] <- h
             h
 
+    /// A `TypeRef` row for a well-known nominal, spelled from its own `TypeKey`: the
+    /// namespace and the arity-suffixed segment name are the key's, so the row the backend
+    /// emits and the identity the front end matched cannot name different types.
+    let typeRefOfKey (scope: EntityHandle) (key: TypeKey) : EntityHandle =
+        toEntity (ctx.TypeRef(scope, key.Namespace.Dotted, SymbolKeyOps.typeSegmentName key))
+
     let ePrintfFormat4 =
-        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "PrintfFormat`4")))
+        lazy (typeRefOfKey fsCoreRef.Value RuntimeNames.printfFormatKey)
 
     // The function interfaces and the `%A` sinks live in `Vesper.Core`, not FSharp.Core.
     let vesperCoreRef =
@@ -168,7 +174,7 @@ type internal ClrEnv
         lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Collections", "FSharpList`1")))
 
     let eVesperList1 =
-        lazy (toEntity (ctx.TypeRef(vesperListRef.Value, "Vesper.Collections", "List`1")))
+        lazy (typeRefOfKey vesperListRef.Value RuntimeNames.vesperListKey)
 
     let eListModule =
         lazy (toEntity (ctx.TypeRef(vesperListRef.Value, "Vesper.Collections", "ListModule")))

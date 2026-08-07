@@ -12,29 +12,28 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
 module internal ElaboratePrintf =
 
+    /// The scalars `%A` renders atomically: numerics carry the literal suffixes the engine
+    /// reproduces (`5L`, `1.5M`); `string` / `char` / `bool` are special-cased atoms.
+    let private isLeafScalar =
+        RuntimeNames.isKeyIn (
+            RuntimeNames.stringKey
+            :: RuntimeNames.charKey
+            :: RuntimeNames.boolKey
+            :: RuntimeNames.numericKeys
+        )
+
     /// Whether `%A` of an argument of this (zonked) type may lower to the structural engine.
     /// The runtime `%A` dispatcher ends in a `value.ToString()` tail, so every concrete nominal
     /// qualifies; only a type the backend can't author an `AppendStructured<T>` argument for stays cold.
     let rec private structuredArgFaithful (t: SemType) : bool =
         match t with
+        // The array intrinsic renders via the `IEnumerable` arm — faithful iff its
+        // element type is.
+        | TyArray elem -> structuredArgFaithful elem
         | TyConst(key, args) ->
-            let name = SymbolKeyOps.intrinsicName key
-            // The array intrinsic (`'T[]`, intrinsic name `[]`) renders via the
-            // `IEnumerable` arm — faithful iff its element type is.
-            if name = "[]" then
-                EqArray.forall structuredArgFaithful args
-            // Numeric primitives carry the literal suffixes the engine reproduces (`5L`,
-            // `1.5M`); `string` / `char` / `bool` are special-cased atoms. All are leaf
-            // scalars, so any type argument means it isn't one.
-            elif
-                RuntimeNames.numericTypeNames.Contains name
-                || name = "string"
-                || name = "char"
-                || name = "bool"
-            then
-                args.Length = 0
-            else
-                false
+            // Matched by KEY, so a user type of the same name is not mistaken for one. All
+            // are leaves, so any type argument means it isn't really the intrinsic.
+            isLeafScalar key && args.Length = 0
         | TyTuple items -> EqArray.forall structuredArgFaithful items
         // The cons-list renders via the `IEnumerable` arm, so it stays faithful-iff-its-
         // element-is. It surfaces as a `TyUnion` in the self-host but as a `TyRecord`

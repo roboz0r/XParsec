@@ -246,18 +246,27 @@ module UnificationEngineCore =
         | ValueSome cm -> ValueSome cm.MemberTy
         | ValueNone -> ValueNone
 
-    /// The bare (arity-suffix-stripped) qualified name of the function-interface family
-    /// `TyFun` lowers to: `Vesper.Fun`2<'A,'B>` through `Vesper.Fun`5<'A,'B,'C,'D,'E>` all
-    /// share it, so a recognizer must discriminate on the type-arg count too.
-    [<Literal>]
-    let funInterfaceQualifiedName = "Vesper.Fun"
-
     /// The flat `FunN` arity a matched `Fun`(k+1)` interface instantiation denotes.
-    let funSlotArityOfArgs (bareName: string) (genericArity: int) : int option =
-        if bareName = funInterfaceQualifiedName && genericArity >= 2 && genericArity <= 5 then
+    /// `Vesper.Fun`2<'A,'B>` through `Vesper.Fun`5<'A,'B,'C,'D,'E>` share one name and
+    /// differ only by arity, so the arity is half the identity. Matched by KEY: a user
+    /// interface named `Fun` in its own namespace is not a function slot.
+    let funSlotArityOfArgs (head: TypeKey) (genericArity: int) : int option =
+        if
+            genericArity >= 2
+            && genericArity <= 5
+            && head = RuntimeNames.vesperFunKey genericArity
+        then
             Some(genericArity - 1)
         else
             None
+
+    /// `funSlotArityOfArgs` for a KIND-BLIND caller — one holding the canonicalised key
+    /// `subtypeNominalOf` surfaces, whose domain includes keys of every kind. A non-type
+    /// key names no interface, so it is no `Fun` slot.
+    let funSlotArityOfSymbol (head: SymbolKey) (genericArity: int) : int option =
+        match head with
+        | SymbolKey.Type t -> funSlotArityOfArgs t genericArity
+        | _ -> None
 
     /// Peel `k` domains off the `TyFun(a, b)` chain into the `k+1` types
     /// `[dom0; …; dom_{k-1}; residualCodomain]` aligned to a `Fun`(k+1)`'s type args, or

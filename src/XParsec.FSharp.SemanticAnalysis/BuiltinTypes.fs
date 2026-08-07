@@ -7,20 +7,15 @@ module BuiltinTypes =
     let tyInt: SemType = TyConst(RuntimeNames.intKey, EqArray.empty)
     let tyInt64: SemType = TyConst(RuntimeNames.int64Key, EqArray.empty)
     let tyByte: SemType = TyConst(RuntimeNames.byteKey, EqArray.empty)
-    let tySByte: SemType = TyConst(RuntimeNames.primitiveKey "sbyte", EqArray.empty)
-    let tyInt16: SemType = TyConst(RuntimeNames.primitiveKey "int16", EqArray.empty)
-    let tyUInt16: SemType = TyConst(RuntimeNames.primitiveKey "uint16", EqArray.empty)
+    let tySByte: SemType = TyConst(RuntimeNames.sbyteKey, EqArray.empty)
+    let tyInt16: SemType = TyConst(RuntimeNames.int16Key, EqArray.empty)
+    let tyUInt16: SemType = TyConst(RuntimeNames.uint16Key, EqArray.empty)
     let tyUInt32: SemType = TyConst(RuntimeNames.uint32Key, EqArray.empty)
-    let tyUInt64: SemType = TyConst(RuntimeNames.primitiveKey "uint64", EqArray.empty)
-
-    let tyNativeInt: SemType =
-        TyConst(RuntimeNames.primitiveKey "nativeint", EqArray.empty)
-
-    let tyUNativeInt: SemType =
-        TyConst(RuntimeNames.primitiveKey "unativeint", EqArray.empty)
-
+    let tyUInt64: SemType = TyConst(RuntimeNames.uint64Key, EqArray.empty)
+    let tyNativeInt: SemType = TyConst(RuntimeNames.nativeintKey, EqArray.empty)
+    let tyUNativeInt: SemType = TyConst(RuntimeNames.unativeintKey, EqArray.empty)
     let tyFloat: SemType = TyConst(RuntimeNames.floatKey, EqArray.empty)
-    let tyFloat32: SemType = TyConst(RuntimeNames.primitiveKey "float32", EqArray.empty)
+    let tyFloat32: SemType = TyConst(RuntimeNames.float32Key, EqArray.empty)
     let tyBool: SemType = TyConst(RuntimeNames.boolKey, EqArray.empty)
     let tyChar: SemType = TyConst(RuntimeNames.charKey, EqArray.empty)
     let tyDecimal: SemType = TyConst(RuntimeNames.decimalKey, EqArray.empty)

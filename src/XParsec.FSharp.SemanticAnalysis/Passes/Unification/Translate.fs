@@ -84,17 +84,11 @@ module internal UnificationTranslate =
     /// Built-in numeric names that can carry a measure (`float<m>`, `int<kg>`). A
     /// `carrier<arg>` ARGUMENT is a measure atom, never a type head, so a walk that diagnoses
     /// unknown heads must stop at the same carriers, else `float<kg>` blames `kg`.
+    ///
+    /// A NAME test, necessarily: the head is recognised before it resolves to anything, so an
+    /// alias spelling (`single`, `double`) reaches here as itself.
     let isNumericCarrier (name: string) : bool =
-        match name with
-        | "int"
-        | "int64"
-        | "byte"
-        | "float"
-        | "float32"
-        | "decimal"
-        | "single"
-        | "double" -> true
-        | _ -> false
+        RuntimeNames.numericTypeNames.Contains name
 
     /// A resolved `Class` whose metadata name has a reverse-canon hit is an intrinsic's
     /// platform spelling (`System.Exception` → `exn`) and resolves to the canon `TyConst`,

@@ -25,8 +25,7 @@ module UnificationEngine =
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep store target with
-                    | TyClass(tk, targs) ->
-                        funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.typeMetaName tk)) targs.Length
+                    | TyClass(tk, targs) -> funSlotArityOfArgs tk targs.Length
                     | _ -> None
                 | _ -> None
             )
@@ -105,8 +104,18 @@ module UnificationEngine =
         | Defer
 
     /// `string` is excluded and handled separately since it's a reference type.
-    let private primitiveValueTypes =
-        Set.ofList [ "int"; "int64"; "byte"; "bool"; "float"; "float32"; "char"; "unit" ]
+    let private isPrimitiveValueType =
+        RuntimeNames.isKeyIn
+            [
+                RuntimeNames.intKey
+                RuntimeNames.int64Key
+                RuntimeNames.byteKey
+                RuntimeNames.boolKey
+                RuntimeNames.floatKey
+                RuntimeNames.float32Key
+                RuntimeNames.charKey
+                RuntimeNames.unitKey
+            ]
 
     let constraintKindName (k: SemanticConstraintKind) : string =
         match k with
@@ -420,9 +429,11 @@ module UnificationEngine =
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
     /// `ValueNone` = not in the table, fall through to structural / deferred
     /// handling.
-    and private primitiveSupports (kind: SemanticConstraintKind) (name: string) : bool voption =
-        let isValueType = Set.contains name primitiveValueTypes
-        let isString = name = "string"
+    and private primitiveSupports (kind: SemanticConstraintKind) (key: SymbolKey) : bool voption =
+        // By KEY, not by name: this is a type-checking VERDICT, so a user type merely
+        // spelled `int` in its own namespace must not satisfy `when ^T : struct`.
+        let isValueType = isPrimitiveValueType key
+        let isString = key = RuntimeNames.stringKey
 
         match kind with
         | SemanticConstraintKind.Equality
@@ -495,7 +506,7 @@ module UnificationEngine =
         | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> Defer
         // A structural literal erases to its base primitive — re-enter with it so every
         // kind, `Coercion` included, is judged exactly as the base primitive would be.
-        | _, TyLiteral v -> checkConstraint ctx c (TyConst(RuntimeNames.primitiveKey v.BaseName, EqArray.empty))
+        | _, TyLiteral v -> checkConstraint ctx c (TyConst(RuntimeNames.literalBaseKey v, EqArray.empty))
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: `subsumes` walks user and BCL `inherit` chains, so a thrown
             // `InvalidOperationException` reaches `exn`. Past the `TyVar _` guard above,
@@ -505,7 +516,7 @@ module UnificationEngine =
             | SubsumeOutcome.Subtype -> Satisfied
             | SubsumeOutcome.Unrelated -> Violated
         | k, TyConst(nameKey, _) ->
-            match primitiveSupports k (SymbolKeyOps.intrinsicName nameKey) with
+            match primitiveSupports k nameKey with
             | ValueSome true -> Satisfied
             | ValueSome false -> Violated
             | ValueNone -> Defer
@@ -615,8 +626,7 @@ module UnificationEngine =
                 | SemanticConstraintKind.Coercion target ->
                     match subtypeNominalOf ctx (zonk ctx.Store target), resolveStep ctx.Store linkTarget with
                     | ValueSome(struct (tname, targs)), TyFun(a, b) when
-                        funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tname)) targs.Length
-                        |> Option.isSome
+                        funSlotArityOfSymbol tname targs.Length |> Option.isSome
                         ->
                         match peelFunDomains ctx.Store (targs.Length - 1) a b with
                         | Some tys -> tys |> List.iteri (fun i s -> unify ctx tok s targs.[i])
@@ -661,7 +671,7 @@ module UnificationEngine =
         (memberName: string)
         : SemType voption =
         let fromHost =
-            match ctx.Types.IntrinsicAbbrevHost.TryGetValue(SymbolKeyOps.intrinsicName key) with
+            match ctx.Types.IntrinsicAbbrevHost.TryGetValue key with
             | true, info ->
                 match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
                 | Some m -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) m.Type)

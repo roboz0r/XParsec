@@ -190,17 +190,12 @@ type BinderId = | BinderId of int
 type SpecializationId = | SpecializationId of int
 
 /// The constant value a structural LITERAL type carries: `"GET"`, or an `Int` for a numeric
-/// literal union. External vocabulary ONLY — inference never mints one.
+/// literal union. External vocabulary ONLY — inference never mints one. Erases to its base
+/// primitive on both backends — the projection compiles after this DU.
 [<RequireQualifiedAccess>]
 type LiteralConst =
     | String of string
     | Int of int64
-
-    /// The front-end primitive a literal erases to (`string` / `int`), not a backend repr.
-    member this.BaseName: string =
-        match this with
-        | LiteralConst.String _ -> "string"
-        | LiteralConst.Int _ -> "int"
 
     /// The literal SPELLING (`"GET"` quoted, `42` bare), for diagnostics.
     member this.Render: string =

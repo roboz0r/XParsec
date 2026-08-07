@@ -655,7 +655,10 @@ module ExternalSymbols =
             | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(head, _))) -> SymbolKeyOps.typeMetaName head = lookup
             | _ -> false
 
-        let resolveAnchor (lookup: string) (bclName: string voption) : RuntimeNames.CapabilityIdentity voption =
+        let resolveAnchorKey (canon: TypeKey) (bcl: TypeKey voption) : RuntimeNames.CapabilityIdentity voption =
+            let lookup = SymbolKeyOps.typeMetaName canon
+            let bclName = bcl |> ValueOption.map SymbolKeyOps.typeMetaName
+
             match provider.TryLookupType lookup |> typeShapeOf with
             | ValueSome(ExternalTypeShape.Intrinsic {
                                                         Id = {
@@ -666,10 +669,10 @@ module ExternalSymbols =
                 ValueSome
                     {
                         RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf platform 0
-                        RuntimeNames.CapabilityIdentity.CanonKey = ValueSome(SymbolKeyOps.qualifiedTypeKeyOf lookup 0)
+                        RuntimeNames.CapabilityIdentity.CanonKey = ValueSome canon
                     }
             | ValueSome(ExternalTypeShape.Class _) ->
-                let canonKey = SymbolKeyOps.qualifiedTypeKeyOf lookup 0
+                let canonKey = canon
 
                 match bclName with
                 | ValueSome bcl when shimConfirms bcl lookup ->
@@ -686,14 +689,13 @@ module ExternalSymbols =
         {
             // The iteration capabilities carry a BCL reconciliation name so a TS pack's
             // `IEnumerable`1` reconciles to `seq` on JS (a no-op on CLR).
-            Enumerable = resolveAnchor "Vesper.Collections.seq`1" (ValueSome "System.Collections.Generic.IEnumerable`1")
-            Enumerator =
-                resolveAnchor "Vesper.Collections.enumerator`1" (ValueSome "System.Collections.Generic.IEnumerator`1")
+            Enumerable = resolveAnchorKey RuntimeNames.seqKey (ValueSome RuntimeNames.bclEnumerableKey)
+            Enumerator = resolveAnchorKey RuntimeNames.enumeratorKey (ValueSome RuntimeNames.bclEnumeratorKey)
             // The leaf capabilities fold BCL spellings to the canonical at freeze time, so
             // they need no reconciliation name here.
-            Disposable = resolveAnchor "Vesper.disposable" ValueNone
-            Equatable = resolveAnchor "Vesper.equatable`1" ValueNone
-            Comparable = resolveAnchor "Vesper.comparable`1" ValueNone
+            Disposable = resolveAnchorKey RuntimeNames.disposableKey ValueNone
+            Equatable = resolveAnchorKey RuntimeNames.equatableKey ValueNone
+            Comparable = resolveAnchorKey RuntimeNames.comparableKey ValueNone
         }
 
     /// Realise a member's `Signature` with SOME method typars PRE-BOUND (`seed`, index →

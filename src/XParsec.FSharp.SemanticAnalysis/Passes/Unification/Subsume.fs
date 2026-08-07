@@ -205,14 +205,11 @@ module UnificationSubsume =
         // OUTWARD widening: a structural literal widens to its BASE primitive (`"a" ≤
         // string`). DIRECTIONAL — the converse, plain `string` into a literal, is not
         // admitted here: a `string` source reaches `subsumesNominal` and is `Unrelated`.
-        | TyLiteral v, TyConst(key, _) when SymbolKeyOps.intrinsicName key = v.BaseName -> SubsumeOutcome.Subtype
+        | TyLiteral v, TyConst(key, _) when key = RuntimeNames.literalBaseKey v -> SubsumeOutcome.Subtype
         // A structural `TyFun(a, …)` IS a subtype of `Vesper.Fun`(k+1)<a1..ak, r>`: peel
         // `k = targs.Length - 1` domains, each invariant-`Equal` to its `Fun` arg, and the
         // residual codomain matched WHOLE (it may be a further curried function).
-        | TyFun(a, b), (TyClass(tk, targs)) when
-            funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.typeMetaName tk)) targs.Length
-            |> Option.isSome
-            ->
+        | TyFun(a, b), (TyClass(tk, targs)) when funSlotArityOfArgs tk targs.Length |> Option.isSome ->
             let k = targs.Length - 1
 
             match peelFunDomains ctx.Store k a b with

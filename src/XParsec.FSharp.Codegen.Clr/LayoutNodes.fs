@@ -45,9 +45,9 @@ module internal LayoutNodes =
                     match TEnumCases.classify cases with
                     | ValueSome TEnumVariant.Numeric ->
                         let underlying =
-                            match TEnumCases.underlyingTypeName cases with
+                            match TEnumCases.underlyingTypeKey cases with
                             | ValueSome w -> w
-                            | ValueNone -> "int"
+                            | ValueNone -> RuntimeNames.intKey
 
                         let numericCases =
                             [
@@ -490,7 +490,7 @@ module internal LayoutNodes =
                                     FieldAttributes.Public
                                     ||| FieldAttributes.SpecialName
                                     ||| FieldAttributes.RTSpecialName
-                                Ty = FTConst(RuntimeNames.primitiveKey ed.Underlying, EqArray.empty)
+                                Ty = FTConst(ed.Underlying, EqArray.empty)
                                 ClosureScope = ValueNone
                             }
                         for (caseName, _) in ed.Cases ->

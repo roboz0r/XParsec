@@ -10,8 +10,9 @@ module NumberCovariance =
     [<Literal>]
     let private NumberToken = "number"
 
-    [<Literal>]
-    let private FloatCanon = "float"
+    /// How `float` is SPELLED in the assertion below — off its own identity, so the message
+    /// cannot name a type other than the one that was checked.
+    let private floatCanonName = SymbolKeyOps.intrinsicName RuntimeNames.floatKey
 
     let wrap (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
         match inner.IntrinsicForwardRepr.TryGetValue(RuntimeNames.floatKey) with
@@ -19,10 +20,10 @@ module NumberCovariance =
         | other ->
             failwithf
                 "NumberCovariance: `%s` must repr to `%s` for the covariant `%s → %s` identity, but its repr is %A"
-                FloatCanon
+                floatCanonName
                 NumberToken
                 NumberToken
-                FloatCanon
+                floatCanonName
                 other
 
         // The `number` token is a manifest-owned platform name, never a Vesper identity: matching

@@ -9,8 +9,8 @@ open XParsec.FSharp.Lexer
 module PrintfSpec =
 
     /// A format literal freezes to a `New` of this type, taking the raw string.
-    [<Literal>]
-    let printfFormatName = "Microsoft.FSharp.Core.PrintfFormat"
+    let printfFormatName: string =
+        SymbolKeyOps.bareName (SymbolKeyOps.typeMetaName RuntimeNames.printfFormatKey)
 
     let private tyUnit: SemType = TyConst(RuntimeNames.unitKey, EqArray.empty)
 

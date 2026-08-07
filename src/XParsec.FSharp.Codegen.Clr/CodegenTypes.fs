@@ -117,12 +117,12 @@ type internal ClassDecl =
     }
 
 /// A partitioned NUMERIC enum — all-integer cases only (string/mixed land in
-/// `StructEnumDecl`). `Underlying` names the integral primitive (`int` / `byte` / `int64`)
-/// the `value__` field takes; `Cases` is `(name, literal)` in declaration order.
+/// `StructEnumDecl`). `Underlying` is the integral primitive identity (`int` / `byte` /
+/// `int64`) the `value__` field takes; `Cases` is `(name, literal)` in declaration order.
 type internal EnumDecl =
     {
         Decl: TastAccessor.TypeDecl
-        Underlying: string
+        Underlying: SymbolKey
         Cases: (string * TConstValue) list
     }
 

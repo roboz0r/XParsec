@@ -253,7 +253,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 t
         // A structural literal has no IL repr of its own — erase to its base primitive.
         // External (TS/JS) vocabulary only, so this arm is rarely reached on CLR.
-        | FTLiteral v -> encodeType te (FTConst(RuntimeNames.primitiveKey v.BaseName, EqArray.empty))
+        | FTLiteral v -> encodeType te (FTConst(RuntimeNames.literalBaseKey v, EqArray.empty))
         // A carried type-level computation (keyof / indexed-access / conditional) is a JS-seam
         // construct with no CLR repr; the front end must ground-evaluate it before codegen.
         | FTKeyOf _

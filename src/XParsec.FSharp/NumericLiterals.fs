@@ -13,7 +13,7 @@ open XParsec.FSharp
 /// An integral width, AS A VALUE. Every layer that carries an integral constant keys off
 /// this one type — the literal reader (`NumericLiteralValue`), the semantic constant model
 /// (`TConstValue`), the elaborator's enum-underlying-type choice, and both backends — so a
-/// consumer ASKS a width its properties (`IntWidth.name`, `IntWidth.isSigned`, …) instead
+/// consumer ASKS a width its properties (`IntWidth.suffix`, `IntWidth.isSigned`, …) instead
 /// of re-deriving them by enumerating one constant case per width at every site.
 ///
 /// That is the difference between a width the compiler tracks and one it doesn't. The
@@ -49,23 +49,6 @@ type IntWidth =
 /// width's own signedness, `boxed` gives the .NET primitive, and a backend truncates it to
 /// its own stack width. All three are correct on that one encoding alone.
 module IntWidth =
-
-    /// The F# primitive type NAME the width's type resolves by (`RuntimeNames.primitiveKey`,
-    /// `IntrinsicSet.OfIntWidth`). THE width→name projection: the elaborator picks an enum's
-    /// underlying type with it and the CLR backend types the constant it loads with it, and
-    /// spelling it twice is how those two come to disagree about an enum.
-    let name (w: IntWidth) : string =
-        match w with
-        | IntWidth.SByte -> "sbyte"
-        | IntWidth.Byte -> "byte"
-        | IntWidth.Int16 -> "int16"
-        | IntWidth.UInt16 -> "uint16"
-        | IntWidth.Int32 -> "int"
-        | IntWidth.UInt32 -> "uint32"
-        | IntWidth.Int64 -> "int64"
-        | IntWidth.UInt64 -> "uint64"
-        | IntWidth.NativeInt -> "nativeint"
-        | IntWidth.UNativeInt -> "unativeint"
 
     /// The F# literal suffix (`10y`, `10UL`). `int` alone is unsuffixed — it is the width an
     /// unannotated literal defaults to.
