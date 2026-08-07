@@ -232,22 +232,6 @@ counts edges from. An `iterDeclExprs` sibling — or having the first `List.map`
 as it goes — would drop a whole tree rebuild per file and make the intent readable without noting
 that the result is ignored.
 
-### `ResolverAllowlistTests.fs:36` — the allowlist was kept green by a doc comment, and it went red
-
-The sweep of `Passes/Unification/Translate.fs` deleted the only two mentions of `ctx.Resolver`
-in that file (both `///` lines, at HEAD `:705` and `:723`), and the allowlist test failed with
-"sanctioned reader(s) no longer read ctx.Resolver". The entry was already stale in substance:
-`Translate.fs` has NO code reference to `ctx.Resolver` at HEAD and none now — its by-name reach
-for the `float<m>` measure carrier goes through `NameResolutionTypeHeadStamp.tryResolveExternalTypeKey`,
-and `TypeHeadStamp.fs` is sanctioned in its own right. I pruned the entry, which is what the
-test's failure message instructs, rather than restore a comment to satisfy a text grep.
-
-The general defect stands and is the same one recorded against `PassContext.fs` in part 1: the
-test matches raw file text, so a doc comment counts as a "reader". That makes it both
-over-permissive (prose alone satisfies it) and fragile (a correct comment deletion turns it
-red). Matching a code-shaped pattern, or driving it off the compiled references, would fix
-both. Until then, expect any future sweep touching a sanctioned file to have to re-check it.
-
 ### `Freeze.fs:44` — a residual typar degrades to `FTUnknown "?unresolved-typar"` with no diagnostic
 
 The `| _ -> FTUnknown "?unresolved-typar"` arm carried a comment asserting the case was "already

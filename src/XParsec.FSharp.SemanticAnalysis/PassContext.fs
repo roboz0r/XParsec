@@ -245,8 +245,12 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member _.Provider: IExternalSymbolStore = provider
 
     /// The RESOLVER view (`string → identity`), the only string-lookup handle a `PassContext`
-    /// exposes. `ResolverAllowlistTests` greps each file for `ctx.Resolver`.
+    /// exposes. Read by NameResolution, which stamps each result for later passes to read.
     member _.Resolver: IExternalSymbolResolver = provider
+
+    /// A field name → every external record declaring it. Not a spelling lookup: a bare
+    /// `{ X = … }` names no record — the field set IS the identity, pinned at inference.
+    member _.TryRecordsWithField(fieldName: string) : ExternalRecordCandidate[] = provider.TryRecordsWithField fieldName
 
     /// The language-capability identities (enumerable, enumerator, disposable, equatable,
     /// comparable), resolved once from contract names — no BCL identity is hardcoded.

@@ -211,11 +211,8 @@ module internal UnificationInferResolve =
                 PartialMatches = []
             }
         | first :: _ ->
-            // A bare `{ X = … }` field set has no written record identity for NameResolution
-            // to stamp — the verdict IS this field-set intersection — so it reaches for the
-            // resolver view's reverse index directly, allowlisted in `ResolverAllowlistTests`.
             let providerRecords =
-                ctx.Resolver.TryRecordsWithField first
+                ctx.TryRecordsWithField first
                 |> Array.filter (fun cand -> not bareIndex || admitsBareExternalRecord ctx cand)
 
             let candidates =

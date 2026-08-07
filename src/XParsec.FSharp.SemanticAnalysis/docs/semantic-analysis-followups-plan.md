@@ -12,52 +12,6 @@ subagent report.
 
 ## Defects
 
-### `ResolverAllowlistTests.fs:29` — a test that a comment edit can turn red
-
-The test greps each source file's raw text for `ctx.Resolver` (`:55`). Every other sanctioned
-entry contains that spelling in CODE, but the declaration site spells `member _.Resolver`
-(`PassContext.fs:306`) — so `PassContext.fs` matched only through a doc comment, as the
-allowlist's own note ("the member definition (and its doc-comment)") records. This sweep deleted
-that comment and the suite went red with `stale`.
-
-Patched by having the `Resolver` doc name the grep, which is worth stating anyway. That is a
-patch, not the fix.
-
-**Decision: no test may depend on comment text.** A test that reads source as text must exclude
-comments, or key on something the compiler enforces. Here that means matching `PassContext.fs`
-on its declaration, or scanning only the passes — the point is to catch a new consumer-pass
-reader, and the member's own file is not one.
-
-**A SECOND file is in the same state, found before it broke.**
-`Passes/Unification/Translate.fs` is sanctioned as "the by-name hatch", but its code contains no
-`ctx.Resolver`: `tryResolveExternalType` (`:730-737`) reaches the resolver INDIRECTLY through
-`NameResolutionTypeHeadStamp.tryResolveExternalTypeKey`. The only two occurrences of the literal
-in that file are doc comments (`:705`, `:723`). So two of the six allowlist entries are held up by
-prose alone, and the sweep would have failed the suite again at that file.
-
-That also means the allowlist is not measuring what it claims: it enumerates files whose TEXT
-mentions a spelling, not files that read the resolver. A pass could acquire a genuine
-`ctx.Resolver` read through an indirection like this one and the test would never notice.
-
-The sweep of `Translate.fs` deliberately preserved one occurrence, at **`:533`**, in the
-`tryResolveExternalType` doc. The margin is now a SINGLE line in that file: any future edit to
-that one doc comment turns the suite red. Same for `PassContext.fs:305`. Until the test is fixed,
-both lines are load-bearing prose.
-
-The obligation is wider than this one test, because the failure mode is invisible until someone
-edits prose. Every source-scanning test needs auditing against it:
-
-- `ResolverAllowlistTests.fs` — comment-fragile in both directions. A deleted comment fails it
-  `stale` (this bug); a comment MENTIONING `ctx.Resolver` in an unsanctioned file fails it
-  `unsanctioned`, so prose alone can forge a violation.
-- `CitationTests.fs` — reads comments BY DESIGN and is sound in this respect: it fails only on a
-  citation naming a member that does not exist, so deleting prose can never break it. The
-  distinction to preserve when auditing the others: it asserts about the comments, it does not
-  use comments as evidence about the code.
-- `ConformanceTests.fs`, and the `ReadAllText`/`EnumerateFiles` users under
-  `test/XParsec.FSharp.Codegen.*.Tests/` — unaudited; most read `.fs` corpus fixtures rather than
-  this project's own source, which would make them immune, but that has not been checked.
-
 ### `Passes/Unification/InferApp.fs:83` — a non-`TyFun` step silently disables every later verdict
 
 `recordFunArityVerdicts` threads `currTy` through the argument loop and ends it with

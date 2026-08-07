@@ -222,10 +222,11 @@ Not blocked by the above, and each stands on its own.
   `RuntimeNames.fs:77` — *not* `structuralFormatKey`, which does not exist).
 - **`ClrProvider.fs:323-324`'s `compiledName = "List.fold"`** string test; drop
   `compiledName` from `ICodegenProvider.TryEmitCall` (`ICodegenProvider.fs:296`).
-- **Extend `ResolverAllowlistTests` to scan `src/XParsec.FSharp.Codegen.*`.** The only
-  remaining reader should be `Codegen.Common/SymbolProviders.fs:161/208/232`, which is
-  contract *extraction* (a producer resolving its own qualified names, not a consumer)
-  and belongs on the allowlist with that justification.
+- **`Codegen.Common/SymbolProviders.fs:161/208/232` stays a resolver reach**: contract
+  *extraction*, a producer resolving its own qualified names, not a consumer lookup. Narrowing
+  `WalkCtx.Provider` above is what enforces the rest; there is no allowlist test to add it to —
+  `ResolverAllowlistTests` has been deleted (it matched raw source text, so a doc comment
+  counted as a reader).
 
 ## Known adjacent gaps
 
