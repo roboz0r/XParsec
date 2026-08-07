@@ -136,6 +136,43 @@ module internal UnificationInferControlFlow =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// A `'T :> IFace<…>` bound whose target is a *project-local* interface. Resolved by key,
+    /// not bare name: `Fun` at arity 2 and at arity 3 are different interfaces sharing one name.
+    [<return: Struct>]
+    let private (|CoercedToLocalInterface|_|)
+        (ctx: PassContext)
+        (c: SemanticConstraint)
+        : (TypeKey * EqArray<SemType>) voption =
+        match c.Kind with
+        | SemanticConstraintKind.Coercion target ->
+            match resolveStep ctx.Store target with
+            | TyClass(ifaceKey, ifaceArgs) ->
+                match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
+                | ValueSome info when info.IsInterface -> ValueSome(ifaceKey, ifaceArgs)
+                | _ -> ValueNone
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// The first local-interface bound on `tv` that `pick` accepts. A typar may carry several
+    /// bounds, so a `ValueNone` from `pick` is a miss on that bound, not on the typar.
+    let private tryPickCoercedInterface
+        (ctx: PassContext)
+        (tv: TyVarId)
+        (pick: TypeKey -> EqArray<SemType> -> 'a voption)
+        : 'a voption =
+        let rec scan (cs: SemanticConstraint list) =
+            match cs with
+            | [] -> ValueNone
+            | c :: rest ->
+                match c with
+                | CoercedToLocalInterface ctx (ifaceKey, ifaceArgs) ->
+                    match pick ifaceKey ifaceArgs with
+                    | ValueSome _ as hit -> hit
+                    | ValueNone -> scan rest
+                | _ -> scan rest
+
+        scan (ctx.Store.Constraints.Items(UnionFind.find ctx.Store tv))
+
     /// A short display name for an anonymous-union member in an incomplete-match
     /// diagnostic. Members are ground annotation types (`int`, `string`, `null`), so the
     /// bare `TyConst` name reads well; anything compound falls back to `%A`.
@@ -460,83 +497,59 @@ module internal UnificationInferControlFlow =
     /// (`'E :> IStructEnumerator<'T>`). Scan its `Coercion` constraints for an interface with
     /// `MoveNext(): bool` and `Current`; those members dispatch via `constrained. callvirt`.
     and tryConstrainedTyparEnumerator (ctx: PassContext) (tv: TyVarId) : EnumProbe voption =
-        let rec scan (cs: SemanticConstraint list) =
-            match cs with
-            | [] -> ValueNone
-            | c :: rest ->
-                match c.Kind with
-                | SemanticConstraintKind.Coercion target ->
-                    match resolveStep ctx.Store target with
-                    | TyClass(ifaceKey, ifaceArgs) ->
-                        // Resolve by key, not bare name: `Fun` at arity 2 and at arity 3 are
-                        // different interfaces sharing one name.
-                        match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
-                        | ValueSome info when info.IsInterface ->
-                            match
-                                tryClassChainMember ctx ifaceKey ifaceArgs "MoveNext",
-                                tryClassChainMember ctx ifaceKey ifaceArgs "Current"
-                            with
-                            | ValueSome mnTy, ValueSome curTy ->
-                                match zonk ctx.Store mnTy with
-                                | TyFun(_, TyBool) ->
-                                    ValueSome
-                                        {
-                                            // `Current` is a property — its type IS the element type.
-                                            ElemTy = zonk ctx.Store curTy
-                                            Members = ForInEnumMembers.ConstrainedInterface(ifaceKey, ifaceArgs)
-                                            // `constrained.` already addresses a struct `E`, and no
-                                            // constraint here is probed for `IDisposable`.
-                                            IsValueType = false
-                                            Disposable = false
-                                        }
-                                | _ -> scan rest
-                            | _ -> scan rest
-                        | _ -> scan rest
-                    | _ -> scan rest
-                | _ -> scan rest
-
-        scan (ctx.Store.Constraints.Items(UnionFind.find ctx.Store tv))
+        tryPickCoercedInterface
+            ctx
+            tv
+            (fun ifaceKey ifaceArgs ->
+                match
+                    tryClassChainMember ctx ifaceKey ifaceArgs "MoveNext",
+                    tryClassChainMember ctx ifaceKey ifaceArgs "Current"
+                with
+                | ValueSome mnTy, ValueSome curTy ->
+                    match zonk ctx.Store mnTy with
+                    | TyFun(_, TyBool) ->
+                        ValueSome
+                            {
+                                // `Current` is a property — its type IS the element type.
+                                ElemTy = zonk ctx.Store curTy
+                                Members = ForInEnumMembers.ConstrainedInterface(ifaceKey, ifaceArgs)
+                                // `constrained.` already addresses a struct `E`, and no
+                                // constraint here is probed for `IDisposable`.
+                                IsValueType = false
+                                Disposable = false
+                            }
+                    | _ -> ValueNone
+                | _ -> ValueNone
+            )
 
     /// `for x in s` where the source `s` is a *generic typar* constrained to a project-local
     /// seq interface (`'S :> IStructSeq<'T, 'E>`) declaring `GetEnumerator(): E`. Resolves
     /// `E`'s walk members; the calls then dispatch via `constrained. callvirt`.
     and tryTyparSeqSource (ctx: PassContext) (tv: TyVarId) : (SemType * ForInEnumerator) voption =
-        let rec scan (cs: SemanticConstraint list) =
-            match cs with
-            | [] -> ValueNone
-            | c :: rest ->
-                match c.Kind with
-                | SemanticConstraintKind.Coercion target ->
-                    match resolveStep ctx.Store target with
-                    | TyClass(ifaceKey, ifaceArgs) ->
-                        // Resolve by key, not bare name: `Fun` at arity 2 and at arity 3 are
-                        // different interfaces sharing one name.
-                        match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
-                        | ValueSome info when info.IsInterface ->
-                            match tryClassChainMember ctx ifaceKey ifaceArgs "GetEnumerator" with
-                            | ValueSome mty ->
-                                match zonk ctx.Store mty with
-                                | TyFun(_, enumTy) ->
-                                    match tryConstrainedEnumeratorMembers ctx enumTy with
-                                    | ValueSome probe ->
-                                        ValueSome(
-                                            probe.ElemTy,
-                                            ForInEnumeratorG.Pattern(
-                                                enumTy,
-                                                ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs),
-                                                probe.Members,
-                                                probe.IsValueType,
-                                                probe.Disposable
-                                            )
-                                        )
-                                    | ValueNone -> scan rest
-                                | _ -> scan rest
-                            | ValueNone -> scan rest
-                        | _ -> scan rest
-                    | _ -> scan rest
-                | _ -> scan rest
-
-        scan (ctx.Store.Constraints.Items(UnionFind.find ctx.Store tv))
+        tryPickCoercedInterface
+            ctx
+            tv
+            (fun ifaceKey ifaceArgs ->
+                match tryClassChainMember ctx ifaceKey ifaceArgs "GetEnumerator" with
+                | ValueSome mty ->
+                    match zonk ctx.Store mty with
+                    | TyFun(_, enumTy) ->
+                        match tryConstrainedEnumeratorMembers ctx enumTy with
+                        | ValueSome probe ->
+                            ValueSome(
+                                probe.ElemTy,
+                                ForInEnumeratorG.Pattern(
+                                    enumTy,
+                                    ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs),
+                                    probe.Members,
+                                    probe.IsValueType,
+                                    probe.Disposable
+                                )
+                            )
+                        | ValueNone -> ValueNone
+                    | _ -> ValueNone
+                | ValueNone -> ValueNone
+            )
 
     /// `srcTy` is `IEnumerable<'T>` itself, a type implementing it, or a source exposing a
     /// pattern-based `GetEnumerator()`. Returns the `'T` the loop pattern is pinned to,

@@ -1518,16 +1518,6 @@ precedent exists; the blocker is that `SemType` has no byref-like predicate to t
 that the descriptor's `dispose` field would have to become a member reference. Recorded from a
 14-line TODO cut to one line by the comment sweep.
 
-### `InferControlFlow.fs:471` — `tryConstrainedTyparEnumerator` and `tryTyparSeqSource` are the same constraint scan twice
-
-Both walk `ctx.Store.Constraints.Items` with an identical recursive `scan`, match
-`SemanticConstraintKind.Coercion`, `resolveStep` the target, require `TyClass`, look the key up
-with `TypeRegistry.tryClassByKey`, gate on `info.IsInterface`, probe a member by name and
-`scan rest` on every miss — down to a byte-identical two-line comment about resolving by key
-rather than bare name. The only difference is which member is probed (`MoveNext`+`Current`
-versus `GetEnumerator`) and what is built on a hit. A `tryPickCoercedInterface ctx tv (fun
-ifaceKey ifaceArgs -> …)` helper collapses both to their hit branch.
-
 ### `InferTypeOps.fs:43` — explicit type arguments of the wrong arity are silently discarded
 
 `inferTypeApp` only unifies the supplied arguments when `freshArgs.Length = List.length
