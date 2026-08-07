@@ -50,7 +50,7 @@ let tests =
         else 0
 
     testList
-        "Phase 3 structural comparison"
+        "structural comparison"
         [
             test "record CompareTo compares fields in declaration order" {
                 // §Tests #1: `{ X = 1; Y = 2 }.CompareTo({ X = 1; Y = 3 }) < 0`.

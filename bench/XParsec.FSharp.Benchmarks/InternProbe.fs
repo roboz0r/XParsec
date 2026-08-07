@@ -1,5 +1,5 @@
-/// Dev-only instrumentation for the interning/caching go-no-go (docs/engine-rewrite-plan.md
-/// "benchmarking"). NOT a shipped benchmark — a spike to measure the CEILINGS before any
+/// Dev-only instrumentation for the interning/caching go-no-go.
+/// NOT a shipped benchmark — a spike to measure the CEILINGS before any
 /// cache is built, so a cache that cannot be shown to pay never lands:
 ///
 ///   * Pure analyse+freeze wall time per stage, ISOLATED from parse. `analyseAssemblyWith`

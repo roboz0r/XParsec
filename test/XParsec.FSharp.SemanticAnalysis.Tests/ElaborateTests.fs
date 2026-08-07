@@ -236,9 +236,8 @@ let namespaceTests =
             test "name resolution + inference run across namespace elements" {
                 // `y`'s body references the earlier `x`; it only resolves and
                 // types if NameResolution and Unification actually walked the
-                // namespace (both were no-ops here before G1). Asserting the
-                // namespace form matches the module form locks that in without
-                // hard-coding the freshly-named TAST rendering.
+                // namespace. Asserting the namespace form matches the module form
+                // locks that in without hard-coding the freshly-named TAST rendering.
                 let nsForm = analyse "namespace Foo\n\nlet x = 1\nlet y = x + 1"
                 let modForm = analyse "let x = 1\nlet y = x + 1"
 
@@ -382,9 +381,8 @@ let interfaceTests =
                 let tast =
                     Pipeline.analyseSemFor "Vesper.Core" realProvider.Value (Hashing.originSourceOfText lexed) file
 
-                // Registering the abstract member (rather than rejecting it) means
-                // a clean analysis — the G1-era "member kind not supported" error
-                // is gone.
+                // Registering the abstract member (rather than rejecting it with a
+                // "member kind not supported" error) means a clean analysis.
                 Expect.isEmpty tast.Diagnostics "no diagnostics for an abstract member"
 
                 match tast.Decls with

@@ -132,7 +132,7 @@ let tests =
 // `[…]` literals to the cons-list directly (no opt-in harness). The `(+)` operator
 // section is already proven by SelfHostTests' canonical sample; these add the
 // explicit folder lambda (curried — `fun s -> fun x -> …` — because Elaborate does not
-// lower the multi-arg `fun s x -> …` applicative pattern, the plan's known gap) and
+// lower the multi-arg `fun s x -> …` applicative pattern) and
 // the empty-list base case.
 
 [<Tests>]
@@ -159,7 +159,7 @@ let runtimeTests =
         ]
 
 // ---- the "grow" set: length/isEmpty/head/tail/map/filter/append/rev ----------
-// Added to `list-min.fs` + `list.fsi` (vesper-lib-test-plan Phase 2 "then grow").
+// Added to `list-min.fs` + `list.fsi`.
 // Each row composes a new function with an already-proven one (`fold`/`head`) so
 // the result prints as a scalar — no list-printing surface is needed.
 
@@ -273,8 +273,7 @@ let externalMatchRuntime =
         ]
 
 // ---- front-end regression guard (analysis only) ------------------------------
-// The cheap probe the plan calls for: `List.fold` type-checks through the default
-// contract stack without running it.
+// `List.fold` type-checks through the default contract stack without running it.
 [<Tests>]
 let frontEndTests =
     testList

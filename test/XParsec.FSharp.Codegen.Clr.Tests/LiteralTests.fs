@@ -3,7 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.LiteralTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Layer 1 behavioral corpus (docs/codegen-test-strategy-plan.md): primitive
+// Behavioral corpus: primitive
 // literals routed through the printf specifier that matches their type. Each
 // row is one `runs` assertion named by its source — the table *is* the coverage
 // map for "which literal forms reach IL and print their value". A break in

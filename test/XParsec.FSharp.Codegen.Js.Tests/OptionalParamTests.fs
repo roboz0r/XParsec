@@ -127,7 +127,7 @@ let tests =
             }
 
             test "a callback arg plus a supplied config-object optional widens by structure" {
-                // `opts?` supplied as a Vesper record — the G1 structural-width admission at
+                // `opts?` supplied as a Vesper record — the structural-width admission at
                 // the foreign-call arg position (gated on the interface). The callback maps
                 // to a curried `string -> string -> unit`.
                 let errs =

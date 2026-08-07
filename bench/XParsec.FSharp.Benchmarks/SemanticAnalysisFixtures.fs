@@ -4,7 +4,7 @@
 /// Each package is analysed as its OWN assembly against a provider composed from its
 /// `depends-on` closure (self EXCLUDED — the package defines its own types here),
 /// mirroring the package-build wiring (`Codegen.Clr.Tests` `buildPackage`/`vesperListDll`).
-/// Why this shape (docs/engine-rewrite-plan.md "benchmarking"): the CROSS-STAGE re-thaw of
+/// Why this shape: the CROSS-STAGE re-thaw of
 /// shared upstream contracts — Core's `.fsi` thawed by List's provider AND again by Set's
 /// AND again by the synthetic consumer's — is the interning ceiling a single-file bench
 /// cannot see. The chain prefix is the size axis, not synthetic sizes.
@@ -68,7 +68,7 @@ let packageStage (pkg: string) : Stage =
         Files = files
     }
 
-/// A small hand-written consumer of Vesper.Set — the adversarial tail the plan calls for,
+/// A small hand-written consumer of Vesper.Set — the adversarial tail of the chain,
 /// kept CONSERVATIVE (list/primitive-based `Set` ops only; the `seq`-based members pull BCL
 /// enumerables unresolvable under `noMetaTail`). This is the one stage NOT proven green by
 /// an existing suite — the setup guard fails loudly if it regresses. Expand it toward the

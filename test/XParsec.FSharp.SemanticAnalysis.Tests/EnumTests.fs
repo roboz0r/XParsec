@@ -1,10 +1,8 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.EnumTests
 
-// Step 1b: enum case-literal resolution + numeric / string / mixed
-// classification + diagnostics. The first coverage to actually drive an enum
-// declaration (`type E = | C = v`) through elaboration — `tryEnumType` was
-// unexercised by the 1a skeleton. Each test analyses an enum source through the
-// full pass pipeline and asserts (a) the resolved case→literal table + derived
+// Enum case-literal resolution + numeric / string / mixed classification +
+// diagnostics. Each test drives an enum declaration (`type E = | C = v`) through
+// the full pass pipeline and asserts (a) the resolved case→literal table + derived
 // variant via the `TastShape` renderer (`enum<variant> | C = <lit>`), and
 // (b) the reported diagnostics (the mixed warning / the illegal-case error).
 
@@ -170,7 +168,7 @@ let tests =
                 Expect.equal (List.length (errors tast)) 1 "exactly one error for the negative unsigned case"
             }
 
-            // --- Step 2: underlying-type derivation (where width lives) ----------
+            // --- underlying-type derivation (where width lives) ------------------
 
             test "underlying type: unsuffixed numeric cases default to int (≡ I32)" {
                 Expect.equal (underlying "type C = | A = 0 | B = 1") (ValueSome RuntimeNames.intKey) "unsuffixed → int"
@@ -218,7 +216,7 @@ let tests =
                 Expect.isEmpty (errors tast) "no width conflict — unsuffixed adopts int64"
             }
 
-            // --- Step 3: member / value access (E.C1) ------------------------
+            // --- member / value access (E.C1) ------------------------------------
 
             test "E.C1 infers the enum type and lowers to a static-field access" {
                 // Cases are static members on the enum type (CLR enum field access):
@@ -268,7 +266,7 @@ let tests =
                     "an unknown enum case is diagnosed, mirroring the unknown-union-case miss"
             }
 
-            // --- Step 4: pattern matching (equality only) ---------------------
+            // --- pattern matching (equality only) --------------------------------
 
             test "match on an enum scrutinee with a wildcard type-checks cleanly" {
                 // `| E.A` / `| E.B` are enum-case constant patterns; the scrutinee

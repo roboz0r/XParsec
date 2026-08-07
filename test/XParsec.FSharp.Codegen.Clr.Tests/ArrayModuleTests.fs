@@ -5,8 +5,8 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The behavioral runtime suite for `Vesper.Array` (vesper-lib-test-plan Phase 3),
-// the codebase's first *generic intrinsic* (`'T[]`) to emit end-to-end. The
+// The behavioral runtime suite for `Vesper.Array`, the codebase's first
+// *generic intrinsic* (`'T[]`) to emit end-to-end. The
 // surface has grown from the `zeroCreate`/`fold` starter to the FSharp.Core-shaped
 // subset built only from counted index loops, indexed read (`arr.[i]` → `ldelem`)
 // and write (`arr.[i] <- v` → `stelem`), `.Length` (`ldlen`), and `Vesper.Fun`
@@ -20,8 +20,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // Arrays are built through our own `zeroCreate` / `init` / `create`, so every row
 // stays on the BCL-only path (no FSharp.Core `ArrayModule.OfList` from an
-// `[| … |]` literal). Folders/mappers are *curried* (`fun s -> fun x -> …`) per
-// the Elaborate multi-arg-lambda gap the plan documents.
+// `[| … |]` literal). Folders/mappers are *curried* (`fun s -> fun x -> …`)
+// because Elaborate does not lower the multi-arg `fun s x -> …` form.
 
 // ---- reflection over the built Vesper.Array.dll (zeroCreate, pure-data) -------
 
@@ -67,7 +67,7 @@ let tests =
 // ---- driver programs: Array.fold (the HOF) + .Length / .[i] intrinsics -------
 // Arrays are built with `Array.zeroCreate` (BCL-only), so these never touch the
 // FSharp.Core array-literal lowering. The folder is *curried* (`fun s -> fun x ->
-// …`) per the Elaborate multi-arg-lambda gap the plan documents.
+// …`) because Elaborate does not lower the multi-arg `fun s x -> …` form.
 
 [<Tests>]
 let runtimeTests =

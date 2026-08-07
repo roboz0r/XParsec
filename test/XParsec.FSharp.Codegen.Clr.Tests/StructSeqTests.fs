@@ -93,17 +93,17 @@ let structSeqTests =
             // it compiles + runs 42. The no-box/`constrained.` struct-repr IL ideal
             // is asserted in the value-struct test below, NOT here.
             test "source lambda into a constrained 'TF :> Fun slot compiles + runs" {
-                let tast, artifact = compileSourceData "M0SourceLambdaFun"
+                let tast, artifact = compileSourceData "SourceLambdaFunSlot"
 
                 // (1) front-end verdict: does the unifier accept a structural TyFun
                 // at the `'TF :> Fun` slot? Failure here prints the rejecting diagnostic.
-                Expect.isEmpty tast.Diagnostics (sprintf "M0 front-end diagnostics: %A" tast.Diagnostics)
+                Expect.isEmpty tast.Diagnostics (sprintf "front-end diagnostics: %A" tast.Diagnostics)
 
                 // (2) runtime verdict
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
-                Expect.equal exitCode 0 "M0 Main returns 0"
-                Expect.equal (output.Replace("\r", "").Trim()) "42" "M0 apply (fun x -> x+1) 41 = 42"
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "42" "apply (fun x -> x+1) 41 = 42"
 
             // This only proves front-end accept + correct runtime. The IL-ideal
             // (a `constrained.` prefix `0xFE 0x16` and NO `box` `0x8C` in `apply`)
@@ -127,8 +127,8 @@ let structSeqTests =
             // constrained-typar shape these tests previously used now lowers to a
             // value-struct; that is the dedicated value-struct test above.)
             test "a non-capturing lambda lowers to a cached singleton (ldsfld at use, newobj in .cctor)" {
-                let tast, artifact = compileSourceData "StepBCachedSingleton"
-                Expect.isEmpty tast.Diagnostics (sprintf "Step B front-end diagnostics: %A" tast.Diagnostics)
+                let tast, artifact = compileSourceData "NonCapturingLambdaCachedSingleton"
+                Expect.isEmpty tast.Diagnostics (sprintf "cached-singleton diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -156,8 +156,8 @@ let structSeqTests =
             test "the same non-capturing lambda at two sites allocates once" {
                 // Plain function `int -> int` parameter ⇒ the heap-caching path (a
                 // constrained typar would take the value-struct path instead).
-                let tast, artifact = compileSourceData "StepBTwoSites"
-                Expect.isEmpty tast.Diagnostics (sprintf "Step B two-site diagnostics: %A" tast.Diagnostics)
+                let tast, artifact = compileSourceData "NonCapturingLambdaTwoSites"
+                Expect.isEmpty tast.Diagnostics (sprintf "two-site diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -189,8 +189,8 @@ let structSeqTests =
             // plain-function HOF is the genuine heap path this guard still describes (the
             // dedicated value-struct test above asserts the value-struct shape).
             test "a capturing lambda is NOT cached (still newobjs per construction)" {
-                let tast, artifact = compileSourceData "StepBCapturingNotCached"
-                Expect.isEmpty tast.Diagnostics (sprintf "Step B capturing diagnostics: %A" tast.Diagnostics)
+                let tast, artifact = compileSourceData "CapturingLambdaNotCached"
+                Expect.isEmpty tast.Diagnostics (sprintf "capturing-lambda diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -253,8 +253,8 @@ let structSeqTests =
             // the source lambda now reaches the SAME no-box shape the hand-written
             // `[<Struct>] Add1` fixture above proves.
             test "a captureless source lambda lowers to a no-box value-struct closure" {
-                let tast, artifact = compileSourceData "StepCValueStructClosure"
-                Expect.isEmpty tast.Diagnostics (sprintf "Step C front-end diagnostics: %A" tast.Diagnostics)
+                let tast, artifact = compileSourceData "CapturelessLambdaValueStruct"
+                Expect.isEmpty tast.Diagnostics (sprintf "captureless-lambda diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -312,8 +312,8 @@ let structSeqTests =
             // the capture real (the lambda's `n` is `mk`'s parameter), so the closure
             // has one genuine capture field.
             test "a capturing source lambda lowers to a no-box value-struct closure" {
-                let tast, artifact = compileSourceData "StepCM2CapturingValueStruct"
-                Expect.isEmpty tast.Diagnostics (sprintf "Step C M2 front-end diagnostics: %A" tast.Diagnostics)
+                let tast, artifact = compileSourceData "CapturingLambdaValueStruct"
+                Expect.isEmpty tast.Diagnostics (sprintf "capturing-lambda diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -395,8 +395,8 @@ let structSeqTests =
             // `Fun`-arity verdict threaded like `ClosureReprs`, (c) the 2-param flat
             // `Invoke` emission.
             test "a saturated 2-arg source lambda lowers to a no-box flat-Invoke value-struct" {
-                let tast, artifact = compileSourceData "StepCM3Flat2ValueStruct"
-                Expect.isEmpty tast.Diagnostics (sprintf "Step C M3 front-end diagnostics: %A" tast.Diagnostics)
+                let tast, artifact = compileSourceData "Flat2ArgLambdaValueStruct"
+                Expect.isEmpty tast.Diagnostics (sprintf "flat-2 lambda diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -473,7 +473,7 @@ let structSeqTests =
             // Exercises the arity-parametric peel/encoder/interface-spec path emitting
             // `Vesper.Fun`4<a,b,c,r>`.
             test "a saturated 3-arg source lambda lowers to a no-box flat-Invoke value-struct" {
-                let tast, artifact = compileSourceData "StepCM3Flat3ValueStruct"
+                let tast, artifact = compileSourceData "Flat3ArgLambdaValueStruct"
                 Expect.isEmpty tast.Diagnostics (sprintf "arity-3 front-end diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -546,7 +546,7 @@ let structSeqTests =
             // three inner lambdas peeled, NO nested inner closures), NO box. Emits
             // `Vesper.Fun`5<a,b,c,d,r>` — the widest flat function value-struct.
             test "a saturated 4-arg source lambda lowers to a no-box flat-Invoke value-struct" {
-                let tast, artifact = compileSourceData "StepCM3Flat4ValueStruct"
+                let tast, artifact = compileSourceData "Flat4ArgLambdaValueStruct"
                 Expect.isEmpty tast.Diagnostics (sprintf "arity-4 front-end diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -973,7 +973,7 @@ let structSeqTests =
             // `compileSource` (which tolerates the Seq contract not being stacked);
             // the library form is proven separately by `buildPackage "Vesper.Seq"`.
             test "struct-closure-typar map/fold pipeline runs non-allocating" {
-                let tast, artifact = compileSourceData "StructSeqRung4Pipeline"
+                let tast, artifact = compileSourceData "StructSeqTyparClosurePipeline"
                 let bytes = Codegen.toBytes artifact
                 Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
@@ -1029,8 +1029,8 @@ let structSeqTests =
             // corrupted the read (`h.F.Invoke 41`). With the fix the field's `'TF` arg is
             // GENERICINST VALUETYPE `<closure>$…` (`15 11 …`) and the round-trip yields 42.
             test "a stored binding's Fun typar slot is laid out as the <closure>$ value-struct" {
-                let tast, artifact = compileSourceData "M6PaStoredHolder"
-                Expect.isEmpty tast.Diagnostics (sprintf "M6 P-a diagnostics: %A" tast.Diagnostics)
+                let tast, artifact = compileSourceData "StoredFunTyparSlotHolder"
+                Expect.isEmpty tast.Diagnostics (sprintf "stored-holder diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -1115,9 +1115,9 @@ let structSeqTests =
             //      `<closure>$` value-struct and matches the receiver's impl. No
             //      type-equality rewrite (the old `rewriteClosureLeaves` is gone).
             test "SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
-                let tast, artifact = compileSourceData "StructSeqRung4M6SourceLambda"
+                let tast, artifact = compileSourceData "StructSeqSourceLambdaPipeline"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "M6 source-lambda pipeline diagnostics: %A" tast.Diagnostics)
+                Expect.isEmpty tast.Diagnostics (sprintf "source-lambda pipeline diagnostics: %A" tast.Diagnostics)
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -1166,9 +1166,9 @@ let structSeqTests =
             // both rewritten to the `<closure>$` value-struct. Same
             // output (14), same no-box constrained dispatch.
             test "nested-temp source-lambda map/fold pipeline runs non-allocating" {
-                let tast, artifact = compileSourceData "StructSeqRung4M6PbNested"
+                let tast, artifact = compileSourceData "StructSeqNestedTempPipeline"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "M6 P-b nested pipeline diagnostics: %A" tast.Diagnostics)
+                Expect.isEmpty tast.Diagnostics (sprintf "nested pipeline diagnostics: %A" tast.Diagnostics)
 
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -1213,8 +1213,8 @@ let structSeqTests =
             // is recorded at the application site by `subsumes`' caller regardless of
             // whether the head is project-local or external.
             test "a SOURCE lambda through fold's Fun slot lowers to a no-box value-struct" {
-                let tast, artifact = compileSourceData "StepCM3FoldSourceLambda"
-                Expect.isEmpty tast.Diagnostics (sprintf "M3 fold source-lambda diagnostics: %A" tast.Diagnostics)
+                let tast, artifact = compileSourceData "FoldSourceLambdaValueStruct"
+                Expect.isEmpty tast.Diagnostics (sprintf "fold source-lambda diagnostics: %A" tast.Diagnostics)
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -1246,9 +1246,9 @@ let structSeqTests =
             // to disambiguate. The closure identity rides through `'S`'s rewritten arg, so
             // the two same-typed `int->int` maps stay distinct.
             test "multi-map chain lowers each closure to its OWN value-struct slot" {
-                let tast, artifact = compileSourceData "StructSeqRung4M6PdMultiMap"
+                let tast, artifact = compileSourceData "StructSeqMultiMapChain"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "M6 P-d multi-map diagnostics: %A" tast.Diagnostics)
+                Expect.isEmpty tast.Diagnostics (sprintf "multi-map diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "28" "(x+1)*2 mapped then summed = 28"
@@ -1270,9 +1270,9 @@ let structSeqTests =
             // (`EntryPointNotFoundException` class). Only NODE identity disambiguates.
             // Expected output: for [1;2;3;4], each e -> ((e+1)*2)+3 = 7,9,11,13; sum = 40.
             test "three-map chain keeps each same-typed closure in its OWN slot" {
-                let tast, artifact = compileSourceData "StructSeqRung4M6PdThreeMap"
+                let tast, artifact = compileSourceData "StructSeqThreeMapChain"
                 let bytes = Codegen.toBytes artifact
-                Expect.isEmpty tast.Diagnostics (sprintf "M6 P-d three-map diagnostics: %A" tast.Diagnostics)
+                Expect.isEmpty tast.Diagnostics (sprintf "three-map diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "40" "((x+1)*2)+3 mapped then summed = 40"

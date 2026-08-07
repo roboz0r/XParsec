@@ -54,7 +54,7 @@ let tests =
                     du
                     + "\nlet r = match Dot with | Dot -> 0 | Pair(a, b) -> a + b\nprintfn \"%d\" r",
                     "0"
-                    // `:? T as x` type-test patterns (G1). Value-type target hits
+                    // `:? T as x` type-test patterns. Value-type target hits
                     // (isinst + unbox.any binds the unboxed int) and misses (falls
                     // through to the wildcard).
                     "let o = (42 :> obj)\nlet r = match o with | :? int as n -> n | _ -> 0\nprintfn \"%d\" r", "42"

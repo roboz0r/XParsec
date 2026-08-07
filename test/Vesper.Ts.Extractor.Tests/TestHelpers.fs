@@ -82,7 +82,7 @@ let globalsDtsFiles =
 
 let globalsManifest = lazy Path.Combine(globalsDir.Value, "globals.manifest.json")
 
-// ─── package fixtures (item 18: multi-file / package entry) ─────────────────
+// ─── package fixtures (multi-file / package entry) ──────────────────────────
 //
 // A package fixture is a DIRECTORY (entry `.d.ts` + sibling `.d.ts` modules +
 // `package.json`), not a flat `.d.ts`, so it lives in a SEPARATE `ts-fixtures/` tree.
@@ -102,7 +102,7 @@ let globalsManifest = lazy Path.Combine(globalsDir.Value, "globals.manifest.json
 let packagesDir =
     lazy DirectoryInfo(Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures")).FullName
 
-// The real-scale `lib.es2015` ref pack (Step 3) is vendored at `ts-fixtures/es2015/`
+// The real-scale `lib.es2015` ref pack is vendored at `ts-fixtures/es2015/`
 // like a package fixture, but it is NOT a resolvable npm package — it has no
 // `package.json`/entry `.d.ts`, and its manifest is produced by the `--lib-globals`
 // path over TypeScript's OWN lib files, not `--package`. So it is EXCLUDED from
@@ -172,12 +172,12 @@ let allManifestFiles =
                      [| globalsManifest.Value |]
                  else
                      [||])
-                // The ambient-modules fixture's per-module manifests (W1) join the
+                // The ambient-modules fixture's per-module manifests join the
                 // canonical-form + provider-resolution suites like any other
                 // `PackageManifest` (their per-module split is invisible to them).
                 ambientModulesManifests.Value
                 // The es2015 ref pack's manifest joins the canonical-form + provider-
-                // resolution suites like any other `PackageManifest` (Step 3). Its
+                // resolution suites like any other `PackageManifest`. Its
                 // real-scale export surface exercises those loaders at 100× the fixtures.
                 (if File.Exists es2015Manifest.Value then
                      [| es2015Manifest.Value |]
@@ -224,7 +224,7 @@ let testManifestCanonical (path: string) =
 
 /// Mirror of `TsManifestMembers.syntheticTypeName` (it is `private`): the SIMPLE
 /// name of the synthetic per-module grouping type that holds a module's overloaded
-/// free functions (Tier 2 item 9b). Kept in lock-step with the provider rule —
+/// free functions. Kept in lock-step with the provider rule —
 /// last '/'-segment of the module specifier, first char upper-cased.
 let private syntheticTypeName (moduleSpec: string) : string =
     let lastSeg =
@@ -257,8 +257,8 @@ let testProviderResolves (path: string) =
             match ex with
             | Schema.Export.Function(name, signatures, _) ->
                 if signatures.Length > 1 then
-                    // Tier 2 item 9b: an OVERLOADED free function is no longer a bare
-                    // function — it is grouped as static members of the synthetic
+                    // An OVERLOADED free function is not a bare function — it is
+                    // grouped as static members of the synthetic
                     // per-module type, so it must NOT resolve via `TryLookup`, while the
                     // synthetic type resolves via `TryLookupType` and its overloads via
                     // `TryLookupMembers` (one member per signature, distinct keys).
@@ -300,7 +300,7 @@ let testProviderResolves (path: string) =
                 let name = SymbolKeyOps.arityName (q name) typeParams
                 Expect.isTrue (prov.TryLookupType name).IsSome $"type '{name}' should resolve"
 
-                // Generics (Tier 3 item 11): the declaring-axis arity round-trips — a
+                // Generics: the declaring-axis arity round-trips — a
                 // generic `Box<T>`/`Container<T>` resolves to an `ExternalTypeShape.Class`
                 // whose `TyparArity` equals the emitted `typeParams`. Trivially 0 for the
                 // (many) non-generic fixtures; exercises the count on `generics`.
@@ -309,7 +309,7 @@ let testProviderResolves (path: string) =
                     Expect.equal shape.TyparArity typeParams $"type '{name}' arity must equal its typeParams"
                 | _ -> ()
 
-                // Heritage (Tier 4 item 16): every heritage entry must land in EXACTLY one
+                // Heritage: every heritage entry must land in EXACTLY one
                 // provider slot — `FrozenInterfaces` (extended/implemented interfaces) or the
                 // single `FrozenBaseType` (base class) — so the populated count equals the
                 // emitted heritage count. Trivially satisfied for the (many) empty-heritage
@@ -348,7 +348,7 @@ let testProviderResolves (path: string) =
                     let resolved = prov.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey name 0, m.Name)
                     Expect.isGreaterThan resolved.Length 0 $"member '{name}.{m.Name}' should resolve"
 
-                    // Overload identity (Tier 2 item 9): a method with N call signatures
+                    // Overload identity: a method with N call signatures
                     // must expand into N members, each with its own `MemberKey` argSig —
                     // so the resolved count matches the signature count AND the keys are
                     // all distinct (no argSig collision survived). CONSTRUCTORS differ: a
@@ -389,7 +389,7 @@ let testProviderResolves (path: string) =
                 Expect.isTrue (prov.TryLookupType name).IsSome $"type alias '{name}' should resolve"
 
                 // A generic alias (`Pair<A,B>`) resolves to an `Abbrev` whose arity equals
-                // its `typeParams` (item 11 — was hardcoded 0 before generics landed).
+                // its `typeParams`.
                 match prov.TryLookupType name |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
                     Expect.equal arity typeParams $"type alias '{name}' arity must equal its typeParams"
@@ -511,7 +511,7 @@ let testExtractorMatchesGolden (dtsPath: string) =
                 (normalize (File.ReadAllText golden))
                 "Extractor output does not match the golden (run UPDATE_SNAPSHOTS=1 to refresh)"
 
-/// Package-entry golden contract (item 18): run the compiled extractor in PACKAGE
+/// Package-entry golden contract: run the compiled extractor in PACKAGE
 /// mode (`--package <specifier> <resolveFromDir> <packageName> <outPath>`) on a
 /// fixture DIRECTORY and assert its output equals `D/D.manifest.json`. The package is
 /// resolved as the relative specifier `./D` from the `ts-fixtures/` dir, so the
@@ -563,7 +563,7 @@ let testExtractorMatchesGoldenPackage (pkgDir: string) =
                 (normalize (File.ReadAllText golden))
                 "Package extractor output does not match the golden (run UPDATE_SNAPSHOTS=1 to refresh)"
 
-/// Ambient-globals golden contract (Step 2): run the compiled extractor in GLOBALS
+/// Ambient-globals golden contract: run the compiled extractor in GLOBALS
 /// mode (`--globals <packageName> <outPath> <dts…>`) over the fixture's sibling
 /// `.d.ts` files (all fed to one program so the checker merges cross-file
 /// declarations) and assert its output equals `globals/globals.manifest.json`. Same
@@ -703,7 +703,7 @@ let testExtractorMatchesGoldenAmbientModules () =
                         "ambient module manifest '%s' does not match its golden (run UPDATE_SNAPSHOTS=1 to refresh)"
                         name)
 
-/// Real-scale `lib.es2015` golden contract (Step 3): run the compiled extractor in
+/// Real-scale `lib.es2015` golden contract: run the compiled extractor in
 /// LIB-GLOBALS mode (`--lib-globals es2015 <outPath> <lib.es*.d.ts…>`) over the
 /// vendored `typescript` package's own lib files and assert its output equals
 /// `es2015/es2015.manifest.json`. Same skip/refresh semantics as the other goldens;

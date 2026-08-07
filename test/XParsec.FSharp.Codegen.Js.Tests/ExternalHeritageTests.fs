@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// TS provider — external INTERFACE heritage resolution (plan §G5). The TS-manifest
+// TS provider — external INTERFACE heritage resolution. The TS-manifest
 // provider stores an interface's `extends`-chain UN-flattened (`FrozenInterfaces` /
 // `FrozenBaseType`) and does NOT copy inherited members onto the subtype's `Members`
 // (unlike the CLR metadata layer, where `GetInterfaces()` pre-flattens the transitive

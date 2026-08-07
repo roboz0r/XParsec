@@ -57,7 +57,7 @@ let enumValueCodecTests =
                     | other -> failtestf "expected a single Enum export, got %A" other
             }
 
-            // Phase 1 diagnostics channel: a manifest carrying a Diagnostic (with a
+            // The diagnostics channel: a manifest carrying a Diagnostic (with a
             // Span) must survive encode→decode unchanged, including the optional span.
             test "a diagnostic with a span round-trips through the codec" {
                 let man: Schema.PackageManifest =
@@ -99,7 +99,7 @@ let enumValueCodecTests =
                 | Ok man2 -> Expect.equal man2 man "manifest with a diagnostic must survive encode→decode unchanged"
             }
 
-            // Step 1 refs table: a foreign-reference-bearing manifest must round-trip
+            // The refs table: a foreign-reference-bearing manifest must round-trip
             // (every RefKind included), AND an empty table must be OMITTED from the wire
             // so a ref-free manifest stays byte-identical to a pre-refs golden.
             test "a refs-bearing manifest round-trips and an empty table is omitted from the wire" {
@@ -153,18 +153,16 @@ let enumValueCodecTests =
             }
         ]
 
-// R4a STEP 2 (the mitt gate, first half): the real npm package `mitt@3.0.1` is
-// vendored at `ts-fixtures/mitt/` and extracted to a committed golden. Step 2 gave
-// the extractor FAITHFUL schema arms for mitt's five residual constructs (keyof,
-// indexed-access ×2, conditional) instead of the `structural-object-stubbed` degrade,
-// so the golden's `Diagnostics` collapses to `[]` — mitt now extracts with ZERO loss
-// of fidelity. The prior "five honest warnings" residue is GONE:
+// The mitt gate: the real npm package `mitt@3.0.1` is vendored at `ts-fixtures/mitt/`
+// and extracted to a committed golden. The extractor has FAITHFUL schema arms for
+// mitt's five residual constructs (keyof, indexed-access ×2, conditional) instead of
+// the `structural-object-stubbed` degrade, so the golden's `Diagnostics` collapses to
+// `[]` — mitt extracts with ZERO loss of fidelity:
 //   • `keyof Events` / `keyof T`              → `TypeRef.KeyOf` (via `isIndexType()`).
 //   • `Events[Key]` / `T[keyof T]`            → `TypeRef.IndexedAccess`.
 //   • `undefined extends Events[Key] ? Key : never` → `TypeRef.Conditional`.
-//   • `Key extends keyof Events`              → the method typar's bound now rides
-//     `Signature.TypeParamBounds` (carried, not evaluated — step 3 folds it).
-// The front end carries these arms INERT (step 2) and ground-EVALUATES them (step 3).
+//   • `Key extends keyof Events`              → the method typar's bound rides
+//     `Signature.TypeParamBounds`, carried rather than evaluated.
 [<Tests>]
 let mittDiagnosticsContract =
     let mittManifestPath = Path.Combine(packagesDir.Value, "mitt", "mitt.manifest.json")
@@ -424,7 +422,7 @@ let goldenTests =
                         test $"extract: {Path.GetFileName path}" { testExtractorMatchesGolden path }
                 ]
 
-            // Package-entry golden (item 18): run the extractor in package mode over
+            // Package-entry golden: run the extractor in package mode over
             // each `packages/<D>` fixture, pulling its cross-file `.d.ts` closure.
             testList
                 "package extractor output matches golden"
@@ -433,18 +431,18 @@ let goldenTests =
                         test $"extract-package: {Path.GetFileName pkgDir}" { testExtractorMatchesGoldenPackage pkgDir }
                 ]
 
-            // Ambient-globals golden (Step 2): run the extractor in globals mode over
+            // Ambient-globals golden: run the extractor in globals mode over
             // the fixture's sibling `.d.ts`, exercising the fused class-like pair + the
             // cross-file interface merge.
             test "extract-globals: globals" { testExtractorMatchesGoldenGlobals () }
 
-            // Ambient-modules golden (W1, decision A): run the extractor in
+            // Ambient-modules golden: run the extractor in
             // `--ambient-modules` mode over the two-quoted-module fixture and assert BOTH
             // modules enumerate into their own per-module manifest, with the cross-module
             // ref homed to its declaring specifier.
             test "extract-ambient-modules: two-modules" { testExtractorMatchesGoldenAmbientModules () }
 
-            // Real-scale lib-globals golden (Step 3): run the extractor in `--lib-globals`
+            // Real-scale lib-globals golden: run the extractor in `--lib-globals`
             // mode over TypeScript's OWN `lib.es2015.*` + `lib.es5` closure and assert the
             // vendored `es2015.manifest.json`. Regenerated under UPDATE_SNAPSHOTS.
             test "extract-lib-globals: es2015" { testExtractorMatchesGoldenLibGlobals () }

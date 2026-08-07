@@ -4,8 +4,7 @@
 /// drift: Fable-compiled to JS for the extractor, used natively on .NET by the
 /// loader.
 ///
-/// This is the GlueAST-equivalent boundary from
-/// `codegen-js-symbol-provider-plan.md` — a pure type-description grammar, never
+/// This is the GlueAST-equivalent boundary — a pure type-description grammar, never
 /// live `ts.*` objects or `SemType` closures (neither serialises). The grammar
 /// carries the deferred constructs (Dynamic / Structural / extra Export cases)
 /// up front so the schema version need not bump when they are filled in.

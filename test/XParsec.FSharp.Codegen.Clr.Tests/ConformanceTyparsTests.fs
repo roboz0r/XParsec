@@ -8,7 +8,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// T8 Step 4.2 — SEMANTIC typar-order conformance against a REAL extracted `.fsi`.
+// SEMANTIC typar-order conformance against a REAL extracted `.fsi`.
 //
 // `ConformanceTypars.checkFile` is unit-tested over the frozen pipeline in
 // `SemanticAnalysis.Tests/ConformanceTests.fs` with a STUB contract provider (which
@@ -51,7 +51,7 @@ let tests =
                 Expect.isEmpty mismatches (sprintf "list.fs conforms to list.fsi typar order; got %A" mismatches)
             }
 
-            // T8 Step 6 — generic type MEMBER conformance against a REAL extracted `.fsi`.
+            // Generic type MEMBER conformance against a REAL extracted `.fsi`.
             // `Formatter.AppendFormatted: 'T -> unit` (+ its overloads and
             // `AppendStructured`) are generic members the `.fsi` extractor now publishes
             // with a method-owned typar (`MethodTyparArity = 1`, `FTTypar(Method, 0)`), no

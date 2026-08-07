@@ -8,10 +8,10 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 let private errors (tast: TastFile) = tast.Diagnostics |> Diagnostic.errors
 
-// B-5 backend tests. `use x = e in body` lowers to `let x = e in try body
-// finally if x <> null then x.Dispose()`: the IL-IR exception region (H5) wraps
-// the body, and the binder is disposed on every exit. Under the §3b disposal-model
-// flip, a `use` binder must implement `disposable` (`System.IDisposable`) — matching
+// `use` backend tests. `use x = e in body` lowers to `let x = e in try body
+// finally if x <> null then x.Dispose()`: the IL-IR exception region wraps
+// the body, and the binder is disposed on every exit. A `use` binder must
+// implement `disposable` (`System.IDisposable`) — matching
 // real F# — so the project-local mock here implements the interface; its `Dispose`
 // records the call by printing. The front end records nothing (`dispose = ValueNone`)
 // and codegen disposes through the binder's nominal `Dispose` slot (which resolves the
@@ -141,7 +141,7 @@ let useTests =
                     "Dispose() runs in the finally; the body's 42 is reloaded as the result"
             }
 
-            test "`use` over an external BCL disposable compiles, runs, and disposes it (Step 4.3)" {
+            test "`use` over an external BCL disposable compiles, runs, and disposes it" {
                 // `System.IO.MemoryStream` declares no `Dispose` of its own — it
                 // inherits `Stream.Dispose()` and implements `IDisposable`. The front
                 // end therefore resolves the *interface* `Dispose` (the provider's

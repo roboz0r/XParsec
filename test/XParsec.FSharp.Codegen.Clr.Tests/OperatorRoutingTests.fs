@@ -143,7 +143,7 @@ let tests =
             }
 
             test "`let eq a b = a = b` over a DU answers STRUCTURALLY (the comparer base over a free method typar)" {
-                // The spike the whole by-key plan rests on: the static-opt base
+                // The static-opt base
                 // `EqualityComparer<^T>.Default.Equals` must EMIT, VERIFY, and answer
                 // structurally when `^T` is a free *method* typar — i.e. `EqualityComparer<!!0>`
                 // is encodable. Two distinct-but-equal `Tag` instances must compare

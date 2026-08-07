@@ -5,9 +5,9 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// vesper-lib-test-plan Phase 2 — the behavioral runtime suite for `Vesper.Option`.
+// The behavioral runtime suite for `Vesper.Option`.
 //
-// Route: REFLECTION-INVOKE (the plan's pure-data route), not driver programs. The
+// Route: REFLECTION-INVOKE over pure data, not driver programs. The
 // front-end now compiles `option.fs` end-to-end (the external-ctor-without-`new`
 // fix lets `Option.get` / `member Value`'s `raise (InvalidOperationException …)`
 // type-check), so `buildPackage "Vesper.Option"` emits a real `Vesper.Option.dll`.
@@ -169,9 +169,8 @@ let tests =
             test "higher-order combinators covered by OptionModuleCallRuntime (Gap 2 Layer D)" { () }
         ]
 
-// vesper-lib-test-plan Gap 2 **Layer A** — cross-package external-union type
-// resolution + instance-member access, the front-end half (analysis only, no
-// codegen). These are the cheap regression guard the plan calls for: a driver
+// Cross-package external-union type resolution + instance-member access, the
+// front-end half (analysis only, no codegen). The regression guarded: a driver
 // that `open`s `Vesper` and refers to `option` used to dealias the `'T option`
 // abbreviation to a mis-kinded `TyRecord("Vesper.Option", …)` (the extractor
 // bakes every nominal head as a record), so `o.IsSome` routed to the record
@@ -218,7 +217,7 @@ let frontEndTests =
             }
         ]
 
-// vesper-lib-test-plan Gap 2 **Layer B** — cross-package construction of an
+// Cross-package construction of an
 // external union's cases (`Some` / `None` from a referenced package, in scope via
 // `open Vesper`). The front end resolves the bare/qualified case name through the
 // provider's reverse case index and types it as a ctor; Elaborate lowers the
@@ -291,7 +290,7 @@ let layerBRuntime =
             test "(Some 5).Value reads the payload" { runsOption "5" "open Vesper\nprintfn \"%d\" (Some 5).Value" }
         ]
 
-// vesper-lib-test-plan Gap 2 **Layer C** — cross-package *pattern matching* on an
+// Cross-package *pattern matching* on an
 // external union's cases (`match o with Some x -> … | None -> …`). The front end
 // types the case pattern through the provider's reverse case index
 // (`tryExternalCasePattern`, unifying sub-patterns against the case's declared
@@ -362,7 +361,7 @@ let layerCRuntime =
             }
         ]
 
-// vesper-lib-test-plan Gap 2 **Layer D** — a general external *module-function*
+// A general external *module-function*
 // call (`Option.defaultValue 0 o`, `Option.map (fun x -> x + 1) o`). The front end
 // already resolved these through the contract provider's ambient open scope; the
 // only gap was the backend: `ClrProvider.TryEmitCall` hard-coded `List.fold` +

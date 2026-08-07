@@ -80,7 +80,7 @@ let shownTypeName (key: TypeKey) : string =
     name
 
 /// The declaring type's simple name for a member key — `StaticMethodCall` /
-/// `StaticPropertyGet` carry a `SymbolKey.MemberKey` (Phase 4), whose `decl` is
+/// `StaticPropertyGet` carry a `SymbolKey.MemberKey`, whose `decl` is
 /// the class. Falls back to the key's own simple name for any other shape.
 let private memberDeclName (key: SymbolKey) : string =
     match key with
@@ -408,7 +408,7 @@ type private Renderer() =
                 match via with
                 | CallVia.Base -> "^"
                 | CallVia.Self -> "."
-                // Rung-3 Wall B: constrained dispatch on a typar coerced to an
+                // Constrained dispatch on a typar coerced to an
                 // interface — render with `:` to read distinctly from `.`/`^`.
                 | CallVia.Interface _ -> ":"
             )
@@ -433,7 +433,7 @@ type private Renderer() =
                 match via with
                 | CallVia.Base -> "^"
                 | CallVia.Self -> "."
-                // Rung-3 Wall B: constrained dispatch on a typar coerced to an
+                // Constrained dispatch on a typar coerced to an
                 // interface — render with `:` to read distinctly from `.`/`^`.
                 | CallVia.Interface _ -> ":"
             )

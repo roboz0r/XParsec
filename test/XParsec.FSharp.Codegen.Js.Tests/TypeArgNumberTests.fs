@@ -6,10 +6,10 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// G1 Step 4 — a TS `number` in a generic ARGUMENT position (invariant) resolves to the
+// A TS `number` in a generic ARGUMENT position (invariant) resolves to the
 // repr-family UNION `int|float|float32|…`, NOT the covariant scalar `float`. An invariant
 // slot must admit family WRITES and family READS under one type, so neither the covariant
-// `float` (Step 3, a scalar read) nor the bare `number` token will do. The family is read
+// `float` (a scalar read) nor the bare `number` token will do. The family is read
 // off the reverse intrinsic axis — the same source `numericFamilyOr` widens a scalar param
 // off — so a `Box<number>` value read is exactly the family a `number` PARAMETER admits.
 //

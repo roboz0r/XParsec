@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Pre-1 (vesper-lib-test-plan.md): the manifest-driven `buildPackage` harness.
+// The manifest-driven `buildPackage` harness.
 // These anchors exercise it on the two *proven* packages only (Core + List) —
 // they assert the harness compiles each package's `impl` `.fs` to a BCL-only DLL
 // (empty `FSharpCoreDependencies`) and loads it with its expected public types,
@@ -87,9 +87,8 @@ let tests =
                 Expect.isNotNull (asm.GetType "Vesper.Collections.List`1") "the DLL contains Vesper.Collections.List`1"
             }
 
-            // Vesper.Seq's `struct-seq.clr.fs` is the graduation of the rung-3 inline
-            // struct-`Seq` slice (brainstorm-seq-module.md) into a real,
-            // generic-over-`'T` library: the `IStructEnumerator`/`IStructSeq` marker
+            // Vesper.Seq's `struct-seq.clr.fs` is a real, generic-over-`'T` library:
+            // the `IStructEnumerator`/`IStructSeq` marker
             // interfaces, the `ArrayEnumerator`/`ArraySeq` + `MapEnumerator`/`MapSeq`
             // struct pairs, and the `ofArray`/`map`/`fold` module. Built via the
             // STRICTER package path (`buildPackage` fails on any error diagnostic),

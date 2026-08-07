@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // `ClrArtifact.FSharpCoreDependencies` records which FSharp.Core constructs the
 // emission referenced. Empty ⇒ no `FSharp.Core.dll` dependency, so
-// `materialiseApp` ships the app without it; non-empty is the §D3 cut list. The
+// `materialiseApp` ships the app without it; non-empty is the cut list. The
 // set is authoritative because every FSharp.Core reference is minted (and
 // marked) through `ClrProvider`.
 

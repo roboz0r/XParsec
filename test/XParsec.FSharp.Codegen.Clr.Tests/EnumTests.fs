@@ -118,8 +118,8 @@ let enumTests =
                         ])
             }
 
-            // ---- step 5b: string / mixed enum struct-wrapper emission ----------
-            // SEQUENCING CHECK (plan-mandated): a string enum is a `[<Struct>]`
+            // ---- string / mixed enum struct-wrapper emission -------------------
+            // SEQUENCING CHECK: a string enum is a `[<Struct>]`
             // wrapper whose per-case `public static initonly` field is `.cctor`-init'd
             // by constructing the wrapper from the case's string literal. Reflect over
             // the loaded PE to prove the field emitted, the type is a value type, and

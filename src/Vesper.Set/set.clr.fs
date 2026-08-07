@@ -537,7 +537,7 @@ module internal SetTree =
     let unexpectedstateInSetTreeCompareStacks () =
         failwith "unexpected state in SetTree.compareStacks"
 
-    // Imperative left-to-right iterator (B-3-alt). A `[<Struct>]` enumerator replaces
+    // Imperative left-to-right iterator. A `[<Struct>]` enumerator replaces
     // the original `IEnumerator<'T>` object expression in `mkIEnumerator` — Vesper's
     // front end has no object-expression support, but value-type emission + interface
     // impls cover this shape. The advance / read logic is *inlined* in the interface

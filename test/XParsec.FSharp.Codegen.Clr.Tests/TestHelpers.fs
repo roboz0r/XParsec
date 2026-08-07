@@ -351,7 +351,7 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      | Result.Ok m -> m
                      | Result.Error e -> failwithf "buildPackage %s: %s" pkg e
 
-                 // T8 Step 5: `.fsi`↔`.fs` conformance is a HARD gate on the build. A
+                 // `.fsi`↔`.fs` conformance is a HARD gate on the build. A
                  // contract binding with no implementation (and not declared `sig-only`
                  // in the manifest) is an FS0240-style error — no codegen substitution
                  // may stand in for a missing `.fs`.

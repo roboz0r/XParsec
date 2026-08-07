@@ -50,7 +50,7 @@ let private soleClass (tast: TastFile) : TClass =
     | other -> failwithf "expected exactly one class declaration, got %d" (List.length other)
 
 let private declType (tast: TastFile) : SemType =
-    // A surfaced `TDecl.Type` (rung 2: unions) is ignored here — these tests
+    // A surfaced `TDecl.Type` (unions) is ignored here — these tests
     // assert the *value* binding's inferred type.
     let valueDecls =
         EqArray.toList tast.Decls
@@ -467,8 +467,7 @@ let tests =
             test "record literal TAST shape" {
                 let tast = analyse "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
 
-                // Records-plan §B1: `type R = { … }` now surfaces as a `TDecl.Type`
-                // (the front-end gap codegen-plan §B1 closed), so the value binding
+                // `type R = { … }` surfaces as a `TDecl.Type`, so the value binding
                 // is the *second* decl.
                 let resultDecl =
                     match tast.Decls with
@@ -538,7 +537,7 @@ let tests =
             test "nullary ctor TAST shape" {
                 let tast = analyse "type S = | Point\nlet p = Point"
 
-                // The union surfaces as a `TDecl.Type` (rung 2); the value binding follows.
+                // The union surfaces as a `TDecl.Type`; the value binding follows.
                 let resultDecl =
                     match tast.Decls with
                     | EqList [ _; d ] -> d
@@ -755,7 +754,6 @@ let tests =
 
             // `TypeDefn.Class` surfaces as `TDecl.Type` with `TTypeKind.Class`
             // carrying the ctor params and member list.
-            // `fields`/`baseType`/`interfaces` slots stay empty in B-1.
             test "TAST: class surfaces as TTypeKind.Class" {
                 let tast =
                     analyse "type Point(x: int, y: int) =\n    member this.Magnitude () = x * x + y * y"
@@ -776,7 +774,7 @@ let tests =
                 match typeDecl.Kind with
                 | TTypeKind.Class c ->
                     Expect.equal c.BaseCtorCall ValueNone "no inherit clause ⇒ no base-ctor call"
-                    Expect.equal c.Fields.Length 0 "B-1 has no instance fields"
+                    Expect.equal c.Fields.Length 0 "no instance fields on this class"
                     Expect.equal c.StaticPreamble.Length 0 "no static preamble on this class"
                     Expect.equal c.InstancePreamble.Length 0 "no instance preamble on this class"
                     Expect.equal c.SecondaryCtors.Length 0 "no secondary ctors on this class"
@@ -790,8 +788,8 @@ let tests =
                     Expect.isFalse (c.Members.[0].IsStatic) "instance member"
                     Expect.equal (c.Members.[0].Kind) TMemberKind.Method "method kind"
                     Expect.equal (c.Members.[0].ReturnTy) BuiltinTypes.tyInt "method returns int"
-                    Expect.equal c.BaseType ValueNone "B-1 leaves baseType ValueNone"
-                    Expect.equal c.Interfaces.Length 0 "B-1 has no interface impls"
+                    Expect.equal c.BaseType ValueNone "no inherit clause ⇒ baseType ValueNone"
+                    Expect.equal c.Interfaces.Length 0 "no interface impls on this class"
                     Expect.isFalse c.IsSealed "no [<Sealed>] ⇒ not sealed"
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 
@@ -831,7 +829,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // B-10: a `static let` surfaces in the class's static preamble with its
+            // A `static let` surfaces in the class's static preamble with its
             // inferred type, and a member reference to it lowers to `TExpr.StaticFieldGet`.
             test "TAST: `static let` surfaces in TTypeKind.Class.StaticPreamble" {
                 let tast = analyse "type C() =\n    static let x = 42\n    static member Get () = x"
@@ -970,7 +968,7 @@ let tests =
                 | other -> failtestf "expected a FieldSet body, got %A" other
             }
 
-            // B-11: a `new(...)` overload surfaces in `TTypeKind.Class.secondaryCtors`
+            // A `new(...)` overload surfaces in `TTypeKind.Class.secondaryCtors`
             // with its params and the primary-ctor chain arguments; the primary ctor
             // list is unaffected.
             test "TAST: secondary constructor surfaces in TTypeKind.Class.secondaryCtors" {
@@ -998,10 +996,9 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // Inheritance-plan test 22 (Step 2.6): a `base.M(...)` access carries
-            // the `CallVia.Base` discriminator so codegen emits a non-virtual
-            // `call` against the parent slot; an ordinary `this.M(...)` stays
-            // `CallVia.Self`.
+            // A `base.M(...)` access carries the `CallVia.Base` discriminator so
+            // codegen emits a non-virtual `call` against the parent slot; an
+            // ordinary `this.M(...)` stays `CallVia.Self`.
             test "TAST: `base.M ()` carries CallVia.Base" {
                 let tast =
                     analyse
@@ -1063,7 +1060,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // --- Phase 2 / B-4: cast TAST shapes (Step 2.4) ---
+            // --- cast TAST shapes ---
 
             test "TAST: `:>` shapes as Upcast" {
                 let tast =

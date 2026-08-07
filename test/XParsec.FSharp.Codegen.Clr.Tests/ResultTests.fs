@@ -5,7 +5,7 @@ open System.Reflection
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// vesper-lib-test-plan Phase 2 — the behavioral runtime suite for `Vesper.Result`,
+// The behavioral runtime suite for `Vesper.Result`,
 // the read-across from `Vesper.Option`: same shape (a BCL-only struct union + a
 // `ModuleSuffix` module), so the same two routes apply.
 //
@@ -277,8 +277,7 @@ let moduleCallRuntime =
         ]
 
 // Front-end regression guard (analysis only): the cross-package Result surface
-// type-checks through the contract provider's ambient open scope. The cheap A/B/C/D
-// guard the plan calls for.
+// type-checks through the contract provider's ambient open scope.
 [<Tests>]
 let frontEndTests =
     testList

@@ -1,5 +1,5 @@
-/// The macro-benchmark — the GATE for interning/caching (docs/engine-rewrite-plan.md
-/// "benchmarking"). Baseline the current engine over the realistic multi-file chain
+/// The macro-benchmark — the GATE for interning/caching.
+/// Baseline the current engine over the realistic multi-file chain
 /// (`SemanticAnalysisFixtures`), then re-run after interning+caching land: a cache that
 /// does not measurably move wall/alloc here does not stay. `MemoryDiagnoser` because the
 /// interning thesis is primarily an ALLOCATION-reduction thesis (re-walked / re-thawed

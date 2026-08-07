@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Records-plan §B5 backend tests. Mirrors `StructuralEqualityTests` for the
+// Record backend tests. Mirrors `StructuralEqualityTests` for the
 // equality triple, plus end-to-end runtime tests that exercise the value-level
 // IL (`RecordCons` / `FieldGet` / `FieldSet` / `RecordClone` / `TPat.Record`).
 
@@ -372,7 +372,7 @@ let genericTests =
                     "Box<int> 3 <> Box<string> \"3\" (isinst Box<int> fails)"
             }
 
-            // B-1 ctor-store fix, record mirror: a *multi-field* generic record must
+            // Ctor-store fix, record mirror: a *multi-field* generic record must
             // round-trip *every* field, not just the first. The existing single-field
             // `Box<'T> = { Value: 'T }` tests never exercised a field at index >= 1,
             // so the raw-`FieldDef` `stfld` miscompilation on non-first generic fields

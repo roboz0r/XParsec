@@ -526,8 +526,7 @@ let tests =
                 let lexed, file = parseFile src
                 // Resolve `int` (Vesper.Core) and `printfn` (Vesper.Printf) from the real
                 // contract stack — the single source — not `MockBuiltins`, which carries no
-                // primitive reprs (the codegen `defaults` bootstrap that used to supply
-                // `int` here is gone in T8 1.5).
+                // primitive reprs.
                 let provider = ClrSymbolProviders.buildContract defaultManifests
                 // Front-end assembly name must equal codegen's `project.AssemblyName`
                 // so a local type's home-assembly key matches its `userTypes`

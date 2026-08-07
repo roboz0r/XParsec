@@ -23,7 +23,7 @@ let main _ =
     // collides with the single-file `<dts> <pkg> <out>` form.
     | _ when args.Length >= 4 && args.[0] = "--globals" ->
         Extractor.runGlobals (args.[3..] |> List.ofArray) args.[1] args.[2]
-    // Real-scale lib extraction (Step 3): `--lib-globals <packageName> <outPath> <dts…>`
+    // Real-scale lib extraction: `--lib-globals <packageName> <outPath> <dts…>`
     // — same variadic shape as `--globals`, but sets `noLib` so the passed `lib.es*.d.ts`
     // files extract AS CONTENT (see `libOptions`). Used to vendor the `es2015` ref pack.
     | _ when args.Length >= 4 && args.[0] = "--lib-globals" ->

@@ -145,7 +145,7 @@ let tests =
                     | other -> failtestf "expected (TyUnknown -> int); got %A" other
             }
 
-            test "Step C: module-function ValRepr / CompiledForm captured from the .fsi arity" {
+            test "module-function ValRepr / CompiledForm captured from the .fsi arity" {
                 // The cross-assembly preserved-signatures path: a
                 // `.fsi` `val`'s `CurriedSig`/`ArgsSpec` already encodes the source
                 // arity the bare curried type erases, so `finalizeVal` records BOTH
@@ -294,7 +294,7 @@ let tests =
                 | ValueNone -> failtestf "struct registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
-            test "A type's `interface <ty>` impls publish into FrozenInterfaces (rung-4 M7)" {
+            test "A type's `interface <ty>` impls publish into FrozenInterfaces" {
                 // The contract-layer twin of the metadata layer's `buildClassInterfaces`:
                 // a type's directly-declared `interface IBox<'T>` must surface on the
                 // extracted shape's `FrozenInterfaces` (args over the declaring typars),

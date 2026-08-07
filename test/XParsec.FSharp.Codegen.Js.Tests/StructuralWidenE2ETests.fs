@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// G1 end-to-end: a Vesper record flows INTO a foreign `configure(opts: Options)` by
+// End-to-end: a Vesper record flows INTO a foreign `configure(opts: Options)` by
 // structural width and RUNS under Node. The record emits verbatim as a POJO, the foreign
 // function reads its fields, and `int` satisfies the interface's `number` member — the
 // options/config-object call shape, proven through emit + execution (not just analysis).

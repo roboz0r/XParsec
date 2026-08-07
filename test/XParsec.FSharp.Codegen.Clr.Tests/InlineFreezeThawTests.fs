@@ -479,7 +479,7 @@ let tests =
             }
 
             test "freeze: local-typar leaves are DETERMINISTIC — the same source freezes to the same (scheme, index)s" {
-                // The sidecar/publishing path (docs/publishing-format-plan.md) may serialize a
+                // The sidecar/publishing path may serialize a
                 // frozen body and re-read it, so index stability rests on the freeze walk
                 // order being deterministic. It is today; nothing but this test enforces it.
                 let once = frozenLetDecl twoLocalSchemes |> collectTys |> List.collect localLeavesIn

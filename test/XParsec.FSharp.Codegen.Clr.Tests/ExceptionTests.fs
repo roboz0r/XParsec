@@ -7,9 +7,8 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Exception construction + `raise` (gap B-9), folding in M1 (`isFailwith` →
-// `TExpr.Raise`). The chosen mechanism is *not* a dedicated `TExpr.Raise` TAST
-// node — `raise` / `failwith` / `invalidArg` are real cross-package inline
+// Exception construction + `raise` / `failwith`. The chosen mechanism is *not* a
+// dedicated `TExpr.Raise` TAST node — `raise` / `failwith` / `invalidArg` are real cross-package inline
 // operators in `Vesper.Core/ops-platform.clr.fs` whose bodies splice to a
 // `TExpr.ILIntrinsic "throw"` (the terminal `throw` arm in `Emit`). These tests
 // pin the runtime behaviour: the thrown CLR exception's *type* and message.
@@ -37,9 +36,9 @@ let private thrownBy (assemblyName: string) (src: string) : exn =
 [<Tests>]
 let tests =
     testList
-        "Exceptions (Phase 3 / B-9)"
+        "Exceptions"
         [
-            test "failwith throws System.Exception with the given message (M1 regression)" {
+            test "failwith throws System.Exception with the given message" {
                 let ex =
                     thrownBy "ExnFailwith" (lines [ "let boom (n: int) : int = failwith \"boom\"" ])
 
@@ -110,7 +109,7 @@ let tests =
                 Expect.stringContains argEx.Message "must be positive" "the message is carried through"
             }
 
-            // --- Milestone acceptance tests: `exn`/`obj` as contract-sourced heritable roots ---
+            // --- `exn`/`obj` as contract-sourced heritable roots ---
             //   * `inherit exn(msg)` downstream: the provider publishes `exn` as an
             //     `IntrinsicClass` (contract `inherit obj` + `new:` ctors); codegen chains the
             //     parameterized external base ctor (`System.Exception::.ctor(string)`), so the

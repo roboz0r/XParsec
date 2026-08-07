@@ -183,7 +183,7 @@ let tests =
             }
 
             // A fieldless [<Struct>] whose body is ONLY an interface impl is valid
-            // F# (a stateless captureless struct closure — the ideal rung-4 lambda
+            // F# (a stateless captureless struct closure — the ideal lambda
             // shape). It previously tripped parse recovery: the implicit-class
             // lookahead in TypeDefnParsing didn't admit a leading `interface`, so
             // the body fell to abbreviation parsing and skipped tokens.

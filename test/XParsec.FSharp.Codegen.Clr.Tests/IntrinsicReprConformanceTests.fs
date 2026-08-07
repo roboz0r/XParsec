@@ -5,7 +5,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 
-// T8 Step 1 — repr-encodability conformance.
+// Repr-encodability conformance.
 //
 // A Vesper primitive's CLR representation lives in ONE place, the `.fs` `(# … #)`
 // declaration (`type int = (# "System.Int32" #)`), extracted into the contract

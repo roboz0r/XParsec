@@ -3,7 +3,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.ConformanceTests
 // Sig/impl conformance. Proves the Vesper.Core contract
 // (`.fsi`) `extern` capability set coincides with the implementation (`.fs`)
 // `(# … #)` intrinsic representation set, and exercises each drift the check
-// catches. A source-level check, so it is not gated on the self-hosting rungs.
+// catches. A source-level check, so it does not depend on codegen.
 
 open System.IO
 
@@ -207,7 +207,7 @@ let tests =
                     "all three drifts, sig-order then impl-only"
             }
 
-            // ---- Value-binding presence (Step 4.1) ----
+            // ---- Value-binding presence ----
 
             test "val in .fsi with no let in .fs → ValueMissingInImpl" {
                 let errors =
@@ -273,7 +273,7 @@ let tests =
 // per-target `exceptions.fsi`), so a `.fsi` whose `.fs` was deleted — and which is
 // not declared impl-free — is a hard error by construction, NOT a pinned golden.
 //
-// The conformance check is codegen-independent (CST-level, not rung-gated), so it
+// The conformance check is codegen-independent (CST-level), so it
 // runs on all the Vesper.* packages — Set included — and is the cheapest way to
 // catch `.fsi`/`.fs` drift the parser alone can't see. Only the CLR target is driven;
 // JS-only contracts (`[targets.js] files`) are not in the CLR file set, so they need
@@ -600,7 +600,7 @@ let jsPackageConformanceTests =
             }
         ]
 
-// ---- Step 5: conformance findings are HARD errors --------------------
+// ---- conformance findings are HARD errors ----------------------------
 //
 // `enforce` is the flip from "a finding a test inspects" to "an FS0240-style hard
 // error that fails the build". These pin the promotion directly on a synthetic
@@ -862,7 +862,7 @@ let typarConformanceTests =
                 Expect.isEmpty (ConformanceTypars.checkFile contract tast) "appearance-order impl conforms"
             }
 
-            test "a binding the contract does not publish is skipped (presence is Step 4.1)" {
+            test "a binding the contract does not publish is skipped (presence is a separate check)" {
                 // An empty contract: a private/unpublished binding has no declared scheme to
                 // compare — typar-order is not the presence check's job.
                 let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
@@ -879,7 +879,7 @@ let typarConformanceTests =
 // signatures (no axis collapse): both sides write the declaring type's typars on
 // `FTTypar(Declaring,_)` and the method's own on `FTTypar(Method,_)`, each in
 // canonical order, so `=` is α-equivalence-with-order across both axes. A member
-// with no matching-arity published overload is skipped (presence is Step 4.1's job).
+// with no matching-arity published overload is skipped (presence is a separate check).
 //
 // The real `formatter.clr.fs ↔ formatter.fsi` end-to-end check lives in
 // `Codegen.Clr.Tests/ConformanceTyparsTests.fs` (it needs `ClrSymbolProviders` to
@@ -955,7 +955,7 @@ let memberTyparConformanceTests =
                 Expect.equal mismatches.Head.MethodTyparArity 2 "carries the method arity"
             }
 
-            test "a member the contract does not publish is skipped (presence is Step 4.1)" {
+            test "a member the contract does not publish is skipped (presence is a separate check)" {
                 // No published overload of matching arity → no typar-order verdict to make.
                 let tast = frozenOf "type C() =\n    member this.M<'a,'b>(x: 'a, y: 'b) = x"
 

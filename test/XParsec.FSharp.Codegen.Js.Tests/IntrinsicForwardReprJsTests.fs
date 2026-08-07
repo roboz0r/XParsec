@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // The forward intrinsic axis `{ canon -> platform-repr }` must be present on the
 // JS-target contract stack exactly as it is on CLR — extracted from the same
 // `<base>.js.fs` `(# "<repr>" #)` bindings (`prim-types-min.js.fs` etc.) that yield
-// the reverse axis. It is the datum the G1 covariant `number -> float` relocation
+// the reverse axis. It is the datum the covariant `number -> float` mapping
 // asserts against (a JS `number` read as a value is `float` PRECISELY BECAUSE
 // `float` reprs to `number`); if these canons ever stopped repring to `number` the
 // covariant target would be a lie, so pin the mapping here.
@@ -54,7 +54,7 @@ let tests =
             }
 
             test "`float` reprs to `number` — the covariant target's licensing datum" {
-                // The exact fact the G1 covariant relocation asserts at construction:
+                // The exact fact the covariant mapping asserts at construction:
                 // naming `float` as `number`'s covariant value-read target is only sound
                 // because `float` itself reprs to `number` on this target.
                 Expect.equal

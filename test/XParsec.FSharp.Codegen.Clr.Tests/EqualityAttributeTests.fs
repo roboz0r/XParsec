@@ -226,7 +226,7 @@ let tests =
                 Expect.isEmpty (errors tast) "an unresolved attribute is not an error"
             }
 
-            // Phase 3 — the `Custom` posture's semantic requirement (the type must
+            // The `Custom` posture's semantic requirement (the type must
             // implement the matching self-instantiated BCL interface), the
             // coherence rule (custom comparison ⇒ custom equality), and the
             // record/union scope diagnostic.
@@ -344,8 +344,8 @@ let tests =
                 Expect.isNonEmpty scopeErrs (sprintf "custom equality on a record ⇒ scope error; got %A" (errors tast))
             }
 
-            // Phase 4 — the front-end constraint gate now honours the class
-            // verdict at `=` use sites (instead of unconditionally deferring).
+            // The front-end constraint gate honours the class verdict at `=` use
+            // sites rather than unconditionally deferring.
 
             test "[<CustomEquality>] class supports `=` at a use site (no constraint diagnostic)" {
                 let src =

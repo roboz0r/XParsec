@@ -56,7 +56,7 @@ let tests =
             }
 
             // The metadata layer fills the rich class shape — members, interfaces,
-            // base type, flags — so B-1/B-2 don't have to retry through `TryLookupMember` per name.
+            // base type, flags — so consumers don't retry through `TryLookupMember` per name.
             test "the Class shape eagerly publishes the type's members" {
                 match typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class info) ->

@@ -80,7 +80,7 @@ type MapCtx =
             Depth = ref 0
         }
 
-/// The PRIMITIVE-OVERLAP skip-list (Step 3). `lib.es5`/`lib.es2015` declare capital
+/// The PRIMITIVE-OVERLAP skip-list. `lib.es5`/`lib.es2015` declare capital
 /// wrapper/library interfaces — `String`/`Number`/`Boolean`/`Object`/`Function`/
 /// `Array`/`Symbol`/`BigInt` — that OVERLAP Vesper's own intrinsic representation of
 /// the same runtime values: the numeric/string/bool primitives ride `IntrinsicRepr`
@@ -273,9 +273,9 @@ let private refArity (sym: Ts.Symbol) : int =
 /// symbol). Follows a re-export alias to the REAL symbol whose declarations home it.
 /// Degrades silently (records nothing) for a non-homeable symbol — never throws.
 let recordForeignRef (ctx: MapCtx) (name: string) (sym: Ts.Symbol) : unit =
-    // Primitive-overlap skip (Step 3): a TS-lib intrinsic-overlap interface (`Array`,
-    // `String`, …) is NOT homed — it stays a carried `Named`→`FTConst` (its pre-Step-1B
-    // behaviour), so the extractor never mints a dangling homed `FTClass` for a name
+    // Primitive-overlap skip: a TS-lib intrinsic-overlap interface (`Array`,
+    // `String`, …) is NOT homed — it stays a carried `Named`→`FTConst`,
+    // so the extractor never mints a dangling homed `FTClass` for a name
     // Vesper already represents intrinsically (and that no stacked es2015 provider
     // registers). `Map`/`Set`/… are absent from the list and home normally.
     if intrinsicOverlapNames.Contains name then

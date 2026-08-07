@@ -8,9 +8,9 @@ open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The cross-assembly RUNTIME gate the compiled-form plan left deferred: a separately-built PRODUCER package exports module functions whose flat
-// compiled signatures a CONSUMER assembly binds and `call`s through real
-// `AssemblyRef` member-refs. It exercises, end-to-end across two emitted DLLs:
+// The cross-assembly RUNTIME gate: a separately-built PRODUCER package exports module
+// functions whose flat compiled signatures a CONSUMER assembly binds and `call`s through
+// real `AssemblyRef` member-refs. It exercises, end-to-end across two emitted DLLs:
 //
 //   * the escape gap — `addOne` is used higher-order *inside the producer*
 //     (`bumpTwice`), so pre-fix it was demoted ENTIRELY to a closure and its flat

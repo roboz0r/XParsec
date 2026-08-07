@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Phase 5 (CLR backend) — custom dispatch by EXECUTION.
+// Custom dispatch by EXECUTION (CLR backend).
 //
 // A `[<CustomEquality>]` class emits NO synthesized equality triple (the
 // `NominalEmit` Class arm is `()`); a `[<CustomComparison>]` class emits NO
@@ -46,7 +46,7 @@ let tests =
         ty.GetMethod("CompareTo", declaredInstance, null, [| ty |], null)
 
     testList
-        "Phase 5 custom dispatch (CLR backend)"
+        "custom dispatch (CLR backend)"
         [
             test "canonical BCL-free `interface equatable<Self>` dispatches via the real System.IEquatable<Self>" {
                 // Platform-independence slice 5: generic capability authored canonically

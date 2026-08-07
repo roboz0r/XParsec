@@ -91,7 +91,7 @@ let tests =
                 // method `[Symbol.for("vesper.equality")](other)` (the runtime hook
                 // `a[Symbol.for("vesper.equality")](b)` finds it). The redundant obj-typed
                 // `Object.Equals` override is dropped (interface wins the slot); the old named
-                // `Equals(` method form is GONE (re-keyed to the symbol — plan §14.5).
+                // `Equals(` method form is GONE (re-keyed to the symbol).
                 Expect.stringContains
                     src
                     "[Symbol.for(\"vesper.equality\")](other)"

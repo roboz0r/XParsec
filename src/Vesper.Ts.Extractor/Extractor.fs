@@ -41,7 +41,7 @@ let private baseOptions () : Ts.CompilerOptions =
         o.noEmit <- Some true
     )
 
-/// `baseOptions` + `noLib` (Step 3's lib-extraction path). CRITICAL: to extract the
+/// `baseOptions` + `noLib`, the real-scale lib-extraction path. CRITICAL: to extract the
 /// `lib.es*.d.ts` files AS CONTENT (rather than as the program's implicit DEFAULT
 /// library) they MUST be passed as EXPLICIT inputs AND `noLib` must be set — otherwise
 /// TS loads them as the default lib and `isSourceFileDefaultLibrary` filters EVERY one
@@ -203,7 +203,7 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
 /// symbol's declared type is the truth, so we enumerate by SYMBOL, never per-file
 /// statement (which would emit duplicate/partial interfaces and MISS the merges).
 /// Route ONE enumerated global through `mapGlobalSymbol`, but with a per-symbol
-/// RESILIENCE backstop (Step 3): an unforeseen construct that makes the walk THROW is
+/// RESILIENCE backstop: an unforeseen construct that makes the walk THROW is
 /// caught, diagnosed (`SymbolWalkFailed`), and the symbol DROPPED — so one exotic lib
 /// symbol never aborts the whole real-scale extraction. The known in-place degrades
 /// (accessor / enum / heritage / intersection / structural) fire BELOW this and keep
@@ -234,7 +234,7 @@ let private extractGlobalsCore (noLib: bool) (dtsPaths: string list) (packageNam
 
     // The fixture's OWN source files (everything the program loaded that is NOT the
     // default lib): a global script references default-lib types (`string`, `Array`),
-    // which must NOT be re-extracted here — they are the ref pack's / Step 3's concern.
+    // which must NOT be re-extracted here — they are the ref pack's concern.
     let fixtureSources =
         program.getSourceFiles ()
         |> Seq.filter (fun sf -> not (program.isSourceFileDefaultLibrary sf))
@@ -300,7 +300,7 @@ let private extractGlobalsCore (noLib: bool) (dtsPaths: string list) (packageNam
     let exports =
         fixtureGlobals
         |> List.filter (fun sym -> not (isConsumed sym))
-        // Primitive-overlap skip-list (Step 3): a TS-lib intrinsic-overlap interface
+        // Primitive-overlap skip-list: a TS-lib intrinsic-overlap interface
         // (`Array`, `String`, `Object`, …) is NOT emitted as an export — the ref pack
         // does not REGISTER the names Vesper already represents intrinsically (they ride
         // `IntrinsicRepr` / native JS arrays). `Map`/`Set`/… are absent from the list and
@@ -316,8 +316,8 @@ let private extractGlobalsCore (noLib: bool) (dtsPaths: string list) (packageNam
     {
         SchemaVersion = Schema.SchemaVersion
         Package = packageName
-        // The fixture carries no version; the reserved-home `es2015` version stamp is
-        // Step 3's concern (this entry must not hardcode it).
+        // The fixture carries no version, and the reserved-home `es2015` version stamp
+        // must not be hardcoded here.
         Version = None
         Exports = exports
         Diagnostics = finalizeDiagnostics baseDir diags
@@ -329,11 +329,11 @@ let private extractGlobalsCore (noLib: bool) (dtsPaths: string list) (packageNam
 let extractGlobals (dtsPaths: string list) (packageName: string) : Schema.PackageManifest =
     extractGlobalsCore false dtsPaths packageName
 
-/// The real-scale `lib.es2015` extraction (Step 3): `noLib` + the explicit lib file
+/// The real-scale `lib.es2015` extraction: `noLib` + the explicit lib file
 /// set. Decision recorded here: the pack is "es2015 FLAT, INCLUDING es5" — the full
 /// `lib.es2015.*.d.ts` closure plus `lib.es5.d.ts` are fed to ONE program (they
 /// cross-`/// <reference>` each other) and flattened into ONE `Package = "es2015"`
-/// home. That reserved home is exactly what Step-1B's refs point at (e.g. mitt's `Map`
+/// home. That reserved home is exactly what a package's foreign refs point at (mitt's `Map`
 /// homes to `es2015`), so a later stacked es2015 provider registers `Map` under
 /// `es2015` and the refs resolve. The intrinsic-overlap names (`Array`, `String`, …)
 /// are SKIPPED (see `intrinsicOverlapNames`); residue is EXPECTED and rides the
