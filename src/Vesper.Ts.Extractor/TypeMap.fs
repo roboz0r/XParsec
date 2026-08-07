@@ -1,10 +1,6 @@
-/// `ts.Type` → `Schema.TypeRef` (+ param / signature mapping) — the type-encoding
-/// half of the extractor. `mapType` is one recursive encoder over `MapCtx`; the
-/// FAITHFUL arms (literal types, `keyof`, indexed access, conditional) record the
-/// construct verbatim and NEVER evaluate it (the front end owns the fold). A
-/// structural object carries its named fields FAITHFULLY (freezing to a resolvable
-/// nominal); the residual degrades — an unrepresentable structural form, a non-object
-/// intersection, a bound-less typar — warn through the `Diagnostics` channel.
+/// `ts.Type` → `Schema.TypeRef`, plus param and signature mapping. Literal types,
+/// `keyof T`, `T[K]` and conditionals are recorded verbatim, never evaluated here.
+/// What cannot be represented degrades (`obj`, opaque `Structural`) and warns.
 module Vesper.Ts.Extractor.TypeMap
 
 open Fable.Core.JsInterop
@@ -26,17 +22,15 @@ let typarSymbols (tps: Ts.Type seq) : Ts.Symbol list =
     )
     |> List.ofSeq
 
-/// Declaring-axis typar symbols of a class/interface DECLARED type (an
-/// `InterfaceType` at runtime, whose `typeParameters` carry them in declaration order).
+/// Declaring-axis typars in declaration order — a class/interface DECLARED type is an
+/// `InterfaceType` at runtime, which is where `typeParameters` lives.
 let declaredTypars (declared: Ts.Type) : Ts.Symbol list =
     match (unbox<Ts.InterfaceType> declared).typeParameters with
     | Some tps -> typarSymbols (tps |> Seq.map unbox)
     | None -> []
 
-/// Declaring-axis typar symbols read off a DECLARATION node's effective
-/// type-parameter list — used for `type` aliases, whose declared target type is not
-/// an `InterfaceType` and so exposes no `typeParameters`. The effective declarations
-/// are in source order, fixing the same index space the references resolve against.
+/// The same, in source order, for a `type` alias — whose declared target is not an
+/// `InterfaceType` and so has no `typeParameters`.
 let declTyparsOf (checker: Ts.TypeChecker) (decl: Ts.Node) : Ts.Symbol list =
     ts.getEffectiveTypeParameterDeclarations (unbox decl)
     |> Seq.map (fun tpd -> checker.getTypeAtLocation (unbox tpd))
@@ -49,49 +43,25 @@ let lookupTypar (env: Ts.Symbol list) (t: Ts.Type) : int option =
 
 // ─── structural classification ───────────────────────────────────────────────
 
-/// A generic instantiation (`Array<string>`, `Box<number>`) as its target name +
-/// raw type arguments, or `None` for a non-reference type. The target's symbol names
-/// the generic definition (`Array`, `Box`); `getTypeArguments` yields the substituted
-/// arguments (for `string[]` the element type), which the caller recurses `mapType`
-/// over — so the manifest carries `Named(name, [args])`, not the printed-form blob.
-/// The target's SYMBOL rides out alongside its name so the caller can HOME the
-/// reference (`recordForeignRef`) — the generic definition's symbol names both the
-/// identity (`Map`) and the origin (its declaration's source file).
+/// A generic instantiation as its target name, the target's symbol and the substituted
+/// type arguments: `string[]` → `("Array", …, [string])`. `None` for anything else.
 let asGenericInstantiation (checker: Ts.TypeChecker) (t: Ts.Type) : (string * Ts.Symbol * Ts.Type list) option =
     if hasTargetRef t then
         let tr = unbox<Ts.TypeReference> t
 
         match (unbox<Ts.Type> tr.target).getSymbol () with
-        // An ANONYMOUS type literal instantiated with type arguments (a generic type
-        // ALIAS whose body is an anonymous object/function type — `Handler<T> = (event:
-        // T) => void` referenced as `Handler<Events[Key]>`) surfaces as a
-        // `TypeReference` whose target symbol is the reserved `__type` name. That is
-        // NOT a named nominal generic — treating it as `Named("__type", …)` drops the
-        // faithful function shape — so reject it here and let `mapType`'s fallthrough
-        // classify the (instantiated) type by structure (`isFunctionType` → `Fun`,
-        // else the structural stub). The call signature's parameter/return types are
-        // already substituted, so the faithful `Fun` carries the resolved `Events[Key]`
-        // indexed access.
+        // `Handler<T> = (event: T) => void` used as `Handler<Events[Key]>` is a
+        // `TypeReference` onto the reserved `__type` name, not a nominal generic:
+        // `None` here sends it to the structural classification, keeping the `Fun` shape.
         | Some sym when isAnonymousTypeName (sym.getName ()) -> None
         | Some sym -> Some(sym.getName (), sym, checker.getTypeArguments tr |> List.ofSeq)
         | None -> None
     else
         None
 
-/// A printed form is a BARE NOMINAL name — a (possibly dotted) identifier — when it
-/// is safe to keep as `Named(printed, [])` in the `mapType` fallthrough: a non-generic
-/// class/interface/alias/enum reference, plus the deliberately un-remapped `unknown`.
-/// Anything richer (a `{x:number}` STRUCTURAL object; a function
-/// type; a residual generic blob) is NOT nominal and the fallthrough throws on it
-/// rather than degrading to a printed blob — the cross-cutting forcing function.
-///
-/// The reserved anonymous-type name (`isAnonymousTypeName`) is a valid-word-char
-/// string, so the raw predicate below would MISCLASSIFY it as nominal (collapsing an
-/// alias application like `Handler<Events[Key]>`, which the checker resolves to an
-/// anonymous `(event: Events[Key]) => void`, to a bogus nominal and dropping the
-/// faithful function shape). Excluding it routes the anonymous type to the `mapType`
-/// fallthrough where `isFunctionType` maps it to `Fun` (or the structural stub for a
-/// non-function anonymous type).
+/// A printed form is a bare (possibly dotted) identifier — `Emitter`, `NS.Foo` — and so
+/// keepable as `Named(printed, [])`. `{ x: number }`, `(e: T) => void` and a residual
+/// generic blob are not. The reserved `__type` name is all word chars, hence excluded.
 let looksNominal (printed: string) : bool =
     printed.Length > 0
     && not (isAnonymousTypeName printed)
@@ -99,43 +69,25 @@ let looksNominal (printed: string) : bool =
     && printed
        |> Seq.forall (fun c -> System.Char.IsLetterOrDigit c || c = '_' || c = '$' || c = '.')
 
-/// A PURE function value type — the shape `(args) => ret`: at least one call
-/// signature, NO construct signatures, and NO own data properties. A callable object
-/// that ALSO carries members is not a bare arrow (it stays structural); a constructor
-/// type (`new () => T`) is excluded by the no-construct-signature clause. Lets
-/// `mapType` map a function-typed alias/parameter faithfully to `TypeRef.Fun` instead
-/// of degrading it to a structural stub. The CALLER additionally gates on the printed
-/// form being non-nominal, so a NAMED interface that merely declares a call signature
-/// keeps its nominal identity rather than collapsing to an anonymous arrow.
+/// TRUE for `(args) => ret` and nothing else: a callable object that also carries
+/// members, and a constructor type `new () => T`, both stay structural. Callers gate
+/// additionally on a non-nominal printed form to keep named callable interfaces named.
 let isFunctionType (t: Ts.Type) : bool =
-    // EXACTLY one call signature: `TypeRef.Fun` can carry only one shape, so an
-    // OVERLOADED anonymous function type (`{ (): void; (x: string): void }`) must
-    // NOT enter the fast path (it would silently drop signatures 1..n) — it falls
-    // to the structural stub instead, which emits its degradation warning.
+    // EXACTLY one: `Fun` carries one shape, so an overloaded anonymous function type
+    // (`{ (): void; (x: string): void }`) must stay structural rather than lose sigs 1..n.
     (t.getCallSignatures ()).Count = 1
     && (t.getConstructSignatures ()).Count = 0
     && (t.getProperties ()).Count = 0
 
-/// The shared "can a `Structural` carry this WHOLE type?" tail, checked on a type whose
-/// OBJECT-ness the caller has already established. TRUE when every bit of its content
-/// survives — as named fields AND/OR the carried index-signature facet: it has at least
-/// one property OR an index signature (`{ [k: string]: number }`, now carried via
-/// `mapIndexInfo` onto the `Structural`/`Interface`/`Class` `index` slot, no longer a
-/// silent drop), and NO call signature and NO construct signature (each of which a field
-/// list plus index facet still silently drops). FALSE means the carry is partial
-/// (call/construct sigs) or empty (`{}`), so the caller must warn.
+/// Can a `Structural` carry the WHOLE of this type? Needs a property or index signature
+/// to carry, and no call or construct signature, which a field list would drop silently.
 let carriesFaithfullyAsFields (checker: Ts.TypeChecker) (t: Ts.Type) : bool =
     ((t.getProperties ()).Count > 0 || (checker.getIndexInfosOfType t).Count > 0)
     && (t.getCallSignatures ()).Count = 0
     && (t.getConstructSignatures ()).Count = 0
 
-/// TRUE only when a type is a PURE named-property record — an anonymous object whose
-/// entire content maps losslessly to `Structural` fields. All must hold: it is a
-/// `TypeFlags.Object` type; it is NEITHER a tuple NOR an array (a tuple's
-/// `getProperties()` yields "0"/"1"/"length" — not a record; the checker's
-/// `isTupleType`/`isArrayType` are the authoritative predicates); and it
-/// `carriesFaithfullyAsFields`. When TRUE a `Structural` carry is faithful and owes no
-/// warning; otherwise the carry is partial or opaque and warns.
+/// An object whose entire content maps losslessly to `Structural` fields. Tuples and
+/// arrays are excluded: a tuple's `getProperties()` yields `"0"`, `"1"`, `"length"`.
 let isPureRecordObject (checker: Ts.TypeChecker) (t: Ts.Type) : bool =
     isObjectTypeFlag t ts
     && not (checker.isTupleType t)
@@ -144,11 +96,9 @@ let isPureRecordObject (checker: Ts.TypeChecker) (t: Ts.Type) : bool =
 
 // ─── ts.Type → Schema.TypeRef ──────────────────────────────────────────────
 
-/// The `mapType` recursion bound. A legitimate lib type nests only a few levels
-/// deep; a self-recursive conditional (`Awaited<T>`) recurses UNBOUNDED and blows the
-/// JS stack (~thousands of frames). This bound sits far above any real type yet far
-/// below the overflow, so it trips ONLY on genuine runaway recursion and degrades the
-/// subtree to `obj` + a diagnostic instead of aborting the enclosing symbol.
+/// Real lib types nest a few levels; a self-recursive conditional (`Awaited<T>`)
+/// recurses unbounded and blows the JS stack at ~thousands of frames. This sits between
+/// the two, so tripping it degrades the subtree to `obj` instead of dying.
 let maxMapTypeDepth = 200
 
 let rec mapType (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
@@ -156,8 +106,6 @@ let rec mapType (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
 
     try
         if ctx.Depth.Value > maxMapTypeDepth then
-            // Runaway recursion (a self-recursive conditional): degrade to `obj` at the
-            // bound. Anchored on the type's declaration when it has one.
             let span = t.getSymbol () |> Option.bind tryDeclOf |> Option.map spanOfNode
 
             emitWarning
@@ -175,15 +123,9 @@ let rec mapType (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
     finally
         ctx.Depth.Value <- ctx.Depth.Value - 1
 
-/// Carry a structural/merged object as `Structural(printed, …)`: extract its OWN
-/// members as fields when `faithful`, else warn and carry OPAQUE (empty). A merged or
-/// anonymous member is SYNTHETIC (no single declaration node), so read its type via
-/// `getTypeOfSymbol` (`getTypeOfSymbolAtLocation` would need a declaration `declOf`
-/// cannot supply). INVARIANT: a `Structural` carries fields IFF it is faithful;
-/// otherwise it is OPAQUE. The two call sites — an object-only intersection and a
-/// non-nominal anonymous object — differ ONLY in how they establish `faithful`: an
-/// intersection type is not itself `TypeFlags.Object` (its object-ness is per-constituent),
-/// so it cannot reuse `isPureRecordObject`'s leading object-flag test.
+/// Carry an object as `Structural(printed, …)`: its own members as fields when
+/// `faithful`, else warn and carry empty. Merged and anonymous members are synthetic —
+/// no declaration node — so their types come from `getTypeOfSymbol`.
 and private carryStructural (ctx: MapCtx) (t: Ts.Type) (printed: string) (faithful: bool) : Schema.TypeRef =
     if faithful then
         let fields =
@@ -202,12 +144,9 @@ and private carryStructural (ctx: MapCtx) (t: Ts.Type) (printed: string) (faithf
 
         Schema.TypeRef.Structural(printed, [], [])
 
-/// A structural FIELD's carried type. A `Structural` field is a bare `(name, TypeRef)`
-/// with NO optional channel (unlike a named `Member`, which has `Member.Optional`), so
-/// an OPTIONAL field (`foo?: T`) carries its read semantics `T | undefined` as a `Union`
-/// that includes `undefined`. tsc PRE-EVALUATES `Partial<T>` to a resolved object whose
-/// property SYMBOLS carry the optional flag while the property TYPE stays `T[P]` — so
-/// optionality is read from the SYMBOL flag (`SymbolFlags.Optional`), never the type.
+/// A `Structural` field is a bare `(name, TypeRef)` with no optional channel, so `foo?: T`
+/// carries as `Union [T; undefined]`. Optionality lives on the SYMBOL: tsc pre-evaluates
+/// `Partial<T>` to properties still typed `T[P]`, with only the flag set.
 and private structuralFieldType (ctx: MapCtx) (p: Ts.Symbol) : Schema.TypeRef =
     let ty = mapType ctx (ctx.Checker.getTypeOfSymbol p)
 
@@ -222,11 +161,8 @@ and private structuralFieldType (ctx: MapCtx) (p: Ts.Symbol) : Schema.TypeRef =
     else
         ty
 
-/// The index signatures of `t` (`{ [k: K]: V }`), each key and value `mapType`-mapped, as a
-/// list of `(key, value)` pairs (empty when `t` has none). `getIndexInfosOfType` FLATTENS
-/// inherited index sigs through heritage (a `ProcessEnv extends Dict<T>` resolves the string
-/// index directly, no consume-time heritage walk). ALL are carried: a TS type may declare
-/// BOTH a string- and a number-index signature, and the list carries each.
+/// The `(key, value)` pairs of `t`'s index signatures `{ [k: K]: V }`. `getIndexInfosOfType`
+/// flattens inherited ones, so `ProcessEnv extends Dict<T>` needs no heritage walk here.
 and mapIndexInfo (ctx: MapCtx) (t: Ts.Type) : (Schema.TypeRef * Schema.TypeRef) list =
     ctx.Checker.getIndexInfosOfType t
     |> Seq.map (fun info -> mapType ctx info.keyType, mapType ctx info.``type``)
@@ -236,16 +172,9 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
     let checker = ctx.Checker
     let printed = checker.typeToString t
 
-    // A type-parameter REFERENCE (item 11) resolves against TWO axes, declaring first
-    // (matching F# scoping: a member's `<U>` shadowing a declaring `<T>` is a distinct
-    // typar, but a name in BOTH binds to the declaring slot). Checked BEFORE the
-    // printed-name match: a typar prints as its bare name (`T`), which would otherwise
-    // be mistaken for a nominal type.
-    //   - found in the DECLARING env → `Typar i` (the enclosing type/alias/free-fn axis);
-    //   - else found in the METHOD env → `MethodTypar i` (a generic member's own `<U>`);
-    //   - else genuinely unbound → erase to `obj` + a Warning.
-    // The third case should now be unreachable for an authored member typar (it rides
-    // `MethodEnv`); it survives as a defensive degrade for a typar from neither axis.
+    // Before the printed-name match below: a typar prints as its bare name (`T`), which
+    // would otherwise look nominal. Declaring axis first, matching F# scoping — a name in
+    // both axes binds to the declaring slot.
     if t.isTypeParameter () then
         match lookupTypar ctx.DeclaringEnv t with
         | Some i -> Schema.TypeRef.Typar i
@@ -253,7 +182,6 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
             match lookupTypar ctx.MethodEnv t with
             | Some i -> Schema.TypeRef.MethodTypar i
             | None ->
-                // Span anchored on the typar's own declaration node when it has one.
                 let span = t.getSymbol () |> Option.bind tryDeclOf |> Option.map spanOfNode
 
                 emitWarning
@@ -268,20 +196,9 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                 Schema.TypeRef.Named("obj", [])
     else
 
-        // FAITHFUL structural arms for the constructs the front end ground-EVALUATES
-        // (design §"Literal types stay structural" + "keyof … ride on top"): a
-        // string/number literal TYPE, `keyof T`, `T[K]`, and a conditional type each
-        // map to their OWN schema arm instead of degrading. The extractor NEVER
-        // evaluates them (the freeze / backend-knowledge separation) — it records the
-        // CONSTRUCT verbatim and the front end owns the fold. Caught here before the
-        // printed-name match: their printed forms (`"GET"`, `keyof Events`,
-        // `Events[Key]`, `… ? … : …`) are unmatchable there. Two deliberate SILENT
-        // degrades stay (no faithful arm, no diagnostic — design decisions, mirrored
-        // in `DiagCode`'s doc): a BOOLEAN literal (design §"string first; skip bool")
-        // and a non-integer numeric literal (no `int64` wire form) erase to their base.
-        // `keyof` rides the runtime `isIndexType()` predicate; indexed-access /
-        // conditional have no predicate, so classify by FIELD PRESENCE — see
-        // `isIndexedAccessType`/`isConditionalType`.
+        // Caught before the printed-name match: `"GET"`, `keyof Events`, `Events[Key]`
+        // and `… ? … : …` are unmatchable there. Two degrades are deliberate and silent:
+        // a boolean literal erases to `bool`, a non-integer numeric to `float`.
         let special =
             if t.isStringLiteral () then
                 Some(Schema.TypeRef.Literal(Schema.LiteralValue.StringVal (unbox<Ts.StringLiteralType> t).value))
@@ -303,11 +220,9 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
             elif isConditionalType t then
                 let ct = unbox<Ts.ConditionalType> t
 
-                // Read each branch's AUTHORED type, never the evaluated pick: the
-                // `resolvedTrue/FalseType` are populated for a resolved conditional, but
-                // an UNINSTANTIATED one (mitt's — `Key` is still open) leaves them
-                // `None`, so fall back to the conditional NODE's own branch `TypeNode`s.
-                // Either source is the authored branch, not an evaluation of the test.
+                // Both sources give the AUTHORED branch, never the evaluated pick.
+                // `resolvedTrue/FalseType` are `None` for an uninstantiated conditional
+                // (a still-open `T`), so fall back to the node's own branch `TypeNode`.
                 let branch (resolved: Ts.Type option) (node: Ts.TypeNode) =
                     match resolved with
                     | Some r -> r
@@ -322,11 +237,9 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                     )
                 )
             elif checker.isTupleType t then
-                // A fixed tuple (`[K, V]`) → `TypeRef.Tuple`, elements recursed. Gated to the
-                // F#-expressible shape: arity ≥ 2 and every element required — a 0-/1-tuple has
-                // no F# tuple form, and an optional/rest/variadic element (`[K, V?]`,
-                // `[K, ...V[]]`) is not carriable positionally, so both fall back to the
-                // opaque-`Structural` degrade. `readonly` and labels drop.
+                // Gated to the F#-expressible shape: a 0-/1-tuple has no F# form, and
+                // `[K, V?]` / `[K, ...V[]]` are not carriable positionally, so both take
+                // the opaque-`Structural` degrade instead. `readonly` and labels drop.
                 let target = (unbox<Ts.TupleTypeReference> t).target
                 let elems = checker.getTypeArguments (unbox<Ts.TypeReference> t)
 
@@ -345,22 +258,18 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
         | None ->
             match printed with
             | "string" -> Schema.TypeRef.Named("string", [])
-            | "number" -> Schema.TypeRef.Named("number", []) // TS number token RETAINED: a JS `number` is wider than any single Vesper numeric — the front end widens it to the int/float/float32 family at contravariant/argument positions and treats it as `float` covariantly
+            | "number" -> Schema.TypeRef.Named("number", []) // kept as `number`: wider than any one Vesper numeric type
             | "boolean" -> Schema.TypeRef.Named("bool", [])
             | "void" -> Schema.TypeRef.Named("unit", [])
             | "null" -> Schema.TypeRef.Named("null", [])
             | "undefined" -> Schema.TypeRef.Named("undefined", [])
-            // `any` → Dynamic (item 12) — the DESIGNED mapping, not a degradation (no
-            // diagnostic). TS exposes no public `type.isAny()`, so classify by printed
-            // form like the other primitives. Only `any` is in scope — `unknown` is
-            // deliberately NOT remapped and still flows through the Named fallthrough.
+            // Designed, not a degradation, hence no diagnostic. TS exposes no `type.isAny()`,
+            // so it goes by printed form. `unknown` is deliberately not remapped.
             | "any" -> Schema.TypeRef.Dynamic
             | _ when t.isUnion () ->
-                // Anonymous union → TyOr. null/undefined ride in as their own members
-                // (resolved fork: NOT folded to unit). Members are deduped and a
-                // singleton unwrapped; literal members stay FAITHFUL
-                // (`"GET" | "POST"` → `Union [Literal "GET"; Literal "POST"]`), so the
-                // dedup only collapses genuine structural duplicates.
+                // `null`/`undefined` ride in as their own members, never folded to `unit`.
+                // Literal members stay distinct (`"GET" | "POST"` → two `Literal`s), so the
+                // dedup only collapses genuine duplicates.
                 let members =
                     (unbox<Ts.UnionType> t).types
                     |> Seq.map (mapType ctx)
@@ -371,11 +280,9 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                 | [ single ] -> single
                 | many -> Schema.TypeRef.Union many
             | _ when t.isIntersection () ->
-                // An OBJECT-ONLY intersection (`Named & Aged`) is merged by the checker
-                // into one apparent member set, which carries FAITHFULLY as `Structural`.
-                // Classify object-only by the constituents: every one must be a
-                // `TypeFlags.Object` type — so `string & Brand` and a generic `T & U` over
-                // type PARAMETERS are NOT object-only and stay a real loss (erase to `obj`).
+                // Object-only (`Named & Aged`) means every constituent is a
+                // `TypeFlags.Object`; the checker has merged them into one member set.
+                // `string & Brand` and a generic `T & U` are not, and are a real loss.
                 let constituents = (unbox<Ts.IntersectionType> t).types
 
                 let objectOnly =
@@ -383,13 +290,10 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                     && constituents |> Seq.forall (fun c -> isObjectTypeFlag (unbox<Ts.Type> c) ts)
 
                 if objectOnly then
-                    // The checker's merge is one apparent member set: carry it as a
-                    // `Structural`, faithful IFF that merged set is a pure record (a merged
-                    // object still bearing an index/call/construct signature stays OPAQUE).
+                    // An intersection is not itself a `TypeFlags.Object`, so faithfulness is
+                    // judged on the merged member set rather than by `isPureRecordObject`.
                     carryStructural ctx t printed (carriesFaithfullyAsFields checker t)
                 else
-                    // A non-object intersection has no merged member set to carry: erase to
-                    // `obj`, the universal supertype — a REAL fidelity loss, so it warns.
                     emitWarning
                         ctx
                         Schema.DiagCode.IntersectionErased
@@ -401,23 +305,14 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
 
                     Schema.TypeRef.Named("obj", [])
             | _ ->
-                // Generic instantiation (`Array<string>`, `Box<number>`): a `TypeReference`
-                // → `Named(target name, mapped args)` (item 11), recursing `mapType` over the
-                // type arguments rather than emitting the printed-form blob (`Named("string[]")`).
+                // `string[]` → `Named("Array", [Named "string"])`, recursing over the type
+                // arguments rather than emitting the printed blob `Named("string[]")`.
                 match asGenericInstantiation checker t with
                 | Some(name, targetSym, args) ->
-                    // A foreign generic instantiation (`Map<K,V>`, `Array<string>`) HOMES
-                    // its target (identity only — never the args' owners; each arg recurses
-                    // and homes itself). LOCAL/intrinsic targets self-skip in `recordForeignRef`.
+                    // Only the target is homed here; each argument recurses and homes itself.
                     recordForeignRef ctx name targetSym
                     Schema.TypeRef.Named(name, args |> List.map (mapType ctx))
                 | None when isFunctionType t && not (looksNominal printed) ->
-                    // A pure FUNCTION type (`(event: T) => void`, `Handler<T>`): map it
-                    // FAITHFULLY to `TypeRef.Fun(curried param types, return)` — the
-                    // provider rehydrates `Fun → FTFun` — rather than degrading to a stub.
-                    // `isFunctionType` guarantees exactly one call signature and excludes
-                    // callable objects with members, constructor types, and (via the
-                    // `looksNominal` gate) named interfaces declaring a call signature.
                     let callSig = (t.getCallSignatures ()).[0]
 
                     let paramTypes =
@@ -428,41 +323,23 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                     let ret = mapType ctx (callSig.getReturnType ())
                     Schema.TypeRef.Fun(paramTypes, ret)
                 | None ->
-                    // Tightened fallthrough (cross-cutting producer discipline): now that
-                    // generics are handled, keep only a BARE NOMINAL name as `Named`; THROW on
-                    // any other genuinely-unknown printed form (exotic primitives) rather than
-                    // silently degrading to `Named(printed)`.
                     if looksNominal printed then
-                        // A bare nominal reference (`Emitter`, a foreign `Date`): HOME it by
-                        // its own symbol. An intrinsic-without-symbol (`symbol`, `never`,
-                        // `unknown`) has no `getSymbol` and is left unhomed (a Vesper
-                        // primitive, not a foreign type); LOCAL types self-skip.
+                        // An intrinsic without a symbol (`symbol`, `never`, `unknown`) is left
+                        // unhomed: it is a Vesper primitive, not a foreign type.
                         (match t.getSymbol () with
                          | Some sym -> recordForeignRef ctx printed sym
                          | None -> ())
 
                         Schema.TypeRef.Named(printed, [])
                     else
-                        // A STRUCTURAL/anonymous form (`{ x: number }`) that surfaced as
-                        // non-nominal — `keyof` / indexed-access / conditional have faithful
-                        // arms above and never reach here. Carry it as a `Structural`, keyed on
-                        // the printed form as a stable content hash. Faithful IFF it is a pure
-                        // record (`isPureRecordObject`: a non-tuple/array object with named
-                        // properties and no index/call/construct signature) — which freezes to a
-                        // resolvable nominal with member access. Everything else — an index
-                        // signature, a call/construct signature, a tuple/array, `{}`, or a
-                        // non-object opaque form — stays OPAQUE: extracting its partial members
-                        // would present a lossy type as complete AND explode the golden with
-                        // members no consumer reads (a primitive/union base's inherited prototype
-                        // members like `string | symbol`'s `toString`/`valueOf`/…).
+                        // An anonymous `{ x: number }`, keyed on its printed form as a stable
+                        // content hash. Anything but a pure record stays opaque: partial members
+                        // read as a complete type, and `string | symbol` drags in `toString`/….
                         carryStructural ctx t printed (isPureRecordObject checker t)
 
 let mapParam (ctx: MapCtx) (p: Ts.Symbol) : Schema.Param =
-    // A parameter symbol's declaration is the `ParameterDeclaration` node carrying
-    // the syntactic optional/rest markers. Classify by TOKEN PRESENCE on the node
-    // (runtime-structural, per the producer discipline), never raw numeric flags:
-    //   optional ⇐ `x?: T` (questionToken) OR `x: T = default` (initializer);
-    //   rest     ⇐ `...x: T[]` (dotDotDotToken).
+    // Optional and rest are read as TOKEN PRESENCE on the `ParameterDeclaration`, never
+    // as numeric flags: `x?: T` and `x: T = default` are both optional.
     let decl = declOf p
     let paramDecl = unbox<Ts.ParameterDeclaration> decl
 
@@ -473,28 +350,18 @@ let mapParam (ctx: MapCtx) (p: Ts.Symbol) : Schema.Param =
         Rest = paramDecl.dotDotDotToken.IsSome
     }
 
-/// WHICH kind of signature is being mapped — the single axis decision, made once
-/// here instead of by hand at each call site (the caller-side `sigTypars`
-/// placement + `emitBounds` flag + ctor record-patch this replaces).
+/// WHICH kind of signature is being mapped — which axis its own typars occupy, and
+/// whether their bounds are extracted.
 [<RequireQualifiedAccess>]
 type SigAxis =
-    /// A member METHOD: its own typars are the METHOD axis, and their authored
-    /// constraints (`<Key extends keyof Events>`) are extracted onto
-    /// `TypeParamBounds` — carried, never evaluated (design §"keyof …
-    /// ground-EVALUATED"); the front end reads them at grounding.
+    /// Own typars ride the METHOD axis, and their authored constraints
+    /// (`<Key extends keyof Events>`) are carried onto `TypeParamBounds` unevaluated.
     | MemberMethod
-    /// A FREE FUNCTION: no declaring type, so its own typars occupy the single
-    /// DECLARING index space unambiguously and the provider's `scheme` freshens
-    /// them; bounds are not needed downstream.
+    /// No declaring type, so own typars take the DECLARING index space; no bounds.
     | FreeFunction
-    /// A CONSTRUCTOR: its own typars split by ORIGIN. TS models a real generic
-    /// class's construct signatures as generic over the CLASS typars — those already
-    /// ride the DECLARING axis (counted in the type's `typeParams`), so they resolve
-    /// to `Typar i` and DON'T inflate the ctor's method arity ("MethodTyparArity = 0 for
-    /// every real-class constructor"). The constructor-INTERFACE idiom (`interface
-    /// FooCtor { new <T>(v: T): Foo<T> }`, the fused-global class-like shape) instead
-    /// introduces FRESH typars unknown to the declaring axis; those ride the METHOD
-    /// axis so `v: T` / `Foo<T>` stay faithful instead of erasing to obj.
+    /// Own typars split by ORIGIN: TS makes a real generic class's construct signatures
+    /// generic over the CLASS typars, already on the declaring axis, while `interface
+    /// FooCtor { new <T>(v: T): Foo<T> }` introduces fresh ones for the method axis.
     | Ctor
 
 let mapSignature (ctx: MapCtx) (axis: SigAxis) (sg: Ts.Signature) : Schema.Signature =
@@ -504,12 +371,9 @@ let mapSignature (ctx: MapCtx) (axis: SigAxis) (sg: Ts.Signature) : Schema.Signa
     let ownTyparSyms () =
         typarSymbols (ownTypars |> Seq.map unbox)
 
-    /// The authored constraint of one own-typar, read off the DECLARATION node
-    /// (its constraint `TypeNode`), NOT `getConstraint()` on the type — the latter
-    /// RESOLVES `keyof Events` to the constraint's evaluated key union (`string |
-    /// number | symbol`), which VIOLATES the no-evaluation trap AND loses the
-    /// `Events` the front end must fold against. `getTypeFromTypeNode` on the
-    /// authored node keeps the SYMBOLIC `keyof Events` (Events stays a typar).
+    /// The authored constraint of one own-typar, read off the DECLARATION node — NOT
+    /// `getConstraint()`, which resolves `keyof Events` to `string | number | symbol`,
+    /// losing the `Events` to fold against. The node keeps it symbolic.
     let boundOf (bodyCtx: MapCtx) (tp: Ts.Type) : Schema.TypeRef option =
         match (unbox<Ts.Type> tp).getSymbol () with
         | Some s ->
@@ -536,13 +400,9 @@ let mapSignature (ctx: MapCtx) (axis: SigAxis) (sg: Ts.Signature) : Schema.Signa
 
             bodyCtx, List.length ownTypars, ownTypars |> List.map (fun _ -> None)
         | SigAxis.Ctor ->
-            // Seed the method env with the own typars so a FRESH construct-sig typar
-            // resolves to `MethodTypar i`; declaring-first resolution keeps a real
-            // class's construct-sig typars on the `Typar` axis (their method slots stay
-            // dead). Count as the ctor's method arity ONLY the own typars the declaring
-            // axis does NOT already bind — 0 for every real class (byte-identical to the
-            // former forced-empty rule), N for the constructor-interface idiom. Bounds
-            // stay `None` per slot (constructors carry no extracted constraints).
+            // Seeding the method env lets a FRESH construct-sig typar resolve to
+            // `MethodTypar i`, while declaring-first resolution keeps a real class's on
+            // `Typar`. Method arity counts only typars the declaring axis does not bind.
             let ownSyms = ownTyparSyms ()
 
             let freshCount =

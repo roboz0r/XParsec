@@ -56,23 +56,18 @@ module EqualityOperators =
 [<AutoOpen>]
 module Operators =
 
-    /// JS has no `EqualityComparer`, so the primitive/aggregate split lives in
-    /// `structuralHash` — a non-inline `Vesper.Core.mjs` entry that `(=)` also walks,
-    /// so equal values hash equal.
     let inline hash (obj: 'T) : int = structuralHash obj
 
     let inline not (value: bool) : bool = (# "!$0" value : bool #)
 
-    /// `void $0` yields `undefined`, which IS the `unit` repr, and still evaluates the
-    /// operand for its effects.
+    /// `void $0` still evaluates the operand and yields `undefined` — the `unit` repr.
     let inline ignore (value: 'T) : unit = (# "void $0" value : unit #)
 
-    /// STRICT `===`, not the nullish `==`: `undefined` is a separate type here with its
-    /// own value, so `isNull undefined` is `false`.
+    /// STRICT `===`: `undefined` is a separate type with its own value, so
+    /// `isNull undefined` is `false`.
     let inline isNull (value: 'T when 'T: null) : bool = (# "$0 === null" value : bool #)
 
-    /// The empty template is an erasing identity cast — JS has no unboxed
-    /// representation to move.
+    /// The empty template is an erasing identity cast — JS has no unboxed repr to move.
     let inline box (value: 'T) : obj = (# "" value : obj #)
 
     /// `$0 >>> 0` — a zero-fill shift by 0 is JS's coercion to a 32-bit UNSIGNED integer.
@@ -85,55 +80,44 @@ module Operators =
 
     let inline int (value: ^T) : int = int32 value
 
-    /// `number` and `bigint` are disjoint JS types that no operator mixes, so the
-    /// widening is the explicit `BigInt(…)`.
+    /// No JS operator mixes `number` and `bigint`, so the widening is the explicit `BigInt(…)`.
     let inline bigint (value: int32) : bigint = (# "BigInt($0)" value : bigint #)
 
-    /// The desugaring target for `arr.[i]`. The `ldelem.any` mnemonic is target-neutral —
-    /// the JS backend emits the computed member read `arr[i]`.
+    /// The CIL mnemonic is target-neutral: JS emits the computed member read `arr[i]`.
     let inline GetArray (array: 'T[]) (index: int) : 'T = (# "ldelem.any !0" type ('T) array index : 'T #)
 
-    /// The desugaring target for `arr.[i] <- value`; `stelem.any` emits `arr[i] = value`.
     let inline SetArray (array: 'T[]) (index: int) (value: 'T) : unit =
         (# "stelem.any !0" type ('T) array index value : unit #)
 
-    /// The desugaring target for `arr.Length`; `ldlen` emits `arr.length`.
     let inline GetArrayLength (array: 'T[]) : int = (# "ldlen" array : int #)
 
-    /// An expression-position IIFE, so a `raise` composes anywhere a value is expected;
-    /// the `'T` result is never realised.
+    /// An expression-position IIFE, so `raise` composes anywhere a value is expected.
     let inline raise (e: 'TException) : 'T = (# "(() => { throw $0; })()" e : 'T #)
 
-    /// Throws a native `new Error($0)`; the message becomes that `Error`'s `.message`.
     let inline failwith (message: string) : 'T =
         (# "(() => { throw new Error($0); })()" message : 'T #)
 
-    /// Every exception erases to a JS `Error`, so the argument name survives only in the
-    /// message text — worded as the BCL's `ArgumentException` words it.
+    /// `exn` erases to a JS `Error`, so the name survives only in the message text —
+    /// worded as the BCL's `ArgumentException` words it.
     let inline invalidArg (argumentName: string) (message: string) : 'T =
         failwith (message + " (Parameter '" + argumentName + "')")
 
 [<AutoOpen>]
 module StringIntrinsics =
 
-    /// The desugaring target for `s.[i]`: a JS string is indexable and `char` is a
-    /// length-1 string, so the native `s[i]` answers directly.
+    /// A JS string is indexable and `char` is a length-1 string, so `s[i]` answers directly.
     let inline GetString (s: string) (index: int) : char = (# "$0[$1]" s index : char #)
 
 [<AutoOpen>]
 module IndexIntrinsics =
 
-    /// The desugaring target for `x.[k]` where `'T`'s external type carries a TS index
-    /// signature (`process.env`, `Record<K,V>`). A JS object has no `get_Item` method,
-    /// so the computed-member read `x[k]` is the only form.
+    /// A JS object has no `get_Item`, so the computed-member read `x[k]` is the only form.
     let inline GetIndex (target: 'T) (key: 'K) : 'V = (# "$0[$1]" target key : 'V #)
 
-    /// The `x.[k] <- value` counterpart — the computed-member assignment `x[k] = value`.
     let inline SetIndex (target: 'T) (key: 'K) (value: 'V) : unit =
         (# "$0[$1] = $2" target key value : unit #)
 
 module Unchecked =
 
-    /// JS has no per-type zero, so the default IS `null` — a hole-less template that
-    /// substitutes to the bare literal at each reference.
+    /// JS has no per-type zero: the default IS `null`, at every element type.
     let inline defaultof<'T> : 'T = (# "null" : 'T #)

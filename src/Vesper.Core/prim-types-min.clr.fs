@@ -1,6 +1,6 @@
 namespace Vesper
 
-#nowarn "42" // This construct is deprecated: it is only for use in the F# library
+#nowarn "42"
 
 type int =
     (# "System.Int32" #)
@@ -17,7 +17,6 @@ type int =
         static member inline (^^^)(x: int, y: int) : int = (# "xor" x y : int #)
         static member inline (~~~)(value: int) : int = (# "not" value : int #)
         static member inline (<<<)(value: int, shift: int) : int = (# "shl" value shift : int #)
-        // Signed width: arithmetic (sign-extending) `shr`.
         static member inline (>>>)(value: int, shift: int) : int = (# "shr" value shift : int #)
     end
 type bool = (# "System.Boolean" #)

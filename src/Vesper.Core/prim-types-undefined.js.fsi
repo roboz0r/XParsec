@@ -7,10 +7,9 @@ namespace Vesper
 /// <category>Basic Types</category>
 type undefined = extern
 
-/// The value-level companion of the `undefined` TYPE. Each reference splices the bare
-/// `undefined`, so it never appears as an import or a runtime `const`.
 [<AutoOpen>]
 module Undefined =
 
-    /// The JS <c>undefined</c> absence value — a runtime global with no CLR analog.
+    /// The JS <c>undefined</c> absence value. Each reference splices the bare
+    /// <c>undefined</c>: no import, and no emitted <c>const</c>.
     val undefined: undefined

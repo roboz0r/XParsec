@@ -5,8 +5,8 @@ namespace Vesper
 /// <category>Basic Types</category>
 type int = extern with
 
-    /// <summary>The witness the overloaded <c>(+)</c> dispatches to. Its body is the
-    /// target's own, in the paired <c>.fs</c>: spliced at the use site, never emitted.</summary>
+    /// <summary>Each operator's body is the target's own, in the paired <c>.fs</c>:
+    /// spliced at the use site, never emitted.</summary>
     static member inline (+): x: int * y: int -> int
 
     static member inline (-): x: int * y: int -> int
@@ -17,8 +17,7 @@ type int = extern with
 
     static member inline (%): x: int * y: int -> int
 
-    /// <summary>Prefix plus — the identity, declared at every numeric width; nothing about
-    /// it is signed, unlike <c>(~-)</c>.</summary>
+    /// <summary>Prefix plus — the identity, declared at every numeric width.</summary>
     static member inline (~+): value: int -> int
 
     /// <summary>Unary negation, declared at the SIGNED widths only: a negated unsigned

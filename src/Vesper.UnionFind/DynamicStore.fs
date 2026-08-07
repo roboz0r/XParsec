@@ -2,17 +2,9 @@ namespace Vesper.UnionFind
 
 open System.Collections.Generic
 
-/// A dense, monotone, measure-typed id arena: interns each distinct `'T` and hands back a
-/// stable `int<'M>` id assigned in first-seen order.
-///
-/// Grow-only by design — ids are never reused. That is exactly the property a semi-persistent
-/// consumer needs (see `SemiPersistentUnionFind`): a live id can never come to mean two
-/// different elements across a rollback, so the store can be a single mutable object shared by
-/// every version without breaking observational persistence. Reuse/removal would reintroduce
-/// aliasing and is deliberately not offered.
-///
-/// The phantom measure `'M` tags the id space, so the compiler rejects passing one arena's
-/// ids to a consumer parameterized over another (e.g. a type-var arena vs a region arena).
+/// Interns each distinct `'T`, handing back a stable `int<'M>` id in first-seen order.
+/// Grow-only: an id is never reused, so one shared mutable store survives a rollback in a
+/// semi-persistent consumer — an id can never come to mean a different element.
 [<Sealed>]
 type DynamicStore<'T, [<Measure>] 'M when 'T: equality>(capacity: int) =
     let data = ResizeArray<'T>(max 0 capacity)

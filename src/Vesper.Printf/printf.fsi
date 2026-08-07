@@ -1,6 +1,5 @@
 namespace Vesper
 
-// `[<AutoOpen>]` so `printfn` resolves unqualified.
 [<AutoOpen>]
 module Printf =
 

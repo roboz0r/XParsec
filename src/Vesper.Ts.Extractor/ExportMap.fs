@@ -1,6 +1,5 @@
-/// `ts.Symbol` → `Schema.Export`/`Schema.Member` — the export/member-walking half
-/// of the extractor. Each export arm seeds the `MapCtx` typar axes and delegates
-/// every type encoding to `TypeMap`.
+/// `ts.Symbol` → `Schema.Export`/`Schema.Member`. Each export arm seeds the `MapCtx`
+/// typar axes and delegates every type encoding to `TypeMap`.
 module Vesper.Ts.Extractor.ExportMap
 
 open Fable.Core
@@ -13,17 +12,9 @@ open Vesper.Ts.Extractor.TsInterop
 open Vesper.Ts.Extractor.Diagnostics
 open Vesper.Ts.Extractor.TypeMap
 
-/// Guard against asymmetric get/set accessors (TS 4.3 `get x(): string` / `set
-/// x(v: number)`): a pure TS-ism with no analog on either backend (CLR properties
-/// are type-symmetric, JS is untyped). Only an accessor carrying BOTH a getter
-/// and a setter can diverge — a get-only or set-only accessor is trivially
-/// symmetric. We reach the two halves through the symbol's `declarations` (an
-/// accessor symbol holds both the `GetAccessorDeclaration` and the
-/// `SetAccessorDeclaration`), classified by the runtime `isGetAccessor` /
-/// `isSetAccessor` predicates (never raw `SyntaxKind` numerics, per producer
-/// discipline). The getter's RETURN type and the setter's lone PARAMETER type are
-/// each resolved through `getSignatureFromDeclaration` and compared at the mapped
-/// `TypeRef` level so the comparison sees what the manifest would actually carry.
+/// TS allows `get x(): string` alongside `set x(v: number)`; neither backend does
+/// (CLR properties are type-symmetric, JS is untyped). Compares the getter's return
+/// with the setter's lone parameter, both as mapped `TypeRef`s.
 let private checkAccessorSymmetry (ctx: MapCtx) (prop: Ts.Symbol) : unit =
     let flags = prop.getFlags ()
 
@@ -41,11 +32,6 @@ let private checkAccessorSymmetry (ctx: MapCtx) (prop: Ts.Symbol) : unit =
 
         match getter, setter with
         | Some g, Some s ->
-            // Resolve the getter's return + setter's param as `TypeRef option`; a
-            // structural obstacle (no resolvable signature, a setter that isn't
-            // exactly-one-param) DEGRADES to `None` + a diagnostic rather than aborting
-            // the whole class — the symmetry check simply cannot run and the property
-            // still lowers to its `getTypeOfSymbolAtLocation` type in `mapMember`.
             let getReturn =
                 match ctx.Checker.getSignatureFromDeclaration (unbox g) with
                 | Some sg -> Some(mapType ctx (sg.getReturnType ()))
@@ -74,10 +60,8 @@ let private checkAccessorSymmetry (ctx: MapCtx) (prop: Ts.Symbol) : unit =
                         "accessor '%s' has an unresolvable get/set signature (or a non-unary setter); the get/set symmetry check was skipped and the property kept its resolved type"
                         (prop.getName ()))
             | Some getReturn, Some setParam when getReturn <> setParam ->
-                // Asymmetric get/set types: a TS-only construct with no backend analog.
-                // DEGRADE by NARROWING to the getter's type — the property already lowers
-                // to `getTypeOfSymbolAtLocation` (the getter's return) in `mapMember`, so
-                // recording the warning here is enough; the read side is the one kept.
+                // Narrowing needs no code: the property's type-at-location IS the
+                // getter's return, so the warning is the whole effect.
                 emitWarning
                     ctx
                     Schema.DiagCode.AsymmetricAccessorNarrowed
@@ -88,25 +72,12 @@ let private checkAccessorSymmetry (ctx: MapCtx) (prop: Ts.Symbol) : unit =
                         (prop.getName ())
                         getReturn
                         setParam)
-            // Symmetric (get type = set type): nothing to degrade.
             | Some _, Some _ -> ()
         | _ -> ()
 
-/// `isStatic` is supplied by the caller, not read off the symbol: instance members
-/// are walked off the class's DECLARED (instance) type and the static side off the
-/// constructor-function type, so the side is known by WHICH walk produced `prop`
-/// rather than re-derived per symbol (item 3).
-///
-/// A get/set ACCESSOR (item 10) carries no `Method` flag and its type-at-location is
-/// the resolved property type (not a call signature), so it falls through to the
-/// `Property` branch alongside data properties — exactly the interim mapping (both
-/// lower to `x.foo` on JS). The only extra work is the asymmetric-type guard.
-///
-/// `ctx.DeclaringEnv` is the declaring type's typar scope (item 11): a member typed
-/// `T` resolves to its declaring-axis `Typar` index. A generic METHOD's OWN typars
-/// (`map<U>(…)`) become the method-axis env inside `mapSignature SigAxis.MemberMethod`,
-/// so a reference to `U` maps to `MethodTypar i` — faithful, no longer erased. A
-/// PROPERTY carries no method typars (`ctx` arrives with an empty `MethodEnv`).
+/// `isStatic` is supplied by the caller: instance members are walked off the DECLARED
+/// type and statics off the constructor-function type. A get/set accessor carries no
+/// `Method` flag, so it maps as a property.
 let private mapMember (ctx: MapCtx) (isStatic: bool) (prop: Ts.Symbol) : Schema.Member =
     checkAccessorSymmetry ctx prop
 
@@ -116,11 +87,8 @@ let private mapMember (ctx: MapCtx) (isStatic: bool) (prop: Ts.Symbol) : Schema.
     let isMethod =
         callSigs.Count > 0 && hasFlag (prop.getFlags ()) Ts.SymbolFlags.Method
 
-    // Optionality (`foo?: T`) is a property-SYMBOL flag: tsc pre-evaluates `Partial<T>`
-    // to a resolved object whose property symbols carry `SymbolFlags.Optional` while the
-    // property TYPE stays `T[P]`, so read it from the flag, never the type. A named member
-    // carries it on the existing `Member.Optional` channel (an anonymous `Structural` field,
-    // which has no such channel, instead rides `structuralFieldType`'s `T | undefined`).
+    // Optionality (`foo?: T`) is a SYMBOL flag, not a type: tsc resolves `Partial<T>` to
+    // an object whose property TYPE stays `T[P]` while the symbol carries `Optional`.
     let optional = hasFlag (prop.getFlags ()) Ts.SymbolFlags.Optional
 
     if isMethod then
@@ -142,13 +110,8 @@ let private mapMember (ctx: MapCtx) (isStatic: bool) (prop: Ts.Symbol) : Schema.
             Optional = optional
         }
 
-/// Construct signatures (`getConstructSignatures()` on a class's constructor-function
-/// type, or on an interface carrying a `new(): T` signature) collapse to ONE `.ctor`
-/// member whose `Signatures` list holds every overload. The provider expands that one
-/// member into N `ExternalMember.ctor`s (one per signature, each keyed by its argSig),
-/// so the wire form stays a single `Member` and the seam convention lives consumer-side.
-/// `Static = false`: a constructor is an instance-producing member, per the seam.
-/// The no-method-axis rule lives in `SigAxis.Ctor`.
+/// Every construct signature collapses to ONE `.ctor` member holding all overloads in
+/// `Signatures`; the provider expands it back into one external ctor per signature.
 let private ctorMemberOf (ctx: MapCtx) (ctorSigs: ResizeArray<Ts.Signature>) : Schema.Member option =
     if ctorSigs.Count = 0 then
         None
@@ -163,14 +126,9 @@ let private ctorMemberOf (ctx: MapCtx) (ctorSigs: ResizeArray<Ts.Signature>) : S
                 Optional = false
             }
 
-/// Classify a top-level export's import shape — the wire field that selects the
-/// import intrinsic at lowering. The export-TABLE entry's ESCAPED NAME carries the
-/// `export default` / `export =` brand (TS stores them under the reserved internal
-/// names `InternalSymbolName.Default` / `ExportEquals`); a module/namespace symbol
-/// surfaces as a `Namespace` import. Per the producer discipline we classify via
-/// the binding's NAME CONSTANTS and `SymbolFlags` predicates, never raw numeric
-/// flag literals. `escaped` comes from the alias/export entry; `resolved` is the
-/// followed-through underlying symbol whose flags name the namespace case.
+/// The wire field that selects the import intrinsic at lowering. TS stores
+/// `export default` / `export =` under reserved escaped names, so the brand rides
+/// `escaped` (the export-table entry) while `resolved` supplies only the module case.
 let private importShapeOf (resolved: Ts.Symbol) (escaped: string) : Schema.ImportShape =
     if escaped = unbox<string> Ts.InternalSymbolName.Default then
         Schema.ImportShape.Default
@@ -181,27 +139,16 @@ let private importShapeOf (resolved: Ts.Symbol) (escaped: string) : Schema.Impor
     else
         Schema.ImportShape.Named
 
-/// `extends` bases of a declared class/interface type, via `checker.getBaseTypes`
-/// (item 16). For an `interface` this is EVERY extended interface (interfaces extend
-/// many); for a `class` it is the single base CLASS — TS deliberately keeps a class's
-/// `implements` interfaces OUT of `getBaseTypes`, listing only the base class there.
-/// Each base maps through the existing `mapType` (its printed nominal name → `Named`).
-/// The declared type of a class/interface symbol IS an `InterfaceType` at runtime; the
-/// `unbox` is a Fable no-op cast satisfying the binding's parameter type.
+/// For an `interface` this is EVERY extended interface; for a `class` it is the single
+/// base CLASS — TS keeps a class's `implements` interfaces OUT of `getBaseTypes`.
 let private extendsBases (ctx: MapCtx) (declared: Ts.Type) : Schema.TypeRef list =
     ctx.Checker.getBaseTypes (unbox<Ts.InterfaceType> declared)
     |> Seq.map (fun bt -> mapType ctx (unbox<Ts.Type> bt))
     |> List.ofSeq
 
-/// A class's `implements` interfaces — the half `getBaseTypes` omits (see `extendsBases`).
-/// Walk the class declaration's heritage clauses, keep only the `implements` clause
-/// (classified by the `SyntaxKind.ImplementsKeyword` CONSTANT, never a raw numeric, per
-/// producer discipline), and resolve each entry's referenced interface SYMBOL to its
-/// declared type. We resolve through the symbol (`getSymbolAtLocation` on the clause
-/// expression, following an `Alias`) rather than `getTypeAtLocation` on the expression,
-/// because a type-only interface has no value meaning at that expression position — the
-/// symbol's declared type carries the nominal identity `mapType` needs. Throw on an
-/// unresolvable entry rather than silently dropping a declared interface.
+/// A class's `implements` interfaces — the half `getBaseTypes` omits. Each heritage
+/// entry resolves through its SYMBOL, not `getTypeAtLocation` on the expression: a
+/// type-only interface has no value meaning at that expression position.
 let private classImplements (ctx: MapCtx) (resolved: Ts.Symbol) : Schema.TypeRef list =
     match resolved.declarations with
     | None -> []
@@ -213,9 +160,6 @@ let private classImplements (ctx: MapCtx) (resolved: Ts.Symbol) : Schema.TypeRef
                 clauses
                 |> Seq.filter (fun c -> int c.token = int Ts.SyntaxKind.ImplementsKeyword)
                 |> Seq.collect (fun c -> c.types)
-                // An entry whose interface symbol cannot be resolved DEGRADES to `None`
-                // (dropped from the heritage list) + a diagnostic, rather than aborting the
-                // whole class — a lib-scale resilience over the former hard throw.
                 |> Seq.choose (fun e ->
                     match ctx.Checker.getSymbolAtLocation (unbox e.expression) with
                     | Some s ->
@@ -242,24 +186,9 @@ let private classImplements (ctx: MapCtx) (resolved: Ts.Symbol) : Schema.TypeRef
         )
         |> List.ofSeq
 
-/// The shared class-like extraction that BOTH the `Class` export arm AND the
-/// fused-global path use (a global `interface Map<K,V>` + `declare var Map:
-/// MapConstructor` merge into ONE symbol Vesper needs as ONE `Export.Class`). Two
-/// distinct walks keep the static/instance split honest (item 3): the DECLARED type
-/// yields the instance members and the declaring-axis typars; the symbol's
-/// TYPE-AT-LOCATION is the constructor-function (static) type whose `getProperties`
-/// are the static members and whose `getConstructSignatures` are the constructors.
-/// The static side surfaces the synthetic `prototype` slot — filtered (not an
-/// authored member). `name`/`import` are supplied by the caller: a `class` may be
-/// `export default class` (reusing its resolved brand); a fused GLOBAL is always a
-/// plain `Named` global. Statics cannot reference the class typars in TS, so the env
-/// is inert on the static walk; passing it uniformly keeps one path.
-///
-/// Heritage (item 16): a class's `extends` base CLASS comes from `getBaseTypes` on
-/// the instance type, its `implements` interfaces from the heritage clauses
-/// (`getBaseTypes` omits them). Emitted as ONE flat list (extends first); the
-/// provider disambiguates base-class vs interface by name-resolving each entry
-/// against the manifest's type table (the schema carries no base/interface bit).
+/// Shared by the `Class` arm and the fused-global path (`interface Map<K,V>` +
+/// `declare var Map: MapConstructor` are ONE symbol). The DECLARED type yields the
+/// instance members and typars; the type-at-location is the ctor-function type.
 let private classLikeExport
     (ctx0: MapCtx)
     (resolved: Ts.Symbol)
@@ -289,8 +218,6 @@ let private classLikeExport
 
     let heritage = extendsBases ctx instanceTy @ classImplements ctx resolved
 
-    // A class bearing a TS index signature (`{ [k: string]: V }`) carries it on the
-    // `index` slot — flattened through heritage by `getIndexInfosOfType`.
     Schema.Export.Class(
         name,
         List.length env,
@@ -304,10 +231,8 @@ let private classLikeExport
 /// its declaration's own typar scope.
 let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option =
     let checker = ctx0.Checker
-    // Follow re-export aliases (`export { x } from …`, `export default <named>`,
-    // `export = <named>`) so flags/type/name are read off the REAL underlying
-    // symbol, not the alias stub. The export-table entry's escaped name still
-    // carries the import-shape brand, so capture it BEFORE resolving.
+    // The export-table entry's escaped name carries the import-shape brand, so capture
+    // it BEFORE following a re-export alias to the real underlying symbol.
     let escaped: string = unbox<string> (sym.getEscapedName ())
 
     let resolved =
@@ -320,11 +245,8 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
     let import = importShapeOf resolved escaped
 
     // `export default function greet` stores the symbol under the reserved name
-    // "default" (it is NOT an alias, so flag-resolution above leaves it as-is);
-    // recover the authored declaration name so the binding isn't literally named
-    // "default". Re-export aliases (`export = legacy`) already resolve to a real
-    // named symbol, so this only fires for the inline-default case; an anonymous
-    // default keeps the "default" sentinel.
+    // "default" and is NOT an alias, so recover `greet` from the declaration; an
+    // anonymous default keeps the sentinel.
     let name =
         let raw = resolved.getName ()
 
@@ -338,12 +260,9 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
         else
             raw
 
-    // DECLARATION MERGING (item 17, deferred): a namespace (Module) symbol can ALSO
-    // carry a dominant type/value flag (`class C {}; namespace C {}`). A dominant arm
-    // below wins and the namespace half is DROPPED for v1 — record the drop rather
-    // than silently losing it. A PURE namespace carries ONLY the Module flag and is
-    // faithfully emitted by the Module arm, so it must NOT diagnose. Span anchors on
-    // the dropped `ModuleDeclaration` node when present.
+    // `class C {}; namespace C {}` merge into one symbol carrying both flags: a dominant
+    // arm below wins and the namespace half is dropped, so record it. A PURE namespace
+    // carries only `Module`, is emitted faithfully, and must NOT match here.
     if
         hasFlag flags Ts.SymbolFlags.Module
         && (hasFlag flags Ts.SymbolFlags.Class
@@ -372,8 +291,6 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
 
     if hasFlag flags Ts.SymbolFlags.Interface then
         let declared = checker.getDeclaredTypeOfSymbol resolved
-        // Declaring-axis typar scope (item 11): a member typed `T` resolves to its
-        // index here; `typeParams` is this list's length.
         let env = declaredTypars declared
 
         let ctx = { ctx0 with DeclaringEnv = env }
@@ -383,16 +300,11 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
             |> Seq.map (mapMember ctx false)
             |> List.ofSeq
 
-        // An interface can carry a `new(): T` construct signature (the
-        // constructor-interface idiom, `interface FooCtor { new(): Foo }`); it lands
-        // on the DECLARED type itself. Append it as a `.ctor` member like a class.
+        // `interface FooCtor { new(): Foo }` — an interface's construct signatures land
+        // on the DECLARED type itself, and become a `.ctor` member as for a class.
         let ctorMember =
             ctorMemberOf ctx (declared.getConstructSignatures ()) |> Option.toList
 
-        // Heritage (item 16): an interface's heritage is its `extends` interfaces only
-        // (an interface cannot have a base class), so `getBaseTypes` alone is faithful.
-        // A TS index signature (`NodeJS.Dict<T>`, `ProcessEnv`) rides the `index` slot,
-        // flattened through heritage by `getIndexInfosOfType`.
         Some(
             Schema.Export.Interface(
                 name,
@@ -403,16 +315,12 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
             )
         )
     elif hasFlag flags Ts.SymbolFlags.Class then
-        // The instance/static two-walk lives in the shared `classLikeExport` (the
-        // fused-global path calls it too). A class may itself be `export default class`,
-        // so it reuses the resolved `name`/`import` computed above.
         Some(classLikeExport ctx0 resolved name import)
     elif hasFlag flags Ts.SymbolFlags.Function then
         let t = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
 
-        // A free function's OWN type parameters (item 11): each call signature is mapped
-        // against its own typars (`SigAxis.FreeFunction` seeds them as the declaring
-        // axis). `identity<T>(x: T): T` → `TypeParams = 1`, params/return `Typar 0`.
+        // Each call signature is mapped against its OWN typars as the declaring axis:
+        // `identity<T>(x: T): T` → `TypeParams = 1`, params/return `Typar 0`.
         let sigs =
             t.getCallSignatures ()
             |> Seq.map (mapSignature ctx0 SigAxis.FreeFunction)
@@ -420,12 +328,9 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
 
         Some(Schema.Export.Function(name, sigs, import))
     elif hasFlag flags Ts.SymbolFlags.Variable then
-        // `export const`/`let`/`var` and ambient `declare const` — a singleton VALUE
-        // (not an arrow). Its type rides `getTypeOfSymbolAtLocation`. Const-ness comes
-        // from the binding's COMBINED node flags: the `const`/`let` keyword lives on the
-        // enclosing `VariableDeclarationList`, not the `VariableDeclaration`, so
-        // `getCombinedNodeFlags` walks up to surface it. Per the producer discipline we
-        // classify via the `NodeFlags.Const` CONSTANT, never a raw numeric literal.
+        // `export const`/`let`/`var` and ambient `declare const` — a singleton VALUE.
+        // The `const` keyword lives on the enclosing `VariableDeclarationList`, not the
+        // `VariableDeclaration`, so const-ness needs `getCombinedNodeFlags` to walk up.
         let decl = declOf resolved
         let varTy = checker.getTypeOfSymbolAtLocation (resolved, decl)
 
@@ -433,16 +338,9 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
 
         Some(Schema.Export.Variable(name, mapType ctx0 varTy, isConst, import))
     elif hasFlag flags Ts.SymbolFlags.Enum then
-        // `enum` AND `const enum` (`SymbolFlags.Enum` ORs `RegularEnum | ConstEnum`).
-        // Read members straight off the `EnumDeclaration.members` node list — NOT
-        // `getPropertiesOfType` on the declared type, which returns the underlying
-        // `number`/`string` PROTOTYPE members (an enum's apparent type is its primitive
-        // base), not the authored cases. Each member's value comes from
-        // `checker.getConstantValue` on the member node: a STRING member yields
-        // `U2.Case1 s` (kept verbatim as `StringVal`), a NUMERIC member `U2.Case2 n`
-        // (a JS float — type-tagged as `IntVal` after the integer-subset check below);
-        // a computed member with no constant value yields `None`. The member's name
-        // rides its declaration symbol.
+        // The authored cases are the `EnumDeclaration.members` nodes, NOT
+        // `getPropertiesOfType`: an enum's apparent type is its primitive base, so that
+        // returns the `number`/`string` prototype members instead.
         let enumDecl = unbox<Ts.EnumDeclaration> (declOf resolved)
 
         let members =
@@ -451,9 +349,7 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
                 let memberName =
                     match checker.getSymbolAtLocation (unbox em.name) with
                     | Some s -> s.getName ()
-                    // A member with no resolvable name symbol degrades to a reserved
-                    // sentinel (kept as a member so the enum arity survives) + a
-                    // diagnostic, rather than aborting the extraction.
+                    // Kept as a member so the enum's arity survives.
                     | None ->
                         emitWarning
                             ctx0
@@ -470,10 +366,8 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
                     match checker.getConstantValue (unbox em) with
                     | Some(U2.Case1 s) -> Some(Schema.LiteralValue.StringVal s)
                     | Some(U2.Case2 n) ->
-                        // Integer-subset discipline: TS technically permits non-integer
-                        // numeric enum members, but the wire only carries `IntVal of
-                        // int64`. At lib scale, DEGRADE a non-integer to `None` (a computed
-                        // member) + a diagnostic rather than widen/round or abort.
+                        // TS permits non-integer numeric enum members; the wire carries
+                        // only `IntVal of int64`, so drop the value rather than round it.
                         if System.Math.Floor n <> n || System.Double.IsInfinity n then
                             emitWarning
                                 ctx0
@@ -497,13 +391,9 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
 
         Some(Schema.Export.Enum(name, members))
     elif hasFlag flags Ts.SymbolFlags.TypeAlias then
-        // `type X = …`. Emit the RESOLVED target: `getDeclaredTypeOfSymbol` on a type
-        // alias yields the aliased type, so alias-to-union / -primitive / -structural all
-        // flow through the same `mapType` the members use. Declaring-axis typars (item 11):
-        // an alias's target is not an `InterfaceType`, so read the typar scope off the
-        // declaration's effective type-parameter list; `Pair<A,B> = A | B` → `typeParams =
-        // 2`, target `Union [Typar 0; Typar 1]`. The authorial `aliasTypeArguments` capture
-        // (authored vs resolved form) is still deferred.
+        // `getDeclaredTypeOfSymbol` on a `type X = …` yields the RESOLVED target, which
+        // is not an `InterfaceType` — so the typars come off the declaration instead:
+        // `type Pair<A,B> = A | B` → `typeParams = 2`, target `Union [Typar 0; Typar 1]`.
         let target = checker.getDeclaredTypeOfSymbol resolved
         let env = declTyparsOf checker (declOf resolved)
 
@@ -511,19 +401,9 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
 
         Some(Schema.Export.TypeAlias(name, List.length env, mapType ctx target))
     elif hasFlag flags Ts.SymbolFlags.Module then
-        // `namespace NS { … }` / `module NS { … }` (item 17). `SymbolFlags.Module`
-        // is the named constant ORing `ValueModule | NamespaceModule` — the SAME
-        // classification `importShapeOf` uses to brand a namespace IMPORT, reused
-        // here to detect the namespace EXPORT. Recurse the namespace's exported
-        // members through `mapExport` (so a nested namespace flows through this
-        // very arm) and collect into the nested `Export list`.
-        // `getExportsOfModule` returns the members in a stable declaration order,
-        // preserved here so the canonical-form golden stays deterministic.
-        //
-        // DECLARATION MERGING: a merged symbol emits its DOMINANT declaration (the
-        // flags above are tested first) and never reaches here — the namespace half
-        // is dropped for v1 with the diagnostic above. TODO(merge): emit both halves
-        // once the seam models a type carrying a static namespace.
+        // `namespace NS { … }` / `module NS { … }`: recursing the namespace's own
+        // exports means a nested namespace flows back through this arm.
+        // `getExportsOfModule` is in declaration order, so the golden stays stable.
         let nested =
             checker.getExportsOfModule resolved
             |> List.ofSeq
@@ -533,12 +413,9 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
     else
         None
 
-/// Per-EXPORT resilience backstop, the module-path analog of `mapGlobalSymbolResilient`
-/// (the globals path). `extractModuleExports` walks a whole module's export table; an
-/// exotic symbol whose walk THROWS must not abort the entire manifest (at `@types/node`
-/// scale one bad export would lose the whole module). Catch, diagnose `SymbolWalkFailed`,
-/// and DROP the one symbol — the known in-place degrades (accessor/enum/heritage/…) fire
-/// below this and keep their symbol; this only catches what those did not anticipate.
+/// One export whose walk THROWS is diagnosed and dropped, so an exotic symbol cannot
+/// cost the whole module its manifest. The in-place degrades keep their symbol; this
+/// catches only what they did not anticipate.
 let mapExportResilient (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option =
     try
         mapExport ctx0 sym
@@ -554,14 +431,9 @@ let mapExportResilient (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option =
 
         None
 
-/// Walk a MODULE symbol's exports into the manifest's `Export` list. Shared by the
-/// single-file path (`extractFile`) and the package-entry path (`extractPackage`):
-/// both resolve a module symbol — one for a local `.d.ts`, one for the package entry
-/// the synthetic-entry program pulled in — and from there the export surface is the
-/// same. `getExportsOfModule` deliberately omits the `export =` entry (a CommonJS
-/// `export = X` is not a named member of the module — `tryGetMemberInModuleExports`
-/// filters it out too), so read it straight from the symbol's export table under its
-/// reserved internal name and prepend it. The entry is an alias; `mapExport` follows it.
+/// Walk a MODULE symbol's exports into the manifest's `Export` list. A CommonJS
+/// `export = X` is not a named member, so `getExportsOfModule` omits it: it is read
+/// from the export table under `InternalSymbolName.ExportEquals` and prepended.
 let extractModuleExports
     (checker: Ts.TypeChecker)
     (program: Ts.Program)
@@ -583,42 +455,28 @@ let extractModuleExports
             ModuleHome = moduleHome
         }
 
-    // Resilient per-symbol (see `mapExportResilient`): one throwing export is diagnosed
-    // and dropped, not fatal. `moduleHome` is the identity `fun _ -> None` for the
-    // single-module paths (byte-identical behaviour) and the sibling-module homer for
-    // the ambient-modules entry.
     exportSyms |> List.choose (mapExportResilient ctx0)
 
 // ─── ambient-global dispatch (the `extractGlobals` entry mode) ─────────────────
-//
 // A global-scope (script) `.d.ts` is enumerated by SYMBOL, not per-file statement, so
-// cross-file interface MERGES are one symbol. Each enumerated global routes through
-// `mapGlobalSymbol`, which PREFERS the fused class-like path (`interface Map<K,V>` +
-// `declare var Map: MapConstructor` merged into one `new`-able symbol) and otherwise
-// delegates to the very same `mapExport` arms the module paths use — so a pure global
-// interface / free function / `declare var` / `type` alias / `enum` is byte-identical
-// to its module-entry form.
+// cross-file interface MERGES arrive as one symbol.
 
-/// The fused class-like predicate. A symbol carrying BOTH the Interface (type) meaning
-/// AND a Value meaning is a `new`-able global class (the merged `interface Map<K,V>` +
-/// `declare var Map: MapConstructor` pair) — the exact predicate `classifyKind` uses to
-/// mint an `FTClass` for the refs table. A pure type-only interface lacks the Value
-/// meaning and stays an `Export.Interface`.
+/// A global carrying BOTH the Interface (type) and a Value meaning is a `new`-able
+/// class: the merged `interface Map<K,V>` + `declare var Map: MapConstructor` pair. A
+/// type-only interface lacks the Value meaning and stays an `Export.Interface`.
 let isFusedClassLike (sym: Ts.Symbol) : bool =
     let flags = sym.getFlags ()
 
     hasFlag flags Ts.SymbolFlags.Interface && hasFlag flags Ts.SymbolFlags.Value
 
 /// The constructor-INTERFACE (`MapConstructor`) a fused symbol's value side resolves
-/// to. It is CONSUMED into the fused `Export.Class` (its construct signatures → ctors,
-/// its other members → statics), so the global enumerator must NOT also emit it as a
-/// standalone `Export.Interface`. `None` when the value type carries no naming symbol.
+/// to. It is CONSUMED into the fused class, so the global enumerator must NOT also emit
+/// it standalone. `None` when the value type carries no naming symbol.
 let fusedCarrierSymbol (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Ts.Symbol option =
     (checker.getTypeOfSymbolAtLocation (sym, declOf sym)).getSymbol ()
 
-/// Route ONE enumerated global symbol to its export. The fused class-like path wins
-/// when both the type and value meanings are present; everything else delegates to the
-/// shared `mapExport` arms unchanged (so the module goldens stay byte-identical).
+/// Route ONE enumerated global symbol to its export: fused class-like if both meanings
+/// are present, otherwise the same walk the module paths use.
 let mapGlobalSymbol (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option =
     let resolved =
         if hasFlag (sym.getFlags ()) Ts.SymbolFlags.Alias then

@@ -23,9 +23,9 @@ type comparable<'T> = extern interface with
 
 namespace Vesper.Collections
 
-// The iteration cluster — `for … in` resolves and lowers through these. An implementor
-// writes only the pull protocol declared below; the BCL surface is wider (the non-generic
-// bases, `object Current`, `Reset`) and the CLR backend fills those slots in.
+// `for … in` resolves through these. An implementor writes only `MoveNext`/`Current`;
+// the CLR backend fills in the wider BCL surface (non-generic bases, `object Current`,
+// `Reset`).
 
 /// <summary>The iteration-cursor capability — anchors the enumerator half of `for … in`.
 /// On the CLI it is <see cref="T:System.Collections.Generic.IEnumerator`1"/>.</summary>

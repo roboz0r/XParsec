@@ -10,28 +10,21 @@ let private argv: string[] = jsNative
 let main _ =
     let args = argv |> Array.skip 2
 
-    // Two forms. The single-file form is UNCHANGED (the existing golden harness
-    // invokes exactly `<dtsPath> <packageName> <outPath>`). The package form is
-    // gated behind a leading `--package` flag so it can never collide with a local
-    // `.d.ts` path, and pulls a package's cross-file `.d.ts` closure (item 18).
+    // A leading flag distinguishes each mode from the bare `<dts> <pkg> <out>` form.
+    // `--package` resolves a package specifier and pulls its cross-file `.d.ts` closure.
     match args with
     | [| "--package"; specifier; resolveFromDir; packageName; outPath |] ->
         Extractor.runPackage specifier resolveFromDir packageName outPath
-    // Ambient-global entry: `--globals <packageName> <outPath> <dts…>` (variadic — the
-    // merge fixture spans multiple sibling `.d.ts`, all fed to one program so the
-    // checker merges cross-file declarations). Gated behind the flag so it never
-    // collides with the single-file `<dts> <pkg> <out>` form.
+    // Variadic: the sibling `.d.ts` all go into ONE program, so the checker merges
+    // their cross-file declarations before the walk.
     | _ when args.Length >= 4 && args.[0] = "--globals" ->
         Extractor.runGlobals (args.[3..] |> List.ofArray) args.[1] args.[2]
-    // Real-scale lib extraction: `--lib-globals <packageName> <outPath> <dts…>`
-    // — same variadic shape as `--globals`, but sets `noLib` so the passed `lib.es*.d.ts`
-    // files extract AS CONTENT (see `libOptions`). Used to vendor the `es2015` ref pack.
+    // As `--globals`, but with `noLib`, so the passed `lib.es*.d.ts` extract AS CONTENT
+    // instead of being filtered out as the default lib.
     | _ when args.Length >= 4 && args.[0] = "--lib-globals" ->
         Extractor.runLibGlobals (args.[3..] |> List.ofArray) args.[1] args.[2]
-    // Ambient-module entry (decision A): `--ambient-modules <packageName> <outDir>
-    // <dts…>` — same variadic shape as `--globals`, but the third arg is an output
-    // DIRECTORY: this entry emits ONE manifest per quoted `declare module "…"` the
-    // program declares (`@types/node`'s many modules), not a single artifact.
+    // Third arg is an output DIRECTORY, not a file: one manifest per quoted
+    // `declare module "…"` the program declares (`@types/node` has many).
     | _ when args.Length >= 4 && args.[0] = "--ambient-modules" ->
         Extractor.runAmbientModules (args.[3..] |> List.ofArray) args.[1] args.[2]
     | [| dtsPath; packageName; outPath |] -> Extractor.run dtsPath packageName outPath

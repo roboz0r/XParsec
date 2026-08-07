@@ -21,47 +21,47 @@ namespace                      'namespace'       KWNamespace         tok=   0  p
                                '"'               StringClose         tok=  38  pos= 100
         #)                     '#)'              KWRHashParen        tok=  40  pos= 102
     with                       'with'            KWWith              tok=  43  pos= 109
-      static                   'static'          KWStatic            tok=  52  pos= 261
-      member                   'member'          KWMember            tok=  54  pos= 268
-      inline                   'inline'          KWInline            tok=  56  pos= 275
+      static                   'static'          KWStatic            tok=  49  pos= 205
+      member                   'member'          KWMember            tok=  51  pos= 212
+      inline                   'inline'          KWInline            tok=  53  pos= 219
       Pat.Op:
         ParenOp:
-                               '('               KWLParen            tok=  58  pos= 282
-          SymbolicOp           '+'               op_Addition         tok=  59  pos= 283
-                               ')'               KWRParen            tok=  60  pos= 284
+                               '('               KWLParen            tok=  55  pos= 226
+          SymbolicOp           '+'               op_Addition         tok=  56  pos= 227
+                               ')'               KWRParen            tok=  57  pos= 228
       Pats:
-        ParenBlock             '('               KWLParen            tok=  61  pos= 285
+        ParenBlock             '('               KWLParen            tok=  58  pos= 229
           Pat.Tuple:
             Pat.Typed:
-              Pat.NamedSimple  'x'               Identifier          tok=  62  pos= 286
-              Colon            ':'               OpColon             tok=  63  pos= 287
+              Pat.NamedSimple  'x'               Identifier          tok=  59  pos= 230
+              Colon            ':'               OpColon             tok=  60  pos= 231
               NamedType:
-                Ident          'string'          Identifier          tok=  65  pos= 289
-            ,                  ','               OpComma             tok=  66  pos= 295
+                Ident          'string'          Identifier          tok=  62  pos= 233
+            ,                  ','               OpComma             tok=  63  pos= 239
             Pat.Typed:
-              Pat.NamedSimple  'y'               Identifier          tok=  68  pos= 297
-              Colon            ':'               OpColon             tok=  69  pos= 298
+              Pat.NamedSimple  'y'               Identifier          tok=  65  pos= 241
+              Colon            ':'               OpColon             tok=  66  pos= 242
               NamedType:
-                Ident          'string'          Identifier          tok=  71  pos= 300
-                               ')'               KWRParen            tok=  72  pos= 306
-      ReturnColon              ':'               OpColon             tok=  74  pos= 308
+                Ident          'string'          Identifier          tok=  68  pos= 244
+                               ')'               KWRParen            tok=  69  pos= 250
+      ReturnColon              ':'               OpColon             tok=  71  pos= 252
       NamedType:
-        Ident                  'string'          Identifier          tok=  76  pos= 310
-      =                        '='               OpEquality          tok=  78  pos= 317
+        Ident                  'string'          Identifier          tok=  73  pos= 254
+      =                        '='               OpEquality          tok=  75  pos= 261
         HighPrecedenceApp:
           Func:
             LongIdentOrOp:
               LongIdent:
-                               'System'          Identifier          tok=  80  pos= 319
-                               'String'          Identifier          tok=  82  pos= 326
-                               'Concat'          Identifier          tok=  84  pos= 333
-          (                    '('               KWLParen            tok=  85  pos= 339
+                               'System'          Identifier          tok=  77  pos= 263
+                               'String'          Identifier          tok=  79  pos= 270
+                               'Concat'          Identifier          tok=  81  pos= 277
+          (                    '('               KWLParen            tok=  82  pos= 283
           Arg:
             Tuple:
-              Ident            'x'               Identifier          tok=  86  pos= 340
-              Ident            'y'               Identifier          tok=  89  pos= 343
-                               ')'               KWRParen            tok=  90  pos= 344
-    end                        'end'             KWEnd               tok=  93  pos= 350
+              Ident            'x'               Identifier          tok=  83  pos= 284
+              Ident            'y'               Identifier          tok=  86  pos= 287
+                               ')'               KWRParen            tok=  87  pos= 288
+    end                        'end'             KWEnd               tok=  90  pos= 294
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

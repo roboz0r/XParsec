@@ -14,8 +14,7 @@ impl = [
 ]
 
 [targets.js]
-# JS runtime *asset*: the `Option` module functions a consumer imports + ships beside
-# its output (the option *type* itself rides inline via the external-union path, like
-# any union — only the module functions need the import). GENERATED from `option.fs`,
-# not hand-authored; regenerable via the codegen-js test suite.
+# JS runtime *asset*: the `Option` module functions a consumer imports and ships beside
+# its output; the option type itself rides inline. GENERATED from `option.fs`, not
+# hand-authored; regenerable via the codegen-js test suite.
 runtime = ["Vesper.Option.mjs"]

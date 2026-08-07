@@ -1,8 +1,8 @@
 [core]
 name = "Vesper.Seq"
 description = "The Seq module over seq<'T> (fold, reduce, truncate, toArray)."
-# `Vesper.Array` is `toArray`'s: it returns `'T[]` and builds the buffer with
-# `Array.zeroCreate`, a shared body having no business spelling `newarr` itself.
+# `Vesper.Array` is `toArray`'s: it returns `'T[]` and builds its buffer with
+# `Array.zeroCreate`.
 depends-on = ["Vesper.Core", "Vesper.List", "Vesper.Comparison", "Vesper.Array"]
 
 # Contract `.fsi` files in compile order, on EVERY target.
@@ -10,28 +10,17 @@ files = [
     "seq.fsi",
 ]
 
-# Target-NEUTRAL, and needs no per-target prelude — but it took a compiler fix to be able
-# to say that. All four functions are shared: `toArray` builds a doubling buffer over
-# `Array.zeroCreate` rather than the BCL's `ResizeArray`, and `truncate` is a hand-rolled
-# lazy cursor (`seq { }` does not exist on either target) over the `seq` / `enumerator`
-# CAPABILITIES — an interface on CLR, `Symbol.iterator` on JS.
-#
-# That cursor briefly forced a split: driving it reads `MoveNext` / `Current` off a
-# capability-typed value, and CLR member resolution used to look the CANONICAL key up as a
-# class and fail. It now retries under the capability's platform key, so one body serves
-# both targets. What the CLR half used to reach for (`Enumerable.Take`, `ResizeArray`) was
-# BCL convenience, not necessity.
+# Target-NEUTRAL, no per-target prelude. `toArray` builds a doubling buffer over
+# `Array.zeroCreate`; `truncate` is a hand-rolled lazy cursor over the `seq` / `enumerator`
+# capabilities — an interface on CLR, `Symbol.iterator` on JS.
 impl = [
     "seq.fs",
 ]
 
 [targets.clr]
 # CLR-only CONTRACT, appended after `[core] files`. `struct-seq.fsi` names the NON-generic
-# `System.Collections.IEnumerable` / `IEnumerator` (which the JS capability compat shim
-# does not map — it maps only the generic ones), and every type in it is `[<Struct>]`
-# because its whole point is zero-allocation by-value chaining. `[<Struct>]` is erased on
-# JS, so a JS port would first have to decide what this file is FOR once by-value chaining
-# is not a thing the target has.
+# `System.Collections.IEnumerable` / `IEnumerator`, which the JS capability shim does not
+# map, and every type in it is `[<Struct>]` for zero-allocation by-value chaining.
 files = [
     "struct-seq.fsi",
 ]

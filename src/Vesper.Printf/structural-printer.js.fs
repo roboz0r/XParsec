@@ -30,13 +30,12 @@ module StructuralPrinter =
     let casesOf (v: obj) : string[] = (# "$0.cases()" v : string[] #)
 
     // The budget is a single-cell JS array (`[size]`), mutated in place so one counter
-    // is shared across the whole recursion — the analogue of the hand-authored
-    // `{ n: size }` object.
+    // is shared across the whole recursion.
     let mkBudget (size: int) : int[] = (# "[$0]" size : int[] #)
     let getB (b: int[]) : int = (# "$0[0]" b : int #)
     let setB (b: int[]) (v: int) : unit = (# "$0[0] = $1" b v : unit #)
 
-    // --- the layout document (Wadler `Doc`; the JS analogue of the CLR `Doc` DU) ---
+    // --- the layout document (Wadler `Doc`) ---------------------------------------
 
     /// A recorded layout document. A `Group` renders all-flat or all-broken; `Nest`
     /// governs the indent broken lines hang at; `Line` is a soft break (its flat
@@ -48,17 +47,15 @@ module StructuralPrinter =
         | Nest of int * Doc
         | Group of Doc * bool
 
-    // `Doc[]` children are built by spreading onto a fresh array (`emptyDocs` is never
-    // mutated in place — every `append` returns a new array), so the accumulator is
-    // immutable-by-construction; the mutable local that holds it is reassigned, never
-    // its contents written through.
+    // `append` spreads onto a fresh array (`[...a, d]`), so `emptyDocs` stays empty and
+    // an accumulator local is reassigned rather than written through.
     let emptyDocs: Doc[] = (# "[]" : Doc[] #)
     let append (a: Doc[]) (d: Doc) : Doc[] = (# "[...$0, $1]" a d : Doc[] #)
     let dLen (a: Doc[]) : int = (# "$0.length" a : int #)
     let dGet (a: Doc[]) (i: int) : Doc = (# "$0[$1]" a i : Doc #)
 
-    /// The flat (single-line) width of a `Doc` — recomputed rather than cached; the
-    /// trees are small. `Group(_, parens)` adds 2 for the wrapping parentheses.
+    /// The flat (single-line) width of a `Doc`; `Group(_, parens)` adds 2 for the
+    /// wrapping parentheses.
     let rec flatWidth (d: Doc) : int =
         match d with
         | Text s -> strLen s
@@ -74,9 +71,7 @@ module StructuralPrinter =
             catWidth kids (inc i) (addI acc (flatWidth (dGet kids i)))
 
     // --- the render pass: append into a single-cell string accumulator -------------
-    // Mirrors CLR `RuntimeFormatState.RenderDoc` (which threads a pooled `char[]`);
-    // here the buffer is a one-cell JS array `[out]` mutated in place, and each
-    // `renderDoc` returns the end column.
+    // The buffer is a one-cell JS array, `out[0] = out[0] + s`.
 
     let mkStrCell (s: string) : string[] = (# "[$0]" s : string[] #)
     let getStr (c: string[]) : string = (# "$0[0]" c : string #)
@@ -101,10 +96,9 @@ module StructuralPrinter =
         | Nest(i, inner) -> renderDoc inner out (addI indent i) broken col width
         | Cat kids -> renderCat kids 0 out indent broken col width
         | Group(inner, parens) ->
-            // The opening paren advances the column the inner content lays out from.
             let openCol = if parens then inc col else col
-            // All-or-nothing: the group is flat iff its entire flat rendering fits the
-            // remaining budget from the current column. `width = 0` ⇒ always flat.
+            // All-or-nothing: flat iff the group's whole flat rendering fits the budget
+            // remaining from `openCol`.
             let groupBroken =
                 if intEq width 0 then
                     false
@@ -131,8 +125,8 @@ module StructuralPrinter =
 
     // --- leaf / classification helpers (none recurse into `fmtValue`) -------------
 
-    // `"…"` with the F# escape set. `s` is a JS string; a char is a length-1 string,
-    // so it is compared against string literals directly.
+    // `a"b` → `"a\"b"`. A JS char is a length-1 string, so `c` compares against
+    // string literals directly.
     let fmtString (s: obj) : string =
         let len = lenOf s
         let mutable out = "\""
@@ -211,10 +205,8 @@ module StructuralPrinter =
             else
                 fmtRecord v budget
 
-    // An arg-position child: a payload-bearing union parenthesises (`Some (Circle 5)`);
-    // anything else renders bare. The parens ride a `Group(_, true)` so they count toward
-    // the flat width and the inner can still break inside them — the CLR `BeginApplication`
-    // (ArgPending ⇒ parens) semantics, made structural.
+    // An arg-position child. The parens ride a `Group(_, true)` rather than `Text "("`,
+    // so they count toward the flat width and the inner can still break inside them.
     and fmtArg (v: obj) (budget: int[]) : Doc =
         let d = fmtValue v budget
         if isPayloadUnion v then Group(d, true) else d
@@ -241,9 +233,8 @@ module StructuralPrinter =
         Group(Cat outer, false)
 
     // `[a; b; …]` flat; broken puts the brackets on their own lines with the elements
-    // nested (indent 2), `;`-separated. Capped at 100 elements or budget exhaustion,
-    // rendering a single trailing `...` (the separator is emitted before the cap check,
-    // so the marker reads `…; ...`).
+    // nested (indent 2), `;`-separated. Capped at 100 elements or budget exhaustion:
+    // the `;` is already emitted, so the tail reads `2; ...]`.
     and fmtList (v: obj) (budget: int[]) : Doc =
         let mutable elems = emptyDocs
         elems <- append elems (Line "")
@@ -366,46 +357,24 @@ module StructuralPrinter =
             outer <- append outer (Text " }")
             Group(Cat outer, false)
 
-    // Render a built `Doc` into the supplied accumulator cell, returning the string.
-    // `out` is taken as a PARAMETER (not a `let` in `structuralFormat`) so it is a real
-    // call binding the optimiser cannot pure-substitute — the same reason `budget` is
-    // threaded as an argument. An implicit top-level `Group` lets the whole document
-    // break; its end column is discarded (a wildcard bind, never `|> ignore`, which would
-    // leave the `ignore` recipe a bare value codegen can't eta-expand).
+    // An implicit top-level `Group`, so the whole document can break.
     let renderRoot (d: Doc) (out: string[]) (width: int) : string =
-        // The render appends into `out`; its end-column return is discarded (an effectful
-        // `let _ =`, never `|> ignore`, which would leave the `ignore` recipe a bare value).
         let _ = renderDoc (Group(d, false)) out 0 false 0 width
         getStr out
 
-    // Public entry — the surface the backend imports. A 3-param named function,
-    // so it emits as a flat call `structuralFormat(value, width, size)` (Fable-style
-    // flat compiled-function ABI). `width = 0` ⇒ never break (`%0A`).
+    // Public entry, emitted flat: `structuralFormat(value, width, size)`.
+    // `width = 0` ⇒ never break (`%0A`).
     let structuralFormat (value: obj) (width: int) (size: int) : string =
         renderRoot (fmtValue value (mkBudget size)) (mkStrCell "") width
 
     // --- single-precision stringification (`%O` on a float32) ---------------------
-    //
-    // A `float32` REPRS to a JS `number` — an IEEE-754 *double* — so JS's own
-    // stringification renders it at DOUBLE precision: `0.1f + 0.2f` is the float32
-    // nearest 0.3 (`0x3E99999A`), whose exact double expansion is
-    // `0.30000001192092896`, where .NET prints `0.3`. The arithmetic is right; only the
-    // rendering is wrong. .NET's `Single.ToString()` is the SHORTEST decimal that
-    // round-trips back to the same float32, so search for it: the first
-    // significant-digit count whose parse survives `Math.fround` (JS's float32 rounding)
-    // unchanged. 9 significant digits always round-trip a float32, so every finite value
-    // finds one; `NaN` never compares equal and falls out to the plain rendering.
-    //
-    // This CANNOT be folded into the `fmtValue` walker above: a float32 reaching `%A` is
-    // an erased JS `number`, indistinguishable at run time from a `float`. Only the
-    // format hole's STATIC type knows the width, so the caller is the backend's `%O`
-    // lowering (`EmitJsFormat.buildHole`, which reads `HoleSpec.Ty`), never a walker.
 
-    // The FFI primitives the search is built from — internals of `float32ToString`, not
-    // runtime entries any backend imports, hence `private`. (The JS backend does not yet
-    // lower F# accessibility to the module's export list, so they still emit as
-    // `export const` in `Vesper.Printf.mjs`; `private` is what stops an F# consumer
-    // reaching them, and is what an accessibility-aware emitter would read.)
+    // A `float32` is carried in a JS `number` — an IEEE-754 double — so `String` renders
+    // it at double precision: `0.1f + 0.2f` gives `"0.30000001192092896"` where .NET
+    // gives `"0.3"`. Only a hole's STATIC type knows the width, so `fmtValue` cannot.
+
+    // `private` is not lowered to the JS export list: these still emit as `export const`
+    // in `Vesper.Printf.mjs`.
     let private fround (x: float32) : float32 = (# "Math.fround($0)" x : float32 #)
     let private toPrecision (x: float32) (digits: int) : string = (# "$0.toPrecision($1)" x digits : string #)
     let private parseF32 (s: string) : float32 = (# "Number($0)" s : float32 #)
@@ -413,7 +382,8 @@ module StructuralPrinter =
     let private f32Str (x: float32) : string = (# "String($0)" x : string #)
 
     /// .NET `Single.ToString()` for a float32 carried in a JS `number`: the shortest
-    /// decimal that round-trips through `Math.fround`.
+    /// decimal that survives `Math.fround` unchanged. 9 significant digits always
+    /// round-trip a float32; `NaN` matches nothing and falls out as `String(v)`.
     let float32ToString (v: float32) : string =
         let mutable result = f32Str v
         let mutable digits = 1

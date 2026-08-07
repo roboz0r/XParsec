@@ -339,9 +339,7 @@ module Operators =
         /// <returns>The converted <c>int32</c>.</returns>
         val inline int: value: ^T -> int
 
-        /// <summary>Convert an <c>int32</c> to <c>bigint</c>. Concrete in its source width
-        /// where the other conversions are polymorphic: <c>int32</c> is the only width with
-        /// a literal to widen FROM.</summary>
+        /// <summary>Convert an <c>int32</c> to <c>bigint</c>.</summary>
         ///
         /// <param name="value">The input value.</param>
         ///
@@ -451,14 +449,10 @@ module IndexIntrinsics =
     /// front end desugars <c>x.[k] &lt;- value</c> to on such a receiver.</summary>
     val inline SetIndex: target: 'T -> key: 'K -> value: 'V -> unit
 
-/// The default-value primitive. Every reference splices the body in place, so this module
-/// emits no method.
+/// Every reference splices the body in place, so this module emits no method.
 module Unchecked =
 
-    /// <summary>The default value of a type: a null reference for a reference type and the
-    /// all-zeroes value for a value type.</summary>
-    ///
-    /// <remarks>A nullary generic VALUE — written <c>Unchecked.defaultof&lt;'T&gt;</c>, or bare
-    /// <c>Unchecked.defaultof</c> with the instantiation inferred from the expected
-    /// type.</remarks>
+    /// <summary>The target's own default for <c>'T</c>: the CLI's null reference or
+    /// all-zeroes struct, and <c>null</c> at every type on JS, which has no per-type
+    /// zero.</summary>
     val inline defaultof<'T> : 'T

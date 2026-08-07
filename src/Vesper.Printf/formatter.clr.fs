@@ -8,15 +8,12 @@ open System.Text
 
 open Vesper.IntComparison
 
-/// Stack-only handler that accumulates formatted text and flushes it to a sink.
-/// Constructed and driven by the backend; users never name it.
 [<Struct; IsByRefLike>]
 type Formatter =
 
-    /// Smallest pooled buffer rented; inherited from the BCL handler. (The
-    /// per-hole reservation `GuessedLengthPerHole = 11` and this floor are
-    /// inlined as literals in the ctors — a secondary ctor's field-init block
-    /// can't read a `static let` binding.)
+    /// Smallest pooled buffer rented, from the BCL handler. The ctors inline it — and
+    /// the 11-chars-per-hole guess — as literals: a ctor's field-init block cannot read
+    /// a `static let`.
     static let MinimumArrayPoolLength = 256
 
     /// Max array length the BCL handler clamps growth to (`string.MaxLength`).
@@ -38,7 +35,6 @@ type Formatter =
     /// The span to write into; always points at `Pool`.
     val mutable private Chars: Span<char>
 
-    /// Position at which to write the next character.
     val mutable private Pos: int
 
     /// Write-through ctor: buffered text is flushed to `writer`.
@@ -80,16 +76,14 @@ type Formatter =
             Pos = 0
         }
 
-    /// Writes the specified literal chunk to the handler.
     member this.AppendLiteral(value: string) =
         if value.TryCopyTo(this.Chars.Slice(this.Pos, this.Chars.Length - this.Pos)) then
             this.Pos <- this.Pos + value.Length
         else
             this.GrowThenCopyString(value)
 
-    /// Writes the specified value to the handler. (C#'s null-reference `s` skip
-    /// becomes `AppendLiteral ""` — a no-op, byte-identical — so the hole's
-    /// result string is always grounded, never a bare `null` value.)
+    /// A `null` value appends `""`, never the word `null`; a field width then pads that
+    /// to all spaces.
     member this.AppendFormatted(value: 'T) =
         let o = box value
 
@@ -101,7 +95,6 @@ type Formatter =
 
         this.AppendLiteral(s)
 
-    /// Writes the specified value to the handler, with a .NET format specifier.
     member this.AppendFormatted(value: 'T, format: string) =
         let o = box value
 
@@ -113,8 +106,6 @@ type Formatter =
 
         this.AppendLiteral(s)
 
-    /// Writes the specified value, right-justified (or, if `alignment` is
-    /// negative, left-justified) in a field of `alignment` chars.
     member this.AppendFormatted(value: 'T, alignment: int) =
         let startingPos = this.Pos
         this.AppendFormatted(value)
@@ -122,7 +113,6 @@ type Formatter =
         if alignment <> 0 then
             this.AppendOrInsertAlignmentIfNeeded(startingPos, alignment)
 
-    /// Writes the specified value, with both an alignment and a format.
     member this.AppendFormatted(value: 'T, alignment: int, format: string) =
         let startingPos = this.Pos
         this.AppendFormatted(value, format)
@@ -130,9 +120,7 @@ type Formatter =
         if alignment <> 0 then
             this.AppendOrInsertAlignmentIfNeeded(startingPos, alignment)
 
-    /// Writes `true`/`false` (lowercase) for an F# `%b` hole, justified in a
-    /// field of `alignment` chars. Dedicated because `bool.ToString()`
-    /// capitalises and F# `%b` is lowercase.
+    /// Dedicated because `bool.ToString()` gives `True` and F# `%b` gives `true`.
     member this.AppendBool(value: bool, alignment: int) =
         let startingPos = this.Pos
         this.AppendLiteral(if value then "true" else "false")
@@ -140,8 +128,7 @@ type Formatter =
         if alignment <> 0 then
             this.AppendOrInsertAlignmentIfNeeded(startingPos, alignment)
 
-    /// Writes `value` as 32-bit two's-complement octal for an F# `%o` hole.
-    /// Dedicated because .NET has no octal format string.
+    /// 32-bit two's-complement octal. Dedicated because .NET has no octal format string.
     member this.AppendOctal(value: int, alignment: int) =
         let startingPos = this.Pos
         this.AppendLiteral(Convert.ToString(value, 8))
@@ -149,24 +136,16 @@ type Formatter =
         if alignment <> 0 then
             this.AppendOrInsertAlignmentIfNeeded(startingPos, alignment)
 
-    /// Writes `value` as unsigned decimal for an F# `%u` hole. The backend
-    /// passes the source `int`'s bits unchanged (the CLI stack treats
-    /// `int32`/`uint32` alike), reproducing F# `%u`'s reinterpretation.
     member this.AppendUnsigned(value: uint, alignment: int) = this.AppendFormatted(value, alignment)
 
-    /// Zero-pads the text written since `startingPos` — inserting zeros *after any
-    /// leading sign* — to a total field of `width` chars. Shared by the zero-pad
-    /// float / octal / unsigned handlers. Overflow (already ≥ `width`) is a no-op:
-    /// F# never truncates a zero-pad field.
+    /// Zero-pads the text written since `startingPos` to a total field of `width`,
+    /// inserting the zeros AFTER any leading sign: `%+08.2f` of `-1.5` ⇒ `-0001.50`.
+    /// Overflow (already ≥ `width`) is a no-op; F# never truncates a zero-pad field.
     member private this.ZeroPadAfterSign(startingPos: int, width: int) =
         let charsWritten = this.Pos - startingPos
         let paddingNeeded = width - charsWritten
 
         if paddingNeeded > 0 then
-            // The sign (if any) stays at the field's left edge; the zeros fill
-            // the gap between it and the digits. A `-` from the formatted magnitude,
-            // or a forced `+` / space sign composed by `AppendForcedSignZeroPaddedFloat`
-            // (the unsigned / octal callers never produce a leading `+`/space).
             let signOffset =
                 if charsWritten > 0 then
                     match this.Chars.[startingPos] with
@@ -188,23 +167,15 @@ type Formatter =
             this.Chars.Slice(insertAt, paddingNeeded).Fill('0')
             this.Pos <- this.Pos + paddingNeeded
 
-    /// Writes `value` for an F# `%0w.pf` hole: formatted via `format` (an
-    /// `"F<precision>"` string), then zero-padded — after any leading sign — to
-    /// a total field of `width` chars. Dedicated because no .NET float format
-    /// zero-pads to a total width.
+    /// Dedicated because no .NET float format zero-pads to a total width.
     member this.AppendZeroPaddedFloat(value: float, format: string, width: int) =
         let startingPos = this.Pos
         this.AppendFormatted(value, format) // the "F<prec>" body, no padding
         this.ZeroPadAfterSign(startingPos, width)
 
-    /// Writes `value` for an F# `%+0w.pf` / `% 0w.pf` hole: formatted via `format`
-    /// (an `"F<precision>"` string — a *standard* format, so round-half-to-even), a
-    /// forced sign composed on a non-negative number (`+`, or a space when `space`;
-    /// NaN/±∞ get none, mirroring `AppendDynamicPrecisionSignedFloat`), then zero-padded
-    /// AFTER that sign to a total field of `width` chars. Dedicated because no .NET
-    /// float format both forces a sign and zero-pads to a total width — and because the
-    /// custom *section* format that could (`"+0.00;-0.00"`) rounds half-away rather than
-    /// the half-to-even the `"F<prec>"` body gives.
+    /// `%+0w.pf` / `% 0w.pf`: a forced `+` (or space) on a non-negative number, then a
+    /// zero-pad after it. The section format that could do both (`"+0.00;-0.00"`) rounds
+    /// half-away, where the `"F<prec>"` body rounds half-to-even.
     member this.AppendForcedSignZeroPaddedFloat(value: float, format: string, width: int, space: bool) =
         let startingPos = this.Pos
 
@@ -225,10 +196,8 @@ type Formatter =
         this.AppendLiteral(prefixed)
         this.ZeroPadAfterSign(startingPos, width)
 
-    /// Writes `value` for an F# `%-0w.pf` hole: formatted via `format` (an
-    /// `"F<precision>"` string), then zero-padded on the RIGHT (past the digits) to a
-    /// total field of `width` chars. Dedicated because F#'s left-align + zero-pad fills
-    /// the right with zeros, which no .NET float format nor field alignment reproduces.
+    /// Dedicated because F#'s left-align + zero-pad fills the RIGHT with zeros
+    /// (`%-08.2f` of `1.5` ⇒ `1.500000`), which no .NET format or alignment reproduces.
     member this.AppendRightZeroPaddedFloat(value: float, format: string, width: int) =
         let startingPos = this.Pos
         this.AppendFormatted(value, format) // the "F<prec>" body, no padding
@@ -240,46 +209,32 @@ type Formatter =
             this.Chars.Slice(this.Pos, paddingNeeded).Fill('0')
             this.Pos <- this.Pos + paddingNeeded
 
-    /// Writes `value` as 32-bit two's-complement octal for an F# `%08o` hole, then
-    /// zero-pads to a total field of `width` chars. `%o` output carries no sign, so
-    /// the padding is a plain left-fill; overflowing digits are not truncated.
+    /// `%o` output carries no sign, so the pad is a plain left-fill; digits past `width`
+    /// are not truncated (`%08o` of `-1` ⇒ 11 digits).
     member this.AppendZeroPaddedOctal(value: int, width: int) =
         let startingPos = this.Pos
         this.AppendLiteral(Convert.ToString(value, 8))
         this.ZeroPadAfterSign(startingPos, width)
 
-    /// Writes `value` as unsigned decimal for an F# `%05u` hole, then zero-pads to a
-    /// total field of `width` chars. `%u` output carries no sign, so the padding is a
-    /// plain left-fill; overflowing digits are not truncated.
+    /// `%u` output carries no sign, so the pad is a plain left-fill; digits past `width`
+    /// are not truncated (`%05u` of `-1` ⇒ 10 digits).
     member this.AppendZeroPaddedUnsigned(value: uint, width: int) =
         let startingPos = this.Pos
         this.AppendFormatted(value)
         this.ZeroPadAfterSign(startingPos, width)
 
-    /// Writes `value` as copy-pasteable Vesper source for an F# `%A` hole, laid
-    /// out within a column budget of `width` chars (0 ⇒ never break) and a node
-    /// budget of `size` (F# PrintSize).
     member this.AppendStructured(value: 'T, width: int, size: int) =
         this.AppendLiteral(StructuralPrinter.Print(value, width, size))
 
-    /// Writes a float hole with a *runtime* precision (`%.*f`/`%*.*f`/`%.*e`/`%.*g`),
-    /// justified in a field of `alignment` chars (negative ⇒ left-justify; 0 ⇒ none).
-    /// Builds the .NET format string exactly as FSharp.Core's `getFormatForFloat`
-    /// (`printf.fs:606`) — `typeChar.ToString() + precision.ToString()` — so a garbage
-    /// precision reproduces the .NET *custom*-format fallback byte-for-byte (e.g.
-    /// `%.*f -1` ⇒ `"f-1"`). `typeChar` is the SOURCE type letter (`'f'`/`'e'`/`'E'`/
-    /// `'g'`/`'G'`) so the fallback's case matches. The two-star clamp
-    /// (`normalizePrecision`, `printf.fs:632`) is applied by the emitter, not here —
-    /// the asymmetry against the prec-star-only paths (`:649-657`) is load-bearing.
+    /// The .NET format string is `typeChar.ToString() + precision.ToString()`, as
+    /// FSharp.Core's `getFormatForFloat` (`printf.fs:606`), so a garbage precision falls
+    /// to .NET's custom-format path byte-for-byte: `%.*f` with `-1` ⇒ `"f-1"`.
     member this.AppendDynamicPrecisionFloat(value: float, typeChar: char, precision: int, alignment: int) =
         this.AppendFormatted(value, alignment, typeChar.ToString() + precision.ToString())
 
-    /// As `AppendDynamicPrecisionFloat`, but for a forced-sign float (`%+.*f`/`% .*f`/
-    /// `%+*.*f`): a non-negative number gets a leading `+` (or ` ` when `space`) before
-    /// justification, mirroring FSharp.Core's `noJustificationCore` /
-    /// `rightJustifyWithSpaceAsPadChar` (`printf.fs:801`/`:771`). The compile-time
-    /// section-format lowering (`ClrHoleFormat`, `"+0.000;-0.000"`) can't take a runtime
-    /// precision, so the sign is composed here.
+    /// A forced-sign float (`%+.*f` / `% .*f` / `%+*.*f`): a non-negative number gets a
+    /// leading `+` (or ` ` when `space`) before justification. The section format that
+    /// would do it (`"+0.000;-0.000"`) cannot take a runtime precision.
     member this.AppendDynamicPrecisionSignedFloat
         (value: float, typeChar: char, precision: int, alignment: int, space: bool)
         =
@@ -290,10 +245,9 @@ type Formatter =
             | :? IFormattable as f -> f.ToString(fmt, provider)
             | _ -> value.ToString()
 
-        // NaN / ±∞ are not numbers (`isNumber`, `printf.fs:966`): no sign prefix. A
-        // negative value already carries its own `-`; detect it from the formatted text's
-        // leading `-` (the `>=` operator is int-only here, and this is what
-        // `AppendZeroPaddedFloat` / the JS backend already do for sign detection).
+        // NaN / ±∞ take no sign prefix (FSharp.Core's `isNumber`, `printf.fs:966`), and a
+        // negative value already carries its own `-` — read off the formatted text, since
+        // the `>=` operator is int-only here.
         let isNumber = not (Double.IsNaN value) && not (Double.IsInfinity value)
         let isNegative = str.Length > 0 && str.[0] = '-'
 
@@ -309,35 +263,27 @@ type Formatter =
         if alignment <> 0 then
             this.AppendOrInsertAlignmentIfNeeded(startingPos, alignment)
 
-    /// Guards a `%*d`-style runtime field width: throws
-    /// `ArgumentOutOfRangeException("totalWidth")` on a negative width — the same
-    /// exception type + `ParamName` F#'s `PadLeft`/`PadRight` throw — and returns a
-    /// non-negative width unchanged. Not built on `PadLeft` (which would allocate);
-    /// the guard is the throw parity, not a real pad.
+    /// The parity bar is the exception type + `ParamName` F#'s `PadLeft`/`PadRight`
+    /// throw, not the message.
     static member GuardTotalWidth(totalWidth: int) : int =
         if totalWidth < 0 then
             raise (new ArgumentOutOfRangeException("totalWidth"))
         else
             totalWidth
 
-    /// Clamps a `%*A` runtime column budget to `0` on a negative width — F# renders
-    /// a negative `%A` width flat (never breaking) rather than throwing.
+    /// A negative `%A` width renders flat rather than throwing.
     static member ClampWidth(width: int) : int = if width < 0 then 0 else width
 
-    /// Clamps a runtime precision to `0..99` — F#'s `normalizePrecision`
-    /// (`printf.fs:608`). Applied ONLY on the width=*+prec=* path (`printf.fs:632`);
-    /// the prec=*-only paths use the raw precision (`:649-657`), so the emitter calls
-    /// this only when a hole has BOTH star dimensions.
+    /// F#'s `normalizePrecision` (`printf.fs:608`), reached only when a hole has BOTH
+    /// star dimensions: the prec=*-only paths keep the raw precision (`:649-657`).
     static member NormalizePrecision(precision: int) : int =
         if precision < 0 then 0
         elif precision > 99 then 99
         else precision
 
-    /// Flushes buffered text to the write-through sink (a `TextWriter` or a
-    /// `StringBuilder`) and releases the buffer. At most one sink is set; the
-    /// string sink (`ToStringAndClear`) never flushes. The `.ToString()` on the
-    /// span mirrors the writer path — F# has no implicit `Span` → `ReadOnlySpan`
-    /// conversion for the no-alloc `StringBuilder.Append(ReadOnlySpan<char>)`.
+    /// At most one sink is set; a string sink flushes nothing. Both paths go through
+    /// `.ToString()` — F# has no implicit `Span` → `ReadOnlySpan` conversion, so the
+    /// no-alloc `Write` / `Append(ReadOnlySpan<char>)` overloads are unreachable.
     member this.Flush() =
         match this.Writer with
         | null ->
@@ -348,14 +294,12 @@ type Formatter =
 
         this.Clear()
 
-    /// Returns the accumulated text (string sink) and releases the buffer.
     member this.ToStringAndClear() : string =
         let result = this.Chars.Slice(0, this.Pos).ToString()
         this.Clear()
         result
 
-    /// Clears the handler, returning the pooled buffer. The handler must not be
-    /// used after this; it is the last operation performed on it.
+    /// Returns the pooled buffer. The handler must not be used after this.
     member private this.Clear() =
         let toReturn = this.Pool
 

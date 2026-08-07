@@ -10,6 +10,5 @@ type char = extern
 /// <category>Basic Types</category>
 type string = extern with
 
-    /// <summary>Concatenation — the one non-numeric operand the arithmetic family
-    /// admits.</summary>
+    /// <summary>Concatenation: <c>"Hello " + "World"</c>.</summary>
     static member inline (+): x: string * y: string -> string

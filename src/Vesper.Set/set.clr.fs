@@ -222,9 +222,7 @@ module internal SetTree =
                 elif c = 0 then true
                 else mem comparer k tn.Right
 
-    // Upstream returns `'T voption`; Vesper's `Option` is already a struct
-    // (`ValueOption` was dropped as redundant), so `Some` / `None` carry the same
-    // no-allocation guarantee `ValueSome` / `ValueNone` did.
+    // Upstream returns `'T voption`; there is no `ValueOption` here, `Option` is a struct.
     let rec tryGet (comparer: IComparer<'T>) k (t: SetTree<'T>) =
         if isEmpty t then
             None
@@ -445,8 +443,6 @@ module internal SetTree =
         (partitioner: 'T -> Choice<'T1, 'T2>)
         (t: SetTree<'T>)
         =
-        // Traverse right-to-left (descending) so inserts into output trees
-        // go largest-first, reducing AVL rotations — same strategy as partitionAux.
         let rec go (t: SetTree<'T>) acc1 acc2 =
             if isEmpty t then
                 (acc1, acc2)
@@ -537,19 +533,11 @@ module internal SetTree =
     let unexpectedstateInSetTreeCompareStacks () =
         failwith "unexpected state in SetTree.compareStacks"
 
-    // Imperative left-to-right iterator. A `[<Struct>]` enumerator replaces
-    // the original `IEnumerator<'T>` object expression in `mkIEnumerator` — Vesper's
-    // front end has no object-expression support, but value-type emission + interface
-    // impls cover this shape. The advance / read logic is *inlined* in the interface
-    // members rather than factored into public `MoveNext`/`Current` the interface
-    // forwards to: a struct member calling another struct member on `this` is not yet
-    // supported (it copies `this`, losing the mutation), so the bodies that mutate
-    // `this.stack` / `this.started` must run directly in the interface methods.
+    // Replaces the `IEnumerator<'T>` object expression upstream builds in `mkIEnumerator`.
     [<NoEquality; NoComparison>]
     [<Struct>]
     type SetIterator<'T> when 'T: comparison =
-        // The source tree, kept so `Reset` can rebuild the stack. Immutable
-        // (`val`, no `mutable`) ⇒ emitted `InitOnly`, written only by the ctor.
+        // Kept so `Reset` can rebuild the stack; upstream's closure captured it instead.
         val root: SetTree<'T>
         val mutable stack: SetTree<'T> list // invariant: always collapseLHS result
         val mutable started: bool // true when MoveNext has been called

@@ -34,7 +34,6 @@ type unativeint =
         static member inline (^^^)(x: unativeint, y: unativeint) : unativeint = (# "xor" x y : unativeint #)
         static member inline (~~~)(value: unativeint) : unativeint = (# "not" value : unativeint #)
         static member inline (<<<)(value: unativeint, shift: int) : unativeint = (# "shl" value shift : unativeint #)
-        // Zero-fill, as at every other unsigned width.
         static member inline (>>>)(value: unativeint, shift: int) : unativeint = (# "shr.un" value shift : unativeint #)
     end
 type nativeptr<'T when 'T : unmanaged> = (# "native int" #)

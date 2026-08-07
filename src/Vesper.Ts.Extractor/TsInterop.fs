@@ -1,9 +1,5 @@
-/// Node / `ts.*` interop primitives shared by the extractor's modules: the
-/// filesystem + path bindings, symbol/declaration accessors, and the
-/// runtime-structural type predicates. The predicates classify by FIELD PRESENCE
-/// or the binding's NAME CONSTANTS, never raw `TypeFlags`/`ObjectFlags` numerics
-/// — the standing producer rule that the vendored flag VALUES can drift from the
-/// installed TypeScript's while the field names stay stable.
+/// Node / `ts.*` interop primitives: filesystem + path bindings,
+/// symbol/declaration accessors, and runtime type predicates.
 module Vesper.Ts.Extractor.TsInterop
 
 open Fable.Core
@@ -35,28 +31,19 @@ let pathRelative (from: string) (to_: string) : string = jsNative
 [<Import("basename", "node:path")>]
 let pathBasename (p: string) : string = jsNative
 
-/// Read a `package.json`'s `version` field, defensively: the value is only a usable
-/// stamp when it is genuinely a string (a malformed manifest can carry any JSON),
-/// so classify by runtime `typeof` (the producer rule — never trust the shape) and
-/// surface `undefined` → `None` for anything else.
+/// A `package.json`'s `version` field, or `None` when it is absent or not a string.
 [<Emit("(typeof $0.version === 'string') ? $0.version : undefined")>]
 let jsonVersionField (parsed: obj) : string option = jsNative
 
-/// Read a `package.json`'s `name` field, defensively (same discipline as
-/// `jsonVersionField`): a foreign ref's HOME is the referenced package's name, so
-/// walk-up-and-read the nearest `package.json`'s `name`, surfacing anything that is
-/// not genuinely a string as `None`.
+/// A `package.json`'s `name` field, or `None` when it is absent or not a string.
 [<Emit("(typeof $0.name === 'string') ? $0.name : undefined")>]
 let jsonNameField (parsed: obj) : string option = jsNative
 
-/// Windows-vs-POSIX path portability: the manifest and TS's program tables both
-/// speak forward slashes.
+/// The manifest and TS's program tables both speak forward slashes, on Windows too.
 let normalizeSlashes (p: string) : string = p.Replace("\\", "/")
 
 let inline hasFlag (flags: Ts.SymbolFlags) (test: Ts.SymbolFlags) = int flags &&& int test <> 0
 
-/// A node to anchor `getTypeOfSymbolAtLocation` at — the symbol's declaration,
-/// or `None` for a genuinely declaration-less symbol.
 let tryDeclOf (s: Ts.Symbol) : Ts.Node option =
     match s.valueDeclaration with
     | Some d -> Some(unbox d)
@@ -65,18 +52,13 @@ let tryDeclOf (s: Ts.Symbol) : Ts.Node option =
         | Some ds when ds.Count > 0 -> Some(unbox ds.[0])
         | _ -> None
 
-/// `tryDeclOf`, required: the partial sibling for call sites where a
-/// declaration-less symbol is a producer bug.
 let declOf (s: Ts.Symbol) : Ts.Node =
     match tryDeclOf s with
     | Some d -> d
     | None -> failwithf "symbol '%s' has no declaration" (s.getName ())
 
-/// The reserved name the checker mints for an ANONYMOUS type literal — an
-/// object/function type with no declared name (`Ts.InternalSymbolName.Type`,
-/// compiled `__type`). Read from the binding's name constant, per the producer
-/// discipline. It is a valid-word-char string, so a bare nominal-name predicate
-/// would misclassify it — every nominal-name gate must exclude it explicitly.
+/// The name `__type`, which the checker mints for an object/function type literal
+/// with no declared name (`{ x: number }`, `(e: T) => void`).
 let isAnonymousTypeName (name: string) : bool =
     name = unbox<string> Ts.InternalSymbolName.Type
 
@@ -88,13 +70,9 @@ let inline jsRefEq (a: obj) (b: obj) : bool = jsNative
 [<Emit("$0 == null")>]
 let inline jsIsNullOrUndef (o: obj) : bool = jsNative
 
-/// The unquoted name of a `declare module "…"` node (`fs`, `node:fs`), or `None` for
-/// any OTHER node — a non-module node, or an identifier-named `namespace`/`module`
-/// (`namespace NS`, whose `.name` is an `Identifier`, not a `StringLiteral`). The
-/// string-literal name's `.text` carries no quotes — they are syntax, absent from
-/// `.text` — so the result needs no de-quoting. Classified by the
-/// `isModuleDeclaration`/`isStringLiteral` runtime predicates, never raw `SyntaxKind`
-/// numerics, per the producer discipline.
+/// `declare module "node:fs"` → `Some "node:fs"` (`.text` excludes the quotes).
+/// `None` for a non-module node and for an identifier-named `namespace NS`, whose
+/// `.name` is an `Identifier` rather than a `StringLiteral`.
 let quotedModuleNameOf (node: Ts.Node) : string option =
     if ts.isModuleDeclaration node then
         let nameNode = unbox<Ts.Node> (unbox<Ts.ModuleDeclaration> node).name
@@ -106,12 +84,9 @@ let quotedModuleNameOf (node: Ts.Node) : string option =
     else
         None
 
-/// The name of the innermost QUOTED ambient module (`declare module "fs" { … }`)
-/// enclosing `node`, or `None` when the node sits in no quoted module (a true global,
-/// a default-lib type). Walks the parent chain, STEPPING OVER identifier-named
-/// `namespace`/`module` blocks (a `namespace NS` nested inside `declare module "fs"`
-/// is still homed to `"fs"` — only the QUOTED wrapper counts, and `quotedModuleNameOf`
-/// returns `None` for the identifier-named ones) and stopping at the source file.
+/// The innermost enclosing `declare module "fs" { … }` name, or `None` for a node in
+/// no quoted module (a true global, a default-lib type). An intervening `namespace NS`
+/// is stepped over, so a declaration inside one is still homed to `"fs"`.
 let enclosingQuotedModuleName (node: Ts.Node) : string option =
     let rec walk (n: Ts.Node) : string option =
         if jsIsNullOrUndef (box n) || ts.isSourceFile n then
@@ -123,34 +98,23 @@ let enclosingQuotedModuleName (node: Ts.Node) : string option =
 
     walk node
 
-// A `TypeReference` (`ObjectFlags.Reference`) — the runtime shape of an instantiated
-// generic (`Array<string>`, `Box<number>`) — is the only `Type` carrying a `target`
-// back-pointer to its generic definition. The binding exposes no runtime
-// `isTypeReference()` predicate (unlike `isUnion`/`isArrayType`), so detect it
-// structurally by the PRESENCE of `target`.
+// An instantiated generic (`Array<string>`) is the only `Type` carrying a `target`
+// back-pointer to its definition, and the binding has no `isTypeReference()` member,
+// so detect it by the presence of the field.
 [<Emit("$0.target !== undefined && $0.target !== null")>]
 let inline hasTargetRef (t: Ts.Type) : bool = jsNative
 
-// `keyof T` (`IndexType`) has the runtime `isIndexType()` predicate, but `T[K]`
-// (`IndexedAccessType`) and a conditional type (`ConditionalType`) have NONE — so
-// detect them the same way `hasTargetRef` does: by the PRESENCE of their
-// distinguishing fields. `objectType`/`indexType` are unique to an indexed-access
-// type; `root` (the `ConditionalRoot` back-pointer) together with
-// `checkType`/`extendsType` is unique to a conditional type.
+// `T[K]` and `T extends U ? … : …` also have no predicate member, so go by their
+// distinguishing fields: `objectType`/`indexType` for an indexed access, `root` plus
+// `checkType`/`extendsType` for a conditional.
 [<Emit("$0.objectType !== undefined && $0.indexType !== undefined")>]
 let inline isIndexedAccessType (t: Ts.Type) : bool = jsNative
 
 [<Emit("$0.root !== undefined && $0.checkType !== undefined && $0.extendsType !== undefined")>]
 let inline isConditionalType (t: Ts.Type) : bool = jsNative
 
-// Object-ness of a `Type` — is it a `TypeFlags.Object` (an interface/class instance,
-// an anonymous object literal, a tuple/array reference, …) as opposed to a
-// primitive/union/intersection/type-parameter. Read the flag from the LIVE
-// `ts.TypeFlags.Object` at runtime (passed as `$1`) rather than an F#-side enum
-// constant: the vendored `TypeFlags` numeric VALUES drift between TypeScript releases
-// (TS 6 renumbered `Object`), so a Fable-inlined constant silently mis-tests against
-// the installed compiler. Reading the flag through the imported `ts` module keeps the
-// test correct whatever TypeScript is resolved — the standing producer rule that flag
-// VALUES drift while the field/enum NAMES stay stable.
+// True for an interface/class instance, object literal or tuple/array reference; false
+// for a primitive/union/intersection/type-parameter. The bit comes from the installed
+// compiler's `ts.TypeFlags.Object` (`$1`) — the vendored numeric values drift.
 [<Emit("($0.flags & $1.TypeFlags.Object) !== 0")>]
 let inline isObjectTypeFlag (t: Ts.Type) (tsExports: Ts.IExports) : bool = jsNative

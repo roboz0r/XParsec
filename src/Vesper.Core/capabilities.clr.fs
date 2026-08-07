@@ -1,6 +1,6 @@
 namespace Vesper
 
-#nowarn "42" // This construct is deprecated: it is only for use in the F# library
+#nowarn "42"
 
 type disposable = (# "System.IDisposable" #)
 type equatable<'T> = (# "System.IEquatable`1" #)

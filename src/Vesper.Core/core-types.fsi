@@ -4,7 +4,6 @@ namespace Vesper
 ///
 /// <category>Basic Types</category>
 /// <exclude />
-// Deliberately diverges from FSharp.Core's `[<StructuralEquality; StructuralComparison>]`.
 [<ReferenceEquality>]
 [<NoComparison>]
 type Ref<'T> =

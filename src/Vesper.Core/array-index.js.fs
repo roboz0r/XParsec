@@ -1,6 +1,6 @@
 namespace global
 
-#nowarn "42" // This construct is deprecated: it is only for use in the F# library
+#nowarn "42"
 
 type 'T ``[]`` =
     (# "!0[]" #)

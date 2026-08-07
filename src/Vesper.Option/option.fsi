@@ -6,14 +6,7 @@ open System
 ///
 /// <remarks>Use the constructors <c>Some</c> and <c>None</c> to create values of this type,
 /// or pattern match against the values directly. Use the values in the <c>Option</c>
-/// module to manipulate values of this type.
-///
-/// Unlike F#'s reference-typed option, this is a value type: <c>None</c> is the
-/// zero-initialized struct, so a default field or a freshly-allocated array of
-/// options is already all <c>None</c>, and neither <c>None</c> nor <c>Some</c>
-/// allocates on the heap. The exact runtime layout is a backend decision; the
-/// contract fixes only that <c>Option</c> is a struct whose default is
-/// <c>None</c>.</remarks>
+/// module to manipulate values of this type.</remarks>
 ///
 /// <category>Options</category>
 [<StructuralEquality; StructuralComparison>]
@@ -21,7 +14,7 @@ open System
 [<Struct>]
 type Option<'T> =
 
-    /// <summary>The representation of "No value" — the zero-initialized struct.</summary>
+    /// <summary>The representation of "No value"</summary>
     | None
 
     /// <summary>The representation of "Value of type 'T"</summary>
@@ -30,10 +23,6 @@ type Option<'T> =
     ///
     /// <returns>An option representing the value.</returns>
     | Some of Value: 'T
-
-    // FSharp.Core's `static member None / Some / op_Implicit` are intentionally
-    // omitted — they exist there for C# / null-representation interop, which Vesper
-    // does not consume. Construction is via the `None` / `Some` cases directly.
 
     /// <summary>Get the value of a 'Some' option. An InvalidOperationException is raised if the option is 'None'.</summary>
     member Value: 'T
@@ -50,15 +39,8 @@ type Option<'T> =
 /// <category index="3">Options</category>
 and 'T option = Option<'T>
 
-/// Operations over `'T option`. A focused starter set (the bread-and-butter
-/// operations whose signatures touch only `Fun` / `bool` / `int` / `option`
-/// itself); the array/list/Nullable/obj conversions and `map2`/`map3` are
-/// additive later, as the language and the cross-package surface grow — the same
-/// "grow the module additively" stance as Vesper.Core's `List`. Most members are
-/// higher-order, so this module leg rides R1 (the `Fun`-not-`FSharpFunc`
-/// cutover). The `ModuleSuffix` representation lets the module share the `Option`
-/// name with the type (compiled name `OptionModule`). Each functional argument's
-/// function type desugars to `Vesper.Fun`.
+/// Operations over `'T option`. `ModuleSuffix` lets the module share the `Option`
+/// name with the type; its compiled name is `OptionModule`.
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Option =

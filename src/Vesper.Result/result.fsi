@@ -4,16 +4,7 @@ open System
 
 /// <summary>Helper type for error handling without exceptions.</summary>
 ///
-/// <remarks>A <b>struct</b> union with two cases: <c>Ok</c> carries a success
-/// value of <c>'T</c>, <c>Error</c> carries a failure value of <c>'TError</c>.
-/// Use the constructors <c>Ok</c> and <c>Error</c> to create values of this type,
-/// or pattern match against the values directly. Use the values in the
-/// <c>Result</c> module to manipulate values of this type.</remarks>
-///
 /// <category>Choices and Results</category>
-// Data, not State: structural equality (unconditional) + opt-in structural
-// comparison, comparable iff its args are (the
-// `Comparison.Structural ⇒ Equality.Structural` invariant holds).
 [<StructuralEquality; StructuralComparison>]
 [<CompiledName("FSharpResult`2")>]
 [<Struct>]
@@ -25,16 +16,8 @@ type Result<'T, 'TError> =
     /// Represents an Error or a Failure. The code failed with a value of 'TError representing what went wrong.
     | Error of ErrorValue: 'TError
 
-/// Operations over `Result<'T, 'TError>`. A focused starter set (the
-/// bread-and-butter operations whose signatures touch only `Fun` / `bool` / `int`
-/// / `result` itself); the array/list/option conversions (`toArray` / `toList` /
-/// `toOption`) and `contains` (which needs `'T: equality`) are additive later, as
-/// the language and the cross-package surface grow — the same "grow the module
-/// additively" stance as Vesper.Option and Vesper.Core's `List`. Most members are
-/// higher-order, so this module leg rides R1 (the `Fun`-not-`FSharpFunc`
-/// cutover). The `ModuleSuffix` representation lets the module share the `Result`
-/// name with the type (compiled name `ResultModule`). Each functional argument's
-/// function type desugars to `Vesper.Fun`.
+/// Operations over `Result<'T, 'TError>`. `ModuleSuffix` lets the module share the
+/// `Result` name with the type; its compiled name is `ResultModule`.
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Result =

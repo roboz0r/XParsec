@@ -10,17 +10,8 @@ files = [
     "array.fsi",
 ]
 
-# NO shared `impl`, though `array.fs` is target-neutral and named by both lists below.
-# Inherited lists append AFTER the shared ones, so a shared entry here would put `array.fs`
-# BEFORE the prelude it splices — the same declaration-order reason `Vesper.Core` repeats
-# `ops-std.fs` per target rather than sharing it.
-#
-# The split is the point: inline IL lives ONLY in per-target files, tree-wide, and
-# `array.fs` is the module proper with none of it. The two prelude bodies are identical
-# today (as `GetArray` / `SetArray` / `GetArrayLength` already are across the two
-# `ops-platform` bodies) because `newarr` is a named IR node BOTH backends implement — the
-# JS one emits `Array(n).fill(null)`. Identical is not the same as shared: this is where a
-# divergence would go.
+# `array.fs` is target-neutral but repeated per target, not shared: inherited lists append
+# AFTER shared ones, which would put it BEFORE the prelude it splices.
 
 [targets.clr]
 impl = [

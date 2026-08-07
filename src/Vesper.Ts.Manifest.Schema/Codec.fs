@@ -1,9 +1,6 @@
-/// JSON codec for the manifest schema, built on `XParsec.Json` (the repo's own
-/// multi-platform parser) — no external JSON dependency. `encode`/`decode` map
-/// to/from `JsonValue`; `serialize`/`deserialize` go all the way to/from text
-/// (parse via `JsonParsers`, emit via `JsonWriter`). The same code runs on .NET
-/// (loader) and under Fable (extractor), so producer and consumer share one
-/// wire format.
+/// JSON codec for the manifest schema, on `XParsec.Json`. `encode`/`decode` map
+/// to/from `JsonValue`; `serialize`/`deserialize` go all the way to/from text. Runs
+/// both on .NET (loader) and under Fable (extractor).
 module Vesper.Ts.Manifest.Codec
 
 open System.Collections.Immutable
@@ -17,9 +14,8 @@ open Vesper.Ts.Manifest.Schema
 
 let inline private (>>=) (r: Result<'a, string>) (f: 'a -> Result<'b, string>) = Result.bind f r
 
-/// Minimal `result { }` CE over `Result<_, string>` — keeps the decoders flat
-/// (linear `let!`s) instead of nested `>>= fun x ->` ladders, without taking a
-/// dependency on an external Result library. Fable-compiles (just `Result.bind`).
+/// Minimal `result { }` CE over `Result<_, string>`, so the decoders read as linear
+/// `let!`s rather than `>>= fun x ->` ladders.
 type private ResultBuilder() =
     member inline _.Bind(r: Result<'a, string>, f: 'a -> Result<'b, string>) = Result.bind f r
     member inline _.Return(x: 'a) : Result<'a, string> = Ok x
@@ -94,11 +90,9 @@ let private field (name: string) (m: JsonObject) : Result<JsonValue, string> =
     | Some v -> Ok v
     | None -> Error(sprintf "missing field '%s'" name)
 
-/// Read a required field and run a reader/decoder over it.
 let inline private readField (name: string) (reader: JsonValue -> Result<'a, string>) (m: JsonObject) =
     field name m >>= reader
 
-/// Read a required array field and decode each element.
 let inline private listField (name: string) (decode: JsonValue -> Result<'a, string>) (m: JsonObject) =
     field name m >>= asArray >>= traverse decode
 
@@ -139,9 +133,8 @@ let private asInt64 =
     | JsonValue.Number n -> Ok(int64 n)
     | other -> Error(sprintf "expected number, got %A" other)
 
-/// The `kind`/`value` field pair a type-tagged literal contributes to its host
-/// object. ONE encoding for the two wire hosts: `TypeRef.Literal` splices it
-/// beside its `k` tag; an enum member value is exactly this object.
+/// The `kind`/`value` pair a literal contributes to its host object: `TypeRef.Literal`
+/// splices it beside its `k` tag, an enum member value is exactly this object.
 let private literalPayloadFields (v: LiteralValue) : (string * JsonValue) list =
     match v with
     | LiteralValue.IntVal n -> [ "kind", jStr "int"; "value", JsonValue.Number(float n) ]
@@ -183,13 +176,9 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
             ]
     | TypeRef.Tuple items -> jObj [ "k", jStr "tuple"; "items", jArr (List.map encodeTypeRef items) ]
     | TypeRef.Union members -> jObj [ "k", jStr "union"; "members", jArr (List.map encodeTypeRef members) ]
-    // A literal TYPE carries its constant, tagged int/string exactly like an enum
-    // member value (the shared payload pair). ADDITIVE — no `SchemaVersion` bump
-    // (prototyping policy).
     | TypeRef.Literal v -> jObj (("k", jStr "literal") :: literalPayloadFields v)
-    // keyof / indexed-access / conditional: FAITHFUL carrier arms (design §"keyof …
-    // ride on top"), each recording its child type(s) verbatim so the front end can
-    // ground-evaluate later. ADDITIVE — no `SchemaVersion` bump (prototyping policy).
+    // keyof / indexed-access / conditional carry their child types verbatim: nothing
+    // here evaluates them, so a consumer can still do so with the operands intact.
     | TypeRef.KeyOf t -> jObj [ "k", jStr "keyof"; "ty", encodeTypeRef t ]
     | TypeRef.IndexedAccess(objTy, index) ->
         jObj
@@ -222,11 +211,8 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
             @ encodeIndexFields index
         )
 
-/// The `index` facet an index-signature-bearing host (`Structural`/`Interface`/`Class`)
-/// contributes to its wire object — a JSON ARRAY of `{ key, value }` pairs, OMITTED (not
-/// `null`) when EMPTY so a facet-free host stays BYTE-IDENTICAL to a pre-facet golden (the
-/// `refs`/`typeParamBounds` omit-when-empty precedent). In the `encodeTypeRef` rec group
-/// so both it and `encodeExport` reach it.
+/// The index signatures of a `Structural`/`Interface`/`Class` host, as an array of
+/// `{ key, value }` pairs under `"index"` — omitted entirely, not `null`, when empty.
 and private encodeIndexFields (index: (TypeRef * TypeRef) list) : (string * JsonValue) list =
     match index with
     | [] -> []
@@ -298,9 +284,7 @@ and private decodeStructField (j: JsonValue) : Result<string * TypeRef, string> 
         return (n, t)
     }
 
-/// Read the omitted-when-empty `index` facet (a JSON array of `{ key, value }` pairs) off
-/// a host object (`Structural`/`Interface`/`Class`); absent or `null` → `[]`. In the
-/// `decodeTypeRef` rec group so both it and `decodeExport` reach it.
+/// The `"index"` array of `{ key, value }` pairs off a host object; absent or `null` → `[]`.
 and private decodeIndex (m: JsonObject) : Result<(TypeRef * TypeRef) list, string> =
     match tryField "index" m with
     | None
@@ -348,8 +332,7 @@ let private decodeImport j =
 
 // ─── enum member values ──────────────────────────────────────────────────────
 
-/// A type-tagged enum member value (or `None` for a computed member) — the shared
-/// literal payload as its own object, `null` for the computed case.
+/// A member's literal value as its own `kind`/`value` object; `null` for a computed member.
 let private encodeEnumValue (v: LiteralValue option) : JsonValue =
     match v with
     | Some lit -> jObj (literalPayloadFields lit)
@@ -409,8 +392,6 @@ let private decodeDiagnostic j =
     result {
         let! m = asObject j
         let! severity = readField "severity" decodeSeverity m
-        // `OfWire` is total (an unrecognised code decodes as `DiagCode.Unknown`),
-        // so a manifest from a NEWER extractor never fails the whole decode here.
         let! code = readField "code" asString m
         let! symbol = readField "symbol" asString m
         let! span = optField "span" decodeSpan m
@@ -462,11 +443,9 @@ let private encodeSignature (s: Signature) =
             "returns", encodeTypeRef s.Returns
         ]
 
-    // Emit the per-typar bounds ONLY when at least one constraint is present, so a
-    // constraint-free signature (the common case) stays BYTE-IDENTICAL to a pre-slot
-    // golden. When emitted the list is full-length (`null` per unconstrained slot) so
-    // it stays aligned to the method axis; the decoder rebuilds an all-`None` list of
-    // the right length when the field is absent.
+    // `typeParamBounds` appears only when some typar is constrained, and is then
+    // full-length (`null` per unconstrained slot) so it stays index-aligned with
+    // `typeParams`.
     let fields =
         if s.TypeParamBounds |> List.exists Option.isSome then
             baseFields
@@ -503,9 +482,8 @@ let private decodeSignature j =
                     | JsonValue.Null -> Ok None
                     | x -> decodeTypeRef x |> Result.map Some
                 )
-                // The bounds list indexes the METHOD axis: a length that disagrees
-                // with `typeParams` would silently misalign every bound the provider
-                // reads by index, so a malformed manifest fails HERE, not downstream.
+                // Bounds are read by index, so a length mismatch would misalign every
+                // one of them silently.
                 >>= (fun bs ->
                     if List.length bs = tp then
                         Ok bs
@@ -674,9 +652,8 @@ and private decodeEnumMember (j: JsonValue) : Result<string * LiteralValue optio
     result {
         let! m = asObject j
         let! n = readField "name" asString m
-        // The `value` field is always present (JSON `null` for a computed member);
-        // `decodeEnumValue` maps that null → `None`, so read it directly rather
-        // than through `optField` (which would double-wrap the option).
+        // `value` is always written, `null` for a computed member, and the decoder maps
+        // that null to `None` itself — hence `readField`, not `optField`.
         let! v = readField "value" decodeEnumValue m
         return (n, v)
     }
@@ -697,9 +674,6 @@ let private decodeRefEntry (j: JsonValue) : Result<string * RefEntry, string> =
         let! m = asObject j
         let! name = readField "name" asString m
         let! home = readField "home" asString m
-        // `RefKind.OfWire` is a closed-set decode (`Result`), unlike `DiagCode.OfWire`:
-        // an unknown kind fails the manifest rather than degrading, since the provider's
-        // re-mint dispatch depends on knowing it.
         let! kind = readField "kind" asString m >>= RefKind.OfWire
         let! arity = readField "arity" asInt m
 
@@ -724,9 +698,8 @@ let encodeManifest (man: PackageManifest) : JsonValue =
             "diagnostics", jArr (List.map encodeDiagnostic man.Diagnostics)
         ]
 
-    // OMIT `refs` when empty, so a ref-free manifest stays byte-identical to a
-    // pre-refs golden — the `typeParamBounds` omit-when-empty precedent. When present
-    // the wire order mirrors the source list (`Refs` is a list, not a `Map`).
+    // `refs` is omitted when empty. When present its wire order is the source list's:
+    // `Refs` is a list, not a `Map`.
     let fields =
         match man.Refs with
         | [] -> baseFields
@@ -741,10 +714,8 @@ let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
         let! m = asObject j
         let! ver = readField "schemaVersion" asInt m
 
-        // Exactly one wire version is understood per build. A different version
-        // means the wire format has evolved —
-        // throw loudly so versioning/back-compat gets designed deliberately rather
-        // than decoded against a grammar it may not match.
+        // A build understands exactly one wire version, and throws on any other rather
+        // than decode against a grammar it may not match.
         if ver <> SchemaVersion then
             failwithf "unsupported manifest schemaVersion %d (this build only understands v%d)" ver SchemaVersion
 
@@ -752,18 +723,14 @@ let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
         let! version = optField "version" asString m
         let! exports = listField "exports" decodeExport m
 
-        // Tolerant on read: an absent `diagnostics` field decodes to `[]`. Required
-        // here would be self-defeating — golden regeneration round-trips through
-        // `deserialize`, so a strict read could never parse a pre-channel manifest to
-        // re-serialize it. A PRESENT field is still validated strictly (each element
-        // must decode), and `encodeManifest` always WRITES the field.
+        // An absent `diagnostics` decodes to `[]` — a manifest written before the field
+        // existed still round-trips. A present one must decode element by element.
         let! diagnostics =
             match tryField "diagnostics" m with
             | None -> Ok []
             | Some v -> (asArray v >>= traverse decodeDiagnostic)
 
-        // Tolerant on read, exactly like `diagnostics`: an absent `refs` field decodes
-        // to `[]` (the codec omits it when empty), so a pre-refs manifest round-trips.
+        // Absent `refs` → `[]`, since the encoder omits the field when empty.
         let! refs =
             match tryField "refs" m with
             | None -> Ok []

@@ -3,10 +3,8 @@ namespace Vesper.Collections
 open System.Collections.Generic
 
 
-    /// Operations over `seq<'T>`. The `ModuleSuffix` representation gives the
-    /// module the compiled name `SeqModule` (matching the FSharp.Core surface) and
-    /// lets it coexist with the `seq<'T>` abbreviation / `seq { }` builder. Each
-    /// functional argument's function type desugars to `Vesper.Fun`.
+    /// Operations over `seq<'T>`. `ModuleSuffix` gives the compiled name `SeqModule`
+    /// and lets the module coexist with the `seq<'T>` abbreviation and `seq { }` builder.
     [<RequireQualifiedAccess>]
     [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
     module Seq =

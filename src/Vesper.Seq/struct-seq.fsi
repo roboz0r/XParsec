@@ -15,8 +15,8 @@ open System
 open System.Collections
 open System.Collections.Generic
 
-/// A by-value enumerator over a `'T[]`. Implements the BCL enumerator interfaces
-/// (§7.2 escape hatch) so it boxes transparently when handed to a .NET API.
+/// A by-value enumerator over a `'T[]`. Also implements the BCL enumerator
+/// interfaces, so it boxes transparently when handed to a .NET API.
 [<Struct>]
 type ArrayEnumerator<'T> =
     new: arr: 'T[] -> ArrayEnumerator<'T>

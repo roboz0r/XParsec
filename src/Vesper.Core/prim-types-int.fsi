@@ -1,8 +1,8 @@
 namespace Vesper
 
-// Each width states its own operator surface, and that list IS the contract: an operand
-// type that states no member does not support the operator. The bodies are the target's
-// own, in the paired `.fs` — spliced at the use site, never emitted.
+// Each width states its own operator surface: an operand type that states no member does
+// not support the operator. The bodies are the target's own, in the paired `.fs` —
+// spliced at the use site, never emitted.
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.SByte"/>.</summary>
 ///

@@ -9,9 +9,8 @@ files = [
 ]
 
 [targets.clr]
-# Every declaration is `inline` (a static optimization over inline IL for each of the four
-# bare ordering operators), so this compiles to an empty DLL and splices at each use site.
-# The file declares no types, so naming it here publishes no intrinsic marker.
+# Every declaration is `inline`, so this compiles to an empty DLL and splices at each
+# use site.
 impl = [
     "comparison.clr.fs",
 ]

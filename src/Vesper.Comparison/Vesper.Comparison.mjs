@@ -1,48 +1,19 @@
-// Vesper.Comparison — JS runtime structural comparator,
-// the ordering analogue of Vesper.Core.mjs's `structuralEquals`. A committed
-// platform-support asset declared by this package's manifest `runtime-js` key; the
-// backend materialises it beside the output and the `comparison.js.fs` aggregate
-// `< > <= >=` bases import the FLAT (Fable-style) two-arg `structuralCompare` through
-// the ordinary external-call path (`JsImports.addRef`) — a saturated compare collapses
-// to `structuralCompare(a, b)`. `cmp` stays private.
-//
-// `cmp` mirrors F#'s structural `compare`, keyed on value SHAPE not class identity
-// (so a `List_Cons` instance and a runtime { tag, Head, Tail } cell compare alike):
-// primitives by `<` / `>` (F# `char` is a length-1 string; bigint among bigints),
-// tuples (arrays) lexicographically then by length, unions by case `tag` first, then
-// records / unions field-by-field in declaration (own-key) order. Returns a three-way
-// sign (-1 / 0 / 1) the bases test against 0. It must agree with Vesper.Core.mjs's
-// `eq` — equal values compare 0 — a cross-package contract the structural comparison
-// and equality tests pin down.
-//
-// TYPE BRAND (as in Vesper.Core.mjs): emitted union instances carry a non-enumerable
-// `$type`; when both operands are branded, a mismatch orders by it first, so two
-// different unions' nullary cases ({ tag: 0 }) no longer compare 0 — agreeing with
-// `eq`. Records and plain classes are unbranded, and brand-less plain cells stay
-// structural. Route B (the --compiling-fslib
-// bootstrap) eventually replaces this hand-authored file with a backend-compiled
-// module — same shape, same import.
+// Vesper.Comparison — the JS structural comparator. Hand-authored and committed, named by
+// the manifest's `[targets.js] runtime` key; `a < b` emits `structuralCompare(a, b) < 0`.
+// Values that `structuralEquals` (Vesper.Core.mjs) calls equal must compare 0.
 
 function cmpSign(d) { return d < 0 ? -1 : d > 0 ? 1 : 0; }
 
-// DISPATCHER vs STRUCTURAL CORE split, mirroring Vesper.Core.mjs's `eq`. `cmp`
-// dispatches to a per-instance registry-symbol method `obj[Symbol.for("vesper.comparison")]`
-// when present — the override slot a `[<CustomComparison>]` type emits (a computed-key
-// method the backend keys off the `IComparable<Self>` impl; no shared base class). A
-// registry symbol is present ONLY on a type that opted into the protocol, so it can't
-// collide with a foreign object carrying an unrelated string `.CompareTo`. `cmpStructural`
-// is the non-dispatching shape walk and the DEFAULT path: ordinary unions/records carry no
-// such symbol, so structural ordering applies. A custom override must compare FIELD values
-// (re-entering `cmp`), never call `cmp` on its own `this`. A plain `{ tag, … }` cell has no
-// symbol and stays structural.
+// `cmp` calls `a[Symbol.for("vesper.comparison")](b)` when both operands carry that slot —
+// what a `[<CustomComparison>]` type emits — and `cmpSign` narrows its answer to -1/0/1.
+// That method must compare FIELD values, re-entering `cmp`; `cmp` on its own `this` loops.
 const COMPARISON = Symbol.for("vesper.comparison");
 function cmp(a, b) {
   if (a === b) return 0;
   if (a === null || a === undefined) return (b === null || b === undefined) ? 0 : -1;
   if (b === null || b === undefined) return 1;
   const t = typeof a;
-  // number / bigint / string / boolean all order by the JS relational operators
-  // (false < true; F# char is a length-1 string ordered by code unit).
+  // `false < true`; an F# `char` is a length-1 string, ordered by code unit.
   if (t !== "object") return a < b ? -1 : a > b ? 1 : 0;
   if (Array.isArray(a)) {
     const n = a.length < b.length ? a.length : b.length;
@@ -54,15 +25,13 @@ function cmp(a, b) {
 }
 
 function cmpStructural(a, b) {
-  // A type-branded instance discriminates by type before anything else (mirrors
-  // `eq`'s `$type` check, so equal values still compare 0). Checked only when BOTH
-  // carry the brand, so a plain cell stays structural. See Vesper.Core.mjs.
+  // A union's `$type` (a prototype getter, the qualified name) orders first, so `None` and
+  // `Empty` — both `{ tag: 0 }` — do not compare 0. Records and plain cells have none.
   if (a.$type !== undefined && b.$type !== undefined) {
     const c = cmp(a.$type, b.$type);
     if (c !== 0) return c;
   }
-  // A union discriminates on its case index before any field — compared here
-  // explicitly so correctness does not ride on `tag` being the first own-key.
+  // `tag` orders before any field — compared here, not left to own-key order (hence the skip).
   if ("tag" in a) { const c = cmp(a.tag, b.tag); if (c !== 0) return c; }
   for (const k of Object.keys(a)) {
     if (k === "tag") continue;
@@ -72,6 +41,4 @@ function cmpStructural(a, b) {
   return 0;
 }
 
-// Public entry — the surface the backend imports. The flat (Fable-style) compiled
-// form: a saturated structural `compare` / `<` collapses to `structuralCompare(a, b)`.
 export const structuralCompare = (a, b) => cmp(a, b);

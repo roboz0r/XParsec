@@ -1,12 +1,11 @@
 namespace Vesper
 
-/// <summary>Unsafe FFI escape hatches. Deliberately NOT <c>[&lt;AutoOpen&gt;]</c>: an
-/// explicit <c>open Vesper.Unsafe</c> is the marker that a cast here is unchecked.</summary>
+/// <summary>Unsafe FFI escape hatches. Not <c>[&lt;AutoOpen&gt;]</c>: an explicit
+/// <c>open Vesper.Unsafe</c> is the marker that a cast here is unchecked.</summary>
 module Unsafe =
 
     /// <summary>The general erasing reinterpret — emits its operand unchanged and re-types
-    /// it <c>^U</c>, with no runtime check. Whole-value exit from <c>dynamic</c> is
-    /// <c>Unsafe.retype d : 'T</c>.</summary>
+    /// it <c>^U</c>, with no runtime check.</summary>
     val inline retype: x: ^T -> ^U
 
 [<AutoOpen>]

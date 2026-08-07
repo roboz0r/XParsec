@@ -14,23 +14,23 @@ namespace               'namespace'       KWNamespace         tok=   0  pos=   0
       extern            'extern'          KWExtern            tok=  32  pos= 306
       with              'with'            KWWith              tok=  34  pos= 313
         StaticMember:
-          static        'static'          KWStatic            tok=  44  pos= 432
-          member        'member'          KWMember            tok=  46  pos= 439
-          inline        'inline'          KWInline            tok=  48  pos= 446
+          static        'static'          KWStatic            tok=  41  pos= 392
+          member        'member'          KWMember            tok=  43  pos= 399
+          inline        'inline'          KWInline            tok=  45  pos= 406
           ParenOp:
-                        '('               KWLParen            tok=  50  pos= 453
-            SymbolicOp  '+'               op_Addition         tok=  51  pos= 454
-                        ')'               KWRParen            tok=  52  pos= 455
-          :             ':'               OpColon             tok=  53  pos= 456
-          arg           'x'               Identifier          tok=  55  pos= 458
-          :             ':'               OpColon             tok=  56  pos= 459
+                        '('               KWLParen            tok=  47  pos= 413
+            SymbolicOp  '+'               op_Addition         tok=  48  pos= 414
+                        ')'               KWRParen            tok=  49  pos= 415
+          :             ':'               OpColon             tok=  50  pos= 416
+          arg           'x'               Identifier          tok=  52  pos= 418
+          :             ':'               OpColon             tok=  53  pos= 419
           NamedType:
-            Ident       'string'          Identifier          tok=  58  pos= 461
-          arg           'y'               Identifier          tok=  62  pos= 470
-          :             ':'               OpColon             tok=  63  pos= 471
+            Ident       'string'          Identifier          tok=  55  pos= 421
+          arg           'y'               Identifier          tok=  59  pos= 430
+          :             ':'               OpColon             tok=  60  pos= 431
           NamedType:
-            Ident       'string'          Identifier          tok=  65  pos= 473
-          ->            '->'              OpArrowRight        tok=  67  pos= 480
+            Ident       'string'          Identifier          tok=  62  pos= 433
+          ->            '->'              OpArrowRight        tok=  64  pos= 440
           NamedType:
-            Ident       'string'          Identifier          tok=  69  pos= 483
-      end               <virt>            KWEnd               tok=virt  pos= 490
+            Ident       'string'          Identifier          tok=  66  pos= 443
+      end               <virt>            KWEnd               tok=virt  pos= 450

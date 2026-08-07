@@ -1,16 +1,10 @@
 namespace Vesper.Collections
 
-// The primitive `int` ordering subset, for the cursor's `taken >= limit` guard. NOT the
-// polymorphic family in Vesper.Comparison: both operands are `int`, so this resolves
-// without a `structuralCompare` detour.
+// `int`-only ordering for the `taken >= limit` guard below: no `structuralCompare` detour.
 open Vesper.IntComparison
 
-/// `Seq.truncate`'s result — a lazily-truncating view of `source`.
-///
-/// Hand-rolled rather than a sequence expression because `seq { }` does not exist, in this
-/// front end or in either backend. It is not standing in for one: this IS the state machine
-/// a compiler would emit for `seq { for x in source do … }`, written out, and `list.fs`'s
-/// `ListEnumerator` already proves the shape end to end on both targets.
+/// `Seq.truncate`'s result — a lazily-truncating view of `source`. The state machine is
+/// written out by hand because `seq { }` is not implemented in this front end.
 type TruncateSeq<'T> =
     val source: seq<'T>
     val limit: int
@@ -47,8 +41,6 @@ and TruncateEnumerator<'T> =
                 false
 
     interface Vesper.disposable with
-        /// The inner cursor may hold a resource; truncating a sequence does not release the
-        /// caller from finishing with it.
         member this.Dispose() = this.inner.Dispose()
 
 [<RequireQualifiedAccess>]

@@ -1,8 +1,7 @@
 [core]
 description = "Minimal language fundamentals: the primitive types, Fun, Ref, capabilities, and the operators."
 
-# .fsi files in compile order — fed to the parser one at a time, accumulating
-# declarations. `prim-types-min` first (it defines int/bool/array/`Fun`/`unit`);
+# Declaration order: `prim-types-min` first (it defines int/bool/array/`Fun`/`unit`),
 # `core-types` before the operator files.
 files = [
     "prim-types-min.fsi",
@@ -25,23 +24,20 @@ files = [
     "int-comparison.fsi",
 ]
 
-# NO shared `impl`, though four of these bodies are target-neutral (`compiler-attributes`,
-# `core-types`, `structural-format`, `ops-std`). A compile is DECLARATION-ordered and an
-# inherited list appends AFTER the shared one, so a shared list would put the neutral bodies
-# first — ahead of the `Fun` and `Attribute` declarations they need.
+# The target-neutral bodies (`core-types`, `structural-format`, `ops-std`) are listed per
+# target, not shared: a shared `impl` would append BEFORE each target's list, ahead of the
+# `Fun` and `Attribute` declarations those bodies need.
 
 [targets.clr]
-# CLR-only CONTRACT, appended after `[core] files`. The flat<->curried adapters are a CLR
-# REPRESENTATION strategy: a function value there is a nominal `Fun` interface, so adapting
-# one shape to the other needs a reified object.
+# CLR-only: a CLR function value is a nominal `Fun` interface, so adapting flat<->curried
+# needs a reified object.
 files = [
     "fun-adapters.fsi",
 ]
 
-# Compiled into Vesper.Core.dll AND published as the CLR splice sources, in `files` order.
-# The intrinsic-only `prim-types-*` / `capabilities` files emit NO IL: they register the
-# per-target representation, not a TypeDef. Their operator members have no type to hang a
-# method on, so a `(# … #)` body reaches a use site only by being spliced.
+# Compiled into Vesper.Core.dll AND published as the CLR splice sources. The intrinsic-only
+# `prim-types-*` / `capabilities` files emit NO IL: they register a representation, not a
+# TypeDef, so a `(# … #)` body reaches a use site only by being spliced.
 impl = [
     "prim-types-min.clr.fs",
     "prim-types-int.clr.fs",
@@ -65,47 +61,34 @@ impl = [
 ]
 
 [targets.js]
-# JS-only EXTRA contracts, appended after `[core] files`. The capability compat shim maps
-# the BCL interface spellings to the canonical BCL-free capabilities so ported source
-# resolves on JS; extracted after `capabilities.fsi` so its RHS (`Vesper.disposable`) is
-# already in the registry.
+# JS-only EXTRA contracts, appended after `[core] files`. The compat shim maps the BCL
+# interface spellings to the BCL-free capabilities, so it comes after `capabilities.fsi`
+# — its RHS (`Vesper.disposable`) must already be in the registry.
 files = [
     "capabilities-compat.js.fsi",
-    # JS-only equality runtime entries (`structuralEquals`/`structuralHash`), with their
-    # bodies in `Vesper.Core.mjs`. The CLR `=`/`<>`/`hash` use `EqualityComparer` inline and
-    # never reference them, so they are not in the shared contract.
+    # `structuralEquals` / `structuralHash` — declarations only; the bodies are in
+    # `Vesper.Core.mjs`. The CLR `=`/`<>`/`hash` use `EqualityComparer` instead.
     "ops-platform-runtime.js.fsi",
-    # JS-only absence-sentinel intrinsic type `undefined`. (`null` is NOT declared here: it
-    # is a reserved keyword and already distinct without an entry.)
+    # `null` needs no counterpart entry — it is a reserved keyword, already distinct.
     "prim-types-undefined.js.fsi",
     # JS-only opaque `dynamic` intrinsic type — the F#-side landing point for TS `any`.
     "prim-types-dynamic.js.fsi",
-    # The `dynamic` operators — `retype`/`dynamic` and `(?)`/`(?<-)`. Extracted after the
-    # `dynamic` type they reference.
+    # After `prim-types-dynamic.js.fsi` — these operators reference the `dynamic` type.
     "ops-dynamic.js.fsi",
-    # JS-only augmentation of the intrinsic array `'T[]` with a `get_Item` indexer accessor.
-    # Declared in the GLOBAL namespace so its member-contract key is the array's bare
-    # `` ``[]`` `` identity, matching the receiver-side lookup.
+    # A `get_Item` indexer on the intrinsic array. Declared in the GLOBAL namespace so its
+    # member-contract key is the array's bare `` ``[]`` `` identity, as the lookup expects.
     "array-index.js.fsi",
 ]
 
-# Deliberately impl-free ON JS: all 9 types are compile-time markers read off the `.fsi`
-# and fully ERASED here — no `.mjs` residue, no decorator. Kept in the contract rather than
-# moved to `[targets.clr] files` because they must stay RESOLVABLE on JS: `core-types.fs`
-# below carries `[<ReferenceEquality>]` and `[<NoComparison>]`.
+# All 9 attribute types are fully ERASED on JS — no `.mjs` residue, no decorator — but must
+# stay RESOLVABLE: `core-types.fs` below carries `[<ReferenceEquality>]`/`[<NoComparison>]`.
 sig-only = [
     "compiler-attributes.fsi",
 ]
 
-# The JS bodies: the platform reprs and the spliced operator templates. There is no
-# whole-package JS build (the JS runtime is the committed `Vesper.Core.mjs` asset), so most
-# of this list is read as the splice source and the intrinsic-repr binding rather than
-# compiled. `core-types.fs` is the exception — it depends only on `Fun` and two erased
-# attributes, so it compiles standalone.
-#
-# No `prim-types-nativeint.js.fs`: JS has no nativeint repr, so the type is unrepresentable
-# and its operator declarations are unreachable. Likewise decimal / nd-array / attr /
-# capabilities ship no JS body — they stay `Intrinsic` with no platform name.
+# The JS bodies: platform reprs and spliced operator templates. There is no whole-package JS
+# build (the runtime is the committed `Vesper.Core.mjs`), so most entries are read as splice
+# source, not compiled. nativeint / decimal / nd-array / attr / capabilities have no JS body.
 impl = [
     "prim-types-min.js.fs",
     "prim-types-int.js.fs",
@@ -114,29 +97,20 @@ impl = [
     "prim-types-object.js.fs",
     "prim-types-exn.js.fs",
     "prim-types-bigint.js.fs",
-    # Target-NEUTRAL body, shared verbatim with `[targets.clr]`: the `Ref` cell and nothing
-    # else.
     "core-types.fs",
-    # Target-NEUTRAL body, shared verbatim with `[targets.clr]`: two pure interface
-    # declarations.
     "structural-format.fs",
     "ops-platform.js.fs",
     "ops-std.fs",
     "int-comparison.js.fs",
-    # The `undefined` VALUE — a zero-operand intrinsic spliced at each use, with no
-    # `const undefined = undefined` definition emitted.
     "prim-types-undefined.js.fs",
-    # The `dynamic` type's `(# "any" #)` repr — marker and platform face in one file.
     "prim-types-dynamic.js.fs",
-    # The `dynamic` operator bodies (`retype`/`dynamic`/`(?)`/`(?<-)`) — `$0[$1]`
-    # computed-member templates, spliced at each `?` use site.
     "ops-dynamic.js.fs",
-    # The array `get_Item` member body — lifted `this`-first and served under the member
-    # key, so `arr.[i]` splices the `ldelem` exactly as the free `GetArray` does.
+    # The array `get_Item` body — lifted `this`-first and served under the member key, so
+    # `arr.[i]` splices the same `ldelem` the free `GetArray` does.
     "array-index.js.fs",
 ]
 
-# Hand-authored JS runtime *asset*: the structural core (`equals` / `structuralHash`) the
-# JS backend imports and ships beside its output. NOT a parsed source — a `.mjs`, not an
-# `.fsi`/`.fs`.
+# Hand-authored runtime asset, not a parsed source: the JS backend imports
+# `structuralEquals` / `structuralHash` / `checkedDivisor` / `enumeratorOf` from it and
+# ships it beside the output.
 runtime = ["Vesper.Core.mjs"]

@@ -1,7 +1,7 @@
 namespace Vesper
 
-// The floats state the arithmetic family and `~-` — and, deliberately, no bitwise
-// family: `1.0 &&& 2.0` is an error because `float` declares no such member.
+// The floats state the arithmetic family and `~-`, no bitwise family: `1.0 &&& 2.0` is
+// an error because `float` declares no such member.
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Single"/>.</summary>
 ///

@@ -4,9 +4,8 @@ namespace Vesper
 
 type undefined = (# "undefined" #)
 
-// `[<Global>]` suppresses the definition — a lowered `const undefined = undefined` could
-// not initialise — so every reference is the bare `undefined` the template carries. The
-// inner `: undefined` types the node; without it an operand-less template infers `unit`.
+// `[<Global>]` emits no definition, so every reference is the bare `undefined`. Keep the
+// inner `: undefined`: a template with no result annotation infers `unit`.
 [<AutoOpen>]
 module Undefined =
 

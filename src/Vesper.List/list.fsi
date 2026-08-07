@@ -71,13 +71,8 @@ open System.Collections.Generic
         /// <remarks>This is an O(1) operation.</remarks>
         static member Cons: head: 'T * tail: 'T list -> 'T list
 
-        // The ITERATION CAPABILITY, advertised because every target's body implements it
-        // (on JS as `[Symbol.iterator]`). The BCL interfaces are NOT
-        // advertised: on CLR they are synthesized co-slots of this same capability, and on
-        // JS they do not exist. Contrast `IReadOnlyCollection<'T>`/`IReadOnlyList<'T>`:
-        // those carry real members (`Count`/`Item`) that NEITHER target implements and that
-        // cannot be no-ops, so the contract must not advertise them — a consumer resolving
-        // `List :> IReadOnlyList<'T>` would type-check then fail at codegen.
+        // Both targets implement this: JS emits `*[Symbol.iterator]()` on the class, CLR
+        // synthesises the BCL `IEnumerable` co-slots from it.
         interface seq<'T>
 
     /// <summary>The type of immutable singly-linked lists. </summary>
@@ -110,19 +105,7 @@ open System.Collections.Generic
     /// <summary>An abbreviation for the CLI type <see cref="T:System.Collections.Generic.List`1"/></summary>
     type ResizeArray<'T> = System.Collections.Generic.List<'T>
 
-    // `seq<'T>` (the `IEnumerable<'T>` abbreviation) now lives in `Vesper.Core`
-    // (`capabilities.fsi`, kept in this `Vesper.Collections` namespace) — moved there so
-    // the enumerable-capability resolution isn't circular when building `Vesper.List`
-    // itself. Bare `seq<'T>` references below still resolve (same namespace, via the
-    // Vesper.Core dependency).
-
-    /// Operations over `'T list`. `fold` first — it is what the canonical sample
-    /// exercises; the rest of the
-    /// module (`map`/`filter`/`iter`/`length`/`rev`/`append`/…) is additive, each
-    /// a contract + impl pair added as the language grows. The `ModuleSuffix`
-    /// representation lets the module share the `List` name with the type and
-    /// gives it the compiled name `ListModule`. The folder's function type desugars
-    /// to `Vesper.Fun`.
+    /// Operations over `'T list`.
     [<RequireQualifiedAccess>]
     [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
     module List =

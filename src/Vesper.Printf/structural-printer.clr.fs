@@ -7,8 +7,7 @@ open System.Globalization
 open System.Runtime.CompilerServices
 open Vesper.IntComparison
 
-/// The recorded layout document. A group renders all-flat or all-broken; nesting
-/// governs the indent broken lines hang at.
+/// The recorded layout document.
 type Doc =
     /// A literal run that never breaks (labels, punctuation, brackets).
     | DocText of string
@@ -19,18 +18,14 @@ type Doc =
     | DocCat of Doc list
     /// An indentation scope: broken lines inside hang at `+indent`.
     | DocNest of int * Doc
-    /// A group (`Doc`, `parens`): its soft breaks all flatten or all break
-    /// together; `parens` wraps it in parentheses (a DU application in argument
-    /// position), counted toward the flat width.
+    /// Its soft breaks all flatten or all break together. `parens` wraps it in
+    /// parentheses (a DU application in argument position), counted toward the flat width.
     | DocGroup of Doc * bool
 
-/// The `Doc` width + atom-rendering helpers (the copy-pasteable source forms).
-/// Pure functions over the immutable `Doc` tree — no sink state. The layout pass
-/// itself lives on `RuntimeFormatState` (it threads the pooled render buffer).
+/// `Doc` width, and the primitive → copy-pasteable-source atom renderers.
 module internal DocLayout =
 
-    /// The flat (single-line) width of a `Doc`. Recomputed rather than cached; the
-    /// trees are small.
+    /// The flat (single-line) width of a `Doc`.
     let rec flatWidth (d: Doc) : int =
         match d with
         | DocText s -> s.Length
@@ -44,16 +39,13 @@ module internal DocLayout =
         | [] -> 0
         | k :: rest -> flatWidth k + catWidth rest
 
-    /// Reverse `xs` onto `acc` — used to flip a frame's `Kids` accumulator (built by
-    /// consing, so reversed) back into source order.
     let rec revOnto (xs: Doc list) (acc: Doc list) : Doc list =
         match xs with
         | [] -> acc
         | h :: t -> revOnto t (h :: acc)
 
-    /// Interleave tuple / union-case payload components with `,` + a soft `Line`
-    /// separator (`(a, b, c)`). `firstDone` is false for the first component (no
-    /// leading separator), true thereafter — the recipe's `if i > 0`.
+    /// Interleave components with `,` + a soft `Line`: `a, b, c`. `firstDone` is false
+    /// for the first component (no leading separator), true thereafter.
     let rec interleaveComponents (xs: Doc list) (firstDone: bool) : Doc list =
         match xs with
         | [] -> []
@@ -63,11 +55,9 @@ module internal DocLayout =
             else
                 k :: interleaveComponents rest true
 
-    /// The `(a, b, c)` tuple `Doc` from already-built component `Doc`s: components
-    /// interleaved (`interleaveComponents`), hung at indent 1 under the open paren,
-    /// the whole a single breakable group. The sole definition of the tuple form —
-    /// both the actual-tuple walk (`FormatTuple`) and a multi-payload union case
-    /// (which renders `Case (a, b)` as exactly this tuple) build through it.
+    /// The `(a, b, c)` tuple `Doc` from already-built component `Doc`s: hung at indent 1
+    /// under the open paren, the whole a single breakable group. A multi-payload union
+    /// case renders `Case (a, b)` through this too.
     let buildTupleDoc (kids: Doc list) : Doc =
         DocGroup(
             DocCat
@@ -91,8 +81,6 @@ module internal DocLayout =
                 containsRef t v
 
     // ---- atom rendering (copy-pasteable source forms) ----
-    // `CultureInfo.InvariantCulture` is used inline (matching the C# engine, which
-    // formats every primitive with the invariant culture).
 
     /// Does `s` contain a `.`, `e`, or `E` (so it already reads back as a float)?
     let rec hasDot (s: string) (i: int) : bool =
@@ -106,9 +94,9 @@ module internal DocLayout =
             else
                 hasDot s (i + 1)
 
-    /// Make a float render back as a float: a finite value whose shortest
-    /// round-trip has no `.`/`e`/`E` would paste as an int — append ".0". float32
-    /// takes the `f` suffix; non-finite floats use the F# spellings.
+    /// Make a float paste back as a float: `3.0` stringifies `"3"`, so append `".0"` when
+    /// there is no `.`/`e`/`E`. Non-finite values take the F# spellings `nan` /
+    /// `infinity` / `-infinity`; `suffix` is `"f"` for float32, so `nanf`, `3.0f`.
     let fixFloat (s: string) (finite: bool) (suffix: string) : string =
         if not finite then
             if s = "NaN" then "nan" + suffix
@@ -149,7 +137,6 @@ module internal DocLayout =
 
             s + suffix
 
-    /// Append `c` to `acc`, escaping the backslash, the newline family, and `quote`.
     let appendEscaped (acc: string) (c: char) (quote: char) : string =
         if c = '\\' then acc + "\\\\"
         elif c = '\n' then acc + "\\n"
@@ -164,16 +151,13 @@ module internal DocLayout =
         else
             escapeInto (appendEscaped acc s.[i] quote) s (i + 1) quote
 
-    /// Quote + escape a string (`"a\nb"`).
     let quoteString (s: string) : string = "\"" + escapeInto "" s 0 '"' + "\""
 
-    /// Quote + escape a char (`'c'`).
     let quoteChar (c: char) : string = "'" + appendEscaped "" c '\'' + "'"
 
-/// The kind of an open layout scope. `Root` is the implicit outermost frame.
-/// `Collect` gathers a scope's child `Doc`s for deferred assembly — a union case
-/// (so `EndCase` can pick the nullary / single / tuple form from the observed count)
-/// or a tuple (so `FormatTuple` can hand them to `buildTupleDoc`).
+/// The kind of an open layout scope. `Root` is the implicit outermost frame; a
+/// `Collect` frame's children are popped by hand and assembled from their observed
+/// count (`None`, `Some x`, `Case (a, b)`, `(a, b)`).
 type FrameKind =
     | Root
     | Group
@@ -189,10 +173,9 @@ type Frame =
         mutable Kids: Doc list
     }
 
-/// Bookkeeping for one open `BeginRecord` / `BeginCase` scope. A record tracks its
-/// field count (first field opens `{ `, the rest prefix `;`). A case tracks its
-/// payload count — the arity, fixed at `EndCase` — and its lone payload's
-/// `ChildAppShaped` mark (see `LastAppShaped`).
+/// Bookkeeping for one open `BeginRecord` / `BeginCase` scope. `Count` is the record's
+/// field count (field 0 opens `{ `, the rest prefix `;`) or the case's payload count
+/// (0 ⇒ `None`, 1 ⇒ `Some x`, more ⇒ `Case (a, b)`).
 type SemFrame =
     {
         IsCase: bool
@@ -201,27 +184,21 @@ type SemFrame =
         mutable ChildAppShaped: bool
     }
 
-/// The concrete <see cref="Vesper.IFormatSink"/>: builds a `Doc` via a frame stack,
-/// runs the reflection-free dispatcher for children, and lays the document out to a
-/// string. Carries the depth + size (PrintSize) counters.
 type RuntimeFormatState =
 
     /// 0 ⇒ never break (always flat); else the column budget.
     val Width: int
-    /// F#'s PrintSize: a global "node" budget. Each leaf spends one unit; composites
-    /// don't (their children do). At 0, further values render as "...".
+    /// F#'s PrintSize node budget: each leaf spends one unit, composites none. At 0,
+    /// further values render as `...`.
     val mutable Size: int
     val mutable Depth: int
     /// The frame stack (top = head). Seeded with the Root frame.
     val mutable Frames: Frame list
     /// The semantic-frame stack for the BeginRecord / BeginCase protocol (top = head).
     val mutable SemFrames: SemFrame list
-    /// Whether the value `Dispatch` most recently completed was application-shaped
-    /// (a union case with ≥1 payload). A single-payload case parenthesises its child
-    /// iff the child is application-shaped (`Some (Some 3)` but not `Some 3` /
-    /// `Some [1; 2]`) — the one bit the payload count cannot settle. `Child` reads
-    /// this into the case frame's `ChildAppShaped`; `Dispatch` resets it to false on
-    /// entry, so it always reflects the just-dispatched value.
+    /// Whether the value `Dispatch` most recently completed was application-shaped (a
+    /// union case with ≥1 payload). A single-payload case parenthesises its child iff
+    /// so: `Some (Some 3)`, against a bare `Some 3` / `Some [1; 2]`.
     val mutable LastAppShaped: bool
     /// DFS-ancestor chain for cycle detection (top = head). A value reference-identical
     /// to an ancestor is a back-edge and renders `...`.
@@ -259,7 +236,6 @@ type RuntimeFormatState =
 
     member private this.Push(f: Frame) = this.Frames <- f :: this.Frames
 
-    /// Push a fresh frame of the given kind onto the stack (its `Kids` start empty).
     member private this.PushKind(kind: FrameKind, indent: int) =
         this.Push(
             {
@@ -284,8 +260,7 @@ type RuntimeFormatState =
                 match f.Kind with
                 | Group -> DocGroup(inner, false)
                 | Nest -> DocNest(f.NestIndent, inner)
-                // `Collect` frames are popped by hand (`EndCaseP` / `FormatTuple`); this
-                // arm only keeps the match total, unwrapping like `Root` if ever reached.
+                // `Collect` frames are popped by hand, in `EndCaseP` / `FormatTuple`.
                 | Root
                 | Collect -> inner
 
@@ -293,9 +268,8 @@ type RuntimeFormatState =
         | [] -> ()
 
     // ---- the semantic protocol (BeginRecord/Field/BeginCase/Child/…) ----
-    // The record/union layout policy (once `StructuralFormatRecipe`) lowered into the
-    // same `Doc` builders the layout ops use. Key invariant: `Field` adds the label
-    // before `Child` recurses, so a nested record's first `Field` cannot clobber it.
+    // `Field` adds the label before `Child` recurses, so a nested record's first
+    // `Field` cannot clobber it.
 
     member private this.BeginRecordP() =
         this.SemFrames <-
@@ -331,7 +305,7 @@ type RuntimeFormatState =
             this.SemFrames <- rest
 
             if rf.Count = 0 then
-                // Field-less record ⇒ bare `{ }` (kept total; F# records have ≥1 field).
+                // Field-less record ⇒ bare `{ }`; F# records have ≥1 field.
                 this.Add(DocText "{ }")
                 this.PopWrap(Group)
             else
@@ -356,8 +330,7 @@ type RuntimeFormatState =
 
     member private this.ChildP(value: obj) =
         this.Dispatch(value)
-        // A record field's label was already emitted at `Field`; a case payload bumps
-        // its count and captures the child's app-shapedness for `EndCase`.
+        // A record field's label was already emitted at `Field`; only a case counts here.
         match this.SemFrames with
         | sf :: _ when sf.IsCase ->
             sf.Count <- sf.Count + 1
@@ -369,8 +342,7 @@ type RuntimeFormatState =
         | cf :: rest ->
             this.SemFrames <- rest
 
-            // Take the case's payload child `Doc`s (source order) from its
-            // Collect layout frame, popped by hand.
+            // The case's payload `Doc`s, in source order, from its `Collect` frame.
             let kids =
                 match this.Frames with
                 | f :: fr ->
@@ -389,15 +361,12 @@ type RuntimeFormatState =
                         | [ single ] -> single
                         | _ -> DocCat kids
 
-                    // The parent parenthesises the lone payload (its `Doc` is already
-                    // built) rather than baking parens into the child.
                     let payload = if cf.ChildAppShaped then DocGroup(child, true) else child
 
                     DocGroup(DocCat [ DocText(cf.Name + " "); payload ], false)
                 | _ ->
-                    // Multi-field payload renders as a tuple (its own parens
-                    // disambiguate, so no child is wrapped) — the same `Doc` the
-                    // `FormatTuple` walk builds.
+                    // Multi-payload case renders as a tuple, `Case (a, b)`: its own
+                    // parens disambiguate, so no child is wrapped.
                     DocGroup(DocCat [ DocText(cf.Name + " "); DocLayout.buildTupleDoc kids ], false)
 
             this.Add(caseDoc)
@@ -407,8 +376,6 @@ type RuntimeFormatState =
 
     member private this.FormatTuple(t: ITuple) =
         // `(a, b)` flat; broken hangs the components under the open paren (indent 1).
-        // Collect the component `Doc`s into a `Collect` frame, then assemble via
-        // `buildTupleDoc` — the one tuple form, shared with a multi-payload case.
         this.PushKind(Collect, 0)
 
         for i in 0 .. t.Length - 1 do
@@ -441,9 +408,8 @@ type RuntimeFormatState =
                     this.Add(DocText ";")
                     this.Add(DocLine " ")
 
-                // Truncate on the per-collection length cap (PrintLength = 100) or
-                // the exhausted global node budget (`%.NA`/PrintSize). Breaking here
-                // keeps the trailing `...` single.
+                // Truncate at the per-collection cap (PrintLength = 100) or an exhausted
+                // node budget. The `;` is already emitted, so the tail reads `2; ...]`.
                 if i >= 100 || this.Size <= 0 then
                     this.Add(DocText "...")
                     truncated <- true
@@ -455,32 +421,25 @@ type RuntimeFormatState =
         this.Add(DocLine "")
         this.Add(DocText "]")
         this.PopWrap(Group)
-        // A list is never application-shaped (see FormatTuple).
         this.LastAppShaped <- false
 
-    /// The depth/size budget guard; the type-switch lives in `DispatchInner`.
+    /// The depth / node-budget guard around every value.
     member private this.Dispatch(value: obj) =
-        // Default false: only a payload-bearing case sets it true (at `EndCase`), and
-        // every composite resets it last, so on return it reflects exactly `value`.
         this.LastAppShaped <- false
 
         match value with
         | null -> this.Add(DocText "null")
         | _ ->
-            // Global node budget exhausted (`%.NA`) / depth guard: truncate before
-            // the value is classified.
+            // Depth guard / exhausted node budget: truncate before classifying the value.
             if this.Depth >= 100 then
                 this.Add(DocText "...")
             elif this.Size <= 0 then
                 this.Add(DocText "...")
             elif DocLayout.containsRef this.Visited value then
-                // A back-edge: `value` is reference-identical to an ancestor still on
-                // the open path ⇒ a cycle. Render `...` rather than recurse forever.
                 this.Add(DocText "...")
             else
-                // Track `value` as an ancestor for the duration of its subtree, then
-                // pop it (so siblings — e.g. two equal interned strings — don't see
-                // each other as a cycle), mirroring the C# add-on-enter / remove-on-exit.
+                // An ancestor only for its own subtree: popped on exit, so two siblings
+                // (e.g. the same interned string twice) do not read as a cycle.
                 this.Visited <- value :: this.Visited
                 this.Depth <- this.Depth + 1
                 this.DispatchInner(value)
@@ -490,14 +449,11 @@ type RuntimeFormatState =
                 | _ :: rest -> this.Visited <- rest
                 | [] -> ()
 
-    /// Resolution order (reflection-free): our own structural types, then BCL
-    /// shapes, then a `ToString` fallback. Leaf cases spend one unit of the node
-    /// budget; composites don't (their leaf children do).
+    /// The type switch: every arm is a cast, so no arm reflects over the value's fields.
     member private this.DispatchInner(value: obj) =
         match value with
         | :? Vesper.IStructuralFormattable as structural ->
-            // The synthesised body drives the semantic protocol (BeginRecord / BeginCase
-            // / Child / …).
+            // The synthesised `Format` body drives the semantic protocol.
             structural.Format(this :> Vesper.IFormatSink)
         | :? string as s ->
             this.Size <- this.Size - 1
@@ -518,9 +474,6 @@ type RuntimeFormatState =
             this.Add(DocText(value.ToString()))
 
     // ---- the layout pass: append into the pooled `RenderBuf` ----
-    // These mirror `formatter.clr.fs`'s grow/copy surface (`ArrayPool<char>` + a
-    // `Span<char>` local over the field). Each `RenderDoc` returns the end column
-    // (an `int`); the rendered characters are pushed straight into `RenderBuf`.
 
     /// Grow `RenderBuf` so at least `extra` more chars fit past `RenderPos`.
     member private this.EnsureRoom(extra: int) =
@@ -533,13 +486,12 @@ type RuntimeFormatState =
             ArrayPool<char>.Shared.Return(this.RenderBuf)
             this.RenderBuf <- bigger
 
-    /// Append a literal run to the buffer.
     member private this.Emit(s: string) =
         this.EnsureRoom(s.Length)
         s.CopyTo(Span<char>(this.RenderBuf).Slice(this.RenderPos, this.RenderBuf.Length - this.RenderPos))
         this.RenderPos <- this.RenderPos + s.Length
 
-    /// Append `n` spaces (the broken-line indent) to the buffer.
+    /// Append `n` spaces — the broken-line indent.
     member private this.EmitSpaces(n: int) =
         if n > 0 then
             this.EnsureRoom(n)
@@ -564,11 +516,9 @@ type RuntimeFormatState =
         | DocNest(i, inner) -> this.RenderDoc(inner, indent + i, broken, col, width)
         | DocCat kids -> this.RenderCat(kids, indent, broken, col, width)
         | DocGroup(inner, parens) ->
-            // The opening paren advances the column the inner content lays out from.
             let openCol = if parens then col + 1 else col
-            // All-or-nothing: the group is flat iff its entire flat rendering fits
-            // the remaining budget from the current column. width 0 ⇒ an unbounded
-            // budget ⇒ always flat (the `%0A` "never break" mode).
+            // All-or-nothing: flat iff the group's whole flat rendering fits the budget
+            // remaining from `openCol`.
             let groupBroken = width <> 0 && openCol + DocLayout.flatWidth inner > width
 
             if parens then
@@ -589,7 +539,6 @@ type RuntimeFormatState =
             let col1 = this.RenderDoc(k, indent, broken, col, width)
             this.RenderCat(rest, indent, broken, col1, width)
 
-    /// Lay the recorded document out to a string.
     member this.Finish() : string =
         match this.Frames with
         | [ root ] ->
@@ -600,9 +549,7 @@ type RuntimeFormatState =
                 | [ single ] -> single
                 | _ -> DocCat kids
 
-            // An implicit top-level group so the top level can break. The end column
-            // is discarded (a wildcard bind, not `|> ignore`: the latter would leave
-            // the `ignore` recipe as a bare value, which codegen can't eta-expand).
+            // An implicit top-level group, so the top level can break.
             let _ = this.RenderDoc(DocGroup(docRoot, false), 0, false, 0, this.Width)
 
             let result = Span<char>(this.RenderBuf).Slice(0, this.RenderPos).ToString()
@@ -625,19 +572,12 @@ type RuntimeFormatState =
         member this.EndCase() = this.EndCaseP()
         member this.Child(value: obj) = this.ChildP(value)
 
-/// Entry point for `%A`. `Print` renders a value as copy-pasteable Vesper source;
-/// it is the standalone "render to string" used by tests and by the printf
-/// handler's structural hole (`Formatter.AppendStructured`).
 type StructuralPrinter =
 
-    /// Render `value` within a column budget of `widthBudget` (0 ⇒ never break, the
-    /// `%0A` mode) and a node budget of `sizeBudget` (F# PrintSize; nodes past it
-    /// render as `...`, the `%.NA` mode).
     static member Print(value: obj, widthBudget: int, sizeBudget: int) : string =
         let state = RuntimeFormatState(widthBudget, sizeBudget)
         (state :> Vesper.IFormatSink).Child(value)
         state.Finish()
 
-    /// Render `value` with the default node budget (F#'s 10000 — plain `%A`).
     static member Print(value: obj, widthBudget: int) : string =
         StructuralPrinter.Print(value, widthBudget, 10000)

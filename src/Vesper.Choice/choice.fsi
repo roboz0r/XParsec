@@ -2,13 +2,7 @@ namespace Vesper
 
 open System
 
-/// <summary>Helper type for two-way disjoint union results.</summary>
-///
-/// <remarks>A <b>struct</b> union with two cases: <c>Choice1Of2</c> carries a
-/// value of <c>'T1</c>, <c>Choice2Of2</c> carries a value of <c>'T2</c>. Use the
-/// constructors <c>Choice1Of2</c> and <c>Choice2Of2</c> to create values of this
-/// type, or pattern match against the values directly.</remarks>
-///
+/// <summary>Helper type for active patterns with 2 choices.</summary>
 /// <category>Choices and Results</category>
 [<StructuralEquality; StructuralComparison>]
 [<Struct>]

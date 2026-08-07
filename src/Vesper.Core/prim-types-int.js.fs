@@ -13,9 +13,9 @@ type sbyte =
         static member inline (-)(x: sbyte, y: sbyte) : sbyte = (# "($0 - $1) << 24 >> 24" x y : sbyte #)
         static member inline ( * )(x: sbyte, y: sbyte) : sbyte = (# "($0 * $1) << 24 >> 24" x y : sbyte #)
 
-        // JS `/` is true division (`10y / 3y` is 3.333…); the mask is a bitwise coercion
-        // and so truncates toward zero, F#'s rule. `checkedDivisor` throws on 0, where JS
-        // would answer `Infinity` and `Infinity << 24 >> 24` a silent 0.
+        // JS `/` is true division (`10y / 3y` is 3.333…); the mask is a bitwise coercion and
+        // so truncates toward zero, F#'s rule. `checkedDivisor` throws on 0, where an
+        // unguarded `Infinity << 24 >> 24` would answer 0.
         static member inline (/)(x: sbyte, y: sbyte) : sbyte =
             (# "($0 / $1) << 24 >> 24" x (checkedDivisor y) : sbyte #)
 
@@ -99,14 +99,12 @@ type uint32 =
     with
         static member inline (+)(x: uint32, y: uint32) : uint32 = (# "($0 + $1) >>> 0" x y : uint32 #)
         static member inline (-)(x: uint32, y: uint32) : uint32 = (# "($0 - $1) >>> 0" x y : uint32 #)
-        // `Math.imul` is the product mod 2^32 directly; a masked `$0 * $1` reaches ~2^64
-        // and loses the low bits the mask keeps, past 2^53.
+        // `Math.imul` is the exact product mod 2^32; a masked `$0 * $1` loses low bits past 2^53.
         static member inline ( * )(x: uint32, y: uint32) : uint32 = (# "Math.imul($0, $1) >>> 0" x y : uint32 #)
         static member inline (/)(x: uint32, y: uint32) : uint32 = (# "($0 / $1) >>> 0" x (checkedDivisor y) : uint32 #)
         static member inline (%)(x: uint32, y: uint32) : uint32 = (# "($0 % $1) >>> 0" x (checkedDivisor y) : uint32 #)
         static member inline (~+)(value: uint32) : uint32 = value
-        // Every one of these reads back through `>>> 0`: JS bitwise answers SIGNED int32,
-        // so the top-bit-set results are negative without it.
+        // JS bitwise answers SIGNED int32, so top-bit-set results need the `>>> 0` read-back.
         static member inline (&&&)(x: uint32, y: uint32) : uint32 = (# "($0 & $1) >>> 0" x y : uint32 #)
         static member inline (|||)(x: uint32, y: uint32) : uint32 = (# "($0 | $1) >>> 0" x y : uint32 #)
         static member inline (^^^)(x: uint32, y: uint32) : uint32 = (# "($0 ^ $1) >>> 0" x y : uint32 #)
