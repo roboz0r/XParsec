@@ -18,5 +18,3 @@ type Ref<'T> =
 /// <summary>The type of mutable references. Same backing record as `Ref<'T>`.</summary>
 /// <category>Basic Types</category>
 and 'T ref = Ref<'T>
-
-

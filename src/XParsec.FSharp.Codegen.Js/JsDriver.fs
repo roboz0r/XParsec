@@ -19,12 +19,18 @@ type JsPackage =
     {
         Name: string
         Modules: JsPackageModule list
-        /// The generated `index.mjs` source.
-        Barrel: string
         /// The runtime assets the modules import, written to the output ROOT:
         /// `<root>/Vesper.Core.mjs` beside `<root>/<Name>/`.
         RuntimeAssets: JsRuntimeModule list
     }
+
+    /// The generated `index.mjs`: `export * from "./shapes.mjs";` per emitting module, in
+    /// file order. A package whose files all lower to nothing gets an empty barrel, which
+    /// still resolves.
+    member this.Barrel: string =
+        this.Modules
+        |> List.map (fun m -> sprintf "export * from \"./%s\";\n" m.Path.FileName)
+        |> String.concat ""
 
 /// The production JS driver: an ordered multi-file assembly in, a directory of one `.mjs`
 /// per emitting file out.
@@ -36,13 +42,6 @@ module JsDriver =
     /// The resolution contract for a compilation that IS a package, over the JS-native leaf.
     let contractForSelf (target: string) (selfManifest: string) (references: string list) : SymbolProviders.Contract =
         JsNativeSymbols.jsNativeContractFor target (SymbolProviders.selfStack (Some selfManifest) references)
-
-    /// `export * from "./shapes.mjs";` per emitting module, in file order. A package whose
-    /// files all lower to nothing gets an empty barrel, which still resolves.
-    let private barrelOf (modules: JsPackageModule list) : string =
-        modules
-        |> List.map (fun m -> sprintf "export * from \"./%s\";\n" m.Path.FileName)
-        |> String.concat ""
 
     /// The sources that claim one `.mjs`, blamed individually. A module path is a base name,
     /// so `a/one.fs` and `b/one.fs` both claim `one.mjs`; the second write would win silently.
@@ -152,7 +151,6 @@ module JsDriver =
                     {
                         Name = packageName
                         Modules = emitted
-                        Barrel = barrelOf emitted
                         RuntimeAssets = assets
                     }
         )
