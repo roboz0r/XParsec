@@ -35,20 +35,6 @@ module internal UnificationInferLiteralExpr =
             ctx.Report(tok, Kind.Message(sprintf "Mismatched closing delimiter: expected '%s'" display))
         | TokenIndex.Regular _ -> ()
 
-    /// The list type a `[…]` literal carries. A program declaring its own `'T list`
-    /// abbreviation resolves eagerly to that RHS; a bare program leaves the container
-    /// flexible for a later consumer to pin (`RegisterListLiteral`).
-    and listLiteralTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
-        match TypeRegistry.tryAbbrevSpelling ctx.Types UseSite.unbounded RuntimeNames.vesperListAbbrevKey with
-        | ValueSome info ->
-            forceFill ctx info
-            expandAbbreviation ctx tok info (EqArray.singleton elemTy)
-        | ValueNone ->
-            let tv = freshTyVar ctx
-
-            ctx.RegisterListLiteral((UnionFind.find ctx.Store tv).Id, elemTy, tok)
-            TyVar tv
-
     and inferListLikeLiteral
         (infer: Infer)
         (ctx: PassContext)

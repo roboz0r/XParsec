@@ -93,7 +93,7 @@ module SymbolKeyOps =
 
     /// The `+`-joined chain of a module's COMPILED HOLDER-CLASS names, WITHOUT the namespace
     /// (`A+B` for `module A` ⊃ `module B`) — a module compiles to a static class.
-    let rec moduleNestedName (m: ModuleKey) : string =
+    let rec private moduleNestedName (m: ModuleKey) : string =
         match m.Holder with
         | ModuleHolder.InNamespace _ -> m.Name
         | ModuleHolder.InModule parent -> moduleNestedName parent + "+" + m.Name

@@ -9,24 +9,17 @@ open XParsec.FSharp.Parser
 /// raw `when` clauses, and the accumulating symbol / type-shape tables.
 module VesperLibTyparCapture =
 
-    [<RequireQualifiedAccess>]
-    type TyparKind =
-        | Regular
-        | Static
-
     /// First sight of a name takes the next index; later occurrences re-use it.
     [<Sealed>]
     type TyparCollector() =
         let dict = Dictionary<string, int>(StringComparer.Ordinal)
-        let order = ResizeArray<string * TyparKind>()
 
-        member _.IndexOf(name: string, kind: TyparKind) : int =
+        member _.IndexOf(name: string) : int =
             match dict.TryGetValue name with
             | true, idx -> idx
             | _ ->
-                let idx = order.Count
+                let idx = dict.Count
                 dict.[name] <- idx
-                order.Add((name, kind))
                 idx
 
         /// Lookup that does NOT intern, so resolving a `when` clause adds no typar of its own.
@@ -35,8 +28,7 @@ module VesperLibTyparCapture =
             | true, idx -> ValueSome idx
             | _ -> ValueNone
 
-        member _.Count = order.Count
-        member _.Entries = order.ToArray()
+        member _.Count = dict.Count
 
     /// What the finalize pass needs to re-walk a stashed CST. `Typars` is the same collector
     /// the extraction walk interned into, so both walks read one set of typar indices.
@@ -103,7 +95,6 @@ module VesperLibTyparCapture =
         let items = ResizeArray<RawConstraint>()
         member _.Add(c: RawConstraint) = items.Add c
         member _.Snapshot() = List.ofSeq items
-        member _.Count = items.Count
 
     /// Mutable accumulator threaded through the extraction of every file in one package;
     /// a reference across files resolves through the tables it has filled so far.

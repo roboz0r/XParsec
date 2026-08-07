@@ -22,7 +22,6 @@ module Regions =
             /// lambda-reach threshold from 2 to 1, so any closure capture forces
             /// `HeapShared`.
             IsMutableCell: bool
-            InitialState: EscapeState voption
             /// This region is itself a heap-repr sink — an aggregate container (tuple /
             /// record / union / `new`), or the source of a box / interface upcast.
             /// `solveRepr` flows `RequiresHeapRepr` DOWN this node's `Outlives` edges.
@@ -33,9 +32,7 @@ module Regions =
     type private RegionGraph() =
         let nodes = ResizeArray<RegionNode>()
 
-        member _.Fresh
-            (level: int, mintFn: int, isLambda: bool, isMutableCell: bool, seed: EscapeState voption)
-            : RegionId =
+        member _.Fresh(level: int, mintFn: int, isLambda: bool, isMutableCell: bool) : RegionId =
             let id = RegionId(nodes.Count)
 
             nodes.Add(
@@ -45,7 +42,6 @@ module Regions =
                     MintFunctionLevel = mintFn
                     IsLambda = isLambda
                     IsMutableCell = isMutableCell
-                    InitialState = seed
                     HeapReprSink = false
                     Outlives = ResizeArray()
                 }
@@ -93,18 +89,18 @@ module Regions =
         s.FunctionStack.RemoveAt(s.FunctionStack.Count - 1)
 
     let private freshValue (s: State) : RegionId =
-        s.Graph.Fresh(s.EnclosingLet, functionStackTop s, false, false, ValueNone)
+        s.Graph.Fresh(s.EnclosingLet, functionStackTop s, false, false)
 
     let private freshLambda (s: State) : RegionId =
-        s.Graph.Fresh(s.EnclosingLet, functionStackTop s, true, false, ValueNone)
+        s.Graph.Fresh(s.EnclosingLet, functionStackTop s, true, false)
 
     let private freshCell (s: State) : RegionId =
-        s.Graph.Fresh(s.EnclosingLet, functionStackTop s, false, true, ValueNone)
+        s.Graph.Fresh(s.EnclosingLet, functionStackTop s, false, true)
 
     /// Parameter regions live in the callee frame, one level below the binding's
     /// RHS — hence `LetLevel`, not `EnclosingLet`.
     let private freshParam (s: State) : RegionId =
-        s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false, ValueNone)
+        s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false)
 
     /// Resolve a `SemType` through its UnionFind root's Link chain (no walk
     /// into compound shapes).
@@ -580,31 +576,28 @@ module Regions =
         for i = 0 to n - 1 do
             let node = g.NodeOf(RegionId(i))
 
-            match node.InitialState with
-            | ValueSome s -> state.[i] <- s
-            | ValueNone ->
-                // A lambda needs the STRICT inequality: it lives at its bind level, so
-                // `let f x = … in f 3` inside another function doesn't escape. Other
-                // allocations use `<=` — anything at frame level can be returned.
-                if node.MintFunctionLevel > 0 then
-                    let escapes =
-                        if node.IsLambda then
-                            node.Level < node.MintFunctionLevel
-                        else
-                            node.Level <= node.MintFunctionLevel
+            // A lambda needs the STRICT inequality: it lives at its bind level, so
+            // `let f x = … in f 3` inside another function doesn't escape. Other
+            // allocations use `<=` — anything at frame level can be returned.
+            if node.MintFunctionLevel > 0 then
+                let escapes =
+                    if node.IsLambda then
+                        node.Level < node.MintFunctionLevel
+                    else
+                        node.Level <= node.MintFunctionLevel
 
-                    if escapes then
-                        state.[i] <- lub state.[i] CallerStack
+                if escapes then
+                    state.[i] <- lub state.[i] CallerStack
 
-                // Reachable through ≥ N distinct lambdas → `HeapShared`, N = 1 for a
-                // mutable cell (any closure capture of a mutable forces heap allocation)
-                // and 2 otherwise. Skips lambdas so indirect self-capture doesn't promote.
-                if not node.IsLambda then
-                    let reach = countReachableLambdas g reachVisited reachStack (RegionId(i))
-                    let threshold = if node.IsMutableCell then 1 else 2
+            // Reachable through ≥ N distinct lambdas → `HeapShared`, N = 1 for a
+            // mutable cell (any closure capture of a mutable forces heap allocation)
+            // and 2 otherwise. Skips lambdas so indirect self-capture doesn't promote.
+            if not node.IsLambda then
+                let reach = countReachableLambdas g reachVisited reachStack (RegionId(i))
+                let threshold = if node.IsMutableCell then 1 else 2
 
-                    if reach >= threshold then
-                        state.[i] <- HeapShared
+                if reach >= threshold then
+                    state.[i] <- HeapShared
 
         // Iterate to fixpoint.
         let mutable changed = true

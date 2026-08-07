@@ -63,8 +63,6 @@ type BoundTable<'T when 'T: not struct>(combine: 'T list -> 'T list -> 'T list) 
 
     let solved = System.Collections.Generic.HashSet<'T>(HashIdentity.Reference)
 
-    member _.Items(root: Rep) : 'T list = items.Items root
-
     member _.Live(root: Rep) : 'T list =
         items.Items root |> List.filter (fun x -> not (solved.Contains x))
 

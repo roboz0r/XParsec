@@ -220,44 +220,45 @@ module TastUnpool =
                     | ValueNone -> ()
             ]
 
-    /// Rebuild the whole-file DU from the pools: the `Decls` re-authored from the pool roots
-    /// and the side tables re-keyed back through the binder/lambda id spaces, the `Residue`
-    /// fields carried verbatim. `widenBinder` picks the identity space it all lands in.
-    let rebuildFile (widenBinder: BinderId -> 'id) (pools: FrozenPools) : TastFileG<FrozenType, Anchor, 'id> =
+    /// The whole-file unpool, in the pool's OWN identity space: a rebuilt binder is named by
+    /// the `BinderId` the columns address it with. The `Decls` are re-authored from the pool
+    /// roots, the side tables re-keyed back through the binder/lambda id spaces, and the
+    /// `Residue` fields carried verbatim. Only the tests call it — structural
+    /// `ofPools (toPools f) = f` is what makes the columns' tree-sufficiency checkable.
+    let ofPools (pools: FrozenPools) : Pooled.TastFile =
         // The binder ids back in the BINDER key space by PROJECTION: as the trees below are
         // rebuilt, each node is asked what it binds, and only what they answer can key a
         // rebuilt side table — so no binder identity the tree does not bear can be minted.
-        let readmitted = System.Collections.Generic.Dictionary<'id, BinderKeyG<'id>>()
+        let readmitted =
+            System.Collections.Generic.Dictionary<BinderId, BinderKeyG<BinderId>>()
 
-        let readmit (b: BinderKeyG<'id>) : unit = readmitted.[BinderKey.identity b] <- b
+        let readmit (b: BinderKeyG<BinderId>) : unit = readmitted.[BinderKey.identity b] <- b
 
-        let readmittedBinder (id: BinderId) : BinderKeyG<'id> =
-            let k = widenBinder id
-
-            match readmitted.TryGetValue k with
+        let readmittedBinder (id: BinderId) : BinderKeyG<BinderId> =
+            match readmitted.TryGetValue id with
             | true, b -> b
-            | false, _ -> failwithf "TastUnpool: binder %O (%O) is interned but no rebuilt node introduces it" id k
+            | false, _ -> failwithf "TastUnpool: binder %O is interned but no rebuilt node introduces it" id
 
         // A lambda's `ExprPoolId` back to the `LambdaKey` its verdict is filed under: the
         // key IS the anchor, which the column holds, so there is nothing to resolve.
         let lambdaKeyOf (ExprPoolId i) : LambdaKey = LambdaKey pools.ExprToks.[i]
 
-        let rec fromPat (PatPoolId i) : TPatG<FrozenType, Anchor, 'id> =
+        let rec fromPat (PatPoolId i) : Pooled.TPat =
             let ps = ChildColumn.slice pools.PatChildren i |> Array.map fromPat
 
             let p =
-                substitutePat widenBinder pools.Types.[pools.PatTys.[i]] pools.PatToks.[i] pools.PatPayloads.[i] ps
+                substitutePat id pools.Types.[pools.PatTys.[i]] pools.PatToks.[i] pools.PatPayloads.[i] ps
 
             BinderKey.ofPat p |> ValueOption.iter readmit
             p
 
-        let rec fromExpr (ExprPoolId i) : TExprG<FrozenType, Anchor, 'id> =
+        let rec fromExpr (ExprPoolId i) : Pooled.TExpr =
             let es = ChildColumn.slice pools.ExprChildren i |> Array.map fromExpr
             let ps = ChildColumn.slice pools.ExprPatChildren i |> Array.map fromPat
 
             let e =
                 substituteExpr
-                    widenBinder
+                    id
                     pools.Types.[pools.ExprTys.[i]]
                     pools.ExprToks.[i]
                     pools.ExprVarBinder.[i]
@@ -268,10 +269,10 @@ module TastUnpool =
             BinderKey.ofExpr e |> ValueOption.iter readmit
             e
 
-        let fromDecl (DeclPoolId i) : TDeclG<FrozenType, Anchor, 'id> =
+        let fromDecl (DeclPoolId i) : Pooled.TDecl =
             let es = ChildColumn.slice pools.DeclExprChildren i |> Array.map fromExpr
             let ps = ChildColumn.slice pools.DeclPatChildren i |> Array.map fromPat
-            let d = substituteDecl widenBinder fromExpr pools.DeclPayloads.[i] es ps
+            let d = substituteDecl id fromExpr pools.DeclPayloads.[i] es ps
 
             match d with
             | TDeclG.Type td -> Seq.iter readmit (BinderKey.ofTypeDecl td)
@@ -328,8 +329,3 @@ module TastUnpool =
             // lambda chain, re-derived off the columns on the way back in.
             BindingTyparArities = binderColumnMap readmittedBinder pools.BindingTyparArities
         }
-
-    /// The whole-file unpool, in the pool's OWN identity space: a rebuilt binder is named
-    /// by the `BinderId` the columns address it with. Only the tests call it — structural
-    /// `ofPools (toPools f) = f` is what makes the columns' tree-sufficiency checkable.
-    let ofPools (pools: FrozenPools) : Pooled.TastFile = rebuildFile id pools

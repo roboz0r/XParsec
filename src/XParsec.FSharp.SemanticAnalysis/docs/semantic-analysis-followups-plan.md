@@ -193,12 +193,6 @@ so the capability stays the plain canon-only interface `Class`") — but that is
 agent-written prose this sweep treats as unverified, and it contradicts the sibling arms'
 stated reason for existing. Needs a decision either way.
 
-### `VesperLib.fs:655`, `:681` — an unused parameter on two of three sibling extractors
-
-`extractAbbrevBody` and `extractRecordBody` both take `(file: LibFile)` and never reference it;
-their single call sites (`:1082`, `:1088`) pass it only to satisfy the arity. This is not
-uniform boilerplate — the third sibling, `extractUnionBody` (`:717`), does use it, at `:808`.
-
 ### `TypeInfos.fs:1125` — an intrinsic abbrev's `interface … with` block is silently accepted
 
 `IntrinsicAbbrevInfo.InterfaceImpls` IS populated from source
@@ -582,14 +576,6 @@ arguments. A `KindRegistry<'Info>` bundling the two would delete the per-field "
 `Exact: 'cand voption` plus `ExactCount: int` encode a single three-state result, which is why
 both fields needed docs. `NoMatch | Unique of 'cand | Ambiguous of int` collapses it.
 
-### `Conformance.fs:253` — `nameKeyOf` returns a zero key as a sentinel
-
-A nameless `TypeName` yields `NodeKey(0UL)`, an in-band sentinel rather than `voption`. Both
-call sites (`summariseSig`, `summariseImpl`) separately guard on `name <> ""`. Returning
-`(string * NodeKey) voption` from one function would make the two guards one.
-
-Deletes: "the zero key when the `TypeName` has no idents at all (a parse failure)".
-
 ### `Anchor.fs:74` — `OriginFile.nowhere` is a sentinel, not a case
 
 Distinguished by `BucketName = ""` / `Relative = ""`. The "no file is spelled `""`" invariant
@@ -792,17 +778,9 @@ already exist beside them.
 
 ## Dead or duplicated structure
 
-### `Conformance.fs:53`, `:62`, `:335` — `NameKey` is written and never read
+### `Conformance.fs` — `SigDecl` and `ImplDecl` are one shape twice
 
-Written at `:231`, `:263`, `:381`, `:412`; no site reads it. Either drop it until a diagnostic
-consumes it, or attach it to one. `SigDecl` and `ImplDecl` are also structurally identical
-apart from the shape type, and could share one generic record.
-
-### `ConformanceTypars.fs:151` — `bodyMembers` is a pure alias
-
-A private one-line wrapper over `TTypeKindG.members` with no added behaviour and one call site
-(`:161`). It existed to hold a doc re-narrating what `TastDecl.fs:297-306` already states; with
-that deleted, inline it.
+Structurally identical apart from the shape type, and could share one generic record.
 
 ### `FrozenSignature.fs:75-84` — module holders are keyed by the COMPILED chain
 
@@ -811,15 +789,6 @@ name-collision module its `…Module` spelling, while the `.fsi` extractor keys 
 a cross-file dotted name for a type in such a module does not resolve. An `InType`-nested type
 contributes no module holder at all (`:199-200`). The deleted prose hedged this; the honest form
 is a failing test, and there is none.
-
-### `TypeRegistry.fs:102` — `ClassMemberIndex` is written and never read in production
-
-Declared at `:102`, initialised at `:171`, written at
-`Passes/NameResolution/MemberRegistration.fs:702-711`. The only read anywhere is
-`test/…/NameResolutionTests.fs:437`. A deleted doc claimed it was "used only for ambiguity
-diagnostics when a receiver's type is free and the member name occurs in multiple classes" —
-no such diagnostic exists. Either write that consumer or drop the table and
-`ClassMemberIndexEntry` (`TypeInfos.fs:594`) with it.
 
 ### `SemanticScalars.fs:73-127` — the ref-safety tiers have no production consumer
 
@@ -835,31 +804,12 @@ which matches `| ReturnOnly, _ | _, ReturnOnly -> ReturnOnly` — pass-through o
 producer the lub cannot yield it either; only the tests construct one directly. Same for
 `SafeContext.ReturnOnly`.
 
-### `TastUnpool.fs:230` — `rebuildFile`'s `widenBinder` generality is dead
-
-Its only call site in the repo is `ofPools` (`:342`), which passes `id`. So `'id` is only ever
-instantiated at `BinderId` and `widenBinder` is only ever the identity. The deleted doc asserted
-a second caller — a round-trip gate "supplying a correspondence it derives and proves
-bijective" — that does not exist; the corpus gates all go through `ofPools`. Either collapse
-the parameter (`rebuildFile` becomes `ofPools`, `readmittedBinder`'s `widenBinder id` becomes
-`id`) or write the caller that was intended.
-
-Not the same case as the node-level `substituteExpr` / `substitutePat` / `substituteDecl`,
-which ARE instantiated at a non-identity rename from `TastPoolBuilder.fs:548,555,596` — that
-generality is real and stays.
-
 ### `TastPoolShapes.fs:244` — `introducedBinder` takes a stringly-typed caller tag
 
 `site: string` exists only to interpolate the caller's name into a `failwithf`, and both call
 sites pass a literal equal to their enclosing function: `introducedBinder "exprPayload"` inside
 `exprPayload` (`:282`) and `introducedBinder "patPayload"` inside `patPayload` (`:372`). It goes
 stale silently on rename. Same shape as `FrozenTypeBridge.fs:131`.
-
-### `FrozenTypeBridge.fs:155` — `maxDeclaringIndex` is dead
-
-No references in `src/` or `test/` beyond its own recursion at `:162`, so the `failwithf` at
-`:159` is unreachable from anywhere. Its doc used to claim `freezeMemberSig` called it to drop
-a member; no such call exists.
 
 ### `SemTypeWalks.fs:280` — `mapChildren`'s `TyOr` arm defeats the sharing the others preserve
 
@@ -895,45 +845,10 @@ would make it consistent.
 array, so pool corruption reports as an FSharp.Core `ArgumentException` rather than a message
 naming the node.
 
-### `FrozenCodecRows.fs:20-21` — `writeModuleId` / `readModuleId` can be `private`
-
-No callers outside the file; the only uses are `writeModuleHolderRow` / `readModuleHolderRow`
-in the same module (`:66`, `:71`, `:90`, `:98`). Every other id pair with no external caller is
-already `private`. (The deleted doc claimed they were public "for the same reason as
-`writeTypeKeyId`" — that one genuinely is used, at `FrozenCodecTypes.fs:29,31`.)
-
-### `TastWalk.fs:186` — `mapVia` can be `private`
-
-No consumers outside `TastWalk.fs` in `src/` or `test/`; it is called only from `mapExpr`'s
-`MethodCall` / `PropertyGet` arms.
-
-### `SymbolKeyOps.fs:103` — `moduleNestedName` is public with no outside consumer
-
-Its only uses are its own recursion (`:106`) and `typeNestedName` (`:116`); nothing in `src/` or
-`test/` references it. Candidate for `private`.
-
 ### `FrozenTypeBridge.fs:201` — `pickInterfaceWitness` allocates an `option` to return a `voption`
 
 `Seq.tryPick` builds an `option` per call which is then matched into `ValueSome`/`ValueNone`,
 on a path whose whole signature is `voption`.
-
-### `TypeInfos.fs:191`, `:264`, `:405` — three unreachable convenience constructors
-
-The 4-arg constructors of `RecordTypeInfo`, `UnionTypeInfo` and `AbbreviationInfo`, documented as
-"synthesis / test paths", have no callers in `src/` or `test/`. All three production sites use
-the full form with a real `id.Key` (`Passes/NameResolution/TypeRegistration.fs:697`, `:863`,
-`:1094`), so the global-namespace placeholder key these mint is unreachable.
-
-### `VesperLib/TyparCapture.fs:42` — `Entries` is dead, which makes `TyparKind` write-only
-
-`member _.Entries = order.ToArray()` has no reader in `src/` or `test/` (the other `.Entries`
-hits are unrelated types). Since `order` escapes only through it, the `kind` argument threaded
-into `IndexOf` is stored and never read back — callers at `VesperLib.fs:705,708` and
-`VesperLib/TypeTranslate.fs:453,458,464,635,638` faithfully pass `Regular` / `Static` for
-nothing. Either `Entries` gains a consumer or `TyparKind` goes.
-
-Same shape at `TyparCapture.fs:119`: `ConstraintCollector.Count` has no reader; the only
-consumption of a `ConstraintCollector` is `.Snapshot()` at `VesperLib.fs:255`.
 
 ### `Passes/Unification/InferApp.fs:118` — one error path reports without minting an error type
 
@@ -980,11 +895,6 @@ two guarded sub-arms.
 takes different branches for `Binding` and `Member`. Three call sites of one predicate should
 derive the name once.
 
-### `Passes/Unification/Engine.fs:122` — `constraintKindName` is public with one in-module caller
-
-Its only reference in `src/` or `test/` is `Engine.fs:706`. `private` candidate. (`funSlotArityOf`
-and `isObjType` in the same module are genuinely cross-file and correctly public.)
-
 ### `Passes/Unification/EngineCore.fs:88` — `tupleOrSingle` takes a `PassContext` to read one field
 
 It needs only `ctx.Intrinsics.Unit`, while its siblings in the module take a bare `TypeStore`.
@@ -1004,30 +914,12 @@ then answers every index-signature query from that constant `fun _ -> []`. A pro
 acquires index signatures and holds `InModule` keys has no way to publish them and gets no
 compile error. The fix is a channel on `KeyIndexedLeaf`, not a comment.
 
-### `TypeStore.fs:76` — `BoundTable.Items` is dead
-
-The only two `BoundTable` instances are `Srtp` (`:194`) and `Pda` (`:204`), and every consumer
-reads `.Live` (`Engine.fs:514,986`, `InferGeneralize.fs:135`, `Validation.fs:146`).
-`PayloadList.Items` (`:42`) is separately and heavily used — this is only the `BoundTable`
-wrapper.
-
-### `SemanticInfo.fs:312` — `MeasureTerm.isDimensionless` is dead
-
-The module-level `let isDimensionless (m: MeasureTerm) = m.IsDimensionless` has no callers.
-`Engine.fs:433` and the tests use the member `m.IsDimensionless` directly.
-
 ### `CstWalk.fs:988` — `walkModuleTreeWith`'s `onScope` is unused at 4 of 5 call sites
 
 `CstWalk.fs:1151`, `Elaborate.fs:273`, `Passes/NameResolution.fs:802` and
 `Passes/Unification.fs:1270` all pass the literal `(fun _ _ -> ())`; only
 `Passes/Validation.fs:238` supplies a real hook. The `walkModuleTree` wrapper that exists to
 hide the parameter has two callers (`VesperLib.fs:1848`, `test/…/OpenScopeTests.fs:30`).
-
-### `CstWalk.fs` — `iterRules` is public with no consumer outside the file
-
-Zero references outside `CstWalk.fs`, including tests; its only uses are the `Expr.Match` /
-`Expr.Function` / `Expr.TryWith` arms of `iterExpr`. Its siblings `iterObjectMembers` /
-`iterObjectExpr` in the same `and` chain are already `private`.
 
 ### `FrozenTypeBridge.fs:131` — `localTyparInTemplate` takes a hand-written site string
 
@@ -1092,11 +984,6 @@ to the case name is cheap.
 `if this.Path.Length = 0 then` is the shape the repo prefers as
 `match this.Path.Length with | 0 -> … | _ -> …`.
 
-### `TastPoolBuilder.fs:331`, `:337`, `:343` — redundant namespace qualification
-
-`System.Collections.Generic.IReadOnlyDictionary` / `IReadOnlySet` spelled in full although
-`open System.Collections.Generic` is at `:3` and `Dictionary` is used unqualified at `:37`.
-
 ### `TastPoolBuilder.fs:344`, `:263` — accessors that rebuild per call
 
 `moduleMembers` calls `DenseTable.index` on every invocation, building a fresh dictionary from
@@ -1143,12 +1030,6 @@ Encoding the two outcomes in the type (a member head that opened vs. one that di
 remove the pairwise match over `lookupExternal x.Ctx x.Specs ext.Key, ext.Args` and the failure
 arm with it.
 
-### `Passes/Unification/Subsume.fs:130` — `indexLiteralKeys` is a pure alias
-
-The private `indexLiteralKeys store index` is nothing but `tryLiteralStrings store index`, and it
-has one call site (the `TyIndexedAccess` arm of `evalTypeLevel`). The indirection buys a name
-and costs a hop; inlining it at the arm would read the same.
-
 ### `Passes/Unification/Subsume.fs:213` — the `TyFun` ↔ `Fun<…>` recognizer is spelled twice
 
 The guard `funSlotArityOfArgs (SymbolKeyOps.bareName …) targs.Length |> Option.isSome` followed by
@@ -1158,12 +1039,13 @@ type — and in how they get the name (`typeMetaName` off a `TypeKey` vs `qualif
 `SymbolKey`), which is the kind of difference that goes stale silently. One `tryFunSlotPeel`
 returning the aligned `k+1` types would carry both.
 
-### `Passes/Unification/Subsume.fs:135`, `:144` — the carrier-node triple is enumerated at six sites
+### `Passes/Unification/Subsume.fs:132`, `:142` — the carrier-node triple is enumerated at six sites
 
 `TyKeyOf | TyIndexedAccess | TyConditional` is matched as a group in `isGroundEval`,
-`hasCarriedNode` and twice in `tryFoldCarried`, and again at `Regions.fs:194`, `InferOverload.fs:33`
-and `:102`, and `Engine.fs:548`. A `SemType.isCarrier` recognizer (or an active pattern) would give
-the concept one name; adding a fourth type-level form currently means finding all seven.
+`hasCarriedNode` and twice in `tryFoldCarried`, and again at `Regions.fs:151`,
+`InferOverload.fs:58-59`, `EngineCore.fs:581` and `Engine.fs:506`. A `SemType.isCarrier`
+recognizer (or an active pattern) would give the concept one name; adding a fourth type-level
+form currently means finding all of them.
 
 ### `Passes/Unification/InferGeneralize.fs:23` — `instantiate` keeps four parallel maps over one root set
 
@@ -1236,16 +1118,6 @@ entry" structural instead of prose, and shrinks a 9-field record carrying two th
 load-bearing (an edge into `onPath` is a cycle, an edge into `finished` is legal sharing), and a
 three-case DU makes the `state.[j] = onPath` / `= unvisited` tests exhaustive instead of
 comparisons against magic numbers.
-
-### `Elaborate/MemberKeys.fs:55` — `isGround` is a verbatim duplicate of `SemTypeQuery.isGround`
-
-`let rec private isGround (store) (t) = match zonk store t with TyVar _ | TyUnknown _ | TyTypar _
--> false | t -> SemType.forallChildren …` is character-for-character the body of
-`SemTypeQuery.fs:52 isGround`, which is `internal` to the same project and therefore already in
-scope. The private copy should go; `SemTypeQuery`'s doc even names it as the canonical one ("the
-`SemType` sibling of `ftIsGround`"), so the two will drift the moment either is extended (compare
-`Passes/Unification/Subsume.fs:135 isGroundEval`, a third near-variant that also admits the
-type-level-computation heads).
 
 ### `Passes/NameResolution/MemberRegistration.fs:761` — the heritable-base result wants two named cases, not a `struct` tuple + a `.ctor` probe
 
@@ -1372,14 +1244,6 @@ directly on the `?` expression. The pairing is only enforced by both sides agree
 header (now cut to 3). A `Suppressed: bool` on the escape-site record, set where the site is
 recorded, would carry the same fact structurally.
 
-### `Passes/NameResolution.fs:17` — `typarNamesOfTypeName` is re-exported but never read
-
-`NameResolution.typarNamesOfTypeName` (`:17`) forwards to
-`NameResolutionTypeRegistration.typarNamesOfTypeName`, and nothing in the repo reads the forwarder:
-the one consumer, `MemberRegistration.fs:489`, sees the original through its `open`, and the other
-three uses are inside `TypeRegistration.fs` itself. The line carried a comment claiming "used by
-docs / external callers", which is false — it should just be deleted.
-
 ### `Passes/NameResolution.fs:23` — `TypeBodiesWalk` is two record shapes in one
 
 Six of the twelve fields (`BaseKey`, `CtorParams`, `InstanceFields`, `StaticPreamble`,
@@ -1411,16 +1275,6 @@ The receiver type is computed as `Unification.zonk ctx.Store (TyVar tv)` in the 
 (`:90`) and again, identically, when building the result (`:98`). Binding the first result and
 matching on it returns the same value with one traversal, and removes the possibility of the two
 reads drifting if the second is ever edited.
-
-### `Passes/Regions.fs:25` — `RegionNode.InitialState` is dead, and its doc described a fallback that does not exist
-
-The field (`:25`) is filled from `RegionGraph.Fresh`'s `seed` parameter (`:48`), and all four mint
-helpers — `freshValue`, `freshLambda`, `freshCell`, `freshParam` — pass `ValueNone`; `Fresh` has no
-other call site. So `solve`'s `| ValueSome s -> state.[i] <- s` arm (`:579`) never fires and every
-node falls through to the level / lambda-count seeds. Its doc claimed "the conservative fallback uses
-it to mark unhandled constructs HeapShared", naming a fallback that is nowhere in the file — deleted
-here. Dropping the field and the `seed` parameter removes a five-argument mint signature and makes
-"every region is seeded by the heuristics" true by construction rather than by inspection.
 
 ### `Passes/Regions.fs:6` — the pass contract lives in a `Pre:`/`Post:` prose header
 
@@ -1610,15 +1464,6 @@ rather than at the invocation. Carrying a candidate set on the node is what woul
 is a genuine semantic gap rather than a comment defect; the note claiming it was the surviving
 half of a twelve-line doc, so it is recorded here before being shortened.
 
-### `Elaborate/ClassMembers.fs:29` — `FieldRewrite.MkSet`'s `voption` models an absence nothing constructs
-
-The field is `(string -> TExpr -> SemType -> SyntaxToken -> TExpr) voption`, and both of the
-only two construction sites (`staticFieldRewrite` `:60`, `instanceFieldRewrite` `:80`) pass
-`ValueSome`. `rewriteFieldRefs` (`:42`) therefore carries a `match r.MkSet, Map.tryFind …`
-whose `ValueNone` arm is dead. Dropping the `voption` makes the write-side rewrite total by
-construction and deletes both the arm and the sentence explaining when `MkSet` may be absent
-(already cut from a 12-line doc to 3 by the comment sweep, so the debt is now invisible).
-
 ### `Elaborate/ClassMembers.fs:252` — a secondary ctor's `go` silently discards the non-chain half of every non-`LetIn` form
 
 `AdditionalConstrExpr` carries `SequenceAfter(stmt, _, rest)`, `SequenceBefore(before, _, expr)`
@@ -1660,15 +1505,6 @@ and the failure mode is a silently ungrounded typar that only surfaces at codege
 handle (an `IDisposable` push, or a scope value threaded rather than stored) would make the
 nesting structural and delete the eleven-line block that argued it, which the comment sweep cut
 to three, so the debt is now invisible.
-
-### `Passes/Unification/InferOverload.fs:29` — `hasCarriedNode` is duplicated verbatim in `Subsume.fs`
-
-`InferOverload.hasCarriedNode` (`:29`) and `Subsume.fs:144` are the same three-arm recursion
-over `TyKeyOf`/`TyIndexedAccess`/`TyConditional` plus `SemType.existsChild`, token-identical.
-`InferOverload.fs` already `open`s `UnificationSubsume`, so the only thing keeping both alive is
-that the `Subsume.fs` copy is `private`. Un-privating one and deleting the other is the whole
-fix; as it stands a new type-level node case must be added in two places, with no compiler
-signal if only one is updated.
 
 ### `Passes/Unification/InferOverload.fs:54` — `matchTypes` is a hand-maintained parallel copy of `unify`'s concrete-head arms
 
@@ -1722,17 +1558,6 @@ Each is then driven by an identical `TypeRegistry.tryClass … | ValueNone -> tr
 cascade over the same use site. One helper taking the name and the use site collapses both, and
 would remove the second site's need to explain that it "mirrors" the first (that cross-reference
 deleted by the comment sweep).
-
-### `Passes/Unification/InferPat.fs:19` — `consListTy` is a verbatim copy of `listLiteralTy`
-
-`InferPat.consListTy` (`:19`) and `UnificationInferLiterals.listLiteralTy` (`InferLiteralExpr.fs:41`)
-are token-identical: the same `TypeRegistry.tryAbbrevArity … "list" 1` probe, the same
-`forceFill` + `expandAbbreviation` on the hit, and the same `freshTyVar` + `RegisterListLiteral`
-on the miss. `InferPat.fs` already `open`s `UnificationInferLiterals`, so the only thing keeping
-both alive is that the copy is `private`; the original doc said the two resolve "exactly like"
-one another, which is the tell. Deleting one is the whole fix. As it stands, a change to how a
-bare program's list container is left flexible has to be made twice, and a pattern and a literal
-silently disagreeing about the list type is exactly the failure the duplication invites.
 
 ### `Pipeline.fs:138` — closure verdicts reach codegen only by a hand-written side-table snapshot
 
@@ -1871,27 +1696,6 @@ irrelevant" reading is a trap for anyone rebuilding the array; if it is not, `De
 means nothing. An `EqArray<string * TyVarId>` plus a separate `int` cannot enforce either
 reading — a type splitting the declared prefix from the implicit tail would settle which one is
 true and remove the need for the sentence.
-
-### `VesperLib.fs:623` — `extractAbbrevBody` and `extractRecordBody` take a `file` they never use
-
-Both take `(file: LibFile)` and neither mentions it again: the abbrev extractor only writes
-`ctx.TypeShapes` / `ctx.DeferredBodies`, and the record extractor only reads the CST. The
-parameter is there because the sibling `extractUnionBody` does use it, for the
-`skipBodyOpaque ctx file …` bail — and F# does not warn on an unused function parameter, so the
-two dead arguments and their call sites read as if all three extractors can report a skip. Also
-in `finalizeDeferred`, `interfaceShapeKeys` (`:317`) re-snapshots `ctx.TypeShapes.Keys` into an
-array identical to `shapeKeys` taken at the top of the function — the loops between them only
-overwrite existing keys, never add — so one of the two snapshots is redundant.
-
-### `TypeRegistry.fs:117` — `ClaimedTypeDefns` and `RejectedDuplicates` are written and never read
-
-Both are `ResizeArray`s appended to by `claimType` / `rejectDuplicateType` and read by nothing:
-a whole-repo grep for either name finds only the field declaration, the `empty ()` initialiser
-and the one `.Add`. The docs cut here called this "observability only", which is accurate but
-also the entire justification — nothing observes them, not a test and not a diagnostic. Either a
-consumer is missing (the rejected-duplicate list is the obvious input to a "duplicate definition"
-report, which today is raised elsewhere) or the two fields are dead weight retained per file for
-every compile. Worth deciding before more registrars are taught to feed them.
 
 ### `PassContext.fs:155` — `ExternalStaticReceiver` / `ExternalUnionRecordQualifier` are `SymbolKey` sinks that only ever hold a `TypeKey`
 

@@ -143,18 +143,6 @@ module FrozenTypeBridge =
             (localTyparInTemplate "FrozenTypeBridge.instantiateDeclaring")
             template
 
-    /// Largest declaring-typar index the template references, `-1` if none — the
-    /// declaring arity a receiver must supply to realise it.
-    let rec maxDeclaringIndex (template: FrozenType) : int =
-        match template with
-        | FTTypar(TyparAxis.Declaring, i) -> i
-        | FTTypar(TyparAxis.Method, j) ->
-            failwithf "FrozenTypeBridge.maxDeclaringIndex: unexpected method typar %d in a type-shape template" j
-        | t ->
-            let mutable m = -1
-            FrozenType.iterChildren (fun c -> m <- max m (maxDeclaringIndex c)) t
-            m
-
     /// Contract extraction bakes EVERY typar on the `Declaring` axis, numbering the
     /// declaring type's own first, so a typar the member INTRODUCES (`<'a>`, or an
     /// implicit `'T`) lands at `i >= declaringTyparArity`: re-axis those to `Method`.

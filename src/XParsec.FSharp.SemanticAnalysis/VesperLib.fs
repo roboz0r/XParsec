@@ -314,9 +314,7 @@ module VesperLib =
         // A contract INTERFACE carries its (now-finalized) members in the shape too: a
         // nominal class serves members only through `TryLookupMember`, but the
         // `interface … with` conformance check reads `shape.Members` directly.
-        let interfaceShapeKeys = ctx.TypeShapes.Keys |> Seq.toArray
-
-        for k in interfaceShapeKeys do
+        for k in shapeKeys do
             match ctx.TypeShapes.[k] with
             | ExternalTypeShape.Class shape when shape.IsInterface && Array.isEmpty shape.Members ->
                 match ctx.TypeMembers.TryGetValue k with
@@ -526,12 +524,8 @@ module VesperLib =
         : unit =
         let register (t: Typar<SyntaxToken>) =
             match t with
-            | Typar.Named(_, identTok) ->
-                let name = nameOfTok lexed identTok
-                typars.IndexOf(name, TyparKind.Regular) |> ignore
-            | Typar.Static(_, identTok) ->
-                let name = nameOfTok lexed identTok
-                typars.IndexOf(name, TyparKind.Static) |> ignore
+            | Typar.Named(_, identTok)
+            | Typar.Static(_, identTok) -> typars.IndexOf(nameOfTok lexed identTok) |> ignore
             | Typar.Anon _ -> ()
 
         match prefix with
@@ -622,7 +616,6 @@ module VesperLib =
 
     let private extractAbbrevBody
         (ctx: ExtractCtx)
-        (file: LibFile)
         (lexed: Lexed)
         (opens: string list)
         (compiled: string)
@@ -648,7 +641,6 @@ module VesperLib =
 
     let private extractRecordBody
         (ctx: ExtractCtx)
-        (file: LibFile)
         (lexed: Lexed)
         (opens: string list)
         (compiled: string)
@@ -1028,13 +1020,12 @@ module VesperLib =
         | TypeSignature.Abbrev(typeName, _, rhs) ->
             match registerTypeDecl ctx lexed decl typeName with
             | ValueNone -> ()
-            | ValueSome(struct (compiled, arity)) -> extractAbbrevBody ctx file lexed opens compiled arity typeName rhs
+            | ValueSome(struct (compiled, arity)) -> extractAbbrevBody ctx lexed opens compiled arity typeName rhs
 
         | TypeSignature.Record(typeName = typeName; fields = fields) ->
             match registerTypeDecl ctx lexed decl typeName with
             | ValueNone -> ()
-            | ValueSome(struct (compiled, arity)) ->
-                extractRecordBody ctx file lexed opens compiled arity typeName fields
+            | ValueSome(struct (compiled, arity)) -> extractRecordBody ctx lexed opens compiled arity typeName fields
 
         | TypeSignature.Union(typeName = typeName; cases = cases; extensions = extensions) ->
             match registerTypeDecl ctx lexed decl typeName with

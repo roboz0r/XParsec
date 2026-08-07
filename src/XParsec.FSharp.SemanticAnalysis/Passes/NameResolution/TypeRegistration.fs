@@ -317,16 +317,6 @@ module NameResolutionTypeRegistration =
 
                     // The first claimant keeps the name; this declaration registers nothing and
                     // no `SymbolKey` is minted for it.
-                    TypeRegistry.rejectDuplicateType
-                        ctx.Types
-                        {
-                            Name = name
-                            TyparArity = arity
-                            Kind = kind
-                            DeclKey = declSite.Key
-                            Defn = td
-                        }
-
                     ValueNone
                 else
                     // The external claim test must ask the provider, and the provider is
@@ -351,7 +341,7 @@ module NameResolutionTypeRegistration =
                             Defn = td
                         }
 
-                    TypeRegistry.claimType ctx.Types claimed
+                    TypeRegistry.claimType ctx.Types claimed.Identity
 
                     // An intrinsic binding's identity is its qualified key: `type int = (# … #)`
                     // under `namespace Vesper` keys as `Vesper.int`, `seq<'T>` as

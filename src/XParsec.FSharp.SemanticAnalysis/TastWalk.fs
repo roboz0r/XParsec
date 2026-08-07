@@ -179,7 +179,7 @@ module TastWalk =
         }
 
     /// Only `Interface` carries types — its constraining-interface instantiation args.
-    let mapVia (f: SemType -> SemType) (v: CallVia<SemType>) : CallVia<SemType> =
+    let private mapVia (f: SemType -> SemType) (v: CallVia<SemType>) : CallVia<SemType> =
         match v with
         | CallVia.Interface ifaceArgs ->
             match EqArray.mapPreserve f ifaceArgs with

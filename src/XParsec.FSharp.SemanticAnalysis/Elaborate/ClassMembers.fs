@@ -26,7 +26,7 @@ module internal ElaborateClassMembers =
         {
             Names: Map<NodeKey, string>
             MkGet: string -> SemType -> SyntaxToken -> TExpr
-            MkSet: (string -> TExpr -> SemType -> SyntaxToken -> TExpr) voption
+            MkSet: string -> TExpr -> SemType -> SyntaxToken -> TExpr
         }
 
     let rewriteFieldRefs (r: FieldRewrite) (body: TExpr) : TExpr =
@@ -39,9 +39,9 @@ module internal ElaborateClassMembers =
                         fun m e ->
                             match e with
                             | TExpr.Assignment(TExpr.Var(k, _, _), rhs, ty, tok) ->
-                                match r.MkSet, Map.tryFind k r.Names with
-                                | ValueSome mkSet, Some name -> ValueSome(mkSet name (TastWalk.mapExpr m rhs) ty tok)
-                                | _ -> ValueNone
+                                match Map.tryFind k r.Names with
+                                | Some name -> ValueSome(r.MkSet name (TastWalk.mapExpr m rhs) ty tok)
+                                | None -> ValueNone
                             | TExpr.Var(k, ty, tok) ->
                                 match Map.tryFind k r.Names with
                                 | Some name -> ValueSome(r.MkGet name ty tok)
@@ -57,7 +57,7 @@ module internal ElaborateClassMembers =
                 |> Array.map (fun l -> l.DeclKey, l.Name)
                 |> Map.ofArray
             MkGet = fun name ty tok -> TExpr.StaticFieldGet(info.Key, name, ty, tok)
-            MkSet = ValueSome(fun name rhs ty tok -> TExpr.StaticFieldSet(info.Key, name, rhs, ty, tok))
+            MkSet = fun name rhs ty tok -> TExpr.StaticFieldSet(info.Key, name, rhs, ty, tok)
         }
 
     /// Primary-ctor params AND instance-`let` binders share ONE map: an instance `let` is a
@@ -78,9 +78,8 @@ module internal ElaborateClassMembers =
                 fun name ty tok ->
                     TExpr.FieldGet(TExpr.Var(BinderKey.identity info.ThisKey, classTy, tok), name, ty, tok)
             MkSet =
-                ValueSome(fun name rhs ty tok ->
+                fun name rhs ty tok ->
                     TExpr.FieldSet(TExpr.Var(BinderKey.identity info.ThisKey, classTy, tok), name, rhs, ty, tok)
-                )
         }
 
     /// Translate one class member element into a `TTypeMember`. A reference to a ctor param

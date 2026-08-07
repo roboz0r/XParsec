@@ -262,7 +262,6 @@ and [<NoEquality; NoComparison>] DeferredMemberAccess =
 
 module MeasureTerm =
     let empty = MeasureTerm.Empty
-    let isDimensionless (m: MeasureTerm) = m.IsDimensionless
 
     let mul (a: MeasureTerm) (b: MeasureTerm) : MeasureTerm =
         MeasureTerm.ofList (a.Exponents @ b.Exponents)

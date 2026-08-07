@@ -50,15 +50,6 @@ module LocalMemberKeys =
             ArgElems: SemType list
         }
 
-    /// Ground is the precondition for operand-type overload discrimination: a free leaf
-    /// binds against every candidate, so it tells no two same-arity overloads apart.
-    let rec private isGround (store: TypeStore) (t: SemType) : bool =
-        match Unification.zonk store t with
-        | TyVar _
-        | TyUnknown _
-        | TyTypar _ -> false
-        | t -> SemType.forallChildren (isGround store) t
-
     /// Empty for a non-nominal: a non-generic static declarer, an intrinsic, an unpinned var.
     let nominalArgs (store: TypeStore) (t: SemType) : SemType[] =
         match Unification.zonk store t with
@@ -71,7 +62,12 @@ module LocalMemberKeys =
         let declArgs = declArgs |> Array.map (Unification.zonk store)
         let argElems = argElems |> List.map (Unification.zonk store)
 
-        if List.forall (isGround store) argElems && Array.forall (isGround store) declArgs then
+        // Ground is the precondition for operand-type overload discrimination: a free leaf
+        // binds against every candidate, so it tells no two same-arity overloads apart.
+        if
+            List.forall (SemTypeQuery.isGround store) argElems
+            && Array.forall (SemTypeQuery.isGround store) declArgs
+        then
             ValueSome
                 {
                     DeclArgs = declArgs

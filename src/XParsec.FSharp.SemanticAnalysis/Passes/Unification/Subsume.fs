@@ -124,12 +124,6 @@ module UnificationSubsume =
                 ValueNone
         | ValueNone -> ValueNone
 
-    /// The STRING literal keys an indexed-access index selects: a single `TyLiteral`, or a
-    /// union of them (`T[keyof T]`). `ValueNone` for a non-literal / mixed index, which
-    /// leaves the access carried.
-    let private indexLiteralKeys (store: TypeStore) (index: SemType) : string list voption =
-        tryLiteralStrings store index
-
     /// No free `TyVar` and no still-carried type-level node anywhere in `t` — the gate a
     /// conditional's `check`/`extends` must pass before its `extends` test can decide.
     let rec private isGroundEval (store: TypeStore) (t: SemType) : bool =
@@ -140,8 +134,10 @@ module UnificationSubsume =
         | TyConditional _ -> false
         | t -> SemType.forallChildren (isGroundEval store) t
 
-    /// A carried type-level node (`keyof`/`T[K]`/conditional) occurs anywhere in `t`.
-    let rec private hasCarriedNode (store: TypeStore) (t: SemType) : bool =
+    /// A carried type-level node (`keyof`/`T[K]`/conditional) occurs anywhere in `t`. Only such
+    /// a type is applicability-OPAQUE to overload filtering; a plain nominal / primitive union
+    /// must NOT act as a wildcard, or every union-typed argument matches every same-arity slot.
+    let rec hasCarriedNode (store: TypeStore) (t: SemType) : bool =
         match resolveStep store t with
         | TyKeyOf _
         | TyIndexedAccess _
@@ -271,7 +267,9 @@ module UnificationSubsume =
             let objTy = evalTypeLevel ctx objTy
             let index = evalTypeLevel ctx index
 
-            match indexLiteralKeys ctx.Store index with
+            // A single `TyLiteral` index, or a union of them (`T[keyof T]`); a non-literal
+            // or mixed index yields `ValueNone` and leaves the access carried.
+            match tryLiteralStrings ctx.Store index with
             | ValueSome keys ->
                 let tys = ResizeArray<SemType>()
                 let mutable allFound = true

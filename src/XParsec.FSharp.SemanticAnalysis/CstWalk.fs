@@ -468,7 +468,7 @@ module CstWalk =
             | ValueSome(ObjectMembers(memberDefns = intfDefns)) -> iterObjectMembers walker env intfDefns
             | ValueNone -> ()
 
-    and iterRules (walker: ExprWalker<'env>) (env: 'env) (rules: ImmutableArray<Rule<SyntaxToken>>) : unit =
+    and private iterRules (walker: ExprWalker<'env>) (env: 'env) (rules: ImmutableArray<Rule<SyntaxToken>>) : unit =
         for r in rules do
             match r with
             | Rule.Rule(pat = pat; guard = guard; expr = body) ->

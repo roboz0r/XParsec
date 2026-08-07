@@ -117,7 +117,7 @@ module UnificationEngine =
                 RuntimeNames.unitKey
             ]
 
-    let constraintKindName (k: SemanticConstraintKind) : string =
+    let private constraintKindName (k: SemanticConstraintKind) : string =
         match k with
         | SemanticConstraintKind.Equality -> "equality"
         | SemanticConstraintKind.Comparison -> "comparison"

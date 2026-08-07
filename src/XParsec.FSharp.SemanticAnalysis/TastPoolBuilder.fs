@@ -302,19 +302,16 @@ module TastPoolBuilder =
     /// This file's OWN intrinsic-repr type declarations. A backend reads it to tell a
     /// declaration of a PLATFORM REPRESENTATION, which already exists on the target, from one
     /// it must emit.
-    let intrinsicReprKeys
-        (b: PoolBuilder)
-        : System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo> =
+    let intrinsicReprKeys (b: PoolBuilder) : IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo> =
         b.Base.Residue.IntrinsicReprKeys
 
     /// This file's OWN `[<Global>]` bindings. The target already owns the thing declared, so
     /// a backend emits nothing for one.
-    let globalValueKeys (b: PoolBuilder) : System.Collections.Generic.IReadOnlySet<SymbolKey> =
-        b.Base.Residue.GlobalValueKeys
+    let globalValueKeys (b: PoolBuilder) : IReadOnlySet<SymbolKey> = b.Base.Residue.GlobalValueKeys
 
     /// This file's module-level bindings by binder — the SYMBOL identity behind a `let` decl's
     /// head, which the columns address only positionally. Indexes on each call.
-    let moduleMembers (b: PoolBuilder) : System.Collections.Generic.IReadOnlyDictionary<BinderId, ModuleBindingInfo> =
+    let moduleMembers (b: PoolBuilder) : IReadOnlyDictionary<BinderId, ModuleBindingInfo> =
         DenseTable.index b.Base.ModuleMembers
 
     /// The bound on every `SpecializationId` an edge can carry.

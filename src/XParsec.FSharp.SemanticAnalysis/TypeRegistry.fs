@@ -47,18 +47,6 @@ type ClaimedTypeDefn =
         Defn: TypeDefn<SyntaxToken>
     }
 
-/// A type declaration REJECTED as a duplicate: an earlier one in the SAME module holds its
-/// `(Holder, Name, Arity)` claim. It registers no detail and mints no `SymbolKey`.
-[<NoEquality; NoComparison>]
-type RejectedTypeDefn =
-    {
-        Name: string
-        TyparArity: int
-        Kind: TypeDeclKind
-        DeclKey: NodeKey
-        Defn: TypeDefn<SyntaxToken>
-    }
-
 type PassContextTypes =
     {
         /// Keyed by the type's own `TypeKey` — the WHOLE containment chain, not a name. Field
@@ -80,8 +68,6 @@ type PassContextTypes =
         CtorIndex: Dictionary<string, EqArray<UnionCaseInfo>>
         /// Reverse index: field name → the record types declaring it; visible where they are.
         FieldIndex: Dictionary<string, EqArray<RecordTypeInfo>>
-        /// Reverse index: member name → bucket of declaring (class, member) entries.
-        ClassMemberIndex: Dictionary<string, EqArray<ClassMemberIndexEntry>>
         /// An intrinsic binding's contract-sourced `SymbolKey` → its target representation,
         /// from `type int = (# "System.Int32" #)`, plus the `class`-tag verdict. NOT
         /// transparent like `Abbreviation`: a use resolves to `TyConst key`, not the RHS.
@@ -115,11 +101,6 @@ type PassContextTypes =
         /// The INVERSE of `LocalHolders`. A qualifier is written relative to a SCOPE (`A.T`
         /// inside `module N.B` means `N.A.T`), so resolving one needs that scope's path.
         LocalHolderPaths: Dictionary<ModuleHolder, string>
-        /// Every ACCEPTED type declaration, in SOURCE order. Observability only — the
-        /// registrars are driven from the group being registered.
-        ClaimedTypeDefns: ResizeArray<ClaimedTypeDefn>
-        /// The type declarations rejected as duplicates, in source order. Observability only.
-        RejectedDuplicates: ResizeArray<RejectedTypeDefn>
         /// The RECORD / UNION / CLASS short names this file declares — what a `module` of the
         /// same name collides with. Filled whole-file first: `module Foo` may precede `type Foo`.
         NominalTypeNames: HashSet<string>
@@ -138,7 +119,6 @@ module PassContextTypes =
             Abbreviation = Dictionary<_, _>()
             CtorIndex = Dictionary<_, _>()
             FieldIndex = Dictionary<_, _>()
-            ClassMemberIndex = Dictionary<_, _>()
             IntrinsicReprKeys = Dictionary<_, _>()
             IntrinsicKeys = Dictionary<_, _>()
             IntrinsicAbbrevHost = Dictionary<_, _>()
@@ -149,8 +129,6 @@ module PassContextTypes =
             TypeClaims = Dictionary<_, _>()
             LocalHolders = Dictionary<_, _>()
             LocalHolderPaths = Dictionary<_, _>()
-            ClaimedTypeDefns = ResizeArray<_>()
-            RejectedDuplicates = ResizeArray<_>()
             NominalTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
         }
@@ -432,23 +410,15 @@ module TypeRegistry =
 
     // --- The name table -------------------------------------------------------------
 
-    /// Accept a type declaration: claim `(Holder, Name, Arity)` in the name table AND retain
-    /// it, in source order. The caller has already rejected a contested claim.
-    let claimType (types: PassContextTypes) (claimed: ClaimedTypeDefn) : unit =
-        let id = claimed.Identity
-
+    /// Accept a type declaration: claim `(Holder, Name, Arity)` in the name table. The caller
+    /// has already rejected a contested claim.
+    let claimType (types: PassContextTypes) (id: TypeIdentity) : unit =
         match types.TypeClaims.TryGetValue id.Name with
         | true, claims -> claims.Add id
         | false, _ ->
             let claims = ResizeArray 1
             claims.Add id
             types.TypeClaims.[id.Name] <- claims
-
-        types.ClaimedTypeDefns.Add claimed
-
-    /// Retain a declaration whose `(name, arity)` claim is already held, so it is inspectable.
-    let rejectDuplicateType (types: PassContextTypes) (rejected: RejectedTypeDefn) : unit =
-        types.RejectedDuplicates.Add rejected
 
     /// The identity the WRITTEN name at `arity` MEANS at `useSite` — the winning claim. A
     /// qualified head (`A.T`) is the same lookup, its path saying which SCOPE to read from.

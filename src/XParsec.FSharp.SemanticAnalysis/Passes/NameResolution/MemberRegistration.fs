@@ -593,20 +593,6 @@ module NameResolutionMemberRegistration =
 
             TypeRegistry.registerClass ctx.Types info
 
-            for m in members do
-                let entry = { Class = info; Member = m }
-
-                match ctx.Types.ClassMemberIndex.TryGetValue m.Name with
-                | true, lst ->
-                    let buf = ResizeArray(lst.Length + 1)
-                    buf.Add entry
-
-                    for e in lst do
-                        buf.Add e
-
-                    ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.ofResizeArray buf
-                | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.singleton entry
-
     /// An interface carries no `ClassTypeInfo` (no equality / comparison verdict to stamp),
     /// but `[<StructuralEquality>]` / `[<ReferenceEquality>]` / `[<CustomEquality>]` are
     /// still illegal on it — run the kind-legality check and discard the verdicts.

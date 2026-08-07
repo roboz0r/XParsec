@@ -431,14 +431,6 @@ let tests =
                 Expect.equal info.Members.[0].Kind ClassMemberKind.Property "member is a property"
             }
 
-            test "ClassMemberIndex maps member name to declaring class" {
-                let ctx = analyse "type C() =\n    member this.M () = 1"
-
-                match ctx.Types.ClassMemberIndex.TryGetValue "M" with
-                | true, lst -> Expect.equal lst.Length 1 "one class declares M"
-                | false, _ -> failtest "M not in ClassMemberIndex"
-            }
-
             test "static member registers with IsStatic = true" {
                 let ctx = analyse "type C() =\n    static member M () = 1"
 

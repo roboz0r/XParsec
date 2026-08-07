@@ -13,20 +13,6 @@ open UnificationInferResolve
 
 module internal UnificationInferPat =
 
-    /// The `'T list` type carrying `elemTy`. A program declaring its own `'T list`
-    /// abbreviation expands eagerly to the union RHS; a bare program leaves the container
-    /// flexible — a fresh TyVar in `ctx.ListLiterals` — for a consumer to pin.
-    let private consListTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
-        match TypeRegistry.tryAbbrevSpelling ctx.Types UseSite.unbounded RuntimeNames.vesperListAbbrevKey with
-        | ValueSome info ->
-            forceFill ctx info
-            expandAbbreviation ctx tok info (EqArray.singleton elemTy)
-        | ValueNone ->
-            let tv = freshTyVar ctx
-
-            ctx.RegisterListLiteral((UnionFind.find ctx.Store tv).Id, elemTy, tok)
-            TyVar tv
-
     let rec inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
         // Each pattern node gets its own TypeVar keyed on its NodeKey; a compound pattern's
         // outer TypeVar is LINKED to the underlying shape, so a lookup against any node of
@@ -241,7 +227,7 @@ module internal UnificationInferPat =
                 let eTy = inferPat ctx e
                 unify ctx (CstKeys.firstTokenOfPat e) eTy elemTy
 
-            let listTy = consListTy ctx tok elemTy
+            let listTy = listLiteralTy ctx tok elemTy
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome listTy)
             listTy
@@ -301,14 +287,14 @@ module internal UnificationInferPat =
             // `[]` pattern: a list whose element type is left free for the
             // scrutinee to pin (`match xs with [] -> …`).
             let elemTy = TyVar(freshTyVar ctx)
-            let listTy = consListTy ctx tok elemTy
+            let listTy = listLiteralTy ctx tok elemTy
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome listTy)
             listTy
         | Pat.Cons(head = headPat; tail = tailPat) ->
             // `h :: t`: `h` is an element, `t` the same list type.
             let headTy = inferPat ctx headPat
-            let listTy = consListTy ctx tok headTy
+            let listTy = listLiteralTy ctx tok headTy
             let tailTy = inferPat ctx tailPat
             unify ctx (CstKeys.firstTokenOfPat tailPat) tailTy listTy
             let nodeTv = freshTv ctx key

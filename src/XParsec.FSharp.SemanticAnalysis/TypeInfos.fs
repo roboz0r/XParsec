@@ -150,16 +150,6 @@ type RecordTypeInfo
         typarConstraints: TyparConstraints<SyntaxToken> voption,
         key: TypeKey
     ) =
-    new(name, typeParams, fields, declSite) =
-        RecordTypeInfo(
-            name,
-            typeParams,
-            fields,
-            declSite,
-            ValueNone,
-            LocalSymbolKey.ofType (TypeHolder.InNamespace NamespaceKey.Global) name typeParams.Length
-        )
-
     member val Name = name
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
@@ -201,16 +191,6 @@ type UnionTypeInfo
         typarConstraints: TyparConstraints<SyntaxToken> voption,
         key: TypeKey
     ) =
-    new(name, typeParams, cases, declSite) =
-        UnionTypeInfo(
-            name,
-            typeParams,
-            cases,
-            declSite,
-            ValueNone,
-            LocalSymbolKey.ofType (TypeHolder.InNamespace NamespaceKey.Global) name typeParams.Length
-        )
-
     member val Name = name
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
@@ -310,16 +290,6 @@ type AbbreviationInfo
         typarConstraints: TyparConstraints<SyntaxToken> voption,
         key: TypeKey
     ) =
-    new(name, typeParams, rhsCst, declSite) =
-        AbbreviationInfo(
-            name,
-            typeParams,
-            rhsCst,
-            declSite,
-            ValueNone,
-            LocalSymbolKey.ofType (TypeHolder.InNamespace NamespaceKey.Global) name typeParams.Length
-        )
-
     member val Name = name
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
@@ -454,13 +424,6 @@ type ClassTypeInfo
         member this.EqualitySupport = this.EqualitySupport
         member this.ComparisonSupport = this.ComparisonSupport
         member this.MkSelfType args = TyClass(this.TypeKey, args)
-
-[<Struct; NoEquality; NoComparison>]
-type ClassMemberIndexEntry =
-    {
-        Class: ClassTypeInfo
-        Member: TypeMemberInfo
-    }
 
 /// A member access on an *external* type that resolved through the provider, recorded per
 /// member-access node. `IsStatic` distinguishes `Type.Member` from `value.Member`.

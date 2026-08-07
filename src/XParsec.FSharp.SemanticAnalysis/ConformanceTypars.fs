@@ -128,8 +128,6 @@ module ConformanceTypars =
     let private extractedSigOf (m: ExternalMember) : FrozenType =
         memberSigOf m.IsValueMember m.Signature.Parameters m.Signature.Return
 
-    let private bodyMembers (kind: TastAccessor.TypeKind) : EqArray<TastAccessor.TypeMember> = TTypeKindG.members kind
-
     /// Check every generic (method-owned-typar) MEMBER of a frozen `.fs` file against its
     /// `.fsi` contract `provider`: conformance holds when one published overload of the
     /// same name + method arity equals the inferred signature.
@@ -143,7 +141,7 @@ module ConformanceTypars =
                     let td = TastAccessor.declType decl
                     let typeName = SymbolKeyOps.qualifiedName td.Key
 
-                    for m in bodyMembers td.Kind do
+                    for m in TTypeKindG.members td.Kind do
                         let arity = m.MethodTypeParams.Length
 
                         if arity > 0 then

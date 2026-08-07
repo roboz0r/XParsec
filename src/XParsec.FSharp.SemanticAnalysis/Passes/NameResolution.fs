@@ -14,8 +14,6 @@ open NameResolutionMemberRegistration
 
 module NameResolution =
 
-    let typarNamesOfTypeName = NameResolutionTypeRegistration.typarNamesOfTypeName
-
     /// A class or union/record host's member bodies plus everything that enters their
     /// scope. The ctor-param, `val`-field, preamble and `inherit` fields are empty for a
     /// union/record host, which declares none of those.

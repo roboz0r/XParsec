@@ -196,7 +196,7 @@ module ConformancePass =
                             | FSharpAst.SignatureFile sf -> Conformance.summariseSig sigParsed.Lexed sf
                             | _ -> []
 
-                        let vals =
+                        let valNames =
                             match sigParsed.Ast with
                             | FSharpAst.SignatureFile sf -> Conformance.summariseSigVals sigParsed.Lexed sf
                             | _ -> []
@@ -220,8 +220,6 @@ module ConformancePass =
                                 | Conformance.SigShape.Enum
                                 | Conformance.SigShape.Other _ -> false
                             )
-
-                        let valNames = vals |> List.map (fun v -> v.Name)
 
                         if not bodiless then
                             PairOutcome.SigOnly fsiRel

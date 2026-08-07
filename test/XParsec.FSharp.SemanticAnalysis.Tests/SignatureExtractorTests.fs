@@ -992,7 +992,7 @@ let tests =
 
                 match ExternalSymbols.instantiateSymbol store sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyVar _)) ->
-                    match store.Srtp.Items(UnionFind.find store a) with
+                    match store.Srtp.Live(UnionFind.find store a) with
                     | [ bound ] ->
                         Expect.equal bound.MemberName "op_Addition" "the stamped bound names the compiled member"
                         Expect.equal bound.ArgTypes.Length 2 "the stamped bound keeps both args"

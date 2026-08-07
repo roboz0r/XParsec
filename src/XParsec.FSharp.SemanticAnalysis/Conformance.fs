@@ -45,20 +45,10 @@ module Conformance =
         | Other of label: string
 
     [<Struct; NoEquality; NoComparison>]
-    type SigDecl =
-        {
-            Name: string
-            Shape: SigShape
-            NameKey: NodeKey
-        }
+    type SigDecl = { Name: string; Shape: SigShape }
 
     [<Struct; NoEquality; NoComparison>]
-    type ImplDecl =
-        {
-            Name: string
-            Shape: ImplShape
-            NameKey: NodeKey
-        }
+    type ImplDecl = { Name: string; Shape: ImplShape }
 
     [<RequireQualifiedAccess>]
     type ConformanceError =
@@ -201,16 +191,6 @@ module Conformance =
         | TypeDefn.Missing
         | TypeDefn.SkipsTokens _ -> ImplShape.Other "invalid"
 
-    /// `NodeKey` of a type's last-segment name token; the zero key when the `TypeName`
-    /// has no idents at all (a parse failure).
-    let private nameKeyOf (tn: TypeName<SyntaxToken>) : NodeKey =
-        let (TypeName(ident = li)) = tn
-
-        if li.Idents.Length = 0 then
-            NodeKey(0UL)
-        else
-            NodeKey.ofToken li.Idents.[li.Idents.Length - 1] NodeKind.DeclType
-
     /// Summarise a parsed signature (`.fsi`) file as its declared types, in source
     /// order. Namespace groups and nested modules are flattened.
     let summariseSig (lexed: Lexed) (file: SignatureFile<SyntaxToken>) : SigDecl list =
@@ -221,12 +201,7 @@ module Conformance =
             let name = typeNameText lexed tn
 
             if name <> "" then
-                acc.Add
-                    {
-                        Name = name
-                        Shape = sigShape ts
-                        NameKey = nameKeyOf tn
-                    }
+                acc.Add { Name = name; Shape = sigShape ts }
 
         for e in CstWalk.sigFileElems file do
             match e with
@@ -257,7 +232,6 @@ module Conformance =
                                 {
                                     Name = name
                                     Shape = implShape lexed td
-                                    NameKey = nameKeyOf tn
                                 }
                     | ValueNone -> ()
             | _ -> ()
@@ -327,9 +301,6 @@ module Conformance =
     // Module-level `val`/`let` NAMES only — comparing written signatures would flag false
     // drift, as `.fsi` and `.fs` legally differ (`'a list` vs `List<'a>`) until resolved.
 
-    [<Struct; NoEquality; NoComparison>]
-    type ValDecl = { Name: string; NameKey: NodeKey }
-
     /// The raw source spelling of a binding head (`+`, not `op_Addition`): the `.fsi`
     /// `val` and `.fs` `let` spell an operator identically, so it matches across sides.
     /// `ValueNone` for active-pattern heads, whose compiled names are non-trivial.
@@ -345,47 +316,34 @@ module Conformance =
     /// The bound name of a `let` head pattern, unwrapping `Pat.EnclosedBlock` and
     /// `Pat.Typed`. An operator head applied to arguments (`let (+) a b`) is a
     /// `Pat.OpNamed` and yields `ValueNone`.
-    let rec private patHeadName (lexed: Lexed) (p: Pat<SyntaxToken>) : (string * SyntaxToken) voption =
+    let rec private patHeadName (lexed: Lexed) (p: Pat<SyntaxToken>) : string voption =
         match p with
-        | Pat.NamedSimple ident -> ValueSome(nameOfTok lexed ident, ident)
+        | Pat.NamedSimple ident -> ValueSome(nameOfTok lexed ident)
         | Pat.Named(longIdent = li) when li.Idents.Length > 0 ->
-            let t = li.Idents.[li.Idents.Length - 1]
-            ValueSome(nameOfTok lexed t, t)
-        | Pat.Op io ->
-            match identOrOpRaw lexed io with
-            | ValueSome n -> ValueSome(n, identOrOpHeadTok io)
-            | ValueNone -> ValueNone
+            ValueSome(nameOfTok lexed li.Idents.[li.Idents.Length - 1])
+        | Pat.Op io -> identOrOpRaw lexed io
         | Pat.EnclosedBlock(pat = inner)
         | Pat.Typed(pat = inner) -> patHeadName lexed inner
         | _ -> ValueNone
 
-    and private identOrOpHeadTok (io: IdentOrOp<SyntaxToken>) : SyntaxToken =
-        match io with
-        | IdentOrOp.Ident tok -> tok
-        | IdentOrOp.ParenOp(lParen = lp) -> lp
-
     /// Summarise a parsed signature (`.fsi`) as its module-level `val` bindings (incl.
     /// `[<Literal>]` vals), in source order, flattened across nested modules.
-    let summariseSigVals (lexed: Lexed) (file: SignatureFile<SyntaxToken>) : ValDecl list =
-        let acc = ResizeArray<ValDecl>()
+    let summariseSigVals (lexed: Lexed) (file: SignatureFile<SyntaxToken>) : string list =
+        let acc = ResizeArray<string>()
 
-        let addName (name: string) (keyTok: SyntaxToken) =
+        let addName (name: string) =
             if name <> "" then
-                acc.Add
-                    {
-                        Name = name
-                        NameKey = NodeKey.ofToken keyTok NodeKind.DeclLetBinding
-                    }
+                acc.Add name
 
         for e in CstWalk.sigFileElems file do
             match e with
             | ModuleSignatureElement.Val(ValSig(ident = io)) ->
                 match identOrOpRaw lexed io with
-                | ValueSome n -> addName n (identOrOpHeadTok io)
+                | ValueSome n -> addName n
                 | ValueNone -> ()
             | ModuleSignatureElement.ValLiteral(binding = b) ->
                 match patHeadName lexed b.headPat with
-                | ValueSome(n, t) -> addName n t
+                | ValueSome n -> addName n
                 | ValueNone -> ()
             | _ -> ()
 
@@ -393,20 +351,15 @@ module Conformance =
 
     /// Summarise a parsed implementation (`.fs`) as its module-level `let` bindings,
     /// in source order, flattened across nested modules.
-    let summariseImplVals (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : ValDecl list =
-        let acc = ResizeArray<ValDecl>()
+    let summariseImplVals (lexed: Lexed) (file: ImplementationFile<SyntaxToken>) : string list =
+        let acc = ResizeArray<string>()
 
         for e in CstWalk.implFileElems file do
             match e with
             | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bs)) ->
                 for b in bs do
                     match patHeadName lexed b.headPat with
-                    | ValueSome(n, t) when n <> "" ->
-                        acc.Add
-                            {
-                                Name = n
-                                NameKey = NodeKey.ofToken t NodeKind.DeclLetBinding
-                            }
+                    | ValueSome n when n <> "" -> acc.Add n
                     | _ -> ()
             | _ -> ()
 
@@ -414,19 +367,14 @@ module Conformance =
 
     /// Check that every `.fsi` `val` has a matching `.fs` `let` of the same name.
     /// Errors come in signature source order, one per name.
-    let checkValuePresence (sigVals: ValDecl list) (implVals: ValDecl list) : ConformanceError list =
-        let implNames = HashSet<string>()
-
-        for v in implVals do
-            implNames.Add v.Name |> ignore
-
+    let checkValuePresence (sigVals: string list) (implVals: string list) : ConformanceError list =
+        let implNames = HashSet<string>(implVals)
         let errors = ResizeArray<ConformanceError>()
         let seen = HashSet<string>()
 
-        for v in sigVals do
-            if seen.Add v.Name then
-                if not (implNames.Contains v.Name) then
-                    errors.Add(ConformanceError.ValueMissingInImpl v.Name)
+        for name in sigVals do
+            if seen.Add name && not (implNames.Contains name) then
+                errors.Add(ConformanceError.ValueMissingInImpl name)
 
         List.ofSeq errors
 

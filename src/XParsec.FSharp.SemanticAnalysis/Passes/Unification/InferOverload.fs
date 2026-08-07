@@ -23,16 +23,6 @@ module UnificationInferOverload =
             | _ -> false
         )
 
-    /// Does `t` carry a not-yet-ground type-level computation anywhere inside it? Only such a
-    /// type is applicability-OPAQUE; a plain nominal / primitive union must NOT act as a
-    /// filtering wildcard — every union-typed argument would match every same-arity parameter.
-    let rec hasCarriedNode (store: TypeStore) (t: SemType) : bool =
-        match zonk store t with
-        | TyKeyOf _
-        | TyIndexedAccess _
-        | TyConditional _ -> true
-        | t -> SemType.existsChild (hasCarriedNode store) t
-
     /// The trial substitution `matchTypes` accumulates for ONE candidate: the candidate's own
     /// method typars keyed by Method-axis index (`M<'T>('T,'T)` opens to the same index at
     /// every position), and caller-side free metavars keyed by union-find root id.

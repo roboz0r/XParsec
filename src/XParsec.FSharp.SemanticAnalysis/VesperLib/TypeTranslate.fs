@@ -445,20 +445,15 @@ module VesperLibTypeTranslate =
             | Some e -> Error e
             | None -> Ok(FTTuple(EqArray.ofResizeArray items))
 
-        | Type.VarType(Typar.Named(_, identTok)) ->
-            let name = nameOfTok lexed identTok
-            let idx = typars.IndexOf(name, TyparKind.Regular)
-            Ok(FTTypar(TyparAxis.Declaring, idx))
-
+        | Type.VarType(Typar.Named(_, identTok))
         | Type.VarType(Typar.Static(_, identTok)) ->
-            let name = nameOfTok lexed identTok
-            let idx = typars.IndexOf(name, TyparKind.Static)
+            let idx = typars.IndexOf(nameOfTok lexed identTok)
             Ok(FTTypar(TyparAxis.Declaring, idx))
 
         | Type.VarType(Typar.Anon _) ->
             // Synthetic name so distinct anonymous typars don't collide.
             let synthetic = sprintf "_anon%d" typars.Count
-            let idx = typars.IndexOf(synthetic, TyparKind.Regular)
+            let idx = typars.IndexOf synthetic
             Ok(FTTypar(TyparAxis.Declaring, idx))
 
         | Type.NamedType li ->
@@ -627,10 +622,6 @@ module VesperLibTypeTranslate =
                 let (TyparDefn(_, typar)) = items.[i]
 
                 match typar with
-                | Typar.Named(_, identTok) ->
-                    let name = nameOfTok lexed identTok
-                    typars.IndexOf(name, TyparKind.Regular) |> ignore
-                | Typar.Static(_, identTok) ->
-                    let name = nameOfTok lexed identTok
-                    typars.IndexOf(name, TyparKind.Static) |> ignore
+                | Typar.Named(_, identTok)
+                | Typar.Static(_, identTok) -> typars.IndexOf(nameOfTok lexed identTok) |> ignore
                 | Typar.Anon _ -> ()
