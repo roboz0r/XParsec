@@ -17,7 +17,9 @@ type IFormatSink =
     abstract member BeginNest: indent: int -> unit
     /// <summary>Close the current indentation scope.</summary>
     abstract member EndNest: unit -> unit
-    /// <summary>Open a record: the fields follow as <c>Field name</c> / <c>Child value</c> pairs.</summary>
+    /// <summary>Open a record: the fields follow as <c>Field name</c> / <c>Child value</c> pairs.
+    /// The layout policy (<c>{ F = ·; G = · }</c>, <c>+2</c> hang) lives in the sink, not the
+    /// caller.</summary>
     abstract member BeginRecord: unit -> unit
     /// <summary>Mark the next field's label; its value arrives in the following <c>Child</c>.</summary>
     abstract member Field: name: string -> unit
@@ -25,7 +27,9 @@ type IFormatSink =
     abstract member EndRecord: unit -> unit
     /// <summary>Open a union case named <paramref name="name"/>; its payloads follow as <c>Child</c>s.</summary>
     abstract member BeginCase: name: string -> unit
-    /// <summary>Close the current union case (arity decided from the observed <c>Child</c> count).</summary>
+    /// <summary>Close the current union case; the arity arm follows from the observed
+    /// <c>Child</c> count. A single payload is parenthesised iff it is itself an
+    /// application-shaped case (<c>Some (Some 3)</c> but not <c>Some 3</c> / <c>Some [1; 2]</c>).</summary>
     abstract member EndCase: unit -> unit
     /// <summary>Recurse into a record field / union payload child; the enclosing frame fixes its position.</summary>
     abstract member Child: value: obj -> unit

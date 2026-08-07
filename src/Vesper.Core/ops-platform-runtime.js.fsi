@@ -12,16 +12,7 @@ module StructuralRuntime =
 [<AutoOpen>]
 module ArithmeticRuntime =
 
-    /// The zero-divisor guard behind every INTEGRAL `/` and `%` clause. CIL `div` / `rem`
-    /// fault on a zero divisor; JS `/` yields `Infinity`, and `Infinity | 0` is `0` — so a
-    /// bare masking template would quietly answer `0` where the CLR raises. This returns
-    /// its argument (or throws), which is what lets a clause wrap it in the width mask and
-    /// still read the divisor exactly ONCE: `(# "($0 / $1) & 0xFF" x (checkedDivisor y) #)`.
-    /// A template repeating a `$N` hole would DOUBLE-EVALUATE the operand, which is why the
-    /// check cannot be an inline ternary guard.
-    ///
-    /// ONE guard covers every integral width — the ≤32-bit widths are all JS `number` and
-    /// int64 / uint64 are `bigint`s, and the body tests both zeros. `float` / `float32` deliberately
-    /// do NOT route through it: IEEE division by zero yielding `Infinity` is the correct
-    /// answer for a float, not a fault.
+    /// The zero-divisor guard behind every INTEGRAL `/` and `%`. JS `/` yields `Infinity`
+    /// and `Infinity | 0` is a silent `0`, so it throws instead — and it RETURNS its
+    /// argument, letting a clause read the divisor exactly once inside the width mask.
     val checkedDivisor: divisor: 'T -> 'T

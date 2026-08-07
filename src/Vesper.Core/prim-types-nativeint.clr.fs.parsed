@@ -962,95 +962,95 @@ namespace                      'namespace'       KWNamespace         tok=   0  p
             NamedType:
               Ident            'unativeint'      Identifier          tok=1068  pos=2614
           #)                   '#)'              KWRHashParen        tok=1070  pos=2625
-      static                   'static'          KWStatic            tok=1079  pos=2779
-      member                   'member'          KWMember            tok=1081  pos=2786
-      inline                   'inline'          KWInline            tok=1083  pos=2793
+      static                   'static'          KWStatic            tok=1076  pos=2692
+      member                   'member'          KWMember            tok=1078  pos=2699
+      inline                   'inline'          KWInline            tok=1080  pos=2706
       Pat.Op:
         ParenOp:
-                               '('               KWLParen            tok=1085  pos=2800
-          SymbolicOp           '>>>'             op_RightShift       tok=1086  pos=2801
-                               ')'               KWRParen            tok=1087  pos=2804
+                               '('               KWLParen            tok=1082  pos=2713
+          SymbolicOp           '>>>'             op_RightShift       tok=1083  pos=2714
+                               ')'               KWRParen            tok=1084  pos=2717
       Pats:
-        ParenBlock             '('               KWLParen            tok=1088  pos=2805
+        ParenBlock             '('               KWLParen            tok=1085  pos=2718
           Pat.Tuple:
             Pat.Typed:
-              Pat.NamedSimple  'value'           Identifier          tok=1089  pos=2806
-              Colon            ':'               OpColon             tok=1090  pos=2811
+              Pat.NamedSimple  'value'           Identifier          tok=1086  pos=2719
+              Colon            ':'               OpColon             tok=1087  pos=2724
               NamedType:
-                Ident          'unativeint'      Identifier          tok=1092  pos=2813
-            ,                  ','               OpComma             tok=1093  pos=2823
+                Ident          'unativeint'      Identifier          tok=1089  pos=2726
+            ,                  ','               OpComma             tok=1090  pos=2736
             Pat.Typed:
-              Pat.NamedSimple  'shift'           Identifier          tok=1095  pos=2825
-              Colon            ':'               OpColon             tok=1096  pos=2830
+              Pat.NamedSimple  'shift'           Identifier          tok=1092  pos=2738
+              Colon            ':'               OpColon             tok=1093  pos=2743
               NamedType:
-                Ident          'int'             Identifier          tok=1098  pos=2832
-                               ')'               KWRParen            tok=1099  pos=2835
-      ReturnColon              ':'               OpColon             tok=1101  pos=2837
+                Ident          'int'             Identifier          tok=1095  pos=2745
+                               ')'               KWRParen            tok=1096  pos=2748
+      ReturnColon              ':'               OpColon             tok=1098  pos=2750
       NamedType:
-        Ident                  'unativeint'      Identifier          tok=1103  pos=2839
-      =                        '='               OpEquality          tok=1105  pos=2850
+        Ident                  'unativeint'      Identifier          tok=1100  pos=2752
+      =                        '='               OpEquality          tok=1102  pos=2763
         ILIntrinsic:
-          (#                   '(#'              KWLHashParen        tok=1107  pos=2852
-          StringLiteral        '"'               StringOpen          tok=1109  pos=2855
+          (#                   '(#'              KWLHashParen        tok=1104  pos=2765
+          StringLiteral        '"'               StringOpen          tok=1106  pos=2768
           Parts:
-            Text               'shr.un'          StringFragment      tok=1110  pos=2856
-                               '"'               StringClose         tok=1111  pos=2862
+            Text               'shr.un'          StringFragment      tok=1107  pos=2769
+                               '"'               StringClose         tok=1108  pos=2775
           Arg:
-            Ident              'value'           Identifier          tok=1113  pos=2864
+            Ident              'value'           Identifier          tok=1110  pos=2777
           Arg:
-            Ident              'shift'           Identifier          tok=1115  pos=2870
+            Ident              'shift'           Identifier          tok=1112  pos=2783
           ILReturnType:
-            :                  ':'               OpColon             tok=1117  pos=2876
+            :                  ':'               OpColon             tok=1114  pos=2789
             NamedType:
-              Ident            'unativeint'      Identifier          tok=1119  pos=2878
-          #)                   '#)'              KWRHashParen        tok=1121  pos=2889
-    end                        'end'             KWEnd               tok=1124  pos=2896
+              Ident            'unativeint'      Identifier          tok=1116  pos=2791
+          #)                   '#)'              KWRHashParen        tok=1118  pos=2802
+    end                        'end'             KWEnd               tok=1121  pos=2809
   TypeDefn.Abbrev:
-    TypeName                   'nativeptr'       Identifier          tok=1128  pos=2905
+    TypeName                   'nativeptr'       Identifier          tok=1125  pos=2818
     TyparDefns:
-      <                        '<'               op_LessThan         tok=1129  pos=2914
+      <                        '<'               op_LessThan         tok=1126  pos=2827
       Typar.Named:
-                               ''T'              TypeParameter       tok=1130  pos=2915
-      when                     'when'            KWWhen              tok=1132  pos=2918
+                               ''T'              TypeParameter       tok=1127  pos=2828
+      when                     'when'            KWWhen              tok=1129  pos=2831
       Constraint.Unmanaged:
         Typar.Named:
-                               ''T'              TypeParameter       tok=1134  pos=2923
-        :                      ':'               OpColon             tok=1136  pos=2926
-        unmanaged              'unmanaged'       Identifier          tok=1138  pos=2928
-      >                        '>'               op_GreaterThan      tok=1139  pos=2937
-    =                          '='               OpEquality          tok=1141  pos=2939
+                               ''T'              TypeParameter       tok=1131  pos=2836
+        :                      ':'               OpColon             tok=1133  pos=2839
+        unmanaged              'unmanaged'       Identifier          tok=1135  pos=2841
+      >                        '>'               op_GreaterThan      tok=1136  pos=2850
+    =                          '='               OpEquality          tok=1138  pos=2852
       ILIntrinsic:
-        (#                     '(#'              KWLHashParen        tok=1143  pos=2941
-        StringLiteral          '"'               StringOpen          tok=1145  pos=2944
+        (#                     '(#'              KWLHashParen        tok=1140  pos=2854
+        StringLiteral          '"'               StringOpen          tok=1142  pos=2857
         Parts:
-          Text                 'native int'      StringFragment      tok=1146  pos=2945
-                               '"'               StringClose         tok=1147  pos=2955
-        #)                     '#)'              KWRHashParen        tok=1149  pos=2957
+          Text                 'native int'      StringFragment      tok=1143  pos=2858
+                               '"'               StringClose         tok=1144  pos=2868
+        #)                     '#)'              KWRHashParen        tok=1146  pos=2870
   TypeDefn.Abbrev:
-    TypeName                   'voidptr'         Identifier          tok=1153  pos=2965
-    =                          '='               OpEquality          tok=1155  pos=2973
+    TypeName                   'voidptr'         Identifier          tok=1150  pos=2878
+    =                          '='               OpEquality          tok=1152  pos=2886
       ILIntrinsic:
-        (#                     '(#'              KWLHashParen        tok=1157  pos=2975
-        StringLiteral          '"'               StringOpen          tok=1159  pos=2978
+        (#                     '(#'              KWLHashParen        tok=1154  pos=2888
+        StringLiteral          '"'               StringOpen          tok=1156  pos=2891
         Parts:
-          Text                 'void*'           StringFragment      tok=1160  pos=2979
-                               '"'               StringClose         tok=1161  pos=2984
-        #)                     '#)'              KWRHashParen        tok=1163  pos=2986
+          Text                 'void*'           StringFragment      tok=1157  pos=2892
+                               '"'               StringClose         tok=1158  pos=2897
+        #)                     '#)'              KWRHashParen        tok=1160  pos=2899
   TypeDefn.Abbrev:
-    TypeName                   'ilsigptr'        Identifier          tok=1167  pos=2994
+    TypeName                   'ilsigptr'        Identifier          tok=1164  pos=2907
     TyparDefns:
-      <                        '<'               op_LessThan         tok=1168  pos=3002
+      <                        '<'               op_LessThan         tok=1165  pos=2915
       Typar.Named:
-                               ''T'              TypeParameter       tok=1169  pos=3003
-      >                        '>'               op_GreaterThan      tok=1170  pos=3005
-    =                          '='               OpEquality          tok=1172  pos=3007
+                               ''T'              TypeParameter       tok=1166  pos=2916
+      >                        '>'               op_GreaterThan      tok=1167  pos=2918
+    =                          '='               OpEquality          tok=1169  pos=2920
       ILIntrinsic:
-        (#                     '(#'              KWLHashParen        tok=1174  pos=3009
-        StringLiteral          '"'               StringOpen          tok=1176  pos=3012
+        (#                     '(#'              KWLHashParen        tok=1171  pos=2922
+        StringLiteral          '"'               StringOpen          tok=1173  pos=2925
         Parts:
-          Text                 '!0*'             StringFragment      tok=1177  pos=3013
-                               '"'               StringClose         tok=1178  pos=3016
-        #)                     '#)'              KWRHashParen        tok=1180  pos=3018
+          Text                 '!0*'             StringFragment      tok=1174  pos=2926
+                               '"'               StringClose         tok=1175  pos=2929
+        #)                     '#)'              KWRHashParen        tok=1177  pos=2931
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

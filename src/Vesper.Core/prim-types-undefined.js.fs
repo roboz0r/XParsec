@@ -4,14 +4,9 @@ namespace Vesper
 
 type undefined = (# "undefined" #)
 
-// The value-level companion of the `undefined` type. JS `undefined` is a runtime
-// global with no CLR analog, so this is the single honest source of the absence
-// value — the type's value-level twin. `[<Global>]` DECLARES that: no lowered
-// `const undefined = undefined` definition is emitted (it could not initialise), and
-// every reference is the bare `undefined` the zero-operand template carries. The inner
-// `: undefined` ascription types the node — a bare `(# "undefined" #)` with no operands
-// and no annotation would infer `unit` (and then fail to unify with the `undefined`
-// return type). `[<AutoOpen>]` keeps the value usable unqualified, like the type.
+// `[<Global>]` suppresses the definition — a lowered `const undefined = undefined` could
+// not initialise — so every reference is the bare `undefined` the template carries. The
+// inner `: undefined` types the node; without it an operand-less template infers `unit`.
 [<AutoOpen>]
 module Undefined =
 

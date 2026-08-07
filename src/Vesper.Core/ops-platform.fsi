@@ -199,12 +199,6 @@ module BitwiseOperators =
         /// 
         val inline (~~~): value: ^T -> ^T when ^T: (static member (~~~): ^T -> ^T) and default ^T: int
 
-// The JS-only structural runtime entries (`structuralEquals` / `structuralHash`) that
-// once sat here moved to `ops-platform-runtime.js.fsi` (manifest `files-js`): they have
-// no CLR `.fs` body (CLR's `=` / `<>` / `hash` use `EqualityComparer` inline and never
-// reference them), so a CLR-visible `val` was an over-declaration. The JS `=` / `<>` /
-// `hash` base arms still delegate to them, resolved from that JS-only contract.
-
 [<AutoOpen>]
 module EqualityOperators =
         
@@ -275,8 +269,7 @@ module Operators =
         ///
         val inline not: value: bool -> bool
 
-        /// <summary>Ignore the passed value — discard it and yield <c>unit</c>
-        /// (mirroring FSharp.Core's <c>ignore</c>).</summary>
+        /// <summary>Ignore the passed value.</summary>
         ///
         /// <param name="value">The value to ignore.</param>
         ///
@@ -290,8 +283,7 @@ module Operators =
         ///
         val inline ignore: value: 'T -> unit
 
-        /// <summary>Test whether the given reference value is <c>null</c>
-        /// (mirroring FSharp.Core's <c>isNull</c>).</summary>
+        /// <summary>Test whether the given reference value is <c>null</c>.</summary>
         ///
         /// <param name="value">The value to test.</param>
         ///
@@ -307,8 +299,7 @@ module Operators =
         ///
         val inline isNull: value: 'T -> bool when 'T: null
 
-        /// <summary>Box a value to <c>obj</c> (mirroring FSharp.Core's
-        /// <c>box</c>).</summary>
+        /// <summary>Box a value to <c>obj</c>.</summary>
         ///
         /// <param name="value">The value to box.</param>
         ///
@@ -316,8 +307,7 @@ module Operators =
         ///
         val inline box: value: 'T -> obj
 
-        /// <summary>Convert a value to <c>uint32</c> (mirroring FSharp.Core's
-        /// <c>ToUInt32</c>).</summary>
+        /// <summary>Convert a value to <c>uint32</c>.</summary>
         ///
         /// <param name="value">The input value.</param>
         ///
@@ -325,16 +315,15 @@ module Operators =
         ///
         val inline uint32: value: ^T -> uint32
 
-        /// <summary>Convert a value to <c>uint32</c> — the <c>uint</c> abbreviation
-        /// of <c>uint32</c> (mirroring FSharp.Core's <c>ToUInt</c>).</summary>
+        /// <summary>Convert a value to <c>uint32</c> — the <c>uint</c> abbreviation of
+        /// <c>uint32</c>.</summary>
         ///
         /// <param name="value">The input value.</param>
         ///
         /// <returns>The converted <c>uint32</c>.</returns>
         val inline uint: value: ^T -> uint32
 
-        /// <summary>Convert a value to <c>int32</c> — the signed sibling of
-        /// <c>uint32</c> (mirroring FSharp.Core's <c>ToInt32</c>).</summary>
+        /// <summary>Convert a value to <c>int32</c>.</summary>
         ///
         /// <param name="value">The input value.</param>
         ///
@@ -342,19 +331,17 @@ module Operators =
         ///
         val inline int32: value: ^T -> int32
 
-        /// <summary>Convert a value to <c>int32</c> — the <c>int</c> abbreviation
-        /// of <c>int32</c> (mirroring FSharp.Core's <c>ToInt</c>).</summary>
+        /// <summary>Convert a value to <c>int32</c> — the <c>int</c> abbreviation of
+        /// <c>int32</c>.</summary>
         ///
         /// <param name="value">The input value.</param>
         ///
         /// <returns>The converted <c>int32</c>.</returns>
         val inline int: value: ^T -> int
 
-        /// <summary>Convert an <c>int32</c> to <c>bigint</c> (mirroring FSharp.Core's
-        /// <c>ToBigInt</c>). Concrete in its source width where the other conversions are
-        /// polymorphic: widening to arbitrary precision cannot lose anything, so there is
-        /// nothing per-width to say, and <c>int32</c> is the only width with a literal to
-        /// widen FROM.</summary>
+        /// <summary>Convert an <c>int32</c> to <c>bigint</c>. Concrete in its source width
+        /// where the other conversions are polymorphic: <c>int32</c> is the only width with
+        /// a literal to widen FROM.</summary>
         ///
         /// <param name="value">The input value.</param>
         ///
@@ -439,11 +426,9 @@ module Operators =
         ///
         val inline invalidArg: argumentName: string -> message: string -> 'T
 
-/// String indexing intrinsics — the desugaring target for `s.[i]` on a
-/// `string` receiver, mirroring `Operators.GetArray` for `arr.[i]`. The front
-/// end routes here only when the BCL `get_Chars` accessor does NOT resolve (the
-/// JS target, whose `string` carries no BCL metadata); the CLR target keeps its
-/// metadata `get_Chars` path, so this intrinsic is effectively JS-only.
+/// The desugaring target for `s.[i]` on a `string` receiver. The front end routes here
+/// only when the BCL `get_Chars` accessor does NOT resolve — the JS target, whose
+/// `string` carries no BCL metadata.
 [<AutoOpen>]
 module StringIntrinsics =
 
@@ -452,11 +437,9 @@ module StringIntrinsics =
     /// analogue of <c>GetArray</c>).</summary>
     val inline GetString: s: string -> index: int -> char
 
-/// Index-signature intrinsics — the desugaring target for `x.[k]` / `x.[k] <- v` on a
-/// receiver whose EXTERNAL type carries a TS index signature (`{ [k: K]: V }`),
-/// mirroring `GetArray`/`SetArray` for arrays and `GetString` for strings. JS-target
-/// concept (a JS object has no `get_Item` method — bracket access is the only form);
-/// like `GetString`, the CLR body is contract-only.
+/// The desugaring target for `x.[k]` / `x.[k] <- v` on a receiver whose EXTERNAL type
+/// carries a TS index signature (`{ [k: K]: V }`). A JS object has no `get_Item` method —
+/// bracket access is the only form — so the CLR body is contract-only.
 [<AutoOpen>]
 module IndexIntrinsics =
 
@@ -468,20 +451,14 @@ module IndexIntrinsics =
     /// front end desugars <c>x.[k] &lt;- value</c> to on such a receiver.</summary>
     val inline SetIndex: target: 'T -> key: 'K -> value: 'V -> unit
 
-/// The default-value primitive. Referenced module-qualified as `Unchecked.defaultof<'T>` (or
-/// `Unchecked.defaultof`, the instantiation left to the reference's expected type): the inline
-/// pass splices the nullary `ilzero` body at each reference, so no call to this inline-only
-/// module — which emits no method — is generated.
+/// The default-value primitive. Every reference splices the body in place, so this module
+/// emits no method.
 module Unchecked =
 
     /// <summary>The default value of a type: a null reference for a reference type and the
-    /// all-zeroes value for a value type. Seeds a <c>mutable</c> accumulator declared before
-    /// its first real value is known (as in <c>Seq.reduce</c>); the seed is overwritten before
-    /// it is ever observed.</summary>
+    /// all-zeroes value for a value type.</summary>
     ///
-    /// <remarks>A nullary generic VALUE, written <c>Unchecked.defaultof&lt;'T&gt;</c> or — with the
-    /// instantiation inferred from the reference's expected type — <c>Unchecked.defaultof</c>.
-    /// Every reference splices the zero-operand <c>ilzero</c> intrinsic in place (exactly as the
-    /// <c>undefined</c> value is); the spliced instruction reads its type from the result the
-    /// reference unifies into.</remarks>
+    /// <remarks>A nullary generic VALUE — written <c>Unchecked.defaultof&lt;'T&gt;</c>, or bare
+    /// <c>Unchecked.defaultof</c> with the instantiation inferred from the expected
+    /// type.</remarks>
     val inline defaultof<'T> : 'T

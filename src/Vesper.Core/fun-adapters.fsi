@@ -1,10 +1,8 @@
 namespace Vesper
 
-// CLR-ONLY. On CLR a function value is a nominal `Fun` interface, so adapting between the
+// CLR-ONLY. A function value here is a nominal `Fun` interface, so adapting between the
 // flat and curried shapes needs a reified object holding the captured operand — the two
-// classes below. On JS a function value IS a function, so the same adaptation is emitted at
-// the site (functions calling functions) with no library type behind it, and the backend
-// owns that lowering. Nothing here is a JS surface awaiting a body.
+// classes below.
 
 /// <summary>Partial application of a flat 2-arg function reified once: holds the
 /// flat `Fun<'A,'B,'C>` and its first argument, exposing the residual
@@ -23,10 +21,7 @@ type Flattened<'A, 'B, 'C> =
     interface Fun<'A, 'B, 'C>
     new: f: Fun<'A, Fun<'B, 'C>> -> Flattened<'A, 'B, 'C>
 
-/// The flat<->curried adapters. Auto-opened so a saturated 2-arg dispatch site can
-/// reach `curryFun` / `flatten` unqualified. The flat `Fun<'A,'B,'C>` overloads the
-/// curried `Fun<'A,'B>` by generic arity — no interface-inheritance bridge between
-/// them; adaptation is reference-typed.
+/// Auto-opened so a saturated 2-arg dispatch site reaches these unqualified.
 [<AutoOpen>]
 module FunAdapters =
 

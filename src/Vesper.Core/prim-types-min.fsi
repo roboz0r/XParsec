@@ -5,11 +5,8 @@ namespace Vesper
 /// <category>Basic Types</category>
 type int = extern with
 
-    /// <summary>The witness the overloaded <c>(+)</c> trait constraint dispatches to.
-    /// Declared here, on the type, so the unifier resolves it by ordinary member lookup
-    /// rather than synthesising a candidate from an operator-name table. The body is the
-    /// target's own in the paired <c>.fs</c>: it is spliced at the use site, never
-    /// emitted.</summary>
+    /// <summary>The witness the overloaded <c>(+)</c> dispatches to. Its body is the
+    /// target's own, in the paired <c>.fs</c>: spliced at the use site, never emitted.</summary>
     static member inline (+): x: int * y: int -> int
 
     static member inline (-): x: int * y: int -> int
@@ -20,19 +17,14 @@ type int = extern with
 
     static member inline (%): x: int * y: int -> int
 
-    /// <summary>Prefix plus — the identity, and declared at every numeric width
-    /// (unlike <c>(~-)</c>, nothing about it is signed). The declaration is what admits
-    /// the operand: <c>+x</c> is the same member lookup as <c>x + y</c>, so a type that
-    /// states none does not support it.</summary>
+    /// <summary>Prefix plus — the identity, declared at every numeric width; nothing about
+    /// it is signed, unlike <c>(~-)</c>.</summary>
     static member inline (~+): value: int -> int
 
     /// <summary>Unary negation, declared at the SIGNED widths only: a negated unsigned
     /// value has no answer its own width can hold.</summary>
     static member inline (~-): n: int -> int
 
-    /// <summary>The bitwise family. Declaring it HERE is what rejects
-    /// <c>1.0 &amp;&amp;&amp; 2.0</c>: a type that states no such member does not support the
-    /// operator, and <c>float</c> states none.</summary>
     static member inline (&&&): x: int * y: int -> int
 
     static member inline (|||): x: int * y: int -> int
@@ -73,33 +65,23 @@ type 'T array = 'T[]
 type Fun<'A, 'B> =
     abstract member Invoke: arg: 'A -> 'B
 
-/// <summary>The flat arity-2 function type: a saturated 2-arg call dispatches in
-/// one <c>Invoke(a,b)</c> with no intermediate <c>Fun&lt;'B,'C&gt;</c>. Overloads
-/// <c>Fun&lt;'A,'B&gt;</c> by generic arity (CLR <c>Fun`3</c> vs <c>Fun`2</c>); NOT a
-/// subtype of <c>Fun&lt;'A, Fun&lt;'B,'C&gt;&gt;</c>, flat&lt;-&gt;curried adaptation
-/// goes through <c>curryFun</c> / <c>flatten</c> in core-types.</summary>
+/// <summary>The flat arity-2 function type: a saturated 2-arg call dispatches in one
+/// <c>Invoke(a, b)</c>. It overloads <c>Fun&lt;'A,'B&gt;</c> by generic arity and is NOT a
+/// subtype of <c>Fun&lt;'A, Fun&lt;'B,'C&gt;&gt;</c> — adapting between them is a conversion.</summary>
 ///
 /// <category>Basic Types</category>
 type Fun<'A, 'B, 'C> =
     abstract member Invoke: a: 'A * b: 'B -> 'C
 
-/// <summary>The flat arity-3 function type: a saturated 3-arg call dispatches in
-/// one <c>Invoke(a,b,c)</c> with no intermediate <c>Fun&lt;'B,'C&gt;</c> /
-/// <c>Fun&lt;'C,'D&gt;</c>. Overloads <c>Fun&lt;'A,'B&gt;</c> by generic arity (CLR
-/// <c>Fun`4</c> vs <c>Fun`2</c>); NOT a subtype of the curried nesting,
-/// flat&lt;-&gt;curried adaptation goes through <c>curryFun</c> / <c>flatten</c> in
-/// core-types.</summary>
+/// <summary>The flat arity-3 function type: a saturated 3-arg call dispatches in one
+/// <c>Invoke(a, b, c)</c>.</summary>
 ///
 /// <category>Basic Types</category>
 type Fun<'A, 'B, 'C, 'D> =
     abstract member Invoke: a: 'A * b: 'B * c: 'C -> 'D
 
-/// <summary>The flat arity-4 function type: a saturated 4-arg call dispatches in
-/// one <c>Invoke(a,b,c,d)</c> with no intermediate <c>Fun&lt;'B,'C&gt;</c> /
-/// <c>Fun&lt;'C,'D&gt;</c> / <c>Fun&lt;'D,'E&gt;</c>. Overloads <c>Fun&lt;'A,'B&gt;</c>
-/// by generic arity (CLR <c>Fun`5</c> vs <c>Fun`2</c>); NOT a subtype of the curried
-/// nesting, flat&lt;-&gt;curried adaptation goes through <c>curryFun</c> /
-/// <c>flatten</c> in core-types.</summary>
+/// <summary>The flat arity-4 function type: a saturated 4-arg call dispatches in one
+/// <c>Invoke(a, b, c, d)</c>.</summary>
 ///
 /// <category>Basic Types</category>
 type Fun<'A, 'B, 'C, 'D, 'E> =

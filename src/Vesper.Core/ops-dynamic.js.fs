@@ -2,18 +2,15 @@ namespace Vesper
 
 #nowarn "42"
 
-/// Unsafe FFI escape hatches — NOT auto-opened (see the `.fsi`): `open Vesper.Unsafe`
-/// to reach `retype`.
+/// Not auto-opened: `open Vesper.Unsafe` to reach `retype`.
 module Unsafe =
 
-    /// General erasing reinterpret — the identity cast (`(# "" x : ^U #)` emits `x`
-    /// unchanged, re-typed `^U`). The primitive `dynamic`/whole-value exit build on.
+    /// The empty template is the erasing identity cast — emits `x` unchanged, re-typed `^U`.
     let inline retype (x: ^T) : ^U = (# "" x : ^U #)
 
 [<AutoOpen>]
 module DynamicOperators =
 
-    /// Enter `dynamic` — `retype` at the fixed result type `dynamic` (same JS value).
     let inline dynamic (value: ^T) : dynamic = Unsafe.retype value
 
     /// `x?foo` → the computed member read `x["foo"]`.

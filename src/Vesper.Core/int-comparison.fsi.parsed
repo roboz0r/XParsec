@@ -1,88 +1,88 @@
 namespace             'namespace'       KWNamespace         tok=   0  pos=   0
                       'Vesper'          Identifier          tok=   2  pos=  10
   Module:
-    module            'module'          KWModule            tok=  15  pos= 388
-    ident             'IntCompari...'   Identifier          tok=  17  pos= 395
-    =                 '='               OpEquality          tok=  19  pos= 409
-    begin             <virt>            KWBegin             tok=virt  pos= 415
+    module            'module'          KWModule            tok=  11  pos= 251
+    ident             'IntCompari...'   Identifier          tok=  13  pos= 258
+    =                 '='               OpEquality          tok=  15  pos= 272
+    begin             <virt>            KWBegin             tok=virt  pos= 278
       Val:
-        val           'val'             KWVal               tok=  22  pos= 415
-        inline        'inline'          KWInline            tok=  24  pos= 419
+        val           'val'             KWVal               tok=  18  pos= 278
+        inline        'inline'          KWInline            tok=  20  pos= 282
         ParenOp:
-                      '('               KWLParen            tok=  26  pos= 426
-          SymbolicOp  '<'               op_LessThan         tok=  27  pos= 427
-                      ')'               KWRParen            tok=  28  pos= 428
-        :             ':'               OpColon             tok=  29  pos= 429
-        arg           'x'               Identifier          tok=  31  pos= 431
-        :             ':'               OpColon             tok=  32  pos= 432
+                      '('               KWLParen            tok=  22  pos= 289
+          SymbolicOp  '<'               op_LessThan         tok=  23  pos= 290
+                      ')'               KWRParen            tok=  24  pos= 291
+        :             ':'               OpColon             tok=  25  pos= 292
+        arg           'x'               Identifier          tok=  27  pos= 294
+        :             ':'               OpColon             tok=  28  pos= 295
         NamedType:
-          Ident       'int'             Identifier          tok=  34  pos= 434
-        ->            '->'              OpArrowRight        tok=  36  pos= 438
-        arg           'y'               Identifier          tok=  38  pos= 441
-        :             ':'               OpColon             tok=  39  pos= 442
+          Ident       'int'             Identifier          tok=  30  pos= 297
+        ->            '->'              OpArrowRight        tok=  32  pos= 301
+        arg           'y'               Identifier          tok=  34  pos= 304
+        :             ':'               OpColon             tok=  35  pos= 305
         NamedType:
-          Ident       'int'             Identifier          tok=  41  pos= 444
-        ->            '->'              OpArrowRight        tok=  43  pos= 448
+          Ident       'int'             Identifier          tok=  37  pos= 307
+        ->            '->'              OpArrowRight        tok=  39  pos= 311
         NamedType:
-          Ident       'bool'            Identifier          tok=  45  pos= 451
+          Ident       'bool'            Identifier          tok=  41  pos= 314
       Val:
-        val           'val'             KWVal               tok=  48  pos= 460
-        inline        'inline'          KWInline            tok=  50  pos= 464
+        val           'val'             KWVal               tok=  44  pos= 323
+        inline        'inline'          KWInline            tok=  46  pos= 327
         ParenOp:
-                      '('               KWLParen            tok=  52  pos= 471
-          SymbolicOp  '>'               op_GreaterThan      tok=  53  pos= 472
-                      ')'               KWRParen            tok=  54  pos= 473
-        :             ':'               OpColon             tok=  55  pos= 474
-        arg           'x'               Identifier          tok=  57  pos= 476
-        :             ':'               OpColon             tok=  58  pos= 477
+                      '('               KWLParen            tok=  48  pos= 334
+          SymbolicOp  '>'               op_GreaterThan      tok=  49  pos= 335
+                      ')'               KWRParen            tok=  50  pos= 336
+        :             ':'               OpColon             tok=  51  pos= 337
+        arg           'x'               Identifier          tok=  53  pos= 339
+        :             ':'               OpColon             tok=  54  pos= 340
         NamedType:
-          Ident       'int'             Identifier          tok=  60  pos= 479
-        ->            '->'              OpArrowRight        tok=  62  pos= 483
-        arg           'y'               Identifier          tok=  64  pos= 486
-        :             ':'               OpColon             tok=  65  pos= 487
+          Ident       'int'             Identifier          tok=  56  pos= 342
+        ->            '->'              OpArrowRight        tok=  58  pos= 346
+        arg           'y'               Identifier          tok=  60  pos= 349
+        :             ':'               OpColon             tok=  61  pos= 350
         NamedType:
-          Ident       'int'             Identifier          tok=  67  pos= 489
-        ->            '->'              OpArrowRight        tok=  69  pos= 493
+          Ident       'int'             Identifier          tok=  63  pos= 352
+        ->            '->'              OpArrowRight        tok=  65  pos= 356
         NamedType:
-          Ident       'bool'            Identifier          tok=  71  pos= 496
+          Ident       'bool'            Identifier          tok=  67  pos= 359
       Val:
-        val           'val'             KWVal               tok=  74  pos= 505
-        inline        'inline'          KWInline            tok=  76  pos= 509
+        val           'val'             KWVal               tok=  70  pos= 368
+        inline        'inline'          KWInline            tok=  72  pos= 372
         ParenOp:
-                      '('               KWLParen            tok=  78  pos= 516
-          SymbolicOp  '<='              op_LessThanOrEqual  tok=  79  pos= 517
-                      ')'               KWRParen            tok=  80  pos= 519
-        :             ':'               OpColon             tok=  81  pos= 520
-        arg           'x'               Identifier          tok=  83  pos= 522
-        :             ':'               OpColon             tok=  84  pos= 523
+                      '('               KWLParen            tok=  74  pos= 379
+          SymbolicOp  '<='              op_LessThanOrEqual  tok=  75  pos= 380
+                      ')'               KWRParen            tok=  76  pos= 382
+        :             ':'               OpColon             tok=  77  pos= 383
+        arg           'x'               Identifier          tok=  79  pos= 385
+        :             ':'               OpColon             tok=  80  pos= 386
         NamedType:
-          Ident       'int'             Identifier          tok=  86  pos= 525
-        ->            '->'              OpArrowRight        tok=  88  pos= 529
-        arg           'y'               Identifier          tok=  90  pos= 532
-        :             ':'               OpColon             tok=  91  pos= 533
+          Ident       'int'             Identifier          tok=  82  pos= 388
+        ->            '->'              OpArrowRight        tok=  84  pos= 392
+        arg           'y'               Identifier          tok=  86  pos= 395
+        :             ':'               OpColon             tok=  87  pos= 396
         NamedType:
-          Ident       'int'             Identifier          tok=  93  pos= 535
-        ->            '->'              OpArrowRight        tok=  95  pos= 539
+          Ident       'int'             Identifier          tok=  89  pos= 398
+        ->            '->'              OpArrowRight        tok=  91  pos= 402
         NamedType:
-          Ident       'bool'            Identifier          tok=  97  pos= 542
+          Ident       'bool'            Identifier          tok=  93  pos= 405
       Val:
-        val           'val'             KWVal               tok= 100  pos= 551
-        inline        'inline'          KWInline            tok= 102  pos= 555
+        val           'val'             KWVal               tok=  96  pos= 414
+        inline        'inline'          KWInline            tok=  98  pos= 418
         ParenOp:
-                      '('               KWLParen            tok= 104  pos= 562
-          SymbolicOp  '>='              op_GreaterThanOrEqual  tok= 105  pos= 563
-                      ')'               KWRParen            tok= 106  pos= 565
-        :             ':'               OpColon             tok= 107  pos= 566
-        arg           'x'               Identifier          tok= 109  pos= 568
-        :             ':'               OpColon             tok= 110  pos= 569
+                      '('               KWLParen            tok= 100  pos= 425
+          SymbolicOp  '>='              op_GreaterThanOrEqual  tok= 101  pos= 426
+                      ')'               KWRParen            tok= 102  pos= 428
+        :             ':'               OpColon             tok= 103  pos= 429
+        arg           'x'               Identifier          tok= 105  pos= 431
+        :             ':'               OpColon             tok= 106  pos= 432
         NamedType:
-          Ident       'int'             Identifier          tok= 112  pos= 571
-        ->            '->'              OpArrowRight        tok= 114  pos= 575
-        arg           'y'               Identifier          tok= 116  pos= 578
-        :             ':'               OpColon             tok= 117  pos= 579
+          Ident       'int'             Identifier          tok= 108  pos= 434
+        ->            '->'              OpArrowRight        tok= 110  pos= 438
+        arg           'y'               Identifier          tok= 112  pos= 441
+        :             ':'               OpColon             tok= 113  pos= 442
         NamedType:
-          Ident       'int'             Identifier          tok= 119  pos= 581
-        ->            '->'              OpArrowRight        tok= 121  pos= 585
+          Ident       'int'             Identifier          tok= 115  pos= 444
+        ->            '->'              OpArrowRight        tok= 117  pos= 448
         NamedType:
-          Ident       'bool'            Identifier          tok= 123  pos= 588
-    end               <virt>            KWEnd               tok=virt  pos= 593
+          Ident       'bool'            Identifier          tok= 119  pos= 451
+    end               <virt>            KWEnd               tok=virt  pos= 456

@@ -1,12 +1,8 @@
 namespace Vesper
 
-// Each width states its own operator surface — the arithmetic family (`+ - * / %` and the
-// identity `~+`), the bitwise family (`&&& ||| ^^^ ~~~ <<< >>>`), and `~-` at the signed
-// widths only (a negated unsigned value has no answer its own width can hold). The
-// list is the contract: an operand type that states no member does not support the
-// operator, which is what makes `1.0 &&& 2.0` an error rather than garbage IL. The bodies
-// are the target's own, in the paired `.fs` — a member on an intrinsic is spliced at the
-// use site, never emitted. The shift amount is `int` at every width.
+// Each width states its own operator surface, and that list IS the contract: an operand
+// type that states no member does not support the operator. The bodies are the target's
+// own, in the paired `.fs` — spliced at the use site, never emitted.
 
 /// <summary>An abbreviation for the CLI type <see cref="T:System.SByte"/>.</summary>
 ///

@@ -3,15 +3,8 @@ namespace Vesper
 #nowarn "42"
 
 // The arithmetic mnemonics compute on the int32 evaluation stack, so every sub-int32
-// width truncates its result back through a `conv.*` — without it `200uy + 100uy`
-// answers 300 rather than wrapping to 44uy. Division splits by sign: `div`/`rem` at the
-// signed widths, `div.un`/`rem.un` at the unsigned. Negation exists only where the width
-// can hold the answer, which is the signed widths alone.
-//
-// The bitwise mnemonics, by contrast, ARE width-agnostic: `and`/`or`/`xor` of two
-// in-range operands stays in range, and `not` on a sub-int32 width keeps the meaningful
-// low bits — so none of them needs a `conv.*` back. Right shift is their one split:
-// `shr` sign-extends, `shr.un` zero-fills.
+// width truncates its result back through a `conv.*` — without it `200uy + 100uy` answers
+// 300 rather than wrapping to 44uy. The bitwise mnemonics stay in range and need none.
 
 type sbyte =
     (# "System.SByte" #)

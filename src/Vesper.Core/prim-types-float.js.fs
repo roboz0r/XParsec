@@ -2,10 +2,9 @@ namespace Vesper
 
 #nowarn "42"
 
-// `float` IS the JS number, so its arithmetic is the bare JS operator — no mask, and no
-// `checkedDivisor`: `1.0 / 0.0` is `Infinity`, which is IEEE's answer and F#'s.
-// `float32` is a narrower width JS does not have, so every result rounds back through
-// `Math.fround`.
+// `float` IS the JS number, so its arithmetic is the bare operator — no mask, and no
+// `checkedDivisor`: `1.0 / 0.0` is `Infinity`, which is IEEE's answer and F#'s. `float32`
+// is a narrower width JS does not have, so every result rounds back through `Math.fround`.
 
 type float32 =
     (# "number" #)

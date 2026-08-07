@@ -5,14 +5,6 @@ open System.Collections.Generic
 [<AutoOpen>]
 module ArithmeticOperators =
 
-    // Each is the bare trait call, as the bitwise family below is. WHICH operand types
-    // support the operator, and the IL each one lowers to, are stated on the primitives
-    // themselves (`prim-types-*.fs`), so there is no clause list here that could drift
-    // from that one.
-    //
-    // The three typars are the `.fsi`'s (`(^T1 or ^T2)` support set), so a heterogeneous
-    // user operator keeps its operand types distinct through the splice.
-
     let inline (+) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
 
     let inline (-) (x: ^T1) (y: ^T2) : ^T3 = ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
@@ -45,8 +37,7 @@ module BitwiseOperators =
 [<AutoOpen>]
 module EqualityOperators =
 
-    /// Structural equality. Primitive operands lower to `ceq`; aggregates use
-    /// `EqualityComparer<^T>.Default.Equals` (same comparer as `hash`).
+    /// The aggregate base and `hash` share one comparer, so equal values hash equal.
     let inline (=) (x: ^T) (y: ^T) : bool =
         EqualityComparer< ^T >.Default.Equals(x, y)
         when ^T: int = (# "ceq" x y : bool #)
@@ -57,7 +48,6 @@ module EqualityOperators =
         when ^T: char = (# "ceq" x y : bool #)
         when ^T: byte = (# "ceq" x y : bool #)
 
-    /// Structural inequality. Each form negates a `ceq` via `ceq(b, false)`.
     let inline (<>) (x: ^T) (y: ^T) : bool =
         (# "ceq" (EqualityComparer< ^T >.Default.Equals(x, y)) false : bool #)
         when ^T: int = (# "ceq" (# "ceq" x y : bool #) false : bool #)
@@ -71,24 +61,20 @@ module EqualityOperators =
 [<AutoOpen>]
 module Operators =
 
-    /// Generate a hash value. Rides `EqualityComparer<'T>`, so `hash` and `=` agree.
     let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj
 
-    /// Boolean negation via `ceq(value, false)` — same shape as the `(<>)` base.
     let inline not (value: bool) : bool = (# "ceq" value false : bool #)
 
-    /// Ignore the passed value.
     let inline ignore (value: 'T) : unit = ()
 
-    /// Test whether a reference value is `null`. Lowers to `ceq(value, null)`.
     let inline isNull (value: 'T when 'T: null) : bool = (# "ceq" value null : bool #)
 
-    /// Box a value to `obj`. The `!0` placeholder encodes the element type;
-    /// codegen emits `box <T>` from the argument's static type.
+    /// `!0` is the element-type placeholder; codegen emits `box <T>` from the
+    /// argument's static type.
     let inline box (value: 'T) : obj = (# "box !0" type ('T) value : obj #)
 
-    /// Convert a value to `uint32`. A same-width `int32`→`uint32` is `(# "" … #)`
-    /// (sign-only reinterpret, stack no-op per ECMA-335 III §1.5).
+    /// A same-width `int32`→`uint32` is `(# "" … #)` — a sign-only reinterpret, a stack
+    /// no-op per ECMA-335 III §1.5.
     let inline uint32 (value: ^T) : uint32 =
         (# "conv.u4" value : uint32 #)
         when ^T: int32 = (# "" value : uint32 #)
@@ -100,11 +86,10 @@ module Operators =
         when ^T: char = (# "conv.u4" value : uint32 #)
         when ^T: byte = (# "conv.u4" value : uint32 #)
 
-    /// `uint` abbreviation of `uint32`.
     let inline uint (value: ^T) : uint32 = uint32 value
 
-    /// Convert a value to `int32`. A same-width `uint32`→`int32` is `(# "" … #)`
-    /// (sign-only reinterpret, stack no-op per ECMA-335 III §1.5).
+    /// A same-width `uint32`→`int32` is `(# "" … #)` — a sign-only reinterpret, a stack
+    /// no-op per ECMA-335 III §1.5.
     let inline int32 (value: ^T) : int32 =
         (# "conv.i4" value : int32 #)
         when ^T: int32 = (# "" value : int32 #)
@@ -116,73 +101,54 @@ module Operators =
         when ^T: char = (# "conv.i4" value : int32 #)
         when ^T: byte = (# "conv.i4" value : int32 #)
 
-    /// `int` abbreviation of `int32`.
     let inline int (value: ^T) : int = int32 value
 
-    /// Widen an `int32` to arbitrary precision. No mnemonic: `BigInteger` is not a CIL
-    /// primitive, so the widening is a BCL call. `op_Implicit` and not a non-special-name
-    /// sibling — unlike the arithmetic operators, the BCL offers none for the widening.
+    /// `BigInteger` is not a CIL primitive, so the widening is a BCL call — `op_Implicit`,
+    /// since the BCL offers no non-special-name sibling for it.
     let inline bigint (value: int32) : bigint = System.Numerics.BigInteger.op_Implicit(value)
 
-    /// Indexed array read — desugaring target for `arr.[i]`.
-    /// The `ldelem.any` mnemonic lives in this per-target file.
+    /// The desugaring target for `arr.[i]`.
     let inline GetArray (array: 'T[]) (index: int) : 'T = (# "ldelem.any !0" type ('T) array index : 'T #)
 
-    /// Indexed array write — desugaring target for `arr.[i] <- value`.
-    /// The `stelem.any` mnemonic lives in this per-target file.
+    /// The desugaring target for `arr.[i] <- value`.
     let inline SetArray (array: 'T[]) (index: int) (value: 'T) : unit =
         (# "stelem.any !0" type ('T) array index value : unit #)
 
-    /// Array length — desugaring target for `arr.Length`. `ldlen` + `conv.i4`.
+    /// The desugaring target for `arr.Length`.
     let inline GetArrayLength (array: 'T[]) : int = (# "ldlen" array : int #)
 
-    /// Raise the given exception. The `'TException :> exn` bound is enforced at
-    /// each call site; `throw` terminates the path and the typar is not emitted.
+    /// `throw` terminates the path, so the `'T` result is never realised.
     let inline raise (e: 'TException) : 'T = (# "throw" e : 'T #)
 
-    /// Raise a `System.Exception` with the given message.
-    /// The explicit `new` keyword is required: bare `System.Exception(msg)` is parsed
-    /// as `Expr.App`; `new` routes through `Expr.New` → `inferNew`.
+    /// The explicit `new` is required: bare `System.Exception(msg)` parses as an
+    /// application, not a construction.
     let inline failwith (message: string) : 'T = raise (new System.Exception(message))
 
-    /// Raise a `System.ArgumentException` naming the offending argument.
-    /// Argument order follows FSharp.Core: name first, message second;
-    /// the BCL ctor takes `(message, paramName)`.
+    /// Argument order follows FSharp.Core — name first, message second — while the BCL
+    /// ctor takes `(message, paramName)`.
     let inline invalidArg (argumentName: string) (message: string) : 'T =
         raise (new System.ArgumentException(message, argumentName))
 
-/// String indexing intrinsics — see `ops-platform.fsi`.
 [<AutoOpen>]
 module StringIntrinsics =
 
-    /// String indexing. On CLR the front end never routes here (the BCL
-    /// `get_Chars` path wins whenever it resolves), so this body exists only to
-    /// satisfy the contract; its `s.[i]` resolves to `get_Chars`, NOT recursively
-    /// to GetString (the front end prefers `get_Chars` over this intrinsic).
+    /// Contract-only here: `s.[i]` resolves to the BCL `get_Chars`, which the front end
+    /// prefers over this intrinsic — so the body is not recursive.
     let inline GetString (s: string) (index: int) : char = s.[index]
 
-/// Index-signature intrinsics — see `ops-platform.fsi`.
 [<AutoOpen>]
 module IndexIntrinsics =
 
-    /// Indexed read of an index-signature object. These desugar `x.[k]` / `x.[k] <- v`
-    /// on a receiver whose EXTERNAL (TS) type carries an index signature — a JS-target
-    /// concept with no CLR analog (a `.NET` indexer resolves via `get_Item`/`set_Item`
-    /// metadata), so like the JS-only `GetString` path the CLR body exists ONLY to
-    /// satisfy the contract and is never routed to on CLR.
+    /// Contract-only here: a .NET indexer resolves through `get_Item`/`set_Item`
+    /// metadata, so `x.[k]` never routes to this body.
     let inline GetIndex (target: 'T) (key: 'K) : 'V = failwith "GetIndex is a JS-target intrinsic"
 
-    /// Indexed write of an index-signature object — the `SetIndex` sibling of `GetIndex`
-    /// (contract-only on CLR, see `GetIndex`).
     let inline SetIndex (target: 'T) (key: 'K) (value: 'V) : unit =
         failwith "SetIndex is a JS-target intrinsic"
 
-/// The default-value primitive — see `ops-platform.fsi`.
 module Unchecked =
 
-    /// `defaultof` — a nullary value whose body is the zero-operand `ilzero` intrinsic, spliced
-    /// at each `Unchecked.defaultof` reference. The CLR backend lowers `ilzero` to a
-    /// zeroed scratch local (`ldloca; initobj; ldloc`): null for a reference type, all-zeroes for
-    /// a value type. The `type ('T)` clause matches the F# idiom; the backend recovers the type
-    /// from the result.
+    /// The zero-operand `ilzero` intrinsic, spliced at each reference: the CLR backend
+    /// lowers it to a zeroed scratch local (`ldloca; initobj; ldloc`) — null for a
+    /// reference type, all-zeroes for a value type.
     let inline defaultof<'T> : 'T = (# "ilzero" type ('T) : 'T #)

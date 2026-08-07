@@ -1,33 +1,24 @@
 namespace Vesper
 
-/// <summary>Unsafe FFI escape hatches. Deliberately NOT <c>[&lt;AutoOpen&gt;]</c>:
-/// reaching in takes an explicit <c>open Vesper.Unsafe</c> (or a qualified
-/// <c>Unsafe.retype</c>), so the unchecked cast is never ambiently in scope — the
-/// <c>open</c> is the marker. The disciplined <c>dynamic</c>/<c>?</c> surface
-/// (auto-opened below) is the common path; drop to <c>Unsafe</c> only for raw
-/// interop.</summary>
+/// <summary>Unsafe FFI escape hatches. Deliberately NOT <c>[&lt;AutoOpen&gt;]</c>: an
+/// explicit <c>open Vesper.Unsafe</c> is the marker that a cast here is unchecked.</summary>
 module Unsafe =
 
-    /// <summary>The general erasing reinterpret — emits its operand unchanged and
-    /// re-types it <c>^U</c> (the <c>: ^U</c> annotation is the reinterpret target).
-    /// Inherently unsafe (no runtime check); the escape valve, not the common
-    /// path. Whole-value exit from <c>dynamic</c> is <c>Unsafe.retype d : 'T</c>.</summary>
+    /// <summary>The general erasing reinterpret — emits its operand unchanged and re-types
+    /// it <c>^U</c>, with no runtime check. Whole-value exit from <c>dynamic</c> is
+    /// <c>Unsafe.retype d : 'T</c>.</summary>
     val inline retype: x: ^T -> ^U
 
 [<AutoOpen>]
 module DynamicOperators =
 
-    /// <summary>Enter <c>dynamic</c> — the same JS value, retyped to <c>dynamic</c>.
-    /// Shares the type's name (as <c>int</c>/<c>string</c>/<c>box</c> do). A value
-    /// never flows into <c>dynamic</c> silently; you write <c>dynamic x</c>.</summary>
+    /// <summary>Enter <c>dynamic</c> — the same JS value, retyped. A value never flows
+    /// into <c>dynamic</c> silently; you write <c>dynamic x</c>.</summary>
     val inline dynamic: value: ^T -> dynamic
 
-    /// <summary>Dynamic member access on a <c>dynamic</c> receiver — <c>x?foo</c>
-    /// (F# spec 6.4.5). Emits the computed member read <c>x["foo"]</c>. Target-typed:
-    /// <c>^TResult</c> defaults to <c>dynamic</c> when the context does not pin it, so
-    /// <c>x?a?b</c> chains stay dynamic; a pinned context unifies it first and the
-    /// default never fires — the principled, checked-by-you escape back to
-    /// static.</summary>
+    /// <summary>Dynamic member access — <c>x?foo</c> (F# spec 6.4.5) emits the computed
+    /// member read <c>x["foo"]</c>. Target-typed: <c>^TResult</c> defaults to
+    /// <c>dynamic</c>, so <c>x?a?b</c> stays dynamic unless the context pins it.</summary>
     val inline (?): target: dynamic -> name: string -> ^TResult when default ^TResult: dynamic
 
     /// <summary>Dynamic member set on a <c>dynamic</c> receiver — <c>x?foo &lt;- v</c>.

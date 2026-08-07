@@ -2,31 +2,9 @@ namespace Vesper
 
 #nowarn "42"
 
-// One mask per width, applied to whichever JS operator computes the operation: `& 0xFF`
-// byte, `<< 24 >> 24` sbyte, `& 0xFFFF` uint16, `<< 16 >> 16` int16, `>>> 0` uint32,
-// `BigInt.asIntN/asUintN(64, …)` the 64-bit pair. JS has one number type, so the mask IS
-// the width — `10uy - 20uy` is -10 on the wire and 246 after it.
-//
-// Three things the mask alone does not settle:
-//
-// MULTIPLICATION at 32 bits takes `Math.imul`, which computes the product mod 2^32
-// directly. A masked `$0 * $1` cannot: a full 32×32 product reaches ~2^64 and loses its
-// low bits — the ones the mask keeps — past 2^53. The narrow widths need no such care;
-// their products are exact as doubles. The 32-bit bit pattern is the same signed or
-// unsigned, so uint32 differs only in reading it back through `>>> 0`.
-//
-// DIVISION is true division in JS (`10uy / 3uy` is 3.333…, and the fraction survives into
-// the next operation, where no report-site `int (…)` can launder it). Each integral mask
-// is a bitwise coercion, and those truncate toward zero — F#'s rule. A zero divisor would
-// give `Infinity`, and `Infinity | 0` is a silent 0, so every integral divisor passes
-// through `checkedDivisor`: it throws, returns its argument so the mask still wraps it,
-// and reads the operand once.
-//
-// The BITWISE family below needs a mask only where the operator can leave the width. JS
-// `&`/`|`/`^` coerce to int32 and stay in range; `~` and `<<` do leave it, and at the
-// unsigned widths so does the sign (`~5uy` is -6 on the wire and 250 after the mask).
-// Right shift takes the zero-filling `>>>` at the unsigned widths and the sign-extending
-// `>>` at the signed ones, mirroring CIL `shr.un`/`shr`.
+// JS has one number type, so the trailing mask IS the width: `10uy - 20uy` is -10 on the
+// wire and 246 after `& 0xFF`. A bitwise member carries a mask only where the operator can
+// leave the width — `~5uy` is -6 before `& 0xFF` and 250 after.
 
 type sbyte =
     (# "number" #)
@@ -35,6 +13,9 @@ type sbyte =
         static member inline (-)(x: sbyte, y: sbyte) : sbyte = (# "($0 - $1) << 24 >> 24" x y : sbyte #)
         static member inline ( * )(x: sbyte, y: sbyte) : sbyte = (# "($0 * $1) << 24 >> 24" x y : sbyte #)
 
+        // JS `/` is true division (`10y / 3y` is 3.333…); the mask is a bitwise coercion
+        // and so truncates toward zero, F#'s rule. `checkedDivisor` throws on 0, where JS
+        // would answer `Infinity` and `Infinity << 24 >> 24` a silent 0.
         static member inline (/)(x: sbyte, y: sbyte) : sbyte =
             (# "($0 / $1) << 24 >> 24" x (checkedDivisor y) : sbyte #)
 
@@ -118,6 +99,8 @@ type uint32 =
     with
         static member inline (+)(x: uint32, y: uint32) : uint32 = (# "($0 + $1) >>> 0" x y : uint32 #)
         static member inline (-)(x: uint32, y: uint32) : uint32 = (# "($0 - $1) >>> 0" x y : uint32 #)
+        // `Math.imul` is the product mod 2^32 directly; a masked `$0 * $1` reaches ~2^64
+        // and loses the low bits the mask keeps, past 2^53.
         static member inline ( * )(x: uint32, y: uint32) : uint32 = (# "Math.imul($0, $1) >>> 0" x y : uint32 #)
         static member inline (/)(x: uint32, y: uint32) : uint32 = (# "($0 / $1) >>> 0" x (checkedDivisor y) : uint32 #)
         static member inline (%)(x: uint32, y: uint32) : uint32 = (# "($0 % $1) >>> 0" x (checkedDivisor y) : uint32 #)
