@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
-open NameResolutionTypeHeadStamp
+open NameResolutionTypeRefStamp
 open NameResolutionScope
 open NameResolutionTypeRegistration
 open NameResolutionMemberRegistration

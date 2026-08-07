@@ -4,7 +4,7 @@ open System.Collections.Immutable
 open XParsec.FSharp
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
-open NameResolutionTypeHeadStamp
+open NameResolutionTypeRefStamp
 
 // Scope tracking and ident-use resolution for NameResolution. Every
 // spelling→identity result is stamped into a `ctx.Resolution` side table keyed by

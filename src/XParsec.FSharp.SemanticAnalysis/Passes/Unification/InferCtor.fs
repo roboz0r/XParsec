@@ -101,17 +101,17 @@ module internal UnificationInferCtor =
         // A heritable primitive typed by its canon (`new exn "boom"`).
         | TyConst(canonKey, tyArgs) ->
             // A written PLATFORM spelling (`new System.Exception(msg, inner)`) canonicalizes to
-            // the same `TyConst`, but its head still names the metadata class — the opt-in to
-            // the wider ctor catalogue. Read the head's `ResolvedTypeHead` stamp, confirm CLASS.
+            // the same `TyConst`, but the reference still names the metadata class — the opt-in
+            // to the wider ctor catalogue. Read its external verdict, confirm CLASS.
             let stampedClassKey =
-                match CstKeys.ofTypeHead t with
-                | ValueSome head ->
-                    match ctx.Resolution.ResolvedTypeHead.TryGetValue head.Site.Key with
-                    | ValueSome symKey ->
+                match CstKeys.ofTypeRef t with
+                | ValueSome typeRef ->
+                    match ctx.Resolution.TypeRefVerdicts.TryGetValue typeRef.Site.Key with
+                    | ValueSome(TypeRefVerdict.ExternalType symKey) ->
                         match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
                         | ValueSome(ExternalTypeShape.Class _) -> ValueSome symKey
                         | _ -> ValueNone
-                    | ValueNone -> ValueNone
+                    | _ -> ValueNone
                 | ValueNone -> ValueNone
 
             match stampedClassKey with

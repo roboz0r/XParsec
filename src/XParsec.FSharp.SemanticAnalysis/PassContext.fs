@@ -87,6 +87,18 @@ type LocalModuleMember =
         VisibleFrom: int
     }
 
+/// What a written type name resolves to, as NameResolution's classifying walk found it. Recorded
+/// at every type reference the walk visits, so ABSENT means unvisited, not "resolved to nothing".
+[<Struct; RequireQualifiedAccess>]
+type TypeRefVerdict =
+    /// A type declared in this file is in scope at the use site; its identity comes from the
+    /// type registry, not from here.
+    | LocalType
+    /// Resolved to this key, at the type-arg arity written at the use site.
+    | ExternalType of key: TypeKey
+    /// Nothing in scope at the use site, and no external type of that spelling.
+    | UnknownType
+
 type PassContextResolution =
     {
         /// The prefixes active at the module element being analysed — constant inside any one
@@ -147,9 +159,8 @@ type PassContextResolution =
         /// Keyed by a type-naming node: a type-declaration site, a union / enum type
         /// annotation, or an expression-position type name (a static prefix, a ctor head).
         ResolvedType: SideTable<TypeKey>
-        /// Keyed by a written type-annotation HEAD (anchored on `li.Idents.[0]`): the EXTERNAL
-        /// key it resolves to at the syntactic type-arg arity.
-        ResolvedTypeHead: SideTable<TypeKey>
+        /// Keyed by a written type reference, anchored on `li.Idents.[0]`.
+        TypeRefVerdicts: SideTable<TypeRefVerdict>
         /// A static-access receiver's external type key: the PREFIX of a folded `Expr.LongIdent`
         /// (`System.Console` in `System.Console.Out`), or a generic `Expr.TypeApp` head.
         ExternalStaticReceiver: SideTable<SymbolKey>
@@ -188,7 +199,7 @@ module PassContextResolution =
             UseDispose = SideTable<_>()
             ForInShape = SideTable<_>()
             ResolvedType = SideTable<_>()
-            ResolvedTypeHead = SideTable<_>()
+            TypeRefVerdicts = SideTable<_>()
             ExternalStaticReceiver = SideTable<_>()
             ExternalUnionRecordQualifier = SideTable<_>()
             LocalModules = Dictionary<_, _>()
@@ -432,7 +443,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     /// stays silent for these — its message blames a missing package, not a spelling mistake.
     member val UndefinedTypeNames = HashSet<string>() with get
 
-    /// Written type heads already blamed, so a head two passes both reach is blamed once.
+    /// Written type names already blamed, so one two passes both reach is blamed once.
     member val private undefinedTypeSites = HashSet<Site>() with get
 
     /// Which cons-list an unpinned `[]`/`::` defaults to: `false` keeps FSharp.Core's `list`,
@@ -534,7 +545,7 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member this.Report(site: Site, kind: Kind) =
         this.Diagnostics.Add(Diagnostic.create kind site [])
 
-    /// Blame the written type head at `site`: `name` names no type, here or outside. `site` is
+    /// Blame the written type name at `site`: `name` names no type, here or outside. `site` is
     /// what once-per-head counts over, so a parser-inserted head widens it to the decl's span.
     member this.UndefinedType(site: Site, name: string) =
         this.UndefinedTypeNames.Add name |> ignore

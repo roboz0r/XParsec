@@ -94,7 +94,7 @@
     <Compile Include="PassContext.fs" />
     <Compile Include="StringLiterals.fs" />
     <Compile Include="Passes\Desugar.fs" />
-    <Compile Include="Passes\NameResolution\TypeHeadStamp.fs" />
+    <Compile Include="Passes\NameResolution\TypeRefStamp.fs" />
     <!-- After the head-resolution engine: an attribute is decoded by RESOLVING its
          long-ident as a type, not by matching its short name. -->
     <Compile Include="Passes\Attributes.fs" />

@@ -424,12 +424,17 @@ A `Dictionary` with an add/remove pair straddling `walkAt` (`reduceClassified`, 
 walk throws between them the entry leaks; nothing scopes it. An env threaded through `Descent`
 removes both the leak and the "stack-disciplined add and remove" prose.
 
-### `Passes/Unification/Translate.fs:48` — `unresolvedHeadTy` re-derives a verdict that already exists
+### `Passes/Unification/Translate.fs:506` — the measure carrier is the last by-name reach
 
-Its stamped/unstamped fork comes from a bare `ResolvedTypeHead.ContainsKey` probe, and explaining
-that re-derivation is what the 16-line essay here was for. `TypeHeadStamp.fs:139-143` already
-carries a `TypeHeadVerdict` DU (`LocalType | ExternalType | UnknownType`); threading the verdict
-to the translate side instead of re-inferring it from stamp presence deletes the comment.
+`tryResolveExternalType` resolves `float` / `int` by name for a `float<m>` carrier, because
+`classifyTypeHead` recorded that head at its SYNTACTIC arity of 1 and the carrier is wanted at
+arity 0. `TypeRegistration.fs:365-367` already recognises the shape (`isMeasuredCarrier` skips
+the head so `float<kg>` does not blame `kg`), so the classifying walk knows it is looking at a
+carrier and could record the arity-0 verdict there instead of skipping the node.
+
+That is what would leave `ctx.Resolver` read only by NameResolution — the enforcement the
+deleted `ResolverAllowlistTests` was standing in for, since the handle could then be a parameter
+rather than a `PassContext` member. Worth doing for that reason, not for the lookup it saves.
 
 ### `Passes/Unification/Translate.fs:118` — the key-minting invariant is written three times
 

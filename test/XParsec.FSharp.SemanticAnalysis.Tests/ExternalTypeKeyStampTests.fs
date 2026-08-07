@@ -42,6 +42,11 @@ let private analyse (input: string) = analyseNameRes provider input
 let private isStamped (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
     ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)
 
+let private isExternalHead (ctx: PassContext) (headKey: NodeKey) : bool =
+    match ctx.Resolution.TypeRefVerdicts.TryGetValue headKey with
+    | ValueSome(TypeRefVerdict.ExternalType _) -> true
+    | _ -> false
+
 let private isStaticReceiver (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
     ctx.Resolution.ExternalStaticReceiver.ContainsKey(CstKeys.ofExpr e)
 
@@ -90,9 +95,9 @@ let tests =
             }
 
             // The `new T(…)` head: the written type `t` is a `Type` node, so its head
-            // carries the general `ResolvedTypeHead` stamp (written by
+            // carries the general type-head verdict (written by
             // `stampExprEmbeddedTypes`' `Expr.New` arm) — no dedicated `new`-head
-            // table. `inferNew`'s `TyConst` arm reads the head stamp and confirms the
+            // table. `inferNew`'s `TyConst` arm reads that verdict and confirms the
             // CLASS shape by key instead of re-resolving the written spelling through
             // opens at inference time (the written-platform-class ctor opt-in).
             test "new-head external class is stamped" {
@@ -100,12 +105,10 @@ let tests =
 
                 let headKey =
                     match firstBindingExpr file with
-                    | Expr.New(typ = t) -> (CstKeys.ofTypeHead t).Value.Site.Key
+                    | Expr.New(typ = t) -> (CstKeys.ofTypeRef t).Value.Site.Key
                     | other -> failwithf "expected Expr.New, got %A" other
 
-                Expect.isTrue
-                    (ctx.Resolution.ResolvedTypeHead.ContainsKey headKey)
-                    "new Widget(...) head type key stamped"
+                Expect.isTrue (isExternalHead ctx headKey) "new Widget(...) head type key stamped"
             }
 
             // A `new` head the provider does not know as a class is not stamped —
@@ -116,10 +119,10 @@ let tests =
 
                 let headKey =
                     match firstBindingExpr file with
-                    | Expr.New(typ = t) -> (CstKeys.ofTypeHead t).Value.Site.Key
+                    | Expr.New(typ = t) -> (CstKeys.ofTypeRef t).Value.Site.Key
                     | other -> failwithf "expected Expr.New, got %A" other
 
-                Expect.isFalse (ctx.Resolution.ResolvedTypeHead.ContainsKey headKey) "unknown new head is not stamped"
+                Expect.isFalse (isExternalHead ctx headKey) "unknown new head is not stamped"
             }
 
             // A head the provider does not know is not stamped — the consumer then

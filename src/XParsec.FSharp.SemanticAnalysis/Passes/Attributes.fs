@@ -110,7 +110,7 @@ module Attributes =
 
     /// No first-wins short-circuit, so a contradictory mix stays visible to the FS0377 check.
     let private presentAttrs
-        (a: NameResolutionTypeHeadStamp.ResolvedAttributes)
+        (a: NameResolutionTypeRefStamp.ResolvedAttributes)
         (rows: EqCompAttr<'Verdict> list)
         : EqCompAttr<'Verdict> list =
         rows |> List.filter (fun r -> a.Has r.Key)
@@ -127,7 +127,7 @@ module Attributes =
         (declTok: SyntaxToken)
         (attrs: Attributes<SyntaxToken> voption)
         : EqualityVerdict voption * ComparisonVerdict voption =
-        let a = NameResolutionTypeHeadStamp.resolveAttributes ctx attrs
+        let a = NameResolutionTypeRefStamp.resolveAttributes ctx attrs
         let eq = presentAttrs a equalityAttrs
         let cmp = presentAttrs a comparisonAttrs
 
@@ -154,7 +154,7 @@ module Attributes =
         firstVerdict eq, firstVerdict cmp
 
     let private mergeParamAttrSets (ctx: PassContext) (acc: ParamAttrs) (sets: Attributes<SyntaxToken>) : ParamAttrs =
-        let a = NameResolutionTypeHeadStamp.resolveAttributes ctx (ValueSome sets)
+        let a = NameResolutionTypeRefStamp.resolveAttributes ctx (ValueSome sets)
 
         if a.Has RuntimeNames.callAtMostOnceAttributeKey then
             { acc with CallAtMostOnce = true }
@@ -194,7 +194,7 @@ module Attributes =
         (valT: TExpr)
         : unit =
         let isGlobal =
-            (NameResolutionTypeHeadStamp.resolveAttributes ctx b.attributes).Has RuntimeNames.globalAttributeKey
+            (NameResolutionTypeRefStamp.resolveAttributes ctx b.attributes).Has RuntimeNames.globalAttributeKey
 
         let site = (CstKeys.siteOfBinding b).Tok
 

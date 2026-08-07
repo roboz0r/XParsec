@@ -41,15 +41,15 @@ module internal UnificationTranslate =
         ctx.Report(tok, kind)
         TyVar(freshTyVar ctx)
 
-    /// The tail of a WRITTEN head no claim of this file holds and no external shape built.
-    /// Stamped, the spelling DOES name an external type whose structure is missing — keep
-    /// `residue`. Unstamped, nothing resolved it: report it undefined and yield `TyUnknown`.
-    let private unresolvedHeadTy (ctx: PassContext) (head: NodeSite) (name: string) (residue: SemType) : SemType =
-        if ctx.Resolution.ResolvedTypeHead.ContainsKey head.Key then
-            residue
-        else
-            // Blamed at the head token alone — the written long-ident span is not in hand here.
-            ctx.UndefinedType(Site.ofToken head.Tok, name)
+    /// The tail of a WRITTEN reference no claim of this file holds and no external shape built.
+    /// An EXTERNAL verdict means the spelling DOES name a type whose structure is missing —
+    /// keep `residue`. Otherwise nothing resolved it: report undefined and yield `TyUnknown`.
+    let private unresolvedRefTy (ctx: PassContext) (site: NodeSite) (name: string) (residue: SemType) : SemType =
+        match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
+        | ValueSome(TypeRefVerdict.ExternalType _) -> residue
+        | _ ->
+            // Blamed at the name's first token alone — the long-ident span is not in hand here.
+            ctx.UndefinedType(Site.ofToken site.Tok, name)
             TyUnknown name
 
     /// Qualified measure names (`Microsoft.FSharp.SI.kg`) and measure typars (`'u`) yield an
@@ -82,11 +82,11 @@ module internal UnificationTranslate =
             MeasureTerm.empty
 
     /// Built-in numeric names that can carry a measure (`float<m>`, `int<kg>`). A
-    /// `carrier<arg>` ARGUMENT is a measure atom, never a type head, so a walk that diagnoses
-    /// unknown heads must stop at the same carriers, else `float<kg>` blames `kg`.
+    /// `carrier<arg>` ARGUMENT is a measure atom, never a type reference, so a walk that
+    /// diagnoses unknown names must stop at the same carriers, else `float<kg>` blames `kg`.
     ///
-    /// A NAME test, necessarily: the head is recognised before it resolves to anything, so an
-    /// alias spelling (`single`, `double`) reaches here as itself.
+    /// A NAME test, necessarily: the carrier is recognised before it resolves to anything, so
+    /// an alias spelling (`single`, `double`) reaches here as itself.
     let isNumericCarrier (name: string) : bool =
         RuntimeNames.numericTypeNames.Contains name
 
@@ -101,45 +101,35 @@ module internal UnificationTranslate =
         | true, (canon :: _) -> TyConst(canon, args)
         | _ -> TyClass(key, args)
 
-    /// DEBUG-only, for a DOTTED head neither the store view nor a local claim answered: an
-    /// UNSTAMPED head must also be unresolvable by name (else the user is blamed for a good
-    /// `System.IO.TextWriter`), and a STAMPED one must be servable by key.
-    let private assertNoDottedStampGap
-        (ctx: PassContext)
-        (nodeKey: NodeKey)
-        (li: LongIdent<SyntaxToken>)
-        (arity: int)
-        : unit =
+    /// DEBUG-only, for a DOTTED name neither the store view nor a local claim answered: every
+    /// written reference carries a verdict, so NO verdict is a stamping walk that missed this
+    /// syntax position — and an EXTERNAL verdict's key must be servable by the store view.
+    let private assertNoDottedStampGap (ctx: PassContext) (nodeKey: NodeKey) (li: LongIdent<SyntaxToken>) : unit =
 #if DEBUG
         if li.Idents.Length > 1 then
             let name = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-            match ctx.Resolution.ResolvedTypeHead.TryGetValue nodeKey with
+            match ctx.Resolution.TypeRefVerdicts.TryGetValue nodeKey with
             | ValueNone ->
-                match NameResolutionTypeHeadStamp.tryResolveExternalTypeKey ctx name arity with
-                | ValueSome key ->
-                    failwithf
-                        "NameResolution stamping gap: dotted type head '%s' (arity %d) resolves externally to %s but carries no ResolvedTypeHead stamp — a stamping walk missed this syntax position"
-                        name
-                        arity
-                        (SymbolKeyOps.typeMetaName key)
-                | ValueNone -> ()
-            | ValueSome stamped ->
+                failwithf
+                    "NameResolution stamping gap: dotted type reference '%s' carries no verdict — a stamping walk missed this syntax position"
+                    name
+            | ValueSome(TypeRefVerdict.ExternalType stamped) ->
                 match ctx.Provider.TryLookupType(SymbolKey.Type stamped) with
                 | ValueNone ->
                     failwithf
-                        "External identity round-trip broken: dotted type head '%s' (arity %d) is stamped %s, but the store view cannot serve that key — NameResolution's mint and the store disagree"
+                        "External identity round-trip broken: dotted type reference '%s' resolved to %s, but the store view cannot serve that key — NameResolution's mint and the store disagree"
                         name
-                        arity
                         (SymbolKeyOps.typeMetaName stamped)
                 // Served, but the shape declined to build (an `Opaque` residue, or an arity
                 // the shape does not carry) — the `TyVar` fallback is by design.
                 | ValueSome _ -> ()
+            | ValueSome TypeRefVerdict.LocalType
+            | ValueSome TypeRefVerdict.UnknownType -> ()
 #else
         ignore ctx
         ignore nodeKey
         ignore li
-        ignore arity
 #endif
 
     /// Resolves `'a` through `ctx.Resolution.TyparScope`; callers open a fresh scope per
@@ -186,22 +176,22 @@ module internal UnificationTranslate =
             ctx.MarkInferenceHole tv
             TyVar tv
         | Type.NamedType li when li.Idents.Length = 1 ->
-            // Bare single-segment name. A STAMP means external — only a head no local claim
-            // held where it was written gets one — so it OUTRANKS the registry: a head above a
-            // same-named local declaration stays external. Unstamped ⇒ local, or nothing.
-            let head = CstKeys.typeHeadSite t
+            // Bare single-segment name. An EXTERNAL verdict outranks the registry, since only a
+            // reference no local claim held where it was written gets one: one written above a
+            // same-named local declaration stays external. Any other verdict ⇒ local, or nothing.
+            let site = CstKeys.typeRefSite t
 
-            match tryResolveExternalTypeStamped ctx head.Key EqArray.empty with
+            match tryResolveExternalTypeStamped ctx site.Key EqArray.empty with
             | ValueSome ty -> ty
             | ValueNone -> resolveBareTypeName ctx li.Idents.[0] (fun _name -> ValueNone)
         | Type.NamedType li ->
-            // Qualified named type (`A.T`, `System.Text.StringBuilder`); unstamped ⇒ the
-            // qualifier names a scope of THIS file, or the head names nothing.
-            let head = CstKeys.typeHeadSite t
+            // Qualified named type (`A.T`, `System.Text.StringBuilder`); not external ⇒ the
+            // qualifier names a scope of THIS file, or the reference names nothing.
+            let site = CstKeys.typeRefSite t
 
-            match tryResolveExternalTypeStamped ctx head.Key EqArray.empty with
+            match tryResolveExternalTypeStamped ctx site.Key EqArray.empty with
             | ValueSome ty -> ty
-            | ValueNone -> resolveQualifiedTypeName ctx head li EqArray.empty
+            | ValueNone -> resolveQualifiedTypeName ctx site li EqArray.empty
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -228,8 +218,8 @@ module internal UnificationTranslate =
             | ValueSome m ->
                 let mt = translateMeasure ctx carrierTok m
                 let tv = freshTyVar ctx
-                // Resolve the carrier (`float`) BY NAME: it is SYNTHESIZED here, so
-                // NameResolution never walked it and no stamp exists for a store read to find.
+                // Resolve the carrier (`float`) BY NAME: the measure arg is not a type arg, so
+                // the carrier is wanted at arity 0 and its verdict was recorded at written arity 1.
                 ctx.Store.SetLink(
                     UnionFind.find ctx.Store tv,
                     ValueSome(
@@ -241,8 +231,8 @@ module internal UnificationTranslate =
                 TyVar tv
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
-            let head = CstKeys.typeHeadSite t
-            let name = ctx.NameOf head.Tok
+            let site = CstKeys.typeRefSite t
+            let name = ctx.NameOf site.Tok
 
             let translatedArgs =
                 EqArray.ofSeq (
@@ -255,9 +245,9 @@ module internal UnificationTranslate =
                     }
                 )
 
-            resolveNamedGeneric ctx head name translatedArgs
+            resolveNamedGeneric ctx site name translatedArgs
         | Type.GenericType(longIdent = li; typeArgs = args) ->
-            // Qualified generic type (`A.T<int>`). Resolved at the head's WRITTEN arity:
+            // Qualified generic type (`A.T<int>`). Resolved at the WRITTEN arity:
             // `A.T<int>` names the `T\`1` of module `A`, and a same-named `T` at another
             // arity is a different type.
             let translatedArgs =
@@ -270,17 +260,17 @@ module internal UnificationTranslate =
                     }
                 )
 
-            let head = CstKeys.typeHeadSite t
+            let site = CstKeys.typeRefSite t
 
-            match tryResolveExternalTypeStamped ctx head.Key translatedArgs with
+            match tryResolveExternalTypeStamped ctx site.Key translatedArgs with
             | ValueSome ty -> ty
-            | ValueNone -> resolveQualifiedTypeName ctx head li translatedArgs
+            | ValueNone -> resolveQualifiedTypeName ctx site li translatedArgs
         | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
             // Postfix generic syntax: `'T list` ≡ `list<'T>`. A multi-arg postfix form
             // (`(int, string) Map`) parses its base as a tuple and falls to the arity diagnostic.
-            let head = CstKeys.typeHeadSite t
-            let name = ctx.NameOf head.Tok
-            resolveNamedGeneric ctx head name (EqArray.singleton (translateType ctx baseTy))
+            let site = CstKeys.typeRefSite t
+            let name = ctx.NameOf site.Tok
+            resolveNamedGeneric ctx site name (EqArray.singleton (translateType ctx baseTy))
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple(EqArray.ofSeq (seq { for t in types -> translateType ctx t }))
         | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
@@ -312,7 +302,7 @@ module internal UnificationTranslate =
     /// resolves before either detail registers.
     and private resolveClaimedType
         (ctx: PassContext)
-        (head: NodeSite)
+        (site: NodeSite)
         (claim: TypeIdentity)
         (args: EqArray<SemType>)
         : SemType voption =
@@ -327,15 +317,15 @@ module internal UnificationTranslate =
             | ValueSome info ->
                 // Eager expansion: force the body, then substitute the use-site args.
                 forceFill ctx info
-                ValueSome(expandAbbreviation ctx head.Tok info args)
+                ValueSome(expandAbbreviation ctx site.Tok info args)
             | ValueNone -> ValueNone
         | TypeDeclKind.Record -> ValueSome(TyRecord(key, args))
         | TypeDeclKind.Union ->
-            ctx.Resolution.ResolvedType.Set(head.Key, key)
+            ctx.Resolution.ResolvedType.Set(site.Key, key)
             ValueSome(TyUnion(key, args))
         | TypeDeclKind.Enum ->
             // An enum is niladic (no type args), so the reference is just `TyEnum key`.
-            ctx.Resolution.ResolvedType.Set(head.Key, key)
+            ctx.Resolution.ResolvedType.Set(site.Key, key)
             ValueSome(TyEnum key)
         | TypeDeclKind.Class -> ValueSome(TyClass(key, args))
 
@@ -348,11 +338,11 @@ module internal UnificationTranslate =
         (resolveExternal: string -> SemType voption)
         : SemType =
         let name = ctx.NameOf nameTok
-        let head = NodeSite.ofToken NodeKind.TypeNamed nameTok
+        let site = NodeSite.ofToken NodeKind.TypeNamed nameTok
 
         let claimed =
-            match TypeRegistry.tryTypeClaim ctx.Types (ctx.UseSiteAt head.Key) name 0 with
-            | ValueSome claim -> resolveClaimedType ctx head claim EqArray.empty
+            match TypeRegistry.tryTypeClaim ctx.Types (ctx.UseSiteAt site.Key) name 0 with
+            | ValueSome claim -> resolveClaimedType ctx site claim EqArray.empty
             | ValueNone -> ValueNone
 
         match claimed with
@@ -362,10 +352,10 @@ module internal UnificationTranslate =
         // here, fixed by surrounding unification). An enum always claims arity 0.
         | ValueNone ->
             let fromLocal =
-                match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt head.Key) name with
+                match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt site.Key) name with
                 | ValueSome claim ->
                     let args = EqArray.init claim.TyparArity (fun _ -> TyVar(freshTyVar ctx))
-                    resolveClaimedType ctx head claim args
+                    resolveClaimedType ctx site claim args
                 | ValueNone -> ValueNone
 
             match fromLocal with
@@ -378,23 +368,23 @@ module internal UnificationTranslate =
                 // this arm mints `undefinedKey` for a stack that has not loaded it.
                 | ValueNone when name = RuntimeNames.undefinedTypeName ->
                     TyConst(RuntimeNames.undefinedKey, EqArray.empty)
-                | ValueNone -> unresolvedHeadTy ctx head name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
+                | ValueNone -> unresolvedRefTy ctx site name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
 
-    /// Resolve a QUALIFIED head (`A.T`, `N.A.T<int>`) whose stamped external read already
+    /// Resolve a QUALIFIED reference (`A.T`, `N.A.T<int>`) whose external verdict read already
     /// missed: it names a project-local type THROUGH the scope holding it, or it names
-    /// nothing. The claim on `(path, name, arity)` answers, as it does for a bare head.
+    /// nothing. The claim on `(path, name, arity)` answers, as it does for a bare name.
     and private resolveQualifiedTypeName
         (ctx: PassContext)
-        (head: NodeSite)
+        (site: NodeSite)
         (li: LongIdent<SyntaxToken>)
         (args: EqArray<SemType>)
         : SemType =
         let written = ctx.WrittenTypeNameOf li
-        let useSite = ctx.UseSiteAt head.Key
+        let useSite = ctx.UseSiteAt site.Key
 
         let claimed =
             match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written args.Length with
-            | ValueSome claim -> resolveClaimedType ctx head claim args
+            | ValueSome claim -> resolveClaimedType ctx site claim args
             | ValueNone -> ValueNone
 
         match claimed with
@@ -404,33 +394,33 @@ module internal UnificationTranslate =
             // non-generic `T`): blame the arity, never fall through to an external spelling.
             match TypeRegistry.tryWrittenTypeClaimAnyArity ctx.Types useSite written with
             | ValueSome other ->
-                errorTy ctx head.Tok (Kind.TypeArgArity(written.Written, other.TyparArity, args.Length))
+                errorTy ctx site.Tok (Kind.TypeArgArity(written.Written, other.TyparArity, args.Length))
             | ValueNone ->
-                assertNoDottedStampGap ctx head.Key li args.Length
-                unresolvedHeadTy ctx head written.Written (TyVar(freshTyVar ctx))
+                assertNoDottedStampGap ctx site.Key li
+                unresolvedRefTy ctx site written.Written (TyVar(freshTyVar ctx))
 
-    /// A STAMP on the head outranks the registry.
+    /// An EXTERNAL verdict outranks the registry.
     and private resolveNamedGeneric
         (ctx: PassContext)
-        (head: NodeSite)
+        (site: NodeSite)
         (name: string)
         (translatedArgs: EqArray<SemType>)
         : SemType =
-        match tryResolveExternalTypeStamped ctx head.Key translatedArgs with
+        match tryResolveExternalTypeStamped ctx site.Key translatedArgs with
         | ValueSome ty -> ty
-        | ValueNone -> resolveLocalNamedGeneric ctx head name translatedArgs
+        | ValueNone -> resolveLocalNamedGeneric ctx site name translatedArgs
 
     and private resolveLocalNamedGeneric
         (ctx: PassContext)
-        (head: NodeSite)
+        (site: NodeSite)
         (name: string)
         (translatedArgs: EqArray<SemType>)
         : SemType =
         let argCount = translatedArgs.Length
 
         let claimed =
-            match TypeRegistry.tryTypeClaim ctx.Types (ctx.UseSiteAt head.Key) name argCount with
-            | ValueSome claim -> resolveClaimedType ctx head claim translatedArgs
+            match TypeRegistry.tryTypeClaim ctx.Types (ctx.UseSiteAt site.Key) name argCount with
+            | ValueSome claim -> resolveClaimedType ctx site claim translatedArgs
             | ValueNone -> ValueNone
 
         match claimed with
@@ -440,19 +430,19 @@ module internal UnificationTranslate =
             // WRITTEN args and blaming the arity. An IntrinsicRepr is left undiagnosed — a
             // niladic primitive tolerates stray args, a generic one (`array`) forwards them.
             let fromLocal =
-                match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt head.Key) name with
+                match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt site.Key) name with
                 | ValueSome claim ->
                     if claim.Kind <> TypeDeclKind.IntrinsicRepr then
-                        ctx.Report(head.Tok, Kind.TypeArgArity(name, claim.TyparArity, argCount))
+                        ctx.Report(site.Tok, Kind.TypeArgArity(name, claim.TyparArity, argCount))
 
-                    resolveClaimedType ctx head claim translatedArgs
+                    resolveClaimedType ctx site claim translatedArgs
                 | ValueNone -> ValueNone
 
             match fromLocal with
             | ValueSome ty -> ty
-            // Nothing built this head, so the undefined-head verdict decides. Its residue
-            // drops the type args: a shape-less head has no parameters to apply them to.
-            | ValueNone -> unresolvedHeadTy ctx head name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
+            // Nothing built this reference, so the unresolved verdict decides. Its residue
+            // drops the type args: a shape-less name has no parameters to apply them to.
+            | ValueNone -> unresolvedRefTy ctx site name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
 
     /// Build the annotation `SemType` from a resolved external shape addressed by the RESOLVED
     /// identity `symKey`, shared by the stamped and by-name paths. `None` for an `Opaque`
@@ -499,26 +489,26 @@ module internal UnificationTranslate =
             | None -> ValueNone
         | _ -> ValueNone
 
-    /// The store-view read of a written external type head: NameResolution resolved the
-    /// spelling opens-aware at its syntactic arity and stamped the `TypeKey` into
-    /// `ResolvedTypeHead`. No by-name fallback — unstamped means local, typar or unresolvable.
+    /// The store-view read of a written external type reference: NameResolution resolved the
+    /// spelling opens-aware at its syntactic arity and recorded the `TypeKey`. No by-name
+    /// fallback — any other verdict means local, typar or unresolvable.
     and private tryResolveExternalTypeStamped
         (ctx: PassContext)
         (nodeKey: NodeKey)
         (translatedArgs: EqArray<SemType>)
         : SemType voption =
-        match ctx.Resolution.ResolvedTypeHead.TryGetValue nodeKey with
-        | ValueSome symKey -> tryExternalTypeOfKey ctx symKey translatedArgs
-        | ValueNone -> ValueNone
+        match ctx.Resolution.TypeRefVerdicts.TryGetValue nodeKey with
+        | ValueSome(TypeRefVerdict.ExternalType symKey) -> tryExternalTypeOfKey ctx symKey translatedArgs
+        | _ -> ValueNone
 
-    /// A type *spelling* resolved by name, for a head with no `Type` node to carry a stamp —
-    /// its sole caller is the `float<m>` measure carrier synthesized during inference.
+    /// A type *spelling* resolved by name: its sole caller is the `float<m>` measure carrier,
+    /// wanted at arity 0 where any verdict for that name was recorded at its written arity 1.
     and private tryResolveExternalType
         (ctx: PassContext)
         (qualName: string)
         (translatedArgs: EqArray<SemType>)
         : SemType voption =
-        match NameResolutionTypeHeadStamp.tryResolveExternalTypeKey ctx qualName translatedArgs.Length with
+        match NameResolutionTypeRefStamp.tryResolveExternalTypeKey ctx qualName translatedArgs.Length with
         | ValueSome symKey -> tryExternalTypeOfKey ctx symKey translatedArgs
         | ValueNone -> ValueNone
 

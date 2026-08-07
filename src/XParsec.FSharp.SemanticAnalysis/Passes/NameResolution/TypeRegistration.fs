@@ -4,7 +4,7 @@ open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
-open NameResolutionTypeHeadStamp
+open NameResolutionTypeRefStamp
 open UnificationTranslate
 
 // The type-identity claim and registry stamping for record / union / enum / abbreviation
@@ -356,8 +356,8 @@ module NameResolutionTypeRegistration =
     /// that names neither (FS0039); a DOTTED head is judged where its path's scope is resolved.
     let private classifyingTypeIter (ctx: PassContext) : CstWalk.TypeIter =
         // `float<kg>` is a measured carrier, not a generic type applied to a type argument.
-        // Neither the carrier head (there is no arity-1 `float` to find) nor the measure is a
-        // type head, so classification stops here, exactly where translation stops.
+        // Neither the carrier (there is no arity-1 `float` to find) nor the measure is a type
+        // reference, so classification stops here, exactly where translation stops.
         let isMeasuredCarrier (t: Type<SyntaxToken>) =
             match t with
             | Type.GenericType(longIdent = li; typeArgs = args) ->
@@ -372,17 +372,17 @@ module NameResolutionTypeRegistration =
                     if isMeasuredCarrier t then
                         false
                     else
-                        match CstKeys.ofTypeHead t with
-                        | ValueSome head ->
-                            match classifyTypeHead ctx head with
-                            | UnknownType when head.LongIdent.Idents.Length = 1 ->
+                        match CstKeys.ofTypeRef t with
+                        | ValueSome typeRef ->
+                            match classifyTypeRef ctx typeRef with
+                            | TypeRefVerdict.UnknownType when typeRef.LongIdent.Idents.Length = 1 ->
                                 ctx.UndefinedType(
-                                    Site.ofTokenOr (Site.ofLongIdent head.LongIdent) head.Site.Tok,
-                                    ctx.NameOf head.Site.Tok
+                                    Site.ofTokenOr (Site.ofLongIdent typeRef.LongIdent) typeRef.Site.Tok,
+                                    ctx.NameOf typeRef.Site.Tok
                                 )
-                            | UnknownType
-                            | LocalType
-                            | ExternalType -> ()
+                            | TypeRefVerdict.UnknownType
+                            | TypeRefVerdict.LocalType
+                            | TypeRefVerdict.ExternalType _ -> ()
                         | ValueNone -> ()
 
                         true

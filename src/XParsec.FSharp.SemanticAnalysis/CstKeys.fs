@@ -234,11 +234,12 @@ module CstKeys =
 
     let ofPat (p: Pat<SyntaxToken>) : NodeKey = (siteOfPat p).Key
 
-    /// The written head of a type reference: `List` in `List<int>`, `int` in `int list`.
+    /// The name a type reference APPLIES, with where it is written and at what arity:
+    /// `List` in `List<int>`, `list` in `int list` — never the argument.
     [<NoEquality; NoComparison>]
-    type TypeHead =
+    type TypeRef =
         {
-            /// Anchored on the head's first ident token, kinded `TypeNamed` for a
+            /// Anchored on the name's first ident token, kinded `TypeNamed` for a
             /// bare/dotted name or `TypeGeneric` for an applied one.
             Site: NodeSite
             LongIdent: LongIdent<SyntaxToken>
@@ -248,8 +249,8 @@ module CstKeys =
         }
 
     /// Only `NamedType`, `GenericType` and `SuffixedType` name a type; the structural
-    /// shapes (`FunctionType`, `TupleType`, `VarType`, …) have no head — `ValueNone`.
-    let ofTypeHead (ty: Type<SyntaxToken>) : TypeHead voption =
+    /// shapes (`FunctionType`, `TupleType`, `VarType`, …) apply none — `ValueNone`.
+    let ofTypeRef (ty: Type<SyntaxToken>) : TypeRef voption =
         match ty with
         | Type.NamedType li ->
             ValueSome
@@ -274,12 +275,12 @@ module CstKeys =
                 }
         | _ -> ValueNone
 
-    /// `ofTypeHead` for a caller already inside a head-bearing arm, so the `ValueSome`
-    /// is local to the arm; a headless shape here fails with the offending shape.
-    let typeHeadSite (ty: Type<SyntaxToken>) : NodeSite =
-        match ofTypeHead ty with
-        | ValueSome head -> head.Site
-        | ValueNone -> failwithf "CstKeys.typeHeadSite: type node carries no resolvable head: %A" ty
+    /// `ofTypeRef` for a caller already inside a name-bearing arm, so the `ValueSome`
+    /// is local to the arm; a structural shape here fails with the offending shape.
+    let typeRefSite (ty: Type<SyntaxToken>) : NodeSite =
+        match ofTypeRef ty with
+        | ValueSome typeRef -> typeRef.Site
+        | ValueNone -> failwithf "CstKeys.typeRefSite: type node applies no type name: %A" ty
 
     let siteOfBinding (b: Binding<SyntaxToken>) : NodeSite = siteOfPat b.headPat
 
