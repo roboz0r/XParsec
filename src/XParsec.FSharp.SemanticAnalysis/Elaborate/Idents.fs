@@ -6,10 +6,9 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 
-// Identifier and LongIdent-chain projection for the Elaborate pass: a resolved
-// local becomes a `Var`, a provider hit an `External`, and a multi-segment
-// `r.X.Y` chain nested field/property reads. Pure leaves — nothing here
-// recurses into expression translation.
+// Identifier and LongIdent-chain projection for the Elaborate pass: a resolved local becomes
+// a `Var`, a provider hit an `External`, and a multi-segment `r.X.Y` chain nested
+// field/property reads. Pure leaves — nothing here recurses into expression translation.
 
 module internal ElaborateIdents =
 
@@ -43,18 +42,6 @@ module internal ElaborateIdents =
                     | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
                 | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
-            // Stamp the resolved `SymbolKey.ValueKey` when NameResolution recorded
-            // one (provider hit). Lets codegen distinguish a canonical
-            // `Vesper.Printf.printfn` from a user shadow `MyMod.printfn` by
-            // identity rather than name suffix.
-            //
-            // An operator used by value (`Set.(+)`) is NOT special-cased here. It
-            // freezes to a plain keyed `External` like any other value reference, and
-            // `Passes.InlineExpansion` eta-reifies it and splices the operator's
-            // contract body — whose SRTP trait-call base dispatches to the operand
-            // type's own `static member (+)` when the operand is a nominal. The
-            // type-directed decision lives in that trait call, so Freeze does not need
-            // a second, hand-rolled eta to make it.
             let symKey = ctx.Resolution.ExternalValue.TryGetValue key
 
             TExpr.External(name, symKey, ty, tok)
@@ -84,14 +71,9 @@ module internal ElaborateIdents =
             | ValueSome rb -> TExpr.Var(rb.BindingSite, headTy, tok)
             | ValueNone -> TExpr.External(ctx.NameOf head, ValueNone, headTy, tok)
 
-        // Wall B (rung 3): the chain's *last* segment may be a property read on a
-        // typar receiver constrained to an interface (`this.Source.Current` where
-        // `Source : 'E :> IStructEnumerator`). Unification resolved it through the
-        // interface and recorded the interface key in `TyparInterfaceCall`, keyed by
-        // the LongIdent's NodeKey (the same `CstKeys.ofExpr` identity the inference
-        // step used). The receiver never grounds to a nominal, so `fieldStep` would
-        // emit a bogus `FieldGet` on an `FTTypar` — route it to a `CallVia.Interface`
-        // `PropertyGet` (codegen → `constrained. callvirt get_<name>`) instead.
+        // The chain's *last* segment may be a property read on a typar receiver constrained
+        // to an interface (`this.Source.Current` where `Source : 'E :> IStructEnumerator<'T>`).
+        // The receiver never grounds to a nominal, so a plain field step would be bogus.
         let liKey =
             NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
 
@@ -100,11 +82,9 @@ module internal ElaborateIdents =
 
         for i = 1 to li.Idents.Length - 1 do
             let segName = ctx.NameOf li.Idents.[i]
-            // Intermediate steps recover the segment's declared type from the
-            // receiver — a record/union/class field, or a union/class *instance
-            // member* return type (so a chain through a member returning a union,
-            // `xs.Tail.Head`, keeps `xs.Tail : Lst<_>` instead of collapsing to the
-            // chain's final type). The last step uses the whole chain's `finalTy`.
+            // An intermediate step recovers its own declared type from the receiver, so
+            // `xs.Tail.Head` keeps `xs.Tail : Lst<_>` rather than collapsing to the chain's
+            // final type. The last step is the only one that uses `finalTy`.
             let stepTy =
                 if i = li.Idents.Length - 1 then
                     finalTy
@@ -113,23 +93,17 @@ module internal ElaborateIdents =
                     | ValueSome t -> t
                     | ValueNone -> finalTy
 
-            // PropertyGet for a class/union member (codegen calls its `get_<name>`,
-            // eta-expanding a method-as-value if needed), FieldGet otherwise. The
-            // last segment of an external instance access (`e.Current`) emits a
-            // keyed `TExpr.ExternalMember` against the receiver built so far — the
-            // BCL interface/class member-ref path, not a project-local field.
+            // `PropertyGet` for a class/union member, `FieldGet` otherwise. The last segment
+            // of an external instance access (`e.Current`) is a keyed `TExpr.ExternalMember`
+            // against the receiver built so far, not a project-local field.
             curr <-
                 match lastExternal with
                 | ValueSome info when i = li.Idents.Length - 1 && not info.IsStatic ->
                     TExpr.ExternalMember(ValueSome curr, info.Key, segName, info.Storage, stepTy, tok)
                 | _ ->
-                    // The `TyparInterfaceCall` entry is keyed by the chain's first
-                    // token, which a method call's receiver *prefix* (`this.Source` of
-                    // `this.Source.MoveNext()`) shares with the full chain — so also
-                    // require the receiver `currTy` to be a typar (the entry is only
-                    // ever recorded for a typar receiver), distinguishing the genuine
-                    // property read `this.Source.Current` (receiver `'E`) from a nominal
-                    // field step `this.Source` (receiver the enclosing class).
+                    // The entry is keyed by the chain's first token, which `this.Source` (the
+                    // receiver prefix of `this.Source.MoveNext()`) shares with the full chain.
+                    // Requiring a typar receiver separates the two: `'E` vs the class.
                     let isTyparRecv =
                         match Unification.zonk ctx.Store currTy with
                         | TyTypar _

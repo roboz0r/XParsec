@@ -1,48 +1,8 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-// Cross-type structural rebuild of the TAST term/declaration cluster: maps every embedded
-// `.ty` field through `f` and every POSITION through `fTok`, producing a tree at different
-// type parameters. This is the engine behind the genuine freeze
-// (`Freeze.run = TastConvert.file toFrozen id`) and behind the thaw that realises a wire body
-// in the consumer's type domain (`InlineThaw.bodyAtOrigin`, which reads each anchor against the
-// producer file it names).
-//
-// Distinct from `TastWalk`, whose `Mapper` is same-`'ty`, same-`'tok` (it rewrites a tree in
-// place with override hooks); this changes the type parameters and has no hooks, so it is a
-// separate, total functor. F#'s incomplete-match check fires here when the TAST grows a
-// case — the same enumeration guarantee `TastWalk` gives. Re-axising a whole tree belongs HERE
-// and not there: it is a change of axis, not a rewrite, and a hook surface eight passes share
-// should not carry one pass's concern.
-//
-// Two of the clusters take more than `'ty` and `'tok`: the type declaration is generic in
-// `('ty, 'tok, 'id, 'body)` and the compiled form in `('ty, 'pat, 'id)`. The tree-shaped
-// rebuild is just the diagonal (`Id = BinderKey.identity`, `Body = expr f fTok`,
-// `fPat = pat f fTok`), while the frozen POOLS instantiate the other parameters at dense ids
-// and run the very same traversals in both directions. Keeping them here rather than
-// re-walking those shapes in `TastPools` is what stops the declaration shape — the seven
-// body slots and the seven key slots especially — from being enumerated twice.
-//
-// The `'id` axis stops at the DECLARATION cluster: a `Var` reference and a `NamedSimple`
-// binding are named by the same axis, but nothing here re-files them — the tree-shaped
-// mappings are identity-preserving, and re-filing a whole tree between identity spaces is
-// the pooling walk's job (`TastPools` / `TastUnpool`), which rebuilds node by node anyway.
-//
-// Other non-`'ty` payload is copied verbatim: SymbolKey / CallVia / TConstValue
-// / TMemberKind / PrintfSpec.HoleKind / the verdict fields / the side maps.
-// `TTypeMemberG.MethodTypeParams : EqArray<string * 'ty>` is NOT such a payload — it
-// rides `'ty` (each entry's typar as its own `TyVar root`), so `f` maps it like every
-// other embedded type, flipping the root to `FTTypar(Method, i)`. It used to be a
-// cell-bearing `GeneralizedTypars` copied verbatim — the one field that smuggled a
-// live `UnionFind` cell across the freeze.
-//
-// `TStaticOptClauseG.Constraints` is NOT in that list: it is
-// `EqArray<TStaticOptConstraintG<'ty>>` and is mapped like any other `'ty` payload.
-// It used to be a raw-`SemType` hole here, on the premise that no
-// `StaticOptimization` survives the inline pass and so none could reach the frozen
-// tree. That premise dies with the frozen inline-body channel (an inline template
-// IS frozen, `StaticOptimization` nodes and all), and a verbatim copy would have
-// smuggled a live `UnionFind` cell across the freeze — the exact hazard freeze
-// exists to close.
+// Cross-type structural rebuild of the TAST cluster: every embedded `'ty` through `f`,
+// every POSITION through `fTok`, no hooks. Other payload is copied verbatim — but NOT
+// `MethodTypeParams`, whose entries ride `'ty` and would carry a live `UnionFind` cell.
 
 [<RequireQualifiedAccess>]
 module TastConvert =
@@ -63,9 +23,8 @@ module TastConvert =
         | TPatG.EnumCase(k, n, ty, tok) -> TPatG.EnumCase(k, n, f ty, tk tok)
         | TPatG.Or(alts, ty, tok) -> TPatG.Or(EqArray.map pp alts, f ty, tk tok)
 
-    /// A format hole across BOTH axes: it is the one leaf that carries a token of its own
-    /// and no sub-expression, so the pooled form's re-nesting (`ExprPayload.format`) has to
-    /// widen its anchor here rather than at a node.
+    /// A format hole across BOTH axes: the one leaf that carries a token of its own and no
+    /// sub-expression, so its anchor is widened here rather than at a node.
     let hole (f: 'a -> 'b) (fTok: 'ta -> 'tb) (h: HoleSpecG<'a, 'ta>) : HoleSpecG<'b, 'tb> =
         {
             Ty = f h.Ty
@@ -90,8 +49,6 @@ module TastConvert =
     let forInEnumerator (f: 'a -> 'b) (en: ForInEnumeratorG<'a>) : ForInEnumeratorG<'b> =
         match en with
         | ForInEnumeratorG.Interface -> ForInEnumeratorG.Interface
-        // Both axes now carry an interface instantiation for the constrained-typar
-        // case, so they are remapped through `f` alongside the enumerator type.
         | ForInEnumeratorG.Pattern(enumTy, ge, members, isVal, disp) ->
             ForInEnumeratorG.Pattern(f enumTy, forInGetEnum f ge, forInEnumMembers f members, isVal, disp)
 
@@ -114,8 +71,6 @@ module TastConvert =
         | TExprG.Tuple(items, ty, tok) -> TExprG.Tuple(EqArray.map pe items, f ty, tk tok)
         | TExprG.Sequential(items, ty, tok) -> TExprG.Sequential(EqArray.map pe items, f ty, tk tok)
         | TExprG.While(c, b, ty, tok) -> TExprG.While(pe c, pe b, f ty, tk tok)
-        // `identTok` is a position like any other and moves with the node — the loop
-        // variable's name is written in the same file the `for` keyword is.
         | TExprG.ForTo(k, it, s, e2, b, ty, tok) -> TExprG.ForTo(k, tk it, pe s, pe e2, pe b, f ty, tk tok)
         | TExprG.ForIn(p, src, b, en, ty, tok) -> TExprG.ForIn(pp p, pe src, pe b, forInEnumerator f en, f ty, tk tok)
         | TExprG.Match(sc, arms, ty, tok) -> TExprG.Match(pe sc, EqArray.map pa arms, f ty, tk tok)
@@ -151,8 +106,7 @@ module TastConvert =
         | TExprG.TraitCall(recv, n, args, ty, tok) -> TExprG.TraitCall(f recv, n, EqArray.map pe args, f ty, tk tok)
         | TExprG.TypeTest(src, testTy, ty, tok) -> TExprG.TypeTest(pe src, f testTy, f ty, tk tok)
         // The `spec` index is domain-free: the table it indexes is remapped whole alongside
-        // the tree (`file`), so the slot a call names is the same slot after the map. An
-        // `origin` is a file IDENTITY, not a position, so `tk` has no business with it.
+        // the tree. An `origin` is a file IDENTITY, not a position, so `tk` never sees it.
         | TExprG.InlineCall(spec, args, origin, ty, tok) ->
             TExprG.InlineCall(spec, EqArray.map pe args, origin, f ty, tk tok)
         | TExprG.CallerExpr(body, origin, ty, tok) -> TExprG.CallerExpr(pe body, origin, f ty, tk tok)
@@ -231,24 +185,12 @@ module TastConvert =
             IsMutable = fld.IsMutable
         }
 
-    // ── the type-declaration cluster: a functor in `('ty, 'tok, 'id, 'body)` ───
-    //
-    // Every function below maps the four axes independently. The `'ty`-only freeze runs it
-    // at `Id = BinderKey.identity` and `Body = expr` (`decl` below); a body-POOLING pass runs
-    // it at `Ty = id`, `Body = <expr → pool id>` and `Id = <key → binder id>`, and its
-    // inverse at the opposite two. So the seven body slots, the seven key slots, and the
-    // declaration shape around them are enumerated in ONE place, and neither pooling
-    // direction is a second hand-written walk of this shape.
+    // The type-declaration cluster: a functor in `('ty, 'tok, 'id, 'body)`. Every function
+    // below maps the four axes independently, so a `'ty`-only rebuild, a body-pooling pass
+    // and its inverse are instantiations of one traversal.
 
-    /// The four mappings a declaration rebuild runs under, one per axis. A RECORD and not
-    /// four arguments: `Ty`, `Tok` and `Body` are bare functions, and every run instantiates at
-    /// least two of them at `id`, so positional arguments could be transposed without the
-    /// types noticing. Naming them makes a transposition a compile error and each call site
-    /// say which axis it is moving.
-    ///
-    /// `Id` maps a whole `BinderKeyG` and the slot keeps that shape (`BinderKey.refile`): a
-    /// key slot is a definition site by construction, so a re-axising pass moves one without
-    /// being able to invent one, and the mapping is the same one an interning sink exposes.
+    /// The four mappings a declaration rebuild runs under, one per axis. Named, because
+    /// `Ty`, `Tok` and `Body` are bare functions that positionally could transpose.
     type DeclRebuild<'ta, 'tb, 'toka, 'tokb, 'ida, 'idb, 'bodya, 'bodyb> =
         {
             Ty: 'ta -> 'tb
@@ -353,8 +295,8 @@ module TastConvert =
                 ifaces interfaces,
                 valueKind
             )
-        // Enum cases carry no `'ty` (the value is a resolved literal) and no body, so their
-        // case identifier's token is the only thing here the mapping can touch.
+        // Enum cases carry no `'ty` (the value is a resolved literal) and no body, so the
+        // case identifier's token is all the mapping can touch.
         | TTypeKindG.Enum cases -> TTypeKindG.Enum(EqArray.map (enumCase m.Tok) cases)
         | TTypeKindG.Class c ->
             TTypeKindG.Class
@@ -390,8 +332,8 @@ module TastConvert =
         match d with
         | TDeclG.Let(binding, value, isInline, ty) -> TDeclG.Let(pat f fTok binding, expr f fTok value, isInline, f ty)
         | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f fTok e, f ty)
-        // A tree-shaped rebuild leaves the identity axis alone — the key slots stay in the
-        // space they were in — and its bodies are the expression rebuild itself.
+        // A tree-shaped rebuild leaves the identity axis alone: the key slots stay in the
+        // space they were in, and the bodies are the expression rebuild itself.
         | TDeclG.Type td ->
             TDeclG.Type(
                 typeDecl
@@ -411,9 +353,8 @@ module TastConvert =
         }
 
     // The compiled-form cluster, likewise a trifunctor — in `('ty, 'pat, 'id)`. The `'ty`-only
-    // conversion runs it at `fPat = pat fTy` and `fId = id`; the file's own `ValRepr`s are
-    // POOLED by running it at `fTy = id`, `fPat = <pat → pool id>` and `fId = <key → binder
-    // id>`, and rebuilt by its inverse.
+    // conversion runs it at `fPat = pat fTy` and `fId = id`; pooling runs it at `fTy = id`,
+    // `fPat = <pat → pool id>`, `fId = <key → binder id>`, and unpooling at its inverse.
     let argGroup
         (fTy: 'a -> 'b)
         (fPat: 'pa -> 'pb)
@@ -443,9 +384,8 @@ module TastConvert =
             Body = inlineBody f fTok iv.Body
         }
 
-    /// A specialization-table entry. Its KEY's type arguments map too — they are the
-    /// grounding the entry was resolved at, so they must land in the same domain as the
-    /// body, or the two would name one specialization by two type languages.
+    /// A specialization-table entry. Its KEY's type arguments map too: they are the
+    /// grounding the entry was resolved at, so they must land in the body's domain.
     let specialization
         (f: 'a -> 'b)
         (fTok: 'ta -> 'tb)
@@ -464,8 +404,7 @@ module TastConvert =
         }
 
     /// The whole-file rebuild: `Decls`, `InlineBodies` and `Specializations` mapped through
-    /// `f`, the non-`'ty` snapshot fields (`Diagnostics` / `IntrinsicReprKeys` /
-    /// `ModuleMembers` / `ClosureReprs`) carried over.
+    /// `f`; every non-`'ty` snapshot field carried over verbatim.
     let file (f: 'a -> 'b) (fTok: 'ta -> 'tb) (tf: TastFileG<'a, 'ta, 'id>) : TastFileG<'b, 'tb, 'id> =
         {
             Decls = EqArray.map (decl f fTok) tf.Decls
@@ -478,7 +417,6 @@ module TastConvert =
             ClosureReprs = tf.ClosureReprs
             FunVerdicts = tf.FunVerdicts
             GenericFnSchemes = tf.GenericFnSchemes
-            // `'ty`-free snapshot fields carried verbatim, like `IntrinsicReprKeys`.
             Accessibility = tf.Accessibility
             BindingTyparArities = tf.BindingTyparArities
         }

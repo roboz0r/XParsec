@@ -2,60 +2,32 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Lexer
 
-/// Target-neutral *semantic* model of a printf format hole — the single
-/// classification of a `FormatPlaceholder` every consumer shares: the Elaborate
-/// lowering gate (does this hole lower to a structured `Format` node, or stay a
-/// generic printf call?) and both codegen backends.
-///
-/// WHY it lives in `SemanticAnalysis` (not a codegen assembly): the decision
-/// `tryClassify` makes — *is this specifier faithfully renderable as a structured
-/// format?* — is a statement about printf *meaning*, not about any one target.
-/// Both backends defer the same specifiers (`%a`/`%t`, the `%A` space flag, …), so
-/// the gate is shared, and `ElaborateExpr` (upstream of every codegen assembly) must
-/// be able to consult it. The one genuinely target-specific projection — back to a
-/// *.NET format string* (`"x8"`, `"F2"`, `"+0;-0"`) — is a CLR dialect and lives
-/// only in `Codegen.Clr` (`ClrHoleFormat.toDotNetFormat`); no other backend ever
-/// reconstructs one.
-///
-/// `HoleForm` carries the per-hole semantics directly. The old
-/// `PrintfSpec.tryHoleFormat` baked them into a .NET format string — a CLR-runtime
-/// artifact (the literal argument handed to `Formatter.AppendFormatted<T>(v,
-/// format)`) — forcing the JS backend to *re-parse* that string (`match fmt.[0]`,
-/// section-string surgery, recovering precision by counting characters after the
-/// `.`) to recover semantics the `FormatPlaceholder` already held. The JS backend
-/// now reads `FieldFormat` / `HoleForm` directly and never sees a .NET format
-/// string.
+/// Target-neutral *semantic* model of a printf format hole, shared by the lowering gate
+/// (structured `Format` node, or generic printf call?) and both backends. Projecting one
+/// back to a .NET format string is a CLR-only dialect.
 module PrintfHoleForm =
 
-    /// `%A` (`Structured`) print-*width* budget intent. F# repurposes the
-    /// field-alignment slot for it; modelled explicitly here so no consumer reads
-    /// an `Alignment` field that secretly means "width". `Default` ⇒ 80 at emit,
-    /// `Never` ⇒ `%0A` (flat, never break), `Cols n` ⇒ `%NA` (break at column n).
+    /// `%A` print-*width* budget; F# repurposes the field-alignment slot for it. `Never` ⇒
+    /// `%0A` (flat, never break), `Cols n` ⇒ `%NA` (break at column n).
     [<RequireQualifiedAccess>]
     type PrintWidth =
         | Default
         | Never
         | Cols of int
-        /// `%*A` — the column budget is a runtime argument (the leading star `int`),
-        /// so there is no static column count. The star-width lowering supplies the
-        /// clamped runtime value (negative renders flat; F# does not throw for `%A`).
+        /// `%*A` — the column budget is a runtime argument (the leading star `int`), so
+        /// there is no static column count.
         | Star
 
-    /// `%A` (`Structured`) print-*size* budget (F#'s `PrintSize` node count).
-    /// `Default` ⇒ 10000 at emit, `Cols n` ⇒ `%.NA`, `Star` ⇒ `%.*A` (the size is a
-    /// runtime argument — the star `int` following any width). Mirrors `PrintWidth`
-    /// so no consumer reads a bare `int option` that secretly means "size".
+    /// `%A` print-*size* budget (F#'s `PrintSize` node count): `Cols n` ⇒ `%.NA`,
+    /// `Star` ⇒ `%.*A` (a runtime `int` following any width).
     [<RequireQualifiedAccess>]
     type PrintSize =
         | Default
         | Cols of int
         | Star
 
-    /// A precision dimension for the float field forms. `Const` is a static digit
-    /// count (the `%.Nf` / default). `Star` (`%.*f`, `%*.*f`) defers it to a runtime
-    /// argument — the `int` following any star width — mirroring `Alignment`; the
-    /// precision *expression* rides on the segment's `DynHole` case, constructed from
-    /// the same placeholder, so the two agree by construction.
+    /// A precision dimension for the float field forms. `Const` is a static digit count (the
+    /// `%.Nf` / default); `Star` (`%.*f`, `%*.*f`) defers it to the `int` following any star width.
     [<RequireQualifiedAccess>]
     type Prec =
         | Const of int
@@ -71,10 +43,7 @@ module PrintfHoleForm =
         /// `%o` — `Convert.ToString(v, 8)`; two's-complement for negatives.
         | Octal
 
-    /// A non-`%A` hole's per-value formatting, semantically. The CLR backend maps
-    /// this back to its `Formatter` member + format string
-    /// (`ClrHoleFormat.toDotNetFormat`); the JS backend emits a JS expression
-    /// straight from these fields.
+    /// A non-`%A` hole's per-value formatting, semantically.
     [<RequireQualifiedAccess>]
     type FieldFormat =
         /// `%s` `%O` `%c` `%M` `%d`/`%i` (no zero-pad): stringify verbatim.
@@ -93,77 +62,51 @@ module PrintfHoleForm =
         /// `%f` / `%.Nf` / `%.*f`: fixed-point with `precision` fraction digits
         /// (`Star` ⇒ runtime precision).
         | Fixed of precision: Prec
-        /// `%0w.Nf`: fixed-point, then zeros after any sign to a total field of
-        /// `width`. (.NET has no float format that zero-pads to a total width.)
-        /// Precision stays a static `int` — zero-pad star stays cold, so no `Star`.
+        /// `%0w.Nf`: fixed-point, then zeros after any sign to a total field of `width`.
+        /// Precision stays a static `int` — a star precision is not admitted here.
         | FixedZeroPad of precision: int * width: int
-        /// `%-0w.Nf`: fixed-point, then zeros on the RIGHT (after the digits, past the
-        /// point) to a total field of `width` — F#'s left-align + zero-pad on a float
-        /// (`%-05.2f` 3.14159 ⇒ `"3.140"`). No .NET format nor space-alignment does
-        /// this; overflow (already ≥ `width`) is a no-op, like every zero-pad form.
+        /// `%-0w.Nf`: fixed-point, then zeros on the RIGHT (past the point) to a total field
+        /// of `width` — F#'s left-align + zero-pad on a float (`%-05.2f` 3.14159 ⇒ `"3.140"`).
         | FixedRightZeroPad of precision: int * width: int
-        /// `%e` / `%E` / `%.*e`: scientific, `precision` fraction digits (`Star` ⇒
-        /// runtime), `upper` exponent case. CLR is byte-exact; JS approximates via
-        /// `toExponential` (minimal exponent width, not .NET's 3-digit zero-pad).
+        /// `%e` / `%E` / `%.*e`: scientific, `precision` fraction digits (`Star` ⇒ runtime),
+        /// `upper` exponent case. JS `toExponential` gives a minimal exponent width, not
+        /// .NET's 3-digit zero-pad, so the two targets are not byte-identical.
         | Exponential of precision: Prec * upper: bool
-        /// `%g` / `%G` / `%.*g`: compact, `precision` significant digits (`Star` ⇒
-        /// runtime), `upper` case. CLR is byte-exact; JS approximates via
-        /// `toPrecision` (keeps trailing zeros, different exponential threshold).
+        /// `%g` / `%G` / `%.*g`: compact, `precision` significant digits (`Star` ⇒ runtime),
+        /// `upper` case. JS `toPrecision` keeps trailing zeros and switches to exponential at
+        /// a different threshold, so the two targets are not byte-identical.
         | Compact of precision: Prec * upper: bool
-        /// `%0we`/`%0wE`/`%0wg`/`%0wG`: scientific / compact, then zeros after any sign
-        /// to a total field of `width` (`%014e` 1234.5 ⇒ `"01.234500e+003"`). `typeChar`
-        /// is the source letter (`'e'`/`'E'`/`'g'`/`'G'`); `precision` its static digit
-        /// count. Reuses the `%0w.Nf` zero-pad-after-sign handler over the `"e6"`/`"g6"`
-        /// body — .NET zero-pads no float to a total width. CLR is byte-exact; JS
-        /// inherits the `toExponential`/`toPrecision` approximation.
+        /// `%0we`/`%0wE`/`%0wg`/`%0wG`: scientific / compact, then zeros after any sign to a
+        /// total field of `width` (`%014e` 1234.5 ⇒ `"01.234500e+003"`). `typeChar` is the
+        /// source letter (`'e'`/`'E'`/`'g'`/`'G'`); `precision` its static digit count.
         | ExpCompactZeroPad of precision: int * width: int * typeChar: char
-        /// `%+d`/`% d`/`%+05d`/`%+.Nf`/`% .Nf`/`%+08.2f`/`%+.*f`/`%+e`/`%+g`: forced-sign.
-        /// `space` ⇒ a leading space on a non-negative value (else a `+`); a negative keeps
-        /// its `-`. `precision` is the fraction / significant digits (`Const 0` ⇒ integer
-        /// `%+.0f`, `Star` ⇒ runtime `%+.*f`). `typeChar` is the source letter
-        /// (`'d'`/`'f'`/`'e'`/`'E'`/`'g'`/`'G'`). CLR lowering (`ClrHoleFormat` / `EmitFormat`):
-        /// only the *integer* `'d'` form rides a .NET section format; every *float* form
-        /// (`'f'`/`'e'`…`'G'`) formats via a standard `"F<prec>"`/`"e<prec>"` body (which
-        /// rounds half-to-even) and composes the sign in-handler — a static float form
-        /// through `AppendDynamicPrecisionSignedFloat`, a `zeroPad` fixed float through
-        /// `AppendForcedSignZeroPaddedFloat`, and any runtime precision through the same
-        /// dynamic member. `zeroPad = Some w` zero-pads *through* the sign to a total field
-        /// of `w`: the integer `%+05d` (section digit count `w-1`) and the fixed-float
-        /// `%+08.2f` (format-then-sign-then-pad) use it; the scientific / compact and
-        /// runtime-precision forms do not.
+        /// `%+d`/`% d`/`%+05d`/`%+.Nf`/`%+08.2f`/`%+.*f`/`%+e`/`%+g`: forced-sign. `space` ⇒ a
+        /// leading space on a non-negative value (else a `+`); a negative keeps its `-`.
+        /// `zeroPad = Some w` pads *through* the sign to a total field of `w` (`'d'`/`'f'` only).
         | ForcedSign of space: bool * precision: Prec * typeChar: char * zeroPad: int option
 
-    /// A `Field` hole's alignment-slot intent. `Const` keeps today's signed
-    /// convention (negative ⇒ left-justify). `Star` (`%*d`, `%-*d`, `%+*d`) defers
-    /// the width to a runtime argument, carrying only the `-`-flag left-justify
-    /// decision; the width *expression* rides on the segment's `StarWidthHole` case,
-    /// constructed from the same placeholder — so the two agree by construction.
+    /// A `Field` hole's alignment-slot intent. `Const` is a signed width (negative ⇒
+    /// left-justify); `Star` (`%*d`, `%-*d`) defers the width to a runtime argument.
     [<RequireQualifiedAccess>]
     type Alignment =
         | None
         | Const of int
         | Star of leftJustify: bool
 
-    /// A classified format hole. `Field` carries the field alignment (the `%5d` /
-    /// `%-5d` width; negative ⇒ left-justify) alongside the formatting — the
-    /// zero-pad forms set it `None` (their width rides inside the `FieldFormat`).
+    /// A classified format hole. `Field` carries the field alignment (the `%5d` / `%-5d`
+    /// width) alongside the formatting — the zero-pad forms set it `None`, their width
+    /// riding inside the `FieldFormat`.
     [<RequireQualifiedAccess>]
     type HoleForm =
         | PercentA of width: PrintWidth * size: PrintSize
         | Field of fmt: FieldFormat * alignment: Alignment
-        /// `%a` (`hasValue = true`) / `%t` (`hasValue = false`) — a printer callback
-        /// hole. `%a` consumes a callback `('State -> 'T -> 'Residue)` AND a value
-        /// `'T`; `%t` just `('State -> 'Residue)`. Classified purely syntactically
-        /// (no flags/width/precision — F# `%a`/`%t` carry none); whether it actually
-        /// *lowers* on a given target is decided at the gate by whether the family's
-        /// `'State` sink type is available on that target's provider.
+        /// `%a` (`hasValue = true`) / `%t` (`hasValue = false`) — a printer callback hole.
+        /// `%a` consumes a callback `('State -> 'T -> 'Residue)` AND a value `'T`; `%t` just
+        /// `('State -> 'Residue)`.
         | Callback of hasValue: bool
 
-    /// Resolve a *static* `%A` width budget to the concrete column count the engines
-    /// take (the 80-column default lives here, not duplicated across backends).
-    /// `Star` (`%*A`) has no static budget — the width arrives as a runtime argument
-    /// — so it returns `ValueNone`; the star-width lowering supplies the (clamped)
-    /// runtime value in its place, keeping this function total for every consumer.
+    /// Resolve a *static* `%A` width budget to the concrete column count the engines take
+    /// (80 by default). `Star` (`%*A`) has none — the width arrives as a runtime argument.
     let percentAWidth (w: PrintWidth) : int voption =
         match w with
         | PrintWidth.Default -> ValueSome 80
@@ -171,11 +114,8 @@ module PrintfHoleForm =
         | PrintWidth.Cols n -> ValueSome n
         | PrintWidth.Star -> ValueNone
 
-    /// Resolve a *static* `%A` size budget (F#'s `PrintSize` node count) to the
-    /// concrete count (10000-node default). `Star` (`%.*A`) has no static budget — the
-    /// size arrives as a runtime argument — so it returns `ValueNone`; the
-    /// star-precision lowering supplies the runtime value in its place, keeping this
-    /// function total for every consumer (mirroring `percentAWidth`).
+    /// Resolve a *static* `%A` size budget (F#'s `PrintSize` node count) to a concrete count
+    /// (10000 by default). `Star` (`%.*A`) has none — the size arrives as a runtime argument.
     let percentASize (size: PrintSize) : int voption =
         match size with
         | PrintSize.Default -> ValueSome 10000
@@ -190,19 +130,13 @@ module PrintfHoleForm =
         | Guard
         | Clamp
 
-    /// Which runtime clamp a form's star width takes, or `ValueNone` when the form
-    /// carries no star width. The single owner of the guard-vs-clamp rule: both
-    /// backends dispatch on this instead of re-matching the classified form (so the
-    /// two can't drift, and neither carries a `_ -> invariant broken` catch-all).
     let starWidthClamp (form: HoleForm) : StarWidthClamp voption =
         match form with
         | HoleForm.Field(_, Alignment.Star _) -> ValueSome StarWidthClamp.Guard
         | HoleForm.PercentA(PrintWidth.Star, _) -> ValueSome StarWidthClamp.Clamp
         | _ -> ValueNone
 
-    /// True iff a float `Field` carries a *runtime* (`Prec.Star`) precision
-    /// (`%.*f`/`%.*e`/`%.*g`/`%+.*f`) — routed through the dynamic-precision handler
-    /// rather than a static .NET format string / `toFixed` literal.
+    /// True iff a float `Field` carries a *runtime* precision (`%.*f`/`%.*e`/`%.*g`/`%+.*f`).
     let isDynamicPrecisionFloat (fmt: FieldFormat) : bool =
         match fmt with
         | FieldFormat.Fixed Prec.Star
@@ -211,20 +145,15 @@ module PrintfHoleForm =
         | FieldFormat.ForcedSign(_, Prec.Star, _, _) -> true
         | _ -> false
 
-    /// True iff F# clamps a runtime star precision to `0..99` (`normalizePrecision`)
-    /// on this form: ONLY the two-star float-field path (`printf.fs:632`). The
-    /// prec-star-only `Field` paths and `%.*A` keep the raw precision (`:649-657`,
-    /// `:1114`), so a static width (bare `Alignment`) or `%A` returns `false`. The
-    /// single owner of the normalize rule — consumed by both backends.
+    /// True iff F# clamps a runtime star precision to `0..99` on this form: ONLY the two-star
+    /// float-field path. The prec-star-only `Field` paths and `%.*A` keep the raw precision.
     let normalizesStarPrecision (form: HoleForm) : bool =
         match form with
         | HoleForm.Field(fmt, Alignment.Star _) -> isDynamicPrecisionFloat fmt
         | _ -> false
 
-    /// Reconstruct a placeholder's source text (`"%0*d"`, `"%+08.2f"`, `"%-*A"`)
-    /// for diagnostics. Not a round-trip of the raw token (flag order/duplication
-    /// is canonicalised by the lexer), but faithful enough to name the offending
-    /// specifier in an error message.
+    /// Reconstruct a placeholder's source text (`"%0*d"`, `"%+08.2f"`, `"%-*A"`) for
+    /// diagnostics. Not a round-trip: the lexer canonicalises flag order and duplication.
     let renderPlaceholder (p: FormatPlaceholder) : string =
         let dim (d: FormatDim) =
             match d with
@@ -239,19 +168,10 @@ module PrintfHoleForm =
 
         "%" + p.Flags + dim p.Width + prec + string p.TypeChar
 
-    /// Classify a placeholder into its target-neutral `HoleForm`, or `ValueNone`
-    /// for a specifier no backend renders faithfully (the lowering gate — the
-    /// caller then keeps the generic printf call shape, which the CLR backend
-    /// lowers via the FSharp.Core reflective path). Parity with F# `printf` under
-    /// `InvariantCulture` is the gate for each accepted specifier.
+    /// Classify a placeholder into its target-neutral `HoleForm`, or `ValueNone` for a
+    /// specifier no backend renders faithfully — the caller then keeps the generic printf
+    /// call shape. Parity with F# `printf` under `InvariantCulture` is the bar for accepting.
     let tryClassify (p: FormatPlaceholder) : HoleForm voption =
-        // Star *precision* (`%.*f`, `%*.*f`, `%.*e`, `%.*g`, `%+.*f`, `%.*A`) consumes
-        // an extra runtime argument. It is admitted below only where a float field form
-        // (`Prec.Star`) or `%A` (`PrintSize.Star`) has a runtime slot to hold it; every
-        // other type defers it (`deferIfStarPrec` / explicit `precIsStar` gates), since
-        // its accepted forms carry no precision. Star *width* is likewise admitted only
-        // where a literal width lands in the alignment slot (not zero-pad, where the
-        // width rides inside `FieldFormat`), and for `%A` bare-or-star-width.
         let precIsStar = p.Precision = FormatDim.Star
 
         let flags = p.Flags
@@ -272,16 +192,11 @@ module PrintfHoleForm =
         // A star counts as a width for the flag-sanity gates below.
         let hasWidth = width.IsSome || widthIsStar
 
-        // `-` and `0` are inert without a width: there is nothing to justify or
-        // pad, so `%-d ≡ %d`, `%0d ≡ %d`, `%-.2f ≡ %.2f`. Dropping them here lets
-        // the per-type match treat the specifier as its plain form (and keeps every
-        // `zeroPad` branch's `width.Value` read safe — `zeroPad` now implies a width).
+        // `-` and `0` are inert without a width: `%-d ≡ %d`, `%0d ≡ %d`, `%-.2f ≡ %.2f`.
+        // Dropping them here also makes every `width.Value` read under `zeroPad` safe.
         let leftAlign = leftAlign && hasWidth
         let zeroPad = zeroPad && hasWidth
 
-        // Float/decimal forms zero-pad on the *right* under left-align (`%-05.2f`
-        // 3.14159 ⇒ `"3.140"`), an F#-specific subtlety with no faithful structured
-        // mapping — those `leftAlign && zeroPad` cases stay deferred below.
         let isFloatLike =
             match p.Type with
             | FormatType.FloatDecimal
@@ -290,9 +205,7 @@ module PrintfHoleForm =
             | FormatType.Decimal -> true
             | _ -> false
 
-        // The field alignment shared by every non-zero-pad form: a static signed
-        // width (`-` ⇒ left-justify), or a runtime `Star` carrying only the
-        // `-`-flag decision; zero-pad is mutually exclusive with it.
+        // The field alignment for every non-zero-pad form.
         let alignment: Alignment =
             if zeroPad then
                 Alignment.None
@@ -303,17 +216,13 @@ module PrintfHoleForm =
                 | Some w -> Alignment.Const(if leftAlign then -w else w)
                 | None -> Alignment.None
 
-        // The precision dimension for a float field form: `Star` (`%.*f`), a literal
-        // count, or the type's default. Only reached in the float arms — every other
-        // type defers a star precision first, so `Star` never lands where it has no slot.
+        // Only reached in the float arms — every other type defers a star precision first.
         let precDim (dflt: int) : Prec =
             match p.Precision with
             | FormatDim.Star -> Prec.Star
             | FormatDim.Literal pr -> Prec.Const(int pr)
             | FormatDim.Absent -> Prec.Const dflt
 
-        // The `%A` size budget (`PrintSize` node count): `Star` (`%.*A`), a literal
-        // `%.NA`, or the default.
         let sizeDim: PrintSize =
             match p.Precision with
             | FormatDim.Star -> PrintSize.Star
@@ -321,20 +230,9 @@ module PrintfHoleForm =
             | FormatDim.Absent -> PrintSize.Default
 
         if p.Type = FormatType.Structured then
-            // `%A`: the structural engine renders. `0` flag forces flat (width 0),
-            // taking precedence over an explicit width (F# `printf.fs:947`). The
-            // sign flags `+`/`-`/` ` are all no-ops here: `GenericToString`
-            // (`printf.fs:1085`) consults only plus, zero-pad, width, and
-            // precision — never the space flag — so `% A` renders identically to
-            // `%A`. A bare `%*A` (or `%*.*A`) takes the runtime column budget
-            // (`PrintWidth.Star`); `%-*A` / `%+*A` render byte-identically (the
-            // `-`/`+` flags are pure no-ops for `%A`, verified against F#), so they
-            // take the same `PrintWidth.Star`. `%0*A` is declined: F#'s `0` flag
-            // forces flat AND discards the runtime column budget — an unintended
-            // quirk of F#'s format parsing, not worth reproducing — so it stays a
-            // diagnosed residual (the gate re-errors it). The size budget carries a
-            // star (`%.*A` / `%*.*A`) with no clamp — F#'s `%A` sets `PrintSize` raw
-            // (`printf.fs:1114`).
+            // `%A`: the `0` flag forces flat (width 0) ahead of any explicit width, and
+            // `+`/`-`/` ` are no-ops. `%0*A` is declined — in F# the `0` flag also discards
+            // the runtime column budget.
             if widthIsStar then
                 if zeroPad then
                     ValueNone
@@ -342,8 +240,8 @@ module PrintfHoleForm =
                     ValueSome(HoleForm.PercentA(PrintWidth.Star, sizeDim))
             else
                 let pw =
-                    // Raw `0` flag: `%0A`/`%05A` force flat regardless of width, so this
-                    // reads the un-normalized flag (normalization drops a width-less `0`).
+                    // `%0A`/`%05A` force flat regardless of width, so this reads the
+                    // un-normalized flag (normalization drops a width-less `0`).
                     if has '0' then
                         PrintWidth.Never
                     else
@@ -357,14 +255,8 @@ module PrintfHoleForm =
             // compile-time value to embed) — stays cold.
             ValueNone
         elif plusSign || spaceSign then
-            // Forced-sign. The signed decimal-integer (incl. `%+05d` zero-pad through
-            // the sign) and fixed-point-float forms section-format faithfully; the
-            // scientific / compact forms route to the signed dynamic handler; every
-            // other sign+zero-pad combination stays cold.
-            //
-            // `+` wins over space when both flags are present (legacy
-            // `if plusSign then "+" else " "`); this arm runs only when
-            // `plusSign || spaceSign`, so `not plusSign` ⇒ render a space.
+            // Forced-sign. `+` wins over a space flag when both are present, and this arm
+            // runs only when one of them is set, so `not plusSign` ⇒ render a space.
             let space = not plusSign
 
             // A literal precision as a static digit count (default `dflt`), or `ValueNone`
@@ -377,10 +269,9 @@ module PrintfHoleForm =
 
             match p.Type with
             | FormatType.DecimalInt ->
-                // Integer forced sign has no precision slot; a star precision
-                // (`%+.*d`) has no consumer, so defer it. `%+05d` zero-pads through the
-                // sign — the width rides inside the `FieldFormat` (`Alignment.None`); a
-                // star zero-pad width (`%+0*d`) is already declined above.
+                // Integer forced sign has no precision slot, so a star precision (`%+.*d`)
+                // is deferred. `%+05d` zero-pads through the sign — the width rides inside
+                // the `FieldFormat`, leaving `Alignment.None`.
                 if precIsStar then
                     ValueNone
                 else
@@ -388,13 +279,9 @@ module PrintfHoleForm =
                     let align = if zeroPad then Alignment.None else alignment
                     ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, Prec.Const 0, 'd', zp), align))
             | FormatType.FloatDecimal ->
-                // `%+.Nf` / `% .Nf`, and `%+08.2f` / `% 08.2f` (sign + zero-pad). Both
-                // lower to a `ForcedSign` fixed-float form: the CLR emit formats the
-                // magnitude via the standard `"F<prec>"` body (round-half-to-even) then
-                // composes the sign (and, when `zeroPad`, zero-pads after it to `width`).
-                // A star precision (`%+.*f` / `%+08.*f`) rides no static body: the
-                // non-zero-pad form defers to the runtime signed handler, but a star
-                // precision UNDER zero-pad has no handler, so decline it.
+                // `%+.Nf` / `% .Nf` and `%+08.2f` / `% 08.2f` (sign + zero-pad) both lower to
+                // a `ForcedSign` fixed-float form. A star precision under zero-pad
+                // (`%+08.*f`) has no handler, so decline it.
                 if zeroPad && precIsStar then
                     ValueNone
                 else
@@ -408,9 +295,8 @@ module PrintfHoleForm =
                     let align = if zeroPad then Alignment.None else alignment
                     ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, prec, 'f', zp), align))
             | FormatType.FloatExponential ->
-                // `%+e`/`% e`/`%+E`: scientific notation can't ride a .NET section
-                // format, so a *literal* precision routes to the signed dynamic handler.
-                // Sign+zero-pad (`%+08e`) and star precision (`%+.*e`) stay cold.
+                // `%+e`/`% e`/`%+E`: sign+zero-pad (`%+08e`) and star precision (`%+.*e`)
+                // have no faithful form, so only a literal precision is accepted.
                 if zeroPad then
                     ValueNone
                 else
@@ -430,11 +316,9 @@ module PrintfHoleForm =
                         ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, Prec.Const pr, tc, None), alignment))
             | _ -> ValueNone
         elif leftAlign && zeroPad && isFloatLike then
-            // Left-align + zero-pad on a float zero-pads on the RIGHT (`%-05.2f`
-            // 3.14159 ⇒ `"3.140"`). Only fixed-point (`FloatDecimal`) has a faithful
-            // right-zero-pad handler; the scientific / compact / decimal variants keep
-            // deferring. A star precision (`%-0*.*f`) has no static width to embed —
-            // `widthIsStar && zeroPad` is declined above, so `width` is a literal here.
+            // Left-align + zero-pad on a float zero-pads on the RIGHT (`%-05.2f` 3.14159 ⇒
+            // `"3.140"`). Only fixed-point has a faithful right-zero-pad form. `widthIsStar
+            // && zeroPad` is declined above, so `width` is a literal here.
             match p.Type with
             | FormatType.FloatDecimal when not precIsStar ->
                 let prec =
@@ -446,9 +330,8 @@ module PrintfHoleForm =
                 ValueSome(HoleForm.Field(FieldFormat.FixedRightZeroPad(prec, width.Value), Alignment.None))
             | _ -> ValueNone
         else
-            // Left-align wins over zero-pad for the non-float forms (`%-05d ≡ %-5d`):
-            // drop the zero-pad and let the negative `alignment` pad with spaces on
-            // the right. (`not leftAlign` ⇒ zero-pad already dropped above.)
+            // Left-align wins over zero-pad for the non-float forms (`%-05d ≡ %-5d`): drop
+            // the zero-pad and let the negative `alignment` pad with spaces on the right.
             let zeroPad = zeroPad && not leftAlign
 
             let alignment: Alignment =
@@ -464,8 +347,8 @@ module PrintfHoleForm =
             let field f = ValueSome(HoleForm.Field(f, alignment))
             // Reached only when `zeroPad` ⇒ `width` guaranteed present.
             let zpWidth () = width.Value
-            // The non-float forms have no runtime-precision slot; a star precision
-            // reaches them only as an argument with no consumer, so defer it.
+            // The non-float forms have no runtime-precision slot, so a star precision reaches
+            // them only as an argument with no consumer — defer it.
             let deferIfStarPrec r = if precIsStar then ValueNone else r
 
             match p.Type with
@@ -495,8 +378,7 @@ module PrintfHoleForm =
                 )
             | FormatType.FloatDecimal ->
                 if zeroPad then
-                    // `%0w.*f`: a star precision rides inside the static `FixedZeroPad`
-                    // — zero-pad star stays cold, so defer it.
+                    // `FixedZeroPad` holds a static precision only, so `%0w.*f` is deferred.
                     if precIsStar then
                         ValueNone
                     else
@@ -511,9 +393,8 @@ module PrintfHoleForm =
                     field (FieldFormat.Fixed(precDim 6))
             | FormatType.FloatExponential ->
                 if zeroPad then
-                    // `%08e`/`%014e`: zero-pad after any sign over the `"e6"` body — the
-                    // static-precision zero-pad reuses the `%0w.Nf` handler; a star
-                    // precision rides no static body, so defer it.
+                    // `%08e`/`%014e`: zero-pad after any sign, static precision only, so a
+                    // star precision (`%08.*e`) is deferred.
                     if precIsStar then
                         ValueNone
                     else
@@ -554,18 +435,14 @@ module PrintfHoleForm =
                 else
                     deferIfStarPrec (field FieldFormat.Bool)
             | FormatType.Decimal ->
-                // F# silently IGNORES a `%M` precision (`%.2M` 3.14159m ⇒ `"3.14159"`),
-                // so a literal / absent precision is inert — the plain `Verbatim` form.
-                // A star precision (`%.*M`) still consumes a runtime arg with no
-                // consumer, and zero-pad has no faithful mapping — defer both.
+                // F# silently IGNORES a `%M` precision (`%.2M` 3.14159m ⇒ `"3.14159"`), so a
+                // literal / absent precision is inert. A star precision still consumes a
+                // runtime arg with no consumer, and zero-pad has no faithful mapping.
                 if zeroPad || precIsStar then
                     ValueNone
                 else
                     field FieldFormat.Verbatim
             | FormatType.Structured -> ValueNone
-            // `%a` / `%t` callback holes: classified syntactically. `%a`
-            // (`FormatFunction`) carries a value arg, `%t` (`Text`) does not. The gate
-            // (which holds the provider) decides whether the family's sink type is
-            // available on this target and so whether the hole actually lowers.
+            // Whether the hole actually lowers is the gate's call — it holds the provider.
             | FormatType.FormatFunction -> ValueSome(HoleForm.Callback true)
             | FormatType.Text -> ValueSome(HoleForm.Callback false)

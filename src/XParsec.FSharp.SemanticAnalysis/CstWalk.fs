@@ -3,59 +3,32 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 
-/// An `open` WRITTEN IN THIS UNIT, kept with the facts a project-local name resolution
-/// needs and the flat dotted `Prefixes` list cannot express.
-///
-/// F# builds the name environment by descending the module tree and ADDING, in source
-/// order, each declaration and each `open` — so the last thing added wins. Reproducing
-/// that ordering is the whole of `open`/declaration precedence, and it needs exactly two
-/// numbers per `open`: how deep the scope it is written in sits, and where in the file it
-/// is written. `Scope` is the third fact, and it is syntactic too: `open A` inside
-/// `namespace N` names `N.A` before it names `A`.
-///
-/// SYNTAX, not identity: this file compiles before `SemanticInfo`, and the holder an
-/// `open` names is not a syntactic fact anyway (a module's compiled holder name is
-/// `ModuleRules`' business). `TypeRegistry` turns this into a holder.
+/// An `open` written in this unit, with the positional facts the flat dotted `Prefixes`
+/// list cannot express.
 [<NoComparison>]
 type LocalOpen =
     {
         /// The dotted path as WRITTEN (`"A"`, `"N.A"`).
         Path: string
         /// The dotted SOURCE path of the scope the `open` is written in (`"N.M"`; `""` at
-        /// the top of an anonymous module). The `open` resolves against each of its
-        /// prefixes, longest first, then against `Path` alone.
+        /// the top of an anonymous module).
         Scope: string
-        /// How many `module`s enclose the `open` (a namespace body is 0). An inner scope
-        /// is entered after its enclosing one, so this outranks everything the enclosing
-        /// scopes added.
+        /// How many `module`s enclose the `open` (a namespace body is 0).
         ScopeDepth: int
-        /// Source offset of the `open` keyword — where the names it brings enter the
-        /// environment, and so what orders it against the declarations of its own scope.
+        /// Source offset of the `open` keyword — what orders it against the declarations
+        /// of its own scope.
         Offset: int
     }
 
-/// The active namespace prefixes in a lexical scope, most-recent-first (so a
-/// later `open` shadows an earlier one on a name collision — F# semantics).
-/// Drives short-name resolution: a bare `EqualityComparer` (under
-/// `open System.Collections.Generic`) becomes the qualified
-/// `System.Collections.Generic.EqualityComparer` before a provider probe.
-///
-/// The prefix list is FLAT and kind-blind: it cannot distinguish a type from a
-/// module of the same name, so F#'s type-vs-module shadowing rules are not modelled.
-/// Deliberate — a kind tag (or a real namespace tree) is a large change and nothing
-/// in the corpus forces it yet. TRIGGER: surface the ambiguity as a diagnostic first;
-/// generalise only against a case that actually needs it, not speculatively.
+/// The active namespace prefixes in a lexical scope, most-recent-first (a later `open`
+/// shadows an earlier one). Under `open System.Collections.Generic`, a bare
+/// `EqualityComparer` qualifies to `System.Collections.Generic.EqualityComparer`.
 type OpenScope =
     {
-        /// Each entry is a dotted namespace/module prefix (`"System.Collections.Generic"`),
-        /// in shadowing order — head wins. Empty prefixes are never stored.
+        /// Empty prefixes are never stored.
         Prefixes: string list
-        /// The `open`s WRITTEN IN THIS FILE, most recent first — the same opens `Prefixes`
-        /// carries, positioned. `Prefixes` is what the EXTERNAL resolver needs (a set of
-        /// dotted prefixes to try, ambient prelude included); this is what the PROJECT-LOCAL
-        /// resolver needs (where each `open` sits, so a name it brings can be ordered
-        /// against the declarations around it). The ambient prelude contributes to
-        /// `Prefixes` only: it names nothing this file declares.
+        /// The opens WRITTEN IN THIS FILE, with their positions — what orders a name an
+        /// `open` brings against the declarations around it.
         Locals: LocalOpen list
         /// Module-abbrev aliases (`module R = A.B.C` ⇒ `"R" → "A.B.C"`), expanded
         /// on the head segment of a dotted name before probing.
@@ -64,7 +37,6 @@ type OpenScope =
 
 module OpenScope =
 
-    /// No opens, no abbrevs — the seed for a file with an empty ambient prelude.
     let empty: OpenScope =
         {
             Prefixes = []
@@ -72,10 +44,6 @@ module OpenScope =
             Abbrevs = Map.empty
         }
 
-    /// Candidate fully-qualified names for `name`, in priority order: the
-    /// abbrev-expanded name as written (covers already-qualified and root-scope
-    /// names), then each active prefix applied. The head segment of a dotted name
-    /// is abbrev-expanded first (`R.X` ⇒ `A.B.C.X` under `module R = A.B.C`).
     let private candidates (scope: OpenScope) (name: string) : string list =
         let expanded =
             let dot = name.IndexOf '.'
@@ -92,18 +60,8 @@ module OpenScope =
                     yield p + "." + expanded
         ]
 
-    /// Resolve `name` to a value via `lookup`, trying each candidate (see `candidates`)
-    /// in priority order; first hit wins. The value-returning sibling of
-    /// `tryQualify`, for the typing sites that need the resolved descriptor, not
-    /// just its name.
-    ///
-    /// UNCACHED, on purpose: a per-`PassContext` memo keyed by
-    /// `(OpenScope identity, name)` — file-lifetime — would cover the ENTIRE
-    /// spelling-lookup seam now that the resolver view is the only string surface.
-    /// That is precisely why it should wait: land it against a MEASURED hot path, not
-    /// on principle. Resolution already happens once per written name (NameResolution
-    /// stamps; consumers read keys), so the memo's remaining win is repeated spellings
-    /// within a file, which may not be worth the invalidation surface.
+    /// Resolve `name` to a value via `lookup`, trying the bare/abbrev-expanded name then
+    /// each active prefix; first hit wins.
     let tryResolve (scope: OpenScope) (lookup: string -> 'a voption) (name: string) : 'a voption =
         let rec go cs =
             match cs with
@@ -115,9 +73,8 @@ module OpenScope =
 
         go (candidates scope name)
 
-    /// The single qualification primitive: returns the fully-qualified name
-    /// `name` resolves under (for interning / diagnostic suppression), trying the
-    /// bare/abbrev-expanded name then each active prefix; first `probe` hit wins.
+    /// The fully-qualified name `name` resolves under, trying the bare/abbrev-expanded
+    /// name then each active prefix; first `probe` hit wins.
     let tryQualify (scope: OpenScope) (probe: string -> bool) (name: string) : string voption =
         let rec go cs =
             match cs with
@@ -126,17 +83,11 @@ module OpenScope =
 
         go (candidates scope name)
 
-/// Active patterns and helpers for projecting `TypeDefn` shapes. The parser
-/// emits `TypeDefn.Anon` for the bare `type C(...) = member ...` form without
-/// an explicit `class`/`end`; semantically it is identical to `TypeDefn.Class`
-/// throughout the front-end. Sites that need to treat both shapes uniformly
-/// route through these helpers so a typo on one arm can't silently drop the
-/// other.
+/// Helpers for projecting `TypeDefn` shapes. The parser emits `TypeDefn.Anon` for the
+/// bare `type C(…) = member …` form with no `class`/`end`; every projection here treats
+/// it as `TypeDefn.Class`.
 module TypeDefnPatterns =
 
-    /// Common fields of `TypeDefn.Class` and `TypeDefn.Anon`. Both shapes
-    /// carry the same `(typeName, primaryConstr, asDefn, body)` quartet —
-    /// only the lexical keyword token differs.
     [<NoEquality; NoComparison>]
     type ClassLikeDecl<'T> =
         {
@@ -146,12 +97,7 @@ module TypeDefnPatterns =
             Body: ObjectModelBody<'T>
         }
 
-    /// Project a `TypeDefn.Class`, `TypeDefn.Anon`, or `TypeDefn.Struct` into its
-    /// primary fields. The `struct … end` shape carries the same
-    /// `(typeName, primaryConstr, asDefn, body)` quartet and is handled
-    /// identically through the front-end (its value-type-ness is recorded
-    /// separately on `ClassTypeInfo.IsValueType`, see `isStructShape`). All other
-    /// `TypeDefn` shapes yield `ValueNone`.
+    /// The `Class`, `Anon` and `Struct` shapes only; `ValueNone` for every other one.
     let tryClassLikeDecl (td: TypeDefn<'T>) : ClassLikeDecl<'T> voption =
         match td with
         | TypeDefn.Class(typeName = tn; primaryConstr = pc; asDefn = asD; body = body)
@@ -166,22 +112,15 @@ module TypeDefnPatterns =
                 }
         | _ -> ValueNone
 
-    /// `true` for the explicit `type X = struct … end` shape — a value type even
-    /// without a `[<Struct>]` attribute. The attribute form lands as
-    /// `Class`/`Anon`, so `registerClassTypeDefn` ORs this with the decoded
-    /// attribute verdict.
+    /// `true` for the explicit `type X = struct … end` shape — a value type even without
+    /// a `[<Struct>]` attribute, which instead lands as `Class`/`Anon`.
     let isStructShape (td: TypeDefn<'T>) : bool =
         match td with
         | TypeDefn.Struct _ -> true
         | _ -> false
 
-    /// `true` when the type is an interface: either the explicit `interface … end`
-    /// shape, or the idiomatic all-abstract object-model form
-    /// (`type IFoo = abstract member …` — every element an abstract signature, no
-    /// primary ctor / `inherit` / `let`-preamble). The latter parses as
-    /// `Class`/`Anon`, so `registerClassTypeDefn` consults this to stamp
-    /// `ClassTypeInfo.IsInterface`, mirroring `isStructShape`. Same all-abstract
-    /// predicate elaboration uses to project a body onto `TTypeKind.Interface`.
+    /// `true` for the explicit `interface … end` shape, or the all-abstract object-model
+    /// form (`type IFoo = abstract member …`).
     let isInterfaceShape (td: TypeDefn<'T>) : bool =
         match td with
         | TypeDefn.Interface _ -> true
@@ -200,44 +139,27 @@ module TypeDefnPatterns =
                        | _ -> false
                    )
 
-    /// Project a `TypeDefn.Union` or `TypeDefn.Record` with a single-ident name into
-    /// that name `LongIdent` and the `with`-block extension elements when present (the
-    /// `TypeExtensionElements` channel an `interface … with` / augmentation member rides;
-    /// `ValueNone` when the type carries no `with` block). These are the two nominal kinds
-    /// that — alongside a class, handled through the richer `tryClassLikeDecl` path — host
-    /// `interface … with` impls; three passes (`Unification.fillNominalMembers` /
-    /// `resolveInterfaceImplsForElem`, `NameResolution.walkNominalBodies`) matched this
-    /// exact shape independently, each pairing it with a registry lookup
-    /// (`TypeRegistry.tryNonClassMemberHost`). `ValueNone` for any other `TypeDefn` shape or
-    /// a multi-ident name.
+    /// A single-ident `Union` or `Record` head with its `with`-block elements — the
+    /// channel an `interface … with` / augmentation member rides.
     let tryNonClassMemberHostDecl (td: TypeDefn<'T>) : struct (TypeName<'T> * TypeDefnElements<'T> voption) voption =
         let extElems (ext: TypeExtensionElements<'T> voption) =
             match ext with
             | ValueSome(TypeExtensionElements(elements = elems)) -> ValueSome elems
             | ValueNone -> ValueNone
 
-        // The whole `TypeName` rides out, not just its `LongIdent`: a host is recovered from
-        // the registry by the KEY its declaration mints, and that needs the generic arity the
-        // header declares as well as the name.
         match td with
         | TypeDefn.Union(typeName = (TypeName(ident = nameLi) as tn); extensions = ext)
         | TypeDefn.Record(typeName = (TypeName(ident = nameLi) as tn); extensions = ext) when nameLi.Idents.Length = 1 ->
             ValueSome(struct (tn, extElems ext))
         // An inline intrinsic-abbrev augmented with `with member …`
         // (`type X = (# … #) with member …`) hosts its members on the same path.
-        // Registration files the host in `IntrinsicAbbrevHost` ONLY for an ILIntrinsic
-        // RHS carrying extensions (a transparent-alias abbrev with members is rejected
-        // there), so the `tryNonClassMemberHost` lookup naturally skips a rejected one.
         | TypeDefn.Abbrev(typeName = (TypeName(ident = nameLi) as tn); extensions = ext & ValueSome _) when
             nameLi.Idents.Length = 1
             ->
             ValueSome(struct (tn, extElems ext))
         | _ -> ValueNone
 
-    /// Project the `body` field from any object-model `TypeDefn` shape:
-    /// `Class | Anon | Struct | Interface`. The four shapes share the same
-    /// body type. Returns `ValueNone` for `Record | Union | Abbrev | Enum |
-    /// Delegate | TypeExtension`.
+    /// The `body` shared by `Class | Anon | Struct | Interface`; `ValueNone` otherwise.
     let tryObjectModelBody (td: TypeDefn<'T>) : ObjectModelBody<'T> voption =
         match td with
         | TypeDefn.Class(body = b)
@@ -248,43 +170,28 @@ module TypeDefnPatterns =
 
 /// The declaring containment of an element: the `namespace` group it sits in (dotted;
 /// `""` for an anonymous / global / named-module file) and the `module` declarations it
-/// is nested in, OUTERMOST FIRST. The two are named SEPARATELY and never flattened into
-/// one dotted string — a module is a HOLDER, not a namespace segment, and folding it into
-/// the namespace path is exactly the lie the segmented `NamespaceKey` exists to retire.
-///
-/// SYNTAX, not identity. This file compiles before `SemanticInfo`, so it cannot name
-/// `ModuleHolder` — and it could not fill one anyway: a holder chain needs a module's
-/// COMPILED holder name at each link, which is not a syntactic fact. `ModuleRules` is the
-/// one place that turns this into a holder chain.
+/// is nested in.
 type DeclContainment<'T> =
     {
         Namespace: string
-        /// Outermost first. The whole `ModuleDefn` rides along (not just its name)
-        /// because the compiled holder name is a function of its ATTRIBUTES too
-        /// (`[<CompilationRepresentation(ModuleSuffix)>]`).
+        /// Outermost first.
         Modules: ModuleDefn<'T> list
     }
 
 module DeclContainment =
 
-    /// The containment at the top of a `namespace` group / file module — no enclosing
-    /// modules yet.
     let ofNamespace (ns: string) : DeclContainment<'T> = { Namespace = ns; Modules = [] }
 
-    /// Descend into a `module Foo = …`: the module is APPENDED to the holder chain (it is
-    /// not a namespace segment, so `Namespace` is untouched).
     let enter (md: ModuleDefn<'T>) (c: DeclContainment<'T>) : DeclContainment<'T> =
         { c with Modules = c.Modules @ [ md ] }
 
-    /// The declaring namespace in the `TTypeDecl.Namespace` shape: `None` for the global
-    /// namespace / file module.
+    /// `None` for the global namespace / file module.
     let namespaceOpt (c: DeclContainment<'T>) : string option =
         if c.Namespace = "" then None else Some c.Namespace
 
     /// The dotted SOURCE path of this containment (`"N.A.B"`; `""` at the top of an
-    /// anonymous module) — the namespace, plus each enclosing module's name AS WRITTEN.
-    /// This is what a local `open` names a scope by, and it is NOT what a `ModuleKey`
-    /// carries: a `ModuleKey` holds the module's COMPILED holder name (`ListModule`).
+    /// anonymous module) — the namespace plus each enclosing module's name AS WRITTEN,
+    /// never its compiled holder name (`ListModule`).
     let sourcePath (nameOf: 'T -> string) (c: DeclContainment<'T>) : string =
         let mutable path = c.Namespace
 
@@ -294,21 +201,16 @@ module DeclContainment =
 
         path
 
-/// One flattened leaf element of a module tree, paired with the ambient facts a pass needs
-/// at that position: the `open` scope active there, the declaring containment a local
-/// `SymbolKey` is minted from, and the enclosing `rec` scope that widens what a declaration
-/// written here is visible from.
+/// One flattened leaf element of a module tree, with the ambient facts a pass needs at
+/// that position.
 type WalkedElem<'T> =
     {
         Elem: ModuleElem<'T>
         Scope: OpenScope
         Containment: DeclContainment<'T>
         /// Source offset of the `module` / `namespace` keyword of the INNERMOST enclosing
-        /// `rec` scope, `ValueNone` outside one. `rec` is exactly the statement that a
-        /// declaration here is visible from the TOP of that scope rather than from where
-        /// it is written, so this is the offset a claim minted here records as its
-        /// `VisibleFrom` — the one place the rec-ness of a module enters the visibility
-        /// rule, which therefore needs no branch of its own.
+        /// `rec` scope, `ValueNone` outside one. Under `rec` a declaration is visible from
+        /// the top of that scope rather than from where it is written.
         RecScopeOffset: int voption
     }
 
@@ -320,31 +222,21 @@ module CstWalk =
             Visit: 'env -> Expr<SyntaxToken> -> unit
             /// Environment a lambda body sees.
             EnterFun: 'env -> ImmutableArray<Pat<SyntaxToken>> -> 'env
-            /// Environment a binding's RHS sees. Args, in order:
-            ///   env, isRec, siblings, this binding.
-            /// `isRec` is true when the enclosing `let rec` (or
-            /// `let rec … and …`) is present, in which case the binding
-            /// sees all its siblings (and itself). `siblings` is the full
-            /// binding group from the enclosing LetOrUse / module-level Let.
+            /// Environment a binding's RHS sees; args are env, isRec, the whole enclosing
+            /// binding group, this binding. Under `let rec` the RHS sees every sibling.
             EnterBindingRhs: 'env -> bool -> ImmutableArray<Binding<SyntaxToken>> -> Binding<SyntaxToken> -> 'env
-            /// Environment a let body sees. NameResolution uses this to push
-            /// all the bound names into scope.
+            /// Environment a let body sees.
             EnterLetBody: 'env -> ImmutableArray<Binding<SyntaxToken>> -> 'env
-            /// Environment a `for i = … do …` body sees. The argument is the
-            /// loop variable's ident token; NameResolution binds it as an int.
+            /// Environment a `for i = … do …` body sees; the argument is the loop
+            /// variable's ident token.
             EnterForTo: 'env -> SyntaxToken -> 'env
-            /// Environment a `for pat in xs do …` body sees. Pattern types
-            /// are still resolved against the (unknown) element type of the
-            /// enumerable in Unification.
+            /// Environment a `for pat in xs do …` body sees.
             EnterForIn: 'env -> Pat<SyntaxToken> -> 'env
-            /// Environment a match-arm's guard + body sees. The argument is
-            /// the arm's pattern.
+            /// Environment a match-arm's guard + body sees; the argument is its pattern.
             EnterMatchArm: 'env -> Pat<SyntaxToken> -> 'env
         }
 
-    /// Identity walker: visits every node, changes no environment. Compose with
-    /// `with` to override just the hook(s) a consumer needs — the
-    /// `identityTypeIter` precedent for the expression walk.
+    /// Visits every node, changes no environment.
     let identityExprWalker<'env> : ExprWalker<'env> =
         {
             Visit = fun _ _ -> ()
@@ -356,26 +248,15 @@ module CstWalk =
             EnterMatchArm = fun env _ -> env
         }
 
-    /// `Expr.LetOrUse(body = ValueNone)` is `use fixed` — pinning a managed
-    /// value to a pointer. Not supported in the current subset; this helper is
-    /// the single rejection point both Unification's `inferLet` and Elaborate's
-    /// `translateLet` call, so the failwith demotion once `use fixed` lands
-    /// lifts in one place. (Regions handles `ValueNone` distinctly — `use
-    /// fixed`'s region story is independent of typing — so it doesn't route
-    /// through here.)
+    /// `Expr.LetOrUse(body = ValueNone)` is `use fixed` — pinning a managed value to a
+    /// pointer.
     let requireLetBody (body: Expr<SyntaxToken> voption) : Expr<SyntaxToken> =
         match body with
         | ValueSome b -> b
         | ValueNone -> failwith "Expr.LetOrUse with no body (UseFixed) not supported"
 
-    // The single point where Expr's recursion shape is enumerated; passes layer their
-    // pass-specific work on top via the `ExprWalker` record's hooks. Every Expr case is
-    // matched explicitly (no `| _ -> ()` catch-all), so a new parser Expr case fails the
-    // warning-25 incomplete-match check here — one place to update instead of every pass
-    // silently no-oping it. State is *environment*, not accumulator: an `EnterFun` /
-    // `EnterBindingRhs` / `EnterLetBody` scope change applies only to the relevant child
-    // traversal; side-effecting outputs (side tables, diagnostics) live in the closure
-    // captured by `Visit`.
+    // An `Enter*` scope change applies only to the child traversal it is handed to;
+    // nothing accumulates across siblings.
     let rec iterExpr (walker: ExprWalker<'env>) (env: 'env) (e: Expr<SyntaxToken>) : unit =
         walker.Visit env e
 
@@ -391,9 +272,7 @@ module CstWalk =
         | Expr.Ident _
         | Expr.SliceAll _ -> ()
 
-        // Interpolated-string hole exprs share the enclosing scope (no new
-        // bindings). NameResolution / Unification must see them so an
-        // interpolated `{name}` resolves and types.
+        // Interpolated-string hole exprs share the enclosing scope (no new bindings).
         | Expr.String(parts = parts) ->
             for part in parts do
                 match part with
@@ -519,10 +398,8 @@ module CstWalk =
             iterRules walker env rules
 
         | Expr.Function(rules = Rules(rules = rules)) ->
-            // `function …` is shorthand for `fun x -> match x with …`. The
-            // scrutinee is implicit; only the arms are walked. NameResolution
-            // doesn't see the synthesised parameter — that's modelled
-            // entirely inside Unification's inferFunction.
+            // `function …` is shorthand for `fun x -> match x with …`: the scrutinee is
+            // implicit, so only the arms are walked.
             iterRules walker env rules
 
         | Expr.TryWith(expr = body; rules = Rules(rules = rules)) ->
@@ -542,15 +419,9 @@ module CstWalk =
             for FieldInitializer(expr = inner) in inits do
                 iterExpr walker env inner
 
-        // Patterns can embed expressions (Pat.Expr); not walked yet. None of
-        // the current passes care, and Pat traversal will get its own iter.
+        // Patterns can embed expressions (`Pat.Expr`); not walked here.
         | Expr.Pat _ -> ()
 
-    // Walk the expression-bearing children of an object expression's member
-    // list. Member shapes that carry no expression today (`Value`,
-    // `AbstractSignature`) are leaves; shapes we haven't designed object-expr
-    // semantics for yet (`AdditionalConstructor`) fail loud so an in-progress
-    // file surfaces the gap instead of silently no-oping.
     and private iterObjectMembers
         (walker: ExprWalker<'env>)
         (env: 'env)
@@ -569,8 +440,7 @@ module CstWalk =
                 | MethodOrPropDefn.AbstractSignature _ -> ()
             | MemberDefn.Value _ -> ()
             | MemberDefn.AdditionalConstructor _ ->
-                // Secondary ctors in an object expression are not a legal F#
-                // shape; surface loudly if the parser ever surfaces one here.
+                // Secondary ctors in an object expression are not a legal F# shape.
                 failwith "CstWalk.iterObjectMembers: TODO AdditionalConstructor in object expression"
 
     and private iterObjectExpr
@@ -611,18 +481,9 @@ module CstWalk =
                 iterExpr walker armEnv body
             | _ -> ()
 
-    /// Every `Type` (and member-signature) node syntactically embedded in ONE
-    /// expression node. Fires `onType` / `onMemberSig` for the node's OWN embedded
-    /// types only: recursion into child *expressions* is `iterExpr`'s job, so
-    /// calling this once per visited node reaches every expression-embedded type
-    /// exactly once. Pattern annotations (`fun` / `match` / `for` binders and a
-    /// binding's `headPat` / argument pats) are a pattern-walk concern and are NOT
-    /// visited here; a binding contributes only its return-type annotation.
-    ///
-    /// Exhaustive over `Expr` with no catch-all — a new parser case fails the
-    /// incomplete-match check HERE, beside `iterExpr`'s, instead of silently going
-    /// unstamped in a consumer whose read side deliberately has no by-name
-    /// fallback (`Translate.tryResolveExternalTypeStamped`).
+    /// Every `Type` (and member-signature) node syntactically embedded in ONE expression
+    /// node — its OWN types only; child expressions are `iterExpr`'s job. Pattern
+    /// annotations belong to the pattern walk; a binding contributes its return type.
     let iterExprEmbeddedTypes
         (onType: Type<SyntaxToken> -> unit)
         (onMemberSig: MemberSig<SyntaxToken> -> unit)
@@ -633,10 +494,6 @@ module CstWalk =
             | ValueSome(ReturnType(typ = t)) -> onType t
             | ValueNone -> ()
 
-        // An object-expression member's *signature* types: a method/property
-        // binding's return annotation, an auto-property's type, an abstract
-        // signature's member sig. Bodies are child expressions (the walker's job);
-        // argument patterns are the pattern walk's.
         let memberDefnSigs (defns: ImmutableArray<MemberDefn<SyntaxToken>>) : unit =
             for d in defns do
                 match d with
@@ -656,8 +513,7 @@ module CstWalk =
                 | MemberDefn.AdditionalConstructor _ -> ()
 
         match e with
-        // No directly-embedded `Type`: leaves, and shapes whose children are
-        // expressions/patterns only.
+        // No directly-embedded `Type`.
         | Expr.Const _
         | Expr.EmptyBlock _
         | Expr.LongIdentOrOp _
@@ -755,30 +611,14 @@ module CstWalk =
                 | ValueSome(ObjectMembers(memberDefns = ds)) -> memberDefnSigs ds
                 | ValueNone -> ()
 
-    /// The CST-`Type` analogue of `iterExpr` — the single point where a written
-    /// `Type` node's recursion shape is enumerated. `VisitType` fires on every
-    /// `Type` node before its children; returning `false` skips the default child
-    /// recursion (the visitor descended, or wants to skip, them itself), `true`
-    /// continues. Mirrors `TastWalk.Iter`'s visit-only shape (the API precedent).
-    ///
-    /// Case coverage is the exhaustive `AstTraversal.walkType` template (no
-    /// `| _ -> ()` catch-all), so a new `Type` case fails the incomplete-match
-    /// check here rather than silently no-oping in a consumer. The recursion
-    /// descends *every* nested `Type`, including those inside `when`-constraints
-    /// (`WhenConstrainedType`) and member-trait signatures (`MemberTrait`), so a
-    /// consumer's hook reaches every written type head reachable from `ty`.
-    ///
-    /// Types introduce no lexical binders, so — unlike `iterExpr` — this needs no
-    /// environment threading; a consumer keeps its own state in the `VisitType`
-    /// closure.
+    /// `VisitType` fires on every `Type` node before its children; returning `false`
+    /// skips the default child recursion.
     [<NoEquality; NoComparison>]
     type TypeIter =
         {
             VisitType: TypeIter -> Type<SyntaxToken> -> bool
         }
 
-    /// Identity iter: visits every node and recurses with no extra work. Compose
-    /// with `with` to override the one hook.
     let identityTypeIter: TypeIter = { VisitType = fun _ _ -> true }
 
     let rec iterType (it: TypeIter) (ty: Type<SyntaxToken>) : unit =
@@ -803,8 +643,7 @@ module CstWalk =
                 for a in args do
                     match a with
                     | TypeArg.Type at -> walk at
-                    // A measure arg carries no `Type` node; a consumer that needs
-                    // the measure descends it itself (measures are opaque here).
+                    // A measure arg carries no `Type` node.
                     | TypeArg.Measure _ -> ()
             | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
                 walk inner
@@ -815,8 +654,7 @@ module CstWalk =
             | Type.AnonRecordType(fields = fs) ->
                 for AnonRecordField(typ = t) in fs do
                     walk t
-            // Leaves: no nested `Type`. `VarType`/`NamedType` heads and the
-            // measure/intrinsic/null forms bottom out here.
+            // Leaves: no nested `Type`.
             | Type.VarType _
             | Type.NamedType _
             | Type.Null _
@@ -865,7 +703,7 @@ module CstWalk =
         iterType it ret
 
     /// An uncurried signature — a `DelegateSig`, or a GADT-syntax union case's
-    /// `Name : arg * arg -> ret`: every argument type, then the return type.
+    /// `Name : arg * arg -> ret`.
     and iterTypeUncurriedSig (it: TypeIter) (sign: UncurriedSig<SyntaxToken>) : unit =
         let (UncurriedSig(args = ArgsSpec.ArgsSpec(args = args); returnType = ret)) = sign
 
@@ -874,17 +712,8 @@ module CstWalk =
 
         iterType it ret
 
-    /// THE enumeration of the type positions a `type` definition's DECLARED STRUCTURE
-    /// writes: record/union field types, member value/signature types, interface
-    /// specs/impls, an abbreviation's RHS, a delegate signature, and the header's `when`
-    /// constraints. Every consumer of that surface — external-head stamping, the
-    /// file-order scope check — walks it through here, so no consumer can miss a position
-    /// another covers. Member *bodies* are not structure and are not reached.
-    ///
-    /// Two positions are handed OUT rather than iterated, because each has a consumer
-    /// that treats it specially: constructor-parameter annotations are PATTERN-embedded
-    /// (`onPat` owns the pattern walk, which carries more than type heads), and the
-    /// `inherit` clause is resolved by its own registrar (`onInherit`).
+    /// The type positions a `type` definition's DECLARED STRUCTURE writes; member bodies
+    /// are not part of it.
     let iterTypeDefnTypes
         (it: TypeIter)
         (onPat: Pat<SyntaxToken> -> unit)
@@ -978,10 +807,8 @@ module CstWalk =
                     element el
             | ValueNone -> ()
 
-        // A type header's typar-definition `when` clause (`type M<'F when 'F :> …>`)
-        // lives on its `TypeName` — either the `TyparDefns`' trailing constraint list or
-        // the separate `postfixConstraints`. Neither is reachable from any field / member
-        // / param position, so both are enumerated here.
+        // A type header's `when` clause (`type M<'F when 'F :> …>`) lives on its
+        // `TypeName`, reachable from no field, member or parameter.
         let headerConstraints (tn: TypeName<SyntaxToken>) =
             let (TypeName(typarDefns = tds; postfixConstraints = post)) = tn
 
@@ -1042,14 +869,8 @@ module CstWalk =
         | TypeDefn.Missing
         | TypeDefn.SkipsTokens _ -> ()
 
-    /// The CST-`Pat` analogue of `iterType` — the single point where a pattern's
-    /// recursion shape is enumerated. `VisitPat` fires on every `Pat` node before
-    /// its children; returning `false` skips the default child recursion.
-    ///
-    /// Case coverage is exhaustive (no `| _ -> ()` catch-all), so a new `Pat` case
-    /// fails the incomplete-match check here rather than silently no-oping in a
-    /// consumer — the same discipline as `iterExpr` / `iterType`. Patterns
-    /// introduce binders but no scopes, so no environment threading is needed.
+    /// `VisitPat` fires on every `Pat` node before its children; returning `false` skips
+    /// the default child recursion.
     [<NoEquality; NoComparison>]
     type PatIter =
         {
@@ -1089,10 +910,8 @@ module CstWalk =
             | Pat.And(left = a; right = b) ->
                 walk a
                 walk b
-            // Leaves: no sub-pattern. `TypeTest` carries a written type but no
-            // inner pattern (a type-reading consumer takes its `typ` in the
-            // visitor); `Pat.Expr` embeds an *expression*, not walked here
-            // (mirroring `iterExpr`'s `Expr.Pat` leaf).
+            // Leaves: no sub-pattern. `TypeTest` carries a written type but no inner
+            // pattern; `Pat.Expr` embeds an *expression*, not walked here.
             | Pat.NamedSimple _
             | Pat.TypeTest _
             | Pat.Const _
@@ -1105,18 +924,9 @@ module CstWalk =
             | Pat.Missing
             | Pat.SkipsTokens _ -> ()
 
-    /// The module elements an analysis pass walks for an implementation file.
-    /// A `namespace`-headed file contributes every group's elements in source
-    /// order: the passes don't yet track namespace qualification (v1 has no
-    /// namespace-scoped types), so the groups are concatenated and walked as a
-    /// single element list — the same shape a module file already presents.
-    ///
-    /// A nested `module Foo = …` is flattened the same way: its body elements
-    /// are spliced into the enclosing list (in source order, recursing through
-    /// arbitrary nesting) rather than surfaced as a `ModuleElem.Module`. v1 has
-    /// no module-scoped types, so every pass that walks `implFileElems` analyses
-    /// a nested module's contents without needing its own `ModuleElem.Module`
-    /// arm. (Proper module nesting / qualification is a later rung.)
+    /// The module elements an analysis pass walks for an implementation file, FLATTENED:
+    /// every `namespace` group's elements in source order, and a nested `module Foo = …`
+    /// spliced into the enclosing list rather than surfaced as a `ModuleElem.Module`.
     let implFileElems (file: ImplementationFile<SyntaxToken>) : ModuleElems<SyntaxToken> =
         let b = ImmutableArray.CreateBuilder<ModuleElem<SyntaxToken>>()
 
@@ -1140,45 +950,22 @@ module CstWalk =
 
         b.ToImmutable()
 
-    /// Scope-preserving sibling of `implFileElems`: yields the same flattened leaf
-    /// elements, but pairs each with the `OpenScope` active at its position. Where
-    /// `implFileElems` erases the module boundaries open-scoping needs, this
-    /// recomputes the running open-accumulator per element so a consumer can resolve
-    /// a short name against the `open`s actually in scope there.
-    ///
-    /// `nameOf` reads a token's source text (the pass's `ctx.NameOf`); `ambient` is the
-    /// seed prefix set — the referenced-contract prelude (`AmbientOpenPrefixes`), or
-    /// empty when the provider surfaces none. `onScope` fires once per module/namespace
-    /// body entered, paired with the *propagated* rec flag (`true` if this scope or any
-    /// enclosing scope is `module rec` / `namespace rec`). FS3200's "opens must come
-    /// first" rule rides this propagated flag (each module under a rec group is
-    /// independently an opens-first scope), distinct from the per-scope rec flag that
-    /// drives open-resolution's constant-prelude behaviour below.
-    ///
-    /// Scope semantics: a non-recursive module/namespace is a *running accumulator* — an
-    /// `open` is visible only to elements after it; a `module rec` / `namespace rec` is a
-    /// *constant prelude* — every `open` in the scope applies to the whole body. A nested
-    /// module inherits its enclosing accumulator. Module abbrevs (`module R = A.B.C`)
-    /// fold into `Abbrevs`.
+    /// Scope-preserving sibling of `implFileElems`: the same flattened leaf elements, each
+    /// paired with the `OpenScope` active at its position, and `onScope` fired once per
+    /// body entered. A non-rec scope accumulates; under `rec` every `open` covers it all.
     let walkModuleTreeWith
         (nameOf: SyntaxToken -> string)
         (ambient: OpenScope)
         (onScope: ModuleElems<SyntaxToken> -> bool -> unit)
         (file: ImplementationFile<SyntaxToken>)
         : WalkedElem<SyntaxToken> list =
-        // Each surfaced element carries its `DeclContainment`: the enclosing `namespace`
-        // group plus every `module` it is nested in. The walk FLATTENS the module tree
-        // (the wrapper element is dropped), so this is the only record of where the
-        // element was declared — and it is what a local `SymbolKey` is minted from
-        // (`NameResolutionTypeRegistration.stampLocalTypeKey`).
         let out = ResizeArray<WalkedElem<SyntaxToken>>()
 
         let longIdentText (li: LongIdent<SyntaxToken>) : string =
             li.Idents |> Seq.map nameOf |> String.concat "."
 
-        // The implicit prefix a `namespace N` header contributes. It is not an `open` —
-        // the namespace HOLDS the body, so a project-local name finds it by ancestry — and
-        // so it adds a dotted prefix (for the external resolver) and no `LocalOpen`.
+        // The implicit prefix a `namespace N` header contributes: a dotted prefix and no
+        // `LocalOpen` — the namespace holds the body rather than importing it.
         let addNamespacePrefix (scope: OpenScope) (li: LongIdent<SyntaxToken>) : OpenScope =
             let prefix = longIdentText li
 
@@ -1220,9 +1007,8 @@ module CstWalk =
                     Abbrevs = Map.add alias target scope.Abbrevs
                 }
 
-        // Apply one element's own contribution (an `open` / module-abbrev) to the
-        // running accumulator. `open type` is deferred (a member channel, not a
-        // namespace prefix), so only `ImportDecl.ImportDecl` contributes.
+        // `open type` is a member channel, not a namespace prefix, so only
+        // `ImportDecl.ImportDecl` contributes a prefix.
         let accumulate
             (containment: DeclContainment<SyntaxToken>)
             (scope: OpenScope)
@@ -1235,20 +1021,16 @@ module CstWalk =
                 addAbbrev scope (nameOf id) (longIdentText li)
             | _ -> scope
 
-        // The rec scope a `module`/`namespace` body sits in: its OWN keyword when it is
-        // itself `rec` (the innermost rec scope wins), else whatever it inherited.
+        // The innermost enclosing rec scope wins.
         let innerRecScope (keyword: SyntaxToken) (isRec: SyntaxToken voption) (inherited: int voption) : int voption =
             if isRec.IsSome then
                 ValueSome keyword.StartIndex
             else
                 inherited
 
-        // `isRec` is the scope's own rec flag (drives open-resolution's
-        // constant-prelude shape). `recScope` is the *propagated* one: the innermost
-        // enclosing rec scope's keyword offset, overwritten only where a scope is itself
-        // rec, so it names the innermost rec ancestor and is `ValueNone` outside one. Its
-        // presence is the propagated rec BOOLEAN that FS3200 wants (it fires in a non-rec
-        // submodule of a rec namespace too), so the flag and the offset cannot disagree.
+        // `isRec` is the scope's OWN rec flag (drives the constant-prelude shape).
+        // `recScope` is the PROPAGATED one — the innermost enclosing rec scope's keyword
+        // offset — so `onScope`'s flag is true in a rec namespace's non-rec submodule too.
         let rec processElems
             (elems: ModuleElems<SyntaxToken>)
             (start: OpenScope)
@@ -1259,8 +1041,8 @@ module CstWalk =
             onScope elems recScope.IsSome
 
             if isRec then
-                // Constant prelude: all opens/abbrevs in this scope apply to the
-                // whole body, regardless of position (FS3200).
+                // Constant prelude: every open/abbrev in this scope applies to the whole
+                // body, regardless of position.
                 let constScope = (start, elems) ||> Seq.fold (accumulate containment)
 
                 for e in elems do
@@ -1281,9 +1063,7 @@ module CstWalk =
             match e with
             | ModuleElem.Module((ModuleDefn.ModuleDefn(
                 moduleToken = kw; isRec = innerRec; body = ModuleDefnBody(elements = inner))) as md) ->
-                // The wrapper is dropped (as in `implFileElems`); the body is walked with
-                // the enclosing scope inherited as its seed. A module is a *holder*, not a
-                // namespace segment, so it EXTENDS the containment's holder chain and
+                // A module is a *holder*: it extends the containment's module chain and
                 // leaves its `Namespace` alone.
                 match inner with
                 | ValueSome innerElems ->
@@ -1313,8 +1093,6 @@ module CstWalk =
             for g in groups do
                 match g with
                 | NamespaceDeclGroup.Named(namespaceToken = kw; isRec = isRec; longIdent = nsLi; elements = elems) ->
-                    // The namespace's own name is an implicit prefix for its body, and the
-                    // declaring namespace at the root of its elements' containment.
                     processElems
                         elems
                         (addNamespacePrefix ambient nsLi)
@@ -1325,25 +1103,18 @@ module CstWalk =
 
         List.ofSeq out
 
-    /// Scope-preserving walk with no per-scope hook — see `walkModuleTreeWith`.
-    /// Most callers want this form; only per-scope diagnostics
-    /// (`Validation.checkRecOpenPlacement`) thread an `onScope` callback.
+    /// Scope-preserving walk for a consumer that needs neither the per-scope hook nor the
+    /// declaring containment.
     let walkModuleTree
         (nameOf: SyntaxToken -> string)
         (ambient: OpenScope)
         (file: ImplementationFile<SyntaxToken>)
         : (ModuleElem<SyntaxToken> * OpenScope) list =
-        // Drop the containment — consumers that don't mint local `SymbolKey`s
-        // (Unification's walkElems, VesperLib) keep the pair shape.
         walkModuleTreeWith nameOf ambient (fun _ _ -> ()) file
         |> List.map (fun w -> w.Elem, w.Scope)
 
-    /// The signature elements a pass walks for a signature (`.fsi`) file — the
-    /// `.fsi` analogue of `implFileElems`. A `namespace`-headed file contributes
-    /// every group's elements in source order, and a nested `module Foo = …` body
-    /// is spliced into the enclosing list (recursing through arbitrary nesting),
-    /// for the same reasons as `implFileElems` (v1 has no namespace- or
-    /// module-scoped types). Used by the sig/impl `Conformance` check.
+    /// The `.fsi` analogue of `implFileElems`: every `namespace` group's elements in
+    /// source order, with nested `module Foo = …` bodies spliced into the enclosing list.
     let sigFileElems (file: SignatureFile<SyntaxToken>) : ModuleSignatureElements<SyntaxToken> =
         let b = ImmutableArray.CreateBuilder<ModuleSignatureElement<SyntaxToken>>()
 

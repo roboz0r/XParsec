@@ -11,29 +11,15 @@ open UnificationTranslate
 open UnificationInfer
 open UnificationInferForwardSchemes
 
-// Algorithm J + Rémy's levels.
-//
-// Pre:  ctx.Desugared and ctx.Bindings.Binding populated.
-// Post: ctx.Bindings.TypeVar populated; every TypeVar's Link reaches its solved type
-//       via UnionFind.find. ctx.Bindings.Scheme populated for every generalisable
-//       `let`-bound name (single-name headPats — see `shouldGeneralise`).
-//
-// Value restriction is split: the *generalisation gate* on `mutableToken` lives
-// here (`shouldGeneralise`); the *diagnostic* for a mutable binding whose
-// resolved type still has free TyVars at end of analysis lives in Validation —
-// by then every use site has had a chance to pin them via unification.
+// Algorithm J + Rémy's levels. Fills `ctx.Bindings.TypeVar` for every TypeVar and
+// `ctx.Bindings.Scheme` for every generalisable single-name `let`-bound name.
 
 module Unification =
 
-    // Re-exports for external callers (Elaborate.fs, Validation.fs, Pipeline.fs)
     let zonk = UnificationEngineCore.zonk
     let substituteWith = UnificationEngineCore.substituteWith
     let mkNamedTypeSubst = UnificationEngineCore.mkNamedTypeSubst
     let instantiateMember = UnificationEngineCore.instantiateMember
-    /// Walk a class receiver's `inherit` chain for a non-static member, yielding
-    /// the declaring ancestor's instantiated type + the member's type. `ElaborateExpr`
-    /// reuses this (the declaring type) so the inherited-member read isn't a second
-    /// chain walk that must stay in sync with inference's.
     let tryClassChainMemberDecl = UnificationEngineCore.tryClassChainMemberDecl
 
     let private walkModuleElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
@@ -55,9 +41,8 @@ module Unification =
 
         d
 
-    /// Fold a curried member signature into a `TyFun` chain (a multi-arg
-    /// group `a * b` is a tuple parameter), under the caller's typar scope.
-    /// Used to fill abstract member signatures, which have no body to infer.
+    /// Fold a curried member signature into a `TyFun` chain (a multi-arg group `a * b` is
+    /// a tuple parameter), under the caller's typar scope.
     let private curriedSigToSemType (ctx: PassContext) (CurriedSig(args = args; returnType = ret)) : SemType =
         let groupTy (ArgsSpec(args = specs)) =
             match List.ofSeq specs with
@@ -67,12 +52,8 @@ module Unification =
         let retTy = translateType ctx ret
         List.foldBack (fun struct (g, _arrow) acc -> TyFun(groupTy g, acc)) (List.ofSeq args) retTy
 
-    /// Parameters for `fillTypeMembers`: a registry-driven walk over a
-    /// class or union's member bodies. `MkSelfType` produces the `this`
-    /// type-tag (`TyClass` / `TyUnion`); `PrelinkExtras` runs after the
-    /// typar scope is set but before `this` is bound (used to fill class
-    /// ctor-param placeholders); `AllowAbstractSig` opts in to the
-    /// `AbstractSignature` arm (class only — unions have no abstract members).
+    /// Parameters for a registry-driven walk over a class or union's member bodies.
+    /// `PrelinkExtras` runs after the typar scope is set but before `this` is bound.
     [<NoEquality; NoComparison>]
     type private TypeMembersFill =
         {
@@ -83,33 +64,14 @@ module Unification =
             PrelinkExtras: unit -> unit
             Elements: TypeDefnElements<SyntaxToken>
             AllowAbstractSig: bool
-            // An interface-impl member's signature is *fixed* by the interface
-            // slot (`checkInterfaceConformance` unifies it after the body), so it
-            // must never acquire method generic parameters — the slot is
-            // non-generic, and a generalised member would emit as
-            // `Equals\`1(…)`, whose generic arity (1) no longer matches the
-            // `IStructuralEquatable.Equals` slot (arity 0), tripping a CLR
-            // "Method 'Equals' … does not have an implementation" type-load
-            // failure. `false` for these; `true` for a class's own members,
-            // which generalise body-inferred typars per `generaliseMemberTypars`.
+            // `false` for an interface-impl member: the slot fixes its signature, and a
+            // generalised `Equals` emits as `Equals\`1`, missing the arity-0 slot.
             Generalise: bool
         }
 
-    /// Recompute a member's `MethodTypeParams` in the CANONICAL F# order, post-
-    /// inference, via the ONE shared `GeneralizedTypars.canonical`: the member's
-    /// EXPLICITLY-declared `<'C>` typars first (source order), then every remaining
-    /// free root of the member type by first-left-to-right appearance (params L→R,
-    /// then return), excluding the enclosing class typars. This both (a) generalises
-    /// body-inferred free typars an annotation never named (`member s.Fold f z = …`
-    /// introduces a fresh `'State`; without this it leaks as `?free-typar`
-    /// at codegen for an uncalled library API) AND (b) re-orders annotation-implicit
-    /// typars by appearance — replacing the former 3-tier `explicit @ annotation @
-    /// body` append, which diverged from F# whenever an annotated param followed an
-    /// unannotated (body-inferred) one. Reordering `MethodTypeParams` here is safe
-    /// because member bodies infer by TypeVar *identity*, not array position
-    /// (Step 0); `Elaborate.mkTyparEnv` then reads the canonical position →
-    /// `TyTypar(Method, i)` + `GenericParam` rows.
-    /// Methods only — a property can't carry method typars (mirrors registration).
+    /// Stamp a member's `CanonicalTypars` in canonical F# order, post-inference:
+    /// explicitly-declared `<'C>` typars first (source order), then every remaining free
+    /// root of the member type by first appearance, excluding the enclosing class typars.
     let private generaliseMemberTypars
         (ctx: PassContext)
         (outerLevel: int)
@@ -119,19 +81,13 @@ module Unification =
         match mInfo.Type with
         | TyVar tv ->
             let memberTy = zonk ctx.Store (TyVar tv)
-            // Resolve defaults first (as `generalise` does) so a defaulted typar
-            // links its source and the walk below skips it — `member m.Add a b = a + b`
-            // grounds to `int` rather than quantifying the arithmetic typar.
+            // Resolve defaults first so a defaulted typar links its source and the walk
+            // below skips it: `member m.Add a b = a + b` grounds to `int` rather than
+            // quantifying the arithmetic typar.
             UnificationInferGeneralize.applyDefaults ctx.Store memberTy outerLevel
 
-            // Typars already accounted for: the enclosing class typars (a `'T` is
-            // a declaring-axis param, not a method one) and the member's already-
-            // registered method typars (explicit `<'C>` / annotation-implicit). The
-            // class typar roots are zonked *here* (not snapshotted at type entry):
-            // a class typar's union-find root can move while a member body types
-            // (`Holder<'T>(v)` unifies the return through a fresh instantiation), so
-            // a stale snapshot would miss it and the `'T` in the member signature
-            // would be wrongly generalised into a (dangling) method typar.
+            // The enclosing class typars — a `'T` is a declaring-axis param, not a method
+            // one. Zonked HERE because a class typar's root can move while a body types.
             let fixedRoots = HashSet<TyVarId>()
 
             for (_, ptv) in classTypars do
@@ -139,17 +95,12 @@ module Unification =
                 | TyVar r -> fixedRoots.Add((UnionFind.find ctx.Store r).Id) |> ignore
                 | _ -> ()
 
-            // The pre-recompute registration seed: the leading `DeclaredTyparCount`
-            // entries are the member's EXPLICITLY-declared `<'C>` typars (source order);
-            // the rest are annotation-implicit typars. Per the F# rule only the explicit
-            // ones are "declared-first"; the annotation-implicit ones must be ordered by
-            // first-appearance in the final type, exactly like body-inferred ones.
+            // The leading `DeclaredTyparCount` seed entries are the explicit `<'C>` typars
+            // (source order); the annotation-implicit rest order by first appearance, like
+            // body-inferred ones.
             let seed = EqArray.toList mInfo.SeedTypars
 
-            // `declared` = the explicit `<'C>` typars only, in source order, by their
-            // (zonked) union-find roots. A declared typar inference pinned to a
-            // concrete type is no longer a real method typar — drop it (mirrors the
-            // free-fn `mkMethodQuantEnv` `declaredFree` filter).
+            // A declared typar inference pinned to a concrete type is no longer one.
             let declared =
                 seed
                 |> List.truncate mInfo.DeclaredTyparCount
@@ -165,12 +116,9 @@ module Unification =
                     | _ -> None
                 )
 
-            // NAME PRESERVATION: every registered method typar (explicit AND
-            // annotation-implicit) has a real source name (`'a`) that F# keeps in the
-            // emitted GenericParam; only genuinely body-inferred typars get a
-            // synthetic name. Key the known names by root identity so the canonical
-            // ORDER can be re-labelled with real names, synthesising `M%d` only for a
-            // root with no registered name. First registration wins (source order).
+            // Every registered method typar has a real source name (`'a`) that survives
+            // into the emitted GenericParam; key those by root identity, so `canonical`
+            // synthesises `M0`, `M1`, … only for an unregistered root.
             let knownNames = Dictionary<TyVarId, string>()
 
             for (name, ptv) in seed do
@@ -182,28 +130,15 @@ module Unification =
                         knownNames.[root.Id] <- name
                 | _ -> ()
 
-            // The ONE ordering implementation: declared-first (source order), then
-            // every remaining free root of the member type by first-left-to-right
-            // appearance, excluding the enclosing class typars (`fixedRoots`). This
-            // replaces the former 3-tier `explicit @ annotation @ body` append, which
-            // diverged from F# whenever an annotated param followed an unannotated one.
-            // `canonical` now labels the appearance tail from `knownNames` itself
-            // (real source name, else synthetic `M%d`), so its result is the final
-            // ABI order — no post-relabel needed.
             let gt =
                 GeneralizedTypars.canonical ctx.Store declared fixedRoots knownNames (zonk ctx.Store memberTy)
 
             mInfo.Generalise gt
         | _ -> ()
 
-    /// Walk every method / property / auto-property body under a typar
-    /// scope seeded from `TypeParams` plus a `this` binding linked to
-    /// `MkSelfType`. Placeholder member TyVars are pre-populated into
-    /// `ctx.Bindings.TypeVar` so `inferBinding`'s `tvOf` reuses them and its
-    /// final `unify patTy rhsTy` links the placeholder to the inferred
-    /// member type. AutoProperty has no `Binding`, so its placeholder
-    /// is linked manually. Abstract signatures (no body to infer)
-    /// translate directly when `AllowAbstractSig` is set.
+    /// Walk every method / property / auto-property body under a typar scope seeded
+    /// from `TypeParams`, plus a `this` binding linked to `MkSelfType`. Placeholder
+    /// member TyVars are pre-populated so body inference links them to the inferred type.
     let private fillTypeMembers (ctx: PassContext) (fc: TypeMembersFill) : unit =
         let savedScope = ctx.Resolution.TyparScope
         let savedStrict = ctx.Resolution.TyparScopeStrict
@@ -227,21 +162,14 @@ module Unification =
             ctx.Store.SetLink(UnionFind.find ctx.Store thisTv, ValueSome(fc.MkSelfType selfArgs))
             ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
 
-            // Static member bodies never see `this` / ctor params
-            // (NameResolution gives them an empty binding scope);
-            // IsStatic discriminates downstream.
             for el in fc.Elements do
                 match el with
                 | TypeDefnElement.Member(MemberDefn.Member(defn = d)) ->
                     match d with
                     | MethodOrPropDefn.Method(defn = b)
                     | MethodOrPropDefn.Property(defn = b) ->
-                        // The member's body-inference key — `CstKeys.ofPat` of the
-                        // *leaf* head pattern, the exact key `inferBinding` links the
-                        // inferred signature under, and the key registration stamped
-                        // as `mInfo.DeclSite.Key`. A `Pat.Op` head keys on `(lParen, PatOp)`
-                        // (not `(opToken, PatIdent)`), so the operator member's
-                        // `mInfo.Type` placeholder actually receives the body type.
+                        // The *leaf* head pattern's key, the one stamped as
+                        // `mInfo.DeclSite.Key`: a `Pat.Op` head keys on `(lParen, PatOp)`.
                         let mKeyOpt =
                             let rec walkP (p: Pat<SyntaxToken>) =
                                 match p with
@@ -265,12 +193,9 @@ module Unification =
                                 | _ -> ()
                             | None -> ()
 
-                            // Seed the binding's own `<'C, …>` typars with
-                            // their registration prototypes so `inferBinding`
-                            // reuses them in its fresh binding scope. The signature
-                            // it infers then shares roots with the member's
-                            // `MethodTypeParams` — the same roots Elaborate surfaces
-                            // and codegen installs as the ambient `!!i` set.
+                            // Seed the binding's own `<'C, …>` typars with their registration
+                            // prototypes, so the signature inferred in the fresh binding
+                            // scope shares roots with `mInfo.SeedTypars`.
                             let savedSeed = ctx.Resolution.BindingTyparSeed
                             let savedMemberEnclosing = ctx.Resolution.EnclosingTypars
 
@@ -283,15 +208,9 @@ module Unification =
 
                                 ctx.Resolution.BindingTyparSeed <- ValueSome seed
 
-                                // Keep the member's own typars (explicit `<'C>` +
-                                // implicit signature typars) in `EnclosingTypars`
-                                // for the body walk, alongside the class typars — so a
-                                // nested `let comparer = Comparer<'U>.Default` in the
-                                // body resolves `'U` rather than diagnosing it free.
-                                // `inferBinding` clears `BindingTyparSeed` after the
-                                // member's own binding, so without this the member
-                                // typars would vanish in nested scopes (mirror the
-                                // class-typar persistence above).
+                                // Keep the member's own typars in `EnclosingTypars` for the
+                                // body walk, alongside the class typars — so a nested
+                                // `let c = Comparer<'U>.Default` resolves `'U`, not free.
                                 let memberEnclosing =
                                     Dictionary<string, TyVarId>(classScope, System.StringComparer.Ordinal)
 
@@ -311,20 +230,14 @@ module Unification =
                                 ctx.Resolution.BindingTyparSeed <- savedSeed
                                 ctx.Resolution.EnclosingTypars <- savedMemberEnclosing
 
-                            // Generalise any body-inferred free typar into the
-                            // member's own method typars (the `Set.Fold` leak): a
-                            // method whose unannotated param type carries a fresh
-                            // typar no annotation named, never grounded by a call.
+                            // Generalise any body-inferred free typar into the member's own
+                            // method typars — an unannotated param no call ever grounded.
                             match mInfoOpt with
                             | Some mInfo when
                                 fc.Generalise
                                 && mInfo.Kind = ClassMemberKind.Method
-                                // An `override` conforms to a base virtual slot
-                                // (`checkObjectOverrideConformance` pins its
-                                // signature), so it is never generic — generalising
-                                // an unannotated param (`override _.Equals that`)
-                                // into a method typar would make it `Equals\`1`,
-                                // which no longer matches the `Object.Equals` slot.
+                                // An `override` conforms to a base virtual slot, so it is
+                                // never generic.
                                 && not mInfo.IsOverride
                                 ->
                                 generaliseMemberTypars ctx outerLevel fc.TypeParams mInfo
@@ -357,8 +270,6 @@ module Unification =
                     | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(ident = idOrOp; sign = csig)) when
                         fc.AllowAbstractSig
                         ->
-                        // No body to infer — translate the signature
-                        // directly and link the placeholder.
                         let mTokOpt =
                             match idOrOp with
                             | IdentOrOp.Ident t -> ValueSome t
@@ -375,9 +286,8 @@ module Unification =
                                 | TyVar tv ->
                                     let root = UnionFind.find ctx.Store tv
 
-                                    // Extend the scope with the method's own
-                                    // `<'C, …>` typars so they resolve to their
-                                    // prototype TyVars (not diagnosed as free).
+                                    // Extend the scope with the method's own `<'C, …>`
+                                    // typars, else they diagnose as free.
                                     let savedMScope = ctx.Resolution.TyparScope
 
                                     if not mInfo.SeedTypars.IsEmpty then
@@ -393,9 +303,8 @@ module Unification =
                                         let sigTy = curriedSigToSemType ctx csig
                                         ctx.Store.SetLink(root, ValueSome sigTy)
 
-                                        // Abstract methods never reach `generaliseMemberTypars`,
-                                        // so mint their canonical ABI order here from the just-
-                                        // elaborated signature — same shape as that function.
+                                        // An abstract method has no body to infer, so mint its
+                                        // canonical ABI order from the elaborated signature.
                                         if mInfo.Kind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
                                             let fixedRoots = HashSet<TyVarId>()
 
@@ -453,10 +362,8 @@ module Unification =
             ctx.Resolution.EnclosingTypars <- savedEnclosing
 
     /// Type a secondary ctor body (`new(args) = …; SelfType(primaryArgs)`).
-    /// `expected` is the primary ctor's tupled parameter type (the chain-call
-    /// target). The `let`-preamble binders are inferred in order; the final chain
-    /// call's arguments are unified against `expected`. The chain call's function
-    /// position (the self-type name) is never inferred — only its arguments are.
+    /// `expected` is the primary ctor's tupled parameter type; the chain call's
+    /// arguments unify against it, and its function position is never inferred.
     let rec private inferSecondaryCtorBody
         (ctx: PassContext)
         (expected: SemType)
@@ -483,9 +390,8 @@ module Unification =
                 match e with
                 | Expr.HighPrecedenceApp(argExpr = argExpr) ->
                     let argTy = infer ctx argExpr
-                    // Chain call to the primary ctor: admit an implicit
-                    // class→interface upcast on the args, e.g.
-                    // `new() = Set(Comparer<'T>.Default, …)` into an `IComparer<'T>`
+                    // Chain call to the primary ctor, admitting an implicit class→interface
+                    // upcast: `new() = Set(Comparer<'T>.Default, …)` into an `IComparer<'T>`
                     // primary-ctor param.
                     unifyArg ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
                 | Expr.App(argExprs = argExprs) ->
@@ -493,11 +399,8 @@ module Unification =
                     unifyArg ctx (CstKeys.firstTokenOfExpr e) (tupleOrSingle ctx argTys) expected
                 | _ -> infer ctx e |> ignore
             | AdditionalConstrInitExpr.Delegated(expr = e) -> infer ctx e |> ignore
-            // Explicit field-init `{ f = e; … }`: infer each
-            // initialiser and unify it against the named field's declared type so a
-            // literal (`0`, `false`) or a generic field (`'T`) pins correctly. An
-            // unknown field name leaves the type open (no constraint) — the field
-            // resolution diagnostic belongs to a later pass, not inference.
+            // Explicit field-init `{ f = e; … }`: unify each initialiser against the named
+            // field's declared type, so a literal (`0`) or a generic field (`'T`) pins.
             | AdditionalConstrInitExpr.Explicit(initializers = inits) ->
                 for FieldInitializer(longIdent = li; expr = e) in inits do
                     let initTy = infer ctx e
@@ -519,8 +422,6 @@ module Unification =
             let classScope = scopeOfTypeParams info.TypeParams
             ctx.Resolution.TyparScope <- classScope
             ctx.Resolution.TyparScopeStrict <- true
-            // Class typars stay in scope across each secondary ctor body's
-            // `inferBinding`, mirroring `fillTypeMembers`.
             ctx.Resolution.EnclosingTypars <- ValueSome classScope
 
             try
@@ -530,10 +431,9 @@ module Unification =
                     |> Array.toList
                     |> tupleOrSingle ctx
 
-                // Declared field types (ctor-param backing fields + explicit `val`
-                // fields), keyed by name, so an explicit field-init `{ f = e }`
-                // unifies `e` against `f`'s type. `val` fields win a name clash
-                // (a positional ctor param sharing a name is the backing store).
+                // Declared field types (ctor-param backing fields + explicit `val` fields)
+                // keyed by name. `val` fields win a name clash — a positional ctor param
+                // sharing a name is the backing store.
                 let fieldTypes =
                     Map.ofSeq (
                         seq {
@@ -543,9 +443,6 @@ module Unification =
                     )
 
                 for sc in info.SecondaryCtors do
-                    // The param TyVars already carry their declared types (linked at
-                    // registration); seed the binding sites so the body's references to
-                    // them type through the same cells.
                     for p in sc.Params do
                         match p.Type with
                         | TyVar tv -> ctx.Bindings.TypeVar.Set(BinderKey.identity p.DeclSite.Binder, tv)
@@ -562,14 +459,9 @@ module Unification =
                 ctx.Resolution.TyparScopeStrict <- savedStrict
                 ctx.Resolution.EnclosingTypars <- savedEnclosing
 
-    /// Type the `inherit Base(args)` invocation against the parent's
-    /// primary-ctor signature, under the derived class's typar scope (already set
-    /// by `fillTypeMembers` before `PrelinkExtras` runs). The parent's ctor-param
-    /// types are substituted with the args `inherit Base<…>` supplied — recovered
-    /// from `info.BaseType`'s already-translated `TyClass` args. Errors attach at
-    /// the base-ctor-args expression and don't cascade into member-body inference.
-    /// No-op for parent-less classes and for parents not in `ctx.Types.Class`
-    /// (`registerInheritedSlot` already diagnosed those).
+    /// Type the `inherit Base(args)` invocation against the parent's primary-ctor
+    /// signature, its param types substituted with the args `inherit Base<…>` supplied
+    /// (read off `info.BaseType`). No-op for a parent with no registered type info.
     let private fillBaseCtorCall (ctx: PassContext) (info: ClassTypeInfo) : unit =
         match info.BaseType, info.BaseCtorArgs with
         | ValueSome(TyClass(baseKey, baseArgs)), ValueSome argExpr ->
@@ -591,16 +483,9 @@ module Unification =
                 finally
                     exitLevel ctx
             | ValueNone -> ()
-        // An intrinsic-class base (`inherit exn(m)`): the parent's constructible
-        // surface is the CONTRACT `.ctor` set riding the provider shape's class
-        // surface (`new: message: string -> exn`) — the SAME set `new exn` checks
-        // (`inferIntrinsicClassCtorCall`), target-agnostic, so the inherit args are
-        // checked HERE and a mis-typed `inherit exn(42)` is a source diagnostic
-        // rather than a codegen internal error. Resolved by DIRECT qualified lookup
-        // off the already-resolved canon key (never a short-name re-scan). A
-        // self-host compile of the contract itself resolves its base off local
-        // tables (no provider shape), so a miss stays a silent no-op, not a
-        // diagnostic.
+        // An intrinsic-class base (`inherit exn(m)`): check the args against the provider
+        // shape's `.ctor` surface, so `inherit exn(42)` is a source diagnostic. A shape
+        // miss is a silent no-op — a self-host build has no shape.
         | ValueSome(TyConst(canonKey, canonArgs)), ValueSome argExpr ->
             match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
             | ValueSome(struct (_, surface)) ->
@@ -628,11 +513,8 @@ module Unification =
             | ValueNone -> ()
         | _ -> ()
 
-    /// Mint the `base` TyVar pre-linked to the parent's instantiated
-    /// `TyClass` and seed `ctx.Bindings.TypeVar` at `info.BaseKey`, mirroring the
-    /// `this` mint in `fillTypeMembers`. `info.BaseType` is already substituted
-    /// under the derived class's typar scope by `registerInheritedSlot`, so it
-    /// links directly. No-op for parent-less classes.
+    /// Mint the `base` TyVar pre-linked to the parent's instantiated `TyClass` and seed
+    /// `ctx.Bindings.TypeVar` at `info.BaseKey`.
     let private mintBaseTyVar (ctx: PassContext) (info: ClassTypeInfo) : unit =
         match info.BaseType with
         | ValueSome parentTy ->
@@ -642,18 +524,9 @@ module Unification =
             ctx.Bindings.TypeVar.Set(BinderKey.identity info.BaseKey, baseTv)
         | ValueNone -> ()
 
-    /// Type-check the member bodies of one resolved `interface IFace with member …`
-    /// block against the interface's external signatures. For each impl member, unify its
-    /// already-inferred signature with the matching `ExternalMember` looked up by
-    /// name on `iface` (`TyClass(ifaceName, ifaceArgs)`), substituting the impl's
-    /// interface type-args so a generic `IEnumerable<'T>::GetEnumerator() :
-    /// IEnumerator<'T>` binds the class typar through. The metadata member walk is
-    /// `DeclaredOnly`, so a base interface's members (e.g. `IEnumerable<'T>`'s
-    /// inherited non-generic `IEnumerable::GetEnumerator`) live in their *own*
-    /// `interface …` block — each block therefore resolves its own `GetEnumerator`
-    /// overload unambiguously, which is the multiple-`GetEnumerator`
-    /// disambiguation. Every declared interface member is required: a missing one
-    /// diagnoses at the interface name token.
+    /// Conform one resolved `interface IFace with member …` block: unify each impl
+    /// member's already-inferred signature with the same-named `ExternalMember`, under
+    /// the impl's interface type-args. A missing member diagnoses at the interface name.
     let private checkInterfaceConformance (ctx: PassContext) (impl: ClassInterfaceImplInfo) : unit =
         match impl.Resolved with
         | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
@@ -665,20 +538,15 @@ module Unification =
             | ValueSome(ExternalSymbols.ExternalMembers ifaceMembers) ->
                 let argArr = ifaceArgs.AsSpan().ToArray()
 
-                // Interfaces declare no constructors; the `.ctor` guard is
-                // belt-and-suspenders against a provider that surfaces one.
                 let required = ifaceMembers |> Array.filter (fun em -> em.Name <> ".ctor")
 
                 for mInfo in impl.Members do
                     match required |> Array.tryFind (fun em -> em.Name = mInfo.Name) with
                     | Some em ->
                         let expected = ExternalSymbols.openSignature em argArr
-                        // Conformance is a CLR-ABI match: a member declared with a
-                        // nullable-reference param/return (`CompareTo(that: objnull)`)
-                        // satisfies the non-null slot (`IComparable.CompareTo(obj)`) —
-                        // `obj | null` and `obj` are the same `System.Object` slot — so
-                        // erase reference-nullability on BOTH sides before the invariant
-                        // unify (the interface slot may itself be nullable-annotated).
+                        // `obj | null` and `obj` are the same slot, so erase reference
+                        // nullability on BOTH sides: `CompareTo(that: objnull)` satisfies
+                        // an `IComparable.CompareTo(obj)` slot.
                         unify
                             ctx
                             mInfo.DeclSite.Tok
@@ -697,19 +565,9 @@ module Unification =
             | _ -> ()
         | _ -> ()
 
-    /// Conform each `override` member of a class to the `System.Object` virtual
-    /// slot it overrides, pinning the (often unannotated) parameter / return
-    /// types so they don't leak as free typars. A class with no `inherit` clause
-    /// can only override Object's three virtuals — `Equals(obj):bool`,
-    /// `GetHashCode():int`, `ToString():string` — so the expected signatures are
-    /// fixed. Without this, `override _.Equals that` leaves `that` a free TyVar
-    /// that `generaliseMemberTypars` would have quantified (now skipped for
-    /// overrides), and Elaborate would emit it as `bool Equals<M0>(!!0)` — a generic,
-    /// non-Object-matching method. Runs after the member bodies are typed (so the
-    /// placeholder `mInfo.Type` carries the inferred `param -> ret` shape), the
-    /// `Object`-slot analogue of `checkInterfaceConformance`. v1 supports only
-    /// `inherit`-less classes here; a class deriving a project-local base that
-    /// declares its own virtuals is a later slice.
+    /// Pin each `override` member to its `System.Object` virtual slot — `Equals(obj):bool`,
+    /// `GetHashCode():int`, `ToString():string` — so an unannotated `override _.Equals that`
+    /// does not leave `that` free and emit as the generic `bool Equals<M0>(!!0)`.
     let private checkObjectOverrideConformance (ctx: PassContext) (info: ClassTypeInfo) : unit =
         let objTy = TyConst(RuntimeNames.objKey, EqArray.empty)
         let boolTy = TyConst(RuntimeNames.boolKey, EqArray.empty)
@@ -729,29 +587,16 @@ module Unification =
                     | _ -> ValueNone
 
                 match expected with
-                // Erase reference-nullability so an `override Equals(that: objnull)`
-                // conforms to the `Equals(obj)` Object slot (ABI-level match, as in
-                // `checkInterfaceConformance`).
                 | ValueSome expectedTy ->
                     unify ctx mInfo.DeclSite.Tok (stripReferenceNull ctx.Store mInfo.Type) expectedTy
                 | ValueNone -> ()
 
-    /// A CAPABILITY (`seq<'T>`, `enumerator<'T>`, `disposable`) is not implemented alongside
-    /// its platform interface — it IS that interface. The backend publishes it for the
-    /// capability (`interface seq<'T>` yields `IEnumerable<'T>`, and with it the non-generic
-    /// `IEnumerable` the capability never declared and the backend therefore synthesises), so
-    /// authoring an interface the capability already publishes emits the same slot twice —
-    /// metadata the runtime rejects at load with a `TypeLoadException` no diagnostic preceded.
-    ///
-    /// The rule is DERIVED, not enumerated: the forbidden set is a capability's `Platform`
-    /// plus everything it inherits, read off the provider. Implementing another CAPABILITY
-    /// from that set stays legal and is often required — `IEnumerator<'T>` inherits
-    /// `IDisposable`, and `enumerator`'s `Dispose` IS the separate `disposable` capability.
-    /// Only the BCL *spelling* is the error; the fix is to write the capability instead.
+    /// Reject authoring a BCL interface a capability already publishes (`interface seq<'T>`
+    /// yields `IEnumerable<'T>`). The forbidden set is derived — the capability's `Platform`
+    /// plus its inherited closure; implementing another CAPABILITY from it stays legal.
     let private checkCapabilityInterfaceCollisions (ctx: PassContext) (info: IInterfaceImplHost) : unit =
-        // Names compare on the bare (arity-suffix-stripped) compiled name: the metadata layer
-        // keys `IEnumerable`1`, the contract layer `IEnumerable`, and `SymbolKeyOps.bareName`
-        // is where that reconciliation already lives.
+        // Names compare on the bare (arity-suffix-stripped) compiled name: the metadata
+        // layer keys `IEnumerable`1`, the contract layer `IEnumerable`.
         let resolvedImpls =
             [
                 for impl in info.InterfaceImpls do
@@ -760,11 +605,9 @@ module Unification =
                     | _ -> ()
             ]
 
-        // The transitive interface closure of a capability's platform interface. On the
-        // metadata layer `FrozenInterfaces` is already transitive (reflection's
-        // `GetInterfaces`); the walk is what makes a contract-layer provider, which records
-        // only direct bases, agree. Names arrive compiled and are minted straight back to
-        // keys, so the probe stays on the key-addressed store view.
+        // The transitive interface closure of a capability's platform interface. Metadata
+        // `FrozenInterfaces` is already transitive; the walk is what makes a contract-layer
+        // provider, which records only direct bases, agree.
         let rec closeOver (seen: Set<string>) (name: string) : Set<string> =
             let bare = SymbolKeyOps.bareName name
 
@@ -810,18 +653,9 @@ module Unification =
                                 )
                             )
 
-    /// Interface-impl resolution pre-pass: resolve
-    /// each `interface IFace with member …` block's interface type and stamp
-    /// `impl.Resolved` *before* any member body — the class's own members or a
-    /// sibling interface block — is typed. The interface type resolves under the
-    /// class's typar scope (so a generic interface arg like `IEnumerable<'T>`
-    /// binds to the class's typar); it must map to a type the provider reports as
-    /// an interface, else a diagnostic fires and `Resolved` stays `ValueNone`.
-    /// `subsumes` reads `InterfaceImpls.Resolved` to admit a class→interface
-    /// upcast (`this :> seq<_>`, a `Set` value flowing into an
-    /// `IComparer` slot), so the class must already know its declared interfaces
-    /// at every coercion site, not only once its own block's body is reached.
-    /// Body typing + conformance stay in `fillInterfaceImpls`.
+    /// Resolve each `interface IFace with member …` block's interface type under the
+    /// class's typar scope and stamp `impl.Resolved` before any member body is typed —
+    /// class→interface upcast sites read it.
     let private resolveInterfaceImpls (ctx: PassContext) (info: IInterfaceImplHost) : unit =
         for impl in info.InterfaceImpls do
             let resolved =
@@ -859,14 +693,8 @@ module Unification =
 
         checkCapabilityInterfaceCollisions ctx info
 
-    /// Type-check each `interface IFace with member …` block's member bodies and
-    /// conformance-check them against the interface. Member bodies type through
-    /// `fillTypeMembers` exactly like the class's own members — `this` re-binds to
-    /// the class instance via `info.ThisKey`. Once typed, each body's signature is
-    /// conformance-checked against the interface (`checkInterfaceConformance`).
-    /// Runs after `resolveInterfaceImpls` (so every `impl.Resolved` is stamped) and
-    /// after the class's own `fillTypeMembers` / `fillSecondaryCtors`, so ctor
-    /// params and the base call are already seeded and `PrelinkExtras` is a no-op here.
+    /// Type each `interface IFace with member …` block's member bodies, then conform them
+    /// to the interface. `this` re-binds to the class instance via `info.ThisKey`.
     let private fillInterfaceImpls (ctx: PassContext) (info: IInterfaceImplHost) : unit =
         for impl in info.InterfaceImpls do
             fillTypeMembers
@@ -879,14 +707,9 @@ module Unification =
                     PrelinkExtras = ignore
                     Elements = impl.Elements
                     AllowAbstractSig = false
-                    // The interface slot fixes each member's signature
-                    // (`checkInterfaceConformance` below); never generalise.
                     Generalise = false
                 }
 
-            // Now the bodies are typed, conform each member's signature to
-            // the interface's external signature. Skipped when resolution failed
-            // (`Resolved = ValueNone`) — that diagnostic already fired.
             checkInterfaceConformance ctx impl
 
     let private fillClassMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
@@ -900,41 +723,27 @@ module Unification =
                     match NameResolutionTypeRegistration.tryDeclaredClass ctx d.TypeName with
                     | ValueSome info ->
                         let prelinkExtras () =
-                            // Attach the class's `when 'S :> IFace` typar constraints
-                            // to the prototype TyVars (under the class typar scope, set
-                            // by `fillTypeMembers` before this runs) — so a member-body
-                            // `this.field` access on an interface-constrained class typar
-                            // resolves through the interface (`CallVia.Interface`).
+                            // Attach the class's `when 'S :> IFace` typar constraints to the
+                            // prototype TyVars, so a member-body access on an interface-
+                            // constrained class typar resolves through the interface.
                             match info.TyparConstraints with
                             | ValueSome cs -> translateConstraints ctx cs
                             | ValueNone -> ()
 
-                            // A ctor param's TyVar already carries its declared type
-                            // (linked at registration); seed `ctx.Bindings.TypeVar` so an
-                            // `inferIdent` lookup against the param's binding site returns
-                            // that same cell.
+                            // A ctor param's TyVar already carries its declared type (linked
+                            // at registration); seed the binding site to reuse that cell.
                             for p in info.CtorParams do
                                 match p.Type with
                                 | TyVar tv -> ctx.Bindings.TypeVar.Set(BinderKey.identity p.DeclSite.Binder, tv)
                                 | _ -> ()
 
-                            // Inheritance: type the base-ctor call and
-                            // bring `base` into scope before any member body walks.
-                            // Both no-op for parent-less classes. Runs after the
-                            // ctor-param binding sites are seeded so an `inherit
-                            // Base(p)` arg referencing a derived ctor param `p`
-                            // resolves to its declared type (not a fresh TyVar).
+                            // Both no-op for parent-less classes. AFTER the ctor-param
+                            // seeding: an `inherit Base(p)` arg reads `p`'s declared type.
                             fillBaseCtorCall ctx info
                             mintBaseTyVar ctx info
 
-                            // Preamble entries: infer each in declaration order (an earlier
-                            // binder is already seeded, so a later entry can reference it).
-                            // Seeding `ctx.Bindings.TypeVar` with the registered placeholder
-                            // first means `inferBinding`'s `tvOf` reuses it and its closing
-                            // `unify patTy rhsTy` LINKS it — so a preamble-bound name
-                            // reference elsewhere in the class types through the same cell.
-                            // Going through `inferBinding` (rather than inferring the bare
-                            // body) is what types `let f x = …` as the function it is.
+                            // Seed the registered placeholder first, so a preamble-bound
+                            // name used elsewhere in the class types through the same cell.
                             let inferPreamble (entries: ClassPreambleEntry[]) =
                                 for entry in entries do
                                     match entry with
@@ -954,16 +763,9 @@ module Unification =
                             inferPreamble info.StaticPreamble
 
                             // The instance sequence runs in the primary ctor, after the
-                            // base-ctor call — so it types after `fillBaseCtorCall`, with the
-                            // ctor params already seeded above.
+                            // base-ctor call.
                             inferPreamble info.InstancePreamble
 
-                        // Interface-impl types are resolved up front by
-                        // `resolveInterfaceImplsForElem` (walkElems), before *any*
-                        // module-function body or class member is typed — so every
-                        // `:>` / argument-coercion / `for x in (c: C)` site
-                        // sees the class's declared interfaces, including from a module
-                        // function inferred ahead of `fillClassMembers`.
                         fillTypeMembers
                             ctx
                             {
@@ -977,12 +779,8 @@ module Unification =
                                 Generalise = true
                             }
 
-                        // Pin each `override` member to its `System.Object` slot
-                        // *after* the bodies are typed (so `mInfo.Type` carries the
-                        // inferred shape) but *before* `fillInterfaceImpls` — an
-                        // interface-impl member sharing a name with an override
-                        // (`Equals`) reads the override's `MethodTypeParams` by name
-                        // in Elaborate, so the override must be non-generic first.
+                        // Before the impls: an interface-impl `Equals` reads the same-named
+                        // override's typars, so pin the override non-generic first.
                         checkObjectOverrideConformance ctx info
                         fillSecondaryCtors ctx info
                         fillInterfaceImpls ctx (info :> IInterfaceImplHost)
@@ -990,10 +788,6 @@ module Unification =
                 | ValueNone -> ()
         | _ -> ()
 
-    /// Type the augmentation-member and `interface … with` impl bodies registered on
-    /// a union or record host. (`fillClassMembers` stays separate: a class
-    /// additionally pins its object-overrides and fills secondary ctors before its
-    /// impls.) `MkSelfType` already yields the exact `TyUnion`/`TyRecord` Self.
     let private fillHostMembers (ctx: PassContext) (host: IInterfaceImplHost) (elems: TypeDefnElements<SyntaxToken>) =
         if not (Array.isEmpty host.Members) then
             fillTypeMembers
@@ -1009,21 +803,16 @@ module Unification =
                     Generalise = true
                 }
 
-        // Type + conformance-check each `interface … with` block's member bodies
-        // (a no-op when the type declares none). Runs after
-        // `resolveInterfaceImplsForElem` stamped every `impl.Resolved`. Outside the
-        // `Members`-non-empty guard so a type with *only* an interface impl (no
-        // augmentation members) still fills.
+        // Outside the `Members`-non-empty guard, so a type with *only* an interface
+        // impl (no augmentation members) still fills.
         fillInterfaceImpls ctx host
 
-    /// Fill the members of a union or record carrying a `with` augmentation, routing
-    /// either kind through `fillHostMembers` via its `IInterfaceImplHost` surface.
+    /// Fill the members of a union or record carrying a `with` augmentation.
     let private fillNominalMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                // Only a `with` block (`ValueSome elems`) carries augmentation / interface-impl
-                // members; without one there is nothing to fill.
+                // Only a `with` block carries augmentation / interface-impl members.
                 match TypeDefnPatterns.tryNonClassMemberHostDecl td with
                 | ValueSome(struct (tn, ValueSome elems)) ->
                     match NameResolutionTypeRegistration.tryDeclaredNonClassHost ctx tn with
@@ -1032,12 +821,9 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
-    /// Stamp every project-local class's `InterfaceImpls.Resolved` up
-    /// front — before module-function bodies or class members type — so a `:>` /
-    /// argument-coercion / `for x in (c: C)` site sees the class's declared
-    /// interfaces even when it lives in a module function inferred ahead of
-    /// `fillClassMembers`. Self-contained (manages its own typar scope); the sole
-    /// caller of `resolveInterfaceImpls`.
+    /// Stamp every project-local type's `InterfaceImpls.Resolved` up front — before any
+    /// module-function or member body types — so a `:>` / argument-coercion /
+    /// `for x in (c: C)` site sees the declared interfaces wherever it appears.
     let private resolveInterfaceImplsForElem (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
@@ -1048,10 +834,7 @@ module Unification =
                     | ValueSome info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
                     | ValueNone -> ()
                 | ValueNone ->
-                    // A union or record may also declare `interface … with` blocks;
-                    // resolve them up front on the same path so a `:>` / coercion site
-                    // sees them. (Impls ride the `with` block, so a type with none is a
-                    // no-op `resolveInterfaceImpls` — the elems are immaterial here.)
+                    // A union or record may also declare `interface … with` blocks.
                     match TypeDefnPatterns.tryNonClassMemberHostDecl td with
                     | ValueSome(struct (tn, _)) ->
                         match NameResolutionTypeRegistration.tryDeclaredNonClassHost ctx tn with
@@ -1061,33 +844,15 @@ module Unification =
         | _ -> ()
 
     let private walkElems (ctx: PassContext) (elems: WalkedElem<SyntaxToken> list) =
-        // Every type's declared STRUCTURE — field / case / `val` / ctor-param types and the
-        // abbreviation bodies — is already resolved: NameResolution's top-down registration
-        // scan translated it in the scope each declaration was written in. What is left here
-        // is what a type does NOT declare: the types its member BODIES infer.
-        //
-        // Set `ctx.Resolution.OpenScope` per element so the provider-probe sites
-        // (`inferIdent`, `tryExternalTypeReceiver`) resolve short external names
-        // against the `open`s in scope at that element.
-        //
-        // Resolve every class's interface impls before any body types (so a
-        // module function's `for x in (c: C)` and any `:>`/coercion sees them).
+        // `EnterElement` sets the per-element `OpenScope` provider probes resolve short
+        // names against.
         for w in elems do
             ctx.EnterElement w
             resolveInterfaceImplsForElem ctx w.Elem
 
-        // Seed annotation-derived schemes for module-level functions
-        // *before* class member bodies are typed, so a class member's forward
-        // reference to a sibling-module function (`SetTree.add`) instantiates a
-        // fresh signature and the argument-coercion site can upcast a subtype
-        // argument (`Comparer<'T>` → `IComparer<'T>`) instead of monomorphically
-        // pinning the function's param. See `prebindModuleFunctionSchemes`.
-        //
-        // Only inside a `rec` scope — the only place a forward reference to a module
-        // function can resolve at all. Elsewhere the declaration-order loop below has
-        // already typed a callee that a caller can legally see, so the annotation-only
-        // stand-in would never be read; seeding it anyway would keep the forward-reference
-        // machinery alive for programs F# rejects.
+        // Seed annotation-derived schemes for module-level functions before member bodies
+        // type, so a forward reference instantiates a fresh signature instead of
+        // monomorphically pinning the param. Only in a `rec` scope, where one can resolve.
         for w in elems do
             ctx.EnterElement w
 
@@ -1098,40 +863,21 @@ module Unification =
                 prebindModuleFunctionSchemes ctx bindings
             | _ -> ()
 
-        // Type bodies in **declaration order**, dispatching each element to its
-        // handler (each is a no-op for a non-matching element). This is the key to
-        // the module↔class dependency: a class member that calls an *earlier*
-        // module function (`Set.Add` → `SetTree.add`, declared above) sees that
-        // function's *real* generalised scheme, while a *later* module function over
-        // the class (`Set.partition set = set.Partition …`) sees the class member's
-        // already-typed body. Batching all classes before all module functions (or
-        // vice versa) cannot satisfy both directions; declaration order — sound for
-        // non-recursive F#, where a use must follow its definition — does.
-        //
-        // Without this, a class member calling an earlier module function fell back
-        // to the annotation-only `prebindModuleFunctionSchemes` stand-in, which
-        // over-generalises an *unannotated* parameter (`let add comparer k (t: …)`,
-        // `k` undeclared) into a fresh quantified typar decoupled from the function's
-        // `'T`. The member's argument (`value`) then bound that free typar and never
-        // grounded, leaking a metavar into the member signature at contract
-        // extraction. `prebind` is still seeded above so genuine forward references
-        // (mutual recursion, a `rec` module) keep a usable scheme.
+        // Type bodies in **declaration order**: a class member calling an earlier module
+        // function sees its real generalised scheme, while a later module function over
+        // the class sees the member's already-typed body.
         for w in elems do
             ctx.EnterElement w
             fillClassMembers ctx w.Elem
             fillNominalMembers ctx w.Elem
             walkModuleElem ctx w.Elem
 
-    /// Resolve the bare-program list literals left flexible by `listLiteralTy`,
-    /// after the whole file is walked so every consumer has had its say:
-    ///   - still free (no consumer drove it, e.g. `printfn "%A" [1;2;3]`) → link to
-    ///     FSharp.Core's `list`, its element carried through;
-    ///   - flipped to a list-like type (`List.fold`'s `Vesper.Collections.List`
-    ///     parameter) → reconcile the literal's element with the driven one.
+    /// Resolve list literals left flexible during inference, once the whole file is
+    /// walked: still free (`printfn "%A" [1;2;3]`) → link to the default list type;
+    /// already driven to a list-like type → reconcile its element with the literal's.
     let private resolveListLiterals (ctx: PassContext) : unit =
-        // A still-free literal defaults to FSharp.Core's `list`, except a
-        // self-host package build (no FSharp.Core) defaults it to the Vesper
-        // cons-list union so the emission stays BCL-only.
+        // A self-host package build (no FSharp.Core) defaults to the Vesper cons-list
+        // union instead, so the emission stays BCL-only.
         let defaultListTy (elemTy: SemType) : SemType =
             if ctx.DefaultListIsVesper then
                 TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy)
@@ -1149,23 +895,11 @@ module Unification =
                 | TyUnion(_, args) when args.Length = 1 -> unify ctx lit.Tok args.[0] lit.Elem
                 | _ -> ()
 
-    /// Enforce the semantic contract of a `Custom` equality / comparison posture
-    /// on a class. Runs AFTER `walkElems` so every
-    /// `InterfaceImpls[].Resolved` has been stamped by `resolveInterfaceImpls`.
-    ///   - `EqualitySupport = Custom` ⇒ the class must implement
-    ///     `System.IEquatable<Self>`.
-    ///   - `ComparisonSupport = Custom` ⇒ the class must implement
-    ///     `System.IComparable<Self>`, and must also carry `Custom` equality
-    ///     (custom ordering atop non-custom equality is incoherent).
-    /// The interface HEAD is matched on the arity-suffixed qualified name
-    /// (`System.IEquatable\`1` / `System.IComparable\`1`) — the exact form the
-    /// provider mints for a resolved `TyClass(ifaceKey, _)`. The single type-arg
-    /// is checked to be Self (the declaring class's own nominal key) when present;
-    /// the head match is the reliable gate and the Self-arg check is best-effort
-    /// (it compares the resolved arg's nominal key to `info.Key`, tolerating the
-    /// generic typar instantiation of the class's own type params).
+    /// For a class, union or record: `EqualitySupport = Custom` ⇒ it must implement the
+    /// equatable capability over Self; `ComparisonSupport = Custom` ⇒ the comparable
+    /// capability plus `Custom` equality (custom ordering atop structural equality is incoherent).
     let private validateCustomEqCompImpls (ctx: PassContext) : unit =
-        // The declaring type's own nominal key — Self is `TyClass`/`TyUnion(info.Key, _)`.
+        // The declaring type's own nominal key — Self is `TyClass`/`TyUnion(info.TypeKey, _)`.
         let argIsSelf (info: IInterfaceImplHost) (arg: SemType) : bool =
             match zonk ctx.Store arg with
             | TyClass(k, _)
@@ -1173,10 +907,8 @@ module Unification =
             | TyUnion(k, _) -> k = info.TypeKey
             | _ -> false
 
-        // Does the type implement `cap<Self>` among its resolved interface impls?
-        // Best-effort on the arg: a head match with a Self arg (or a head match with no
-        // readable arg) satisfies the requirement. Head match is the asm-blind
-        // `CapabilityIdentity.Matches` — the same recognition the for-in/use sites use.
+        // Best-effort on the arg: a head match with a Self arg, or with no readable arg
+        // at all, satisfies the requirement.
         let implementsSelf (info: IInterfaceImplHost) (cap: RuntimeNames.CapabilityIdentity) : bool =
             info.InterfaceImpls
             |> Array.exists (fun impl ->
@@ -1186,20 +918,14 @@ module Unification =
                 | _ -> false
             )
 
-        // Kind-agnostic per-type body: a `[<CustomEquality>]`/`[<CustomComparison>]`
-        // class, union *or* record must implement the corresponding capability
-        // interface. The identity is provider-resolved and target-neutral — the
-        // message names the resolved interface (`qualifiedName cap.Key`), not a
-        // hardcoded BCL name, so a JS compilation reports the JS capability, not `System.*`.
         let checkHost (info: IInterfaceImplHost) =
             let nameTok = info.DeclSite.Tok
 
             let needsEq = info.EqualitySupport = EqualityVerdict.Custom
             let needsCmp = info.ComparisonSupport = ComparisonVerdict.Custom
 
-            // `attr` is the posture attribute (`[<CustomEquality>]`); `capWord` the
-            // language capability name. An unnamed capability (the provider doesn't
-            // name it) is reported honestly rather than skipped (§5.4) or mis-blamed.
+            // `capWord` names the language capability when the provider resolves none, so
+            // the check reports rather than silently passing.
             let requireCapability (cap: RuntimeNames.CapabilityIdentity voption) (attr: string) (capWord: string) =
                 match cap with
                 | ValueSome c when not (implementsSelf info c) ->
@@ -1211,9 +937,8 @@ module Unification =
                 requireCapability ctx.CapabilityIds.Equatable "[<CustomEquality>]" "equatable"
 
             // A `[<CustomEquality>]` type must author its own `override GetHashCode()`
-            // (FS0344). Without one the runtimes fall back to a structural hash (JS)
-            // / `Object.GetHashCode` (CLR), which is unsound under a non-structural
-            // custom `Equals` (it breaks equal ⇒ same-hash). Target-agnostic.
+            // (FS0344): the fallback hash is unsound under a non-structural custom
+            // `Equals` — it breaks equal ⇒ same-hash.
             if
                 needsEq
                 && not (info.Members |> Array.exists (fun m -> m.Name = "GetHashCode" && m.IsOverride))
@@ -1236,14 +961,9 @@ module Unification =
         for kv in ctx.Types.Record do
             checkHost (kv.Value :> IInterfaceImplHost)
 
-    /// FS0438: two members with the same name, static-ness, kind, value-parameter
-    /// signature and method-typar arity — a genuine duplicate, unreachable rather than a
-    /// legal overload (which differs in one of those axes). Runs AFTER `walkElems` so each
-    /// member's `.Type` is filled and its parameter signature is knowable; the overload
-    /// identity is the frozen argSig `memberSignatureKey` mints (the same total identity the
-    /// call-site handshake records), so `Show(int)` / `Show(string)` coexist while
-    /// `M(int)` / `M(int)` collide. Anchored at the duplicate's own `DeclKey`, matching
-    /// fsc's declaration-time timing.
+    /// FS0438: two members agreeing on name, static-ness, kind, value-parameter signature
+    /// and method-typar arity — an unreachable duplicate rather than a legal overload.
+    /// `Show(int)` / `Show(string)` coexist; `M(int)` declared twice collides.
     let private checkDuplicateMembers (ctx: PassContext) : unit =
         let checkHost (typeParams: EqArray<string * TyVarId>) (members: TypeMemberInfo[]) =
             let seen = HashSet<_>(HashIdentity.Structural)
@@ -1262,11 +982,8 @@ module Unification =
             checkHost kv.Value.TypeParams kv.Value.Members
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
-        // Recompute the same per-element `OpenScope` NameResolution did, from the
-        // same stable ambient seed (`AmbientOpenScope`, not the per-element
-        // `OpenScope` the walk mutates).
-        // `walkModuleTreeWith` (not `walkModuleTree`) for the `RecScopeOffset` each element
-        // carries: the forward-scheme seed is gated on it.
+        // Recompute the same per-element `OpenScope` NameResolution did, from the stable
+        // `AmbientOpenScope` seed (not the per-element `OpenScope` the walk mutates).
         walkElems ctx (CstWalk.walkModuleTreeWith ctx.NameOf ctx.Resolution.AmbientOpenScope (fun _ _ -> ()) file)
         resolveListLiterals ctx
         validateCustomEqCompImpls ctx

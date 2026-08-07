@@ -3,27 +3,9 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// The SHAPES a frozen-TAST consumer receives, declared once and next to each other: the
-// node handles, the handle-carrying instantiation of each generic tree shape, and the
-// `…View` payload records. Nothing here reads a pool — `TastAccessor.fs` is the sole
-// producer of every one of them, and re-exports each under its own name, so a consumer
-// walking the tree names that one module and never this one.
-//
-// A node is a `Handle` — a dense pool id plus the pool that resolves it, over the columns
-// of `TastPoolNodes.fs` — so every shape here is POOL-AGNOSTIC: none takes a pool
-// parameter, and a view over a file's own tree has the same type as one over the
-// standalone pool an `.fsi` contract's patterns are minted into.
-//
-// The generic shapes — `TTypeDeclG`, `ValReprG`, `TMatchArmG`, `FormatSegG` and friends —
-// belong to `TastExpr.fs`/`TastDecl.fs`, parameterised over whatever holds a sub-node.
-// What is here is the ONE instantiation of each whose slots are handles, so a consumer
-// that scopes an arm's binders or replays a format sink reads the same record whichever
-// domain it is in.
-//
-// The `…View` records are the payload seam: a node's fields MINUS the child edges and
-// the `ty`/`tok`, named by role, so a consumer never positions into `exprChildren` by
-// hand. Each is a struct of handles and scalars — pool-agnostic, since the handles
-// carry their own pool.
+// The SHAPES a frozen-TAST consumer receives: the node handles, the handle-carrying
+// instantiation of each generic tree shape, and the `…View` payload records — a node's
+// fields MINUS its child edges and its `ty`/`tok`, named by role.
 
 module TastNodeViews =
 
@@ -32,9 +14,7 @@ module TastNodeViews =
     type PatId = Handle<PatPoolId>
     type DeclId = Handle<DeclPoolId>
 
-    /// The `type`-declaration cluster with its member/preamble/ctor BODY slots holding
-    /// handles — the shape `TTypeDeclG`'s `'body` parameter exists for. Same shape as
-    /// `Frozen.TTypeDecl`, ids in the body slots.
+    /// The `type`-declaration cluster, its member/preamble/ctor BODY slots holding handles.
     type TypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, ExprId>
     type TypeKind = TTypeKindG<FrozenType, Anchor, BinderId, ExprId>
     type Class = TClassG<FrozenType, BinderId, ExprId>
@@ -47,32 +27,26 @@ module TastNodeViews =
     type BaseCtorCall = TBaseCtorCallG<FrozenType, BinderId, ExprId>
 
     /// One resolved-specialization table entry as a consumer of the TREE reads it. `Origin`
-    /// rides across unchanged: it is a file identity, which no column addresses, and it is what
     /// says which file the anchors inside the entry are indices into.
     type Specialization =
         {
             Key: Frozen.SpecializationKey
             Origin: OriginFile
-            /// The abstraction this entry's edges apply — the lambda chain an edge's arguments
-            /// are positional against. The DECLARATION is not carried: an entry is always a
-            /// `Let` of lambdas, and reading its value at the one place an entry is reached
-            /// discharges that for every consumer instead of each restating it.
+            /// The abstraction this entry's edges apply — the lambda chain an edge's
+            /// arguments are positional against.
             Value: ExprId
         }
 
-    /// The compiled-form cluster with its tuple-group / destructuring patterns held as
-    /// handles — the `'pat` instantiation every consumer reads, whether the pats came
-    /// from a file's own pool (`peelValRepr` off the frozen lambda chain) or from the
-    /// standalone pool an `.fsi` contract's are minted into.
+    /// The compiled-form cluster, its tuple-group / destructuring patterns held as handles —
+    /// whether those came from a file's own pool or from the standalone pool an `.fsi`
+    /// contract's patterns are minted into.
     type StaticParam = StaticParamG<FrozenType, PatId, BinderId>
     type ArgGroup = ArgGroupG<FrozenType, PatId, BinderId>
     type ValRepr = ValReprG<FrozenType, PatId, BinderId>
     type CompiledReturn = CompiledReturnG<FrozenType>
     type CompiledForm = CompiledFormG<FrozenType, PatId, BinderId>
 
-    /// The scalar payload of an `ExternalMember` node, minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry. `Receiver` is a payload sub-expression named
-    /// by role (the member's target), not a positional `exprChildren` entry.
+    /// The scalar payload of an `ExternalMember` node; `Receiver` is the member's target.
     [<Struct>]
     type ExternalMemberView =
         {
@@ -82,29 +56,24 @@ module TastNodeViews =
             Storage: MemberStorage
         }
 
-    /// The scalar payload of an `ILIntrinsic` node — the `$N`-templated instruction and
-    /// its type operand, minus the `ty`/`tok` the node also carries. Its `args` are the
-    /// node's `exprChildren`.
+    /// The scalar payload of an `ILIntrinsic` node; its args are the node's `exprChildren`.
     [<Struct>]
     type ILIntrinsicView =
         {
             OpCode: string
-            /// The `<T>` the opcode takes — the element type of
-            /// `newarr`/`ldelem`/`stelem`/`ldobj`, the boxed type of `box`, the zeroed
-            /// type of `ilzero` — `ValueNone` for the type-free arithmetic / `throw` /
-            /// reinterpret opcodes. Distinct from the result `ty` (`exprTy`).
+            /// The `<T>` the opcode takes — the element type of `newarr`/`ldelem`/`stelem`,
+            /// the boxed type of `box`, the zeroed type of `ilzero`. `ValueNone` for the
+            /// type-free arithmetic / `throw` / reinterpret opcodes.
             TypeOperand: FrozenType voption
         }
 
-    /// The scalar payload of a `Lambda` node, minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry. `Body` is the sole `exprChildren` entry; the
-    /// `Param` pattern is not an expression child.
+    /// The scalar payload of a `Lambda` node. `Body` is the sole `exprChildren` entry;
+    /// `Param` is a pattern child.
     [<Struct>]
     type LambdaView = { Param: PatId; Body: ExprId }
 
-    /// The scalar payload of a `Let` node, minus the `ty`/`tok` that `exprTy`/`exprTok`
-    /// already carry. `Value`/`Body` are the two `exprChildren` entries; the `Binding`
-    /// pattern is not an expression child.
+    /// The scalar payload of a `Let` node. `Value`/`Body` are the two `exprChildren`
+    /// entries; `Binding` is a pattern child.
     [<Struct>]
     type LetView =
         {
@@ -113,14 +82,12 @@ module TastNodeViews =
             Body: ExprId
         }
 
-    /// The scalar payload of an `Assignment` node (`lhs <- rhs`), minus the `ty`/`tok`
-    /// that `exprTy`/`exprTok` already carry — the same two nodes `exprChildren` yields,
-    /// named by role.
+    /// The scalar payload of an `Assignment` node (`lhs <- rhs`) — the two nodes
+    /// `exprChildren` yields, named by role.
     [<Struct>]
     type AssignmentView = { Lhs: ExprId; Rhs: ExprId }
 
-    /// The scalar payload of an `IfThenElse` node, minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry — the three branch nodes `exprChildren` yields,
+    /// The scalar payload of an `IfThenElse` node — the three nodes `exprChildren` yields,
     /// named by role.
     [<Struct>]
     type IfThenElseView =
@@ -130,8 +97,7 @@ module TastNodeViews =
             ElseExpr: ExprId
         }
 
-    /// The scalar payload of an `External` node, minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry.
+    /// The scalar payload of an `External` node.
     [<Struct>]
     type ExternalView =
         {
@@ -139,14 +105,12 @@ module TastNodeViews =
             Key: SymbolKey voption
         }
 
-    /// The scalar payload of an `App` node (`fn arg`), minus the `ty`/`tok` that
-    /// `exprTy`/`exprTok` already carry — the same two nodes `exprChildren` yields, named
-    /// by role.
+    /// The scalar payload of an `App` node (`fn arg`) — the two nodes `exprChildren`
+    /// yields, named by role.
     [<Struct>]
     type AppView = { Fn: ExprId; Arg: ExprId }
 
-    /// The scalar payload of a `RecordClone` node (`{ source with … }`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Overrides` are the
+    /// The scalar payload of a `RecordClone` node (`{ source with … }`). `Overrides` are the
     /// (field-name, replacement) pairs — the labels `exprChildren` drops.
     [<Struct>]
     type RecordCloneView =
@@ -155,15 +119,13 @@ module TastNodeViews =
             Overrides: (string * ExprId)[]
         }
 
-    /// The scalar payload of a `FieldGet` node (`receiver.FieldName`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Receiver` is the sole
-    /// `exprChildren` entry, named by role.
+    /// The scalar payload of a `FieldGet` node (`receiver.FieldName`); `Receiver` is the
+    /// sole `exprChildren` entry.
     [<Struct>]
     type FieldGetView = { Receiver: ExprId; FieldName: string }
 
-    /// The scalar payload of a `FieldSet` node (`receiver.FieldName <- value`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry — the two nodes `exprChildren`
-    /// yields, named by role, plus the field label.
+    /// The scalar payload of a `FieldSet` node (`receiver.FieldName <- value`) — the two
+    /// nodes `exprChildren` yields, named by role, plus the field label.
     [<Struct>]
     type FieldSetView =
         {
@@ -172,24 +134,19 @@ module TastNodeViews =
             Value: ExprId
         }
 
-    /// The scalar payload of a `New` node, minus the `ty`/`tok` the node also carries.
-    /// Its `args` are the node's `exprChildren`.
+    /// The scalar payload of a `New` node; its args are the node's `exprChildren`.
     [<Struct>]
     type NewView =
         {
             ClassName: string
             /// The overload identity the front end chose — the key that disambiguates a
-            /// same-arity external-ctor candidate set, `ValueNone` when arity alone
-            /// suffices.
+            /// same-arity external-ctor candidate set; `ValueNone` when arity suffices.
             ChosenCtor: SymbolKey voption
         }
 
-    /// The scalar payload of a `PropertyGet` node — the receiver, the resolved member
-    /// key, and the dispatch `Via`, minus the `ty`/`tok` the node also carries.
-    /// `Receiver` is the sole `exprChildren` entry, named by role. `Via` distinguishes a
-    /// grounded self/base access from a `constrained.`-dispatched typar-interface one
-    /// (`CallVia.Interface`) — a distinction the CLR backend dispatches on; a target that
-    /// ignores it simply does not read the field.
+    /// The scalar payload of a `PropertyGet` node; `Receiver` is the sole `exprChildren`
+    /// entry. `Via` distinguishes a grounded self/base access from a
+    /// `constrained.`-dispatched typar-interface one (`CallVia.Interface`).
     [<Struct>]
     type PropertyGetView =
         {
@@ -198,12 +155,9 @@ module TastNodeViews =
             Via: CallVia<FrozenType>
         }
 
-    /// The scalar payload of a `MethodCall` node — the receiver, the resolved member key,
-    /// the dispatch `Via`, and the argument expressions, minus the `ty`/`tok` the node also
-    /// carries. `Args` is ONLY the `args` field — NOT `exprChildren` (which merges the
-    /// receiver in ahead of the args). `Via` distinguishes a grounded self/base call from a
-    /// `constrained.`-dispatched typar-interface one (`CallVia.Interface`) — a distinction
-    /// the CLR backend dispatches on; a target that ignores it does not read it.
+    /// The scalar payload of a `MethodCall` node. `Args` excludes the receiver, where
+    /// `exprChildren` merges it in ahead of them. `Via` distinguishes a grounded self/base
+    /// call from a `constrained.`-dispatched typar-interface one (`CallVia.Interface`).
     [<Struct>]
     type MethodCallView =
         {
@@ -214,13 +168,12 @@ module TastNodeViews =
         }
 
     /// The scalar payload of a `StaticFieldGet` node — the declaring class key and the
-    /// backing-field name, minus the `ty`/`tok` the node also carries.
+    /// backing-field name.
     [<Struct>]
     type StaticFieldGetView = { Key: SymbolKey; FieldName: string }
 
-    /// The scalar payload of a `StaticFieldSet` node — the declaring class key, the
-    /// backing-field name, and the stored value, minus the `ty`/`tok` the node also
-    /// carries. `Value` is the sole `exprChildren` entry, named by role.
+    /// The scalar payload of a `StaticFieldSet` node — the declaring class key and the
+    /// backing-field name; `Value` is the sole `exprChildren` entry.
     [<Struct>]
     type StaticFieldSetView =
         {
@@ -230,38 +183,31 @@ module TastNodeViews =
         }
 
     /// One arm of a `Match` / `TryWith`, its pattern and guard/body expressions held as
-    /// handles — the `'pat`/`'e` instantiation of the one arm shape (`TMatchArmG`), so a
-    /// consumer that scopes the arm's binders over its guard and body reads the same
-    /// record whichever domain it is in.
+    /// handles.
     type Arm = TMatchArmG<PatId, ExprId>
 
-    /// The scalar payload of a `Match` node — the scrutinee and the arms, minus the
-    /// `ty`/`tok` the node also carries.
+    /// The scalar payload of a `Match` node — the scrutinee and the arms.
     [<Struct>]
     type MatchView = { Scrutinee: ExprId; Arms: Arm[] }
 
-    /// The scalar payload of a `TryWith` node — the guarded body and the handler arms,
-    /// minus the `ty`/`tok` the node also carries. `Body` is the sole positional
-    /// `exprChildren` head.
+    /// The scalar payload of a `TryWith` node — the guarded body and the handler arms;
+    /// `Body` is the leading `exprChildren` entry.
     [<Struct>]
     type TryWithView = { Body: ExprId; Arms: Arm[] }
 
-    /// The scalar payload of a `TryFinally` node (`try Body finally Cleanup`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry — the two `exprChildren` entries,
-    /// named by role. `Body` carries the node's `ty`; `Cleanup` is unit.
+    /// The scalar payload of a `TryFinally` node (`try Body finally Cleanup`) — the two
+    /// `exprChildren` entries. `Body` carries the node's `ty`; `Cleanup` is unit.
     [<Struct>]
     type TryFinallyView = { Body: ExprId; Cleanup: ExprId }
 
-    /// The scalar payload of a `While` node (`while Cond do Body`), minus the `ty`/`tok`
-    /// that `exprTy`/`exprTok` already carry — the two nodes `exprChildren` yields, named
-    /// by role.
+    /// The scalar payload of a `While` node (`while Cond do Body`) — the two nodes
+    /// `exprChildren` yields, named by role.
     [<Struct>]
     type WhileView = { Cond: ExprId; Body: ExprId }
 
-    /// The scalar payload of a `ForTo` node (`for Var = StartExpr to EndExpr do Body`),
-    /// minus the `identTok`/`ty`/`tok` the node also carries. `StartExpr`/`EndExpr`/`Body`
-    /// are the three `exprChildren` entries, named by role; `Var` is the loop binder,
-    /// which has no pattern node behind it.
+    /// The scalar payload of a `ForTo` node (`for Var = StartExpr to EndExpr do Body`).
+    /// `StartExpr`/`EndExpr`/`Body` are the three `exprChildren` entries; `Var` is the loop
+    /// binder, which has no pattern node behind it.
     [<Struct>]
     type ForToView =
         {
@@ -271,10 +217,9 @@ module TastNodeViews =
             Body: ExprId
         }
 
-    /// The scalar payload of a `ForIn` node (`for Pat in Source do Body`), minus the
-    /// `ty`/`tok` the node also carries. `Source`/`Body` are the two `exprChildren`
-    /// entries; `Pat` is a pattern (not an expression child) and `Enumerator` records
-    /// how the source yields its enumerator (the front-end resolution codegen dispatches on).
+    /// The scalar payload of a `ForIn` node (`for Pat in Source do Body`). `Source`/`Body`
+    /// are the two `exprChildren` entries; `Pat` is a pattern child, and `Enumerator` records
+    /// how the source yields its enumerator.
     [<Struct>]
     type ForInView =
         {
@@ -284,10 +229,9 @@ module TastNodeViews =
             Enumerator: Frozen.ForInEnumerator
         }
 
-    /// The scalar payload of a `Use` node (`use Binding = Value in Body`), minus the
-    /// `ty`/`tok` that `exprTy`/`exprTok` already carry. `Value`/`Body` are the two
-    /// `exprChildren` entries; `Binding` is a pattern (not an expression child) and
-    /// `Dispose` the resolved disposal path.
+    /// The scalar payload of a `Use` node (`use Binding = Value in Body`). `Value`/`Body`
+    /// are the two `exprChildren` entries; `Binding` is a pattern child, and `Dispose` the
+    /// resolved disposal path.
     [<Struct>]
     type UseView =
         {
@@ -297,14 +241,13 @@ module TastNodeViews =
             Dispose: Disposal
         }
 
-    /// The format cluster with its sub-expressions held as handles — the `'e`
-    /// instantiation of the one sink / segment / dyn-hole shape.
+    /// The format sink / segment / dyn-hole shapes, sub-expressions held as handles.
     type FormatSink = FormatSinkG<ExprId>
     type FormatSeg = FormatSegG<FrozenType, Anchor, ExprId>
     type DynFormatHole = DynFormatHoleG<FrozenType, Anchor, ExprId>
 
-    /// The scalar payload of a `Format` node — the sink and the interleaved
-    /// literal/hole segments, minus the `ty`/`tok` the node also carries.
+    /// The scalar payload of a `Format` node — the sink and the interleaved literal/hole
+    /// segments.
     [<Struct>]
     type FormatView =
         {
@@ -312,16 +255,14 @@ module TastNodeViews =
             Segments: FormatSeg[]
         }
 
-    /// The scalar payload of an `EnumCase` pattern — the case's `enumKey`/`caseName`
-    /// identity, minus the `ty`/`tok` that `patTy`/`patTok` already carry.
+    /// The scalar payload of an `EnumCase` pattern — the case's enum-key / case-name identity.
     [<Struct>]
     type EnumCasePatView =
         { EnumKey: SymbolKey; CaseName: string }
 
-    /// The payload of a `Let` decl. `Binding` is the bound pattern, `Value` its
-    /// initializer, `IsInline` whether the binding expands per call site, `Ty`
-    /// the binding's declared type (the slot type a value-producing consumer allocates
-    /// for it — distinct from `exprTy Value` for a destructuring binding).
+    /// The payload of a `Let` decl. `IsInline` is whether the binding expands per call site;
+    /// `Ty` is the binding's declared type, distinct from the type of `Value` for a
+    /// destructuring binding.
     [<Struct>]
     type DeclLetView =
         {

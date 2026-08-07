@@ -20,27 +20,15 @@ open UnificationInferRecordAccess
 module internal UnificationInferIdentExpr =
 
     let rec inferIdent (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
-        // A multi-segment LongIdent whose head is a local binding is a
-        // record-field access chain (`r.X.Y`), not a qualified name — the
-        // parser rides these inside a single `Expr.LongIdentOrOp` rather
-        // than emitting `Expr.DotLookup`.
         match e with
-        // `(+)` used as a value: resolve the operator's compiled name through the
-        // provider and instantiate its scheme like any other external symbol. Elaborate
-        // projects this to `External("op_Addition", …)`, and `Passes.InlineExpansion`
-        // eta-reifies that into `fun a b -> (+) a b` and splices the operator's contract
-        // body at the call head it minted — which is what binds the value to a
-        // project-local nominal's OWN `static member (+)` when that is what the operands
-        // are: the body's static-opt base is an SRTP trait call, and a nominal receiver
-        // dispatches to its member. Nothing type-directed is needed HERE; the trait call
-        // in the contract body already IS the type-directed decision, made once the
-        // operands are ground.
+        // `(+)` used as a value: resolve the operator's compiled name through the provider
+        // and instantiate its scheme like any other external symbol. Nothing type-directed
+        // is needed here — the SRTP trait call in the operator's contract body makes it.
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             match Desugar.symbolicOpCompiledName op.Token with
             | ValueSome name ->
-                // NameResolution resolved the operator's compiled name (opens-aware,
-                // ambient-prelude leg included) and stamped its `ExternalSymbol` here;
-                // instantiate the scheme by key rather than re-resolving.
+                // NameResolution stamped the resolved `ExternalSymbol` here; instantiate
+                // the scheme by key rather than re-resolving the spelling.
                 match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
                 | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
                 | ValueNone ->
@@ -49,28 +37,22 @@ module internal UnificationInferIdentExpr =
                         node.Tok
                         (Kind.Message(sprintf "Operator '%s' is not available from the symbol provider" name))
             | ValueNone -> TyVar(freshTyVar ctx)
+        // A multi-segment LongIdent whose head is a local binding is a record-field access
+        // chain (`r.X.Y`): the parser rides these inside one `Expr.LongIdentOrOp`.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length > 1
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
             inferLongIdentFieldChain ctx node li
-        // An EXTERNAL enum-case access `E.C1` — the head names a TS-manifest
-        // (provider) enum, not a project-local one (which the next arm's
-        // `ctx.Types.Enum` lookup handles). Types as the nominal `TyEnum key`, the
-        // external analogue of the local-enum arm below; the key is shared with an
-        // `(x: E)` annotation (`Translate.tryResolveExternalType`), so the two unify.
-        // Guarded ahead of the general two-segment cascade so an external enum head
-        // never falls through to the class/union static path.
+        // An EXTERNAL enum-case access `E.C1` — the head names a provider enum, not a
+        // project-local one. Types as the nominal `TyEnum key`, the same key an `(x: E)`
+        // annotation resolves to, so the two unify.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) & Stamped ctx.Resolution.ExternalEnumCaseStamp node.Key enumKey when
             not (ctx.Bindings.Binding.ContainsKey node.Key)
             ->
             TyEnum enumKey
-        // A project-local enum-case access `E.C1`: the head names a project-local
-        // enum (a separate registry, so no class/union collision). Types as the enum
-        // nominal `TyEnum Key`, NOT its underlying int/string; an unknown case is a
-        // resolution error (the enum analogue of "Union 'U' has no case 'C'"). Sibling
-        // of the external-enum arm above and of `InferPat`'s enum-pattern arm, kept
-        // ahead of the general cascade so an enum head never falls into it.
+        // A project-local enum-case access `E.C1`. Types as the enum nominal `TyEnum Key`,
+        // NOT its underlying int/string; an unknown case is a resolution error.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
             && not (ctx.Bindings.Binding.ContainsKey node.Key)
@@ -100,13 +82,9 @@ module internal UnificationInferIdentExpr =
                     ValueSome(substituteWith ctx.Store subst m.Type)
                 | None -> ValueNone
 
-            // Class static member takes priority over union static member which
-            // takes priority over a union ctor — preserves the original cascade
-            // order so a static member shadows the not-a-case diagnostic.
-            // The qualifier resolves AS SEEN FROM this node: a class / union declared below
-            // it does not answer for the name, so `Foo.Bar` above `type Foo` falls through
-            // to the external cascade and lands unresolved — the same miss NameResolution
-            // already diagnosed on the qualifier.
+            // The qualifier resolves AS SEEN FROM this node: a class / union declared
+            // below it does not answer for the name, so `Foo.Bar` above `type Foo` falls
+            // through to the external cascade and lands unresolved.
             let classHit =
                 match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt node.Key) headName with
                 | ValueSome info -> tryStaticMember info.TypeParams info.Members
@@ -120,33 +98,26 @@ module internal UnificationInferIdentExpr =
                     match tryStaticMember info.TypeParams info.Members with
                     | ValueSome ty -> ty
                     | ValueNone ->
-                        // Qualified ctor reference `Result2.Ok` — via the union
-                        // registry, bypassing the CtorIndex ambiguity check.
+                        // Qualified ctor reference, resolved through the union registry
+                        // and so bypassing the `CtorIndex` ambiguity check.
                         match resolveQualifiedCtor ctx (ctx.UseSiteAt node.Key) headName tailName with
                         | ValueSome info -> ctorType ctx info
                         | ValueNone -> errorTy ctx node.Tok (Kind.NoCase(CaseOwner.Union, headName, tailName))
                 | ValueNone ->
-                    // Qualified external union case (`Option.Some`) — the head is
-                    // an external union, not a local one. NameResolution stamped
-                    // the resolved case at this node's key.
+                    // Qualified external union case (`Option.Some`); NameResolution
+                    // stamped the resolved case at this node's key.
                     match tryExternalCtorType ctx node.Key with
                     | ValueSome t -> t
                     | ValueNone -> inferIdentDefault ctx e node
         | _ -> inferIdentDefault ctx e node
 
-    /// Resolution order: local binding map, then provider, then `Class`-name
-    /// and `Union`-case registries (the latter two only for single-segment names).
     and inferIdentDefault (ctx: PassContext) (e: Expr<SyntaxToken>) (node: NodeSite) : SemType =
 
         match ctx.Bindings.Binding.TryGetValue node.Key with
         | ValueSome rb -> instantiateBinding ctx rb
         | ValueNone ->
-            // Provider first — provider hits beat ctor-name resolution
-            // when both exist (a let-bound `Ok` would have a Binding entry
-            // and never reach here). Bare single-segment idents absent
-            // from the provider fall to the ctor registry. NameResolution
-            // resolved this spelling (opens-aware) and stamped its
-            // `ExternalSymbol`; instantiate the scheme by key.
+            // Provider hits beat ctor-name resolution when both exist; a bare ident
+            // absent from the provider falls to the ctor registry below.
             match ctx.Resolution.ExternalSymbolStamp.TryGetValue node.Key with
             | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
             | ValueNone ->
@@ -169,24 +140,19 @@ module internal UnificationInferIdentExpr =
                         | ValueSome i -> ctorType ctx i
                         | ValueNone when count >= 2 -> errorTy ctx node.Tok (Kind.AmbiguousConstructor(n, count))
                         | ValueNone ->
-                            // External union case ctor (`Some` / `None` from a
-                            // referenced package, in scope via `open`): typed as
-                            // `field… → TyUnion(union, …)` so `inferApp` flows the
-                            // application through the normal function arm and the
+                            // External union case ctor (`Some` / `None` from a referenced
+                            // package): typed as `field… -> TyUnion(union, …)`, so the
                             // bare nullary form (`None`) lands as the union value.
                             match tryExternalCtorType ctx node.Key with
                             | ValueSome t -> t
                             | ValueNone ->
                                 // Class-name-as-function: `Point(3, 4)` parses as
-                                // `Expr.App (Expr.Ident "Point", ...)`. Return the
-                                // ctor as a function value so `inferApp` types the
-                                // call through the normal function arm.
+                                // `Expr.App(Expr.Ident "Point", …)`, so return the ctor
+                                // as a function value and let the function arm type it.
                                 classCtorAsFunction ctx (ctx.UseSiteAt node.Key) n
                     | ValueNone ->
-                        // A qualified name. `A.Point(3, 4)` — a class named through the module
-                        // holding it — is a ctor reference exactly as the bare `Point(3, 4)`
-                        // above is: the head names a TYPE, so it resolves through the type
-                        // registry, not as a value.
+                        // A qualified name: `A.Point(3, 4)` names a TYPE through its module,
+                        // so it resolves through the type registry as a ctor reference.
                         let localCtor =
                             match e with
                             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
@@ -196,13 +162,9 @@ module internal UnificationInferIdentExpr =
                         match localCtor with
                         | ValueSome ty -> ty
                         | ValueNone ->
-                            // A multi-segment qualified name that resolved to nothing.
-                            // If its qualifier names a known external union/record, the
-                            // tail is a missing member (`Result.Nope` / `Option.Nope`):
-                            // diagnose it rather than minting a fresh TyVar that unifies
-                            // with anything and hides the typo deep in codegen — the
-                            // symmetric front-end miss to `resolveFieldStep`'s instance-
-                            // member arm.
+                            // A multi-segment qualified name that resolved to nothing. If its
+                            // qualifier names a known external union/record, the tail is a
+                            // missing member (`Option.Nope`) — diagnose rather than mint a TyVar.
                             match tryQualifiedExternalMemberMiss ctx e with
                             | ValueSome(qual, memberName) ->
                                 errorTy ctx node.Tok (Kind.NoMember(qual, MemberNoun.ValueOrMember, memberName))
@@ -211,27 +173,17 @@ module internal UnificationInferIdentExpr =
     and qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-        // `A.B.(+)` — the qualified operator form NameResolution resolved through
-        // the provider; rebuild the same compiled name
-        // (`A.B.op_Addition`) so the provider round-trip here matches its key.
+        // `A.B.(+)`: rebuild the same compiled name (`A.B.op_Addition`) NameResolution
+        // resolved through the provider, so the round-trip matches its key.
         | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
             match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
             | ValueSome n -> n
             | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
         | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
-    /// `ClassName<'args>.Member` where the receiver is an *explicitly* instantiated
-    /// **local** class/union (`Set<'T>.Empty`, `Box<'T>.Tag`). The bare folded
-    /// `ClassName.Member` form resolves its static member in `inferIdent`, but the
-    /// `<'args>`-bearing form parses as `DotLookup(TypeApp(ClassName, <'args>),
-    /// .Member)`; inferring the `TypeApp` receiver as a value yields the ctor
-    /// function type (→ a spurious "non-class" member-read error). Resolve the
-    /// static member directly here, mirroring `inferIdent`'s `tryStaticMember`: a
-    /// fresh type-param instance + substitution; the surrounding context (the
-    /// member's annotated return type) pins the instantiation, so the explicit
-    /// `<'args>` aren't separately unified (matching the folded form, which has
-    /// none). The applied static-*method* form (`ClassName<'args>.M args`) is
-    /// handled separately by the App arm.
+    /// `Set<'T>.Empty` parses as `DotLookup(TypeApp(ClassName, <'args>), .Member)`, and
+    /// inferring that receiver as a value would yield the ctor function type. The explicit
+    /// `<'args>` are not unified here; the member's annotated type pins the instantiation.
     and tryLocalTypeAppStaticMember
         (ctx: PassContext)
         (recv: Expr<SyntaxToken>)

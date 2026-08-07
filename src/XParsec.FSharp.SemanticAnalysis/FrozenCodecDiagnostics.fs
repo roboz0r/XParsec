@@ -8,17 +8,12 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 
 /// The FROZEN diagnostic domain: a `Diagnostic`, the `Kind` that is its verdict, and the
-/// small closed vocabularies a kind's facts are drawn from. Split from `FrozenCodecTypes`
-/// because it shares nothing with the frozen TYPE domain but the codec sink — a `Kind`
-/// carries strings, ints and its own enums, never a `FrozenType` or a key.
-///
-/// `Site` itself is a primitive (`FrozenCodecPrimitives.writeSite`): it is the position
-/// every diagnostic and every future span-bearing payload speaks, not a diagnostic's own
-/// business.
+/// small closed vocabularies a kind's facts are drawn from. A `Kind` carries strings, ints
+/// and its own enums — never a `FrozenType` or a key, so nothing here names the tables.
 module FrozenCodecDiagnostics =
 
-    // `Diagnostic` is qualified below rather than aliased; see the type's declaration for
-    // why the bare name would otherwise be the parser's.
+    // `XParsec.FSharp.Parser` declares its own `Diagnostic`, so the bare name here would be
+    // the parser's — hence the fully qualified signatures at the bottom of the file.
     let private writeLabel (w: FrozenWriter) (l: Label) =
         writeSite w l.Site
         w.Write l.Message
@@ -118,17 +113,15 @@ module FrozenCodecDiagnostics =
         | 7uy -> ConformanceVerdict.UnknownImplOnly(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown ConformanceVerdict tag %d" b
 
-    /// `Token` is a `uint16`-backed enum, so it rides as its own representation — including
-    /// the flag bits, which a diagnostic's spelling helper masks off on READ
-    /// (`TokenInfo.withoutFlags`) rather than at rest.
+    /// A `uint16`-backed enum, written as its own representation INCLUDING the flag bits; a
+    /// diagnostic's spelling helper masks those off on read rather than at rest.
     let private writeToken (w: FrozenWriter) (t: Token) = w.Write(uint16 t)
 
     let private readToken (r: FrozenReader) : Token =
         LanguagePrimitives.EnumOfValue(r.ReadUInt16())
 
-    /// The PARSER's verdict, forwarded whole by `Kind.Parse`. Codeable at all because every
-    /// `DiagnosticCode` payload is a `Token`, a `Site` or a string — see that type for why
-    /// it holds no CST node.
+    /// The PARSER's verdict, forwarded whole. Codeable at all because every `DiagnosticCode`
+    /// payload is a `Token`, a `Site` or a string — never a CST node.
     let private writeDiagnosticCode (w: FrozenWriter) (c: DiagnosticCode) =
         match c with
         | DiagnosticCode.Other msg ->
@@ -212,10 +205,6 @@ module FrozenCodecDiagnostics =
         | 2uy -> InternalBreak.UnflattenedModule(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown InternalBreak tag %d" b
 
-    /// A diagnostic's VERDICT: a case tag plus that case's facts. The WRITER is exhaustive,
-    /// so a new `Kind` case cannot land without being given a tag; the reader is a byte
-    /// match and can only fault on a tag nothing wrote, which is why the round-trip test
-    /// covers one value per case rather than trusting the two to agree.
     let private writeKind (w: FrozenWriter) (k: Kind) =
         match k with
         | Kind.UndefinedType name ->
@@ -406,9 +395,7 @@ module FrozenCodecDiagnostics =
             Kind.TypeArgArity(name, expected, r.ReadInt32())
         | 7uy -> Kind.UnresolvedQualifiedName(r.ReadString())
         | 8uy -> Kind.OperatorFormQualifiedName(r.ReadString())
-        // Tag 9 is RETIRED: `MemberNotResolvable` became an `InternalBreak` under tag 1. Blobs
-        // that carried it are unreachable (`Cache.CodeVersion` moved), so the tag is free —
-        // named here only so it is reused deliberately rather than by accident.
+        // Tag 9 is free — a retired case, which nothing writes. Reuse it deliberately.
         | 10uy ->
             let ty = r.ReadString()
             Kind.ConstraintNotSupported(ty, r.ReadString())

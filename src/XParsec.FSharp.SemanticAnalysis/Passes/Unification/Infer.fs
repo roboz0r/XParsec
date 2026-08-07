@@ -27,12 +27,8 @@ open UnificationInferApp
 module UnificationInfer =
 
     /// Peel paren / ascription wrappers to a binding RHS's underlying format-string
-    /// literal (`let fmt : Fmt = "%d"` → the `"%d"`; `let fmt = ("%d" : Fmt)` → the
-    /// inner `"%d"`). `ValueNone` unless the peeled expr is an `Expr.String` whose
-    /// specifiers parse (`formatSpecifiers`). Drives the E1(b) const-prop registration
-    /// in `inferBinding` — gated there on the binding's type being a `PrintfFormat`,
-    /// so a plain-string `let s = "%d"` (which reaches printf nowhere) is never
-    /// recorded.
+    /// literal (`let fmt = ("%d" : Fmt)` → the inner `"%d"`). `ValueNone` unless the
+    /// peeled expr is an `Expr.String` whose specifiers parse.
     let rec private peelToFormatString (ctx: PassContext) (e: Expr<SyntaxToken>) : Expr<SyntaxToken> voption =
         match e with
         | Expr.EnclosedBlock(expr = inner)
@@ -45,8 +41,6 @@ module UnificationInfer =
         | _ -> ValueNone
 
     let rec infer (ctx: PassContext) (e: Expr<SyntaxToken>) : SemType =
-        // ONE projection, so the key a side table is filed under and the token a diagnostic
-        // is placed at cannot name different nodes.
         let node = CstKeys.siteOfExpr e
         let nodeTv = freshTv ctx node.Key
 
@@ -94,8 +88,7 @@ module UnificationInfer =
             | Expr.TryWith(expr = body; rules = Rules(rules = rules)) -> inferTryWith infer ctx node.Tok body rules
             | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) ->
                 inferTryFinally infer ctx node.Tok body finallyE
-            // `recv?name <- value` — the dynamic setter, routed through
-            // `op_DynamicAssignment` (parses as `Assignment(DynamicLookup(...), v)`).
+            // `recv?name <- value` — the dynamic setter, routed through `op_DynamicAssignment`.
             | Expr.Assignment(leftExpr = Expr.DynamicLookup(expr = recv); rightExpr = right) ->
                 inferDynamicSet infer ctx node recv right
             | Expr.Assignment(leftExpr = left; rightExpr = right) -> inferAssignment infer ctx node left right
@@ -103,23 +96,19 @@ module UnificationInfer =
             | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
                 inferRange infer ctx node.Tok a (ValueSome s) b
             | Expr.Null _ ->
-                // No reference-type bound yet — free TypeVar so surrounding
-                // context can pin it.
+                // No reference-type bound yet — a free var lets the context pin it.
                 TyVar(freshTyVar ctx)
             | Expr.Record(fieldInitializers = inits) -> inferRecord infer ctx node inits
             | Expr.RecordClone(expr = src; fieldInitializers = inits) -> inferRecordClone infer ctx node src inits
             | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                // A type-name receiver (`EqualityComparer<int>.Default`) resolves
-                // its static member through the provider — probed once here, ahead
-                // of the field-access fallback so the receiver isn't `infer`d as a
-                // value. Instance access (`value.Member`) takes the fallback.
+                // A type-name receiver (`EqualityComparer<int>.Default`) resolves its
+                // static member through the provider, so the receiver is never `infer`d
+                // as a value. Instance access (`value.Member`) takes the fallback.
                 match tryExternalTypeReceiver ctx recv with
                 | ValueSome(declTypeKey, typeArgsCst) ->
                     let args = [ for t in typeArgsCst -> translateType ctx t ]
                     inferExternalStaticMember ctx node.Key declTypeKey args li.Idents.[0]
                 | ValueNone ->
-                    // `ClassName<'args>.Member` on a *local* class/union — resolve its
-                    // static member before falling to value-receiver field access.
                     match tryLocalTypeAppStaticMember ctx recv li.Idents.[0] with
                     | ValueSome ty -> ty
                     | ValueNone -> inferFieldAccess infer ctx node recv li.Idents.[0]
@@ -134,56 +123,35 @@ module UnificationInfer =
             // `recv?name` — dynamic member access, routed through the `op_Dynamic`
             // operator so its `default ^TResult : dynamic` drives target typing.
             | Expr.DynamicLookup(expr = recv) -> inferDynamicLookup infer ctx node recv
-            | _ ->
-                // Surface the unhandled case loudly rather than fabricating a
-                // free TyVar and silently producing a broken type for every
-                // use site. Matches the precedent in
-                // `ElaborateExpr.translateExpr` (file: ElaborateExpr.fs).
-                failwithf "infer: TODO %A" e
+            | _ -> failwithf "infer: TODO %A" e
 
         ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome inferredTy)
         inferredTy
 
-    /// The disposal capability's `Dispose` member key — the §5.0-resolved disposable
-    /// identity (`ctx.CapabilityIds.Disposable`), NOT a hardcoded `System.IDisposable`. It
-    /// is the ONE key `Disposal.ViaCapability` carries, so it crosses Elaborate
-    /// target-neutrally: each backend lowers the capability to its own slot (the CLR's
-    /// interface slot — this key; JS's `[Symbol.dispose]()` — which ignores it).
+    /// The disposal capability's `Dispose` member key, taken from the resolved
+    /// `ctx.CapabilityIds.Disposable` rather than a hardcoded `System.IDisposable`.
     /// `ValueNone` only for a compile that names no disposable capability at all.
     and private capabilityDisposeSlot (ctx: PassContext) : SymbolKey voption =
         match ctx.CapabilityIds.Disposable with
         | ValueSome disp -> ValueSome(SymbolKeyOps.memberKey disp.Key "Dispose" EqArray.empty 0 MemberKind.Method)
         | ValueNone -> ValueNone
 
-    /// Resolve the disposal path of a `use` binder of *external* (BCL) type.
-    /// The PRIMARY qualifier is the disposable-capability *interface*: scan the type's
-    /// (instantiated) interfaces for `caps.Disposable` and dispose through the capability.
-    /// This is the real-F# rule (a `use` binder must implement `System.IDisposable`) and
-    /// covers the common BCL case where `Dispose` is declared on a base — `MemoryStream`
-    /// inherits `Stream.Dispose`, so the `DeclaredOnly` `TryLookupMember` misses it but
-    /// `GetInterfaces` surfaces the interface transitively. The own-`Dispose` fallback
-    /// survives only for a *non-`IDisposable`* ref struct (it can't be boxed to the
-    /// interface, so its own pattern `Dispose()` is called directly). `ValueNone` ⇒ not
-    /// disposable.
+    /// The disposal path of a `use` binder of *external* (BCL) type. PRIMARY: the
+    /// instantiated interface set carries `ctx.CapabilityIds.Disposable`, which also catches
+    /// a `Dispose` declared on a base. `ValueNone` ⇒ not disposable.
     and private tryExternalDispose (ctx: PassContext) (declKey: TypeKey) (args: EqArray<SemType>) : Disposal voption =
-        // The directly-implemented interface set an external nominal carries today: a
-        // class's `FrozenInterfaces` or a union's `interface <ty>` impls (the union
-        // analogue, the cons-list's `interface seq<'T>` channel). Scanned kind-agnostically
-        // so a BCL/contract union that is `IDisposable`-via-interface disposes through the
-        // slot, exactly as `InferControlFlow.tryForInEnumerator` admits Class+Union for
-        // iteration. (An external RECORD carries no interfaces — `DeferredBody.Record`
-        // captures no `interface` CSTs — so a disposable external record resolves only via
-        // its own `Dispose` below; that boundary moves the day records gain a contract
-        // interface channel.)
+        // The directly-implemented interface set an external nominal carries: a class's
+        // `FrozenInterfaces` or a union's `interface <ty>` impls. An external RECORD carries
+        // none, so a disposable external record resolves only via its own `Dispose` below.
         let externalInterfaces () : (string * SemType[])[] =
             match ctx.Provider.TryLookupType(SymbolKey.Type declKey) with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
             | ValueSome(ExternalTypeShape.Union(_, _, ifaces, _)) ->
                 ExternalSymbols.instantiateInterfacesOf ifaces (args.AsSpan().ToArray())
-            // A capability interface that inherits another capability (`enumerator : disposable`):
-            // its inherited set makes `use e` on an abstract `enumerator<'T>` disposable, BCL
-            // parity for `IEnumerator`1 : IDisposable`.
+            // A capability interface that inherits another (`enumerator : disposable`) makes
+            // `use e` on an abstract `enumerator<'T>` disposable — BCL parity for
+            // `IEnumerator<'T> : IDisposable`.
             | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                 ExternalSymbols.instantiateInterfacesOf iface.Interfaces (args.AsSpan().ToArray())
             | _ -> [||]
@@ -201,17 +169,13 @@ module UnificationInfer =
         // Fallback for an external non-`IDisposable` ref struct: its own pattern
         // `Dispose()`, which can't be reached through a boxed interface slot.
         | ValueNone ->
-            // `declKey` is the binder's already-resolved external type identity, so the
-            // own-`Dispose` fallback is a key-addressed store-view lookup.
             match ctx.Provider.TryLookupMember(SymbolKey.Type declKey, "Dispose") with
             | ValueSome m when not m.IsStatic && not m.IsValueMember ->
                 ValueSome(Disposal.ViaOwnMember(SymbolKey.Member m.Key))
             | _ -> ValueNone
 
-    /// True iff a project-local nominal type (class / union / record) implements the
-    /// disposable capability interface — its `InterfaceImpls` carry a resolved interface
-    /// whose head key matches `caps.Disposable`. Mirrors
-    /// `InferControlFlow.probeLocalEnumerator`'s for-in finally probe.
+    /// True iff a project-local nominal type's `InterfaceImpls` carry a resolved interface
+    /// whose head key matches `ctx.CapabilityIds.Disposable`.
     and private localImplementsDisposable
         (ctx: PassContext)
         (host: IInterfaceImplHost)
@@ -227,11 +191,9 @@ module UnificationInfer =
             | ValueNone -> false
         )
 
-    /// The ref-struct carve-out: a `[<IsByRefLike>]` class can't be boxed to
-    /// `IDisposable`, so a duck-typed pattern `Dispose()` is disposed by calling its
-    /// own method directly — recorded as `Disposal.ViaOwnMember` (each backend then calls
-    /// the binder's own method, NOT the capability slot). Returns the own-`Dispose` member
-    /// key when the class is byref-like and exposes such a member; `ValueNone` otherwise.
+    /// The ref-struct carve-out: a `[<IsByRefLike>]` class can't be boxed to `IDisposable`,
+    /// so its duck-typed pattern `Dispose()` is called directly. Returns that member's key
+    /// when the class is byref-like and exposes one; `ValueNone` otherwise.
     and private tryRefStructOwnDispose (ctx: PassContext) (clsKey: TypeKey) : SymbolKey voption =
         match TypeRegistry.tryClassByKey ctx.Types clsKey with
         | ValueSome info when info.IsByRefLike ->
@@ -245,19 +207,12 @@ module UnificationInfer =
                 ValueNone
         | _ -> ValueNone
 
-    /// Resolve the disposal path for one `use` binding into `UseDispose`, where Elaborate
-    /// reads it. Disposal is INTERFACE-REQUIRED (real-F# parity): a binder qualifies iff it
-    /// implements the `disposable` capability — `Disposal.ViaCapability`, whether the binder
-    /// is project-local or external (a BCL type reaching the interface through a base). The
-    /// `[<IsByRefLike>]` ref struct that cannot implement the interface but exposes a pattern
-    /// `Dispose`, and an external type with an own-`Dispose` and no `IDisposable`, are the
-    /// carve-out — `Disposal.ViaOwnMember`. A binder that is neither is a `use`-over-non-
-    /// disposable error; an unresolved binder type is left alone (pre-existing behaviour).
-    /// Both leave `UseDispose` empty, which Elaborate reads as `Disposal.Unresolved`.
+    /// Resolve one `use` binding's disposal into `UseDispose`. Disposal is INTERFACE-REQUIRED
+    /// (real-F# parity); the `[<IsByRefLike>]` ref struct and an external type with an
+    /// own-`Dispose` and no `IDisposable` are the carve-out. Neither ⇒ a diagnostic, entry unset.
     and private resolveUseDispose (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         match b.headPat with
-        // `use _ = e` (the RAII-guard form) resolves exactly like a named binder — the value
-        // is still parked in a local and disposed; the body just has no name for it.
+        // `use _ = e` disposes exactly like a named binder; the body just has no name for it.
         | Pat.NamedSimple _
         | Pat.Wildcard _ ->
             let patKey = CstKeys.ofPat b.headPat
@@ -273,9 +228,6 @@ module UnificationInfer =
                     )
                 )
 
-            // A project-local nominal binder (class / union / record). It qualifies for
-            // `use` iff it implements the `disposable` capability interface; else the
-            // ref-struct carve-out; else an error.
             let resolveLocal (host: IInterfaceImplHost) (headKey: TypeKey) (simple: string) (args: EqArray<SemType>) =
                 match
                     (if localImplementsDisposable ctx host args then
@@ -286,20 +238,12 @@ module UnificationInfer =
                 | ValueSome disposal -> ctx.Resolution.UseDispose.Set(patKey, disposal)
                 | ValueNone -> notDisposable simple
 
-            // Any nominal binder (class / union / record) resolves the same way: a
-            // project-local host qualifies via its interface impls (or the ref-struct
-            // carve-out), otherwise it must be an external `disposable` — else it's a
-            // `use`-over-non-disposable error. `tryExternalDispose` scans whichever
-            // interface set the external shape carries (class or union); an external
-            // record carries none, so it resolves only via an own-`Dispose` there. This
-            // routes all three kinds rather than silently accepting an unknown head.
             match resolveStep ctx.Store binderTy with
             | TyClass(headKey, args)
             | TyUnion(headKey, args)
             | TyRecord(headKey, args) ->
-                // Resolve the local host by the arity-qualified key, not the bare
-                // name: an arity-overloaded host (`Foo`2`/`Foo`3`) does not resolve by bare name.
-                // `simple` is kept only for the diagnostic text.
+                // `simple` is for the diagnostic text only; the host resolves by the
+                // arity-qualified key, which an arity-overloaded host needs.
                 let (DisplayName simple) = SymbolKeyOps.typeSimpleName headKey
 
                 match TypeRegistry.tryInterfaceImplHostByKey ctx.Types headKey with
@@ -319,9 +263,8 @@ module UnificationInfer =
         : SemType =
         inferBindingGroup ctx bindings
 
-        // `use` binds a disposable: resolve each binder's `Dispose` so an external
-        // (BCL) disposal can be keyed for codegen and a non-disposable diagnosed
-        // (§4.3). `let` skips this.
+        // `use` binds a disposable: resolve each binder's `Dispose` so disposal can be
+        // keyed for codegen and a non-disposable diagnosed. `let` skips this.
         match keyword with
         | LetOrUseKeyword.Use _
         | LetOrUseKeyword.UseBang _ ->
@@ -338,29 +281,15 @@ module UnificationInfer =
         let savedScope = ctx.Resolution.TyparScope
         ctx.Resolution.TyparScope <- Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
-        // Inherit the lexically-enclosing binding's typars (lowest priority) so a
-        // named typar inside a *nested* `let` resolves to the same TyVar as the
-        // enclosing function's — F#'s lexical typar scoping. Without this, a
-        // nested `let rec loop (t': Tree<'T>) …` inside a generic module function
-        // `toList (t: Tree<'T>)` would mint a *fresh* `'T`, generalise `loop` over
-        // it independently, and leave the (now decoupled) typar ungrounded — a
-        // leaked `TyVar` that surfaces only at codegen (a closure capturing `t'`
-        // froze with `Tree<?ungrounded>`). `savedScope` is the enclosing binding's
-        // scope precisely because the `finally` restores it per binding, so a
-        // *sibling* binding (already restored) never bleeds through — only a true
-        // lexical parent does. Enclosing-type / member typars override below.
+        // Inherit the lexically-enclosing binding's typars (lowest priority) so a named typar
+        // in a *nested* `let rec loop (t': Tree<'T>)` resolves to the enclosing function's
+        // TyVar rather than minting a fresh, ungrounded `'T` — F#'s lexical typar scoping.
         for kv in savedScope do
             ctx.Resolution.TyparScope.[kv.Key] <- kv.Value
 
-        // Seed the enclosing type's typars (class / union `<'T>`) next so a
-        // generic member's signature annotation (`(x: 'T)`, `: Set<'T>`) resolves
-        // them rather than diagnosing "Free type parameter 'T" under strict scope.
-        // The binding's own `<'a>` typars seed below, shadowing on a name clash.
-        // `EnclosingTypars` carries the class typars and, for a generic
-        // member's body walk, the member's own explicit `<'C>` + implicit signature
-        // typars — so both the signature annotation here and any nested `let`
-        // in the body resolve them rather than diagnosing them free under strict
-        // member scope.
+        // `EnclosingTypars` carries the class `<'T>` and, for a generic member's body walk,
+        // the member's own typars. Seed them so a signature annotation (`(x: 'T)`, `: Set<'T>`)
+        // resolves rather than reporting a free type parameter; the binding's own seed shadows.
         match ctx.Resolution.EnclosingTypars with
         | ValueSome enclosing ->
             for kv in enclosing do
@@ -369,12 +298,9 @@ module UnificationInfer =
 
         seedBindingTypars ctx b
 
-        // Capture the binding's explicit `<'b,'a>` typars in SOURCE order, paired
-        // with the TypeVar `seedBindingTypars` just bound for each, while the
-        // transient `TyparScope` is still live — it is restored per binding (the
-        // `finally` below), so this mapping is unrecoverable by Elaborate, which
-        // needs it to order a free function's method typars declared-first (the F#
-        // rule). Keyed by the binding so a nested/sibling binding cannot collide.
+        // Capture the binding's explicit `<'b,'a>` typars in SOURCE order while `TyparScope`
+        // is still live — the `finally` restores it per binding, so Elaborate cannot recover
+        // the order, and it needs it to put a free function's declared typars first.
         match b.typarDefns with
         | ValueSome(TyparDefns(defns = ds)) ->
             let declared =
@@ -399,38 +325,29 @@ module UnificationInfer =
         | ValueSome(TyparDefns(constraints = ValueSome cs)) -> translateConstraints ctx cs
         | _ -> ()
 
-        // The member-typar seed (B-12) is for this binding's own typars only;
-        // clear it so a nested `let`-binding in the body mints fresh typars
-        // rather than reusing the member's prototypes.
+        // The member-typar seed is for this binding's own typars only; clear it so a nested
+        // `let` in the body mints fresh typars rather than reusing the member's prototypes.
         ctx.Resolution.BindingTyparSeed <- ValueNone
 
         try
-            // The binding names itself once — every annotation reconciliation below and the
-            // head unify at the end blame the same place.
             let bindTok = (CstKeys.siteOfBinding b).Tok
             let patTy = inferPat ctx b.headPat
 
-            // Typar order is explicit `<'T>` → args → return → body, all sharing
-            // one TyparScope. The return annotation is translated *before* the
-            // body so a return-only typar (`let f () : 'T list = …`) seeds the
-            // scope first; otherwise the body would mint a fresh `'T` and the
-            // return would translate into a different one.
+            // The return annotation is translated *before* the body so a return-only typar
+            // (`let f () : 'T list = …`) seeds the scope first; otherwise the body mints a
+            // fresh `'T` and the return translates into a different one.
             let rhsTy =
                 if b.argumentPats.IsEmpty then
                     match b.returnType with
                     | ValueSome(ReturnType(typ = t)) ->
                         let annTy = translateType ctx t
 
-                        // Type provenance: a value binding `let x : T = e` writes the
-                        // binder's type explicitly.
+                        // Provenance: `let x : T = e` writes the binder's type explicitly.
                         ctx.MarkTypeDeclared(CstKeys.ofPat b.headPat, annTy)
 
-                        // E1(a): a format-string literal bound to a `PrintfFormat`-family
-                        // annotation (`let fmt : StringFormat<_> = "%d"`) types AS the
-                        // format, not `string`. Skip `infer` on the literal (it would type
-                        // it `string`); the helper unifies the specifiers' printer into the
-                        // annotation (pinning a `<_>` wildcard printer), and we stamp the
-                        // annotation's format type onto the literal node.
+                        // A format-string literal bound to a `PrintfFormat`-family annotation
+                        // types AS the format, not `string`: skip `infer` on the literal, and
+                        // stamp the annotation's format type onto the literal node.
                         match tryTypeFormatLiteral ctx bindTok b.expr annTy with
                         | ValueSome fmt ->
                             ctx.Store.SetLink(
@@ -441,10 +358,9 @@ module UnificationInfer =
                             annTy
                         | ValueNone ->
                             let bodyTy = infer ctx b.expr
-                            // Annotation reconciliation: `unifyAnnotation` admits the
-                            // value→union assignability (`let x: int | string = 1`) and the
-                            // concrete-subtype→supertype upcast (`: exn = e`) while staying
-                            // symmetric `unify` for every other nominal annotation.
+                            // `unifyAnnotation` admits value→union (`let x: int | string = 1`)
+                            // and concrete-subtype→supertype (`: exn = e`), staying symmetric
+                            // `unify` for every other nominal annotation.
                             unifyAnnotation ctx bindTok bodyTy annTy
                             annTy
                     | ValueNone -> infer ctx b.expr
@@ -457,14 +373,10 @@ module UnificationInfer =
                             let annTy = translateType ctx t
                             let bodyTy = infer ctx b.expr
 
-                            // Type provenance: a `let f … : T = body` return annotation
-                            // writes the BODY's type explicitly (each parameter's
-                            // provenance is recorded independently by `inferPat`, so a
-                            // partially-annotated binding is never overstated).
+                            // Provenance: a `let f … : T = body` return annotation writes the
+                            // BODY's type; each parameter's is recorded by `inferPat`.
                             ctx.MarkTypeDeclared(CstKeys.ofExpr b.expr, annTy)
 
-                            // Annotation reconciliation against the written return type
-                            // — see the no-arg twin above.
                             unifyAnnotation ctx bindTok bodyTy annTy
                             annTy
                         | ValueNone -> infer ctx b.expr
@@ -473,13 +385,9 @@ module UnificationInfer =
 
             unify ctx bindTok patTy rhsTy
 
-            // E1(b) const-prop registration: a binding whose value is a format-string
-            // literal (possibly paren/ascription-wrapped) AND whose type resolved to a
-            // `PrintfFormat` gets its literal stashed by binding site, so a later
-            // `sprintf fmt …` recovers it and lowers natively (§ `PrintfFormatLiterals`
-            // — there is no cold runtime for a format value in the self-host contract).
-            // Gated on the `PrintfFormat` type so an unannotated plain-string `let`
-            // (which cannot legally reach a printf format slot) is never recorded.
+            // A binding whose value is a format-string literal AND whose type resolved to a
+            // `PrintfFormat` gets that literal stashed by binding site, so a later
+            // `sprintf fmt …` recovers it and lowers natively.
             match resolveStep ctx.Store patTy with
             | TyClass(fmtKey, _) when RuntimeNames.isPrintfFormatKey fmtKey ->
                 match peelToFormatString ctx b.expr with
@@ -489,14 +397,9 @@ module UnificationInfer =
         finally
             ctx.Resolution.TyparScope <- savedScope
 
-    /// Type a `let` / `let rec` group with Rémy-level discipline. Key
-    /// subtlety: pre-allocate single-name sibling headPat TyVars (step 2) so
-    /// forward references from inside one RHS (or a nested let) find the
-    /// sibling's TyVar at this group's level rather than lazy-minting at a
-    /// deeper one — which would let a nested let generalise a var that
-    /// actually belongs to an un-typed outer sibling. RHSes type at the
-    /// pushed level (sibling lookups stay monomorphic — no scheme written
-    /// yet); generalisation happens against the outer level after popping.
+    /// Type a `let` / `let rec` group. Sibling headPat TyVars are pre-allocated so a forward
+    /// reference from inside one RHS finds the sibling's TyVar at THIS group's level rather
+    /// than lazy-minting at a deeper one. Generalisation runs against the outer level.
     and inferBindingGroup (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : unit =
         let outerLevel = ctx.CurrentLevel
         enterLevel ctx
@@ -507,10 +410,8 @@ module UnificationInfer =
             | Pat.Op _ ->
                 let key = CstKeys.ofPat b.headPat
                 tvOf ctx key |> ignore
-                // Drop any annotation-derived forward scheme
-                // (`prebindModuleFunctionSchemes`) so this group's bodies type with
-                // monomorphic self/sibling references — no polymorphic recursion,
-                // exactly as before the pre-pass. The real scheme is rebuilt below.
+                // Drop any annotation-derived forward scheme so this group's bodies type
+                // with monomorphic self/sibling references — no polymorphic recursion.
                 ctx.Bindings.Scheme.Remove key
             | _ -> ()
 
@@ -526,8 +427,8 @@ module UnificationInfer =
                 let zonked = zonk ctx.Store (TyVar headTv)
 
                 if not (hasPendingDotAccess ctx.Store zonked) then
-                    // Settle flexible list-literal containers first (R3), then
-                    // re-zonk so the (now-linked) FSharpList element generalises.
+                    // Settle flexible list-literal containers first, then re-zonk so the
+                    // now-linked list element generalises.
                     prepareListLiterals ctx zonked outerLevel
                     let scheme = generalise ctx.Store (zonk ctx.Store zonked) outerLevel
                     ctx.Bindings.Scheme.Set(key, scheme)

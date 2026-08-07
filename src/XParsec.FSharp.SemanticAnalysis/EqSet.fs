@@ -5,35 +5,15 @@ open System.Collections.Generic
 open System.Collections.Immutable
 open System.Runtime.CompilerServices
 
-/// An insertion-ordered immutable collection with **SET-semantic equality**: two
-/// `EqSet`s are equal iff they hold the same MEMBER SET (order-insensitive), and
-/// the hash is a commutative (order-independent) combine of the member hashes.
-/// Construction DEDUPES, keeping the first occurrence — so iteration order is the
-/// declared order minus later duplicates.
-///
-/// This is the sibling of `EqArray` (which is order-SENSITIVE, for positional
-/// data — tuples, args, typar vectors). `EqSet` exists solely for anonymous-union
-/// (`FTOr`/`TyOr`) MEMBER storage, per the codegen-js-symbol-provider design
-/// (§"Literal types stay structural … EqSet sub-decision"). A canonical-SORT
-/// normalisation was REJECTED: a total order on `FrozenType` *could* be defined, but
-/// any such order is ARBITRARY (no member is naturally "less" than another), a
-/// standing MAINTENANCE surface (every new `FrozenType` constructor would have to
-/// extend it), and — worst — it DESTROYS the declared `.d.ts` union order. So the
-/// set-semantic identity is carried by `Equals`/`GetHashCode` (reusing `'T`'s own),
-/// while INSERTION order is preserved so the declared order survives into diagnostics
-/// / the manifest golden. `default`/uninitialised reads as empty.
+/// An immutable collection with SET-semantic equality: equal iff the same members in any
+/// order, hashed by a commutative combine. Construction DEDUPES and otherwise preserves
+/// insertion order, so `A | B | A` reads back as the declared `A | B`.
 [<Struct; IsReadOnly; CustomEquality; NoComparison>]
 type EqSet<'T> =
     val private items: ImmutableArray<'T>
-    // `NoComparison` is deliberate — a union member set has no natural order and
-    // nothing keys on one (do NOT add `CustomComparison` without a concrete need).
 
-    /// Construction DEDUPES (first occurrence wins), so the set-semantic
-    /// `Equals`/`GetHashCode` below — which assume distinct members (the
-    /// cardinality shortcut, the unordered hash sum) — hold BY CONSTRUCTION for
-    /// every instance; there is no raw-array back door to keep in sync. Member
-    /// counts are tiny (union members), so the quadratic scan is irrelevant; an
-    /// already-distinct input keeps its original array (no copy).
+    /// `Equals`/`GetHashCode` below assume the members are distinct. The scan is quadratic —
+    /// member counts are tiny — and an already-distinct input keeps its original array uncopied.
     new(items: ImmutableArray<'T>) =
         let cmp = EqualityComparer<'T>.Default
         let acc = ImmutableArray.CreateBuilder<'T>(items.Length)
@@ -60,7 +40,7 @@ type EqSet<'T> =
                     acc.ToImmutable()
         }
 
-    /// The backing array, normalised so a `default(EqSet)` reads as empty.
+    /// Normalised so an uninitialised `EqSet` reads as empty rather than throwing.
     member this.Underlying: ImmutableArray<'T> =
         if this.items.IsDefault then
             ImmutableArray<'T>.Empty
@@ -111,9 +91,7 @@ type EqSet<'T> =
         | _ -> false
 
     override this.GetHashCode() =
-        // Commutative (order-independent) combine — the unordered sum of member
-        // hashes — so a permutation of the SAME members hashes identically,
-        // consistent with the set-semantic equality above.
+        // Unordered sum, so a permutation of the same members hashes identically.
         let xs = this.Underlying
         let cmp = EqualityComparer<'T>.Default
         let mutable h = 0
@@ -128,8 +106,6 @@ module EqSet =
     [<GeneralizableValue>]
     let empty<'T> : EqSet<'T> = EqSet<'T>(ImmutableArray<'T>.Empty)
 
-    /// Dedupe happens in the constructor (first occurrence wins, insertion
-    /// order preserved), so this is a plain materialisation.
     let ofSeq (xs: 'T seq) : EqSet<'T> =
         EqSet<'T>(ImmutableArray.CreateRange xs)
 

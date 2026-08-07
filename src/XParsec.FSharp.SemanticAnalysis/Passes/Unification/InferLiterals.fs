@@ -12,14 +12,8 @@ open UnificationTranslate
 
 module internal UnificationInferLiterals =
 
-    /// Peel paren / annotation wrappers to a plain syntactic STRING constant's
-    /// value (interpolation / non-literal → `ValueNone`). THE one const-string
-    /// peeler behind call-site constant propagation (the printf-format precedent):
-    /// the literal-slot admission (`InferApp`) and the keyof-bounded method-typar
-    /// seams (`InferExternalCall`) both read syntax through here, so what counts
-    /// as "a constant" cannot drift between them. Int falls under the same seam
-    /// once literal-int slots are exercised; strings are the shape mitt / the
-    /// acceptance test need, so int is deferred.
+    /// A syntactic string constant's value, seen through paren / annotation wrappers —
+    /// the shared notion of "a constant" behind call-site constant propagation.
     let rec constStringArg (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         match e with
         | Expr.EnclosedBlock(expr = inner)
@@ -30,15 +24,9 @@ module internal UnificationInferLiterals =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// The type a literal token carries. Pulled out of `inferConst` so the measured-literal
-    /// arm can stamp this onto a TyVar's `Link` while the measure rides on `Units`.
-    ///
-    /// A numeric token is read through its classified `NumericKind` rather than by
-    /// enumerating the token cases: the radix axis (`10y` / `0x0Ay` / `0o12y` / `0b1010y`)
-    /// is not part of a literal's TYPE, and `numericKind` has already collapsed it. An
-    /// integral kind then names an `IntWidth`, whose type is `ctx.Intrinsics.OfIntWidth` —
-    /// the same width→type projection freeze uses for the constant itself, so a literal's
-    /// inferred type and its frozen `TConstValue`'s type are the same fact, asked once.
+    /// The type a literal token carries. A numeric token is read through its classified
+    /// `NumericKind` rather than by token case, because radix is not part of a literal's
+    /// type: `10y` / `0x0Ay` / `0o12y` / `0b1010y` all carry `sbyte`.
     let literalCarrier (ctx: PassContext) (t: SyntaxToken) : SemType =
         match t.Token with
         | Token.KWTrue
@@ -67,9 +55,8 @@ module internal UnificationInferLiterals =
                     | NumericKind.BigIntegerI
                     | NumericKind.BigIntegerN
                     | NumericKind.BigIntegerG -> ctx.Intrinsics.BigInt
-                    // `ReservedNumericLiteral`, or a `NumericKind` outside the declared set (a 5-bit
-                    // field, so F# cannot prove this exhaustive): a suffix F# gives no meaning to names
-                    // no type.
+                    // `NumericKind` is an enum, so the wildcard is required: a reserved or
+                    // otherwise meaningless suffix names no type.
                     | _ -> unknown ()
 
     let inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =
@@ -121,12 +108,9 @@ module internal UnificationInferLiterals =
         | OperatorData.OpGreaterThanOrEqual -> true
         | _ -> false
 
-    /// Fires before the provider lookup in `inferInfix` so measured
-    /// arithmetic / comparison operators get measure-correct result types and
-    /// a dedicated "Measure mismatch" diagnostic rather than a generic
-    /// carrier-type mismatch. Returns `None` for the all-dimensionless case
-    /// (or operators we don't dispatch); the caller falls through to the
-    /// provider path.
+    /// Measure-correct result types and a "Measure mismatch" diagnostic for arithmetic
+    /// and comparison on measured operands. `None` when both operands are dimensionless
+    /// (or the operator is not one of these), leaving the caller's ordinary path.
     let tryMeasuredArith
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -178,11 +162,9 @@ module internal UnificationInferLiterals =
                 Some ctx.Intrinsics.Bool
             | _ -> None
 
-    /// Reuses the lexer's canonical placeholder parser
-    /// (`Lexing.parseFormatSpecifierView`) so no second copy of the format
-    /// grammar lives here. `ValueNone` when the string carries interpolation
-    /// holes or lexer-error parts (not a simple format literal), so the
-    /// printf special-case falls through to standard inference.
+    /// `ValueNone` when the string is not a simple format literal — interpolation holes,
+    /// orphan specifiers or lexer-error parts — so the printf special-case falls through
+    /// to standard inference.
     let formatSpecifiers (ctx: PassContext) (e: Expr<SyntaxToken>) : FormatPlaceholder list voption =
         match e with
         | Expr.String(parts = parts) ->
@@ -206,37 +188,14 @@ module internal UnificationInferLiterals =
             if ok then ValueSome(List.ofSeq acc) else ValueNone
         | _ -> ValueNone
 
-    /// Whether every specifier is one the happy path lowers inline
-    /// (`PrintfHoleForm.tryClassify`); a `false` keeps the FSharp.Core cold
-    /// path. Folds over `formatSpecifiers`' already-parsed placeholders so the
-    /// part-walk and its rejections (interpolation holes, orphan specifiers,
-    /// lexer-error parts → `ValueNone`) happen once and can't drift from the
-    /// typing walk. `%%` escapes arrive as raw `Text` and never reach here.
+    /// Whether every specifier is one the inline lowering handles; a `false` keeps the
+    /// FSharp.Core cold path. A `%%` escape is its own string part, never a placeholder.
     let lowerablePlaceholders (placeholders: FormatPlaceholder list) : bool =
         placeholders |> List.forall (fun p -> (PrintfHoleForm.tryClassify p).IsSome)
 
-    /// E1(a): type a *format-string literal* that sits at a position whose EXPECTED
-    /// type is already a `PrintfFormat<Printer,State,Residue,Result>` family — a
-    /// format-typed `let` annotation (`let fmt : StringFormat<_> = "%d"`) or an
-    /// ascription (`("%d" : Fmt)`). Real F# accepts these (an *unannotated*
-    /// `let fmt = "%d"` is plain `string` and does NOT flow the format type back — so
-    /// only the annotated/ascribed forms reach here); our compiler otherwise rejects
-    /// them (`string` vs `PrintfFormat` mismatch).
-    ///
-    /// Parses the specifiers and computes the *printer* type from them + the
-    /// annotation's own `State`/`Residue`/`Result` slots (`PrintfSpec.printerFromSlots`
-    /// — the same `argTypes`/`printerType` machinery the printf gate uses), then
-    /// unifies it against the expected `Printer` slot (`args.[0]`) — pinning a
-    /// `StringFormat<_>` wildcard printer from the specifiers, and diagnosing a printer
-    /// that disagrees with an explicit annotation (`StringFormat<int->string>` vs a
-    /// `%s` body). Unifying only the printer slot (not a whole synthesised format type)
-    /// sidesteps the two `PrintfFormat` names: the annotation resolves to
-    /// `Vesper.Printf.PrintfFormat`, the gate synthesises `FSharp.Core`'s. On success
-    /// returns `expected` verbatim, so the caller stamps the annotation's OWN resolved
-    /// format type onto the literal node — the type a downstream `sprintf fmt` (typed
-    /// by the provider) unifies against. `ValueNone` (not a format literal, or the
-    /// expected type isn't a `PrintfFormat`) falls through to the caller's ordinary
-    /// `unify`, so this is strictly additive.
+    /// Types a format-string literal whose EXPECTED type is already a
+    /// `PrintfFormat<Printer,State,Residue,Result>` (`let fmt : StringFormat<_> = "%d"`).
+    /// Only the `Printer` slot is unified, so the two `PrintfFormat` spellings never meet.
     let tryTypeFormatLiteral
         (ctx: PassContext)
         (tok: SyntaxToken)

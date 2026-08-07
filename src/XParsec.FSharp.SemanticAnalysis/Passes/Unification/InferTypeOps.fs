@@ -19,20 +19,9 @@ open UnificationInferDispatch
 
 module internal UnificationInferTypeOps =
 
-    /// Explicit type application on a value/constructor head: `Set<'T>(args)`
-    /// (`set.clr.fs` construction sites), `Box<int>(x)`, etc. The CST shape is
-    /// `HighPrecedenceApp(TypeApp(head, [tyArgs]), valueArgs)`, so this types the
-    /// `TypeApp` node to the head's curried ctor / function type — the enclosing
-    /// App then unifies the value args as usual. The supplied type arguments are
-    /// unified pairwise against the head's *nominal result* type arguments so the
-    /// instantiation is pinned even when the value args alone wouldn't determine
-    /// it (e.g. `ResizeArray<int>()`). A non-nominal result (a bare generic
-    /// *function*, `id<int>`) carries its typars scattered through the function
-    /// type rather than in a single nominal result; v1 leaves those to value-arg
-    /// inference — the explicit args are a no-op there, matching eliding `<…>`.
-    /// External generic-static *member* receivers (`EqualityComparer<int>.Default`)
-    /// never reach here — they are a `DotLookup` over the `TypeApp`, handled by
-    /// `tryExternalTypeReceiver` upstream.
+    /// Explicit type application on a value or ctor head (`Box<int>(x)`): the given args
+    /// unify pairwise with the head's *nominal result* type args, so `ResizeArray<int>()`
+    /// pins. A bare generic function (`id<int>`) has no nominal result — args are a no-op.
     let rec inferTypeApp
         (infer: Infer)
         (ctx: PassContext)
@@ -57,11 +46,9 @@ module internal UnificationInferTypeOps =
 
         innerTy
 
-    /// Value-level inline IL `(# "op" args : retTy #)`. The instruction string is
-    /// opaque to the type-checker (the IL contract is the platform author's
-    /// responsibility); we only type each operand so its own subtree is solved,
-    /// and take the node's type from the declared result annotation (no annotation
-    /// → `unit`). Value-level analogue of the type-level `Type.ILIntrinsic`.
+    /// Value-level inline IL `(# "op" args : retTy #)`. The instruction string is opaque
+    /// to the type-checker; each operand is typed only so its own subtree is solved, and
+    /// the node's type comes from the declared result annotation (absent → `unit`).
     and inferILIntrinsic
         (infer: Infer)
         (ctx: PassContext)
@@ -70,14 +57,9 @@ module internal UnificationInferTypeOps =
         : SemType =
         let argTys = [| for a in args -> infer ctx a |]
 
-        // A bare `null` operand mints its own fresh TypeVar (`Expr.Null`) with no
-        // pinning context. In a binary compare against a typed operand — the
-        // `(# "ceq" value null : bool #)` shape of `isNull` — that var never links,
-        // and because `isNull` is `inline` it rides the spliced body into every
-        // caller, surfacing as a spurious `ResolvedTypes: unresolved TyVar`. Pin
-        // each `null` operand to the first non-`null` operand's type (the
-        // type-checker still treats the *instruction* as opaque; this only solves
-        // the otherwise-context-free `null` leaf).
+        // A bare `null` operand mints an unpinned fresh TypeVar; in the
+        // `(# "ceq" value null : bool #)` shape of `isNull` it never links, and an `inline`
+        // body rides it into callers unresolved. Pin it to the first non-`null` operand.
         let isNullOperand (e: Expr<SyntaxToken>) =
             match e with
             | Expr.Null _ -> true
@@ -94,30 +76,9 @@ module internal UnificationInferTypeOps =
         | ValueSome(ReturnType(typ = t)) -> translateType ctx t
         | ValueNone -> ctx.Intrinsics.Unit
 
-    /// `defaultExpr when ^T : Type [and ^U : Type]* = optimizedExpr [when … = …]*` — an
-    /// F# library-only static optimization. Type the default `defaultE` (its type is
-    /// the node's type — the operator's declared result, e.g. `bool` for the
-    /// equality family, `^T3` for `(+)`) and type every clause's `OptimizedExpr` so
-    /// each own subtree (operands, nested inline IL) is solved.
-    ///
-    /// No clause body is cross-unified with the default. F#'s static-opt
-    /// rule is per-clause — "assume the constraint, then check the body against the
-    /// return type": under `when ^T1 : int …` the body's `int` matches the (then-also
-    /// -`int`) declared result `^T3`. The earlier blanket `unify baseTy optTy` only
-    /// happens to work when every clause shares one concrete type (the equality
-    /// family's `bool`); it wrongly fuses the distinct clause results of an
-    /// `^T3`-returning op — `byte`/`int16`/`^T3` for `(+)` — and fails to unify them.
-    /// We omit that check (a fully sound version would speculatively unify under
-    /// the assumed constraint and undo — out of scope, by the
-    /// no-speculative-unification stop); soundness rides on the clause being
-    /// selected (and its body substituted) at expansion, where `^T` is concrete.
-    ///
-    /// The `when ^T : Type` constraints are a *compile-time dispatch*, NOT
-    /// unification constraints, so the typar is **not** unified with its required
-    /// type; it is translated only to record the verdict for `Inline.inlineExpand`
-    /// to resolve at the call site. The typar resolves through `ctx.Resolution.TyparScope` —
-    /// already seeded by the enclosing binding's parameters (`(x: ^T)`) — so the
-    /// recorded `SemType` carries the binding's quantified root.
+    /// `defaultExpr when ^T : Type = optimizedExpr` — a library-only static optimization.
+    /// The default's type is the node's; each clause body is typed only to solve its own
+    /// subtrees, never cross-unified (clause results differ — `byte`/`int16` for `(+)`).
     and inferLibraryOnlyStaticOptimization
         (infer: Infer)
         (ctx: PassContext)
@@ -127,6 +88,8 @@ module internal UnificationInferTypeOps =
         : SemType =
         let defaultTy = infer ctx defaultE
 
+        // `when ^T : Type` is a compile-time dispatch, not a unification constraint: the
+        // typar is recorded, never unified, and the verdict is resolved at the call site.
         let resolveConstraint c =
             match c with
             | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(typar = tp; rhsType = rhs) ->
@@ -134,7 +97,7 @@ module internal UnificationInferTypeOps =
             | StaticOptimizationConstraint.WhenTyparIsStruct(typar = tp) ->
                 TStaticOptConstraint.IsStruct(translateType ctx (Type.VarType tp))
 
-        // One entry per clause, in the node's clause order, so Elaborate pairs them by index.
+        // One entry per clause, in the node's clause order — the consumer pairs by index.
         let resolved = ResizeArray(clauses.Length)
 
         for clause in clauses do
@@ -145,14 +108,8 @@ module internal UnificationInferTypeOps =
         defaultTy
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
-    /// member-trait call, only ever the static-opt BASE of a `let inline` arithmetic
-    /// operator (`ops-platform.clr.fs`). The member is resolved at inline
-    /// expansion (the typars are abstract here), so inference only types the argument
-    /// tuple — so its operand subtrees are solved — and yields the member signature's
-    /// declared RETURN type. That is `^T3`, which for a heterogeneous operator
-    /// (`Vec2 * float -> Vec2`) is neither operand's type; reading it off the first
-    /// argument instead would type the node as `^T1` and Elaborate would stamp that
-    /// wrong type onto the `TExpr.TraitCall` it lowers to.
+    /// member-trait call, resolved at inline expansion. So type only the argument tuple
+    /// and yield the declared return `^T3`: for `Vec2 * float -> Vec2`, neither operand.
     and inferStaticMemberInvocation
         (infer: Infer)
         (ctx: PassContext)
@@ -162,8 +119,7 @@ module internal UnificationInferTypeOps =
         infer ctx argExpr |> ignore
 
         // The trait's typars resolve through the enclosing `let inline`'s
-        // `ctx.Resolution.TyparScope`, so `^T3` here IS the binding's declared result
-        // typar — the same root the operator's `: ^T3` return annotation carries.
+        // `ctx.Resolution.TyparScope`, so `^T3` here is the binding's own result typar.
         match msig with
         | MemberSig.MethodOrPropSig(sign = CurriedSig(returnType = ret))
         | MemberSig.PropSig(sign = CurriedSig(returnType = ret)) -> translateType ctx ret
@@ -177,16 +133,11 @@ module internal UnificationInferTypeOps =
         : SemType =
         let annTy = translateType ctx t
 
-        // Type provenance: `(e : T)` writes the node's type explicitly.
         ctx.MarkTypeDeclared(node.Key, annTy)
 
-        // E1(a): a format-string literal ascribed to a `PrintfFormat` family
-        // (`("%d" : Printf.StringFormat<_>)`, and the `let fmt = (… : Fmt)` form that
-        // desugars to it) types AS the format, not `string`. Skip `infer` on the
-        // literal (it would type it `string` and pin the node's TyVar); the helper
-        // unifies the specifiers' printer into the annotation (pinning a `<_>` wildcard
-        // printer), and we stamp the annotation's format type onto the literal node.
-        // Otherwise the ordinary annotation reconciliation.
+        // A format literal ascribed to a `PrintfFormat` family (`("%d" : StringFormat<_>)`)
+        // types AS the format, not `string`: skip `infer` on it — that would pin the node's
+        // TyVar to `string` — and stamp the annotation's format type onto the literal node.
         match tryTypeFormatLiteral ctx node.Tok inner annTy with
         | ValueSome fmt ->
             ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr inner)), ValueSome fmt)
@@ -195,31 +146,26 @@ module internal UnificationInferTypeOps =
             let innerTy = infer ctx inner
             unify ctx node.Tok innerTy annTy
 
-            // "Name the type at the escape point": an ascription DIRECTLY on a `?` expression
-            // (`(d?foo : int)`) is an explicit assertion, so it suppresses the implicit-escape
-            // warning `DynamicEscape.run` would otherwise raise. An annotation on the binding
-            // (`let n : int = d?foo`) is NOT on the `?` node and still warns.
+            // An ascription DIRECTLY on a `?` expression (`(d?foo : int)`) is an explicit
+            // assertion, so it suppresses the implicit dynamic-escape warning. An annotation
+            // on the binding (`let n : int = d?foo`) is not on the `?` node and still warns.
             match inner with
             | Expr.DynamicLookup _ -> ctx.DynamicEscapeSuppressed.Add(CstKeys.ofExpr inner) |> ignore
             | _ -> ()
 
             annTy
 
-    /// `obj` is the top of every reference hierarchy. `subsumes` doesn't model
-    /// it (the BCL `System.Object` class isn't in `ctx.Types.Class`), so the
-    /// coercion arms special-case it: a downcast / type-test from `obj` to any
-    /// known type is statically admissible and resolved at runtime. The
-    /// `set.clr.fs:988` `(that :?> Set<'T>).Tree` site relies on this.
+    /// `obj` is the top of every reference hierarchy but `subsumes` does not model it
+    /// (`System.Object` is not a registered class), so the coercion arms special-case it:
+    /// a downcast or type-test from `obj` is statically admissible, resolved at runtime.
     and isObjTy (store: TypeStore) (t: SemType) : bool =
         match resolveStep store t with
         | TyObj -> true
         | _ -> false
 
-    /// `e :> T` — explicit upcast. `src` must instantiate `T`'s nominal (itself
-    /// — a redundant but legal upcast — a base, or a declared interface);
-    /// `tryCoerceUpcast` both verifies that and unifies the witness's type args
-    /// against `T`'s, so a free var in the target (`this :> seq<_>`) is pinned.
-    /// The result type is the target.
+    /// `e :> T` — explicit upcast. `src` must instantiate `T`'s nominal: itself (a
+    /// redundant but legal upcast), a base, or a declared interface. The witness's type
+    /// args are unified against `T`'s, so a free var in the target (`this :> seq<_>`) pins.
     and inferStaticUpcast
         (infer: Infer)
         (ctx: PassContext)
@@ -233,13 +179,11 @@ module internal UnificationInferTypeOps =
         if not (tryCoerceUpcast ctx node.Tok srcTy tgtTy) then
             ctx.Report(node.Tok, Kind.UpcastUnrelated(shown ctx.Store srcTy, shown ctx.Store tgtTy))
 
-        // Type provenance: `e :> T` writes the node's (target) type explicitly.
         ctx.MarkTypeDeclared(node.Key, tgtTy)
         tgtTy
 
-    /// `e :? T` — type test. v1 requires the static types to be related in
-    /// either direction (an unrelated test is statically always-false); the
-    /// result is always `bool`.
+    /// `e :? T` — type test. The static types must be related in either direction; an
+    /// unrelated test is statically always-false.
     and inferDynamicTypeTest
         (infer: Infer)
         (ctx: PassContext)
@@ -249,8 +193,8 @@ module internal UnificationInferTypeOps =
         : SemType =
         let srcTy = infer ctx inner
         let tgtTy = translateType ctx t
-        // The node's own type is `bool`; stash the tested-against type so Elaborate
-        // can carry it into `TExpr.TypeTest.testTy` for the `isinst` operand.
+        // The node's own type is `bool`, so stash the tested-against type — nothing else
+        // records what the emitted `isinst` tests against.
         ctx.Resolution.TypeTestTargets.Set(node.Key, tgtTy)
 
         let related =
@@ -263,10 +207,9 @@ module internal UnificationInferTypeOps =
 
         ctx.Intrinsics.Bool
 
-    /// `e :?> T` — explicit downcast. The target must be a strict descendant of
-    /// the source (`subsumes tgt src = Subtype`); an equal static type warns
-    /// (redundant), an unrelated one errors. A downcast from `obj` is always
-    /// admissible (checked at runtime).
+    /// `e :?> T` — explicit downcast. The target must be a strict descendant of the
+    /// source; an equal static type warns as redundant, an unrelated one errors. A
+    /// downcast from `obj` is always admissible, checked at runtime.
     and inferDynamicDowncast
         (infer: Infer)
         (ctx: PassContext)
@@ -277,19 +220,14 @@ module internal UnificationInferTypeOps =
         let srcTy = infer ctx inner
         let tgtTy = translateType ctx t
 
-        // A nullable-reference source `T | null` downcasts EXACTLY as its non-null part
-        // `T` does — F# governs the coercion by the non-null type's proper-subtype
-        // structure (`obj | null :?> C` is fine because `obj` has proper subtypes;
-        // `string | null :?> C` is FS0016 because `string` is sealed). So erase the
-        // `null` member and run the ordinary downcast check on the remainder. (The
-        // diagnostics still show the original `srcTy` so the user sees `string | null`.)
+        // A nullable-reference source downcasts exactly as its non-null part does:
+        // `obj | null :?> C` is fine because `obj` has proper subtypes, `string | null :?> C`
+        // is FS0016 because `string` is sealed. Diagnostics still show the original `srcTy`.
         let checkSrc = stripReferenceNull ctx.Store srcTy
 
-        // A still-unresolved source TyVar is admitted (runtime-checked, like `obj`):
-        // an interface/override member's unannotated param (`that` in
-        // `IStructuralEquatable.Equals`) is pinned to `obj` only by the *conformance*
-        // unify that runs after the body — so the operand is a free var here. We
-        // can't prove unrelatedness of an unknown type, so no static error (G21).
+        // A still-unresolved source TyVar is admitted, runtime-checked like `obj`: an
+        // override's unannotated param (`that` in `IStructuralEquatable.Equals`) is pinned
+        // to `obj` only by the conformance unify that runs after the body.
         let isUnresolvedVar =
             match resolveStep ctx.Store checkSrc with
             | TyVar _ -> true
@@ -302,6 +240,5 @@ module internal UnificationInferTypeOps =
             | SubsumeOutcome.Unrelated ->
                 ctx.Report(node.Tok, Kind.DowncastUnrelated(shown ctx.Store srcTy, shown ctx.Store tgtTy))
 
-        // Type provenance: `e :?> T` writes the node's (target) type explicitly.
         ctx.MarkTypeDeclared(node.Key, tgtTy)
         tgtTy

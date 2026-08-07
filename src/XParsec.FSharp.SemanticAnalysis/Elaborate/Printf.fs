@@ -7,39 +7,25 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
-// Printf lowering for the Elaborate pass: a marked happy-path call becomes a
-// `TExpr.Format`, a marked fully-unapplied lowerable partial a synthesised
-// closure over one. Both read the markers `Unification.tryInferPrintfApp`
-// recorded; nothing here re-derives specifier classification per backend.
+// Printf lowering: a marked happy-path call becomes a `TExpr.Format`; a marked
+// fully-unapplied lowerable partial becomes a synthesised closure over one.
 
 module internal ElaboratePrintf =
 
-    /// Whether `%A` of an argument of this (zonked) type may lower to the structural
-    /// engine. The runtime `%A` dispatcher is *total* and reflection-free: a
-    /// Vesper-compiled record / DU renders via its synthesised `IStructuralFormattable`,
-    /// a list / array / tuple via the `IEnumerable` / `ITuple` arm, a BCL scalar via
-    /// `IFormattable`, and *anything else* — an `FSharpOption`, an arbitrary BCL class,
-    /// a runtime-boxed polymorphic value — falls to the `value.ToString()` tail. So the
-    /// engine can lower **every concrete nominal**; the maintainer decision is that a
-    /// non-Vesper structural type degrades down the `%A` hierarchy to `.ToString()` on
-    /// the engine rather than riding the FSharp.Core cold path, even where its bytes
-    /// diverge from F#'s reflective `%A`. The only holes that stay off the engine are
-    /// the ones the backend can't author an `AppendStructured<T>` type argument for: an
-    /// unresolved nominal (`TyUnknown`), an anonymous union / type-level computation
-    /// (external vocabulary that a real `%A` hole never carries). A hole the engine
-    /// can't take forces the *whole* format cold (`translatePrintfFormat` returns
-    /// `ValueNone`) — additive, no regression.
+    /// Whether `%A` of an argument of this (zonked) type may lower to the structural engine.
+    /// The runtime `%A` dispatcher ends in a `value.ToString()` tail, so every concrete nominal
+    /// qualifies; only a type the backend can't author an `AppendStructured<T>` argument for stays cold.
     let rec private structuredArgFaithful (t: SemType) : bool =
         match t with
         | TyConst(key, args) ->
             let name = SymbolKeyOps.intrinsicName key
-            // The array intrinsic (`'T[]` ≡ `TyConst("[]", [elem])`) renders via
-            // the `IEnumerable` arm — faithful iff its element type is.
+            // The array intrinsic (`'T[]`, intrinsic name `[]`) renders via the
+            // `IEnumerable` arm — faithful iff its element type is.
             if name = "[]" then
                 EqArray.forall structuredArgFaithful args
-            // Numeric primitives carry the F# literal suffixes the engine reproduces
-            // (`5L`, `1.5M`); `string` / `char` / `bool` are special-cased atoms. All
-            // are leaf scalars, so any type argument means it isn't really one.
+            // Numeric primitives carry the literal suffixes the engine reproduces (`5L`,
+            // `1.5M`); `string` / `char` / `bool` are special-cased atoms. All are leaf
+            // scalars, so any type argument means it isn't one.
             elif
                 RuntimeNames.numericTypeNames.Contains name
                 || name = "string"
@@ -50,52 +36,29 @@ module internal ElaboratePrintf =
             else
                 false
         | TyTuple items -> EqArray.forall structuredArgFaithful items
-        // The cons-list still renders via the `IEnumerable` arm (it carries no
-        // synthesised `Format`), so it stays faithful-iff-its-element-is. It
-        // surfaces as a `TyUnion` in the self-host (the Vesper cons-list DU) but as a
-        // `TyRecord` against the FSharp.Core contract (`list`1`), so accept both
-        // shapes of the list keys.
+        // The cons-list renders via the `IEnumerable` arm, so it stays faithful-iff-its-
+        // element-is. It surfaces as a `TyUnion` in the self-host but as a `TyRecord`
+        // against the FSharp.Core contract, so both list-key shapes are accepted.
         | TyUnion(key, args)
         | TyRecord(key, args) when RuntimeNames.isVesperListKey key || RuntimeNames.isFsharpCoreListKey key ->
             EqArray.forall structuredArgFaithful args
-        // Every nominal record / DU / class renders on the engine — a Vesper-compiled
-        // type via its synthesised `IStructuralFormattable.Format` (step-3
-        // `NominalEmit`), an `FSharpOption` / arbitrary BCL type via the dispatcher's
-        // `IFormattable` / `IEnumerable` / `ToString` tail. We do NOT recurse into
-        // fields: the gate is a cold-vs-engine switch, not a per-field renderer, and
-        // the runtime dispatcher already routes each field (a Vesper field via its own
-        // `IStructuralFormattable`, a BCL field via `ToString` / `IEnumerable`). The
-        // backend authors `AppendStructured<T>` for any of these — a project-local
-        // nominal off its emitted `TypeDef`, an external one off its `TypeRef` — so the
-        // only reason to decline is a hole type the encoder can't author, handled by
-        // the final arm. Notably the home ASSEMBLY plays no part: a nominal is faithful
-        // wherever it lives.
+        // Every nominal record / DU / class renders on the engine, wherever its assembly
+        // lives. No recursion into fields: this is a cold-vs-engine switch, not a
+        // per-field renderer, and the runtime dispatcher already routes each field.
         | TyUnion _
         | TyRecord _
         | TyClass _ -> true
-        // A polymorphic hole (`let f x = printfn "%A" x`) zonks to a still-free `TyVar`
-        // here; `freeze` generalises it to a method typar (`FTTypar(Method, i)`), which
-        // the CLR encoder maps to `!!i` and `appendStructured` authors as the
-        // `AppendStructured<!!i>` type argument (verified: `let f x = printfn "%A" x`
-        // emits cleanly). The runtime dispatcher recovers the boxed runtime type, so the
-        // engine renders the argument whatever it turns out to be.
+        // A polymorphic hole (`let f x = printfn "%A" x`) zonks to a still-free `TyVar`;
+        // freeze generalises it to `FTTypar(TyparAxis.Method, i)`, which the CLR encoder
+        // maps to `!!i` and authors as the `AppendStructured<!!i>` type argument.
         | TyVar _ -> true
-        // The residual shapes (`TyUnknown`, `TyOr`, `TyKeyOf` / `TyIndexedAccess` /
-        // `TyConditional`, `TyEnum`) are either unresolved-nominal errors the front end
-        // rejects before the backend, or external-vocabulary type-level constructs a
-        // real `%A` hole never carries — the encoder can't author a type argument for
-        // them, so they stay cold.
+        // The residual shapes (`TyUnknown`, `TyOr`, `TyKeyOf`, `TyIndexedAccess`,
+        // `TyConditional`, `TyEnum`) have no type argument the encoder can author.
         | _ -> false
 
-    /// Lower a marked printf call (`Unification.tryInferPrintfApp` recorded a
-    /// `PrintfApp` sink for it) into a `TExpr.Format`, pairing each specifier
-    /// with the next argument in spec order (the format is arg 0). The happy
-    /// path therefore never produces a `New PrintfFormat` / `App printfn`.
-    ///
-    /// Returns `ValueNone` to *decline* the lowering — when a `%A` (`Structured`)
-    /// hole's argument type isn't faithful on the step-2 engine
-    /// (`structuredArgFaithful`); the caller then falls back to the standard
-    /// external-call (FSharp.Core cold) path for the whole format.
+    /// Lower a call marked with a `PrintfApp` sink into a `TExpr.Format`, pairing each
+    /// specifier with the next argument in spec order. `ValueNone` *declines* the lowering:
+    /// one unfaithful `%A` hole sends the whole format down the FSharp.Core cold path.
     let translatePrintfFormat
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -109,19 +72,17 @@ module internal ElaboratePrintf =
             | ValueSome s -> s
             | ValueNone -> failwithf "Elaborate.translatePrintfFormat: no PrintfApp marker at %O" key
 
-        // The format argument's positional index, recovered from the sink kind:
-        // `fprintf`/`fprintfn` (writer sink) put a `TextWriter` at arg 0 and the
-        // format at arg 1; every other family has the format at arg 0. Kept in
-        // lockstep with `PrintfSpec.Family.FormatArgIndex` (the gate's `idx`).
+        // The format argument's positional index, from the sink kind: a writer or builder
+        // sink occupies arg 0 and the format arg 1; every other family has it at arg 0.
+        // Kept in lockstep with `PrintfSpec.Family.FormatArgIndex`.
         let idx =
             match sink with
             | PrintfSpec.PrintfSink.Writer _
             | PrintfSpec.PrintfSink.Builder -> 1
             | _ -> 0
 
-        // E1(b): the format slot may hold an `Ident` bound to a literal; recover it
-        // (via the same `PrintfFormatLiterals` table the gate consulted) so the parts
-        // walk sees the underlying `Expr.String`, exactly as for a syntactic literal.
+        // The format slot may hold an `Ident` bound to a literal; recover it so the
+        // parts walk sees the underlying `Expr.String`.
         let formatArg =
             ValueOption.defaultValue args.[idx] (ctx.TryRecoverFormatLiteral args.[idx])
 
@@ -140,18 +101,13 @@ module internal ElaboratePrintf =
 
         // Holes consume the trailing args (the format is `args.[idx]`) in spec order.
         let mutable holeIdx = idx + 1
-        // Set when a `%A` hole's argument type isn't faithful on the step-2 engine
-        // (a record / DU / unknown). Forces the whole format onto the cold path.
+        // Set when a `%A` hole's argument isn't faithful on the structural engine,
+        // which forces the whole format onto the cold path.
         let mutable cold = false
 
-        // Consume the args for a `%a`/`%t` callback hole and append its segment,
-        // lowered capture-first to an ordinary residue-*string* expression. The
-        // callback (a `Vesper.Fun`, often a closure) is applied FIRST to the sink,
-        // then — for `%a` — to the value (curried order, see `PrintfSpec.argTypes`);
-        // `%a`/`%t` carry no width/precision and never go cold. `sprintf` splices the
-        // callback's returned string; writer/builder splice a block that runs the
-        // callback into a fresh scratch and reads its buffer — every node of which is
-        // ordinary TAST codegen already lowers, so no backend knows about sinks.
+        // Consume the args for a `%a`/`%t` callback hole and append its segment as an
+        // ordinary residue-*string* expression: the callback applies FIRST to the sink, then
+        // (for `%a`) to the value. `%a`/`%t` carry no width/precision and never go cold.
         let addCallbackSeg t holeForm hasValue =
             let callbackT = translateExpr ctx args.[holeIdx]
             holeIdx <- holeIdx + 1
@@ -165,10 +121,8 @@ module internal ElaboratePrintf =
                     ValueNone
 
             // The callback's OWN function type (`'State -> 'T -> 'Residue`, or `'State ->
-            // 'Residue` for `%t`) drives each `App`'s result type — independent of the
-            // concrete arg pushed (a writer family passes a `StringWriter` where the
-            // callback's domain is the abstract `TextWriter`; a base-reference push is
-            // implicitly compatible).
+            // 'Residue` for `%t`) drives each `App`'s result type — independent of the arg
+            // pushed (a writer family passes a `StringWriter` for a `TextWriter` domain).
             let funcTy = Unification.zonk ctx.Store (TastWalk.exprTy callbackT)
 
             let applyCallback (stateArg: TExpr) : TExpr =
@@ -240,12 +194,9 @@ module internal ElaboratePrintf =
 
             segments.Add(FormatSeg.CallbackHole(spec, residue))
 
-        // Consume the args for a plain value hole (optionally star-dimensioned) and
-        // append its `Hole` / `DynHole` segment. A star *width* (`%*d`, `%*A`) then a
-        // star *precision* (`%.*f`, `%.*e`, `%.*A`) each consume a leading `int` arg,
-        // evaluated before the value in curried application order (width first, then
-        // precision — the source arg order). The happy-path marker guarantees full
-        // application (`totalArity`), so the indices line up. Walk args by per-hole arity.
+        // Consume the args for a plain value hole and append its `Hole` / `DynHole` segment.
+        // A star *width* (`%*d`) then a star *precision* (`%.*f`) each consume a leading
+        // `int` arg, in source order before the value.
         let addValueSeg t holeForm (placeholder: FormatPlaceholder) =
             let widthExpr =
                 if placeholder.Width = FormatDim.Star then
@@ -266,17 +217,11 @@ module internal ElaboratePrintf =
             let argExpr = args.[holeIdx]
             holeIdx <- holeIdx + 1
             let argT = translateExpr ctx argExpr
-            // Zonk before the faithfulness check: a union-case application
-            // (`S 3`) leaves a metavar that only resolves to `TyUnion` after
-            // zonking (a record literal is concrete immediately), and an
-            // unzonked `TyVar` would wrongly read as non-faithful (cold).
+            // Zonk before the faithfulness check: an unresolved `TyVar` reads as
+            // faithful, so a metavar standing for an unauthorable type (a union-case
+            // application `S 3` leaves one) would wrongly take the engine path.
             let holeTy = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr argExpr))
 
-            // `%A` of a non-engine-faithful arg (a non-Vesper structural type —
-            // FSharpOption / a BCL type — or an unknown) can't be rendered by the
-            // structural engine, so the hole stays off the `Format` path and the
-            // generic printf call stands; every Vesper-compiled record / DU (local
-            // or external) is faithful now that step-3 synthesises their `Format`.
             if placeholder.Type = FormatType.Structured && not (structuredArgFaithful holeTy) then
                 cold <- true
 
@@ -305,16 +250,13 @@ module internal ElaboratePrintf =
             | StringPart.Text t
             | StringPart.EscapeSequence t
             | StringPart.VerbatimEscapeQuote t ->
-                // Verbatim source text (escape unescaping is a pre-existing gap
-                // shared with `translateString`). `%%` is the printf escape for a
-                // literal `%`; the lexer folds it into a raw `Text` part, and
-                // there's no runtime format pass to collapse it, so collapse here.
-                // A real specifier is its own `FormatSpecifier` part, so every `%`
-                // in a raw run is half of a `%%` pair.
+                // Verbatim source text; escapes are left unescaped, a gap shared with plain
+                // string lowering. The lexer folds `%%` into a raw `Text` part and there is
+                // no runtime format pass, so collapse it to `%` here.
                 litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
             | StringPart.EscapePercent _ ->
-                // `%%` denotes a literal `%`; no runtime format pass here, so
-                // collapse now (the FSharp.Core path does it at runtime).
+                // `%%` denotes a literal `%`; the cold path collapses it at runtime,
+                // this path has to do it now.
                 litRun.Append('%') |> ignore
             | StringPart.FormatSpecifier t ->
                 flushLit ()
@@ -325,9 +267,7 @@ module internal ElaboratePrintf =
                     | ValueNone ->
                         failwith "Elaborate.translatePrintfFormat: unparsable specifier (marker invariant broken)"
 
-                // Classify once here (also validating the marker invariant: the
-                // specifier must be one a backend renders faithfully). The node carries
-                // the classified `HoleForm`, so no consumer re-derives it.
+                // Classified once: the node carries the `HoleForm`, so no consumer re-derives it.
                 let holeForm =
                     match PrintfHoleForm.tryClassify placeholder with
                     | ValueSome hf -> hf
@@ -352,27 +292,18 @@ module internal ElaboratePrintf =
                 | PrintfSpec.PrintfSink.StdOut nl -> FormatSink.ToStdOut nl
                 | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
                 | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
-                // The writer expression is the leading arg 0 (the format is arg 1);
-                // `newline` threads `fprintfn`'s trailing `\n` into `EmitFormat`.
+                // The writer expression is the leading arg 0; `nl` carries `fprintfn`'s
+                // trailing newline through to the backend.
                 | PrintfSpec.PrintfSink.Writer nl -> FormatSink.ToWriter(translateExpr ctx args.[0], nl)
-                // `bprintf`: the `StringBuilder` is the leading arg 0 (the format is
-                // arg 1). No `bprintfn`, so `ToBuilder` carries no trailing newline.
+                // `bprintf`: the `StringBuilder` is the leading arg 0. There is no
+                // `bprintfn`, so `ToBuilder` carries no trailing newline.
                 | PrintfSpec.PrintfSink.Builder -> FormatSink.ToBuilder(translateExpr ctx args.[0])
 
             ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty, tok))
 
-    /// Lower a fully-unapplied lowerable printf partial (`ctx.PrintfPartial` marked
-    /// it) to a synthesised Vesper closure `fun h1 … hn -> Format(sink, …)`. Each
-    /// hole becomes a fresh lambda parameter that the `Format` node's segment reads
-    /// as a `Var`; the format's literal runs and per-hole `HoleForm` are baked in
-    /// exactly as the happy path bakes them, so the closure's `Invoke` — the same
-    /// `EmitFormat` unroll — produces byte-identical output. `ty` is the App node's
-    /// type: the curried printer `h1 -> … -> hn -> tail`, whose domains supply
-    /// the parameter types (in specifier order) and whose tail is the `Format`
-    /// result. `%A`/`%O` (and `%a`/`%t`) are excluded at the gate, so every hole has
-    /// a concrete argument type. Unlike `translatePrintfFormat` this path never
-    /// declines: with no `%A` hole there is no faithfulness question, and the marker
-    /// invariant guarantees each specifier parses and classifies.
+    /// Lower a call marked with a `PrintfPartial` sink — a fully-unapplied printf partial —
+    /// to a synthesised closure `fun h1 … hn -> Format(sink, …)`. `ty` is the curried printer
+    /// `h1 -> … -> hn -> tail`: its domains are the parameter types in specifier order.
     let translatePrintfPartial
         (ctx: PassContext)
         (key: NodeKey)
@@ -400,10 +331,8 @@ module internal ElaboratePrintf =
                 segments.Add(FormatSeg.Lit(litRun.ToString()))
                 litRun.Clear() |> ignore
 
-        // Peel one printer domain per hole (specifier order matches the
-        // curried parameter order — `PrintfSpec.printerType` folds the hole types onto
-        // the tail left-to-right). The running codomain after the last hole is the
-        // tail (the `Format` result).
+        // Peel one printer domain per hole, in specifier order. The codomain left
+        // after the last hole is the tail (the `Format` result).
         let mutable runningTy = Unification.zonk ctx.Store ty
 
         for part in parts do
@@ -435,9 +364,8 @@ module internal ElaboratePrintf =
                             "Elaborate.translatePrintfPartial: printer type has fewer parameters than holes: %A"
                             (Unification.zonk ctx.Store ty)
 
-                // A fresh parameter keyed off the specifier's own token offset —
-                // distinct per hole (distinct source positions) and stable, so the
-                // synthesised `Var` and `NamedSimple` binder agree.
+                // A parameter key off the specifier's own token offset — distinct per hole
+                // and stable, so the synthesised `Var` and its `NamedSimple` binder agree.
                 let paramKey = NodeKey.ofSynthetic t.StartIndex NodeKind.SynthLambdaBody
                 parameters.Add(paramKey, holeTy, t)
 
@@ -465,9 +393,8 @@ module internal ElaboratePrintf =
             | PrintfSpec.PrintfSink.StdOut nl -> FormatSink.ToStdOut nl
             | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
             | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
-            // The 4a partial gate is `idx = 0`, so a writer / builder sink
-            // (`fprintf` / `bprintf` partial, `idx = 1`) never reaches this path —
-            // those stay cold.
+            // The partial marker requires the format at arg 0, so a writer / builder
+            // sink never reaches this path — those partials stay cold.
             | PrintfSpec.PrintfSink.Writer _
             | PrintfSpec.PrintfSink.Builder ->
                 failwith
@@ -477,8 +404,7 @@ module internal ElaboratePrintf =
         let mutable body = TExpr.Format(formatSink, EqArray.ofSeq segments, runningTy, tok)
         let mutable resultTy = runningTy
 
-        // Wrap innermost-last so the outermost lambda's type is the whole printer
-        // type (equal to `ty`), exactly as `translateFun` folds a source lambda.
+        // Wrap innermost-last, so the outermost lambda's type is the whole printer type (`ty`).
         for i = parameters.Count - 1 downto 0 do
             let (pk, pty, ptok) = parameters.[i]
             let lamTy = TyFun(pty, resultTy)

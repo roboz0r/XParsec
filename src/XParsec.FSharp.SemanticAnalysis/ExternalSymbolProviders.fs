@@ -3,28 +3,12 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Concurrent
 open System.Collections.Generic
 
-// Provider construction and composition over the external-symbol contract: the
-// by-name leaf builder (`NamedLeaf`/`ofNamedLeaf`), the null provider, the
-// layering combinators (`stack`/`composite` + the intrinsic-axis merges), and
-// the decorators (`mapProviderTypes`, `memoize`). Split out of
-// `ExternalSymbols` (which keeps the data model, the interfaces, and the
-// instantiation/realisation helpers): this layer is self-contained over the
-// interfaces and is where every new provider shape or decorator lands.
 module ExternalSymbolProviders =
 
 
-    /// A leaf provider expressed as its BY-NAME lookup functions. `ofNamedLeaf` derives the
-    /// full provider from one: the resolver view calls the functions directly, and the
-    /// store view answers a `SymbolKey` by rendering it to a qualified name onto the SAME
-    /// functions — so a leaf's two `TryLookupType` lookups agree BY CONSTRUCTION, and the
-    /// string round-trip is spelled once here instead of once per provider. Start from
-    /// `NamedLeaf.empty` (all misses) and override the channels the leaf models.
-    ///
-    /// Its types' IDENTITIES are not a field: here a name IS the identity, so the key is
-    /// minted from the name rather than stated by the leaf, where it could disagree with
-    /// the name index it just answered from. A leaf whose types sit in a
-    /// `TypeHolder.InModule` chain renders NOT what the source writes, so it supplies a
-    /// `KeyIndexedLeaf` instead and answers both type lookups from a real key index.
+    /// A leaf whose types' identities are not a field: a name IS the identity, so a type
+    /// key is minted from the name and a key lookup is the rendered name lookup. A leaf
+    /// holding `TypeHolder.InModule` types supplies a `KeyIndexedLeaf` instead.
     type NamedLeaf =
         {
             TryLookup: string -> ExternalSymbol voption
@@ -57,34 +41,15 @@ module ExternalSymbolProviders =
                 IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
             }
 
-    /// A leaf that HOLDS its types' identities, expressed as the three things every one of
-    /// its TYPE lookups is derived from: the two KEY-addressed indexes and the ONE
-    /// canonicalizer that turns a written type name into a key. This is the shape of every
-    /// producer that mints a `TypeHolder.InModule` chain (the `.fsi` contract extractor, the
-    /// frozen-impl projection): no rendering of a module chain is what the SOURCE writes, so
-    /// a name cannot stand in for the identity.
-    ///
-    /// `KeyedLeaf.ofKeyIndexes` derives the by-key AND by-name type lookups from these, so
-    /// both `TryLookupType`s read the ONE index and cannot disagree, and the
-    /// declaration-ordered overload scan is spelled once rather than per producer.
-    ///
-    /// The remaining channels are name-addressed exactly as for a `NamedLeaf` — a binding's
-    /// key renders `.`-joined, which IS how the source writes it — so they are carried
-    /// through verbatim. Channels a keyed leaf CANNOT model are absent rather than
-    /// present-and-ignored: no by-name member lookup (the resolver interface has none; the
-    /// store view is the only member reader) and no index signature (the TS manifest, the
-    /// one producer of those, keys its types `InNamespace` and so is a `NamedLeaf`).
+    /// A leaf that HOLDS its types' identities. Needed when a type is
+    /// `TypeHolder.InModule`, whose rendering is not what the source writes.
     type KeyIndexedLeaf =
         {
             ShapesByKey: IReadOnlyDictionary<SymbolKey, ExternalTypeShape>
             /// A type's FULL member list, in DECLARATION order — the order the by-name
-            /// overload scan and the by-key selection both depend on. A key absent here
-            /// and a key whose type carries no members are the same answer.
+            /// overload scan and the by-key selection both depend on.
             MembersByKey: IReadOnlyDictionary<SymbolKey, ResizeArray<ExternalMember>>
-            /// Written type name -> the registered identity: the leaf's ONE name->key seam,
-            /// and the whole of its by-name type lookup — `ofKeyIndexes` pairs the key this
-            /// yields with the shape the SAME key fetches, so a use site's identity and
-            /// shape always come from one lookup.
+            /// Written type name -> registered identity.
             ResolveTypeName: string -> TypeKey voption
             TryLookup: string -> ExternalSymbol voption
             TryLookupUnionCase: string -> ExternalUnionCase voption
@@ -96,8 +61,6 @@ module ExternalSymbolProviders =
 
     module KeyIndexedLeaf =
 
-        /// No types, every channel a miss — populate the indexes and override the
-        /// channels the leaf models.
         let empty: KeyIndexedLeaf =
             {
                 ShapesByKey = Dictionary() :> IReadOnlyDictionary<_, _>
@@ -113,16 +76,10 @@ module ExternalSymbolProviders =
 
     /// A leaf's type channels answered BY KEY, whichever way the leaf came by them:
     /// `ofNamed` renders the key onto a name index, `ofKeyIndexes` reads a real one.
-    /// `TypeByName` is the same leaf answering a WRITTEN name, and both builders derive one
-    /// from the other, so the two cannot disagree. `ofKeyedLeaf` turns either into the
-    /// provider.
     type KeyedLeaf =
         {
             Named: NamedLeaf
-            /// The whole by-name TYPE lookup: identity + shape from one read. Derived by
-            /// both builders (never supplied), which keeps it in step with `TypeShapeByKey`
-            /// — `NamedLeaf.TryLookupType` feeds this one and is not itself what the
-            /// provider publishes.
+            /// Identity + shape from one read. Derived by both builders, never supplied.
             TypeByName: string -> struct (TypeKey * ExternalTypeShape) voption
             TypeShapeByKey: SymbolKey -> ExternalTypeShape voption
             TypeMemberByKey: SymbolKey * string -> ExternalMember voption
@@ -131,14 +88,6 @@ module ExternalSymbolProviders =
 
     module KeyedLeaf =
 
-        /// A leaf with NO key index answers a key by RENDERING it onto its name index
-        /// (`SymbolKeyOps.qualifiedName`), and answers a NAME's identity by inverting that
-        /// same rendering (`ExternalSymbols.nameKeyedTypeHit`). Sound exactly when the
-        /// leaf's names ARE that rendering — which holds for every leaf whose type keys are
-        /// `InNamespace` (a TS manifest, the JS natives, a bare-IL scrape): there, name and
-        /// key say the same thing, in both directions. A leaf that mints an `InModule`
-        /// holder must supply a real key index instead (`ofKeyIndexes`), because no
-        /// rendering of the module chain is what the SOURCE writes.
         let ofNamed (leaf: NamedLeaf) : KeyedLeaf =
             {
                 Named = leaf
@@ -151,13 +100,6 @@ module ExternalSymbolProviders =
                 TypeMembersByKey = fun (key, m) -> leaf.TryLookupMembers(SymbolKeyOps.qualifiedName key, m)
             }
 
-        /// The dual of `ofNamed`: a leaf that HOLDS its types' identities supplies the key
-        /// indexes and the name->key canonicalizer, and every type lookup is derived HERE.
-        /// The by-name one is `ResolveTypeName` composed with the shape index, so the
-        /// identity and shape it reports come from the SAME index the store view reads; the
-        /// member lookups are the declaration-ordered by-name scan over `MembersByKey`,
-        /// spelled once so no producer re-implements the ordering the overload pick depends
-        /// on.
         let ofKeyIndexes (leaf: KeyIndexedLeaf) : KeyedLeaf =
             let shapeByKey (key: SymbolKey) : ExternalTypeShape voption =
                 match leaf.ShapesByKey.TryGetValue key with
@@ -174,8 +116,6 @@ module ExternalSymbolProviders =
                     |]
                 | _ -> [||]
 
-            // The single-pick twin of `membersNamed`: stops at the first hit rather than
-            // materialising the overload set.
             let firstMemberNamed (key: SymbolKey) (memberName: string) : ExternalMember voption =
                 match leaf.MembersByKey.TryGetValue key with
                 | true, ms ->
@@ -193,10 +133,6 @@ module ExternalSymbolProviders =
 
             {
                 Named =
-                    // Unmodelled channels keep `NamedLeaf.empty`'s miss, and the type-NAME
-                    // lookup is derived rather than supplied — which is why a producer hands
-                    // over a `KeyIndexedLeaf`, not a `NamedLeaf` with fields this would have
-                    // to silently override.
                     { NamedLeaf.empty with
                         TryLookup = leaf.TryLookup
                         TryLookupUnionCase = leaf.TryLookupUnionCase
@@ -217,9 +153,6 @@ module ExternalSymbolProviders =
                 TypeMembersByKey = fun (key, memberName) -> membersNamed key memberName
             }
 
-    /// Derive the provider from a leaf that answers the type channels BY KEY — see
-    /// `KeyedLeaf`. The one provider object expression; `ofNamedLeaf` is this over a leaf
-    /// whose by-key lookups are the rendered projections of its by-name ones.
     let ofKeyedLeaf (leaf: KeyedLeaf) : IExternalSymbolProvider =
         let named = leaf.Named
 
@@ -238,25 +171,19 @@ module ExternalSymbolProviders =
 
               member _.TryLookupMembers(key, memberName) = leaf.TypeMembersByKey(key, memberName)
 
-              // A leaf indexes its members by (declaring type, member NAME), so the
-              // by-key channel is the exact-identity selection out of that name's overload
-              // set — never `TypeMemberByKey`, whose first-in-declaration-order pick would
-              // answer a key with a SIBLING overload's entry.
+              // A leaf indexes members by (declaring type, member NAME), so a key is the
+              // exact-identity selection out of that name's overload set — a
+              // first-in-declaration-order pick would answer with a SIBLING overload.
               member _.TryLookupMemberByKey(key: MemberKey) =
                   leaf.TypeMembersByKey(SymbolKey.Type key.Decl, key.Name)
                   |> ExternalSymbols.memberByKey key
 
-              // No leaf publishes an index signature under a key of its own (the TS manifest,
-              // the one producer, keys its types `InNamespace`), so this channel stays the
-              // rendered projection of the name index.
               member _.TryLookupIndexSignature key =
                   named.TryLookupIndexSignature(SymbolKeyOps.qualifiedName key)
 
-              // A `BindingKey` is a real containment chain, and its rendering `.`-joins that
-              // chain — exactly how a binding is WRITTEN and how every leaf's symbol index is
-              // keyed. So the symbol lookup round-trips losslessly through the name and needs
-              // no key index. (A TYPE's rendering does not: a module-held type's metadata
-              // name `+`-nests where the source dots.)
+              // A `BindingKey`'s rendering `.`-joins its containment chain — how a binding
+              // is WRITTEN — so it round-trips through the name index. A TYPE's does not:
+              // a module-held type's metadata name `+`-nests where the source dots.
               member _.TryLookupByKey key =
                   named.TryLookup(SymbolKeyOps.qualifiedName key)
 
@@ -264,17 +191,14 @@ module ExternalSymbolProviders =
               member _.IntrinsicForwardRepr = named.IntrinsicForwardRepr
         }
 
-    /// Derive the provider from a by-name leaf — see `NamedLeaf`.
     let ofNamedLeaf (leaf: NamedLeaf) : IExternalSymbolProvider = ofKeyedLeaf (KeyedLeaf.ofNamed leaf)
 
-    /// For tests that want to isolate behavior from external-symbol noise.
+    /// Every channel a miss.
     let nullProvider: IExternalSymbolProvider = ofNamedLeaf NamedLeaf.empty
 
     /// Merge sources' reverse `{ platform-repr -> [canon] }` maps by UNIONING the canon
-    /// lists per platform key (dedup, first-seen order preserved). `Array.rev` folds the
-    /// earliest source's entries LAST so its canons lead each list — the same
-    /// first-source-wins precedence `mergeForwardRepr` gives the forward axis, here
-    /// widened to keep every source's canons rather than shadow to one.
+    /// lists per platform key (deduped). `Array.rev` folds the earliest source LAST so its
+    /// canons lead each list.
     let mergeReverseCanon (sources: IExternalSymbolProvider seq) : Map<string, SymbolKey list> =
         let arr = Seq.toArray sources
 
@@ -288,11 +212,9 @@ module ExternalSymbolProviders =
             )
         )
 
-    /// Merge sources' forward `{ canon -> platform-repr }` maps (first-source-wins).
-    /// `SymbolKey` is equatable-but-not-comparable, so the merged axis is a read-only
-    /// `Dictionary`, not a `Map`. `Array.rev` folds the earliest source LAST so its
-    /// entries overwrite later ones — the same first-source-wins precedence the reverse
-    /// axis and the singular lookups use.
+    /// Merge sources' forward `{ canon -> platform-repr }` maps, first-source-wins:
+    /// `Array.rev` folds the earliest source LAST so its entries overwrite later ones.
+    /// `SymbolKey` is equatable-but-not-comparable, hence a `Dictionary`, not a `Map`.
     let mergeForwardRepr (sources: IExternalSymbolProvider seq) : IReadOnlyDictionary<SymbolKey, string> =
         let arr = Seq.toArray sources
         let d = Dictionary<SymbolKey, string>()
@@ -303,19 +225,9 @@ module ExternalSymbolProviders =
 
         d :> IReadOnlyDictionary<_, _>
 
-    /// The single provider-shim primitive: first-hit-wins composition over
-    /// `sources`, surfacing `ambient` via `AmbientOpenPrefixes`, optionally
-    /// rewriting every resolved `ExternalSymbol` / `ExternalTypeShape` /
-    /// `ExternalMember` to carry `stampHome` as its `SymbolOrigin.Home`. `composite`
-    /// and `ReferencedProject.wrap` both layer on top of this — one TryLookup*
-    /// fall-through, one ambient surface, one place to keep the shape
-    /// switch in `TryLookupType` honest when a new `ExternalTypeShape` case
-    /// learns to carry its `Origin`.
-    ///
-    /// The HOME is the whole of what a wrapper supplies: an assembly is a property of the
-    /// package that answered, so a wrapper knows it and the leaf does not. The origin's
-    /// NAMESPACE is not — a package declares as many namespaces as its files do, so it is
-    /// the leaf's to record, and stamping would flatten them all onto one blanket.
+    /// First-hit-wins composition over `sources`, surfacing `ambient` and stamping
+    /// `stampHome` onto each resolved entry's `SymbolOrigin.Home`. The origin's NAMESPACE
+    /// is never stamped — a package spans as many as its files declare.
     let stack
         (stampHome: Origin voption)
         (ambient: string list)
@@ -325,18 +237,10 @@ module ExternalSymbolProviders =
         // traversal, on a provider hit from many parallel PassContexts.
         let sources = List.toArray sources
 
-        // Merge the sources' reverse `{ platform -> canon }` and forward
-        // `{ canon -> platform-repr }` intrinsic maps (intrinsic-carrying sources only;
-        // the rest contribute the empty map). First-source-wins, matching the singular
-        // lookups' shadowing order.
         let reverseCanon = mergeReverseCanon sources
         let forwardRepr = mergeForwardRepr sources
 
-        // First-hit-wins fall-through shared by every singular (`voption`) lookup
-        // below: scan `sources` in priority order, stop at the first `ValueSome`.
-        // `inline` keeps this an index loop with the projection fused at each call
-        // site — no list traversal. The array-valued `TryLookupMembers` keeps its
-        // own loop (its "empty" sentinel is `[||]`, not `ValueNone`).
+        // The array-valued lookups keep their own loop: their empty sentinel is `[||]`.
         let inline firstHit (f: IExternalSymbolProvider -> 'a voption) : 'a voption =
             let mutable result = ValueNone
             let mutable i = 0
@@ -347,10 +251,6 @@ module ExternalSymbolProviders =
 
             result
 
-        // Stamping is SHAPE-only: a key is a nominal identity the inner leaf already
-        // built in full, and the package's home assembly is not part of it. The wrapper
-        // supplies the home on the resolved shape's `Origin` — the one channel by which
-        // an assembly reaches a backend.
         let inline home (origin: SymbolOrigin) (h: Origin) = { origin with Home = h }
 
         let stampSymbol =
@@ -363,14 +263,7 @@ module ExternalSymbolProviders =
             | ValueNone -> id
             | ValueSome h -> fun (m: ExternalMember) -> { m with Origin = home m.Origin h }
 
-        // The single place that decides which `ExternalTypeShape` cases carry
-        // their `Origin`. Class/Record/Union do today; Abbrev doesn't (its
-        // cross-package emit path lands later, with the same shape). Extend
-        // this match — not three call sites — when a new case learns origin.
-        //
-        // The home is a PACKAGE fact; a type's own identity lives in its key, which this
-        // never rewrites. (A capability `IntrinsicInterface` additionally carries its
-        // declaring namespace on `Canon`, so nothing here needs to supply one.)
+        // A shape's key is untouched: the home is a PACKAGE fact, the identity is not.
         let stampType (shape: ExternalTypeShape) : ExternalTypeShape =
             match stampHome with
             | ValueNone -> shape
@@ -388,25 +281,19 @@ module ExternalSymbolProviders =
                 | ExternalTypeShape.IntrinsicInterface s ->
                     ExternalTypeShape.IntrinsicInterface { s with Origin = home s.Origin h }
                 | ExternalTypeShape.Abbrev _
-                // An intrinsic carries no `Origin` (its identity is the canon, and its
-                // representation is target-dependent), so origin stamping leaves it unchanged.
+                // An intrinsic carries no `Origin`: its identity is the canon.
                 | ExternalTypeShape.Intrinsic _
                 | ExternalTypeShape.Opaque _ -> shape
 
-        // Mirror `stampType`'s Union arm: the extractor records the declaring
-        // union with `SymbolOrigin.Empty`, so a case reverse-looked-up off it
-        // would otherwise carry the empty origin. Overwrite it with the package
-        // origin so the union-case's origin agrees with what `TryLookupType`
-        // would report for the same union.
+        // An extractor records a declaring union with `SymbolOrigin.Empty`, so a case
+        // reverse-looked-up off it must be re-homed to agree with its union's shape.
         let stampUnionCase =
             match stampHome with
             | ValueNone -> id
             | ValueSome h -> fun (uc: ExternalUnionCase) -> { uc with Origin = home uc.Origin h }
 
-        // Same as `stampUnionCase` for the reverse FIELD index: a candidate is looked up
-        // off a `Record` shape the extractor recorded with `SymbolOrigin.Empty`, so re-home
-        // it onto the package origin — its origin must agree with what `TryLookupType`
-        // reports for the same record.
+        // Likewise for the reverse FIELD index: a candidate comes off a `Record` shape
+        // recorded with `SymbolOrigin.Empty`.
         let stampRecordCandidate =
             match stampHome with
             | ValueNone -> id
@@ -418,31 +305,17 @@ module ExternalSymbolProviders =
               member _.TryLookup name =
                   firstHit (fun s -> s.TryLookup name) |> ValueOption.map stampSymbol
 
-              // ONE scan for the identity AND the shape, so the key a use site stamps
-              // always belongs to the source that resolved the type it stamps it onto.
-              // Only the SHAPE is re-homed: a `TypeKey` is a pure identity that carries its
-              // own namespace, so it is never re-stamped to the package origin (the same
-              // reason `stampRecordCandidate` re-homes a candidate's `Origin` but leaves its
-              // `TypeKey` untouched — construction identity and this key must agree, and
-              // neither is re-homed).
               member _.TryLookupType(name: string) =
                   firstHit (fun s -> s.TryLookupType name)
                   |> ValueOption.map (fun (struct (key, shape)) -> struct (key, stampType shape))
 
-              // First source that knows a case of this name wins; re-stamp the
-              // package origin onto the result exactly as `TryLookupType` does for
-              // the union shape it came from (the inner extractor records
-              // `SymbolOrigin.Empty`).
               member _.TryLookupUnionCase caseName =
                   firstHit (fun s -> s.TryLookupUnionCase caseName)
                   |> ValueOption.map stampUnionCase
 
               // UNION, not first-hit-wins: a field name can recur across records in
               // DIFFERENT packages, and unqualified record resolution must intersect over
-              // every candidate, so a later source's records add to an earlier source's
-              // hit rather than being shadowed (unlike a union CASE, whose declaring union
-              // lives in one assembly). Re-home each candidate's origin exactly as
-              // `TryLookupUnionCase` does for its reverse hit.
+              // every candidate, so a later source's records add rather than being shadowed.
               member _.TryRecordsWithField fieldName =
                   [|
                       for s in sources do
@@ -459,10 +332,8 @@ module ExternalSymbolProviders =
                   firstHit (fun s -> s.TryLookupMember(key, memberName))
                   |> ValueOption.map stampMember
 
-              // First source that knows the type wins the whole overload set — a
-              // type's members live in one assembly, so a later source never
-              // *adds* overloads to an earlier one's hit (same first-hit-wins
-              // shadowing as the singular lookups).
+              // First source that knows the type wins the whole overload set — a type's
+              // members live in one assembly, so a later source never *adds* overloads.
               member _.TryLookupMembers(key, memberName) =
                   let mutable result = [||]
                   let mutable i = 0
@@ -475,14 +346,11 @@ module ExternalSymbolProviders =
                   | ValueNone -> result
                   | ValueSome _ -> result |> Array.map stampMember
 
-              // The key-addressed member lookup shadows and re-homes exactly like its
-              // by-name twin — same `firstHit`, same `stampMember`.
               member _.TryLookupMemberByKey(key: MemberKey) =
                   firstHit (fun s -> s.TryLookupMemberByKey key) |> ValueOption.map stampMember
 
-              // First source with a non-empty index signature wins (a type's index sig
-              // lives in one home, like its members). The `(key, value)` templates are
-              // origin-independent, so no re-stamp — a plain first-hit-wins fall-through.
+              // First source with a non-empty index signature wins. The `(key, value)`
+              // templates are origin-independent, so nothing is re-stamped.
               member _.TryLookupIndexSignature(key: SymbolKey) =
                   let mutable result = []
                   let mutable i = 0
@@ -493,8 +361,6 @@ module ExternalSymbolProviders =
 
                   result
 
-              // The key-addressed symbol lookup shadows and re-homes exactly like its
-              // by-name twin — same `firstHit`, same `stampSymbol`.
               member _.TryLookupByKey key =
                   firstHit (fun s -> s.TryLookupByKey key) |> ValueOption.map stampSymbol
 
@@ -502,16 +368,8 @@ module ExternalSymbolProviders =
               member _.IntrinsicForwardRepr = forwardRepr
         }
 
-    /// The composed ambient prelude: each source's `[<AutoOpen>]` / prelude
-    /// prefixes, concatenated in source priority order (so a higher-priority
-    /// provider's auto-opens shadow a lower one's on a name collision, same
-    /// first-hit-wins ordering as lookups). Providers without an implicit
-    /// prelude (inline test fakes) return `[]` and contribute
-    /// nothing.
-    ///
-    /// Deduplicated keeping the FIRST sighting, which preserves that order: every package
-    /// contributes the same `RuntimeNames.preludeNamespaces` tail, and re-probing one
-    /// prefix once per referenced package is pure work on the miss path.
+    /// Each source's `[<AutoOpen>]` / prelude prefixes, in source priority order,
+    /// deduplicated keeping the FIRST sighting: packages share a prelude tail.
     let private collectAmbient (sources: IExternalSymbolProvider seq) : string list =
         [
             for s in sources do
@@ -519,12 +377,9 @@ module ExternalSymbolProviders =
         ]
         |> List.distinct
 
-    /// First-hit-wins down the list; `[]` ⇒ `nullProvider`, a singleton ⇒ that
-    /// provider unwrapped. Priority encodes shadowing among *external* sources
-    /// (a referenced project beats a referenced assembly). Project-local symbols
-    /// are not here: `PassContext` resolves them
-    /// before the provider is ever consulted. Just `stack` with no origin
-    /// stamping and ambient computed from each source's `AmbientOpenPrefixes`.
+    /// `stack` with no origin stamping. List order encodes shadowing among *external*
+    /// sources only (a referenced project beats a referenced assembly); project-local
+    /// symbols resolve before the provider is consulted at all.
     let composite (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
         match sources with
         | [] -> nullProvider
@@ -532,29 +387,8 @@ module ExternalSymbolProviders =
         | _ -> stack ValueNone (collectAmbient sources) sources
 
     /// Rebuild a provider so every VALUE-FLOW `FrozenType` surface it serves is passed
-    /// through `transform` AT that surface's variance — the general, content-agnostic
-    /// decorator a variance-sensitive rewrite (the JS `number` resolution being the
-    /// first) plugs into. It names NO concrete type; the leaf inside `transform` owns
-    /// all policy. `transform` is applied at each surface's ROOT variance; a caller
-    /// that must thread the decision through nested positions composes
-    /// `FrozenType.mapVariant leaf` (which flips/drops variance down the tree). The
-    /// surface → root-variance map is fixed here ONCE so no caller re-enumerates where
-    /// the types live or which position they occupy:
-    ///
-    /// - a symbol `Scheme` and a member `Return` are COVARIANT (a value read / result);
-    ///   a member's `Parameters` are CONTRAVARIANT (a curried `Scheme`'s own `FTFun`
-    ///   flips give its parameters contravariance under `mapVariant` automatically);
-    /// - a RECORD field and a UNION-case field are COVARIANT (a field read);
-    /// - an interface / base-type type-ARGUMENT is INVARIANT (a generic slot).
-    ///
-    /// TOTAL over the value-flow surfaces — the reason it exists: a bespoke per-shape
-    /// walk keeps missing one (union-case fields, interface args, the base type). The
-    /// non-value-flow TEMPLATE positions are deliberately NOT threaded: an `Abbrev` body
-    /// inherits its USE SITE's variance (unknowable here), and `MethodTyparBounds` /
-    /// `Constraints` are constraint-solve inputs, not value positions — a shape-level
-    /// resolution there would be a guess, so they resolve (if ever) at their own
-    /// instantiation seam. `TryLookupType`'s shape match is EXHAUSTIVE, so a new
-    /// `ExternalTypeShape` case forces a variance decision here.
+    /// through `transform` at that surface's ROOT variance; a caller that must thread the
+    /// decision through NESTED positions composes `FrozenType.mapVariant` itself.
     let mapProviderTypes
         (transform: Variance -> FrozenType -> FrozenType)
         (inner: IExternalSymbolProvider)
@@ -577,8 +411,7 @@ module ExternalSymbolProviders =
         let mapInterfaces (ifaces: (string * FrozenType[])[]) =
             ifaces |> Array.map (fun (name, args) -> name, args |> Array.map inv)
 
-        // A union-case field is a covariant value read (shared by `TryLookupType`'s
-        // `Union` shape and the reverse `TryLookupUnionCase`).
+        // A union-case field is a covariant value read.
         let mapCase (c: ExternalCaseShape) : ExternalCaseShape =
             { c with
                 FrozenFieldTypes = c.FrozenFieldTypes |> Array.map co
@@ -598,9 +431,8 @@ module ExternalSymbolProviders =
                 ExternalTypeShape.Record(arity, fields |> Array.map (fun f -> { f with Frozen = co f.Frozen }), origin)
             | ExternalTypeShape.Union(arity, cases, ifaces, origin) ->
                 ExternalTypeShape.Union(arity, cases |> Array.map mapCase, mapInterfaces ifaces, origin)
-            // A heritable primitive's class surface has the same value-flow surface as
-            // `Class` (a `.ctor`'s params are contravariant reads, the base a covariant
-            // chain) — map it identically; a scalar intrinsic has none to map.
+            // A heritable primitive's class surface maps identically to `Class`; a scalar
+            // intrinsic has no value-flow surface at all.
             | ExternalTypeShape.Intrinsic({ Class = ValueSome surface } as s) ->
                 ExternalTypeShape.Intrinsic
                     { s with
@@ -611,14 +443,14 @@ module ExternalSymbolProviders =
                                     Members = surface.Members |> Array.map mapMember
                                 }
                     }
-            // A capability interface's abstract members are a value-flow surface (a param
-            // is a contravariant read) — map them exactly as a `Class`'s members.
+            // A capability interface's abstract members map exactly as a `Class`'s.
             | ExternalTypeShape.IntrinsicInterface s ->
                 ExternalTypeShape.IntrinsicInterface
                     { s with
                         Members = s.Members |> Array.map mapMember
                     }
-            // No value-flow FrozenType surface (Abbrev: no intrinsic variance — see header).
+            // No value-flow surface. An `Abbrev` body inherits its USE SITE's variance,
+            // which is unknowable here.
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Enum _
             | ExternalTypeShape.Intrinsic _
@@ -631,8 +463,6 @@ module ExternalSymbolProviders =
                   inner.TryLookup name
                   |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
 
-              // A `TypeKey` is pure identity — no `FrozenType` surface to variance-map — so
-              // only the shape half is rewritten.
               member _.TryLookupType(name: string) =
                   inner.TryLookupType name
                   |> ValueOption.map (fun (struct (key, shape)) -> struct (key, mapShape shape))
@@ -641,9 +471,8 @@ module ExternalSymbolProviders =
                   inner.TryLookupUnionCase caseName
                   |> ValueOption.map (fun uc -> { uc with Case = mapCase uc.Case })
 
-              // An `ExternalRecordCandidate` carries only identity + field NAMES, no
-              // `FrozenType` surface to variance-map (field types ride the by-key shape
-              // path), so this decorator passes it straight through.
+              // An `ExternalRecordCandidate` carries identity + field NAMES only; the field
+              // types ride the by-key shape path.
               member _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
 
               member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
@@ -661,7 +490,7 @@ module ExternalSymbolProviders =
                   inner.TryLookupMemberByKey key |> ValueOption.map mapMember
 
               // An index KEY is a contravariant position (the supplied index), the VALUE a
-              // covariant read — the same variance split as a member's `Parameters`/`Return`.
+              // covariant read.
               member _.TryLookupIndexSignature(key: SymbolKey) =
                   inner.TryLookupIndexSignature key |> List.map (fun (k, v) -> contra k, co v)
 
@@ -673,15 +502,8 @@ module ExternalSymbolProviders =
               member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
 
-    /// Fold each symbol's / member's published INLINE BODY onto the entry that carries
-    /// its identity. `bodies` is the producing side's `SymbolKey → InlineBody` index; a
-    /// key it does not know keeps `ValueNone`.
-    ///
-    /// A decorator, not a composed leaf: the body does not REPLACE a lookup, it ENRICHES
-    /// one — the symbol/member itself comes from `inner`, and its `Key` is what the body
-    /// is fetched by, so the two cannot disagree. The member channels are stamped as well
-    /// as the value one: a concrete `(# … #)`-bodied member is a splice template too, and
-    /// the member splice site reaches it through `TryLookupMemberByKey`.
+    /// Fold each symbol's / member's published INLINE BODY onto the entry that carries its
+    /// identity: the entry comes from `inner`, and its own `Key` is what `bodies` is asked for.
     let withInlineBodies
         (bodies: SymbolKey -> InlineBody voption)
         (inner: IExternalSymbolProvider)
@@ -727,16 +549,9 @@ module ExternalSymbolProviders =
               member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
 
-    /// A general MEMOISING decorator: every lookup channel caches on first hit (MISSES
-    /// included — the contract is immutable for a compile, so a `ValueNone` / `[||]` is
-    /// as stable as a hit). Content-agnostic — it changes no result, only avoids
-    /// recomputing it. Apply ONCE atop a composed stack: the per-source `stack`
-    /// fall-through and any `mapProviderTypes` rewrite otherwise re-run on EVERY call,
-    /// and a hot symbol is looked up many times across the parallel per-file
-    /// `PassContext`s. Thread-safe via `ConcurrentDictionary` (the provider contract
-    /// requires concurrent-safe lookups; a factory may run more than once under
-    /// contention but the inner lookup is pure, so only one result is ever stored). The
-    /// intrinsic axes and ambient prefixes are constant fields — passed through uncached.
+    /// Cache every lookup channel on first hit, MISSES included: the contract is immutable
+    /// for a compile, so a `ValueNone` / `[||]` is as stable as a hit. Apply ONCE, atop a
+    /// composed stack, whose fall-through and rewrites would otherwise re-run per call.
     let memoize (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
         let symbols = ConcurrentDictionary<string, ExternalSymbol voption>()
 
@@ -797,24 +612,8 @@ module ExternalSymbolProviders =
               member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
 
-    /// The published splice TEMPLATE `key` names, or `ValueNone` when it names none —
-    /// the ONE channel a splice site (`Passes.InlineExpansion`) asks for a cross-file
-    /// inline body through.
-    ///
-    /// It exists because the two body-bearing kinds of key route to different ENTRY types:
-    /// a module-level `let inline` is a `SymbolKey.Binding` and rides `ExternalSymbol`, a
-    /// concrete `(# … #)`-bodied member is a `SymbolKey.Member` and rides `ExternalMember`.
-    /// This is the one place that knows that, so no call site has to. Both arms go through
-    /// the entry that CARRIES the key, so the body and the identity cannot disagree —
-    /// in particular the member arm is by EXACT key, never a name lookup whose best-by-arity
-    /// collapse could serve a sibling overload's body.
-    ///
-    /// The match is EXHAUSTIVE on the key kind so a new kind must decide here rather than
-    /// silently yield "no body": a `Type` key names a declaration, not a callable, and no
-    /// body is ever interned under one.
-    /// Over the STORE view: a splice site holds a resolved identity, never a spelling, so
-    /// the resolver view has nothing to offer it (an `IExternalSymbolProvider` upcasts
-    /// here for free).
+    /// The two body-bearing key kinds route to different ENTRY types: a `Binding` rides
+    /// `ExternalSymbol`, a `(# … #)`-bodied `Member` rides `ExternalMember`.
     let tryInlineBody (p: IExternalSymbolStore) (key: SymbolKey) : InlineBody voption =
         match key with
         | SymbolKey.Member m -> p.TryLookupMemberByKey m |> ValueOption.bind (fun em -> em.InlineBody)

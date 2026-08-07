@@ -3,20 +3,13 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-// Pre:  Elaborate has produced a `TastFile`; ctx.Bindings.Escape (Regions) and ctx.Bindings.Binding
-//       (NameResolution) are populated.
-// Post: every `let mutable x = init` whose binding-site has `Escape = HeapShared`
-//       is rewritten into `let x = { contents = init } : Vesper.Ref<'T>`; every
-//       `TExpr.Var x` in the binding's scope reads through `x.contents`; every
-//       `TExpr.Assignment(Var x, v)` writes through `x.contents <- v`. The cell
-//       type lives in `Vesper.Core.dll` and the codegen resolves it through
-//       the cross-package record path — no `TDecl.Type` is
-//       synthesised into the consumer PE.
+// Pre:  ctx.Bindings.Escape and ctx.Bindings.Binding populated; `tast` is elaborated.
+// Post: `let mutable x = init` with `Escape = HeapShared` becomes
+//       `let x = { contents = init } : Vesper.Ref<'T>`, reads become `x.contents`.
 
 module RefCellPromotion =
 
-    /// The cell's single field. F# convention; the `.fsi` declaration uses the
-    /// same name.
+    /// Matches the field name in `Vesper.Core`'s `core-types.fsi`.
     [<Literal>]
     let private ContentsField = "contents"
 
@@ -24,9 +17,8 @@ module RefCellPromotion =
     let private refType (inner: SemType) : SemType =
         TyRecord(RuntimeNames.vesperRefKey, EqArray.singleton inner)
 
-    /// Walk `decls` collecting binding-site `NodeKey`s for every `let mutable`
-    /// whose `ctx.Bindings.Escape` is `HeapShared`. The value bound at each key is the
-    /// *post-promotion* type of the local (`Ref<'origTy>`).
+    /// Binding-site `NodeKey`s of every `let mutable` whose `Escape` is `HeapShared`,
+    /// mapped to the local's POST-promotion type (`Ref<'origTy>`).
     let private collectPromotions (ctx: PassContext) (decls: EqArray<TDecl>) : Dictionary<NodeKey, SemType> =
         let promote = Dictionary<NodeKey, SemType>(HashIdentity.Structural)
 
@@ -43,9 +35,6 @@ module RefCellPromotion =
             | TPat.NamedSimple(k, t, _) -> consider k t
             | _ -> ()
 
-        // The only case-specific work is to fire `considerPat` on a `Let`'s
-        // binder before the walker recurses into its value / body. Every
-        // other case falls through to the default child recursion.
         let iter: TastWalk.Iter =
             { TastWalk.identityIter with
                 VisitExpr =
@@ -60,14 +49,9 @@ module RefCellPromotion =
         for d in decls do
             match d with
             | TDecl.Let(_, value, _, _) ->
-                // Only NESTED `let mutable` binders (reached by `iter` over the value)
-                // are promotion candidates. A top-level binder is deliberately NOT
-                // `considerPat`ed: a module-level mutable is not a heap cell — it is a
-                // static field (CLR) / ambient reassignable `let` (JS), shared across
-                // closures by the backend natively. Promoting it would rewrite its reads
-                // to `.contents` while `rewriteDecl` leaves the declaration bare, reading
-                // `undefined`. Excluding it here is what makes `rewriteDecl`'s "a top-level
-                // binding cannot itself be a promoted cell" hold by construction.
+                // Only NESTED `let mutable` binders are candidates. A module-level mutable
+                // is a static field (CLR) / reassignable `let` (JS), shared across closures
+                // natively, and `rewriteDecl` leaves its declaration bare.
                 TastWalk.iterExpr iter value
             | TDecl.Expression(e, _) -> TastWalk.iterExpr iter e
             | TDecl.Type _ -> ()
@@ -85,17 +69,9 @@ module RefCellPromotion =
                 TExpr.RecordCons(EqArray.singleton (ContentsField, value), promote.[k], TastWalk.exprTok value)
             | _ -> value
 
-        // Three overrides:
-        //   - `TPat.NamedSimple(k, _)` for a promoted key: retype the binder
-        //     to the cell's `Ref<_>` shape (covers nested binders inside
-        //     Tuple/Record/Union sub-pats via default recursion).
-        //   - `TExpr.Var(k)` of a promoted cell: read through `.contents`.
-        //   - `TExpr.Assignment(Var k, rhs)` where `k` is promoted: write
-        //     through `.contents`; the default Assignment arm would otherwise
-        //     rewrite the LHS into a `FieldGet`, which is wrong (we need
-        //     `FieldSet` on the cell, not a read of the value).
-        //   - `TExpr.Let(pat, value, body)`: wrap the rewritten value in
-        //     `{ contents = … }` when the binder is promoted.
+        // `Assignment` needs its own arm: the default one rewrites the LHS `Var` into a
+        // `FieldGet`, a READ of the cell's value, where the write needs a `FieldSet`
+        // on the cell itself.
         let mapper: TastWalk.Mapper =
             { TastWalk.identityMapper with
                 OverridePat =
@@ -112,10 +88,8 @@ module RefCellPromotion =
                         | TExpr.Var(k, ty, tok) ->
                             match promote.TryGetValue k with
                             | true, refTy ->
-                                // `ty` is the original (pre-promotion) value type,
-                                // which is also the field's declared type after
-                                // substitution. The read replaces the `Var`, so it
-                                // keeps its token.
+                                // `ty` is the pre-promotion value type, which is also the
+                                // field's declared type after substitution.
                                 ValueSome(TExpr.FieldGet(TExpr.Var(k, refTy, tok), ContentsField, ty, tok))
                             | _ -> ValueNone
                         | TExpr.Assignment(TExpr.Var(k, _, varTok), rhs, unitTy, tok) when promote.ContainsKey k ->
@@ -142,10 +116,8 @@ module RefCellPromotion =
     let private rewriteDecl (promote: IReadOnlyDictionary<NodeKey, SemType>) (d: TDecl) : TDecl =
         match d with
         | TDecl.Let(pat, value, isInline, ty) ->
-            // A top-level binder is never in `promote` (`collectPromotions` skips it —
-            // module-level mutables are static fields / ambient reassignable lets, not
-            // heap cells), so the pattern's type is unchanged; the rewrite reaches any
-            // inner `let mutable` through the value's expression tree.
+            // A top-level binder is never promoted, so the pattern's type is unchanged;
+            // the rewrite reaches any inner `let mutable` through the value's tree.
             TDecl.Let(pat, rewriteExpr promote value, isInline, ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(rewriteExpr promote e, ty)
         | TDecl.Type _ -> d
@@ -157,8 +129,6 @@ module RefCellPromotion =
             tast
         else
             let decls' = tast.Decls |> EqArray.map (rewriteDecl promote)
-            // Records-handoff Phase 2 follow-up: the cell type lives in
-            // `Vesper.Core.dll`; the rewritten `TyRecord("Vesper.Ref", _)`
-            // resolves through the codegen's external-record path. No
-            // synthesised `TDecl.Type` ships with the consumer.
+            // The cell type lives in `Vesper.Core.dll` and resolves through the codegen's
+            // external-record path — no synthesised `TDecl.Type` ships with the consumer.
             { tast with Decls = decls' }

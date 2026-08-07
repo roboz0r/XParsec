@@ -8,9 +8,9 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateLiterals
 open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
-// String-literal and interpolation lowering for the Elaborate pass: a printf
-// format literal becomes `new PrintfFormat(text)`, a faithfully-renderable
-// interpolation a `TExpr.Format` (D9), everything else a stitched `Const`.
+// String-literal and interpolation lowering for the Elaborate pass: a printf format literal
+// becomes `new PrintfFormat(text)`, a faithfully-renderable interpolation a `TExpr.Format`,
+// everything else a stitched `Const`.
 
 module internal ElaborateStrings =
 
@@ -20,14 +20,9 @@ module internal ElaborateStrings =
     let private stitchLiteralString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
         foldStringParts ctx (fun () -> "{<expr>}") parts
 
-    /// Classify one interpolation hole into the `HoleSpecSource` a `FormatSeg.Hole`
-    /// carries, or `None` if it can't be rendered faithfully. A printf-style
-    /// `%d{x}` carries the classified `HoleForm` (`Classified`), admitted only when
-    /// `PrintfHoleForm.tryClassify` accepts it — exactly the specifiers the printf
-    /// happy path covers. A plain `{x}` / `{x:fmt}` carries the raw format clause
-    /// (`RawFormat`). Interpolation alignment (`{x,n}`) isn't representable here —
-    /// the parser folds `x,n` into a tuple expression — so the plain forms carry no
-    /// alignment.
+    /// Classify one interpolation hole into the `HoleSpecSource` a `FormatSeg.Hole` carries,
+    /// or `None` if it can't be rendered faithfully. `%d{x}` becomes `Classified`, a plain
+    /// `{x}` / `{x:fmt}` a `RawFormat`; alignment (`{x,n}`) is not representable at all.
     let private tryInterpHoleSpec
         (ctx: PassContext)
         (formatSpecifier: SyntaxToken voption)
@@ -37,10 +32,9 @@ module internal ElaborateStrings =
         | ValueSome ft ->
             match Lexing.parseFormatSpecifierView (ctx.ReadableOf ft) with
             | ValueSome p ->
-                // Same parity gate as the printf path: only specifiers faithfully
-                // representable as a structured `Format` lower (`tryClassify` accepts
-                // them) lower; the rest keep the generic printf call shape. The
-                // classification is kept (not re-derived per backend).
+                // The same gate as the printf path: only specifiers representable as a
+                // structured `Format` lower, and the classification is kept on the node
+                // rather than re-derived per backend.
                 match PrintfHoleForm.tryClassify p with
                 | ValueSome hf -> Some(HoleSpecSource.Classified hf)
                 | ValueNone -> None
@@ -56,11 +50,9 @@ module internal ElaborateStrings =
 
             Some(HoleSpecSource.RawFormat fmt)
 
-    /// Lower an interpolated string ($"…{x}…") to a `TExpr.Format` (D9). Returns
-    /// `None` — keeping the literal-stitch fallback — when the string has no
-    /// holes, or any hole isn't faithfully renderable: a free (unresolved) hole
-    /// type, an orphan/standalone `%spec` or lexer-error part, or a printf-typed
-    /// `%d{x}` whose specifier the happy path doesn't cover.
+    /// Lower an interpolated string (`$"…{x}…"`) to a `TExpr.Format`. `None` — keeping the
+    /// literal-stitch fallback — when the string has no holes, or any hole isn't faithfully
+    /// renderable: a free hole type, an orphan `%spec`, or an uncovered specifier.
     let private tryTranslateInterpolation
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -81,10 +73,9 @@ module internal ElaborateStrings =
         for part in parts do
             if lowerable then
                 match part with
-                // `%%` collapses to `%` (an interpolated string rides the same
-                // PrintfFormat machinery as printf); escape sequences stay
-                // verbatim — the unescaping gap `stitchLiteralString` /
-                // `translatePrintfFormat` carry.
+                // `%%` collapses to `%` — an interpolated string rides the same
+                // `PrintfFormat` machinery as printf. Escape sequences stay VERBATIM: the
+                // literal-stitch path does not unescape them either.
                 | StringPart.Text t
                 | StringPart.EscapeSequence t
                 | StringPart.VerbatimEscapeQuote t -> litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
@@ -101,9 +92,8 @@ module internal ElaborateStrings =
                         | Some source ->
                             flushLit ()
 
-                            // Source token for source maps: the specifier (`%d`) or
-                            // format clause (`:fmt`) when present, else the opening
-                            // brace (`FormatPlaceholder` carries no position).
+                            // Source-map token: the specifier (`%d`) or format clause
+                            // (`:fmt`) when present, else the opening brace.
                             let specTok =
                                 match fs with
                                 | ValueSome t -> t
@@ -124,7 +114,7 @@ module internal ElaborateStrings =
                             )
                         | None -> lowerable <- false
                 // A standalone `%spec`, orphan specifier, or lexer-error part has
-                // interpolation-specific semantics we don't model — keep the whole
+                // interpolation-specific semantics this does not model — keep the whole
                 // string on the literal-stitch fallback.
                 | StringPart.FormatSpecifier _
                 | StringPart.OrphanFormatSpecifier _
@@ -147,9 +137,7 @@ module internal ElaborateStrings =
         | Expr.String(parts = parts) ->
             match Unification.zonk ctx.Store ty with
             | TyClass(key, _) when RuntimeNames.isPrintfFormatKey key ->
-                // Format literal at a printf call site (typed by
-                // `Unification.tryInferPrintfApp`). It denotes `new
-                // PrintfFormat<…>(text)` — the single `value: string` ctor.
+                // A format literal at a printf call site denotes `new PrintfFormat<…>(text)`.
                 TExpr.New(
                     PrintfSpec.printfFormatName,
                     // Single `value: string` ctor — codegen resolves it by arity.
@@ -161,10 +149,8 @@ module internal ElaborateStrings =
                     tok
                 )
             | _ ->
-                // A faithfully-renderable interpolation lowers to a `TExpr.Format`
-                // (D9). Otherwise (plain string, or an unrenderable hole) stitch
-                // the literal text, keeping any unrendered hole's `{<expr>}`
-                // placeholder — additive over the pre-D9 behaviour.
+                // A plain string, or an interpolation with an unrenderable hole, stitches to
+                // literal text keeping that hole's `{<expr>}` placeholder.
                 match tryTranslateInterpolation translateExpr ctx parts ty tok with
                 | Some node -> node
                 | None -> TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ty, tok)

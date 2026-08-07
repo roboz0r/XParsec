@@ -4,32 +4,14 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 // Pre:  every prior side table populated.
-// Post: ctx.Diagnostics has any semantic violations.
-//
-// Read-only. Checks: pattern-match exhaustiveness (TODO), value restriction
-// on mutable bindings, immutability enforcement.
-//
-// NOTE: closed anonymous-union exhaustiveness is ALREADY handled inline in
-// `UnificationInferControlFlow.inferRules` (it co-computes the uncovered
-// `residual` alongside per-arm binder narrowing, so the warning lives where that
-// state does). When the general DU/literal
-// exhaustiveness check lands here, leave the `TyOr` scrutinee case to `inferRules`
-// rather than re-deriving union coverage.
+// Post: ctx.Diagnostics has any semantic violations. Read-only.
+// Anonymous-union match coverage is instead co-computed with per-arm binder narrowing.
 
 module Validation =
 
-    /// True if `t` has any reachable TyVar whose union-find root carries no
-    /// `Link` *and* is not quantified by some enclosing binding's scheme.
-    /// Mirrors the resolve semantics of `Unification.zonk` (follow a pinned
-    /// root through its `Link`); at an unpinned root, a root present in
-    /// `quantified` is rigidly polymorphic — bound by an enclosing
-    /// generalisation — not unresolved. So `let f (state: 'State) = let mutable
-    /// acc = state in …` is legal: `acc : 'State` is quantified by `f`'s scheme
-    /// even though its root has no `Link`, whereas a true value-restriction case
-    /// (`let mutable r = []` at module scope) has a free root no scheme owns.
-    /// Used by the mutable-binding value-restriction check, which fires at
-    /// end of analysis — by then every use site has had a chance to pin
-    /// free TyVars via the unification of LHS and RHS types.
+    /// True if `t` has any reachable TyVar whose union-find root carries no `Link` and is
+    /// not in `quantified`. `let f (state: 'State) = let mutable acc = state` is legal —
+    /// `acc`'s root is unpinned but owned by `f`'s scheme; `let mutable r = []` is not.
     let rec private hasFreeTyVar
         (store: TypeStore)
         (quantified: System.Collections.Generic.HashSet<TyVarId>)
@@ -46,9 +28,8 @@ module Validation =
         | t -> SemType.existsChild (hasFreeTyVar store quantified) t
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
-    /// `IsMutable = false` is an error. Non-Ident LHSes (record field,
-    /// array slot, dotted access) are out of scope for v1 — they route
-    /// through different mutability rules that land with records / arrays.
+    /// `IsMutable = false` is an error. An array-slot LHS is out of scope — it
+    /// routes through different mutability rules.
     let private checkAssignment (ctx: PassContext) (l: Expr<SyntaxToken>) : unit =
         // Peel `(x)` and `(x : T)` wrappers — they don't change mutability.
         let rec unwrap e =
@@ -73,12 +54,9 @@ module Validation =
 
         match core with
         | _ when isMultiSegLocalChain ->
-            // `r.X <- v` (parsed as a single multi-segment LongIdent).
-            // The penultimate-receiver's type drives mutability of the
-            // last segment. v1: only 2-segment forms (`r.X <- v`) emit a
-            // diagnostic; deeper chains (`r.A.X <- v`) need to walk the
-            // intermediate field types — defer to a follow-up when typing
-            // those chains lands.
+            // `r.X <- v`, parsed as one multi-segment LongIdent: the penultimate
+            // receiver's type drives the last segment's mutability. Only the 2-segment
+            // form reports; `r.A.X <- v` would need the intermediate field types.
             let li =
                 match core with
                 | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> li
@@ -156,41 +134,26 @@ module Validation =
                         )
                     )
 
-    // A scheme-level "Constraint not resolved" tail check is reserved
-    // for a future revision: with v1's dischargeConstraints firing at every
-    // use site, every meaningful unresolved-constraint case already
-    // surfaces a diagnostic there. A true tail check would require
-    // tracking whether each scheme is ever instantiated and whether
-    // every quantified TyVar's constraint was discharged at at least
-    // one instantiation — the bookkeeping isn't worth it for v1.
-
     let private checkValueRestriction (ctx: PassContext) : unit =
-        // A free TyVar that some enclosing binding generalised into its scheme is
-        // a legitimate type parameter of that function/method, not an unresolved
-        // var — `let f (state: 'State) = let mutable acc = state` is sound. Collect
-        // every scheme-quantified root up front so `hasFreeTyVar` can exclude them;
-        // only a free root no scheme owns is the classic value-restriction hole.
+        // Collect every scheme-quantified root up front so `hasFreeTyVar` can exclude
+        // them: only a free root no scheme owns is the value-restriction hole.
         let quantified = System.Collections.Generic.HashSet<TyVarId>()
 
         for kv in ctx.Bindings.Scheme.AsDictionary() do
             for q in kv.Value.Quantified do
                 quantified.Add((UnionFind.find ctx.Store q).Id) |> ignore
 
-        // Iterate every binding-site self-entry (kv.Key = rb.BindingSite)
-        // whose binding is mutable. NameResolution writes one self-entry
-        // per binding *and* one entry per use-site; filtering on
-        // `kv.Key = rb.BindingSite` keeps us from firing once per use.
+        // The table holds one self-entry per binding AND one per use site, so the
+        // `kv.Key = rb.BindingSite` filter is what stops this firing once per use.
         for kv in ctx.Bindings.Binding.AsDictionary() do
             let rb = kv.Value
 
             if rb.IsMutable && kv.Key = rb.BindingSite then
                 match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                 | ValueSome tv when hasFreeTyVar ctx.Store quantified (TyVar tv) ->
-                    // This pass walks the binding TABLE, not the tree, so the only record of
-                    // where a binder was written is `BinderSpellings` — and an ordinary
-                    // `let mutable` is not spelled there until `Elaborate`, which
-                    // `Pipeline` runs AFTER this pass. So there is nothing here to point
-                    // at, and naming no place beats manufacturing one from the key offset.
+                    // This pass walks the binding TABLE, not the tree, and `BinderSpellings`
+                    // — the only record of where a binder was written — is not filled for an
+                    // ordinary `let mutable` until Elaborate, which runs after. So: nowhere.
                     ctx.Report(
                         Site.Nowhere,
                         Kind.Message
@@ -199,22 +162,9 @@ module Validation =
                     )
                 | _ -> ()
 
-    /// FS3200: in a recursive declaration group, `open` declarations must come
-    /// first in each module / namespace scope. Once inside a `module rec` /
-    /// `namespace rec`, the first non-`open` element in a scope closes the
-    /// opens-first region; any later `open` there is rejected. This makes the
-    /// constant-prelude shape the rec branch of `CstWalk.walkModuleTree` assumes
-    /// actually hold — without it, an interspersed open in a rec group would
-    /// silently get whole-scope (position-insensitive) semantics that fsc
-    /// rejects.
-    ///
-    /// Rides on `CstWalk.walkModuleTreeWith`'s per-scope hook so the rec-flag
-    /// propagation lives in one place. The hook receives the *propagated*
-    /// `inRec` (true for the rec scope itself and every module nested under it
-    /// — each is an independent opens-first scope per §3.2/§9), which is the
-    /// flag FS3200 fires on. The separate per-scope rec flag (whether *this*
-    /// scope was declared `rec`) drives open-resolution's constant-prelude
-    /// shape and stays inside `walkModuleTree`'s `processElems`.
+    /// FS3200: inside a `module rec` / `namespace rec`, the first non-`open` element of a
+    /// scope closes the opens-first region and any later `open` there is rejected. Without
+    /// it an interspersed open would silently get whole-scope, position-insensitive opens.
     let private checkRecOpenPlacement (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let checkScope (elems: ModuleElems<SyntaxToken>) =
             let mutable seenNonImport = false
@@ -237,13 +187,9 @@ module Validation =
 
         CstWalk.walkModuleTreeWith ctx.NameOf OpenScope.empty onScope file |> ignore
 
-    /// A `use` / `use!` binding requires a *simple* variable pattern — `use x = e`
-    /// (optionally typed `use x : IDisposable = e`, or parenthesised `use (x) = e`),
-    /// or `use _ = e`. A destructuring pattern (tuple, record, union case, …) is
-    /// rejected: the bound value itself is what gets disposed, so there is no single
-    /// resource to dispose of a decomposition. Mirrors fsc's restriction (and keeps
-    /// the codegen `bindPattern` invariant — destructuring binders never reach the
-    /// `use` lowering).
+    /// A `use` binding requires a simple variable pattern: `use x = e`, `use x : T = e`,
+    /// `use (x) = e`, `use _ = e`. A destructuring pattern is rejected because the bound
+    /// value itself is what gets disposed, and a decomposition names no single resource.
     let rec private isSimpleUsePat (p: Pat<SyntaxToken>) : bool =
         match p with
         | Pat.NamedSimple _
@@ -305,9 +251,8 @@ module Validation =
                             | _ -> ()
                         | _ -> ()
                 | ValueNone -> ()
-        // Emit a diagnostic rather than crashing — a single unhandled element
-        // shouldn't halt validation of the rest of the file. Grow real arms
-        // as features land.
+        // Report rather than crash: one unhandled element shouldn't halt validation
+        // of the rest of the file.
         | ModuleElem.Exception defn ->
             let tok =
                 match defn with
@@ -315,25 +260,19 @@ module Validation =
                 | ExceptionDefn.Abbreviation(exceptionToken = t) -> t
 
             ctx.Report(tok, Kind.NotYetSupported "validation of `exception` declarations")
-        // `CstWalk.implFileElems` flattens a nested module's body into the
-        // element list before `walkElems` runs, so a `ModuleElem.Module` should
-        // never reach here. If one does, the flattening invariant has drifted
-        // (e.g. a new module-level construct slipped past `implFileElems`) —
-        // which is a bug in THIS compiler, not in the source, and says so.
+        // A nested module's body is flattened into the element list before this walk,
+        // so a surviving `ModuleElem.Module` means the flattening missed a construct —
+        // a bug in THIS compiler, not in the source, and the diagnostic says so.
         | ModuleElem.Module(ModuleDefn.ModuleDefn(moduleToken = tok)) ->
             ctx.Report(tok, Kind.Internal(InternalBreak.UnflattenedModule "Validation"))
-        // `open` / `module R = …` are declaration-level nodes consumed by
-        // open-resolution (NameResolution/Unification build the `OpenScope` from
-        // them); they carry no expression to validate.
+        // `open` / `module R = …` are consumed by open-resolution; no expression here.
         | ModuleElem.ModuleAbbrev _ -> ()
         | ModuleElem.Import _ -> ()
         | ModuleElem.CompilerDirective(CompilerDirectiveDecl(hash = tok)) ->
             ctx.Report(tok, Kind.NotYetSupported "validation of compiler directives")
-        // Parse recovery's own nodes. The PARSER already reported each one — a
-        // `MissingModuleElem` for the hole, an `UnexpectedTopLevel` for the skipped run —
-        // and those diagnostics now reach the consumer (`Pipeline.parse` forwards them),
-        // so a second verdict here would be one mistake said twice, in two vocabularies,
-        // the second of them placeless. There is no expression to validate either way.
+        // Parse-recovery nodes. The parser already reported each — `MissingModuleElem`
+        // for the hole, `UnexpectedTopLevel` for the skipped run — and those reach the
+        // consumer, so a second verdict here would say one mistake twice.
         | ModuleElem.Missing
         | ModuleElem.SkipsTokens _ -> ()
 

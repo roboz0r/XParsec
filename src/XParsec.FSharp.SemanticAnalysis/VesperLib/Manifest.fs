@@ -5,25 +5,13 @@ open XParsec.FSharp
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// Per-file parsing for the `.fsi` contract extractor. The `parseFileFull` shim
-/// routes `.fsi` through the signature-file parser and the (rare) `.fs` through
-/// the implementation parser. The files themselves are resolved by the caller —
-/// `ReferencedProject` reads each package's `manifest.toml` and hands the results
-/// here one at a time.
 module VesperLibManifest =
 
-    /// One file handed to the extractor: the identity every anchor into it will name, and
-    /// where to read its bytes. The identity is the `OriginPath` itself and not a copy of its
-    /// fields, so a manifest entry and the anchor domain it becomes cannot come apart.
-    ///
-    /// `Path.Relative` also selects the parser (`.fsi` ⇒ signature, otherwise implementation)
-    /// and names the file in diagnostics.
     type LibFile =
         {
             Path: OriginPath
-            /// Where this build found the file. NOT part of the identity — two invocations
-            /// that mount the package differently are reading the same file — so it stays
-            /// here, with the read, rather than riding into every tree anchored in it.
+            /// Where this build found the file. Not part of the identity: two invocations
+            /// that mount the package at different absolute paths read the same file.
             Absolute: string
         }
 
@@ -36,20 +24,10 @@ module VesperLibManifest =
             Ast: FSharpAst<SyntaxToken>
         }
 
-    // Force-load the parser's `ObjectConstruction` ref so attribute
-    // parsing succeeds even when the only entry points hit are
-    // signature-file parsers. The init lives behind a `do` at the head
-    // of `ImplementationFile.pNamedModule`, which a pure-signature path
-    // may never touch.
+    // Force-load the parser's `ObjectConstruction` ref: attribute parsing reads it, and
+    // the parser's own initialisers sit on paths a pure-signature run may never touch.
     do ObjectConstruction.init ()
 
-    /// Parse one `.fsi` file via XParsec.FSharp's signature-file parser, or `.fs`
-    /// file via the implementation parser. Both paths are live: most modules ship
-    /// `.fsi` (extracted as the signature contract), but a package's per-target
-    /// primitive companions (`prim-types-int.clr.fs`) and operator bodies
-    /// (`ops-platform.clr.fs`) have no companion signature and route through
-    /// `FSharpAst.parse` so their reprs / bodies feed the intrinsic extraction and the
-    /// cross-package inline-expansion pipeline.
     let parseFileFull (file: LibFile) : Result<ParsedFile, string> =
         let input = File.ReadAllText file.Absolute
 

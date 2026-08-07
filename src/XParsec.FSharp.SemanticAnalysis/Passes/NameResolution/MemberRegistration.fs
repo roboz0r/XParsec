@@ -10,38 +10,20 @@ open NameResolutionTypeHeadStamp
 open NameResolutionScope
 open NameResolutionTypeRegistration
 
-// Registry stamping for class type definitions (ctor params, `val` fields, members,
-// static lets) and union augmentation members, plus the group registration algorithm
-// every kind's detail runs under.
-//
-// A class's declared STRUCTURE — ctor-parameter annotations, `val` field types, the
-// `inherit` parent — resolves here, against the types in scope where it is written. A
-// member's TYPE is not structure: it is inferred from its body, so its placeholder TyVar is
-// linked by Unification's `fillClassMembers`.
+// Registry stamping for class type definitions and union augmentation members, plus the
+// `type … and …` group registration algorithm. A class's declared STRUCTURE (ctor-param
+// annotations, `val` field types, `inherit` parent) resolves here, in the scope it is written.
 
 module NameResolutionMemberRegistration =
 
-    /// Constructor parameter info from a parameter *pattern* (the primary ctor's
-    /// `PrimaryConstrArgs.pat` or a secondary ctor's `new(...)` pattern). v1
-    /// accepts only simple patterns (`NamedSimple`, `Typed (NamedSimple, t)`,
-    /// `Tuple` of those, possibly enclosed, and `()` for no params); anything
-    /// else diagnoses and contributes nothing.
-    ///
-    /// A parameter's type is a TyVar in BOTH shapes, because it is the parameter's
-    /// binding-site inference cell (`fillClassMembers` seeds `ctx.Bindings.TypeVar` from
-    /// it, so a member body's reference to the parameter types through it). An ANNOTATED
-    /// parameter's cell is linked to the declared type right here — under the class's typar
-    /// scope, against the types claimed at this point — so the annotation resolves in the
-    /// declaration's own scope; an unannotated one stays free for the use site to pin.
-    /// Called under `underClassTyparScope`.
+    /// Constructor parameter info from a parameter *pattern* (a primary or a `new(...)`
+    /// ctor's). Only simple patterns are accepted (`x`, `(x: T)`, tuples of those, `()` for
+    /// none); anything else diagnoses. An annotation is linked to the param's TyVar here.
     let private ctorParamsOfPat (ctx: PassContext) (declTok: SyntaxToken) (p: Pat<SyntaxToken>) : ClassCtorParamInfo[] =
         let results = ResizeArray<ClassCtorParamInfo>()
 
-        // The parameter's binding site is the pattern's own — the key a body's reference to
-        // it resolves through — so it is taken with the projection that answers for a
-        // pattern rather than off the identifier token. That projection hands back the token
-        // TOO, and it is the one recorded: the two come from ONE match, so the slot's key
-        // and its name cannot describe different patterns.
+        // The parameter's binding site is the pattern's own — the key a member body's
+        // reference to the parameter resolves through.
         let addParam (p: Pat<SyntaxToken>) (annotation: Type<SyntaxToken> voption) =
             match BinderKey.siteOfCstPat p with
             | ValueNone -> () // unreachable: every arm below hands a (wrapped) `NamedSimple`
@@ -93,9 +75,8 @@ module NameResolutionMemberRegistration =
         | ValueSome(PrimaryConstrArgs(pat = ValueNone)) -> [||]
         | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> ctorParamsOfPat ctx declTok p
 
-    /// `ClassSecondaryCtorInfo` for a class body's `new(...)` overloads. Each overload's
-    /// params resolve exactly like the primary ctor's (`ctorParamsOfPat`); the synthetic
-    /// `DeclKey` keys it from the `new` token so distinct overloads don't collide.
+    /// `ClassSecondaryCtorInfo` for a class body's `new(...)` overloads. Each is keyed from
+    /// its own `new` token, so two overloads do not collide.
     let private extractSecondaryCtors
         (ctx: PassContext)
         (elements: TypeDefnElement<SyntaxToken> seq)
@@ -112,19 +93,10 @@ module NameResolutionMemberRegistration =
 
         acc.ToArray()
 
-    /// A member's name + the node key its body is inferred under, from its head
-    /// pattern. `this.M`-shaped heads parse as `Pat.NamedSimple` for the
-    /// member-name token; the `this`/alias is in `MethodOrPropDefn`'s `ident`
-    /// field, not the head pattern. The key is `CstKeys.ofPat` of the *leaf*
-    /// pattern — the exact key Unification's `inferBinding` links the inferred
-    /// signature under — so a `Pat.Op` head (`static member (+) (a, b) = …`) keys
-    /// on `(lParen, PatOp)`, not `(opToken, PatIdent)`; otherwise the registered
-    /// `TypeMemberInfo.Type` placeholder never receives the body type (and SRTP /
-    /// member dispatch read it back as a free TyVar). For `Pat.NamedSimple` this
-    /// equals the old `(id, PatIdent)` key, so named members are unaffected.
+    /// A member's name + the node key its body is inferred under, from its head pattern. The
+    /// key is the *leaf* pattern's, so `static member (+) (a, b) = …` keys on
+    /// `(lParen, PatOp)`, not `(opToken, PatIdent)` — the key the body's type arrives under.
     let private memberNameOf (ctx: PassContext) (b: Binding<SyntaxToken>) : {| Name: string; Site: NodeSite |} voption =
-        // The name differs per head shape; the SITE is the leaf pattern's either way, so it
-        // is projected once here rather than spelled in each arm.
         let named (p: Pat<SyntaxToken>) (name: string) =
             ValueSome
                 {|
@@ -166,16 +138,9 @@ module NameResolutionMemberRegistration =
                     | ValueNone -> ()
             ]
 
-    /// Free typar names in a member's *signature* (argument-pattern annotations
-    /// then return type, source order) that are neither an enclosing-type typar
-    /// nor one of the member's own explicit `<'C>` typars — the *implicit*
-    /// member-level generic params. In real F# `member s.Map f : Set<'U>` /
-    /// `s.PartitionWith(p: 'T -> Choice<'T1,'T2>)` generalise `'U` / `'T1`,`'T2`
-    /// as method generic parameters; registering them here lets the machinery
-    /// (inference scope seed + Elaborate `GenericMethodParameters`) carry them through
-    /// rather than the strict member scope diagnosing them as free. No off-the-shelf
-    /// free-typar walker over `Type<SyntaxToken>` exists at this layer, so this
-    /// small one walks only the structural cases that can carry a typar.
+    /// Free typar names in a member's *signature* (argument annotations then return type,
+    /// source order) that are neither an enclosing-type typar nor one of the member's own
+    /// `<'C>`: F# generalises these as method generic params (`member s.Map f : Set<'U>`).
     let private implicitMemberTypars
         (ctx: PassContext)
         (classTypars: string list)
@@ -200,13 +165,9 @@ module NameResolutionMemberRegistration =
                     acc.Add n
             | ValueNone -> ()
 
-        // Free typar collection reuses `CstWalk.iterType`'s Type recursion — the
-        // single enumeration of the 18 `Type` cases — so this consumer supplies only
-        // the leaf action. `VarType` and a `SubtypeConstraint`'s constrained typar are
-        // the two typar-bearing heads. A `WhenConstrainedType`'s `when`-clause
-        // constraint types are deliberately NOT descended: an implicit method typar is
-        // drawn from the signature's arg/return SHAPE, not from a constraint target
-        // (preserving the reach of the hand-walk this replaced).
+        // `VarType` and a `SubtypeConstraint`'s constrained typar are the two typar-bearing
+        // heads. A `when`-clause's constraint types are NOT descended: an implicit method
+        // typar is drawn from the signature's arg/return SHAPE, not from a constraint target.
         let typarIter: CstWalk.TypeIter =
             { CstWalk.identityTypeIter with
                 VisitType =
@@ -219,9 +180,7 @@ module NameResolutionMemberRegistration =
                             addTypar tp
                             true
                         | Type.WhenConstrainedType(typ = inner) ->
-                            // Descend only the constrained type; returning false
-                            // suppresses the default recursion that would also visit
-                            // the `when` constraints (see note above).
+                            // `false` suppresses the default recursion into the constraints.
                             CstWalk.iterType it inner
                             false
                         | _ -> true
@@ -256,11 +215,9 @@ module NameResolutionMemberRegistration =
 
         List.ofSeq acc
 
-    /// `TypeMemberInfo` placeholders for a type body's / augmentation's member
-    /// elements. Shared by class registration (`body.elements`) and union
-    /// augmentation (`extensions.elements`). Unsupported element kinds emit a
-    /// diagnostic at `declTok` — each arm is named so individual diagnostics can
-    /// be lifted in isolation as features land.
+    /// `TypeMemberInfo` placeholders for a type body's / augmentation's member elements.
+    /// Shared by class registration and union augmentation. An unsupported element kind
+    /// emits a diagnostic at `declTok`.
     let extractMembers
         (ctx: PassContext)
         (declTok: SyntaxToken)
@@ -271,9 +228,6 @@ module NameResolutionMemberRegistration =
 
         let diagnose (kind: Kind) = ctx.Report(declTok, kind)
 
-        // The seed typars + declared prefix are fixed here, at construction, and never
-        // change (immutable on `TypeMemberInfo`); only generalisation later mutates a
-        // member, via its write-once canonical cell.
         let addMember
             mName
             kind
@@ -296,18 +250,9 @@ module NameResolutionMemberRegistration =
         let registerNamed (b: Binding<SyntaxToken>) kind isStatic isOverride =
             match memberNameOf ctx b with
             | ValueSome m ->
-                // A concrete generic method (`member this.Map<'C> …`) carries
-                // its own typars on the binding's `typarDefns`. Stamp prototype
-                // TyVars so Unification scopes the signature against them and Elaborate
-                // surfaces them as GenericMethodParameters — mirroring the abstract
-                // path. A property's `typarDefns` is absent ⇒ empty.
-                //
-                // Then append the member's *implicit* signature typars — a
-                // `'U` that appears only in a param/return annotation, never as a
-                // class typar or explicit `<'a>`. F# generalises these as method
-                // generic params; without registration the strict member scope
-                // diagnoses them as free. Only methods can introduce them (a
-                // property can't be generic), so skip the property kind.
+                // A generic method's own `<'C>` typars (`member this.Map<'C> …`), then its
+                // *implicit* ones — a `'U` appearing only in a param/return annotation. Both
+                // get prototype TyVars. A property cannot be generic, so it gets neither.
                 let explicit = memberTyparNames ctx b.typarDefns
 
                 let implicit =
@@ -315,10 +260,8 @@ module NameResolutionMemberRegistration =
                     | ClassMemberKind.Method -> implicitMemberTypars ctx classTypars b
                     | _ -> []
 
-                // The explicit `<'C>` typars are exactly the leading `explicit`
-                // prefix; the count lets `generaliseMemberTypars` pass ONLY them as
-                // `canonical`'s `declared` (the implicit tail must be ordered by
-                // appearance per the F# rule, not treated as declared).
+                // The count marks the leading `explicit` prefix of the seed: only those are
+                // "declared-first", the implicit tail orders by appearance per the F# rule.
                 let seed = mkTypeParams ctx.Store (explicit @ implicit)
 
                 addMember m.Name kind isStatic isOverride m.Site seed (List.length explicit)
@@ -339,9 +282,6 @@ module NameResolutionMemberRegistration =
         let registerAbstractMethod idOrOp tds isStatic kind =
             match identOrOpNameTok ctx idOrOp with
             | ValueSome(mName, mTok) ->
-                // The method's own `<'C, …>` typars get prototype TyVars so
-                // Unification scopes the signature against them and Elaborate can
-                // surface them as GenericMethodParameters.
                 let explicit = memberTyparNames ctx tds
                 let seed = mkTypeParams ctx.Store explicit
                 // An `abstract` signature is a slot declaration, never an override.
@@ -361,7 +301,6 @@ module NameResolutionMemberRegistration =
             | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
                 let isStatic = s.IsSome
 
-                // `override`/`default` members set the override flag; plain `member` and `abstract` stay `false`.
                 let isOverride =
                     match kw with
                     | MemberKeyword.Override _
@@ -391,36 +330,26 @@ module NameResolutionMemberRegistration =
                     // (`abstract Item : int with get`).
                     diagnose (Kind.NotYetSupported "abstract property signatures")
             | TypeDefnElement.Member(MemberDefn.Value _) ->
-                // `val [mutable] x: T` explicit instance fields are
-                // *not* `TypeMemberInfo`s — class registration extracts them
-                // separately via `extractInstanceFields`.
+                // `val [mutable] x: T` fields are not members; `extractInstanceFields` has them.
                 ()
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor _) ->
-                // Secondary constructors aren't `TypeMemberInfo`s — class
-                // registration extracts them separately via `extractSecondaryCtors`.
-                // A union augmentation has no primary ctor to chain to, so one here
-                // is meaningless and silently dropped (the parser permits it).
+                // Secondary ctors are not members; `extractSecondaryCtors` has them. A union
+                // augmentation has no primary ctor to chain to, so one there is dropped.
                 ()
             | TypeDefnElement.InterfaceImpl _ ->
-                // `interface IFace with member …` blocks are *not* part of
-                // the class's own member set — they're collected separately by
-                // `extractInterfaceImpls` and resolved against the external
-                // interface in Unification's `fillClassMembers`.
+                // `interface IFace with member …` blocks are not part of the class's own
+                // member set; `extractInterfaceImpls` collects them.
                 ()
             | TypeDefnElement.InterfaceSpec _ ->
-                // A bare `interface IFace` spec (no inline members) carries no
-                // bodies to register. Spec-only conformance is deferred.
+                // A bare `interface IFace` spec carries no member bodies to register.
                 ()
             | TypeDefnElement.Inherit _ -> diagnose (Kind.NotYetSupported "inheritance")
 
         memberInfos.ToArray()
 
-    /// Collect the `interface IFace with member …` blocks declared in a class body. Each interface
-    /// member is re-wrapped as a `TypeDefnElement.Member` so the existing member
-    /// machinery (`extractMembers`, plus the NameResolution / Unification
-    /// member-body walks) consumes it unchanged. The interface *type* is kept as
-    /// raw CST — the external provider that resolves it isn't reachable until
-    /// Unification, which links each impl's `Resolved` and types its bodies.
+    /// Collect the `interface IFace with member …` blocks declared in a class body. Each
+    /// interface member is re-wrapped as a `TypeDefnElement.Member` so the ordinary member
+    /// machinery consumes it. The interface *type* is kept as raw CST, resolved later.
     let private extractInterfaceImpls
         (ctx: PassContext)
         (classTypars: string list)
@@ -447,10 +376,8 @@ module NameResolutionMemberRegistration =
         acc.ToArray()
 
     /// Collect `val [mutable] x: T` explicit instance fields declared in a class / struct
-    /// body. A `val` field is always annotated, so its type resolves outright — under the
-    /// class's typar scope, against the types in scope where it is written. `IsMutable`
-    /// reflects the `mutable` keyword. `static val` is not a thing F# accepts here, so a
-    /// `staticToken` is ignored. Called under `underClassTyparScope`.
+    /// body. A `val` field is always annotated, so its type resolves outright, under the
+    /// class's typar scope. F# accepts no `static val` here, so a `staticToken` is ignored.
     let private extractInstanceFields
         (ctx: PassContext)
         (elements: TypeDefnElement<SyntaxToken> seq)
@@ -473,17 +400,8 @@ module NameResolutionMemberRegistration =
         acc.ToArray()
 
     /// `ClassPreambleEntry` placeholders for a class body's `[static] let` / `[static] do`
-    /// preamble, split into the STATIC sequence (the `.cctor`'s body) and the INSTANCE
-    /// sequence (the tail of the primary ctor). Each is ONE ordered sequence: a `do` may
-    /// observe a `let` above it, so the interleaving cannot be flattened into parallel lists.
-    ///
-    /// A generic class's `static let` lowers to a per-instantiation static field
-    /// (one field on the open generic `TypeDefinition`, its `.cctor` running once
-    /// per closed instantiation — codegen mints the read/store as a `MemberRef` on
-    /// the self-`TypeSpec`). An instance binder is a private instance field, so a generic
-    /// class carries those for free too.
-    ///
-    /// Only a simple binder head (`let x = …`, `let f x = …`) is supported.
+    /// preamble, split into the STATIC sequence (the `.cctor`'s body) and the INSTANCE one
+    /// (the primary ctor's tail). Each stays ONE ordered sequence: a `do` may observe a `let`.
     let private extractPreamble
         (ctx: PassContext)
         (declTok: SyntaxToken)
@@ -494,24 +412,17 @@ module NameResolutionMemberRegistration =
         let statics = ResizeArray<ClassPreambleEntry>()
         let instances = ResizeArray<ClassPreambleEntry>()
 
-        // Every rejection here is a property of the CLASS, not of the offending entry, and so
-        // is anchored at `declTok`: a class with three instance entries and no primary ctor
-        // would otherwise report one identical error per entry at a single site. One verdict,
-        // once — counted over the VERDICT, so two entries failing the same way are one report
-        // whatever the sentence happens to say.
+        // Every rejection here is a property of the CLASS, not of the offending entry, so it
+        // is anchored at `declTok` and reported once per distinct verdict.
         let reported = HashSet<Kind>()
 
         let diagnose (kind: Kind) =
             if reported.Add kind then
                 ctx.Report(declTok, kind)
 
-        // An instance `let`/`do` runs in the PRIMARY ctor. Two shapes have no ctor that can run
-        // it, and F# rejects both:
-        //  * the `val`-field form (`type T = val …; new(…) = …`) declares no primary ctor at all
-        //    (FS0963 — F# does not pick a secondary);
-        //  * a STRUCT's zero-arg default ctor is not ours to write, so `Unchecked.defaultof<S>`
-        //    would leave the binder's field unset (FS0901 for a `let`, FS0035 for a `do`).
-        // Diagnose and drop: an accepted entry would mint a field no ctor ever initialises.
+        // An instance `let`/`do` runs in the PRIMARY ctor, and two shapes have none that can:
+        // the `val`-field form (`type T = val …; new(…) = …`) declares no primary ctor (FS0963),
+        // and a struct's zero-arg default ctor is not ours to write (FS0901 `let`, FS0035 `do`).
         let instanceAllowed (isDo: bool) =
             if not hasPrimaryCtor then
                 diagnose (
@@ -565,12 +476,9 @@ module NameResolutionMemberRegistration =
 
         struct (statics.ToArray(), instances.ToArray())
 
-    /// Stamp `ClassTypeInfo` for every `TypeDefn.Class` (or `TypeDefn.Anon` — the
-    /// parser emits Anon for the bare `type C(...) = member ...` form without an
-    /// explicit `class`/`end`). The class's declared STRUCTURE (ctor-parameter annotations,
-    /// `val` field types) resolves here, under the class's own typar scope. Member types
-    /// are placeholder TyVars; Unification's `fillClassMembers` links them once each member
-    /// body is inferred.
+    /// Stamp `ClassTypeInfo` for every `TypeDefn.Class` (or `TypeDefn.Anon` — the parser
+    /// emits Anon for the bare `type C(...) = member ...` form). The declared STRUCTURE
+    /// resolves here, under the class's typar scope; member types are placeholder TyVars.
     let private registerClassTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match TypeDefnPatterns.tryClassLikeDecl td with
         | ValueNone -> ()
@@ -581,9 +489,8 @@ module NameResolutionMemberRegistration =
             let classTyparNames = typarNamesOfTypeName ctx tn
             let typeParams = mkTypeParams ctx.Store classTyparNames
 
-            // Every annotated position in the class's declared surface, resolved under the
-            // class typar scope in ONE entry so a `'a` in a ctor param, a `val` field or a
-            // secondary ctor's parameter all bind the same prototype TyVar.
+            // One entry into the class typar scope, so a `'a` in a ctor param, a `val` field
+            // or a secondary ctor's parameter all bind the same prototype TyVar.
             let structure =
                 underTyparScope
                     ctx
@@ -609,23 +516,17 @@ module NameResolutionMemberRegistration =
 
             let members = memberInfos.ToArray()
 
-            // No `PrimaryConstrArgs` (`pc = ValueNone`) ⇒ the `val`-field form
-            // (`type T = val …; new(…) = …`): the secondaries are the only ctors, so
-            // codegen must not synthesise a colliding primary `.ctor` — and an instance
-            // `let`/`do` has no ctor to run in.
+            // No `PrimaryConstrArgs` ⇒ the `val`-field form (`type T = val …; new(…) = …`):
+            // the secondary ctors are the only ctors it has.
             let hasPrimaryCtor = pc.IsSome
 
-            // `[<Sealed>]` flips TypeAttributes.Sealed on the emitted
-            // TypeDefinition; `[<AllowNullLiteral>]` lets Unification's
-            // Expr.Null arm unify against this class.
+            // `[<Sealed>]` seals the emitted type; `[<AllowNullLiteral>]` lets a `null`
+            // literal unify against this class.
             let classAttrs =
                 Attributes.decodeClassAttributes ctx (Attributes.attributesOfTypeName tn)
 
-            // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value
-            // type. A struct is implicitly sealed (no derivation), so the
-            // emitted `TypeAttributes.Sealed` rides `IsValueType` too. Known
-            // before the preamble is extracted: a struct may not carry an
-            // instance one.
+            // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value type. Known before
+            // the preamble is extracted: a struct may not carry an instance one.
             let isValueType = classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
 
             let struct (staticPreamble, instancePreamble) =
@@ -652,25 +553,21 @@ module NameResolutionMemberRegistration =
             info.IsSealed <- classAttrs.IsSealed
             info.AllowNullLiteral <- classAttrs.AllowNullLiteral
             info.InterfaceImpls <- extractInterfaceImpls ctx classTyparNames body.elements
-            // The class's `when 'S :> IFace` typar constraints, attached to the
-            // prototype TyVars by `fillClassMembers` so a member-body access on
-            // a constrained class typar resolves through the interface.
+            // Retained raw: a member body re-enters the class typar scope later and needs
+            // `when 'S :> IFace` to resolve an access on a constrained class typar.
             info.TyparConstraints <- NameResolutionTypeRegistration.typarConstraintsOfTypeName tn
 
             info.IsValueType <- isValueType
-            // A project-local interface (all-abstract body) — so
-            // `resolveInterfaceImpls` / the subtype check recognise it without
-            // an external-provider entry.
+            // A project-local interface: an all-abstract class body, with no external
+            // provider entry for the subtype check to find.
             info.IsInterface <- TypeDefnPatterns.isInterfaceShape td
             // `[<IsByRefLike>]` ⇒ a byref-like (`ref struct`) value type.
             info.IsByRefLike <- classAttrs.IsByRefLike
             info.InstanceFields <- structure.InstanceFields
 
-            // Validate equality / comparison attributes against the class
-            // kind (FS0382 / FS0377) and stamp kind-aware verdicts. A value
-            // type defaults to `Structural`; a reference class to
-            // `Reference`. Comparison opt-in ⇒ `NoComparison`. Custom* and
-            // explicit Structural* / No* overrides come from the validator.
+            // Validate eq / comparison attributes against the class kind (FS0382 / FS0377).
+            // Where the validator returns no verdict: `Structural` for a value type,
+            // `Reference` for a class, and comparison is opt-in, so `NoComparison`.
             let classKind =
                 if isValueType then
                     Attributes.EqCompTargetKind.Struct
@@ -710,14 +607,9 @@ module NameResolutionMemberRegistration =
                     ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.ofResizeArray buf
                 | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.singleton entry
 
-    /// An interface carries no `ClassTypeInfo` (no equality / comparison verdict
-    /// to stamp), but `[<StructuralEquality>]` / `[<ReferenceEquality>]` /
-    /// `[<CustomEquality>]` etc. are still illegal on it — run the kind-legality
-    /// check (FS0382 / FS0377) so those produce a diagnostic, discarding the
-    /// verdicts.
-    /// A `TypeDefn.Interface` claims no name and registers no detail, so it is not a
-    /// claimed declaration and this validation is driven from the CST — it is not a
-    /// registration.
+    /// An interface carries no `ClassTypeInfo` (no equality / comparison verdict to stamp),
+    /// but `[<StructuralEquality>]` / `[<ReferenceEquality>]` / `[<CustomEquality>]` are
+    /// still illegal on it — run the kind-legality check and discard the verdicts.
     let private validateInterfaceTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Interface(typeName = tn) ->
@@ -737,13 +629,9 @@ module NameResolutionMemberRegistration =
     let private useSiteOfHead (ctx: PassContext) (li: LongIdent<SyntaxToken>) : UseSite =
         ctx.UseSiteAt(NodeKey.ofToken li.Idents.[li.Idents.Length - 1] NodeKind.TypeNamed)
 
-    /// Resolve a named type appearing in an `inherit` clause *argument* position
-    /// (`inherit Box<int>(v)`'s `int`) to a best-effort `SemType`. A
-    /// registration-time mini-`translateType`: NameResolution runs before
-    /// `Unification.translateType` exists, and v1 inherit clauses carry only
-    /// simple arg types (a builtin, a class typar, or another project-local type).
-    /// Abbreviation expansion is deferred to Unification, so an abbrev-named arg
-    /// lands as an opaque `TyConst`.
+    /// Resolve a named type in an `inherit` clause *argument* position (`inherit
+    /// Box<int>(v)`'s `int`) to a best-effort `SemType`: a registration-time mini
+    /// translation, so an abbrev-named arg lands as an opaque `TyConst`, expanded later.
     let rec private translateInheritArg
         (ctx: PassContext)
         (typarScope: Map<string, TyVarId>)
@@ -796,14 +684,9 @@ module NameResolutionMemberRegistration =
         (name: string)
         (args: EqArray<SemType>)
         : SemType =
-        // An intrinsic's identity is resolved (local registration first, then the provider
-        // through ambient opens), never enumerated by name. `args` are empty for the scalar
-        // intrinsics, so a uniform arm is behaviour-identical to the old per-name arms.
         match IntrinsicResolve.tryResolveIntrinsicKey ctx.Resolver ctx.Types.IntrinsicKeys name with
         | Some k -> TyConst(k, args)
         | None ->
-            // Nominal heads carry their resolved `SymbolKey`; take it
-            // off the registry `info` rather than re-stringing the name.
             match TypeRegistry.tryRecord ctx.Types useSite name with
             | ValueSome info -> TyRecord(info.TypeKey, args)
             | ValueNone ->
@@ -814,11 +697,9 @@ module NameResolutionMemberRegistration =
                     | ValueSome info -> TyClass(info.TypeKey, args)
                     | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
-    /// Resolve an `inherit` clause's parent type to a `TyClass` under the derived
-    /// class's typar scope. Diagnoses (and returns `ValueNone`) when the parent is
-    /// a non-class type, an unknown name, or a multi-segment / external name — v1
-    /// routes only single-segment project-local classes (multi-segment / BCL base
-    /// classes land with the provider catalogue).
+    /// Resolve an `inherit` clause's parent type to a `TyClass` under the derived class's
+    /// typar scope. Diagnoses (and returns `ValueNone`) when the parent is a non-class type,
+    /// an unknown name, or a multi-segment name.
     let private resolveInheritParent
         (ctx: PassContext)
         (typarScope: Map<string, TyVarId>)
@@ -858,10 +739,8 @@ module NameResolutionMemberRegistration =
             else
                 let name = ctx.NameOf nameTok
 
-                // A heritable base's platform repr → its external `TyClass` (codegen's
-                // `ExternalClass` encoder maps it to a `TypeRef` for `extends` + base-ctor),
-                // or a "did not resolve" diagnostic. Shared by the LOCAL heritable-extern arm
-                // and the cross-file provider arm for a ctor-less `(# class … #)` base.
+                // A heritable base's platform repr → its external `TyClass`, or a "did not
+                // resolve" diagnostic.
                 let reprToExternalBase (repr: string) =
                     match tryResolveExternalTypeKey ctx repr targs.Length with
                     | ValueSome extKey -> ValueSome(TyClass(extKey, EqArray.ofList targs))
@@ -877,30 +756,12 @@ module NameResolutionMemberRegistration =
 
                         ValueNone
 
-                // Fallback when the name is not a project-local class: a referenced heritable
-                // primitive published by a provider (`exn`, or a prior file's
-                // `(# class … #)` base like `Attribute`).
+                // The name is not a project-local class: a heritable primitive published by a
+                // provider (`exn`, or a prior file's `(# class … #)` base like `Attribute`).
                 let resolveThroughProvider () =
-                    // The provider publishes it as an `Intrinsic` with a class surface.
-                    // `inherit X` is a name WRITTEN AT A SITE, so it resolves through the SAME
-                    // opens-aware engine every other written type head uses (`tryPickExternalType`
-                    // over `ctx.Resolution.OpenScope`) — the file's explicit `open`s, then the
-                    // implicit open of its own `namespace N` header (`CstWalk.addNamespacePrefix`,
-                    // F#'s `ImplicitlyOpenOwnNamespace`), then the ambient prelude. That implicit
-                    // open is what resolves a SAME-namespace prior file's base (`Vesper.Core`'s
-                    // `compiler-attributes.fs` inheriting `prim-types-attr.clr.fs`'s `Attribute`): the
-                    // fact lives in the CONSUMER's scope, never in a producer-published ambient.
-                    // `pick` returning `ValueNone` scans past a non-intrinsic hit to the next
-                    // candidate. Then branch on whether the CONTRACT declares a ctor:
-                    //   * WITH ctors (`exn`'s `new: string -> exn` / `new: unit -> exn`): admit
-                    //     the intrinsic CANON as a `TyConst` base, so `fillBaseCtorCall` checks
-                    //     the base-`.ctor` args against the contract ctor set (and REJECTS a
-                    //     mismatch) — the contract IS the constructible surface.
-                    //   * WITHOUT ctors (`Attribute = (# class … #)` — the `.fs`/`.fsi` bind only
-                    //     the repr): admit the PLATFORM type as a `TyClass` (the SAME base the
-                    //     heritable-local arm mints), so the base-`.ctor` binds the runtime type's
-                    //     own ctors (`System.Attribute()`); the empty contract surface would
-                    //     otherwise reject `inherit Attribute()`.
+                    // `inherit X` is a name WRITTEN AT A SITE, so it resolves through the same
+                    // opens-aware engine as any written type head. WITH contract ctors (`exn`)
+                    // ⇒ the intrinsic canon; WITHOUT (`Attribute`) ⇒ the platform type.
                     let heritableIntrinsic (shape: ExternalTypeShape) =
                         match shape with
                         | ExternalTypeShape.Intrinsic { Id = id; Class = ValueSome surface } ->
@@ -923,11 +784,9 @@ module NameResolutionMemberRegistration =
                             diagnose nameTok (Kind.UnsupportedOnTarget(name, target))
                             ValueNone
                     | ValueNone ->
-                        // The class arms above have already missed, so a name the NAME TABLE
-                        // knows at any arity is a project-local type of some other kind. One
-                        // table ⇒ no kind can be forgotten from this disjunction. A name the
-                        // table does not know is unknown *here*, which includes a type
-                        // declared below this group — nothing later can fill the slot.
+                        // A name the name table knows at any arity is a project-local type of
+                        // some other kind; one it does not know is unknown *here*, which
+                        // includes a type declared below this group.
                         if TypeRegistry.isTypeNameInScope ctx.Types (ctx.UseSiteAt diagKey) name then
                             diagnose
                                 nameTok
@@ -942,32 +801,17 @@ module NameResolutionMemberRegistration =
                 match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
                 | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
                 | ValueNone ->
-                    // Heritable-local arm: a `(# class … #)` intrinsic of THIS file. ONE
-                    // key-addressed read (`intrinsicKeyOf` → `IntrinsicReprInfo`) yields BOTH
-                    // the repr and the `class`-tag verdict from the SAME entry, so a heritable
-                    // base with no repr is structurally unrepresentable — no runtime invariant
-                    // to police, and no parallel name-axis set to keep in step.
+                    // Heritable-local arm: a `(# class … #)` intrinsic of THIS file. One read
+                    // yields both the repr and the `class`-tag verdict.
                     match ctx.Types.IntrinsicReprKeys.TryGetValue(TypeRegistry.intrinsicKeyOf ctx.Types name) with
                     | true, repr when repr.Heritable ->
-                        // Resolve to the EXTERNAL type the repr names, so the base freezes to an
-                        // `FTClass` the codegen `ExternalClass` encoder maps to a `TypeRef`
-                        // (`extends` + base-ctor), rather than the opaque value-repr `TyConst`.
+                        // The EXTERNAL type the repr names, not the opaque value-repr `TyConst`.
                         reprToExternalBase repr.Platform
                     | _ -> resolveThroughProvider ()
 
-    /// Fill `BaseType` / `BaseCtorArgs` on a class with an `inherit` clause. An `inherit`
-    /// parent is the one reference resolved against the referent's registered DETAIL
-    /// (`ClassTypeInfo` for a local parent, `IntrinsicReprKeys` for a heritable extern
-    /// base) rather than its identity, so it cannot be answered at
-    /// the point the clause is seen: `ClassTypeInfo.BaseType` is the PENDING SLOT, filled
-    /// once the whole group's detail is registered. A parent above the group is already
-    /// registered, a parent inside it registers before the group closes, and a parent below
-    /// it never will — which is exactly the unknown-type diagnostic `resolveInheritParent`
-    /// raises.
-    ///
-    /// The DERIVED class is recovered by the `TypeKey` on its own claim, never by name: a
-    /// bare name does not address an arity-overloaded class (`Box\`1` / `Box\`2`), so a
-    /// name lookup here would drop the `inherit` clause of either.
+    /// Fill `BaseType` / `BaseCtorArgs` on a class with an `inherit` clause. The parent is
+    /// resolved against the referent's registered DETAIL, not its identity, so it cannot be
+    /// answered where the clause is seen — `BaseType` is a slot filled at group close.
     let private registerInheritedSlot (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match TypeDefnPatterns.tryClassLikeDecl td with
         | ValueNone -> ()
@@ -988,19 +832,13 @@ module NameResolutionMemberRegistration =
                     | ValueNone -> ()
                 | ValueNone -> ()
 
-    /// Detect inheritance cycles among the classes of ONE group, once every `BaseType`
-    /// slot in it is filled. Walks each class's parent chain; on re-entry to the starting
-    /// class emits a "cyclic inheritance" diagnostic on its `DeclKey` and clears its
-    /// `BaseType` so later passes treat it as parent-less.
-    ///
-    /// A group is the whole search space: a class names only what is declared above it or
-    /// joined to it by `and`, so an inheritance back-edge — which is what a cycle needs —
-    /// can only run between members of one `type … and …` group.
+    /// Detect inheritance cycles among the classes of ONE group, once every `BaseType` slot
+    /// is filled: on re-entry to the starting class, diagnose and clear its `BaseType` so
+    /// later passes treat it as parent-less. A back-edge can only run inside one group.
     let private checkGroupInheritanceCycles (ctx: PassContext) (classes: ClassTypeInfo seq) : unit =
         for start in classes do
-            // Compare on the class's `TypeKey` (arity included), not its bare name,
-            // so an arity-overloaded self-reference (`Foo\`2` : `Foo\`3`) isn't falsely
-            // flagged as a cycle.
+            // Compare on `TypeKey` (arity included), not the bare name, so an arity-overloaded
+            // self-reference (`Foo\`2` : `Foo\`3`) is not falsely flagged as a cycle.
             let visited = System.Collections.Generic.HashSet<TypeKey>()
             visited.Add start.TypeKey |> ignore
 
@@ -1025,11 +863,7 @@ module NameResolutionMemberRegistration =
 
     /// A bodied member of an intrinsic host must be declared `inline`. The host has no
     /// representation in the output to hang a method on, so its body can only be spliced
-    /// into the caller; without `inline` the use site would elaborate to a call to a
-    /// method that is never emitted.
-    ///
-    /// Every element is enumerated: a new CST case must be classified here rather than
-    /// silently joining the exempt set.
+    /// into the caller; without `inline` the use site would call a method never emitted.
     let private requireInlineMembers
         (ctx: PassContext)
         (hostName: string)
@@ -1073,15 +907,8 @@ module NameResolutionMemberRegistration =
             | TypeDefnElement.Inherit _ -> ()
 
     /// Stamp augmentation members + `interface … with` impls onto an already-registered
-    /// union or record. Must run after the type itself is registered; reads its
-    /// `extensions.elements`. A v1 union/record has no primary ctor / `as` alias, so
-    /// `this` is always `"this"`. The member/impl extraction is kind-agnostic (the same
-    /// collection the class registration uses); only the write-back target type differs,
-    /// so the host interface (read-only) can't carry it — each arm sets its own `info`.
-    ///
-    /// The AUGMENTED type is recovered by the `TypeKey` on its own claim, never by name: a
-    /// bare name does not address an arity-overloaded union / record, so a name lookup
-    /// here would drop the whole `with member …` block of either.
+    /// union or record; must run after the type itself is registered. The extraction is
+    /// kind-agnostic — only the write-back target differs, so each arm sets its own `info`.
     let private registerNominalMember (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         let extract (declKey: NodeKey) (typeParams: EqArray<string * TyVarId>) elems =
             let typarNames = [ for (n, _) in typeParams -> n ]
@@ -1109,13 +936,9 @@ module NameResolutionMemberRegistration =
                 info.InterfaceImpls <- x.InterfaceImpls
                 info.ThisKey <- x.ThisKey
             | ValueNone -> ()
-        // An inline intrinsic-abbrev host (`type X = (# … #) with member …`):
-        // stamp its augmentation members + `ThisKey` exactly as the union/record
-        // arms do. The host is present in `IntrinsicAbbrevHost` only for an
-        // ILIntrinsic RHS (a transparent-alias abbrev with members was rejected
-        // at registration), so this arm fires only for the sanctioned host. An intrinsic
-        // binding is non-generic in practice and its host table is name-keyed, so the name
-        // off the claim addresses it.
+        // An inline intrinsic-abbrev host (`type X = (# … #) with member …`): stamp its
+        // augmentation members + `ThisKey` as the union/record arms do. An intrinsic binding
+        // is non-generic, so the name off the claim addresses the name-keyed host table.
         | TypeDefn.Abbrev(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
             match ctx.Types.IntrinsicAbbrevHost.TryGetValue id.Name with
             | true, info ->
@@ -1138,11 +961,9 @@ module NameResolutionMemberRegistration =
         | TyEnum key -> ValueSome key
         | _ -> ValueNone
 
-    /// The types a registered declaration STORES INLINE — the fields a value type lays out
-    /// in its own memory. A struct record's fields, a struct union's case fields, a struct
-    /// class's `val` fields and its ctor-param backing fields. Only ever asked of a value
-    /// type (`isValueTypeDefn`), because a reference type stores a POINTER to each field and
-    /// so contains none of them immediately.
+    /// The types a registered declaration STORES INLINE: a struct record's fields, a struct
+    /// union's case fields, a struct class's `val` and ctor-param backing fields. Only asked
+    /// of a value type — a reference type stores a POINTER, so it contains none immediately.
     let private inlineFieldTypes (ctx: PassContext) (id: TypeIdentity) : SemType seq =
         let key = id.Key
 
@@ -1172,16 +993,8 @@ module NameResolutionMemberRegistration =
         | TypeDeclKind.IntrinsicRepr -> Seq.empty
 
     /// FS0954's other half: a cycle through STRUCT FIELDS. A value type stores its fields
-    /// inline, so a struct that (transitively) contains itself has no finite layout — F#
-    /// rejects `[<Struct>] type A = { x: B } and [<Struct>] B = { y: A }` with the same code
-    /// it gives an inheritance cycle.
-    ///
-    /// The edge set is STRUCT-field edges only. A cycle through a REFERENCE-typed field is
-    /// legal (`type A = { x: B } and B = { y: A }` compiles — the indirection breaks it), so
-    /// a check over all field edges would reject a legal program; and a type argument is an
-    /// indirection too (`directNominal`). Group-local, like every other cycle: a type names
-    /// only what is declared above it or joined to it by `and`, so the back-edge a cycle
-    /// needs can only run between members of one group.
+    /// inline, so `[<Struct>] type A = { x: B } and [<Struct>] B = { y: A }` has no finite
+    /// layout, while the same pair as reference types compiles — the indirection breaks it.
     let private checkGroupStructFieldCycles (ctx: PassContext) (structs: ClaimedTypeDefn seq) : unit =
         let members = Dictionary<TypeKey, TypeIdentity>()
 
@@ -1214,47 +1027,23 @@ module NameResolutionMemberRegistration =
 
     /// Register one accepted declaration's kind-specific DETAIL — fields, cases, enum case
     /// names, class members / ctor params, abbreviation RHS — plus any `with member …`
-    /// augmentation on it. Dispatches on the `TypeDeclKind` its claim recorded and is
-    /// HANDED the identity it registers under, so no registrar re-derives a name / arity /
-    /// key from the CST and none can be reached for a rejected duplicate.
+    /// augmentation on it. The identity is handed in, never re-derived from the CST.
     let private registerDetail (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match id.Kind with
         | TypeDeclKind.Record -> registerRecordTypeDefn ctx id td
         | TypeDeclKind.Union -> registerUnionTypeDefn ctx id td
         | TypeDeclKind.Enum -> registerEnumTypeDefn ctx id td
-        // The abbreviation ENTRY is filed ahead of every other kind's detail (see
-        // `registerGroup`), so this arm has nothing left to do for it.
+        // The abbreviation ENTRY is filed ahead of every other kind's detail, so this arm
+        // has nothing left to do for it.
         | TypeDeclKind.Abbreviation
         | TypeDeclKind.IntrinsicRepr -> ()
         | TypeDeclKind.Class -> registerClassTypeDefn ctx id td
 
         registerNominalMember ctx id td
 
-    /// Register one `type … and …` group — what recurses mutually, and what registers at
-    /// once. `ModuleElem.Type` IS that group, so the driver above is a single
-    /// top-down scan and F#'s file-order type scoping falls out of it: at the moment a
-    /// group registers, `TypeClaims` holds every type above it and nothing below, so a head
-    /// naming a type declared below simply misses the registry — no guard has to say so.
-    ///
-    /// The phases, in the order the dependencies force:
-    ///
-    /// 1. CLAIM every member's `(name, arity)` + `TypeKey`, in source order. A reference
-    ///    that needs only the referent's key and arity — a nominal head in a field type, a
-    ///    member signature, a type argument — is satisfied outright by this, which is the
-    ///    whole of `and`-joined mutual recursion for records, unions and member sigs.
-    /// 2. CLASSIFY every head written in the group's declared structure against the scope
-    ///    the claim phase just fixed: a claimed name is local, anything else is external or
-    ///    unknown. This is the resolution `translateType` then executes, so the structure
-    ///    resolves in the declaration's own scope — including an external type a local one
-    ///    declared BELOW would otherwise shadow.
-    /// 3. FILE THE ABBREVIATION ENTRIES, in source order, before any other kind's detail: an
-    ///    alias is expanded on demand by whatever names it, so `type R = { x: A } and A = int`
-    ///    needs `A`'s entry (not its body) present when `R`'s field translates.
-    /// 4. REGISTER DETAIL for every other kind, in source order.
-    /// 5. CLOSE: force the group's alias bodies (an alias RHS reads its referent's registered
-    ///    detail, so it cannot be answered where it is written); fill the `inherit` slots
-    ///    (same reason); then check the two cycles those two relations admit. All four are
-    ///    group-local because nothing outside the group can name into it.
+    /// Register one `type … and …` group, in the phases below: claim, classify, file the
+    /// abbreviation entries, register detail, close. File-order type scoping falls out — at
+    /// the moment a group registers, `TypeClaims` holds every type above it and none below.
     let registerGroup
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
@@ -1262,9 +1051,7 @@ module NameResolutionMemberRegistration =
         (defs: ImmutableArray<TypeDefn<SyntaxToken>>)
         : unit =
         let claims = ResizeArray<ClaimedTypeDefn>(defs.Length)
-        // One offset for the whole group — what recurses mutually shares one
-        // visibility, so an `and`-sibling cannot be visible from a different place than
-        // the type it is joined to.
+        // One offset for the whole group: `and`-joined siblings share one visibility.
         let visibleFrom = typeGroupVisibleFrom recScopeOffset defs
 
         for td in defs do
@@ -1294,9 +1081,8 @@ module NameResolutionMemberRegistration =
         for td in defs do
             validateInterfaceTypeDefn ctx td
 
-        // Group close. Force every alias body — on demand expansion has already forced the
-        // ones something named, and `forceFill` is idempotent, so this reaches exactly the
-        // aliases nothing referenced (including a cyclic pair, which diagnoses here).
+        // Group close: force every alias body. `forceFill` is idempotent, so this reaches
+        // exactly the aliases nothing referenced (a cyclic pair among them diagnoses here).
         for claimed in claims do
             if claimed.Identity.Kind = TypeDeclKind.Abbreviation then
                 match TypeRegistry.tryAbbrevByKey ctx.Types claimed.Identity.Key with

@@ -3,48 +3,16 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// The UNPOOL direction of the frozen pools: columns back to the DU. Its inverse — the DU
-// vocabulary, the pooling walk and `toPools` — is `TastPools.fs`, and the wire-shape types
-// are `TastPoolNodes.fs` (one node) and `TastPoolTypes.fs` (the whole file). Split from the
-// fill so the two directions are separately readable and the compiler's dependency edge
-// says which way the data flows: this file reads `TastPools`, never the reverse.
-//
-// Every rebuild here is parameterised by the identity space it lands in, and the columns
-// hold no identity but the slot — so the space an unpool lands in is the CALLER's to supply
-// and the unpool itself can only produce `BinderId`s. `Pooled.*` is that space, and
-// `ofPools` is the unpool at it.
-//
-// Which exports have production callers, and for narrow reasons:
-//
-//   * `substituteExpr`/`substitutePat`/`substituteDecl` — the NODE-level inverse, driven
-//     by `TastPoolBuilder`'s subtree unpool (`declTree`) for the one channel whose far end
-//     is still DU-typed: a package's inline template crosses the wire as a
-//     `Pooled.TDecl`, a pool id being meaningless outside the pool that issued it.
-//
-// The whole-file unpool has NONE, and that is the point of it: it is what makes the
-// columns' tree-sufficiency CHECKABLE.
+// The UNPOOL direction of the frozen pools: columns back to the DU. Every rebuild here is
+// parameterised by the identity space it lands in — the columns hold no identity but the
+// slot, so the unpool itself can only produce `BinderId`s.
 
 [<RequireQualifiedAccess>]
 module TastUnpool =
 
-    /// Re-author one expression node from its columns — `ty`/`tok`, the `Var` reference
-    /// edge, the `ExprPayload` residual scalars/structure — and its ALREADY-REBUILT
-    /// child subtrees, with NO template node (the expr pool holds none). The children are
-    /// consumed in the exact order `TastPoolShapes.exprChildren`/`exprPatChildren` enumerated
-    /// them (`nextE`/`nextP` are order cursors) — the one coupling the round-trip gate
-    /// proves. The match on `ExprPayload` is exhaustive with no catch-all (the inverse of
-    /// `TastPoolShapes.exprPayload`), so a new shape fails to compile here.
-    ///
-    /// The identity the rebuilt DU names binders by is the CALLER's: `widenBinder` is
-    /// `id` for a tree that stays in the pool's own dense space (`Pooled.TExpr`) and the
-    /// column lookup for one that must speak the node space a source-shaped tree is
-    /// addressed in (`Frozen.TExpr`). ONE hook, so both the reference edge and the `ForTo`
-    /// binder land in the same space rather than each site picking its own way back.
-    ///
-    /// POSITIONS take no such hook, and must not: the anchors come out of the columns as they
-    /// went in, whichever space the rebuilt tree lands in. An unpool that could re-axis them would
-    /// be an unpool that could quietly rebase a producer's indices onto the consuming file — the
-    /// one misattribution that resolves in range and never faults.
+    /// Re-author one expression node from its columns and its ALREADY-REBUILT child
+    /// subtrees, drawn in the order the pooling walk enumerated them. `tok` goes back
+    /// unchanged — re-axising it would silently rebase a producer's indices onto this file.
     let substituteExpr
         (widenBinder: BinderId -> 'id)
         (ty: FrozenType)
@@ -54,20 +22,13 @@ module TastUnpool =
         (es: TExprG<FrozenType, Anchor, 'id>[])
         (ps: TPatG<FrozenType, Anchor, 'id>[])
         : TExprG<FrozenType, Anchor, 'id> =
-        // A decl's own leading children are all its own, so both cursors start at 0; the
-        // `Match`/`TryWith` arms below draw from `nextE` only after the node has taken its
-        // scrutinee / body from it.
         let nextE = ExprPayload.cursor es 0
         let nextP = ExprPayload.cursor ps 0
 
-        // The arm / format re-nesting is `ExprPayload.arms` / `ExprPayload.format` — the
-        // one walk over the flat child columns, shared with the accessor's views, so the
-        // two directions cannot disagree about the order the columns are consumed in.
         let buildArms (guardPresent: bool[]) =
             ExprPayload.arms guardPresent nextP nextE |> EqArray.ofArray
 
         match payload with
-        // `binding` is supplied from the dense id, so the round-trip exercises the remap.
         | ExprPayload.Var ->
             match varBinder with
             | ValueSome id -> TExprG.Var(widenBinder id, ty, tok)
@@ -156,8 +117,7 @@ module TastUnpool =
             TExprG.FieldSet(receiver, fieldName, value, ty, tok)
         | ExprPayload.UnionCons caseName -> TExprG.UnionCons(caseName, EqArray.ofArray es, ty, tok)
         | ExprPayload.New p -> TExprG.New(p.ClassName, p.Key, EqArray.ofArray es, ty, tok)
-        // Wholly POSITIONAL, not a cursor draw: the children are the receiver followed by
-        // exactly the args, so the split is the same index either way.
+        // Positional, not a cursor draw: the children are the receiver then exactly the args.
         | ExprPayload.MethodCall p -> TExprG.MethodCall(es.[0], p.Key, p.Via, EqArray.ofArray es.[1..], ty, tok)
         | ExprPayload.PropertyGet p ->
             let receiver = nextE ()
@@ -195,9 +155,6 @@ module TastUnpool =
             TExprG.TypeTest(source, testTy, ty, tok)
         | ExprPayload.TraitCall p -> TExprG.TraitCall(p.Receiver, p.MemberName, EqArray.ofArray es, ty, tok)
 
-    /// Re-author one pattern node from its own payload + rebuilt sub-patterns — see
-    /// `substituteExpr`, `widenBinder` included; exhaustive against `TastPoolShapes.patPayload`
-    /// the same way.
     let substitutePat
         (widenBinder: BinderId -> 'id)
         (ty: FrozenType)
@@ -206,8 +163,6 @@ module TastUnpool =
         (ps: TPatG<FrozenType, Anchor, 'id>[])
         : TPatG<FrozenType, Anchor, 'id> =
         match payload with
-        // The binder this pattern introduces, named in the caller's identity space — the
-        // pat analogue of `ForTo.var`.
         | PatPayload.NamedSimple binder -> TPatG.NamedSimple(widenBinder binder, ty, tok)
         | PatPayload.Wildcard -> TPatG.Wildcard(ty, tok)
         | PatPayload.Null -> TPatG.Null(ty, tok)
@@ -218,17 +173,16 @@ module TastUnpool =
         | PatPayload.Union caseName -> TPatG.Union(caseName, EqArray.ofArray ps, ty, tok)
         | PatPayload.TypeTestAs testTy -> TPatG.TypeTestAs(testTy, ps.[0], ty, tok)
         | PatPayload.Record fieldNames ->
-            // The field names pair off with the sub-pat children in the SAME order
-            // `patChildren` enumerated the record's fields.
+            // Field names pair off with the sub-pat children in the order the pooling walk
+            // enumerated the record's fields.
             let fields' =
                 Array.map2 (fun name sub -> (name, sub)) fieldNames ps |> EqArray.ofArray
 
             TPatG.Record(fields', ty, tok)
 
-    /// A `Type` decl's bodies AND its pattern-less binder slots are named by id INSIDE the
-    /// payload's declaration shape (not by the child columns), so this direction needs the
-    /// id→expr resolver and `widenBinder` too — the same `TastConvert.typeDecl` traversal,
-    /// run at the inverse body and identity mappings.
+    /// Re-author one declaration node. A `Type` decl's bodies AND its pattern-less binder
+    /// slots are named by id INSIDE the payload's declaration shape, not by the child
+    /// columns, so this direction needs the id→expr resolver too.
     let substituteDecl
         (widenBinder: BinderId -> 'id)
         (fromExpr: ExprPoolId -> TExprG<FrozenType, Anchor, 'id>)
@@ -251,16 +205,12 @@ module TastUnpool =
                     td
             )
 
-    /// A dense `BinderId`-keyed side table as the keyed `Map` it was re-keyed FROM, each
-    /// id resolved by the rebuild's own inverse of the interning: a `BinderKey` PROJECTED
-    /// from a rebuilt node, so a map key can only name a binder the rebuilt tree bears.
+    /// A dense `BinderId`-keyed side table as the keyed `Map` it was re-keyed FROM.
     let private binderKeyedMap (resolve: BinderId -> 'k) (dense: (BinderId * 'v)[]) : Map<'k, 'v> =
         dense |> Array.map (fun (id, v) -> resolve id, v) |> Map.ofArray
 
-    /// The same unpool for a per-binder COLUMN (`BinderColumn`): the key the fill consumed is
-    /// re-minted from the slot's own position, which is the only place it can come from now
-    /// — a filled slot is an entry, an empty one is no entry, and there is no third state a
-    /// stored key could have put the map in.
+    /// The same unpool for a per-binder COLUMN: the key is re-minted from the slot's own
+    /// position.
     let private binderColumnMap (resolve: BinderId -> 'k) (col: BinderColumn<'v>) : Map<'k, 'v> =
         Map.ofSeq
             [
@@ -270,25 +220,13 @@ module TastUnpool =
                     | ValueNone -> ()
             ]
 
-    /// Rebuild the whole-file DU from the pools — the inverse of `toPools`. The `Decls` are
-    /// re-authored from the pool roots and the side tables re-keyed back through the
-    /// binder/lambda id spaces; only the three `Residue` fields are carried through
-    /// verbatim, having no pooled form.
-    ///
-    /// `widenBinder` decides which identity space the rebuilt file lands in. The columns
-    /// carry no identity but the slot, so the unpool can only ever offer a `BinderId`: any
-    /// OTHER space has to be supplied from outside, by a caller that holds the
-    /// correspondence itself. `ofPools` is this at the pool's own space, where the
-    /// correspondence is the identity; the round-trip gate is the only other caller, and
-    /// what it supplies is a correspondence it derives — and proves bijective — by
-    /// correlating the rebuilt tree with the source tree it is being compared to.
+    /// Rebuild the whole-file DU from the pools: the `Decls` re-authored from the pool roots
+    /// and the side tables re-keyed back through the binder/lambda id spaces, the `Residue`
+    /// fields carried verbatim. `widenBinder` picks the identity space it all lands in.
     let rebuildFile (widenBinder: BinderId -> 'id) (pools: FrozenPools) : TastFileG<FrozenType, Anchor, 'id> =
-        // The binder column back in the BINDER key space, re-admitted by PROJECTION and
-        // never by fiat: as the trees below are rebuilt, each node is asked what it binds
-        // with the same `BinderKey` projections `toPools` interned by, and only what they
-        // answer can key a rebuilt side table. So the unpool cannot mint a binder identity
-        // the tree does not bear — the round trip proves the key remap, not just the
-        // shapes.
+        // The binder ids back in the BINDER key space by PROJECTION: as the trees below are
+        // rebuilt, each node is asked what it binds, and only what they answer can key a
+        // rebuilt side table — so no binder identity the tree does not bear can be minted.
         let readmitted = System.Collections.Generic.Dictionary<'id, BinderKeyG<'id>>()
 
         let readmit (b: BinderKeyG<'id>) : unit = readmitted.[BinderKey.identity b] <- b
@@ -300,9 +238,8 @@ module TastUnpool =
             | true, b -> b
             | false, _ -> failwithf "TastUnpool: binder %O (%O) is interned but no rebuilt node introduces it" id k
 
-        // The inverse of the lambda id space: a lambda's `ExprPoolId` back to the `LambdaKey`
-        // its verdict is filed under. The key IS the anchor, and the column holds the
-        // anchor, so there is nothing here to resolve.
+        // A lambda's `ExprPoolId` back to the `LambdaKey` its verdict is filed under: the
+        // key IS the anchor, which the column holds, so there is nothing to resolve.
         let lambdaKeyOf (ExprPoolId i) : LambdaKey = LambdaKey pools.ExprToks.[i]
 
         let rec fromPat (PatPoolId i) : TPatG<FrozenType, Anchor, 'id> =
@@ -345,8 +282,6 @@ module TastUnpool =
 
         let decls = pools.Roots |> Array.map fromDecl |> EqArray.ofArray
 
-        // The vocabulary rebuilds from its own roots — a distinct tree from the emitted
-        // function of the same name, never re-derived from it.
         let inlineBodies =
             pools.InlineTemplates
             |> Array.map (fun t ->
@@ -361,9 +296,9 @@ module TastUnpool =
             )
             |> EqArray.ofArray
 
-        // Likewise the specialization table, in SLOT ORDER — the `SpecializationId`s the
-        // rebuilt tree carries index this array, so the unpool must not reorder or compact
-        // it, even for an entry no surviving call site names.
+        // Likewise the specialization table, in SLOT ORDER: the `SpecializationId`s the
+        // rebuilt tree carries index this array, so it must not be reordered or compacted —
+        // not even for an entry no surviving call site names.
         let specializations =
             pools.Specializations
             |> Array.map (fun s ->
@@ -375,17 +310,8 @@ module TastUnpool =
             )
             |> EqArray.ofArray
 
-        // Reconstructing the side-table maps here (rather than retaining the source
-        // file's) is what makes the round-trip prove the key remap, not just the decl
-        // trees. The keyed binder tables go through the shared `binderKeyedMap` and the two
-        // per-binder COLUMNS through `binderColumnMap`, both resolving through the
-        // projections the rebuild collected; `FunVerdicts` is the one on the lambda id
-        // space, so it inverts through `lambdaKeyOf` right where it is built.
-        //
-        // That inverse FOLDS: several ids may carry one key (every copy of a spliced inline
-        // body's lambda keeps its definition-site token), and `toPools` gave each of them
-        // the same verdict, so collapsing them onto the one key restores the source map
-        // exactly rather than picking a winner.
+        // The lambda-keyed inverse FOLDS: every copy of a spliced inline body keeps one
+        // definition-site token, hence one verdict.
         {
             Decls = decls
             Diagnostics = pools.Residue.Diagnostics
@@ -398,22 +324,12 @@ module TastUnpool =
             InlineBodies = inlineBodies
             Specializations = specializations
             Accessibility = pools.Residue.Accessibility
-            // No `BindingValReprs`: the DU does not carry one. It is a PROJECTION of the
-            // lambda chain, so `toPools` re-derives it off the columns rather than the DU
-            // ferrying it across — which is also why the round trip does not have to
-            // reconstruct it to stay faithful.
+            // No `BindingValReprs`: the DU does not carry one — it is a PROJECTION of the
+            // lambda chain, re-derived off the columns on the way back in.
             BindingTyparArities = binderColumnMap readmittedBinder pools.BindingTyparArities
         }
 
-    /// The whole-file unpool, in the pool's OWN identity space: every binder the rebuilt
-    /// tree names, it names by the `BinderId` the columns address it with, so the unpool
-    /// consults no retained key to speak at all.
-    ///
-    /// It has NO production caller: the freeze yields pools, every consumer reads pools,
-    /// and `FrozenCodec` stores pools. What it exists for is the OBLIGATION the pools owe
-    /// — that the columns are tree-sufficient. `ofPools (toPools f) = f` structurally,
-    /// over the whole corpus, is the proof that nothing of the tree was lost on the way
-    /// into the columns, and it is checkable only because the DU is still expressible.
-    /// (Corpus gates: `TastPoolsTests`, `Codegen.Clr.Tests/TestHelpers.fs`'s
-    /// `PoolRoundTripped` codegen-invariance.)
+    /// The whole-file unpool, in the pool's OWN identity space: a rebuilt binder is named
+    /// by the `BinderId` the columns address it with. Only the tests call it — structural
+    /// `ofPools (toPools f) = f` is what makes the columns' tree-sufficiency checkable.
     let ofPools (pools: FrozenPools) : Pooled.TastFile = rebuildFile id pools

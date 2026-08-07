@@ -14,22 +14,14 @@ open UnificationInferResolve
 open UnificationInferPat
 open UnificationInferOverload
 
-/// The annotation-derived forward-scheme pre-pass. `walkElems`
-/// types class member bodies before module-level `let`s, so a class member that
-/// forward-references a sibling-module function must see a *scheme* (not the
-/// function's monomorphic binding-site TyVar) for the argument-coercion upcast
-/// to fire. These helpers synthesise that scheme from the binding's annotations
-/// alone — they never call `infer`, so they live ahead of it in the pass order.
+/// The annotation-derived forward-scheme pre-pass: schemes for module-level functions
+/// synthesised from the binding's annotations alone, before any body is typed. Nothing here
+/// calls `infer`, so it lives ahead of it in the pass order.
 module internal UnificationInferForwardSchemes =
 
-    /// Seed a binding's explicit `<'a>` typar defns into the current `TyparScope`
-    /// as `CurrentLevel` `TypeVar`s, so later implicit `'a` mentions in the
-    /// binding's annotations / body share the same var. Reuses the member's
-    /// prototype typar from `BindingTyparSeed` when the name matches (B-12, so the
-    /// inferred signature shares roots with `TypeMemberInfo.SeedTypars`);
-    /// otherwise mints fresh. Does *not* translate constraints — that stays with
-    /// the body-typing caller (`inferBinding`); the annotation-only forward
-    /// pre-pass (`prebindModuleFunctionSchemes`) needs only the var bindings.
+    /// Seed a binding's explicit `<'a>` typar defns into the current `TyparScope` at
+    /// `CurrentLevel`, so later implicit `'a` mentions share the same var. Reuses the
+    /// member's prototype from `BindingTyparSeed` on a name match. Constraints are NOT seeded.
     let seedBindingTypars (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         match b.typarDefns with
         | ValueSome(TyparDefns(defns = ds)) ->
@@ -58,11 +50,9 @@ module internal UnificationInferForwardSchemes =
                 | Typar.Anon _ -> ()
         | ValueNone -> ()
 
-    /// The declared type annotation of a curried argument pattern, if it carries
-    /// one — peeling the `(…)`/`as` wrappers the parser leaves around
-    /// `(comparer: IComparer<'T>)`. A tuple/compound arg (no single annotation at
-    /// this level) returns `ValueNone`; `prebindModuleFunctionSchemes` then mints
-    /// a fresh quantified typar for that slot rather than a declared type.
+    /// The declared type annotation of a curried argument pattern, peeling the `( … )` /
+    /// `as` / attribute wrappers the parser leaves around `(x: int)`. A tuple or otherwise
+    /// compound arg carries no single annotation at this level and returns `ValueNone`.
     let rec private tryArgAnnotation (p: Pat<SyntaxToken>) : Type<SyntaxToken> voption =
         match p with
         | Pat.Typed(typ = t) -> ValueSome t
@@ -71,21 +61,9 @@ module internal UnificationInferForwardSchemes =
         | Pat.Attributed(pat = inner) -> tryArgAnnotation inner
         | _ -> ValueNone
 
-    /// Forward-reference pre-pass. `walkElems` types class member
-    /// bodies (`fillClassMembers`) *before* it walks module-level `let`s, so a
-    /// class member that calls a sibling-module function (`SetTree.add`) sees no
-    /// scheme yet — `instantiateBinding` falls back to the function's monomorphic
-    /// binding-site TyVar, and a subtype argument (`Comparer<'T>` flowing into the
-    /// `comparer: IComparer<'T>` param) pins that shared TyVar to the subtype,
-    /// which then clashes with the function's own `IComparer` annotation once its
-    /// body is finally typed. Pre-seeding an annotation-derived scheme for each
-    /// generalisable module function makes the forward reference instantiate
-    /// fresh, so the argument-coercion site (`unifyArg`) inserts the upcast just
-    /// as it would for an already-generalised callee. Unannotated arg/return slots
-    /// get a fresh quantified typar — no worse than the binding's own pre-body
-    /// state. The real scheme replaces this one when `inferBindingGroup` walks the
-    /// binding (it first clears any forward scheme so its body still types with
-    /// monomorphic self/sibling references — no polymorphic recursion).
+    /// Pre-seed an annotation-derived scheme for each generalisable module function, so a
+    /// class member forward-referencing one instantiates fresh rather than pinning the
+    /// function's binding-site TyVar. Unannotated arg / return slots get a fresh typar.
     let prebindModuleFunctionSchemes (ctx: PassContext) (bindings: ImmutableArray<Binding<SyntaxToken>>) : unit =
         for b in bindings do
             if shouldGeneralise b && not b.argumentPats.IsEmpty then
@@ -99,8 +77,6 @@ module internal UnificationInferForwardSchemes =
                     let outerLevel = ctx.CurrentLevel
 
                     try
-                        // Seed explicit `<'a>` typars first so later implicit `'a`
-                        // mentions in the annotations share the same TyVar.
                         seedBindingTypars ctx b
 
                         enterLevel ctx

@@ -7,27 +7,17 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 
-// Argument-peeling and small literal helpers for the Elaborate pass. The `peel*`
-// helpers take the recursive `translateExpr` as a parameter (dependency
-// injection), so they live ahead of it; `ElaborateExpr` opens this module.
+// Argument-peeling and small literal helpers for the Elaborate pass.
 
 module internal ElaborateExprArgs =
 
-    /// The recursive `ElaborateExpr.translateExpr` entry point. The sibling `Elaborate/`
-    /// modules compile ahead of the knot, so any helper that must recurse into
-    /// expression translation takes it as its first parameter (the same dependency
-    /// injection the `peel*` helpers below use); `ElaborateExpr` ties the knot at
-    /// each dispatch site.
+    /// The recursive expression translator, passed in: the `Elaborate/` helper modules
+    /// compile ahead of it, so a helper that must recurse takes it as a parameter.
     type TranslateExpr = PassContext -> Expr<SyntaxToken> -> TExpr
 
-    /// Round-paren `( … )` or `begin … end` — the only enclosures that *group a
-    /// value expression* and so collapse into a call's argument list. A `[ … ]`
-    /// / `[| … |]` / `{ … }` / `{| … |}` enclosure is a *literal value* (list,
-    /// array, record, anon-record) — a single argument — and must translate
-    /// whole, never unwrap to its inner element sequence. (Unwrapping a list
-    /// literal's inner `Sequential` was the PP7a gap #3: `LCat [ a; b ]` lowered
-    /// the cons-list to empty because its `[ … ]` matched the bare
-    /// `EnclosedBlock` arm.)
+    /// Round-paren `( … )` or `begin … end` — the only enclosures that GROUP a value
+    /// expression and so collapse into a call's argument list. `[ … ]` / `[| … |]` /
+    /// `{ … }` / `{| … |}` are literal values: one argument each, translated whole.
     let private (|ValueParen|_|) (lParen: ParenKind<SyntaxToken>) =
         match lParen with
         | ParenKind.Paren _

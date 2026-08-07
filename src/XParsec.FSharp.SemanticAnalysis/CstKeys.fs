@@ -2,8 +2,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Parser
 
-// NodeKey is (firstToken.StartIndex, kind). Shapes outside the handled subset fall
-// through to `failwith` — extend the match arms as new node kinds need keying.
+// A node wrapping an inner expr keys off its OWN operator/bracket token, so nesting the
+// same kind (`x :> A :> B`, `o?a?b`, `f.Invoke(a).Invoke(b)`) cannot collide on one key.
 
 module CstKeys =
 
@@ -50,9 +50,6 @@ module CstKeys =
         | Expr.LongIdentOrOp lio -> firstTokenOfLongIdentOrOp lio
         | Expr.App(funcExpr, _) -> firstTokenOfExpr funcExpr
         | Expr.HighPrecedenceApp(funcExpr = funcExpr) -> firstTokenOfExpr funcExpr
-        // Use the operator token (not the left expr) so nested same-kind
-        // InfixApps in left-assoc chains and operator-precedence stacks
-        // don't collide on NodeKey.
         | Expr.InfixApp(_, op, _) -> op
         | Expr.PrefixApp(op, _) -> op
         | Expr.Range(fromExpr = fromE) -> firstTokenOfExpr fromE
@@ -66,8 +63,6 @@ module CstKeys =
         | Expr.Tuple(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
         | Expr.Sequential(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
         | Expr.TypeAnnotation(expr = inner) -> firstTokenOfExpr inner
-        // The cast operator token, so chained casts (`x :> A :> B`) don't collide
-        // with each other or the inner expr (the `InfixApp` operator-token rule).
         | Expr.StaticUpcast(colonGreaterThan = t) -> t
         | Expr.DynamicTypeTest(colonQuestionMark = t) -> t
         | Expr.DynamicDowncast(colonQuestionMarkGreaterThan = t) -> t
@@ -88,25 +83,14 @@ module CstKeys =
             | StringKind.VerbatimInterpolatedString t
             | StringKind.Interpolated3String t -> t
         | Expr.DotLookup(expr = inner) -> firstTokenOfExpr inner
-        // The `?` operator token, so a chain `o?a?b` keys each node distinctly and
-        // never collides with the receiver (the `InfixApp` operator-token rule).
         | Expr.DynamicLookup(questionMark = t) -> t
-        // A generic-type / generic-value application's first token is the applied
-        // expr's (`EqualityComparer` in `EqualityComparer<int>`). Reached when an
-        // enclosing node (a static-member `DotLookup`) keys off its first token.
         | Expr.TypeApp(expr = inner) -> firstTokenOfExpr inner
         | Expr.Record(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.RecordClone(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.New(newToken = t) -> t
         | Expr.ILIntrinsic(lHashParen = t) -> t
-        // The first clause's `when` token, so the construct never collides with the
-        // default expr it wraps (the `InfixApp` operator-token rule).
         | Expr.LibraryOnlyStaticOptimization(clauses = clauses) when clauses.Length > 0 -> clauses.[0].WhenToken
-        // The `[` token, so a lookup never collides with its receiver (the
-        // `InfixApp` operator-token rule).
         | Expr.IndexedLookup(lBracket = t) -> t
-        // The invocation's opening `(` — unique to this node, so it never collides
-        // with the inner argument expression.
         | Expr.StaticMemberInvocation(lParen = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
@@ -125,19 +109,12 @@ module CstKeys =
         | Pat.Or(left = inner) -> firstTokenOfPat inner
         | Pat.Record(lBrace = t) -> t
         | Pat.Op io -> firstTokenOfIdentOrOp io
-        // The `::` token (the `InfixApp` operator-token rule).
         | Pat.Cons(consToken = t) -> t
-        // The `:?` token, not the inner binder, so the test node never collides with
-        // its inner sub-pattern (the operator-token rule). `TypeTest` is the bare
-        // `:? T` with no binder.
         | Pat.TypeTestAs(colonQuestion = t) -> t
         | Pat.TypeTest(colonQuestion = t) -> t
         | Pat.Null t -> t
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
-    /// The leftmost token a `TypeName` retains: its first attribute set's `[<`, else the
-    /// declared name (access modifier and prefix typars sit between the two, so the name
-    /// is a safe floor — no reference can be WRITTEN in either).
     let private firstTokenOfTypeName (tn: TypeName<SyntaxToken>) : SyntaxToken voption =
         let (TypeName(attributes = attrs; ident = li)) = tn
 
@@ -151,13 +128,9 @@ module CstKeys =
             else
                 ValueNone
 
-    /// The leftmost token the CST retains for a type definition. The `type` / `and`
-    /// keyword introducing it is consumed by the parser and NOT kept, so this is as far
-    /// left as a declaration can be anchored — but it still lies strictly between that
-    /// keyword and everything the declaration writes, and nothing can be written between
-    /// the keyword and the type's attributes/name. That is exactly the precision the
-    /// file-order visibility rule needs: a use above the `type` keyword is below this
-    /// offset, and everything the declaration contains is above it.
+    /// The leftmost token the CST retains for a type definition — its attributes' `[<`,
+    /// else the declared name. The `type` / `and` keyword itself is not kept, but nothing
+    /// can be written between it and this token, so file-order visibility is exact here.
     let tryFirstTokenOfTypeDefn (td: TypeDefn<SyntaxToken>) : SyntaxToken voption =
         match td with
         | TypeDefn.Abbrev(typeName = tn)
@@ -178,21 +151,9 @@ module CstKeys =
             else
                 ValueNone
 
-    /// The token a node's key is PROJECTED FROM — which is therefore where a diagnostic
-    /// about the node points. NOT `firstTokenOfExpr`, and the difference is load-bearing:
-    ///
-    /// A dotted member access keys off its *member-name* token, not the receiver's first
-    /// token. Chained accesses on a complex receiver (`T<x>.A.B`) are nested `DotLookup`s
-    /// that all share the receiver's first token, so keying off `firstTokenOfExpr` would
-    /// collide them onto one `NodeKey`. (A simple-head chain `r.A.B` is a single
-    /// multi-segment LongIdent, not nested DotLookups, so it never reaches here.)
-    ///
-    /// A method-call application `recv.M(args)` whose head is a `DotLookup` keys off the
-    /// same member token, for the same reason: a chained receiver `f.Invoke(a).Invoke(b)`
-    /// (a call on the result of a call) would otherwise collide — the outer `App` and the
-    /// inner `App` both keying off the leftmost `f`, so one application's inferred result
-    /// overwrites the other's on one shared key. The member token is unique per call level.
-    /// The `DotLookup` head itself stays distinct from the application by KIND.
+    /// The token a node's key is projected from, and so where its diagnostic points. A
+    /// dotted access and a call on one take the MEMBER-NAME token: `T<x>.A.B` and
+    /// `f.Invoke(a).Invoke(b)` nest, and every level shares the leftmost token.
     let diagTokenOfExpr (e: Expr<SyntaxToken>) : SyntaxToken =
         match e with
         | Expr.DotLookup(longIdentOrOp = lio)
@@ -242,9 +203,6 @@ module CstKeys =
         | Expr.StaticMemberInvocation _ -> NodeKind.ExprStaticMemberInvocation
         | _ -> NodeKind.Unknown
 
-    /// A node's identity paired with the token it is projected from. THE way a pass names
-    /// "this expression" once: `Key` files a side table, `Tok` places a diagnostic, and the
-    /// two are one construction so they cannot come apart.
     let siteOfExpr (e: Expr<SyntaxToken>) : NodeSite =
         NodeSite.ofToken (kindOfExpr e) (diagTokenOfExpr e)
 
@@ -276,32 +234,21 @@ module CstKeys =
 
     let ofPat (p: Pat<SyntaxToken>) : NodeKey = (siteOfPat p).Key
 
-    /// A written external *type head* decomposed ONCE: its site (anchor key + the head
-    /// token that spells it), the head long-ident, and its syntactic type-arg arity. Both
-    /// sides of the resolve-once boundary go through `ofTypeHead` — NameResolution stamps
-    /// `ResolvedTypeHead` on `Site.Key`, `Translate` reads that same key — so the write and
-    /// read keys agree by construction rather than by two hand-spelled
-    /// `NodeKey.ofToken … TypeNamed` derivations kept in sync by comment.
+    /// The written head of a type reference: `List` in `List<int>`, `int` in `int list`.
     [<NoEquality; NoComparison>]
     type TypeHead =
         {
-            /// Anchored on the head's first ident token (`li.Idents.[0]`), kinded
-            /// `TypeNamed` for a bare/dotted name or `TypeGeneric` for an applied one.
+            /// Anchored on the head's first ident token, kinded `TypeNamed` for a
+            /// bare/dotted name or `TypeGeneric` for an applied one.
             Site: NodeSite
-            /// The head's long-ident — its segments name the type, its first token is
-            /// the anchor.
             LongIdent: LongIdent<SyntaxToken>
-            /// Syntactic type-arg count, the arity both sides resolve at: `NamedType`
-            /// ⇒ 0, `GenericType` ⇒ arg count, `SuffixedType` ⇒ 1 (postfix `'T list`).
+            /// Syntactic type-arg count: `NamedType` ⇒ 0, `GenericType` ⇒ arg count,
+            /// `SuffixedType` ⇒ 1 (postfix `'T list`).
             TyparArity: int
         }
 
-    /// Decompose a `Type` node's *head*, when it has one. Only the three head-bearing
-    /// shapes resolve to an external type: `NamedType` (a bare/dotted name), and
-    /// `GenericType` / `SuffixedType` (a name applied to type args — `List<int>` /
-    /// `int list`). Every non-head shape (`FunctionType`, `TupleType`, `VarType`, …)
-    /// resolves structurally in `translateType` and never reaches the resolver, so it
-    /// has no head — `ValueNone`.
+    /// Only `NamedType`, `GenericType` and `SuffixedType` name a type; the structural
+    /// shapes (`FunctionType`, `TupleType`, `VarType`, …) have no head — `ValueNone`.
     let ofTypeHead (ty: Type<SyntaxToken>) : TypeHead voption =
         match ty with
         | Type.NamedType li ->
@@ -327,23 +274,18 @@ module CstKeys =
                 }
         | _ -> ValueNone
 
-    /// The head SITE of a type that syntactically HAS a head — the total
-    /// projection of `ofTypeHead` for a call site already inside a
-    /// `NamedType`/`GenericType`/`SuffixedType` match arm, so the guarantee is
-    /// local to the arm rather than a bare `.Value` whose crash would point
-    /// nowhere. A headless shape here is an invariant break: fail with the shape.
+    /// `ofTypeHead` for a caller already inside a head-bearing arm, so the `ValueSome`
+    /// is local to the arm; a headless shape here fails with the offending shape.
     let typeHeadSite (ty: Type<SyntaxToken>) : NodeSite =
         match ofTypeHead ty with
         | ValueSome head -> head.Site
         | ValueNone -> failwithf "CstKeys.typeHeadSite: type node carries no resolvable head: %A" ty
 
-    /// A binding's site is its headPat's — that's the pattern that introduced the
-    /// name(s) being bound.
     let siteOfBinding (b: Binding<SyntaxToken>) : NodeSite = siteOfPat b.headPat
 
     let ofBinding (b: Binding<SyntaxToken>) : NodeKey = (siteOfBinding b).Key
 
-    /// The loop variable of a `for i = …` introduces a binding whose site has
-    /// no Pat wrapper in the CST — key on the ident token directly.
+    /// A `for i = …` loop variable binds with no Pat wrapper in the CST, so its site
+    /// is keyed on the ident token directly.
     let ofForToVar (ident: SyntaxToken) : NodeKey =
         NodeKey.ofToken ident NodeKind.PatForToVar

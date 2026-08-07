@@ -20,19 +20,14 @@ open UnificationInferRecordAccess
 
 module internal UnificationInferExternalCall =
 
-    /// The set of string literals a realised keyof-bounded method typar admits (its
-    /// `keyof`-fold), or `ValueNone` when the bound isn't a ground literal (union).
+    /// `ValueNone` when the bound doesn't evaluate to a ground union of string literals.
     let private boundLiteralStrings (ctx: PassContext) (bound: SemType) : Set<string> voption =
         match tryLiteralStrings ctx.Store (evalTypeLevel ctx bound) with
         | ValueSome strings -> ValueSome(Set.ofList strings)
         | ValueNone -> ValueNone
 
     /// Per-tuple-position syntactic string constants of an external call's argument
-    /// expression (`ValueSome s` where the position is a plain string literal, else
-    /// `ValueNone`), aligned to tuple positions. Computed ONCE per external call
-    /// (`constArgFacts`) and threaded to both the pick refinement
-    /// (`admitLiteralMethodTypars`) and the commit seed (`methodTyparConstantSeed`) so
-    /// the two seams cannot derive divergent constant facts through `constStringArg`.
+    /// expression: `ValueSome s` where that position is a plain string literal.
     type private ConstArgFacts = string voption[]
 
     let private constArgFacts (ctx: PassContext) (argExpr: Expr<SyntaxToken>) : ConstArgFacts =
@@ -40,17 +35,9 @@ module internal UnificationInferExternalCall =
         | Expr.Tuple(exprs = xs) -> xs |> Seq.map (constStringArg ctx) |> Seq.toArray
         | single -> [| constStringArg ctx single |]
 
-    /// R4a step 3 item 2 — DIRECTIONAL constant admission of a syntactic string constant
-    /// into a keyof-bounded METHOD TYPAR at an external instance-method call. Refines
-    /// `argTy` so a tuple position whose argument is a plain string literal AND whose
-    /// parameter (in SOME candidate overload) is a method typar `<Key extends keyof T>`
-    /// with `T` ground and the constant among `keyof T` becomes `TyLiteral`. The literal
-    /// then (a) selects the typar overload over a rival literal-`'*'` overload and (b)
-    /// solves the freshened `Key` var at the `commitExternalOverload` seam, which grounds
-    /// the `Events[Key]` handler/payload folds. Nominalism invariant: the literal enters
-    /// via the external typar; the Vesper `"ping"` expression still types as `string`.
-    /// Returns `argTy` unchanged when no position qualifies (a non-constant / non-key
-    /// argument falls back to the documented precision limit).
+    /// Refine a tuple position of `argTy` to `TyLiteral` when its argument is a plain string
+    /// literal and SOME candidate's parameter there is a method typar `<K extends keyof T>`
+    /// whose `keyof T` admits the constant. `argTy` unchanged when no position qualifies.
     let private admitLiteralMethodTypars
         (ctx: PassContext)
         (candidates: ExternalMember[])
@@ -95,8 +82,7 @@ module internal UnificationInferExternalCall =
             elif refined.Length = 1 then refined.[0]
             else TyTuple(EqArray.ofSeq refined)
 
-    /// Method typars of `chosen` referenced in `t` (any structural depth) — the axis a
-    /// carried node's grounding must seed.
+    /// At any structural depth of `t`, not just its head.
     let private referencedMethodTypars (store: TypeStore) (t: SemType) : Set<int> =
         let mutable acc = Set.empty
 
@@ -108,13 +94,9 @@ module internal UnificationInferExternalCall =
         walk t
         acc
 
-    /// Pre-bind a method typar to a `TyLiteral` when a syntactic string constant grounds it
-    /// but the typar appears ONLY inside a non-bare parameter position (mitt's no-payload
-    /// `emit(type: undefined extends Events[Key] ? Key : never)` — `Key` is never a bare
-    /// param, so plain unification cannot solve it from the constant; seeding it lets the
-    /// conditional fold). A typar at a BARE position is left unseeded (unification solves it
-    /// there, keeping the keyed `emit`/`on`/`off` path byte-identical). R4a step 3, the
-    /// conditional-overload extension of `admitLiteralMethodTypars`.
+    /// Pre-bind a method typar to a `TyLiteral` from a syntactic string constant when the
+    /// typar occurs ONLY inside a conditional parameter type (`k: undefined extends E[K] ? K
+    /// : never`), where unification can't solve it. A bare parameter position is left unseeded.
     let private methodTyparConstantSeed
         (ctx: PassContext)
         (chosen: ExternalMember)
@@ -153,19 +135,9 @@ module internal UnificationInferExternalCall =
 
             [ for kv in seed -> kv.Key, kv.Value ]
 
-    /// The receiver type + member name of an instance-call head, or `ValueNone` for a shape
-    /// that isn't one. The SINGLE owner of "which `fn` shapes are instance calls" — both the
-    /// external and project-local instance probes route their `fn` dispatch through it, so the
-    /// head grammar (and the folded-LongIdent local-binding guard) lives in one place. The
-    /// receiver is inferred only on a matching arm, so the decline path pays nothing.
-    ///
-    /// Folded-LongIdent value receiver: `w.Write(arg)` parses with `fn = LongIdent [w; Write]`
-    /// — the parser folds the dot into the long ident when the head is a plain identifier, so
-    /// it never reaches the `DotLookup` arm and falls to the single-pick field walk (which
-    /// grabs an arbitrary, here the widest, overload). The head must be a *local binding* (a
-    /// value); a type-qualified head (`TextWriter.Synchronized`) is the static probe's job and
-    /// is excluded by the binding guard. The receiver is the chain minus its last segment; the
-    /// member is the last segment.
+    /// The receiver type + member name of an instance-call head. `w.Write(arg)` parses with
+    /// `fn = LongIdent [w; Write]` (the parser folds the dot after a plain identifier), so the
+    /// head must be a local BINDING — `TextWriter.Synchronized` is the static probe's job.
     let private receiverMemberOf
         (infer: Infer)
         (ctx: PassContext)
@@ -182,12 +154,8 @@ module internal UnificationInferExternalCall =
             ValueSome(struct (recvTy, ctx.NameOf li.Idents.[li.Idents.Length - 1]))
         | _ -> ValueNone
 
-    /// Commit an applied `arg -> result` shape against a resolved member signature: coerce
-    /// each argument position via `unifyArg`/`tryCoerceUpcast` — the richer coercion the
-    /// picker's subsumption tier admits (a superset of `unifyArgCoerce`'s obj/union
-    /// absorption, so the commit accepts exactly what filtering did, base/interface arguments
-    /// included) — and unify the residual result exactly. The one overload-commit argument walk,
-    /// shared by the external and project-local overload paths so they cannot drift.
+    /// Commit an applied `arg -> result` chain against a resolved member signature: each
+    /// argument position coerces via `unifyArg`, the residual result unifies exactly.
     let rec private commitAppliedCoerce
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -200,16 +168,9 @@ module internal UnificationInferExternalCall =
             commitAppliedCoerce ctx tok ar er
         | a, b -> unify ctx tok a b
 
-    /// Commit a call-site-resolved external overload (static or instance): record
-    /// the chosen `SymbolKey` to `ExternalAccess` keyed on the member node where
-    /// Elaborate reads it, freshen the member's method-owned typars (`Take<TSource>`)
-    /// via `ExternalSymbols.instantiateSignature` so the argument types drive their
-    /// solution (a non-generic overload is unchanged), unify the signature against
-    /// `argTy -> result`, and return the result type. Shared by the static and
-    /// instance probes so the two cannot drift; `chosen.IsStatic` is authoritative
-    /// for both (the instance probe pre-filters to non-static candidates). `facts`
-    /// supplies the per-position syntactic constants that seed a conditional-only
-    /// method typar (`methodTyparConstantSeed`).
+    /// Commit a call-site-resolved external overload (static or instance): record the chosen
+    /// `SymbolKey` in `ExternalAccess` keyed on the member node, freshen the member's
+    /// method-owned typars (`Take<TSource>`), then unify the signature against `argTy -> result`.
     let rec commitExternalOverload
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -243,20 +204,14 @@ module internal UnificationInferExternalCall =
         ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome memberSig)
         let resultTy = TyVar(freshTyVar ctx)
 
-        // The applied `arg -> result` chain coerces against the member signature: an `obj`
-        // parameter absorbs a typar / value-type argument via the implicit box without
-        // grounding the typar, and a base / interface parameter accepts the concrete subtype
-        // argument the subsumption tier admitted (`CultureInfo` into an `IFormatProvider`
-        // slot), its witnessed type args unified.
+        // An `obj` parameter absorbs a typar / value-type argument via the implicit box
+        // without grounding the typar; a base / interface parameter accepts the concrete
+        // subtype (`CultureInfo` into an `IFormatProvider` slot).
         commitAppliedCoerce ctx tok (TyFun(argTy, resultTy)) memberSig
         resultTy
 
     /// Application-site overload resolution for a static external method call
-    /// (`String.Concat("a", "b")`). Fires only when the member name has >1 mapped
-    /// overload — single-candidate access keeps the existing single-pick path, so
-    /// behaviour is unchanged everywhere it already worked. The commit (access
-    /// record + method-typar freshening + unification) is shared with the instance
-    /// probe via `commitExternalOverload`.
+    /// (`String.Concat("a", "b")`). Declines unless the name has >1 mapped overload.
     and tryInferExternalStaticMethodCall
         (infer: Infer)
         (ctx: PassContext)
@@ -279,14 +234,8 @@ module internal UnificationInferExternalCall =
                 ValueNone
             else
                 let argTy = infer ctx argExpr
-                // The static probe seeds conditional-only method typars at commit but,
-                // unlike the instance probe, does NOT pre-refine literals before the
-                // pick: a folded type-qualified LongIdent names a non-generic type
-                // (`declArgs = [||]`), so no candidate parameter is a keyof-bounded
-                // method typar `<Key extends keyof T>` — the exact shape
-                // `admitLiteralMethodTypars` selects on. The keyof-bounded-typar
-                // selection the instance `on`/`off`/`emit` path needs cannot arise
-                // here, so refinement is deliberately scoped out (commit-seed only).
+                // With no declaring type arguments no candidate parameter can be a
+                // keyof-bounded method typar, so the constants seed the commit only.
                 let facts = constArgFacts ctx argExpr
 
                 match pickBestOverload ctx typeArgs candidates (argElemsOf ctx.Store argTy) with
@@ -304,23 +253,9 @@ module internal UnificationInferExternalCall =
                             ))
                     )
 
-    /// Call-site overload resolution for an external *instance* method call
-    /// (`sb.Append("x")`, `recv.M(args)`). The instance sibling of
-    /// `tryInferExternalStaticMethodCall`: where the static probe keys off a folded
-    /// type-qualified LongIdent, this one keys off a single-ident `DotLookup` whose
-    /// receiver `infer`s to a *ground external* `TyClass`. Fires only when the member
-    /// name has >1 instance overload — otherwise the single-pick `resolveFieldStep`
-    /// path (reached via the generic fallback's `infer ctx fn`) is already correct,
-    /// so this declines and behaviour is unchanged. The reason it must exist:
-    /// `resolveFieldStep` resolves `.Member` through `TryLookupMember` (singular),
-    /// which grabs an *arbitrary* overload without consulting the argument types —
-    /// harmless while the receiver is a deferred TyVar (the dot-access parks and the
-    /// chain stays generic), but once Gap A grounds the receiver eagerly that picks
-    /// e.g. `Append(char[], int, int)` for a single `string` arg
-    /// (`string vs TyTuple`). Resolving by the call-site argument types here makes
-    /// the grounded pick match the overload a correct call intends.
-    /// Declines (so the old path runs) on any shape it can't confidently resolve,
-    /// so it never *introduces* an error.
+    /// Call-site overload resolution for an external *instance* method call (`sb.Append("x")`),
+    /// keyed off a head whose receiver infers to a ground external `TyClass`. Needed because
+    /// the single-pick path takes an arbitrary overload — `Append(char[], int, int)` for one `string`.
     and tryInferExternalInstanceMethodCall
         (infer: Infer)
         (ctx: PassContext)
@@ -328,22 +263,11 @@ module internal UnificationInferExternalCall =
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
-        // Given the receiver's inferred type + the member name, resolve the call
-        // against *all* instance overloads by the argument types. Declines (so the
-        // single-pick path runs unchanged) on a non-external receiver, a 0/1-overload
-        // member, or when no unique best matches — so it only ever *improves* a
-        // confident pick. Shared by the `DotLookup` and folded-`LongIdent` heads.
+        // Declines on a non-external receiver, a 0/1-overload member, or no unique best.
         let resolveOn (recvTy: SemType) (memberName: string) : SemType voption =
-            // TODO(perf): `infer` is not memoised, so on the *decline* path the
-            // receiver is inferred here and then again by the fallback's
-            // `infer ctx fn`. If a fluent chain shows it up, thread the receiver
-            // `SemType` out of the probe instead of re-inferring.
-            //
-            // Resolve the receiver to its external member surfaces — a
-            // non-project-local `TyClass`, or an intrinsic `TyConst`'s own contract
-            // surface then the BCL type its repr names (`externalReceiverKeys`). The
-            // first surface that publishes the name owns the overload set; a
-            // project-local class / array / byref declines and keeps its own path.
+            // TODO(perf): `infer` is not memoised, so on the *decline* path the receiver
+            // is inferred here and then again by the fallback's `infer ctx fn`. Thread the
+            // receiver `SemType` out of the probe if a fluent chain shows it up.
             let onSurface (struct (declKey, typeArgs)) =
                 match
                     ctx.Provider.TryLookupMembers(declKey, memberName)
@@ -360,42 +284,24 @@ module internal UnificationInferExternalCall =
                     ValueNone
                 else
                     let declArgs = EqArray.toArray typeArgs
-                    // Constant facts computed once, shared by the pick refinement and
-                    // the commit seed (so the two cannot derive divergent facts).
                     let facts = constArgFacts ctx argExpr
-                    // Refine a syntactic-string-constant position that lands on a keyof-
-                    // bounded method typar to a `TyLiteral` (R4a step 3 item 2) BEFORE the
-                    // pick, so the literal both selects the typar overload and solves the
-                    // freshened `Key` at commit.
+                    // Refine BEFORE the pick, so a string constant both selects the
+                    // keyof-bounded typar overload and solves its freshened typar at commit.
                     let argTy =
                         admitLiteralMethodTypars ctx candidates declArgs facts (infer ctx argExpr)
 
                     match pickBestOverload ctx declArgs candidates (argElemsOf ctx.Store argTy) with
                     | ValueSome chosen -> ValueSome(commitExternalOverload ctx tok fn chosen declArgs facts argTy)
-                    // No unique best on the argument types: decline rather than
-                    // error, so the existing single-pick path keeps the prior
-                    // behaviour (this probe only ever *improves* a confident pick).
+                    // No unique best: decline rather than error, leaving the single-pick path.
                     | ValueNone -> ValueNone
 
         match receiverMemberOf infer ctx fn with
         | ValueSome(struct (recvTy, memberName)) -> resolveOn recvTy memberName
         | ValueNone -> ValueNone
 
-    /// Call-site overload resolution for a project-LOCAL instance method call
-    /// (`p.Show(1)`, `r.M(a, b)`). The user-declared twin of
-    /// `tryInferExternalInstanceMethodCall`: where that probe keys off an external
-    /// receiver, this one fires when the receiver is a project-local class / union / record
-    /// whose member name has >1 instance candidate. It is the ONE place a user-member
-    /// overload set is arg-resolved — the dot-access member-TYPE sites have no arguments, so
-    /// they keep first-match (correct for the non-overloaded names those sites ever reach,
-    /// since this probe intercepts every overloaded call before them).
-    ///
-    /// On a unique winner it commits (unifies the applied arguments against the chosen
-    /// member's instantiated function type) AND records the chosen member's TOTAL frozen `MemberKey`
-    /// on the call node so Elaborate/Freeze resolves the identical overload by identity,
-    /// never a second name-based pick. `NoneApplicable` / `Ambiguous` raise the two distinct
-    /// call-site diagnostics; a non-overloaded name (`NotOverloaded`) declines so the
-    /// single-pick `resolveFieldStep` path runs unchanged.
+    /// Call-site overload resolution for a project-LOCAL instance method call (`p.Show(1)`),
+    /// when the receiver is a local class / union / record whose member name has >1 candidate.
+    /// A winner's frozen `SymbolKey` is recorded so Elaborate resolves it by identity.
     and tryInferLocalInstanceMethodCall
         (infer: Infer)
         (ctx: PassContext)
@@ -403,9 +309,7 @@ module internal UnificationInferExternalCall =
         (fn: Expr<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         : SemType voption =
-        // The receiver's declaring nominal, as `(declKey, typeParams, args, members)` — a
-        // project-local class / union / record. `ValueNone` for any other receiver (an
-        // external nominal, a typar, a primitive), which declines to the existing path.
+        // `ValueNone` for anything but a project-local class / union / record.
         let localHost
             (recvTy: SemType)
             : struct (TypeKey * EqArray<string * TyVarId> * EqArray<SemType> * TypeMemberInfo[]) voption =
@@ -424,8 +328,8 @@ module internal UnificationInferExternalCall =
                 | ValueNone -> ValueNone
             | _ -> ValueNone
 
-        // A short parameter-shape rendering for the ambiguity diagnostic — the nominal head
-        // simple name (`int`, `IA`), or `_` for a still-open position.
+        // A parameter-shape rendering for the ambiguity diagnostic: the nominal head's
+        // simple name (`int`), or `_` for a still-open position.
         let describeParams (ps: SemType list) : string =
             let one (t: SemType) =
                 let keyOpt =
@@ -483,17 +387,13 @@ module internal UnificationInferExternalCall =
                     )
                 | MemberPick.Resolved chosen ->
                     // Commit: unify the applied `argTy -> resultTy` against the chosen
-                    // member's instantiated function type (domains coerce, the residual
-                    // result unifies), exactly as the external overload commit does.
+                    // member's instantiated function type (domains coerce, the result unifies).
                     let memberFunTy =
                         instantiateMemberCall ctx (typeParams, args) chosen.EffectiveMethodTypars chosen.Type
 
                     let resultTy = TyVar(freshTyVar ctx)
                     commitAppliedCoerce ctx node.Tok (TyFun(argTy, resultTy)) memberFunTy
 
-                    // The inference→Freeze handshake: record the chosen overload's TOTAL
-                    // frozen `MemberKey` so Elaborate stamps the identical identity with no
-                    // second pick.
                     ctx.Resolution.LocalMemberCall.Set(
                         node.Key,
                         frozenUserMemberKey ctx.Store declKey typeParams chosen
@@ -505,19 +405,9 @@ module internal UnificationInferExternalCall =
         | ValueSome(struct (recvTy, memberName)) -> resolveOn recvTy memberName
         | ValueNone -> ValueNone
 
-    /// Permit an external method call that omits a suffix of the member's *trailing
-    /// optional* parameters (`ArrayPool<'T>.Return(arr)` for `Return(arr, [<Optional>]
-    /// clearArray = false)`). Runs as the last fallback in `inferApp` (after `fn` is
-    /// already inferred, so `resolveFieldStep` has recorded the member in
-    /// `ExternalAccess`): without it, the generic application loop would unify the
-    /// single supplied argument against the full tupled parameter domain and report a
-    /// spurious arity mismatch. When the supplied arity sits between the member's
-    /// required and full parameter counts, this unifies the supplied arguments against
-    /// only the *leading* parameters and records the omitted constant defaults in
-    /// `ExternalOptionalFill` for Elaborate to synthesise — leaving the head's own type
-    /// (and so the member-ref the backend recovers) at the full signature. Declines
-    /// (so the ordinary path runs, unchanged) on every other shape, so it can only
-    /// *admit* a call the old path rejected.
+    /// Permit an external method call that omits a suffix of the member's *trailing optional*
+    /// parameters (`ArrayPool<'T>.Return(arr)` for `Return(arr, [<Optional>] clearArray = false)`):
+    /// without it the application loop unifies one argument against the full tupled domain.
     and tryFillOptionalCall
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -532,9 +422,6 @@ module internal UnificationInferExternalCall =
         else
             let fnKey = CstKeys.ofExpr fn
 
-            // The member's optional defaults were carried forward onto the resolved
-            // record when `fn` was inferred (`ResolvedExternalMember.OptionalDefaults`),
-            // so there is no provider re-query here.
             match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
             | ValueSome info when not info.IsValueMember && not (List.isEmpty info.OptionalDefaults) ->
                 match info.Key with

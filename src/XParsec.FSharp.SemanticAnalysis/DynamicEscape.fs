@@ -2,21 +2,9 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// Pre:  Unification has settled the TypeVar graph (post-generalisation).
-// Post: ctx.Diagnostics carries a Warning per `recv?name` site whose `^TResult`
-//       escaped `dynamic` to a concrete type through context.
-//
-// `d?foo` target-types: an unconstrained context lets the `default ^TResult :
-// dynamic` fire (the result stays `dynamic`, chains stay dynamic), but a pinned
-// context (`d?foo + 1`, an `int` parameter position) unifies `^TResult` to the
-// concrete type BEFORE defaulting, so the default never fires. That is an
-// *unchecked assertion* — the compiler cannot verify `d.foo` really is that type —
-// and so warrants a warning, mirroring F#'s posture on implicit conversions.
-//
-// Suppressed by an explicit ascription directly on the `?` expression
-// (`(d?foo : int)`), recorded in `ctx.DynamicEscapeSuppressed` by
-// `inferTypeAnnotation`. `#nowarn`-number suppression is intentionally out of
-// scope (no warning-number infrastructure reaches the semantic diagnostics yet).
+// A pinned context (`d?foo + 1`, an `int` parameter position) unifies `^TResult` to the
+// concrete type BEFORE `default ^TResult : dynamic` can fire — an unchecked assertion that
+// `d.foo` really is that type, so each such site warns. Runs after generalisation.
 
 module DynamicEscape =
 
@@ -24,8 +12,7 @@ module DynamicEscape =
         for site in ctx.DynamicEscapes do
             if not (ctx.DynamicEscapeSuppressed.Contains site.Node.Key) then
                 match Unification.zonk ctx.Store (TyVar site.Root) with
-                // Default fired (stayed `dynamic`) or still open (a genuine leak is
-                // ResolvedTypes' concern) — no unchecked escape.
+                // Default fired (stayed `dynamic`) or still open — no unchecked escape.
                 | TyDynamic -> ()
                 | TyVar _ -> ()
                 | escaped ->

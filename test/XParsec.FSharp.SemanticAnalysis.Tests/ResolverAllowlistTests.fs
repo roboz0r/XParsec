@@ -33,10 +33,6 @@ let tests =
                             "Passes/NameResolution/Scope.fs"
                             // Registration-time external-type resolution.
                             "Passes/NameResolution/MemberRegistration.fs"
-                            // The sanctioned by-name hatch (the `float<m>` measure carrier —
-                            // the one head with no `Type` node to carry a stamp) and the
-                            // DEBUG-only stamping-gap witness.
-                            "Passes/Unification/Translate.fs"
                             // The record field-set reverse index (`TryRecordsWithField`): a
                             // bare `{ X = … }` literal has NO written record identity to
                             // resolve in NameResolution — the record is determined by the

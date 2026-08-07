@@ -3,45 +3,27 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.IO
 open XParsec.Toml
 
-/// Layer 1 of the symbol-resolution stack: a
-/// *referenced project*, declared by its `manifest.toml`. A package's `[core]`
-/// table lists its contract `.fsi` files in compile
-/// order; this module parses each into one accumulating `ExtractCtx` (reusing
-/// `VesperLib`'s extractor) and exposes the result as an `IExternalSymbolProvider`
-/// whose symbols carry the package's home assembly.
-///
-/// A manifest declares no namespace: a symbol's namespace is its FILE's `namespace`
-/// header, which the extractor already reads into every key it mints, and a package
-/// may declare as many as it has files (`Vesper.Core` declares three).
-///
-/// The `.fsi` is the *target-agnostic contract* (`type int = extern`); the
-/// matching `.fs` is the *per-target binding* (`type int = (# "System.Int32" #)`).
-/// Resolution needs only the `.fsi`; the absent `.fs` is a codegen-side concern
-/// not a resolution failure here.
+/// Layer 1 of the symbol-resolution stack: a *referenced project*, declared by its
+/// `manifest.toml`. Parses the `[core]` contract `.fsi` files, in compile order, into one
+/// `ExtractCtx` exposed as a provider. A symbol's namespace is its FILE's `namespace` header.
 module ReferencedProject =
 
     /// The `[core]` lists — what a package declares once for EVERY target. No `Runtime`
-    /// field: a runtime asset is a per-target artifact, and a record that cannot spell a
-    /// shared one says so better than a conventionally-empty field would.
+    /// field: a runtime asset is a per-target artifact.
     type SharedLists =
         {
             /// Target-neutral contract `.fsi` files in compile order (`[core] files`).
             Files: string list
             /// Target-neutral `.fs` bodies compiled into the package DLL, and the splice
-            /// sources those same bodies publish (`[core] impl`). ONE list: whether a
-            /// declaration is emitted or spliced is read off the declaration, never listed.
+            /// sources those same bodies publish (`[core] impl`).
             Impl: string list
-            /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`)
-            /// — a front-end intrinsic lowered inline (`printf.fsi`), an
-            /// FSharp.Core-interop type whose self-host is sequenced later
-            /// (`printf-format.fsi`), or a BCL-resolved contract (`exceptions.fsi`). The
-            /// conformance pass accepts a `SigOnly` `.fsi` listed here; one NOT listed is
-            /// the FS0240 analogue — a hard error.
+            /// Contract `.fsi` files that are DELIBERATELY impl-free (`[core] sig-only`) —
+            /// a front-end intrinsic lowered inline (`printf.fsi`) or a BCL-resolved
+            /// contract (`exceptions.fsi`). An impl-free `.fsi` NOT listed is a hard error.
             SigOnly: string list
-            /// `.fs` bodies that implement NO contract (`[core] impl-only`) — F# requires no
-            /// `.fsi`, and such a body publishes its whole public surface. Naming one here
-            /// keeps the pairing rule from marrying it to a `.fsi` of the same key it does
-            /// not implement; the mirror of `SigOnly`.
+            /// `.fs` bodies that implement NO contract (`[core] impl-only`), publishing their
+            /// whole public surface. Naming one here keeps the pairing rule from marrying it
+            /// to a `.fsi` of the same key.
             ImplOnly: string list
         }
 
@@ -54,9 +36,7 @@ module ReferencedProject =
                 ImplOnly = []
             }
 
-    /// One `[targets.<t>]` table. Every list here is APPENDED to its `SharedLists` peer —
-    /// uniformly, with no REPLACE anywhere, because no target overrides a base that was
-    /// secretly another target's.
+    /// One `[targets.<t>]` table. Every list here is APPENDED to its `SharedLists` peer.
     type TargetLists =
         {
             /// Target-only EXTRA contracts, after the shared ones (the JS capability
@@ -68,9 +48,8 @@ module ReferencedProject =
             SigOnly: string list
             /// Target-only contract-less bodies, after the shared ones.
             ImplOnly: string list
-            /// Hand-authored runtime *asset* modules — NOT `.fsi`/`.fs` sources the front
-            /// end parses, but platform-support artifacts (the JS `.mjs`) the backend
-            /// ships beside its output and resolves via `runtimeModules`.
+            /// Hand-authored runtime *asset* modules — not sources the front end parses, but
+            /// platform-support artifacts (the JS `.mjs`) the backend ships beside its output.
             Runtime: string list
         }
 
@@ -85,22 +64,18 @@ module ReferencedProject =
             }
 
     /// A parsed package `manifest.toml`: the `[core]` table's target-neutral lists plus
-    /// one `[targets.<t>]` table per target the package participates in. The CLR is an
-    /// ordinary key here, not an unnamed base.
+    /// one `[targets.<t>]` table per target the package participates in.
     type Manifest =
         {
             /// Package / assembly simple name — `[core] name` when present, else
             /// the manifest's directory name (`src/Vesper.Core` ⇒ `"Vesper.Core"`).
-            /// `Vesper.Core`/`Vesper.Printf` omit `name`; the dir name is the
-            /// package identity in both cases.
             Name: string
             /// Other packages this one depends on (`[core] depends-on`) — the
             /// package names whose DLLs/contracts must be built/referenced first.
-            /// Drives the package-build harness's recursive dependency resolution.
             DependsOn: string list
             Shared: SharedLists
             /// `[targets.<t>]` by target name. The keys ARE the target set this package
-            /// participates in — there is no registry of target names elsewhere.
+            /// participates in.
             Targets: Map<string, TargetLists>
         }
 
@@ -134,16 +109,13 @@ module ReferencedProject =
         m.Shared.Files @ (listsFor target m).Files
 
     /// The `.fs` bodies for `target`: what the package DLL compiles AND what it publishes
-    /// as splice sources. Shared, then the target's own. There is no second list and no key
-    /// meaning "compile but do not splice" — emission is decided per declaration.
+    /// as splice sources. Shared, then the target's own.
     let resolveImpl (target: string) (m: Manifest) : string list =
         m.Shared.Impl @ (listsFor target m).Impl
 
-    /// The impl-free contract exemptions for `target`. Shared, then the target's own.
     let resolveSigOnly (target: string) (m: Manifest) : string list =
         m.Shared.SigOnly @ (listsFor target m).SigOnly
 
-    /// The contract-less `.fs` bodies for `target`. Shared, then the target's own.
     let resolveImplOnly (target: string) (m: Manifest) : string list =
         m.Shared.ImplOnly @ (listsFor target m).ImplOnly
 
@@ -154,10 +126,6 @@ module ReferencedProject =
     /// The pairing key of a manifest-listed source: its name minus the extension, minus a
     /// trailing `.<t>` segment for a target this manifest declares. `prim-types-int.js.fs`,
     /// `prim-types-int.clr.fs` and `prim-types-int.fsi` all key on `prim-types-int`.
-    ///
-    /// ONE rule, shared by the conformance pass and the intrinsic-repr extraction: the two
-    /// pair the same `.fsi` with the same `.fs`, or one of them is checking a pair the other
-    /// never built.
     let pairingKey (m: Manifest) (rel: string) : string =
         let noExt = Path.ChangeExtension(rel, null)
 
@@ -174,17 +142,8 @@ module ReferencedProject =
         |> Option.defaultValue noExt
 
     /// Every path the provider build may READ for this manifest, relative to the manifest's
-    /// own directory — and so the coverage set the compile cache's dependency hash folds
-    /// (`Hashing.dependencySignatureHash`). A path named here need not exist; the hash
-    /// records its absence.
-    ///
-    /// TARGET-BLIND: every target's lists UNIONED, never `resolve*`'s selection for one. The
-    /// cache key is computed with no target in hand, and the two errors are not symmetric —
-    /// folding too much costs a rebuild when an unrelated target changes, folding too little
-    /// serves a WRONG blob.
-    ///
-    /// `Runtime` is the one deliberate omission. A runtime asset (the JS `.mjs`) is shipped
-    /// beside the backend's output and is never parsed, so it determines no frozen tree.
+    /// own directory; a path named here need not exist. TARGET-BLIND — every target's lists
+    /// UNIONED. `Runtime` is omitted: an asset is never parsed, so determines no frozen tree.
     let sourceInputs (m: Manifest) : string list =
         [
             yield! m.Shared.Files
@@ -200,9 +159,8 @@ module ReferencedProject =
         ]
         |> List.distinct
 
-    /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: a retired
-    /// key (`impl-js`, `inline-bodies`) would otherwise be read as silence, and a stale
-    /// manifest would resolve to a plausible wrong file set — silently losing splice sources.
+    /// The `[core]` keys a manifest may carry. An unknown one is a parse ERROR: read as
+    /// silence, it would resolve a stale manifest to a plausible wrong file set.
     let private coreKeys =
         set
             [
@@ -277,14 +235,7 @@ module ReferencedProject =
                 match findStringList core "files" with
                 | None -> Error "manifest.toml: [core] missing `files = [...]`"
                 | Some files ->
-                    // The directory name *is* the package identity — it is what a
-                    // sibling's `depends-on` resolves against (`dependencyManifestPath`)
-                    // and what `buildClosure` would otherwise report via `Name`. If an
-                    // explicit `[core] name` diverged from the directory, a `depends-on`
-                    // would be resolved by directory but reported by `Name` (and a
-                    // `depends-on` written against `Name` would silently miss). Reject
-                    // the divergence at parse time so the two identities can't drift
-                    // unnoticed; an omitted `name` trivially matches via the fallback.
+                    // An omitted `name` trivially matches via the directory-name fallback.
                     match findString core "name" with
                     | Some explicit when explicit <> dirName ->
                         Error(
@@ -322,46 +273,24 @@ module ReferencedProject =
             | Error e -> Error(sprintf "Manifest parse error (%s): %s" manifestPath e)
             | Ok doc -> parseManifest dirName doc
 
-    /// Resolve a `depends-on` package name to its `manifest.toml` path, relative
-    /// to a dependent manifest's location. By convention a
-    /// package's directory name *is* its identity (`src/Vesper.Core` ⇒
-    /// `"Vesper.Core"`, the `Manifest.Name` fallback), so a dependency
-    /// `"Vesper.Core"` of the manifest at `src/Vesper.List/manifest.toml` lives at
-    /// the sibling `src/Vesper.Core/manifest.toml`. Mirrors the package-build
-    /// harness's `srcManifest`.
+    /// Resolve a `depends-on` package name to its `manifest.toml` path. A package's
+    /// directory name *is* its identity, so a dependency `"Vesper.Core"` of the manifest
+    /// at `src/Vesper.List/manifest.toml` lives at `src/Vesper.Core/manifest.toml`.
     let private dependencyManifestPath (dependentManifestPath: string) (dependencyName: string) : string =
         let packageDir = Path.GetDirectoryName dependentManifestPath
         let srcDir = Path.GetDirectoryName packageDir
         Path.Combine(srcDir, dependencyName, "manifest.toml")
 
-    /// Close `rootManifests` over `[core] depends-on` and return every reachable
-    /// manifest path in **dependency order** — each package appears *after* all the
-    /// packages it depends on. Paths are
-    /// normalised (`Path.GetFullPath`) and de-duplicated, so a dependency named by
-    /// several roots (every Vesper package's `Vesper.Core`) is processed once. A
-    /// `depends-on` cycle is a hard error — contract packages may not be mutually
-    /// recursive — as is a `depends-on` naming a package whose manifest is absent.
-    ///
-    /// The returned order is the priority order callers stack into the composite
-    /// provider; building bottom-up is what later lets each package's extraction
-    /// read its dependencies' already-built type shapes. For an
-    /// input that is already dependency-ordered the order is returned unchanged
-    /// (the sort is stable over the discovery order).
-    ///
-    /// Core closure: returns the dependency-ordered paths **and** the direct
-    /// `depends-on` adjacency (normalised path → its direct dependency paths) so a
-    /// caller can scope a package's ambient to its declared dependencies rather
-    /// than all topological predecessors. `buildClosure` /
-    /// `buildClosureWithDeps` are the public projections.
+    /// Close `rootManifests` over `[core] depends-on`: every reachable manifest path in
+    /// **dependency order** (normalised, de-duplicated, stable over discovery order), plus
+    /// each path's DIRECT dependency paths. A cycle or an absent manifest is a hard error.
     let private closeAndOrder
         (rootManifests: string list)
         : Result<string list * System.Collections.Generic.Dictionary<string, string list>, string> =
         let norm (p: string) = Path.GetFullPath p
 
-        // key (normalised path) → its dependency keys (adjacency) and package name.
-        // `discovered` is the order nodes were first reached (roots, then their
-        // deps), which the topo sort below walks so an already-ordered input is
-        // returned unchanged.
+        // `discovered` is the order nodes were first reached (roots, then their deps);
+        // the topo sort below walks it, so an already-ordered input comes back unchanged.
         let dependencies =
             System.Collections.Generic.Dictionary<string, string list>(System.StringComparer.Ordinal)
 
@@ -400,10 +329,8 @@ module ReferencedProject =
         match error with
         | Some e -> Error e
         | None ->
-            // Post-order DFS over the discovery order: a node is emitted only after
-            // its dependencies, so the result lists dependencies before dependents.
-            // The gray/black colouring (1 = on the current stack, 2 = emitted)
-            // rejects a `depends-on` cycle.
+            // Post-order DFS over the discovery order, so dependencies are emitted first.
+            // The gray/black colouring (1 = on the stack, 2 = emitted) rejects a cycle.
             let ordered = ResizeArray<string>()
 
             let state =
@@ -435,28 +362,20 @@ module ReferencedProject =
             | Some e -> Error e
             | None -> Ok(List.ofSeq ordered, dependencies)
 
-    /// Close `rootManifests` over `[core] depends-on` and return every reachable
-    /// manifest path in dependency order (see `closeAndOrder`).
+    /// Every manifest reachable over `[core] depends-on`, in dependency order.
     let buildClosure (rootManifests: string list) : Result<string list, string> =
         closeAndOrder rootManifests |> Result.map fst
 
-    /// Like `buildClosure`, but also returns each package's **transitive**
-    /// `depends-on` closure: a function from a normalised manifest path to the
-    /// normalised paths it depends on, directly or transitively (excluding itself).
-    /// Lets a caller scope a package's extraction ambient to exactly its declared
-    /// dependencies instead of every topological predecessor. A path with no
-    /// dependencies (or an unknown path) maps to the empty list.
+    /// Like `buildClosure`, but also returns each package's **transitive** `depends-on`
+    /// closure: normalised manifest path → the normalised paths it depends on, directly or
+    /// transitively (excluding itself). An unknown path maps to the empty list.
     let buildClosureWithDeps (rootManifests: string list) : Result<string list * (string -> string list), string> =
         match closeAndOrder rootManifests with
         | Error e -> Error e
         | Ok(ordered, adjacency) ->
-            // Transitive closure computed in dependency order: each package's
-            // closure is the union of its direct deps and those deps' already-
-            // computed closures. Each closure is itself **topologically ordered**
-            // (a dependency precedes anything that depends on it) — for a direct
-            // dep we emit that dep's own closure *before* the dep, so the indexed
-            // lookup in `composeProviders` yields a deterministic, dependency-first
-            // provider list. Each path appears once.
+            // Each package's closure is the union of its direct deps and those deps' already-
+            // computed closures, emitted dep-closure-before-dep so each closure is itself
+            // topologically ordered.
             let transitive =
                 System.Collections.Generic.Dictionary<string, string list>(System.StringComparer.Ordinal)
 
@@ -487,16 +406,9 @@ module ReferencedProject =
 
             Ok(ordered, lookup)
 
-    /// Resolve the per-target runtime *asset* modules (`[targets.<t>] runtime`) for a
-    /// manifest set, closed over `depends-on`, reading each file's contents from disk. Maps
-    /// each package/assembly name (`Manifest.Name`) to its `(fileName, source)` —
-    /// the hand-authored platform-support module (the JS `.mjs`) the backend
-    /// materialises beside the output and imports by `./<fileName>`. A package with
-    /// no `runtime` key for the target contributes nothing; one module per package (only the
-    /// first listed is taken — the import specifier keys one file per assembly); a
-    /// later package wins a name clash. This is the seam Route B (a backend-compiled
-    /// runtime, the `--compiling-fslib` bootstrap) later slots into — it generates
-    /// the same module the backend ships, leaving import + materialise unchanged.
+    /// The per-target runtime *asset* modules (`[targets.<t>] runtime`) for a manifest set
+    /// closed over `depends-on`, read off disk: package name → `(fileName, source)`, the
+    /// `.mjs` the backend imports by `./<fileName>`. One per package — the first listed.
     let runtimeModules (target: string) (rootManifests: string list) : Map<string, string * string> =
         match buildClosure rootManifests with
         | Error _ -> Map.empty
@@ -517,38 +429,14 @@ module ReferencedProject =
 
             acc
 
-    /// Wrap the extractor's provider so (a) every resolved descriptor carries
-    /// the package's home assembly (the extractor records `SymbolOrigin.Empty` — it
-    /// knows the namespace it extracted from, not which assembly it will be read as),
-    /// and (b) the package's implicit prelude — its `[<AutoOpen>]` modules plus
-    /// `RuntimeNames.preludeNamespaces` — is surfaced as `IAmbientOpenScope`. Short-name
-    /// resolution is *not* a provider-internal retry any more: the pipeline
-    /// seeds these `ambient` prefixes into the open scope and probes them
-    /// BEHIND explicit `open`s, so an explicit `open` can shadow a prelude
-    /// name. The actual
-    /// composition / stamping / `IAmbientOpenScope` plumbing is the shared
-    /// `ExternalSymbolProviders.stack` primitive — `wrap` is a 1-source instantiation
-    /// of it with origin stamping.
+    /// Wrap the extractor's provider so every resolved descriptor carries the package's home
+    /// assembly (the extractor records `SymbolOrigin.Empty`) and `ambient` is published as
+    /// the provider's `AmbientOpenPrefixes`.
     let private wrap (home: Origin) (ambient: string list) (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
         ExternalSymbolProviders.stack (ValueSome home) ambient [ inner ]
 
-    /// Stand up a referenced project (layer 1) from its `manifest.toml`, with
-    /// read access to its dependencies' already-built type shapes
-    /// (`ambientShapes`). Parse each
-    /// contract `.fsi` in `files` order into one accumulating `ExtractCtx` seeded
-    /// with `ambientShapes`, then expose it as a provider whose symbols carry the
-    /// package `Origin`. The ambient is consulted during extraction (through
-    /// `ExtractCtx.shapeOf`) to kind a cross-package nominal head; it MUST be set
-    /// before the file walk, since signature translation runs inside it.
-    /// Returns per-file parse diagnostics alongside the provider (a file that
-    /// fails to parse contributes no symbols but does not abort the build).
-    ///
-    /// A package built by `buildProviderWith`, plus the census the composition-time
-    /// duplicate sweep reads. `DeclaredTypeNames` are the qualified compiled names of the
-    /// NOMINAL types this package OWNS (Class/Record/Union/Enum — the shapes that mint a
-    /// lookup key and would silently first-hit-shadow a peer package's same-named type).
-    /// Intrinsics and capability interfaces share one canon across packages by design, and
-    /// so are deliberately excluded — a shared canon there is not a collision.
+    /// One built package. `DeclaredTypeNames` are the qualified compiled names of the NOMINAL
+    /// types it OWNS — those that would first-hit-shadow a peer package's same-named type.
     type BuiltPackage =
         {
             Provider: IExternalSymbolProvider
@@ -557,6 +445,9 @@ module ReferencedProject =
             DeclaredTypeNames: string list
         }
 
+    /// Parse each contract `.fsi` in `files` order into one accumulating `ExtractCtx` seeded
+    /// with `ambientShapes` (its dependencies' already-built type shapes), then expose it as
+    /// a provider. A file that fails to parse yields a diagnostic, not an aborted build.
     let buildProviderWith
         (target: string)
         (ambientShapes: string -> ExternalTypeShape voption)
@@ -569,30 +460,18 @@ module ReferencedProject =
             let dir = Path.GetDirectoryName manifestPath
             let ctx = VesperLib.ExtractCtx.empty target
             ctx.AmbientShapes <- ambientShapes
-            // The dependency composite's ambient open prefixes (`Vesper`, …) so this
-            // package's own extraction resolves a dependency's ambiently-available
-            // type by bare name (`Fun`2` / `Fun`3`), the way the consumer front end does.
+            // Ambient open prefixes (`Vesper`, …) so this package's extraction resolves a
+            // dependency's type by bare name (`Fun`2` / `Fun`3`).
             ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
 
-            // Pair `.fsi` extern + `.fs` `(# … #)`: extract the intrinsic reprs from the
-            // manifest's `.fs` bodies FIRST, so the `extern` arm of the `.fsi` extraction
-            // below publishes a matched primitive as `ExternalTypeShape.Intrinsic` rather
-            // than an opaque `Class`. The `.fs` is the only place the repr lives (the
-            // `.fsi` commits `type exn = extern`, no repr).
-            //
-            // Two tables, filled from two different body sets:
-            //  - `IntrinsicMarkers`, the primitive *marker* SET: every body any target
-            //    names. A primitive is a primitive of the language on every target, so
-            //    `decimal` (which ships no JS repr) still publishes as an `Intrinsic` with
-            //    `platform = None` there rather than as a silently opaque class. `int` is
-            //    bound by both `prim-types-int.clr.fs` and `prim-types-int.js.fs`; a set has no
-            //    value for the second to disagree with.
-            //  - `IntrinsicReprs`, the `platform` name: THIS target's bodies
-            //    (`prim-types-int.js.fs` ⇒ `number`).
-            // `canon` is the `.fsi` name itself (set at the `extern` arm), so a target's
-            // repr never moves the unifier's identity key.
+            // Extract intrinsic reprs from the `.fs` bodies FIRST, so the `extern` arm of
+            // the `.fsi` extraction below publishes a matched primitive as `Intrinsic`
+            // rather than an opaque `Class`. The `.fsi` commits `type exn = extern`, no repr.
             let targetBodies = resolveImpl target manifest |> Set.ofList
 
+            // `IntrinsicMarkers` takes every target's bodies, so `decimal` (which ships no
+            // JS repr) still publishes there as an `Intrinsic` with `platform = None`;
+            // `IntrinsicReprs` takes THIS target's (`prim-types-int.js.fs` ⇒ `number`).
             let everyBody =
                 [
                     yield! manifest.Shared.Impl
@@ -619,8 +498,6 @@ module ReferencedProject =
                     match VesperLib.parseFileFull fsFile with
                     | Error _ -> ()
                     | Ok parsed ->
-                        // ONE parse feeds both tables — a second read is a second answer
-                        // for what the file says.
                         let reprs =
                             System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
 
@@ -651,21 +528,14 @@ module ReferencedProject =
 
             let home = Origin.InAssembly(AssemblyName manifest.Name)
 
-            // The contract's implicit prelude: its `[<AutoOpen>]` modules (most
-            // specific, e.g. `Vesper.ArithmeticOperators`) ahead of the language prelude
-            // (`Vesper`, so `int` finds `Vesper.int`). Both are probed behind explicit
-            // `open`s. The prelude is fixed, not manifest-declared — see
-            // `RuntimeNames.preludeNamespaces`.
+            // The contract's implicit prelude: its `[<AutoOpen>]` modules (most specific,
+            // e.g. `Vesper.ArithmeticOperators`) ahead of the language prelude (`Vesper`,
+            // so `int` finds `Vesper.int`). The prelude is fixed, not manifest-declared.
             let ambient = List.ofSeq ctx.AutoOpenPrefixes @ RuntimeNames.preludeNamespaces
 
-            // The nominal types this package declares (own shapes only — `shapeOf`
-            // consults dependency `AmbientShapes` as a fallback but never inserts them
-            // into `TypeShapes`), for the composition-time duplicate sweep. EXHAUSTIVE
-            // over the shape cases so a NEW shape forces an include/exclude decision
-            // here: intrinsics and capability interfaces share one canon by design (every
-            // package's `int` is THE `int`, so cross-package repetition is the norm,
-            // not a collision); an `Abbrev` shadow silently re-points an alias and an
-            // `Opaque` shadow hides a residue, so both ARE swept.
+            // The nominal types this package declares, for the composition-time duplicate
+            // sweep. Every package's `int` is THE `int`, so intrinsics and capability
+            // interfaces repeat legitimately and are excluded.
             let declaredTypeNames =
                 [
                     for kv in ctx.TypeShapes do
@@ -688,10 +558,8 @@ module ReferencedProject =
                     DeclaredTypeNames = declaredTypeNames
                 }
 
-    /// Stand up a referenced project in isolation — no dependency shapes in scope
-    /// (`AmbientShapes` defaults to "resolve nothing"). The dependency-free path:
-    /// a package with no `depends-on`, and the entry point tests build a single
-    /// package from. Dependency-aware composition uses `composeOrdered`.
+    /// Stand up a referenced project in isolation — no dependency shapes in scope, so
+    /// `ambientShapes` resolves nothing. For a package with no `depends-on`.
     let buildProvider
         (target: string)
         (manifestPath: string)
@@ -699,51 +567,34 @@ module ReferencedProject =
         buildProviderWith target (fun _ -> ValueNone) [] manifestPath
         |> Result.map (fun bp -> bp.Provider, bp.Diagnostics)
 
-    /// A layer-2 metadata-tail factory: given the extracted `{ platform-repr →
-    /// [canon] }` reverse map of the layer-1 providers composed so far, produce the
-    /// trailing leaf providers. `composeOrdered` is leaf-AGNOSTIC — a backend injects
-    /// its BCL `MetadataSymbols` / JS-native tail; an in-assembly caller that needs no
-    /// metadata passes `noMetaTail`.
+    /// A layer-2 metadata-tail factory: given the extracted `{ platform-repr → [canon] }`
+    /// reverse map of the layer-1 providers composed so far, produce the trailing leaf
+    /// providers. A backend injects its BCL metadata / JS-native tail here.
     type MetaTailFactory = Map<string, SymbolKey list> -> IExternalSymbolProvider list
 
-    /// The empty layer-2 tail: the layer-1 `.fsi` contracts alone, no metadata leaf.
-    /// For an in-assembly caller (a test fixture front-ending source against the real
-    /// `Vesper.*` contracts) that resolves no BCL/native metadata.
+    /// The empty layer-2 tail: the layer-1 `.fsi` contracts alone, for an in-assembly
+    /// caller that resolves no BCL/native metadata.
     let noMetaTail: MetaTailFactory = fun _ -> []
 
-    /// Compose layer-1 providers in dependency (topological) order ahead of the
-    /// `metaTail` leaf. Each package is extracted with read access to its transitive
-    /// `depends-on` closure's shapes (and that closure's ambient open prefixes), so a
-    /// cross-package nominal head kinds at bake time. `orderedManifestPaths` /
-    /// `transitiveDeps` come from `buildClosureWithDeps`.
-    ///
-    /// This is the single dependency-order wiring shared by the codegen
-    /// `SymbolProviders` stack and the in-assembly test fixtures — do not re-implement
-    /// the ambient-shape loop at a call site.
+    /// Compose layer-1 providers in dependency (topological) order ahead of the `metaTail`
+    /// leaf. Each package is extracted with read access to its transitive `depends-on`
+    /// closure's shapes, so a cross-package nominal head kinds at bake time.
     let composeOrdered
         (metaTail: MetaTailFactory)
         (target: string)
         (orderedManifestPaths: string list)
         (transitiveDeps: string -> string list)
         : IExternalSymbolProvider =
-        // Final stack, in build (topological) order; `byPath` indexes each built
-        // provider by its normalised manifest path so a package's dependency providers
-        // resolve in O(closure).
+        // `byPath` indexes each built provider by its normalised manifest path, so a
+        // package's dependency providers resolve in O(closure).
         let built = ResizeArray<IExternalSymbolProvider>()
 
         let byPath =
             System.Collections.Generic.Dictionary<string, IExternalSymbolProvider>(System.StringComparer.Ordinal)
 
-        // Composition-time duplicate sweep: a qualified type key declared twice in the
-        // referenced set resolves as a silent first-hit shadow (`composite` → `firstHit`),
-        // so the loser's type is minted a correct key but is unreachable by lookup. Refuse
-        // the ambiguity here — a CS0433-equivalent. ANY second sighting is a collision:
-        // one package never declares a key twice (`TypeShapes` is a map), so a repeat is
-        // either two peer packages sharing a namespace+name, or two copies/versions of
-        // one package (same `manifest.Name` at different paths) — both are exactly the
-        // shadowing this sweep exists to refuse, so no home-assembly comparison waives
-        // either. The package-vs-metadata-tail overlap is NOT swept (the BCL/native
-        // tail is not enumerable) — that case is diagnosed lazily downstream.
+        // A qualified type key declared twice in the referenced set resolves as a silent
+        // first-hit shadow, so the loser is unreachable by lookup; refuse it here, a
+        // CS0433-equivalent. The overlap with the metadata tail is diagnosed downstream.
         let seenTypeHomes =
             System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
 
@@ -758,10 +609,8 @@ module ReferencedProject =
                     | _ -> None
                 )
 
-            // The per-package extraction leaf is the SAME injected `metaTail` factory as
-            // the final composite — this layer never names a concrete provider. Seeded
-            // with the reverse map of the deps built so far so a dependency's BCL member
-            // sigs canonicalize during extraction.
+            // Seeded with the reverse map of the deps built so far, so a dependency's BCL
+            // member sigs canonicalize during extraction.
             let depComposite =
                 ExternalSymbolProviders.composite (
                     depProviders @ metaTail (ExternalSymbolProviders.mergeReverseCanon depProviders)
@@ -770,10 +619,8 @@ module ReferencedProject =
             let ambientShapes =
                 (fun (name: string) -> depComposite.TryLookupType name |> ExternalSymbols.typeShapeOf)
 
-            // The dependency providers' implicit open prefixes (`Vesper` from Core,
-            // where `Fun`2`/`Fun`3`/`Ref` live), so this package's extraction resolves a
-            // dependency's ambiently-available type by bare name — mirroring the consumer
-            // composite's `AmbientOpenPrefixes`. Dedup, dependency order.
+            // The dependency providers' implicit open prefixes (`Vesper` from Core, where
+            // `Fun`2`/`Fun`3`/`Ref` live). Deduped, in dependency order.
             let depAmbientPrefixes =
                 depProviders |> List.collect (fun p -> p.AmbientOpenPrefixes) |> List.distinct
 
@@ -803,11 +650,8 @@ module ReferencedProject =
         let builtList = List.ofSeq built
         ExternalSymbolProviders.composite (builtList @ metaTail (ExternalSymbolProviders.mergeReverseCanon builtList))
 
-    /// `composeOrdered` over a raw manifest set, ordering it (and computing each
-    /// package's transitive `depends-on` closure) via `buildClosureWithDeps`. A cycle
-    /// or missing dependency is a hard error. Callers that also need the ordered list
-    /// for a second pass (e.g. inline bodies) should call `buildClosureWithDeps` +
-    /// `composeOrdered` directly to avoid ordering twice.
+    /// `composeOrdered` over a raw, unordered manifest set. A cycle or missing dependency is
+    /// a hard error. A caller that also needs the ordered list should order it itself.
     let composeContract
         (metaTail: MetaTailFactory)
         (target: string)
@@ -817,8 +661,8 @@ module ReferencedProject =
         | Ok(ordered, transitiveDeps) -> composeOrdered metaTail target ordered transitiveDeps
         | Error e -> failwithf "Failed to order referenced project manifests: %s" e
 
-    /// Lazy cache keyed by target + (normalised) manifest path so repeated callers
-    /// parse a package's `.fsi` set at most once. Mirrors `VesperLib.defaultProvider`.
+    /// Lazy cache keyed by target + (normalised) manifest path, so repeated callers parse
+    /// a package's `.fsi` set at most once.
     let private cached =
         System.Collections.Concurrent.ConcurrentDictionary<
             string * string,

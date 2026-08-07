@@ -8,37 +8,14 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecRows
 
 /// The FROZEN type domain: the reference codec every other module reaches a type through,
 /// the non-generic leaf payloads the tree and the side tables carry, the printf hole-form
-/// cluster, and the leaf type-declaration payloads. Every writer here bottoms out in
-/// `FrozenCodecPrimitives` and `FrozenCodecRows`; `FrozenCodecDecls` (the declaration shell)
-/// and `FrozenCodec` (the pool columns) read this module, never the reverse.
-///
-/// NOTHING is written structurally in the type domain. A `FrozenType`, a `SymbolKey`, a
-/// `TypeKey` and a `ModuleKey` each reach the wire as the id of their row in the file's own
-/// tables, and those tables — the only place a type is spelled out — go out once per file
-/// from `FrozenCodecRows`. So a type occurring at a thousand nodes costs one row plus a
-/// thousand ints.
-///
-/// Diagnostics are NOT here: a `Kind` reaches no type and no key, so it codes in
-/// `FrozenCodecDiagnostics` against the same primitives rather than riding this file.
+/// cluster, and the leaf type-declaration payloads. NOTHING here is written structurally.
 module FrozenCodecTypes =
 
     // ── a REFERENCE into the file's tables ──────────────────────────────────
-    //
-    // How every OTHER module writes a type, a key or a producer file: as the id of its row.
-    // The whole codec below and in `FrozenCodecDecls` / `FrozenCodec` goes through these
-    // pairs, so a type embedded in a payload costs exactly what a `ty` column entry costs.
-    //
-    // The write side INTERNS where the read side resolves, and that asymmetry is the point:
-    // the `ty` columns were interned at freeze, but a payload can carry a type they never
-    // did (an `ILIntrinsic`'s operand, a member's signature, a `ValRepr`'s result), and
-    // interning it here is what appends it to the file's tables. `FrozenCodec.writePools`
-    // therefore emits the tables AFTER the body it interned them from.
-    //
-    // The tables ride the SINK (`FrozenWriter.Types`) and not a parameter, so these pairs
-    // have the shape of every other element codec and the generic containers take them
-    // as-is — and a writer cannot emit into one stream while interning into another file's
-    // tables.
 
+    /// The write side INTERNS where the read side resolves: the `ty` columns were interned at
+    /// freeze, but a payload can carry a type they never did (an `ILIntrinsic` operand, a
+    /// signature, a `ValRepr` result), so the tables can only go out AFTER the body.
     let writeTypeRef (w: FrozenWriter) (t: FrozenType) = writeTypeId w (w.Types.Intern t)
 
     let readTypeRef (r: FrozenReader) : FrozenType = r.Types.[readTypeId r]
@@ -53,30 +30,19 @@ module FrozenCodecTypes =
 
     let readTypeKeyRef (r: FrozenReader) : TypeKey = r.Types.[readTypeKeyId r]
 
-    /// The file a set of anchors index — the case `writeAnchor` does not cover. Those anchors
-    /// may index a file that is NOT the one the blob is keyed by, so the identity of that file,
-    /// and a hash of the contents the indices were taken against, have to be in the blob: they
-    /// are the only thing a later build can check its re-read of that file against.
-    ///
-    /// A REFERENCE like the three above, and for the same reason: a program's entries and the
-    /// edges into them name a handful of files, so the four strings that identify one go out
-    /// once per FILE rather than once per node.
+    /// The file a set of anchors index, which need NOT be the file the blob is keyed by — so
+    /// that file's identity, and a hash of the contents the indices were taken against, have
+    /// to be in the blob. A reference like the three above: interned once per file.
     let writeOriginRef (w: FrozenWriter) (f: OriginFile) =
         writeOriginId w (w.Types.InternOrigin f)
 
     let readOriginRef (r: FrozenReader) : OriginFile = r.Types.[readOriginId r]
 
     // ── the `SymbolKey`-keyed container ─────────────────────────────────────
-    //
-    // The container helpers that name a domain: they ride `writeSymbolRef` above, so they
-    // cannot sit with the generic containers in `FrozenCodecPrimitives`. A
-    // `SymbolKey`-keyed table serializes as a length-prefixed entry sequence — no
-    // canonical order is imposed (the cache key hashes inputs, not the blob), so emit
-    // order is free and read rebuilds an unordered table.
 
-    /// The `IReadOnlyDictionary<SymbolKey,_>` fields — rebuilt on read as a
-    /// concrete `Dictionary` exposed through the read-only view, exactly how
-    /// `Elaborate` constructs `IntrinsicReprKeys` / `Accessibility`.
+    /// A length-prefixed entry sequence in the dictionary's own enumeration order — no
+    /// canonical order is imposed, so the read side rebuilds an unordered `Dictionary`
+    /// behind the read-only view.
     let writeSymbolDict
         (w: FrozenWriter)
         (writeVal: FrozenWriter -> 'v -> unit)
@@ -345,9 +311,8 @@ module FrozenCodecTypes =
 
     let readParamAttrs (r: FrozenReader) : ParamAttrs = { CallAtMostOnce = r.ReadBoolean() }
 
-    /// A member's own method typars: each entry is the source name + the typar's
-    /// frozen type (`FTTypar(Method, i)`), position = ABI index. Plain frozen data —
-    /// no union-find cell rides the tree, so this round-trips structurally.
+    /// A member's own method typars: each entry is the source name plus the typar's frozen
+    /// type (`FTTypar(Method, i)`), and its POSITION is the ABI index.
     let writeMethodTypeParams (w: FrozenWriter) (mtps: EqArray<string * FrozenType>) =
         writeEqArrayWith
             w
@@ -566,9 +531,8 @@ module FrozenCodecTypes =
         | 1uy -> HoleSpecSource.RawFormat(readOptionWith r (fun r -> r.ReadString()))
         | b -> failwithf "FrozenCodec: unknown HoleSpecSource tag %d" b
 
-    // A `HoleSpec` carries no sub-expression (its `Ty` is a `FrozenType`, its `Tok` a
-    // token), so it is a leaf ahead of the tree group even though the format SEGMENT
-    // that holds it is not.
+    // A `HoleSpec` carries no sub-expression — its `Ty` is a `FrozenType` and its `Tok` an
+    // anchor — so it is a leaf even though the format SEGMENT that holds it is not.
     let writeHoleSpec (w: FrozenWriter) (h: Pooled.HoleSpec) =
         writeTypeRef w h.Ty
         writeHoleSpecSource w h.Source

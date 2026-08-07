@@ -7,42 +7,16 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecTypes
 
 /// The declaration shell and the scalar clusters a pool payload rides — the shapes whose
-/// sub-trees are named by pool id instead of being inlined. Reads `FrozenCodecTypes` (and
-/// through it `FrozenCodecPrimitives`) for every type and leaf it embeds; `FrozenCodec`'s
-/// payload columns read this module, never the reverse.
+/// sub-trees are named by pool id instead of being inlined: a `type` declaration's member
+/// bodies, an inline template's decl, a `ValRepr`'s tuple group.
 module FrozenCodecDecls =
 
     // ── the declaration shell + the scalar clusters riding a pool payload ───
     //
-    // Each writer is followed IMMEDIATELY by its reader. They have to agree field for
-    // field, in order, and nothing but review makes them: putting the pair on one screen
-    // is the whole of that review. (They were two groups, a couple of hundred lines
-    // apart, when a `TTypeMember`'s ten-field emit order had to be checked against a
-    // reader you could not see at the same time.)
-    //
-    // Instantiated at `<FrozenType, Anchor>` — every `'ty` payload rides `writeTypeRef`,
-    // every `'tok` rides `writeAnchor` (both defined in the leaf group above). Each
-    // writer's `match` is EXHAUSTIVE with no catch-all, so a new case fails to compile
-    // here; each reader reconstructs the case / record DIRECTLY (never a normalizing smart
-    // constructor) with `let`-sequenced field reads that provably mirror the writer's emit
-    // order.
-    //
-    // NOTHING here mentions the file's type tables, though a signature in this file can name
-    // a type the `ty` columns never interned: the tables ride the sink (`FrozenWriter`), so
-    // every codec below is a plain element codec the generic containers take as-is.
-    //
-    // There is NO recursive `TExpr`/`TPat`/`TDecl` tree codec any more: every tree in the
-    // file is in the pool columns, so an expression is written as an `ExprPoolId` and a
-    // pattern as a `PatPoolId` wherever one used to be inlined — a `type` declaration's
-    // member bodies, an inline template's decl, a `ValRepr`'s tuple group. What remains
-    // here is the declaration SHELL (which the pooled `Type` payload still carries whole)
-    // plus the scalar clusters an `ExprPayload` rides (`Disposal`, `CallVia`,
-    // `ForInEnumerator`, the static-opt constraints).
+    // Each writer is followed IMMEDIATELY by its reader; nothing else keeps them in step.
 
-    /// The pool ids, written as plain `int`s — the blob is Brotli-compressed at the store
-    /// seam, which absorbs their width redundancy far more cheaply than a bespoke varint
-    /// would pay for in reader complexity. Defined here rather than with the column codec
-    /// below because the declaration shell names its bodies by id.
+    /// Pool ids are plain `int`s: the blob is Brotli-compressed at the store seam, which
+    /// absorbs their width redundancy more cheaply than a varint costs in reader complexity.
     let writeExprPoolId (w: FrozenWriter) (ExprPoolId i) = w.Write i
     let readExprPoolId (r: FrozenReader) : ExprPoolId = ExprPoolId(r.ReadInt32())
     let writePatPoolId (w: FrozenWriter) (PatPoolId i) = w.Write i
@@ -174,10 +148,8 @@ module FrozenCodecDecls =
             ForInEnumMembersG.ConstrainedInterface(iface, ifaceArgs)
         | b -> failwithf "FrozenCodec: unknown ForInEnumMembers tag %d" b
 
-    // The `type` declaration shell — the one declaration shape a pool payload still
-    // carries whole (`DeclPayload.Type`). Its member / preamble / ctor bodies are pool
-    // ids, so this group bottoms out at `writeExprPoolId` where it once recursed into
-    // `writeExpr`.
+    // The `type` declaration shell — the one declaration shape a pool payload still carries
+    // whole. Its member / preamble / ctor bodies bottom out at `writeExprPoolId`.
 
     and writeTypeDecl (w: FrozenWriter) (td: PooledTypeDecl) =
         w.Write td.Name
@@ -536,11 +508,8 @@ module FrozenCodecDecls =
         }
 
     /// A resolved-specialization entry: the grounding it is keyed by, the file its anchors
-    /// index, then its declaration named by pool id like any other root. The key's type
-    /// arguments go through `writeTypeRef` and so are INTERNED here — the `ty` columns never
-    /// carried them; the origin goes through `writeOriginRef` and is interned the same way,
-    /// which is what keeps a producer's four identifying strings out of every entry drawn
-    /// from it.
+    /// index, then its declaration by pool id. The key's type arguments are INTERNED here —
+    /// the `ty` columns never carried them — and so is the origin.
     and writeSpecialization (w: FrozenWriter) (s: PooledSpecialization) =
         writeSymbolRef w s.Key.Template
         writeEqArrayWith w writeTypeRef s.Key.TypeArgs

@@ -9,88 +9,45 @@ open XParsec.FSharp.SemanticAnalysis.FrozenCodecDiagnostics
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecTypes
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecDecls
 
-/// A hand-rolled structural binary (de)serializer for the FROZEN domain, layered across six
-/// modules: the leaf domains (`FrozenCodecPrimitives` for the `FrozenWriter`/`FrozenReader`
-/// seam and the value structs, `FrozenCodecRows` for the file's interned type/key TABLES,
-/// `FrozenCodecDiagnostics` for a `Diagnostic` and its `Kind`, `FrozenCodecTypes` for the id
-/// every other module names a type by and the leaf payloads), the non-tree declaration shell
-/// and scalar clusters a pool payload rides (`FrozenCodecDecls`), and — on top of all of them
-/// — the `FrozenPools` COLUMN codec here that `flatten`/`thaw` actually store. A plain
-/// `BinaryWriter`/`BinaryReader` under the seam; the blob is Brotli-wrapped at the store seam
-/// (`Compression`), so nothing here hand-rolls varints or bit-packing.
-///
-/// The stored form is the pools, not the DU, and the pools are what the front end now
-/// yields: `flatten` IS the column writers and `thaw` their inverse, with no conversion on
-/// either side. There is NO recursive
-/// `TExpr`/`TDecl`/`TPat` tree codec: every tree the file bears is in the columns, so
-/// wherever a subtree used to be inlined — a `type` declaration's member bodies, an inline
-/// template's decl, a `ValRepr`'s tuple group — a pool id is written instead.
-///
-/// Two invariants the writer/reader pair upholds:
-///   * The writer's `match` is EXHAUSTIVE with no catch-all, so a new payload or row case
-///     fails to compile here rather than silently mis-serializing; the reader mirrors the
-///     same byte-tag discipline case for case.
-///   * The reader reconstructs each DU case DIRECTLY, never through a normalizing smart
-///     constructor, so the exact stored value survives — the discipline `FrozenCodecRows`
-///     states for the row it most matters on (`TypeRow.Or`, which must not be re-normalised
-///     through `FrozenType.MkUnion`).
+/// A hand-rolled structural binary (de)serializer for the FROZEN domain. The stored form is
+/// the pool COLUMNS, not the DU: `flatten` IS the column writers and `thaw` their inverse,
+/// with no tree codec and no conversion on either side.
 [<RequireQualifiedAccess>]
 module FrozenCodec =
 
     // ── the pool columns (the stored wire form) ─────────────────────────────
     //
-    // One length-prefixed column per `FrozenPools` field, emitted in record-declaration
-    // order so the writer and the reader read as the same list side by side. Ids
-    // (`ExprPoolId`/`PatPoolId`/`DeclPoolId`/`BinderId`) are plain `int`s: the blob is
-    // Brotli-compressed at the store seam, which absorbs their width redundancy far more
-    // cheaply than a bespoke varint would pay for in reader complexity.
-    //
-    // The payload tag writers below are EXHAUSTIVE with no catch-all — the same discipline
-    // `TastPoolShapes.exprPayload`/`substituteExpr` hold — so a new payload case fails to
-    // compile here rather than serializing as a silent alias. A node's SHAPE tag has no
-    // writer at all: it is a projection of the payload (`ExprPayload.shape`), so the
-    // payload's tag byte already carries it.
+    // A node's SHAPE tag has no writer — it projects from the payload, whose tag IS written.
 
-    /// A child-id column (`ChildColumn`) — the row starts, then the one flat id array they
-    /// delimit. Generic over the id codec, so the expr-child and pat-child columns of all
-    /// three domains share the one convention rather than repeating it per domain.
-    ///
-    /// Two flat arrays, so the wire carries ONE length prefix per column where the jagged
-    /// form carried one per slot — and the starts stand in for them, being the same numbers
-    /// running.
+    /// A child-id column: the slot starts, then the one flat id array they delimit. Two flat
+    /// arrays, so the wire carries ONE length prefix per column where the jagged form carried
+    /// one per slot.
     let private writeChildColumn (w: FrozenWriter) (writeId: FrozenWriter -> 'id -> unit) (col: ChildColumn<'id>) =
         writeArrayWith w (fun w (s: int) -> w.Write s) (ChildColumn.starts col)
         writeArrayWith w writeId (ChildColumn.ids col)
 
-    /// Through `ChildColumn.ofStored`, which CHECKS the CSR invariant. Two independently
-    /// length-prefixed arrays can disagree, and a disagreement here does not fault on read —
-    /// it silently re-parents every slot past the discrepancy — so the column is validated at
-    /// the boundary the way `FrozenTypeTableBuilder`'s seeding validates the type rows.
     let private readChildColumn (r: FrozenReader) (readId: FrozenReader -> 'id) : ChildColumn<'id> =
         let start = readArrayWith r (fun r -> r.ReadInt32())
         let ids = readArrayWith r readId
 
         ChildColumn.ofStored start ids
 
-    /// A decoded child column delimits the pool it is indexed by, and no other count. Named
-    /// per column so the fault says WHICH one disagreed rather than that one did.
+    /// A decoded child column delimits the pool it is indexed by, and no other count — the
+    /// check `ChildColumn.ofStored` cannot make from one column in isolation. A truncated
+    /// column is internally consistent and would run off the end at some later node.
     let private checkSlots (name: string) (poolSize: int) (col: ChildColumn<'id>) =
         if ChildColumn.length col <> poolSize then
             failwithf "FrozenCodec: %s delimits %d slots but its pool holds %d" name (ChildColumn.length col) poolSize
 
-    /// A per-binder column (`BinderColumn`) — one optional value per binder slot, in
-    /// binder-pool order. NO id is written: the slot's position IS the binder, which is
-    /// the whole property of the column form, so the wire carries a presence byte where the
-    /// keyed form carried four id bytes plus a value.
+    /// One optional value per binder slot, in binder-pool order. NO id is written — the
+    /// slot's POSITION is the binder, so the wire carries a presence byte per slot.
     let private writeBinderColumn (w: FrozenWriter) (writeVal: FrozenWriter -> 'v -> unit) (col: BinderColumn<'v>) =
         writeArrayWith w (fun w v -> writeVOptionWith w writeVal v) col
 
     let private readBinderColumn (r: FrozenReader) (readVal: FrozenReader -> 'v) : BinderColumn<'v> =
         readArrayWith r (fun r -> readVOptionWith r readVal)
 
-    /// A dense side table — the `(id, value)` association a `Map<NodeKey,_>` was re-keyed
-    /// to. Generic over BOTH codecs, so the `BinderId`-keyed tables and the one
-    /// `ExprPoolId`-keyed (`FunVerdicts`) share this single pair.
+    /// A dense side table: the `(id, value)` pairs a keyed map was re-keyed to.
     let private writeDenseTable
         (w: FrozenWriter)
         (writeId: FrozenWriter -> 'id -> unit)
@@ -478,8 +435,7 @@ module FrozenCodec =
         | 2uy -> DeclPayload.Type(readTypeDecl r)
         | b -> failwithf "FrozenCodec: unknown DeclPayload tag %d" b
 
-    /// The not-yet-pooled fields, verbatim — none of them a tree, so this writer
-    /// bottoms out entirely in the leaf codecs.
+    /// The un-pooled fields, verbatim — none of them a tree.
     let private writeResidue (w: FrozenWriter) (res: FrozenFileResidue) =
         writeListWith w writeDiagnostic res.Diagnostics
         writeSymbolDict w writeIntrinsicReprInfo res.IntrinsicReprKeys
@@ -532,24 +488,16 @@ module FrozenCodec =
         writeBinderColumn w (fun w (i: int) -> w.Write i) p.BindingTyparArities
 
     let private writePools (w: FrozenWriter) (p: FrozenPools) =
-        // The tables must be READ first — everything below names a type by row id — but they
-        // are not KNOWN until the body has been written: a payload embeds types the `ty`
-        // columns never carried (a signature, an `isinst` operand, a `ValRepr`'s result), and
-        // interning them is what appends them to the file's tables. So the body goes to a
-        // buffer and the completed rows are emitted in front of it.
-        //
-        // Both writes go through `w.Types` — the sink's own builder, seeded by `flatten` from
-        // this file's stored rows, which preserves every id the freeze minted so the `ty`
-        // column entries stay valid. There is no second builder to write the wrong tables in
-        // front of the wrong body.
+        // The tables must be READ first, but are not KNOWN until the body has been written: a
+        // payload embeds types the `ty` columns never carried, and interning them is what
+        // appends the rows. So the body is buffered and the finished rows go out in front.
         let body = toBytes w.Types writeBody p
         writeTypeRows w w.Types.Rows
         w.Write(body, 0, body.Length)
 
     let private readPools (r: FrozenReader) : FrozenPools =
-        // The tables come first and everything below resolves against THEM: the reader
-        // arrives holding none (there are none until they are read) and is rebound to the
-        // file's own before a single column is touched.
+        // The tables come first and everything below resolves against THEM, so the reader is
+        // rebound to the file's own before a single column is touched.
         let types = FrozenTypeTable.OfRows(readTypeRows r)
         let r = { r with Types = types }
         let origin = readOriginRef r
@@ -582,10 +530,6 @@ module FrozenCodec =
         let bindingValReprs = readDenseTable r readBinderId readValRepr
         let bindingTyparArities = readBinderColumn r (fun r -> r.ReadInt32())
 
-        // `ChildColumn.ofStored` made each column well-formed in ISOLATION; this is the check
-        // isolation cannot make — that a column delimits exactly the pool it is indexed BY. A
-        // column truncated to fewer slots is internally consistent and would simply run off
-        // the end at whichever node first reached past it, so it is caught here instead.
         checkSlots "ExprChildren" exprPayloads.Length exprChildren
         checkSlots "ExprPatChildren" exprPayloads.Length exprPatChildren
         checkSlots "PatChildren" patPayloads.Length patChildren
@@ -624,26 +568,13 @@ module FrozenCodec =
 
     // ── the whole frozen file (top-level entry points) ──────────────────────
 
-    /// Flatten an entire frozen file to a byte blob: the file's type/key tables, then the
-    /// columns. The pools ARE the stored form, so the columns go out as they stand; the only
-    /// work done here is EXTENDING the tables with the types a payload embeds, which the
-    /// freeze had no column to intern them from. No compression — `Compression` wraps the
-    /// blob at the store seam, and the cache key hashes INPUTS, not the blob, so no byte
-    /// canonicalization is owed here.
-    ///
-    /// `thaw` inverts it up to that extension: the tables come back longer than they went
-    /// in, and every id that was already minted still names the row it named. Flattening the
-    /// thawed pools reproduces the blob byte for byte.
+    /// The file's type/key tables, then the columns as they stand. The only work is EXTENDING
+    /// the tables with types a payload embeds; every already-minted id still names the row it
+    /// named, so `thaw` inverts this and re-flattening reproduces the blob byte for byte.
     let flatten (pools: FrozenPools) : byte[] =
         toBytes (FrozenTypeTableBuilder.OfRows pools.Types.Rows) writePools pools
 
-    /// Rebuild the frozen file's pools from a `flatten` blob. `FrozenPools` carries no
-    /// equality, so the ways to ask whether this reproduced its input are the two that mean
-    /// something: `TastFileG.structurallyEqual` over `TastUnpool.ofPools` for the tree, and
-    /// re-`flatten` for the bytes.
-    ///
-    /// The empty tables are the honest starting point: at this frame the blob's own tables
-    /// have not been read yet, and `readPools` rebinds the reader to them before it resolves
-    /// anything.
+    /// Rebuild the frozen file's pools from a `flatten` blob. It starts on the EMPTY tables:
+    /// the blob's own have not been read yet, and reading them rebinds the reader.
     let thaw (bytes: byte[]) : FrozenPools =
         ofBytes FrozenTypeTable.Empty readPools bytes

@@ -2,34 +2,14 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.SemanticAnalysis.FrozenCodecPrimitives
 
-/// The file's interned type / key TABLES on the wire: the ROW form of `FrozenType` and the
-/// `SymbolKey`/`TypeKey` cluster it interlocks with, with every child already replaced by a
-/// row id. `FrozenTypeTable` is where the row layout is specified and justified — the
-/// per-file id discipline, and why the rows are nine arrays rather than one flat key space;
-/// this file only puts them on the wire.
-///
-/// This is the ONLY place in the codec where a type's structure is spelled out. Everywhere
-/// above — `FrozenCodecTypes`' reference codec, the declaration shell, the pool columns —
-/// names a row, so a type occurring at a thousand nodes costs one row here plus a thousand
-/// ints there.
-///
-/// It reaches no table of its own, and cannot: nothing here holds a `FrozenType` or a
-/// `SymbolKey` to intern, only the rows they were interned INTO. It takes the codec's sink
-/// (`FrozenWriter`) for the shared length- and tag-prefixed framing and for nothing else.
-///
-/// A row's ids are plain `int`s on the wire: the ids are dense and small and the blob is
-/// Brotli-wrapped at the store seam, exactly as the pool ids are.
-///
-/// Each reader sits directly under the writer it must mirror, so the byte-tag discipline is
-/// readable side by side rather than checked across a file — the same rule the rest of the
-/// codec keeps, and the reason `writeTypeRows`/`readTypeRows` below are nine one-liners
-/// each rather than nine inlined lambdas apiece.
+/// The file's interned type / key TABLES on the wire — the ROW form of `FrozenType` and the
+/// `SymbolKey`/`TypeKey` cluster, every child already a row id. The one place in the codec a
+/// type's structure is spelled out; every other occurrence of it costs a plain `int`.
 module FrozenCodecRows =
 
     // ── row ids ────────────────────────────────────────────────────────────
     //
-    // One pair per row array, mirroring the one id type per row array that makes a decode
-    // total (`FrozenTypeTable`). Each is an `int` on the wire and a distinct type off it.
+    // One pair per row array; each is an `int` on the wire and a distinct type off it.
 
     let private writeStrId (w: FrozenWriter) (StrId i) = w.Write i
     let private readStrId (r: FrozenReader) : StrId = StrId(r.ReadInt32())
@@ -37,12 +17,11 @@ module FrozenCodecRows =
     let private writeNamespaceId (w: FrozenWriter) (NamespaceId i) = w.Write i
     let private readNamespaceId (r: FrozenReader) : NamespaceId = NamespaceId(r.ReadInt32())
 
-    /// Public for the same reason as `writeTypeKeyId`.
     let writeModuleId (w: FrozenWriter) (ModuleId i) = w.Write i
     let readModuleId (r: FrozenReader) : ModuleId = ModuleId(r.ReadInt32())
 
-    /// Public because a nominal type key crosses the wire on its own (a `PooledTypeDecl`'s
-    /// identity, a constrained interface) and not only inside a type.
+    /// Public: a nominal type key crosses the wire on its own — a `PooledTypeDecl`'s
+    /// identity, a constrained interface — and not only inside a type.
     let writeTypeKeyId (w: FrozenWriter) (TypeKeyId i) = w.Write i
     let readTypeKeyId (r: FrozenReader) : TypeKeyId = TypeKeyId(r.ReadInt32())
 
@@ -52,18 +31,16 @@ module FrozenCodecRows =
     let private writeMemberKeyId (w: FrozenWriter) (MemberKeyId i) = w.Write i
     let private readMemberKeyId (r: FrozenReader) : MemberKeyId = MemberKeyId(r.ReadInt32())
 
-    /// A row of the file's symbol-key table. Public because `FrozenCodecTypes` writes a
-    /// symbol REFERENCE as one.
+    /// A row of the file's symbol-key table. Public: a symbol REFERENCE is written as one.
     let writeSymbolId (w: FrozenWriter) (SymbolId i) = w.Write i
     let readSymbolId (r: FrozenReader) : SymbolId = SymbolId(r.ReadInt32())
 
-    /// A row of the file's type table — the identity a `ty` column entry holds. Public
-    /// because `FrozenCodec` writes the columns themselves.
+    /// A row of the file's type table — the identity a `ty` column entry holds.
     let writeTypeId (w: FrozenWriter) (TypeId i) = w.Write i
     let readTypeId (r: FrozenReader) : TypeId = TypeId(r.ReadInt32())
 
-    /// A row of the file's origin table. Public because a specialization entry writes the
-    /// producer file its anchors index as one (`FrozenCodecTypes.writeOriginRef`).
+    /// A row of the file's origin table. Public: a specialization entry writes the producer
+    /// file its anchors index as one.
     let writeOriginId (w: FrozenWriter) (OriginId i) = w.Write i
     let readOriginId (r: FrozenReader) : OriginId = OriginId(r.ReadInt32())
 
@@ -281,10 +258,8 @@ module FrozenCodecRows =
             w.Write 14uy
             writeStrId w name
 
-    // Rebuilt DIRECTLY, case for case — the stored row is already the canonical one the
-    // freeze interned, so nothing here normalises. `Or` in particular reconstructs the
-    // stored member sequence verbatim; the `EqSet` it lands in is where set identity lives,
-    // and re-deriving it would be re-deciding what the freeze already decided.
+    // Rebuilt case for case with NO normalisation — the stored row is already the canonical
+    // one the freeze interned. `Or` in particular keeps the stored member sequence verbatim.
     let private readTypeRow (r: FrozenReader) : TypeRow =
         match r.ReadByte() with
         | 0uy ->

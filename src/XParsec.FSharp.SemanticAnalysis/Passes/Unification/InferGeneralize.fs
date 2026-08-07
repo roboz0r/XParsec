@@ -11,15 +11,9 @@ open UnificationTranslate
 
 module internal UnificationInferGeneralize =
 
-    /// Visit every `TyVar` leaf of `t`, resolving it to its union-find `root` and
-    /// invoking `onRoot` — the structural skeleton shared by `instantiate`,
-    /// `generalise`, and `generaliseMemberTypars`, each of which supplies its own
-    /// root predicate and dedup. A plain structural walk: it assumes `t` is already
-    /// zonked and does *not* follow `Link`s, unlike `applyDefaults` /
-    /// `prepareListLiterals`, which chase the link/default graph and so keep their
-    /// own bespoke walks. A thin wrapper now: it delegates the traversal to the
-    /// shared `SemTypeWalk.iterSemTypeVars`, supplying only the `find`-then-`onRoot`
-    /// leaf policy.
+    /// Visit every `TyVar` leaf of `t`, resolving it to its union-find `root` and invoking
+    /// `onRoot`. A plain structural walk: it assumes `t` is already zonked and does *not*
+    /// follow `Link`s, so a caller needing the link/default graph walks it itself.
     let iterTypeVarRoots (store: TypeStore) (onRoot: Rep -> unit) (t: SemType) : unit =
         t |> SemTypeWalk.iterSemTypeVars (fun tv -> onRoot (UnionFind.find store tv))
 
@@ -37,40 +31,17 @@ module internal UnificationInferGeneralize =
             subst.[qRoot.Id] <- TyVar fresh
             freshOf.[qRoot.Id] <- fresh
 
-        // EVERY quantified root is freshened per call in the
-        // constraint substitution, INCLUDING purely PHANTOM quantified roots (e.g.
-        // the enumerator `'E` in `fold`'s `'S :> IStructSeq<'T,'E>`, absent from the
-        // surface type). Previously phantom roots were left verbatim so the body
-        // grounded them at the binding — but that baked one call's concrete
-        // enumerator (carrying a function type where a value-struct closure belongs)
-        // into a method that is supposed to be generic over `'E`, forcing the
-        // collision-prone type-equality rewrite in ClosureVerdictRewrite. Now `'E`
-        // stays free in the body (freezes as `FTTypar(Method, idx_E)`), becomes a
-        // real generic method slot, and the call site solves it from the bound. The
-        // remapping of SURFACE quantified roots (e.g. `'U` in `map`'s
-        // `… -> MapSeq<…,'U>` return) is still required so the dependent-typar
-        // inference in `dischargeConstraints` does not ground the ORIGINAL surface var
-        // and leave the FRESH return copy un-instantiated → an unresolved TyVar at
-        // freeze. Seeding from the FULL `subst` covers both.
+        // EVERY quantified root is freshened per call in the constraint substitution,
+        // INCLUDING purely PHANTOM roots absent from the surface type (the enumerator `'E`
+        // in `fold`'s `'S :> IStructSeq<'T,'E>`), so `'E` stays a free generic method slot.
         let constraintSubst = Dictionary<TyVarId, SemType>()
 
         for kv in subst do
             constraintSubst.[kv.Key] <- kv.Value
 
-        // A `Coercion` target may ALSO reference still-free roots that are NOT
-        // quantified at all: a placeholder typar that leaked into the bound when
-        // declared typar (the `WSeq`/`MapSeq` ctor's `'S :> ISeq<…>` bound joined
-        // onto `wrap`/`map`'s `'S` when their roots unified). Its root sits at the
-        // registry/outer level, so `generalise`'s level test never quantified it,
-        // yet it rides the constraint. Left verbatim it is SHARED across every
-        // instantiation of the scheme, so the FIRST call grounds it (its
-        // dependent-typar inference pins it to the inner arg's witness) and the
-        // SECOND call inherits that ground bound → a spurious subtype check against
-        // an unrelated nominal (`MapSeq`5 does not support subtype of IStructSeq`2`).
-        // Freshen each such non-quantified free root per call, sharing one fresh
-        // instance across all constraints that mention it. (Quantified roots —
-        // surface AND phantom — are already in `constraintSubst` from the full
-        // `subst` seed above, so the `quantifiedRoots` guard skips them here.)
+        // A `Coercion` target may ALSO reference still-free roots that are NOT quantified at
+        // all — an outer-level placeholder that joined the bound when two roots unified. Left
+        // verbatim it is SHARED, so the first call's grounding leaks into every later one.
         let quantifiedRoots = HashSet<TyVarId>(freshOf.Keys)
 
         for (_, c) in scheme.Constraints do
@@ -110,23 +81,17 @@ module internal UnificationInferGeneralize =
 
         substituteWith ctx.Store subst scheme.Body
 
-    /// Resolve a bound name to its type: instantiate its generalised scheme if
-    /// one was written, else take the monomorphic binding-site TyVar (a sibling
-    /// in the same `let rec` group, not yet generalised — which is what forbids
-    /// polymorphic recursion).
+    /// Resolve a bound name to its type: instantiate its generalised scheme if one was
+    /// written, else take the monomorphic binding-site TyVar (a sibling in the same
+    /// `let rec` group, not yet generalised — which is what forbids polymorphic recursion).
     let instantiateBinding (ctx: PassContext) (rb: ResolvedBinding) : SemType =
         match ctx.Bindings.Scheme.TryGetValue rb.BindingSite with
         | ValueSome scheme -> instantiate ctx scheme
         | ValueNone -> TyVar(tvOf ctx rb.BindingSite)
 
-    /// True if `t` contains a TyVar whose root carries a deferred
-    /// `PendingDotAccess` constraint. Such a binding cannot be safely
-    /// generalised in v1 — quantifying a TyVar with pending dot accesses
-    /// would freeze the constraint into the scheme, and a use site that
-    /// pins the receiver would only resolve a fresh instantiation, leaving
-    /// the original (still-quantified) constraint dangling. Keeping the
-    /// binding monomorphic lets the first use site unify directly with the
-    /// pre-instantiation TyVar, which discharges the constraint normally.
+    /// True if `t` contains a TyVar whose root carries a deferred `PendingDotAccess`
+    /// constraint. Such a binding must stay monomorphic in v1: quantifying freezes the
+    /// constraint into the scheme, where a use site pinning the receiver never discharges it.
     let rec hasPendingDotAccess (store: TypeStore) (t: SemType) : bool =
         match t with
         | TyVar tv ->
@@ -141,14 +106,9 @@ module internal UnificationInferGeneralize =
         // A compound carries pending dot access iff a child does; leaves hold none.
         | t -> SemType.existsChild (hasPendingDotAccess store) t
 
-    /// A chained default like `default ^T3 : ^T1 ; default ^T1 : int` needs
-    /// two passes, hence the fixpoint iteration.
-    ///
-    /// Defaults walked here are *consumed*: once a fire happens (or once
-    /// all candidates fail), the `Defaults` list is cleared so subsequent
-    /// passes don't re-walk dead targets. A TyVar generalised at a use-site
-    /// instantiation is re-stamped with fresh defaults on the next call to
-    /// its `Instantiate` closure.
+    /// A chained default like `default ^T3 : ^T1 ; default ^T1 : int` needs two passes,
+    /// hence the fixpoint. Defaults walked here are *consumed*: once one fires (or all
+    /// candidates fail) the list is cleared, so later passes don't re-walk dead targets.
     let applyDefaults (store: TypeStore) (zonkedTy: SemType) (outerLevel: int) : unit =
         let visited = HashSet<TyVarId>()
 
@@ -167,12 +127,9 @@ module internal UnificationInferGeneralize =
                             && not (store.Defaults.IsEmpty root)
                         then
                             acc.Add root.Id
-                            // Follow the default-target graph: a chained default
-                            // (`default ^T3 : ^T1`) names another TyVar that may be
-                            // an *intermediate* result var (the inner `a + b` of
-                            // `a + b + c`) not reachable from the binding's surface
-                            // type. Without this it never becomes a candidate and the
-                            // tail of the chain never grounds.
+                            // Follow the default-target graph: `default ^T3 : ^T1` names
+                            // another TyVar that may be an *intermediate* result var (the
+                            // inner `a + b` of `a + b + c`), off the binding's surface type.
                             for target in store.Defaults.Items root do
                                 go target
 
@@ -200,32 +157,26 @@ module internal UnificationInferGeneralize =
             let root = UnionFind.find store tv
             let mutable fired = false
             let defaults = store.Defaults.Items root
-            // A target that resolves only to a still-free TyVar is *deferrable*:
-            // a chained default like `default ^T2 : ^T3` can't fire until ^T3 is
-            // itself defaulted (e.g. to `int`) on a later pass. We must keep such
-            // a default alive rather than discard it, or the fixpoint loses the
-            // tail of the chain — `let g a b = a + b` would ground `a`/result to
-            // `int` but leak `b` as a free typar.
+            // A target resolving only to a still-free TyVar is *deferrable*: `default ^T2 :
+            // ^T3` can't fire until ^T3 itself defaults on a later pass. Discarding it loses
+            // the chain's tail — `let g a b = a + b` grounds `a` but leaks `b` as a typar.
             let mutable anyDeferrable = false
 
             for target in defaults do
                 if not fired then
                     match resolveTarget target with
                     | ValueSome concrete when not (occursAndAdjust store tv concrete) ->
-                        // Occurs guard: a chain like `default ^T3 : ^T1`
-                        // with a structural target (`^T1 list`) could build
-                        // a `concrete` transitively containing tv; linking
-                        // through would create an infinite type. Skip on
-                        // occurs — the default is unsatisfiable.
+                        // Occurs guard: a structural target (`^T1 list`) can resolve to a
+                        // `concrete` transitively containing `tv`, and linking through it
+                        // would build an infinite type.
                         store.SetLink(root, ValueSome concrete)
                         fired <- true
                     | ValueSome _ -> () // resolved but occurs-unsafe — permanently dead
                     | ValueNone -> anyDeferrable <- true // target still free — retry next pass
 
-            // Clear once discharged, or once nothing is left to chase. A deferrable
-            // default stays so the fixpoint can re-evaluate it after its target
-            // links; `while changed` only re-iterates while some default *fires*,
-            // so each TyVar is retried a bounded number of times.
+            // Clear once discharged, or once nothing is left to chase. A deferrable default
+            // stays so the fixpoint re-evaluates it after its target links; `while changed`
+            // re-iterates only while some default *fires*, bounding the retries.
             if fired || not anyDeferrable then
                 store.Defaults.Set(root, [])
 
@@ -243,10 +194,9 @@ module internal UnificationInferGeneralize =
                     if tryDefault tv then
                         changed <- true
 
-    /// The element type of the bare list-literal registered against union-find `root`
-    /// in `ctx.ListLiterals` (`ValueNone` if none). The shared "look up a registered
-    /// literal by its root" primitive behind both `prepareListLiterals` and the for-in
-    /// `pinListLiteralToVesper` — the differing flip *policy* stays at each call site.
+    /// The element type of the bare list-literal registered against union-find `root` in
+    /// `ctx.ListLiterals` (`ValueNone` if none). A look-up only: whether to flip the
+    /// container to the Vesper or the FSharp.Core list stays with each caller.
     let tryListLiteralElem (ctx: PassContext) (root: TyVarId) : SemType voption =
         let mutable result = ValueNone
 
@@ -256,15 +206,9 @@ module internal UnificationInferGeneralize =
 
         result
 
-    /// Settle the flexible list-literal containers reachable from a binding's
-    /// type *before* it generalises, so the bare container `TypeVar` is never
-    /// quantified as `∀L. L`:
-    ///   - element still free (`let xs = []`) → link the container to FSharp.Core's
-    ///     `list` now, so the *element* generalises normally (`'a list`);
-    ///   - element already concrete (`let nums = [1;2;3]`) → leave the container
-    ///     free but drop its level to the outer scope so generalisation skips it,
-    ///     deferring the FSharpList-vs-Vesper choice to `resolveListLiterals` (a
-    ///     later consumer like `List.fold` can still flip it to the Vesper list).
+    /// Settle the flexible list-literal containers reachable from a binding's type *before*
+    /// it generalises, so the bare container var is never quantified as `∀L. L`: `let xs = []`
+    /// links the container now; `let nums = [1;2;3]` drops its level so quantification skips it.
     let prepareListLiterals (ctx: PassContext) (ty: SemType) (outerLevel: int) : unit =
         if ctx.ListLiterals.Count = 0 then
             ()
@@ -284,9 +228,8 @@ module internal UnificationInferGeneralize =
                             | ValueSome elemTy when ctx.Store.Level root > outerLevel ->
                                 match zonk ctx.Store elemTy with
                                 | TyVar _ ->
-                                    // Self-host (no FSharp.Core) defaults the bare
-                                    // container to the Vesper cons-list, mirroring
-                                    // `resolveListLiterals`.
+                                    // Self-host (no FSharp.Core) defaults the bare container
+                                    // to the Vesper cons-list.
                                     let listTy =
                                         if ctx.DefaultListIsVesper then
                                             TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy)
@@ -301,10 +244,9 @@ module internal UnificationInferGeneralize =
             walk ty
 
     let generalise (store: TypeStore) (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
-        // Apply defaults before quantifying: a default that resolves links
-        // its source TyVar, which the quantifier walk then skips. Without
-        // this, `let x = 1 + 2` would generalise as `∀'a. 'a` instead of
-        // `int` (the unbound `^T3` from external-symbol Instantiate).
+        // Apply defaults before quantifying: a default that resolves links its source TyVar,
+        // which the quantifier walk then skips. Without this, `let x = 1 + 2` would
+        // generalise as `∀'a. 'a` instead of `int`.
         applyDefaults store zonkedTy outerLevel
 
         let quantified = ResizeArray<TyVarId>()
@@ -316,14 +258,9 @@ module internal UnificationInferGeneralize =
 
         zonkedTy |> iterTypeVarRoots store addRoot
 
-        // Dependent typars: a quantified typar's `Coercion` bound may name *further*
-        // typars that appear ONLY in constraints, never in the binding type itself
-        // (`let f (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator>)` — `'E`
-        // is in no parameter/return position). F# generalises these phantom parameters
-        // too; without them they leak as un-ground `TyVar`s → `?free-typar` at
-        // the freeze cut (a constrained `for … in` over `'S`). Walk each quantified
-        // typar's `Coercion` targets to a fixpoint (a bound may itself reference a typar
-        // with its own bounds), `ResizeArray` growth driving the worklist.
+        // Dependent typars: a `Coercion` bound may name *further* typars that appear ONLY in
+        // constraints (`'S :> IStructSeq<'T,'E>` — `'E` is in no parameter/return position).
+        // Un-quantified they leak as un-ground `TyVar`s, degraded to `?unresolved-typar` at freeze.
         let mutable i = 0
 
         while i < quantified.Count do
@@ -344,18 +281,9 @@ module internal UnificationInferGeneralize =
 
         TypeScheme(List.ofSeq quantified, zonkedTy, constraints)
 
-    /// The value restriction: a *parameterless* binding may only generalise when
-    /// its RHS is a syntactic value — a non-expansive expression. An *expansive*
-    /// RHS (a function/method application or an allocation, e.g.
-    /// `let res = ResizeArray<'T>()`) must NOT generalise: doing so quantifies the
-    /// binding's own free typar (`res`'s element), so every use site instantiates
-    /// a *fresh* element that unifies with its context while the binding's typar is
-    /// left dangling — exactly the unsound generalisation the restriction forbids,
-    /// and which `ResolvedTypes` flags as a stray unresolved TyVar. Keeping such a
-    /// binding monomorphic lets a use site (`res.Add(e.Current)`) unify the
-    /// binding's own typar into the enclosing function's, where it generalises
-    /// soundly. A binding *with* parameters is a function — itself a syntactic
-    /// value — so it always generalises regardless of its body.
+    /// The value restriction: a *parameterless* binding generalises only when its RHS is a
+    /// syntactic value. Generalising an expansive one (`let res = ResizeArray<'T>()`)
+    /// quantifies its own free element typar, leaving it dangling at every use site.
     let rec private isExpansive (e: Expr<SyntaxToken>) : bool =
         match e with
         | Expr.App _
@@ -364,21 +292,14 @@ module internal UnificationInferGeneralize =
         | Expr.TypeAnnotation(expr = inner) -> isExpansive inner
         | _ -> false
 
-    /// Single-name `let` generalises unless the binding is `mutable`.
-    /// Mutable bindings stay monomorphic: every use of the name unifies
-    /// against the binding's own TyVar (no instantiation), so a free TyVar
-    /// in a mutable binding's type can be pinned later by any use or
-    /// assignment — but the binding is never made polymorphic at the
-    /// scheme level, which would re-introduce the classic value-
-    /// restriction soundness hole. Compound destructuring heads and
-    /// bindings whose head is something other than `Pat.NamedSimple`
-    /// don't get schemes either — they bind values, not function
-    /// abstractions, and the scheme table is keyed by a single NodeKey.
+    /// Single-name `let` generalises unless the binding is `mutable`. A mutable binding stays
+    /// monomorphic: every use unifies against the binding's own TyVar, so a free TyVar can
+    /// still be pinned by a later use or assignment, without a polymorphic scheme.
     let shouldGeneralise (b: Binding<SyntaxToken>) : bool =
         if b.mutableToken.IsSome then
             false
-        // A parameterless binding with an expansive RHS is value-restricted
-        // (above); only function bindings and non-expansive values generalise.
+        // A parameterless binding with an expansive RHS is value-restricted; only function
+        // bindings and non-expansive values generalise.
         elif b.argumentPats.IsEmpty && isExpansive b.expr then
             false
         else

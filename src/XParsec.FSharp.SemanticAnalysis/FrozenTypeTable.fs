@@ -3,101 +3,59 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 open System.Collections.Immutable
 
-// The frozen type domain in ROW form: one file's `FrozenType`s and the `SymbolKey` cluster
-// they interlock with, hash-consed into dense tables so a stored type is a 4-byte id rather
-// than an object reference, and so two structurally equal types occupy ONE row.
-//
-// THE TABLES ARE PER FILE. Every id here is a row index into ONE file's own tables, and a
-// file's blob ships the tables its columns index. An id from another file's blob means
-// nothing here — not "missing", but a DIFFERENT, valid row — which is why nothing ever
-// widens an id across the `FrozenSignature` seam. It is the discipline `SchemeId` and
-// `BinderId` already carry.
-//
-// Hash-consing happens AS THE TABLE IS BUILT (`FrozenTypeTableBuilder`, driven from the
-// freeze for the `ty` columns and from `FrozenCodec.flatten` for the types a PAYLOAD
-// embeds, which the columns never carried). The tables only ever GROW — `OfRows` re-admits
-// a stored table with every id intact — so there is no re-interning tier and no id ever
-// moves. WITHIN one file, id equality IS structural equality, which is what makes an
-// overload's `MemberKey` identity an int compare rather than a walk over
-// `EqArray<FrozenType>` graphs.
-//
-// The DU is untouched. `FrozenTypeTable` hands back the same `FrozenType` / `SymbolKey`
-// values every consumer already matches on, so the ~470 `FT*` match sites across the
-// codebase see a storage change and nothing else.
-//
-// WHY THE ROWS ARE NOT ONE FLAT `(tag, a, b)` ARRAY. Each key SORT gets its own row array
-// and its own id type, so decoding is TOTAL: a `TypeHolderRow.InModule` names a `ModuleId`,
-// which indexes the module rows and can index nothing else. One flat key space would make
-// "this holder id is a namespace row" a runtime check every reader inherits — the exact
-// class of quiet failure per-file tables exist to rule out. The variadic cases likewise
-// hold their own `EqArray<TypeId>` rather than a span into a shared array: the row is then
-// its OWN intern key (two rows with equal children ARE equal), where a span is a location
-// and two equal argument lists at different offsets would intern apart.
+// THE TABLES ARE PER FILE: every id is a row index into ONE file's own tables, so an id from
+// another file's blob names a DIFFERENT, valid row rather than a missing one — nothing ever
+// widens an id across the `FrozenSignature` seam. Within one file, id equality IS structural.
 
-/// A string in the file's string heap: a name, a namespace segment, an `FTUnknown`'s name,
-/// a `LiteralConst.String`'s value.
+/// A string in the file's string heap.
 [<Struct>]
 type StrId = | StrId of int
 
-/// A row of the file'snamespace table — a `NamespaceKey`'s segment path.
 [<Struct>]
 type NamespaceId = | NamespaceId of int
 
-/// A row of the file'smodule table (`ModuleKey`).
 [<Struct>]
 type ModuleId = | ModuleId of int
 
-/// A row of the file'stype-key table (`TypeKey`).
 [<Struct>]
 type TypeKeyId = | TypeKeyId of int
 
-/// A row of the file'sbinding-key table (`BindingKey`).
 [<Struct>]
 type BindingKeyId = | BindingKeyId of int
 
-/// A row of the file'smember-key table (`MemberKey`).
 [<Struct>]
 type MemberKeyId = | MemberKeyId of int
 
-/// A row of the file'ssymbol-key table (`SymbolKey`) — the three-way choice between a
-/// type, a binding and a member key, interned once so a repeated `FTConst` head costs one
-/// int.
+/// A row of the file's symbol-key table — a type, a binding or a member key, interned once
+/// so a repeated `FTConst` head costs one int.
 [<Struct>]
 type SymbolId = | SymbolId of int
 
-/// A row of the file'stype table — the identity a frozen node's `ty` column holds. Two
-/// structurally equal `FrozenType`s of one file share this id, so `=` on two `TypeId`s of
-/// the SAME file is structural type equality.
+/// A row of the file's type table. Two structurally equal `FrozenType`s of one file share
+/// this id, so `=` on two `TypeId`s of the SAME file is structural type equality.
 [<Struct>]
 type TypeId = | TypeId of int
 
-/// A row of the file'sorigin table — a producer file a specialization entry's anchors index
-/// (`TSpecializationG.Origin`). Interned for the reason everything else here is: a realistic
-/// program draws many entries from ONE producer, and the identity of that file is four
-/// strings.
+/// A row of the file's origin table — the producer file a specialization entry's anchors
+/// point into. Interned because a realistic program draws many entries from ONE producer.
 [<Struct>]
 type OriginId = | OriginId of int
 
-/// What holds a module, in row form: the `ModuleHolder` cases over row ids. The CASE is on
-/// the row and not recovered by reading the target, so a decode cannot mistake a module row
-/// for a namespace row.
 [<RequireQualifiedAccess>]
 type ModuleHolderRow =
     | InNamespace of ns: NamespaceId
     | InModule of parent: ModuleId
 
-/// A `ModuleKey` row.
 type ModuleRow =
     { Holder: ModuleHolderRow; Name: StrId }
 
-/// What holds a type, in row form — see `ModuleHolderRow`.
 [<RequireQualifiedAccess>]
 type TypeHolderRow =
     | InNamespace of ns: NamespaceId
     | InModule of parent: ModuleId
     | InType of outer: TypeKeyId
 
-/// A `TypeKey` row. `TyparArity` stays an int: it is part of the identity, not a reference.
+/// `TyparArity` stays an int: it is part of the identity, not a reference.
 type TypeKeyRow =
     {
         Holder: TypeHolderRow
@@ -105,10 +63,8 @@ type TypeKeyRow =
         TyparArity: int
     }
 
-/// A `BindingKey` row.
 type BindingKeyRow = { Decl: ModuleHolderRow; Name: StrId }
 
-/// A `MemberKind` row — the two interface cases name their declaring interface by row id.
 [<RequireQualifiedAccess>]
 type MemberKindRow =
     | Method
@@ -116,8 +72,8 @@ type MemberKindRow =
     | InterfaceMethod of iface: TypeKeyId
     | ExplicitInterfaceImpl of iface: TypeKeyId
 
-/// A `MemberKey` row. `ArgSig` is where the key cluster reaches back INTO the type table —
-/// the one edge that makes keys and types one interning problem rather than two.
+/// `ArgSig` is the one edge from the key cluster back INTO the type table — which is why
+/// keys and types intern as a single recursive problem rather than two.
 type MemberKeyRow =
     {
         Decl: TypeKeyId
@@ -127,23 +83,19 @@ type MemberKeyRow =
         Kind: MemberKindRow
     }
 
-/// A `SymbolKey` row.
 [<RequireQualifiedAccess>]
 type SymbolRow =
     | Type of TypeKeyId
     | Binding of BindingKeyId
     | Member of MemberKeyId
 
-/// A `LiteralConst` row — the string case's value goes to the heap, the int case is its own
-/// value.
 [<RequireQualifiedAccess>]
 type LiteralRow =
     | String of StrId
     | Int of int64
 
-/// The row form of `FTConditionalPayload`. A record, not four positional fields, for the
-/// same reason the payload is one: all four branches are `TypeId`, so a `WhenTrue`/
-/// `WhenFalse` swap would typecheck silently.
+/// A record, not four positional fields: all four are `TypeId`, so a `WhenTrue`/`WhenFalse`
+/// swap would typecheck silently.
 type ConditionalRow =
     {
         Check: TypeId
@@ -152,15 +104,9 @@ type ConditionalRow =
         WhenFalse: TypeId
     }
 
-/// One `FrozenType`, with every child replaced by the id it interned to. Case for case with
-/// `FrozenType`, so a new frozen type constructor fails to compile here rather than
-/// silently sharing a row shape with another.
-///
-/// The row is its own INTERN KEY: its children are ids, so structural equality on a row is
-/// O(arity) and two structurally equal types produce equal rows. `Or` holds an `EqSet` for
-/// exactly that reason — set-semantic equality means `A|B` and `B|A` intern to one row,
-/// while the stored insertion order keeps the declared `.d.ts` order (`SemanticInfo`'s
-/// `FTOr`).
+/// One `FrozenType` with every child replaced by the id it interned to. The row is its own
+/// INTERN KEY — children being ids, structural equality on a row is O(arity). `Or` holds an
+/// `EqSet` so `A|B` and `B|A` intern to one row, insertion order keeping the declared order.
 [<RequireQualifiedAccess>]
 type TypeRow =
     | Const of key: SymbolId * args: EqArray<TypeId>
@@ -179,9 +125,8 @@ type TypeRow =
     | LocalTypar of scheme: SchemeId * index: int
     | Unknown of name: StrId
 
-/// An `OriginFile` row. Every field is a string in the heap, `ContentHex` included: the hash
-/// is the file's identity as the blob carries it (`InputHash.ofHex` re-admits it), and two
-/// entries drawn from one producer name the same text and so the same hex.
+/// The content hash rides as a heap string, re-parsed on materialisation: two entries drawn
+/// from one producer name the same text and so the same hex, and intern to one row.
 type OriginRow =
     {
         BucketName: StrId
@@ -189,18 +134,9 @@ type OriginRow =
         ContentHex: StrId
     }
 
-/// The file's tables as STORED — the whole of what the codec writes and reads back, and the
-/// whole of what a `FrozenTypeTable` is built from. Each array is in MINT order, so a row's
-/// children are rows of a table already at least this far built; nothing here is sorted or
-/// canonicalised after the fact.
-///
-/// `ImmutableArray`, not `[]`, because a `FrozenTypeTable` hands these out (`Rows`) while
-/// still reading them: the table's whole contract is that one row materialises to ONE object
-/// shared by every id that names it, and a base table's immutability is what makes the
-/// overlay's two-layer type accessor sound (`TastPoolBuilder.exprTy`). A mutable array would
-/// leave both resting on prose. It is also the shape the stored form wants — a value type
-/// over one contiguous buffer, which is what a future mmap'd or reinterpret-cast tier can be
-/// a facade over without the columns changing type.
+/// The file's tables as STORED. Each array is in MINT order, so a row's children are rows of
+/// a table already at least this far built; nothing here is sorted or canonicalised after the
+/// fact. `ImmutableArray` because a live table hands these out while still reading them.
 type FrozenTypeRows =
     {
         Strings: ImmutableArray<string>
@@ -217,7 +153,6 @@ type FrozenTypeRows =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module FrozenTypeRows =
 
-    /// A file that interned nothing — the tables of `FrozenPools.empty`.
     let empty: FrozenTypeRows =
         {
             Strings = ImmutableArray.Empty
@@ -231,18 +166,9 @@ module FrozenTypeRows =
             Origins = ImmutableArray.Empty
         }
 
-/// One hash-consed table under construction: the rows in mint order, plus the index that
-/// makes a repeat of a row answer with the id its first occurrence took. Nine of these are
-/// the whole of the builder's state, so "intern" means the same thing in every table rather
-/// than being restated per domain.
-///
-/// `seed` re-admits rows minted by an EARLIER builder, preserving their ids: a stored array
-/// is distinct and in mint order, so replaying it through `intern` reproduces exactly the
-/// indices it was written with. It is a constructor argument and not a method because it is
-/// meaningful only on an empty table — and it is CHECKED, because the arrays reaching it come
-/// off the wire: a stored array that repeated a row would compact here, shifting every id
-/// after it, and every `ty` column entry in the file would then name a different, valid type.
-/// That is the one failure per-file tables cannot rule out by typing, so it faults instead.
+/// Rows in mint order, plus the index that answers a repeat with the id its first occurrence
+/// took. `seed` re-admits stored rows with their ids intact, and is CHECKED: a repeated
+/// stored row would compact, shifting every id after it onto a different, valid type.
 type private RowTable<'row, 'id when 'row: equality and 'id: equality>(ofIndex: int -> 'id, seed: ImmutableArray<'row>)
     =
     let rows = ResizeArray<'row>(seed.Length)
@@ -264,23 +190,13 @@ type private RowTable<'row, 'id when 'row: equality and 'id: equality>(ofIndex: 
 
     member _.Intern(row: 'row) : 'id = intern row
 
-    /// A SNAPSHOT — the builder may be interned into afterwards without disturbing what was
-    /// handed out, which is what lets `Rows` be taken mid-build.
+    /// A SNAPSHOT: the builder may be interned into afterwards without disturbing what was
+    /// handed out, so this may be taken mid-build.
     member _.ToImmutable() : ImmutableArray<'row> = ImmutableArray.CreateRange rows
 
-/// Fill-on-demand memo over a materialisation array. The row graph is ACYCLIC but spans the
-/// arrays in both directions — a member row names types, and a type row names the symbol
-/// that member belongs to — so there is no array-at-a-time order to build them in, and each
-/// row is instead built the first time it is asked for.
-///
-/// The race a concurrent read could lose is benign: two builders of one row produce
-/// structurally equal values and a reference write is atomic, so a reader sees one of two
-/// equal answers. Identity is the ID, never the object.
-///
-/// `inline`, because the seven call sites below sit under `TastPoolBuilder.exprTy`/`patTy`
-/// — a per-node read on both backends' emit walks. A closure literal passed to a non-inline
-/// function is allocated before the call and thrown away on the hit path, which is every
-/// call but the first per row.
+/// Fill-on-demand memo. The row graph is acyclic but spans the arrays in BOTH directions — a
+/// member row names types, a type row names the symbol that member belongs to — so there is
+/// no array-at-a-time build order. `inline`: the hit path must not allocate the closure.
 module private Materialise =
 
     let inline get<'a when 'a: not struct> (cache: 'a[]) (i: int) ([<InlineIfLambda>] build: unit -> 'a) : 'a =
@@ -291,18 +207,9 @@ module private Materialise =
             v
         | _ -> cache.[i]
 
-/// Interns a file's frozen types and keys as the freeze walks them. Bottom-up: a node's
-/// children are interned before the node, so a row only ever names rows already minted —
-/// which is what lets `FrozenTypeTable` materialise by plain recursion with no cycle check.
-///
-/// Not thread-safe, and belongs to ONE freeze: the ids it hands out are meaningful only
-/// against the tables it is holding.
-///
-/// Constructed either EMPTY (a fresh freeze) or over stored rows, which it re-admits with
-/// every id they were minted with intact — what a consumer that must intern MORE into a
-/// file's finished tables starts from (`FrozenCodec.flatten`, whose payloads carry types the
-/// `ty` columns never did). Growth only: nothing already interned can move, so an id handed
-/// out before the tables were stored still names the same row after they are extended.
+/// Interns a file's frozen types and keys BOTTOM-UP: a node's children are interned before
+/// the node, so a row only ever names rows already minted — which is what lets the read side
+/// materialise by plain recursion with no cycle check. Not thread-safe; belongs to ONE freeze.
 [<Sealed>]
 type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
     let strings = RowTable<string, StrId>(StrId, rows.Strings)
@@ -317,8 +224,8 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
 
     let str (s: string) = strings.Intern s
 
-    // Not part of the key/type recursive group below: an origin names a FILE, and nothing in
-    // the type domain reaches one (nor the reverse).
+    // Not in the key/type recursive group below: nothing in the type domain reaches an
+    // origin, nor the reverse.
     let originFile (f: OriginFile) =
         origins.Intern
             {
@@ -342,9 +249,8 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
                 Name = str m.Name
             }
 
-    // The key cluster and `FrozenType` are ONE recursive group, exactly as they are in
-    // `SemanticInfo`: a member key's `ArgSig` holds frozen types and an `FTConst` holds a
-    // symbol key, so neither can be interned without the other.
+    // One recursive group: a member key's `ArgSig` holds frozen types and an `FTConst` holds
+    // a symbol key, so neither can be interned without the other.
     let rec typeHolder (h: TypeHolder) : TypeHolderRow =
         match h with
         | TypeHolder.InNamespace ns -> TypeHolderRow.InNamespace(namespaceKey ns)
@@ -408,10 +314,8 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             | FTUnion(key, xs) -> TypeRow.Union(typeKey key, args xs)
             | FTClass(key, xs) -> TypeRow.Class(typeKey key, args xs)
             | FTEnum key -> TypeRow.Enum(typeKey key)
-            // The member set carries into an `EqSet<TypeId>`, so the row's own set-semantic
-            // equality is what collapses `A|B` with `B|A`. Members are already distinct as
-            // `FrozenType`s, and interning is injective on structural equality, so the id
-            // set has the same cardinality — the stored order is the declared one.
+            // Interning is injective on structural equality, so distinct `FrozenType`
+            // members give distinct ids: the set keeps its cardinality and its order.
             | FTOr ms -> TypeRow.Or(EqSet.ofSeq (seq { for m in ms -> frozenType m }))
             | FTLiteral value -> TypeRow.Literal(literal value)
             | FTKeyOf ty -> TypeRow.KeyOf(frozenType ty)
@@ -429,32 +333,28 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             | FTUnknown name -> TypeRow.Unknown(str name)
         )
 
-    /// The id `t` interns to in this file's type table, minting rows for whatever of it is
-    /// new. Idempotent: the same type always answers with the same id.
+    /// Mints rows for whatever of `t` is new. Idempotent: the same type always answers with
+    /// the same id.
     member _.Intern(t: FrozenType) : TypeId = frozenType t
 
-    /// The id `k` interns to in this file's symbol-key table — see `Intern`.
     member _.InternSymbol(k: SymbolKey) : SymbolId = symbolKey k
 
-    /// The id `k` interns to in this file's type-key table. A nominal key reaches the wire
-    /// on its own (a `PooledTypeDecl`'s identity, a constrained interface) and not only
-    /// inside a type, so it needs an entry point of its own — see `Intern`.
+    /// A nominal key reaches the wire on its own, not only inside a type, so it needs an
+    /// entry point of its own.
     member _.InternTypeKey(k: TypeKey) : TypeKeyId = typeKey k
 
-    /// The id `m` interns to in this file's module table — see `InternTypeKey`.
     member _.InternModule(m: ModuleKey) : ModuleId = moduleKey m
 
-    /// The id `f` interns to in this file's origin table — see `InternTypeKey`.
     member _.InternOrigin(f: OriginFile) : OriginId = originFile f
 
-    /// A builder for a file that has interned nothing yet.
     new() = FrozenTypeTableBuilder(FrozenTypeRows.empty)
 
-    /// A builder holding `rows` already — see the type's own doc.
+    /// Re-admits `rows` with every id they were minted with intact — where a consumer that
+    /// must intern MORE into a file's finished tables starts.
     static member OfRows(rows: FrozenTypeRows) : FrozenTypeTableBuilder = FrozenTypeTableBuilder(rows)
 
-    /// The tables as they stand. Snapshots the row arrays; the builder may be interned into
-    /// afterwards, which simply produces a longer table next time.
+    /// Snapshots the row arrays; the builder may be interned into afterwards, which simply
+    /// produces a longer table next time.
     member _.Rows: FrozenTypeRows =
         {
             Strings = strings.ToImmutable()
@@ -468,13 +368,9 @@ type FrozenTypeTableBuilder private (rows: FrozenTypeRows) =
             Origins = origins.ToImmutable()
         }
 
-/// A file's interned type and key tables, READ SIDE: it resolves an id back to the very
-/// `FrozenType` / `SymbolKey` the DU declares, so a consumer of the columns matches on the
-/// same values it always did.
-///
-/// One row materialises to ONE object, shared by every id-holder that names it. That is the
-/// second half of hash-consing's payoff: the columns hold 4-byte ids, and the types those
-/// ids denote are allocated once per DISTINCT type rather than once per occurrence.
+/// A file's interned type and key tables, READ SIDE: an id resolves back to the very
+/// `FrozenType` / `SymbolKey` the DU declares. One row materialises to ONE object, shared by
+/// every id-holder that names it — so a type is allocated once per DISTINCT type.
 [<Sealed>]
 type FrozenTypeTable private (rows: FrozenTypeRows) =
     let namespaceCache: NamespaceKey[] = Array.zeroCreate rows.Namespaces.Length
@@ -607,9 +503,9 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
         | LiteralRow.String s -> LiteralConst.String(str s)
         | LiteralRow.Int n -> LiteralConst.Int n
 
-    // Rebuilt DIRECTLY, never through `FrozenType.MkUnion` (which flattens / dedupes /
-    // collapses): the interned row is already canonical, and routing a materialisation
-    // through a normaliser would make the table's contents unrecoverable from their own ids.
+    // Rebuilt DIRECTLY, never through a normalising constructor (one that flattens / dedupes
+    // / collapses): the interned row is already canonical, and normalising here would make
+    // the table's contents unrecoverable from their own ids.
     and frozenType (TypeId i) : FrozenType =
         Materialise.get
             typeCache
@@ -640,21 +536,14 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
                 | TypeRow.Unknown name -> FTUnknown(str name)
             )
 
-    /// The stored rows — what the codec writes. The materialised side is derived from these
-    /// and is never serialized.
-    ///
+    /// The stored rows — what the codec writes; the materialised side is never serialized.
     /// Handed out DIRECTLY, no copy: `FrozenTypeRows` is immutable, so sharing the arrays a
-    /// live table is reading through costs nothing and risks nothing.
+    /// live table is reading through costs nothing.
     member _.Rows: FrozenTypeRows = rows
 
-    /// Resolve an id to the value it names — one operation, five id types, the ID's TYPE
-    /// choosing the table. That is what the distinct id types buy on the read side: a further
-    /// table adds a row type and an overload, not another method name to learn, and `t.[id]`
-    /// cannot reach the wrong table because no id indexes two of them.
-    ///
-    /// The inverses of `FrozenTypeTableBuilder`'s five `Intern*` entry points, in the same
-    /// order. THE read is the first: `TastPoolBuilder.exprTy`/`patTy` resolve the `ty`
-    /// columns through it, so a consumer meets a `FrozenType` and never a row.
+    /// Resolve an id to the value it names — the ID's TYPE chooses the table, so `t.[id]`
+    /// cannot reach the wrong one and a further table adds an overload rather than a method
+    /// name to learn. The inverses of the builder's five `Intern*` entry points.
     member _.Item
         with get (id: TypeId): FrozenType = frozenType id
 
@@ -672,6 +561,6 @@ type FrozenTypeTable private (rows: FrozenTypeRows) =
 
     static member OfRows(rows: FrozenTypeRows) : FrozenTypeTable = FrozenTypeTable(rows)
 
-    /// The tables of a file that interned nothing — `FrozenPools.empty`'s, and an overlay
-    /// pool's, neither of which owns a frozen file's types.
+    /// The tables of a file that interned nothing — an overlay pool's, for one, since it
+    /// does not own a frozen file's types.
     static member Empty: FrozenTypeTable = FrozenTypeTable(FrozenTypeRows.empty)

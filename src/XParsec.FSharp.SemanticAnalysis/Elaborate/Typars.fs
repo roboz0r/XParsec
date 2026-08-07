@@ -2,18 +2,15 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// The typar axis of the Elaborate pass: the declaring / method typar envs a decl
-// quantifies, and the deferred `TyVar -> TyTypar` cut applied once the whole decl is
-// surfaced. Everything the surfacers build stays metavar-shaped until that cut, so a
-// member signature, a local and a case field all flip on the same indices.
+// The declaring / method typar envs a decl quantifies, and the `TyVar -> TyTypar` cut
+// deferred until the whole decl is surfaced — so a member signature, a local and a case
+// field all flip on the same indices.
 
 module internal ElaborateTypars =
 
-    /// Rewrite open typars (free `TyVar`s, by zonked root) to their frozen
-    /// `TyTypar` nodes: `env` pairs each typar's zonked root
-    /// with its target `TyTypar(axis, index)`. Anything else passes through
-    /// unchanged — a leftover inference `TyVar` not in `env` stays a `TyVar`, which
-    /// the backend rejects loudly (an unresolved-typar bug).
+    /// Rewrite open typars to their frozen `TyTypar` nodes: `env` pairs each typar's
+    /// zonked root with its target `TyTypar(axis, index)`. A `TyVar` whose root is not
+    /// in `env` stays a `TyVar`, and degrades to `FTUnknown` at the freeze cut.
     let remapDeclTypars (store: TypeStore) (env: (TyVarId * SemType) list) (t: SemType) : SemType =
         let rec go t =
             match t with
@@ -25,11 +22,6 @@ module internal ElaborateTypars =
 
         go (Unification.zonk store t)
 
-    /// Rewrite every `SemType` embedded in a member body via `f`. Used to push a
-    /// generic union's declaring-typar remap (`remapDeclTypars`) through the whole
-    /// member body, so a typar-typed local / scrutinee / bound variable carries the
-    /// `TyConst "'T"` marker the backend's generic-member encoder consumes — just as
-    /// the case-field types do (generalised to member bodies).
     let private mapExprTypes (f: SemType -> SemType) (e: TExpr) : TExpr =
         TastWalk.mapExpr
             { TastWalk.identityMapper with
@@ -37,15 +29,9 @@ module internal ElaborateTypars =
             }
             e
 
-    /// Pair each declared typar's *zonked* root TyVar with the frozen
-    /// `TyTypar(Declaring, i)` it remaps to; the index is the typar's position in its
-    /// declaration list — the same index the backend's `GenericParam` rows use. Pinned
-    /// typars (collapsed to a non-`TyVar`) are dropped (nothing to remap), but the loop
-    /// index still tracks declaration position so a surviving typar keeps its correct
-    /// slot. Shared by every `try*Type` surfacer and the interface / abstract-method
-    /// projections. The method axis is never minted from a declaration list — a
-    /// method's typars come from its generalised carrier (`GeneralizedTypars.methodEnv`)
-    /// or, for a module `let`, from `mkMethodQuantEnv`.
+    /// Pair each declared typar's zonked root with `TyTypar(Declaring, i)`, `i` being its
+    /// position in the declaration list. A typar pinned to a non-`TyVar` is dropped, but
+    /// the index still counts it, so a surviving typar keeps its declared slot.
     let mkDeclTyparEnv (store: TypeStore) (typeParams: EqArray<string * TyVarId>) : (TyVarId * SemType) list =
         [
             for i in 0 .. typeParams.Length - 1 do
@@ -56,39 +42,25 @@ module internal ElaborateTypars =
                 | _ -> ()
         ]
 
-    /// Quantify a module-`let`'s free type parameters into `TyTypar(Method, i)` in
-    /// CANONICAL order via the one shared `GeneralizedTypars.canonical` — the F#
-    /// rule: explicitly-declared `<'b,'a>` typars first in source order (`declared`,
-    /// threaded from the `TDecl.Let` site), then the remaining inferred roots by
-    /// first-left-to-right appearance (params left-to-right, then return). A *linked*
-    /// root (pinned to a concrete type, or a measure carrier whose `Link` points at
-    /// its carrier) is followed, not collected, so measures and pinned vars stay out
-    /// of the typar list. After the canonical order, the dependent-typar fixpoint
-    /// (constraint-only `Coercion` targets, absent from the type) is preserved and
-    /// appended, mirroring `InferGeneralize.generalise`. The resulting env feeds
-    /// `remapDeclTypars`, exactly like the declaring-typar env in 2A. Caller
-    /// restricts this to function bindings (a non-function value's free var is a
-    /// value-restriction case, not a method typar).
+    /// Quantify a module-`let`'s free type parameters into `TyTypar(Method, i)` in the F#
+    /// canonical order — `declared` typars first in source order (`<'b,'a>` stays `'b,'a`),
+    /// then the remaining free roots by first appearance, then the constraint-only typars.
     let mkMethodQuantEnv
         (store: TypeStore)
         (declared: (string * TyVarId) list)
         (declTy: SemType)
         : (TyVarId * SemType) list =
-        // The canonical F# order — declared typars first in source order, then the
-        // remaining free roots by first-left-to-right-appearance — is computed by the
-        // ONE shared `GeneralizedTypars.canonical`. Free functions have no enclosing
-        // class typars, so `fixedRoots` is empty. A declared typar that inference
-        // pinned to a concrete type (its root is `Link`ed) is NOT a real method typar;
-        // drop it so this stays identical to the old appearance-only walk for the
-        // no-typar / pinned-declared cases (only the genuinely-reordered case changes).
+        // A declared typar that inference pinned to a concrete type (its root is `Link`ed)
+        // is not a method typar; drop it. A free function has no enclosing class typars, so
+        // the `fixedRoots` set passed below is empty.
         let declaredFree =
             declared
             |> List.filter (fun (_, tv) -> (store.Link(UnionFind.find store tv)).IsNone)
 
         let zonked = Unification.zonk store declTy
 
-        // Free-fn inferred typars have no source names, so an empty `knownNames`
-        // preserves today's all-`M%d` synthesis for the appearance tail.
+        // Free-fn inferred typars have no source names, so an empty `knownNames` leaves the
+        // appearance tail to be synthesised as `M0`, `M1`, ….
         let knownNames =
             System.Collections.Generic.Dictionary<TyVarId, string>()
             :> System.Collections.Generic.IReadOnlyDictionary<_, _>
@@ -101,30 +73,22 @@ module internal ElaborateTypars =
                 knownNames
                 zonked
 
-        // The canonical roots, in ABI order, become the seed of the dependent-typar
-        // worklist below.
+        // The canonical roots seed the dependent-typar worklist below.
         let acc = ResizeArray<TyVarId>(GeneralizedTypars.toArray gt |> Array.map snd)
         let seen = System.Collections.Generic.HashSet<TyVarId>()
 
         for r in acc do
             seen.Add r |> ignore
 
-        // Dependent typars (mirrors `InferGeneralize.generalise`): a collected typar's
-        // `Coercion` bound may name further typars absent from the declared (curried)
-        // type — `let f (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator>)`
-        // has `'E` in no parameter/return position. F# generalises these phantom
-        // parameters too, so they are genuine method typars; fold each collected
-        // typar's `Coercion` targets in to a fixpoint (a bound may itself reference a
-        // typar with bounds), `ResizeArray` growth driving the worklist. Without this a
-        // constrained `for … in` over `'S` leaks `'E` as `?free-typar` at the freeze cut.
+        // A `Coercion` bound may name typars absent from the declared type: in
+        // `let f (s: 'S when 'S :> IStructSeq<'T,'E>)`, `'E` is in no parameter/return position.
+        // F# generalises those too, so fold the bounds in to a fixpoint (a bound may add more).
         let mutable depIdx = 0
 
         while depIdx < acc.Count do
             for c in store.Constraints.Items(UnionFind.find store acc.[depIdx]) do
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
-                    // Append the first-appearance roots of the coercion-bound target
-                    // (link-following, deduped against the seed). The shared collector.
                     SemTypeWalk.collectLinkedRoots store acc seen (Unification.zonk store target)
                 | _ -> ()
 
@@ -132,24 +96,15 @@ module internal ElaborateTypars =
 
         [ for i in 0 .. acc.Count - 1 -> acc.[i], TyTypar(TyparAxis.Method, i) ]
 
-    /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and
-    /// the body's synthesised `this` self-type: each declared typar zonked to its
-    /// root `TyVar`. `elaborate` keeps these in `TyVar` form (not `TyTypar`) so
-    /// the whole tree stays metavar-shaped until the `freezeTypars` cut, which
-    /// remaps each root to `TyTypar(Declaring, i)`. The
-    /// index `i` is the typar's declaration position — the same index
-    /// `mkDeclTyparEnv` pairs the root with — so the round-trip is faithful.
+    /// The declaring-type typars as `SemType` args, for a member's `ThisTy` and the body's
+    /// synthesised `this` self-type: each declared typar zonked to its root `TyVar`. They
+    /// stay `TyVar`-shaped until `freezeTypars` remaps them to `TyTypar(Declaring, i)`.
     let declTyparArgs (store: TypeStore) (typeParams: EqArray<string * TyVarId>) : EqArray<SemType> =
         EqArray.ofSeq (seq { for (_, ptv) in typeParams -> Unification.zonk store (TyVar ptv) })
 
-    /// Elaborate one type member: stamp its `ThisTy` with the `TyVar`-rooted
-    /// `selfTy` and surface its *method-axis* typar roots so the caller folds them
-    /// into the decl's freeze env. The signature / body / return types stay
-    /// verbatim — the `TyVar → TyTypar` cut is deferred to `freezeTypars`. Shared
-    /// by the union / class member surfacers (they differ only in `selfTy`'s
-    /// `TyUnion` vs `TyClass` head). `MethodTypeParams` rides `'ty` and is cut by
-    /// `freezeTypars` alongside the body; here we only READ each entry's root
-    /// (`TyVar root`) to key the `env` marker `TyTypar(Method, i)` on it.
+    /// Elaborate one type member: stamp its `ThisTy` with the `TyVar`-rooted `selfTy` and
+    /// surface its method-axis typar roots so the caller folds them into the decl's freeze
+    /// env. Signature / body / return types stay verbatim — the cut is deferred.
     let elaborateMember (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TyVarId * SemType) list =
         let methodMarkers =
             [
@@ -161,15 +116,9 @@ module internal ElaborateTypars =
 
         { m with ThisTy = selfTy }, methodMarkers
 
-    /// The per-member elaborator every host surfacer (union / record / class /
-    /// intrinsic-abbrev) folds over its members — they differ only in `selfTy`'s
-    /// head. Surface a member when the declaring type is generic (declaring axis) *or*
-    /// the member itself is generic (method axis): stamp its self-type and fold its
-    /// method typars into the decl `env`, so `freezeTypars` later flips both axes. A
-    /// generic method on a *monomorphic* host still needs its `'C` cut to
-    /// `TyTypar(Method, i)`, so it can't be skipped. For a mono host with a mono member,
-    /// `selfTy` equals the member's existing `ThisTy`, so leaving it verbatim is
-    /// byte-identical.
+    /// The per-member elaborator each host surfacer folds over its members — they differ
+    /// only in `selfTy`'s head. Surface a member when the declaring type is generic
+    /// (declaring axis) OR the member itself is generic (method axis); else leave it as is.
     let mkMemberElaborator
         (selfTy: SemType)
         (declTypars: string list)
@@ -183,21 +132,9 @@ module internal ElaborateTypars =
                 env.AddRange methodMarkers
                 m
 
-    /// The deferred typar cut. Walk every `SemType` in a
-    /// decl through `remapDeclTypars env`, rewriting the decl's open `TyVar` typars
-    /// to their `TyTypar(axis, index)` nodes. `env` is the decl's own quantified
-    /// typar roots, collected by `elaborate` (the single index-minting point).
-    /// `remapDeclTypars` zonks as it recurses, so an empty `env` is a pure
-    /// zonk-rebuild — exactly the old monomorphic `remapDeclTypars []` path every
-    /// surfacer applied inline.
-    ///
-    /// A type declaration's slots are NOT enumerated here: `TastWalk.mapTypeDecl` carries
-    /// the cut through the declaration shape's single enumeration, which is how the cut
-    /// reaches a member signature, a preamble initialiser and a secondary ctor's chain args
-    /// alike — including `MethodTypeParams`, which rides `'ty` like every other slot, so `f`
-    /// flips each entry's `TyVar root` to `TyTypar(Method, i)` and the `GenericParam` rows key
-    /// on the marker rather than on a cell. A binding's own pattern and value are the term
-    /// axis and stay here; the shape rebuild has no pattern slot to give them.
+    /// The deferred typar cut: walk every `SemType` in `d` through `remapDeclTypars env`,
+    /// whose `env` holds the decl's own quantified typar roots. An empty `env` is then a
+    /// pure zonk-rebuild. A type declaration's own slots are enumerated by `mapTypeDecl`.
     let freezeTypars (store: TypeStore) (env: (TyVarId * SemType) list) (d: TDecl) : TDecl =
         let f = remapDeclTypars store env
 

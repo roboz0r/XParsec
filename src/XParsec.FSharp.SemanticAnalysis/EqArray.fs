@@ -12,19 +12,15 @@ open XParsec // SmallArrayBuilder
 module internal RefEquality =
     let inline refEq (x: 'T) (y: 'T) = System.Object.ReferenceEquals(x, y)
 
-/// An `ImmutableArray<'T>` with **structural (value) equality**: two `EqArray`s
-/// are equal iff they have equal length and element-wise-equal contents,
-/// recursing into `'T`'s own equality.
-/// `default`/uninitialised value reads as empty — no `NullReferenceException` from the underlying default array.
+/// An `ImmutableArray<'T>` with structural (value) equality: equal iff equal length and
+/// element-wise-equal contents, recursing into `'T`'s own equality. An uninitialised value
+/// reads as empty rather than throwing off the default `ImmutableArray`.
 [<Struct; IsReadOnly; CustomEquality; NoComparison>]
 type EqArray<'T> =
-    // `NoComparison` is deliberate. Add `CustomComparison`
-    // here — a lexicographic span compare — only if that changes.
     val private items: ImmutableArray<'T>
 
     new(items: ImmutableArray<'T>) = { items = items }
 
-    /// The backing array, normalised so a `default(EqArray)` reads as empty.
     member this.Underlying: ImmutableArray<'T> =
         if this.items.IsDefault then
             ImmutableArray<'T>.Empty
@@ -74,8 +70,7 @@ type EqArray<'T> =
 
         h
 
-    // Renders element contents (`%A` on an unrecognised struct falls back to this) so a
-    // collection value in a diagnostic reads as its items, not the bare type name.
+    // `%A` on a struct falls back to this, so a value in a diagnostic prints as `EqArray [a; b]`.
     override this.ToString() =
         let xs = this.Underlying
         let sb = System.Text.StringBuilder("EqArray [")
@@ -102,24 +97,20 @@ module EqArray =
 
     let ofList (xs: 'T list) : EqArray<'T> = ofSeq xs
 
-    /// Copies; the caller may continue to mutate `xs` without affecting the
-    /// returned `EqArray`. Use the `Builder` overloads to hand off without copy.
+    /// Copies, so the caller may keep mutating `xs`.
     let ofArray (xs: 'T[]) : EqArray<'T> =
         EqArray<'T>(ImmutableArray.Create<'T>(xs))
 
-    /// Copies; pair with `ResizeArray` accumulators used during a pass build-up.
+    /// Copies, so the caller may keep mutating `xs`.
     let ofResizeArray (xs: ResizeArray<'T>) : EqArray<'T> =
         EqArray<'T>(ImmutableArray.CreateRange xs)
 
-    /// Hands the builder's buffer off without copying when its `Count = Capacity`;
-    /// otherwise copies. Matches `ImmutableArray<_>.Builder.MoveToImmutable` /
-    /// `ToImmutable` semantics across the portable `ImmutableArrayBuilder` alias.
+    /// Hands the builder's buffer off uncopied when its `Count = Capacity`; otherwise copies.
     let ofImmutableBuilder (b: ImmutableArrayBuilder<'T>) : EqArray<'T> = EqArray<'T>(b.ToImmutable())
 
     let toList (xs: EqArray<'T>) : 'T list = List.ofSeq xs.Underlying
 
-    /// Copies into a fresh mutable array. Prefer this over `toList |> List.toArray`,
-    /// which builds a throwaway cons-list on the way.
+    /// Copies into a fresh mutable array.
     let toArray (xs: EqArray<'T>) : 'T[] =
         let src = xs.Underlying
 
@@ -146,13 +137,9 @@ module EqArray =
 
         EqArray<'U>(b.ToImmutable())
 
-    /// Reference-preserving map. Returns `struct (false, xs)` — the SAME array, no
-    /// allocation — when `mapping` leaves EVERY element reference-unchanged (the common
-    /// case when a structural walk like `zonk`/`substitute` hits an already-resolved
-    /// subtree); otherwise `struct (true, mapped)`, built through the same stack-only
-    /// `SmallArrayBuilder` as `map` so the changed path costs no more than a plain `map`
-    /// (one result array for ≤4 elements, no heap builder). Reference-typed `'T` only
-    /// (`ReferenceEquals`); a struct element would box each item, so it is constrained out.
+    /// Reference-preserving map: `ValueNone` — no allocation at all — when `mapping` returns a
+    /// reference-equal result for EVERY element, the common case when a structural walk reaches
+    /// an already-resolved subtree. Reference types only; a struct element would box per item.
     let mapPreserve<'T when 'T: not struct> (mapping: 'T -> 'T) (xs: EqArray<'T>) : EqArray<'T> voption =
         let src = xs.Underlying
         let n = src.Length
@@ -225,10 +212,8 @@ module EqArray =
 
         ok
 
-    /// Returns `false` immediately on a length mismatch (does NOT throw), unlike
-    /// `List.forall2`. Callers that care about the mismatch should check
-    /// `.Length` themselves first — every TAST consumer that uses this pattern
-    /// already does so.
+    /// Returns `false` on a length mismatch; it does NOT throw, so a caller that must
+    /// distinguish "mismatched" from "unequal" has to compare `.Length` itself.
     let forall2 (predicate: 'T -> 'U -> bool) (xs: EqArray<'T>) (ys: EqArray<'U>) : bool =
         let a = xs.Underlying
         let b = ys.Underlying
@@ -299,8 +284,7 @@ module EqArray =
 
         EqArray<'T>(b.ToImmutable())
 
-    /// Uses `EqualityComparer<'T>.Default`, consistent with this type's own
-    /// structural equality — so no `'T: equality` constraint on callers.
+    /// Uses `EqualityComparer<'T>.Default`, so callers need no `'T: equality` constraint.
     let contains (value: 'T) (xs: EqArray<'T>) : bool =
         let src = xs.Underlying
         let cmp = EqualityComparer<'T>.Default
@@ -331,10 +315,8 @@ module EqArray =
 
             EqArray<'T>(b.ToImmutable())
 
-/// Fixed-arity deconstruction patterns — allocation-free arity checks that bind
-/// elements by index (no cons-list, no tail slice). `[<AutoOpen>]` so consumers
-/// that `open XParsec.FSharp.SemanticAnalysis` get them unqualified, replacing the
-/// `match EqArray.toList xs with [ … ]` idiom.
+/// Fixed-arity deconstruction patterns: allocation-free arity checks that bind elements by
+/// index, in place of `match EqArray.toList xs with [ … ]`.
 [<AutoOpen>]
 module EqArrayPatterns =
     [<return: Struct>]

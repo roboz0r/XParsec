@@ -1,9 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-/// The primitive `SemType`s the front end mints directly — the types literals and
-/// built-in constructs infer to (`Unification` / `Elaborate`). Each is a `TyConst`
-/// over a `RuntimeNames` key, so identity is the key, never the spelling; codegen
-/// maps each key to its target representation via `IntrinsicRepr`.
+/// The primitive `SemType`s the front end mints directly: the types literals and built-in
+/// constructs infer to, each a `TyConst` over a `RuntimeNames` key rather than a spelling.
 module BuiltinTypes =
 
     let tyInt: SemType = TyConst(RuntimeNames.intKey, EqArray.empty)

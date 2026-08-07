@@ -14,27 +14,16 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateMembers
 
 // Class-host lowering for the Elaborate pass. What separates a class from the other
 // nominal hosts is that some of its binders are FIELDS, not locals: a primary-ctor
-// param, an instance `let`, a `static let`. Every body lowered here runs through the
-// rewrites that turn a reference to one into a field access, so codegen never sees
-// the binder's `NodeKey`.
+// param, an instance `let`, a `static let`.
 
 module internal ElaborateClassMembers =
 
-    /// The class binders that are not locals but FIELDS: a primary-ctor param and an
-    /// instance-`let` binder (instance fields), a `static let` binder (a static field).
-    /// Every reference to one — in a member body, in a `.cctor` initialiser, in a later
-    /// preamble entry — must be rewritten to a field access, so codegen never sees the
-    /// binder's `NodeKey`. `MkSet` rewrites the WRITE side with the read side: a
-    /// `let mutable` binder IS the field, so a `c <- c + 1` must store to it (a `TExpr.Let`
-    /// binder would instead be promoted to a ref cell and fork the storage). An instance
-    /// field stores via `TExpr.FieldSet` on `this`; a `static let mutable` via
-    /// `TExpr.StaticFieldSet`. `MkSet` stays `ValueNone` only where no store node exists
-    /// for the target; the "assignment to immutable binding" check already rejects a write
-    /// to a non-`mutable` binder upstream, so a plain `static let` never reaches this.
+    /// Every reference to such a binder rewrites to a field access, so codegen never sees
+    /// the binder's `NodeKey`. `MkSet` carries the write side: a `let mutable` binder IS the
+    /// field, so `c <- c + 1` must store to it, not fork storage into a promoted ref cell.
     [<NoEquality; NoComparison>]
     type FieldRewrite =
         {
-            /// Field name, by binder `NodeKey`.
             Names: Map<NodeKey, string>
             MkGet: string -> SemType -> SyntaxToken -> TExpr
             MkSet: (string -> TExpr -> SemType -> SyntaxToken -> TExpr) voption
@@ -61,7 +50,6 @@ module internal ElaborateClassMembers =
                 }
                 body
 
-    /// `static let` binders → `TExpr.StaticFieldGet` on the declaring class.
     let staticFieldRewrite (info: ClassTypeInfo) : FieldRewrite =
         {
             Names =
@@ -72,12 +60,9 @@ module internal ElaborateClassMembers =
             MkSet = ValueSome(fun name rhs ty tok -> TExpr.StaticFieldSet(info.Key, name, rhs, ty, tok))
         }
 
-    /// Primary-ctor params AND instance-`let` binders → `TExpr.FieldGet`/`FieldSet` on
-    /// `this`. ONE map, because they are one kind of thing: an instance `let` is a ctor
-    /// param whose value comes from an initialiser rather than an argument. The map is
-    /// keyed by `NodeKey`, so it stays exact even though the two families share a name
-    /// space — which `NameResolution` separately requires to be collision-free, since a
-    /// field is emitted under its SOURCE name.
+    /// Primary-ctor params AND instance-`let` binders share ONE map: an instance `let` is a
+    /// ctor param whose value comes from an initialiser rather than an argument. Keying by
+    /// `NodeKey` stays exact even though the two families share one source name space.
     let instanceFieldRewrite (info: ClassTypeInfo) (classTy: SemType) : FieldRewrite =
         let names =
             (Map.empty, info.CtorParams)
@@ -98,30 +83,20 @@ module internal ElaborateClassMembers =
                 )
         }
 
-    /// Translate one class member element into a `TTypeMember`. Parallel to the nominal
-    /// (union / record) member translation — only differs in the `ThisTy` shape
-    /// (`TyClass` vs `TyUnion`/`TyRecord`) and in the field rewrites: a
-    /// reference to a ctor param or an instance-`let` binder in an *instance* body becomes
-    /// a `FieldGet`/`FieldSet` on `this`, and one to a `static let` binder becomes a
-    /// `StaticFieldGet` — so the back end resolves them through the same field mechanism
-    /// every other nominal type uses (codegen never sees the binder's NodeKey). Static
-    /// members see neither `this` nor the instance binders (front-end's `staticScope`), so
-    /// only the static rewrite applies there.
+    /// Translate one class member element into a `TTypeMember`. A reference to a ctor param
+    /// or an instance-`let` binder in an INSTANCE body becomes a `FieldGet`/`FieldSet` on
+    /// `this`; a static member sees neither, so only the `static let` rewrite applies there.
     let translateClassMember
         (ctx: PassContext)
         (info: ClassTypeInfo)
         (el: TypeDefnElement<SyntaxToken>)
         : TTypeMember voption =
-        // The instantiated self-type the synthesised `this` Var carries. Empty
-        // typar list for a monomorphic class; the declaring typars ride as
-        // `TyVar` roots (not `TyTypar`), which `freezeTypars` cuts over the
-        // whole member body.
+        // The instantiated self-type the synthesised `this` Var carries. Declaring typars
+        // ride as `TyVar` roots here; the cut to `TyTypar` is made over the whole decl.
         let classTy = TyClass(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
 
-        // `base` is in scope only when the class has an `inherit` clause; an
-        // instance member then carries the shared `BaseKey` so codegen maps a
-        // `base.M(...)` receiver to `ldarg.0` (CallVia.Base drives the
-        // non-virtual opcode — see `viaOfReceiver`).
+        // `base` is in scope only when the class has an `inherit` clause; an instance
+        // member then carries the shared `BaseKey` so a `base.M(...)` receiver resolves.
         let baseKey =
             if info.BaseType.IsSome then
                 ValueSome info.BaseKey
@@ -137,8 +112,6 @@ module internal ElaborateClassMembers =
             let isStatic = s.IsSome
             let isOverride = isOverrideKeyword kw
             let isInline = inlineTok.IsSome
-            // Member-level accessibility (`member private this.M`) rides
-            // `MemberDefn.Member.access`, not the inner `Binding.access`.
             let memberAccessibility = accessibilityOfToken memberAccess
 
             let lowerBody (e: Expr<SyntaxToken>) : TExpr =
@@ -149,22 +122,17 @@ module internal ElaborateClassMembers =
                 else
                     rewriteFieldRefs instanceRewrite body
 
-            // The member's own generic parameters (B-12), recovered from the
-            // registered `TypeMemberInfo`'s canonical `Generalized` order. The order
-            // flows through UNCHANGED (the carrier mints no new order); each entry's
-            // root is refreshed to its current union-find / link representative and
-            // any that pinned to a concrete type since generalise is DROPPED — both
-            // ORDER-PRESERVING, so the ABI index is untouched. Codegen installs these
-            // roots as ambient method typars so they encode to `!!i`.
+            // The member's own generic parameters, recovered from the registered
+            // `TypeMemberInfo.CanonicalTypars`. That order flows through UNCHANGED, so the
+            // ABI index a frozen `TyTypar(Method, i)` marker names stays valid.
             let methodTypeParams
                 (n: string)
                 (kind: TMemberKind)
                 (declKey: NodeKey voption)
                 : EqArray<string * SemType> =
-                // Materialize the canonical carrier into the tree as the typars' own
-                // types (`TyVar root`), so `freezeTypars` / `TastConvert` flip them to
-                // `TyTypar(Method, i)` → `FTTypar(Method, i)` exactly like every other
-                // embedded type — the tree field holds no union-find carrier.
+                // Materialise each root as a plain `TyVar root`, so the later cut flips it
+                // to `TyTypar(Method, i)` like every other embedded type — the tree field
+                // never holds a union-find carrier.
                 let ofRoots (g: GeneralizedTypars) : EqArray<string * SemType> =
                     GeneralizedTypars.toArray g
                     |> Array.map (fun (name, root) -> name, TyVar root)
@@ -176,12 +144,9 @@ module internal ElaborateClassMembers =
                     | ClassMemberKind.Property, TMemberKind.Property -> true
                     | _ -> false
 
-                // Match the *exact* overload by its registration `DeclKey` first —
-                // same-name overloads share `Name`/`Kind`/`IsStatic`, so a name-only
-                // `tryFind` would return the first overload's typars for every one,
-                // dropping the others' own `'T`. Fall back to the name match
-                // for any member whose binding key didn't resolve (operator heads,
-                // auto-properties — none of which overload generically).
+                // Match the exact overload by its registration `DeclKey` first: same-name
+                // overloads share `Name`/`Kind`/`IsStatic`, so a name-only find would give
+                // every one the FIRST overload's typars, dropping the others' own `'T`.
                 let byKey =
                     match declKey with
                     | ValueSome k -> info.Members |> Array.tryFind (fun mi -> mi.DeclSite.Key = k)
@@ -195,13 +160,9 @@ module internal ElaborateClassMembers =
                     )
                 with
                 | Some mi ->
-                    // Refresh each canonical root to its CURRENT union-find / link
-                    // representative and DROP any that pinned to a concrete type since
-                    // generalise — ORDER-PRESERVING, so the ABI index is untouched.
-                    // Per-entry `zonk`+drop: a root unioned away keys the body's frozen
-                    // `TyTypar(Method, i)` markers on its survivor, and a root linked to a
-                    // concrete type is no longer a real typar (keeping it would inflate
-                    // the GenericParam arity).
+                    // A root unioned away since generalise keys the body's frozen typar
+                    // markers on its SURVIVOR; a root linked to a concrete type is no
+                    // longer a typar, and keeping it would inflate the GenericParam arity.
                     mi.CanonicalTypars
                     |> GeneralizedTypars.refreshRoots (fun tv ->
                         match Unification.zonk ctx.Store (TyVar tv) with
@@ -256,14 +217,9 @@ module internal ElaborateClassMembers =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// Translate one secondary constructor into a `TSecondaryCtor`. The
-    /// params / preamble / chain-call args are translated verbatim; each
-    /// `let`-preamble binding becomes a `TCtorLet`, the final chain call's
-    /// arguments become `PrimaryArgs`. A generic class's declaring typars ride as
-    /// `TyVar` roots and are cut over the whole decl by `freezeTypars` (the
-    /// declaring env `tryClassType` collects), so no per-ctor remap is needed here.
-    /// v1 supports a `let` preamble followed by the chain call; sequencing /
-    /// conditional preambles recurse to the chain and drop intervening statements.
+    /// Each `let`-preamble binding becomes a `TCtorLet`, the final chain call's arguments
+    /// become `PrimaryArgs`. Sequencing / conditional preambles recurse to the chain and
+    /// DROP the statements they pass over.
     let translateSecondaryCtor (ctx: PassContext) (sc: ClassSecondaryCtorInfo) : TSecondaryCtor =
         let parms =
             EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclSite.Binder, Unification.zonk ctx.Store p.Type) })
@@ -281,10 +237,9 @@ module internal ElaborateClassMembers =
         let mutable primaryArgs = EqArray.empty
         let fieldInits = ResizeArray<TCtorFieldInit>()
 
-        // The explicit field-init form `new(args) = { f = e; … }`:
-        // each `FieldInitializer` stores into a declared
-        // instance field. The `LongIdent` is a single field-name segment (the
-        // last segment names the field); there is no primary-ctor chain.
+        // The explicit field-init form `new(args) = { f = e; … }` stores into declared
+        // instance fields and has no primary-ctor chain; the LAST `LongIdent` segment
+        // names the field.
         let fieldInitsOf (inits: ImmutableArray<FieldInitializer<SyntaxToken>>) =
             for FieldInitializer(longIdent = li; expr = e) in inits do
                 if not li.Idents.IsEmpty then
@@ -297,9 +252,8 @@ module internal ElaborateClassMembers =
         let rec go (ace: AdditionalConstrExpr<SyntaxToken>) =
             match ace with
             | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
-                // A `let`-preamble head binds a simple name in v1; its key is the one
-                // `translatePat` mints, so a body reference resolves to this local. The
-                // slot keeps only the key, so the head's token is recorded here.
+                // Only a simple-name head binds. The slot keeps just the binder key, so
+                // the head's own token is spelled into the context here.
                 match BinderKey.siteOfCstPat b.headPat with
                 | ValueSome site ->
                     let binder = site.Binder

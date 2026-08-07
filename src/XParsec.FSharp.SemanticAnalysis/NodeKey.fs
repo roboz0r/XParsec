@@ -4,22 +4,9 @@ open System
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// Wire format:
-//   bit 63     bit 62..48     bit 47..32   bit 31..0
-//   +--------+---------------+------------+-----------+
-//   | syn:1  | reserved:15   | kind:16    | offset:32 |
-//   +--------+---------------+------------+-----------+
-//
-// The 15 reserved bits (a future per-spawning-construct counter) are always zero today; `Kind`
-// ignores them.
-//
-// THE OFFSET SLOT IS SIGNED, and the sign is load-bearing:
-//   * `Offset >= 0` — a genuine source index. Every real node has one, as does a synthetic node
-//     minted from a SPAWNING construct (`ofSynthetic`), so it stays scopable (`SourcePos`).
-//   * `Offset < 0`  — the UNIQUENESS-COUNTER space (`ofSyntheticCounter`). No source offset is
-//     negative, so this domain holds no real position — a checkable fact about the VALUE, not a
-//     convention about which kinds are counter-minted. `SynthLambdaBody` is minted BOTH ways
-//     (spawning offset in `ElaborateExpr`, counter in `TastLower`), so kind cannot discriminate.
+// Wire format: bit 63 synthetic, bits 62..48 reserved (always zero), bits 47..32 kind, bits
+// 31..0 offset. The offset slot is SIGNED and the sign is load-bearing: negative is the
+// uniqueness-counter space, a domain no genuine source offset inhabits.
 
 /// (offset, kind) — not offset alone — makes a real NodeKey unique: two CST node types can
 /// start at the same source offset (a LetBinding and its Pattern both start at the `let`).
@@ -64,8 +51,7 @@ type NodeKind =
     | ExprStaticUpcast = 37us
     | ExprDynamicTypeTest = 38us
     | ExprDynamicDowncast = 39us
-    /// Indexed array lookup (`arr.[i]`), keyed off the `[` token so it never collides with its
-    /// receiver sub-expression — the operator-token choice `ExprInfixApp` also makes.
+    /// Indexed array lookup (`arr.[i]`), keyed off the `[` token, not its receiver's.
     | ExprIndexedLookup = 40us
     | ExprStaticMemberInvocation = 41us
 
@@ -79,19 +65,17 @@ type NodeKind =
     | PatEnclosedBlock = 107us
     | PatTyped = 108us
     | PatOr = 109us
-    /// `for i = …` loop variable. The `i` token has no surrounding `Pat` in the CST, but
-    /// NameResolution still needs a stable NodeKey for it.
+    /// `for i = …` loop variable; the `i` token has no surrounding `Pat` in the CST.
     | PatForToVar = 110us
     | PatEmptyBlock = 111us
     /// Operator-named binding head (`let (=) x y = …`) — the `IdentOrOp` carries the operator token.
     | PatOp = 112us
-    /// Cons pattern (`h :: t`), keyed off the `::` token so it never collides with its head sub-pattern.
+    /// Cons pattern (`h :: t`), keyed off the `::` token, not its head sub-pattern's.
     | PatCons = 113us
     /// Attribute-decorated parameter (`([<CallAtMostOnce>] x)`), keyed distinctly from the
     /// wrapped pattern (which shares the same first token).
     | PatAttributed = 114us
-    /// Type-test pattern (`:? T as x`), keyed off the `:?` token so it never collides with the
-    /// inner binder.
+    /// Type-test pattern (`:? T as x`), keyed off the `:?` token, not the inner binder's.
     | PatTypeTestAs = 115us
     /// `null` literal pattern, keyed off the unique `null` keyword token.
     | PatNull = 116us
@@ -116,30 +100,21 @@ type NodeKind =
     | SynthDesugaredApp = 1002us
     /// `this` (or `as self`) binder inside class member bodies. One per class, shared across members.
     | SynthThisBinding = 1003us
-    // 1004 was `SynthInlineExpansion` (removed); not reused — a retired value must not come to
-    // mean another.
+    // 1004 is retired; do not reuse it for another kind.
     /// Anchor for a "not yet supported" diagnostic on an unkeyed CST shape (`ModuleElem.Missing`,
-    /// `ModuleElem.SkipsTokens`). Offset is the spawning token's, or `0`; the distinct kind keeps
-    /// it from colliding with real source keys at the same offset.
+    /// `ModuleElem.SkipsTokens`). Offset is the spawning token's, or `0`.
     | SynthUnsupportedDecl = 1005us
-    /// `base` binder inside a derived class's member bodies. One per class with `inherit Base(...)`,
-    /// shared across members; mirrors `SynthThisBinding`.
+    /// `base` binder inside a derived class's member bodies. One per class with
+    /// `inherit Base(...)`, shared across members.
     | SynthBaseBinding = 1006us
-    /// Freshened binder of an inline template, minted by `Inline.freshen` so independent call
-    /// sites don't alias each other's bound names. Counter-minted (`ofSyntheticCounter`) — it
-    /// names no source position.
+    /// Freshened binder of an inline template, so independent call sites don't alias each
+    /// other's bound names. Counter-minted; it names no source position.
     | SynthPreFreezeInline = 1007us
-    /// Binder of a template UNPOOLED from the pools onto the cross-file wire
-    /// (`TastPoolBuilder.declTree`), whose slot means nothing in the consuming file and so is
-    /// re-minted. Counter-minted like `SynthPreFreezeInline`, and a KIND of its own precisely
-    /// because it is: the two counters are independent, so sharing a kind would let an unpool's
-    /// nth binder and a freshen's nth binder be one key. They meet — an unpooled body is
-    /// freshened at the splice — so that must be unrepresentable rather than merely unlikely.
+    /// Binder of a template UNPOOLED onto the cross-file wire, whose slot means nothing in the
+    /// consuming file and so is re-minted. Counter-minted, on its own counter.
     | SynthUnpooledBinder = 1008us
-    /// Binder Elaborate MINTS for a node it synthesises — the receiver and per-element
-    /// binders a tupled member call's destructured argument needs. Counter-minted
-    /// (`PassContext.NewSynthBinder`), because one construct mints several and an offset
-    /// cannot tell them apart; its own kind, so no other counter's nth binder aliases it.
+    /// The receiver and per-element binders a tupled member call's destructured argument
+    /// needs. Counter-minted on its own counter: one construct mints several at one offset.
     | SynthElaborateBinder = 1009us
 
 [<Struct>]
@@ -148,18 +123,14 @@ type NodeKey =
     new(raw: uint64) = { Raw = raw }
 
     /// Source offset for real nodes / the spawning offset for a synthetic one. NEGATIVE for a
-    /// counter-minted key, which names no source position (see the wire-format note above).
+    /// counter-minted key, which names no source position.
     member this.Offset: int = int (uint32 this.Raw)
 
-    /// Does this key name a place in the source string? True for every real node and for a
-    /// spawning-minted synthetic; false only in the uniqueness-counter space. What
-    /// `SourcePos.ofNodeKey` admits a key by — a fact about the value, not about the kind.
+    /// False only in the uniqueness-counter space.
     member this.IsSourcePosition: bool = this.Offset >= 0
 
-    /// The offset slot with the counter flag masked off. For NAMING a binder a backend must
-    /// invent an identifier for (`_s7`, `value@7`) — never for scoping (ask `IsSourcePosition` /
-    /// go through `SourcePos`). Not injective across the two spaces (counter `7` and spawning
-    /// offset `7` render alike).
+    /// The offset slot with the counter flag masked off, for NAMING a binder (`_s7`,
+    /// `value@7`) — never for scoping: counter `7` and spawning offset `7` render alike.
     member this.NameIndex: int = int (uint32 this.Raw &&& 0x7FFFFFFFu)
 
     member this.Kind: NodeKind =
@@ -174,18 +145,7 @@ type NodeKey =
 
 /// WHERE in the file a name is being looked up FROM. F# declaration scoping is file-ordered, so
 /// a by-NAME registry read is answerable only against a position: a declaration is visible at a
-/// use iff its `VisibleFrom` offset is at or before the use. Carrying that position on the QUERY
-/// (rather than as ambient walk state) means a pass cannot silently forget to scope a read —
-/// there is only an argument to pass — and the answer depends on where a node IS, not when it
-/// is visited.
-///
-/// The representation is private, so `SourcePos.ofNodeKey` and `SourcePos.unbounded` are the
-/// only ways to obtain one, and `ofNodeKey` admits exactly the keys whose offset IS a source
-/// position (`NodeKey.IsSourcePosition`). A counter-minted key's offset is a uniqueness token,
-/// not a place in the file, so the type makes scoping by it unrepresentable. The test is on the
-/// VALUE, deliberately: a synthetic node spawned from a real construct HAS a position and must
-/// resolve names at it, while `SynthLambdaBody` is minted both ways — so any kind-based
-/// allowlist would be unsound.
+/// use iff its `VisibleFrom` offset is at or before the use.
 [<Struct>]
 type SourcePos =
     private
@@ -200,14 +160,11 @@ type SourcePos =
 
 module SourcePos =
 
-    /// A read that sees EVERY declaration, wherever it sits — the whole-file view, for a query
-    /// with no source position to scope by (an observer of the finished registry, a consumer
-    /// that already holds a resolved key).
+    /// The whole-file view, for a query with no source position to scope by.
     let unbounded: SourcePos = { Pos = System.Int32.MaxValue }
 
-    /// The place in the file a node sits at. Fails on a key from the uniqueness-counter space (a
-    /// negative offset): it names no place, so there is nothing to scope by. A pass needing a
-    /// scoped read from such a node must carry the position of the SOURCE construct that spawned it.
+    /// Fails on a counter-minted key: it names no place, so a pass needing a scoped read from
+    /// such a node must carry the position of the SOURCE construct that spawned it.
     let ofNodeKey (key: NodeKey) : SourcePos =
         if key.IsSourcePosition then
             { Pos = key.Offset }
@@ -223,20 +180,15 @@ module NodeKey =
         let k = (uint64 (LanguagePrimitives.EnumToValue kind)) <<< 32
         NodeKey(off ||| k)
 
-    /// A synthetic node that HAS a place in the file: `spawningOffset` is the source offset of
-    /// the construct that produced it. Non-negative by construction, so the node stays scopable
-    /// (a desugared application resolves names where its source was written); uniqueness at that
-    /// offset comes from `kind`. A synthetic node with no such construct uses `ofSyntheticCounter`.
+    /// A synthetic node that HAS a place in the file, so it stays scopable: a desugared
+    /// application resolves names where its source was written.
     let ofSynthetic (spawningOffset: int) (kind: NodeKind) : NodeKey =
         let off = uint64 (uint32 spawningOffset)
         let k = (uint64 (LanguagePrimitives.EnumToValue kind)) <<< 32
         NodeKey(off ||| k ||| synBit)
 
-    /// A synthetic node whose uniqueness comes from a monotone COUNTER rather than a place in
-    /// the file (a freshened inline binder, a placeholder lambda-param slot). Packed into the
-    /// NEGATIVE half of the offset slot — a domain no source offset inhabits — so
-    /// `SourcePos.ofNodeKey` refuses the key on its value alone. Counters stay far below 2^31,
-    /// so the low 31 bits carry them intact.
+    /// Uniqueness from a monotone COUNTER rather than a place in the file. Packed into the
+    /// NEGATIVE half of the offset slot, so scoping by it is refused on the value alone.
     let ofSyntheticCounter (counter: int) (kind: NodeKind) : NodeKey =
         let off = uint64 (0x80000000u ||| uint32 counter)
         let k = (uint64 (LanguagePrimitives.EnumToValue kind)) <<< 32
@@ -244,45 +196,21 @@ module NodeKey =
 
     let ofToken (firstToken: SyntaxToken) (kind: NodeKind) : NodeKey = ofSource firstToken.StartIndex kind
 
-/// WHERE a node is, said both ways at once: the `NodeKey` analysis addresses it by, and the
-/// token that spells it. A key's number is that token's character offset, so the two are one
-/// fact — but a `NodeKey` cannot be inverted (its offset is a character index, not a token
-/// index), which is why the token must travel beside it rather than be recovered later.
-///
-/// Held together so no construction path can make them disagree: `ofToken` is the only way
-/// in, and it projects both from ONE token. A side table keyed on `Key` and a diagnostic
-/// placed at `Tok` therefore always name the same node.
+/// A key's number IS its token's character offset, but a key cannot be inverted back to a
+/// token, so the token travels beside it.
 [<Struct>]
 type NodeSite = { Key: NodeKey; Tok: SyntaxToken }
 
 [<RequireQualifiedAccess>]
 module NodeSite =
 
-    /// The site a token names, at `kind`. THE only constructor: both halves come from `tok`.
     let ofToken (kind: NodeKind) (tok: SyntaxToken) : NodeSite =
         {
             Key = NodeKey.ofToken tok kind
             Tok = tok
         }
 
-/// Identity of a source LAMBDA expression: the INDEX of its anchor token.
-///
-/// A token index and not the character offset a `NodeKey` carries, which is why this is its
-/// own type rather than a `NodeKey` of some lambda kind. The two spaces number differently,
-/// so one integer names a different node in each, and only the type keeps a key of one from
-/// being read as a key of the other. What that buys is two facts held by construction: a
-/// lambda's identity can never anchor a diagnostic or a span (both take a `NodeKey`, whose
-/// number IS a place in the source), and it can never be confused with a definition site
-/// (a lambda expression binds nothing, so it has no `BinderId` either). Distinctness and
-/// equality are the whole of what it supports.
-///
-/// The producer and the two consumers are in three different domains and none of them holds
-/// the others' representation: `InferApp` files the verdict off a CST pattern token,
-/// `TastPools.toPools` stamps the pooled lambda's id space off the frozen row's anchor, and
-/// `TastUnpool.rebuildFile` inverts that id back off the `ExprToks` column. All three speak
-/// the same `Anchor` — the frozen pools store anchors, so there is nothing left to resolve
-/// at any of them. A verdict filed under one spelling and sought under another does not
-/// fault — it silently resolves to no lambda, and the closure it was about is emitted as if
-/// no verdict existed.
+/// Identity of a source LAMBDA expression: the INDEX of its anchor token, not the character
+/// offset a `NodeKey` carries — one integer names a different node in each space.
 [<Struct>]
 type LambdaKey = | LambdaKey of anchor: Anchor

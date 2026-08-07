@@ -1,7 +1,5 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-/// The canonical `*Key` identity of each well-known runtime type. Identity is the key, never
-/// a string: a `TypeKey` carries its arity as a field, so recognition is `=` and strips nothing.
 [<RequireQualifiedAccess>]
 module RuntimeNames =
 
@@ -11,8 +9,7 @@ module RuntimeNames =
     [<Literal>]
     let private collectionsNamespace = "Vesper.Collections"
 
-    /// The namespaces resolving UNQUALIFIED in every compilation. A language fact, so fixed
-    /// here rather than read from whatever package happens to be referenced.
+    /// The namespaces resolving UNQUALIFIED in every compilation.
     let preludeNamespaces: string list = [ intrinsicNamespace; collectionsNamespace ]
 
     let vesperListKey: TypeKey =
@@ -22,14 +19,11 @@ module RuntimeNames =
     let private vesperListAbbrevKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity collectionsNamespace "list" 1
 
-    /// The non-retargeted default. Never project-local.
     let fsharpCoreListKey: TypeKey =
         SymbolKeyOps.typeKeyOfArity "Microsoft.FSharp.Collections" "list" 1
 
     let vesperRefKey: TypeKey = SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Ref" 1
 
-    /// Declared by the synthesised per-record/union `Format`. CLR-only: JS renders `%A`
-    /// through hole-directed renderers.
     let structuralFormattableKey: TypeKey =
         SymbolKeyOps.typeKeyOf intrinsicNamespace "IStructuralFormattable"
 
@@ -51,7 +45,6 @@ module RuntimeNames =
     [<Literal>]
     let AttributeSuffix = "Attribute"
 
-    /// Named by the marker's BARE name, so every key provably carries the suffix.
     let private attributeKey (bareName: string) : TypeKey =
         SymbolKeyOps.typeKeyOf intrinsicNamespace (bareName + AttributeSuffix)
 
@@ -65,7 +58,6 @@ module RuntimeNames =
     let customComparisonAttributeKey: TypeKey = attributeKey "CustomComparison"
     let globalAttributeKey: TypeKey = attributeKey "Global"
 
-    /// For the consumer that must recognise a marker's SPELLING, resolution having failed.
     let compilerAttributeKeys: TypeKey list =
         [
             callAtMostOnceAttributeKey
@@ -81,12 +73,9 @@ module RuntimeNames =
 
     let objAbbrevName: string = "obj"
 
-    /// What `obj` binds to, for the sites whose param model is a rendered signature string
-    /// rather than a key.
     let systemObjectQualifiedName: string = "System.Object"
 
-    // The printf sinks. CLR contracts with no JS analogue; `StringWriter` is the concrete
-    // per-hole sink `%a`/`%t` instantiate, the abstract `TextWriter` not being `new`able.
+    // The printf sinks. CLR contracts with no JS analogue.
 
     let textWriterTypeName: string = "System.IO.TextWriter"
 
@@ -94,7 +83,6 @@ module RuntimeNames =
 
     let stringWriterTypeName: string = "System.IO.StringWriter"
 
-    /// Rank 1 → `"[]"`; rank N → `"["` + (N-1) commas + `"]"`.
     let arrayName (rank: int) : string =
         if rank <= 1 then
             "[]"
@@ -105,11 +93,10 @@ module RuntimeNames =
     /// it can carry no `` `N ``. THIS is the member-store / contract key, not `arrayName`.
     let arrayContractName: string = "``" + arrayName 1 + "``"
 
-    /// The TYPE, not the `&` operator that constructs one. Legal only in parameter / return
-    /// / local positions.
+    /// The TYPE, not the `&` operator that constructs one.
     let byrefName: string = "byref"
 
-    /// An array of any rank, or a by-ref: the intrinsics with dedicated backend paths.
+    /// An array of any rank, or a by-ref.
     let isStructuralConstructorName (name: string) : bool =
         name = byrefName
         || (name.Length >= 2
@@ -127,7 +114,7 @@ module RuntimeNames =
     let arrayOfListName: string = "Microsoft.FSharp.Collections.ArrayModule.OfList"
 
     // Members of an anonymous union (`T | null`), not nominal types: no payload, so they
-    // resolve to a bare `TyConst name`. `never` is the empty `TyOr`.
+    // resolve to a bare `TyConst name`.
 
     let nullTypeName: string = "null"
 
@@ -151,18 +138,15 @@ module RuntimeNames =
                 | ValueNone -> false
             )
 
-        /// A non-type key names no capability.
         member this.Matches(k: SymbolKey) : bool =
             match k with
             | SymbolKey.Type t -> this.Matches t
             | _ -> false
 
-        /// For a consumer holding the rendered interface name rather than a key.
         member this.MatchesName(name: string) : bool =
             this.Matches(SymbolKeyOps.qualifiedTypeKeyOf name 0)
 
-    /// Resolved once per compilation THROUGH THE PROVIDER: one a provider does not name is
-    /// `ValueNone`, never a hardcoded BCL fallback. A fixed record, not an open registry.
+    /// A capability a provider does not name is `ValueNone`, never a hardcoded BCL fallback.
     type CapabilityIds =
         {
             Enumerable: CapabilityIdentity voption
@@ -172,7 +156,6 @@ module RuntimeNames =
             Comparable: CapabilityIdentity voption
         }
 
-        /// A provider-less compilation names no capability.
         static member none =
             {
                 Enumerable = ValueNone
@@ -182,11 +165,9 @@ module RuntimeNames =
                 Comparable = ValueNone
             }
 
-    /// Flattens the `ValueNone ⇒ no-match` convention at a recognizer site.
     let matchesKey (cap: CapabilityIdentity voption) (k: TypeKey) : bool =
         cap |> ValueOption.exists (fun c -> c.Matches k)
 
-    /// `matchesKey` for a rendered interface name rather than a key.
     let matchesName (cap: CapabilityIdentity voption) (name: string) : bool =
         cap |> ValueOption.exists (fun c -> c.MatchesName name)
 
@@ -196,7 +177,6 @@ module RuntimeNames =
 
     let isFsharpCoreListKey (k: TypeKey) : bool = k = fsharpCoreListKey
 
-    /// For the one consumer holding an extracted contract's compiled name, not a key.
     let isVesperListName (compiledName: string) : bool =
         compiledName = SymbolKeyOps.typeMetaName vesperListKey
 
@@ -204,8 +184,7 @@ module RuntimeNames =
     let isPrintfFormatKey (k: TypeKey) : bool =
         k = printfFormatKey || k = vesperPrintfFormatKey
 
-    /// Alias and canonical spelling alike, since either can reach a consumer. Consumers
-    /// union in their own non-numeric extras at the use site; the part that grows is here.
+    /// Alias and canonical spelling alike, since either can reach a consumer.
     let numericTypeNames: Set<string> =
         Set.ofList
             [
@@ -235,26 +214,24 @@ module RuntimeNames =
     let referencePrimitiveNames: Set<string> =
         Set.ofList [ "bool"; "char"; "string"; "unit"; "obj"; "voidptr"; "exn" ]
 
-    /// For a name the CALL SITE knows to be an intrinsic — nothing here classifies it. Taken
-    /// verbatim at ARITY 0; a generic intrinsic (`seq`) is minted from the contract instead.
+    /// Taken verbatim at ARITY 0; a generic intrinsic (`seq`) is minted from the contract
+    /// instead.
     let primitiveKey (name: string) : SymbolKey =
         SymbolKeyOps.typeKey intrinsicNamespace name
 
-    /// For a name that is NOT a registered intrinsic. Distinct from `primitiveKey` so the
-    /// intent is legible at each call site.
+    /// For a name that is NOT a registered intrinsic.
     let opaqueKey (name: string) : SymbolKey = SymbolKeyOps.typeKey "" name
 
     let private intrinsicHolder: TypeHolder =
         TypeHolder.InNamespace(SymbolKeyOps.namespaceKey intrinsicNamespace)
 
-    /// Namespace and arity are compared, which a `simpleName ∈ names` test could not say.
+    /// Namespace and arity are compared, not just the simple name.
     let isPrimitiveKeyIn (names: Set<string>) (k: SymbolKey) : bool =
         match k with
         | SymbolKey.Type t -> t.TyparArity = 0 && t.Holder = intrinsicHolder && names.Contains t.Name
         | _ -> false
 
-    // One cached key per intrinsic: every producer reaches for the same object, so all
-    // mints compare EQUAL. The generic ones mint off `arrayName`/`byrefName`.
+    // The generic ones mint off `arrayName`/`byrefName`.
 
     let unitKey: SymbolKey = primitiveKey "unit"
     let boolKey: SymbolKey = primitiveKey "bool"
@@ -276,11 +253,9 @@ module RuntimeNames =
     let dynamicKey: SymbolKey = primitiveKey "dynamic"
 
     /// NOT a `namespace Vesper` type: `null` is a keyword, so it has no declaring namespace
-    /// and its identity is the bare name. A distinct type from `unit`.
+    /// and its identity is the bare name.
     let nullKey: SymbolKey = opaqueKey nullTypeName
 
-/// The well-known intrinsics by KEY IDENTITY, never a stringified name. The backends match
-/// the frozen mirrors here too, so there is one recogniser per intrinsic across the tree.
 [<AutoOpen>]
 module IntrinsicTypePatterns =
 
@@ -333,14 +308,12 @@ module IntrinsicTypePatterns =
         | TyConst(k, a) when a.Length = 1 && k = byrefKey -> Some a.[0]
         | _ -> None
 
-    /// An array of any rank, or a by-ref: the intrinsics with dedicated backend paths.
     let (|TyStructuralCtor|_|) (ty: SemType) =
         match ty with
         | TyConst(k, _) when RuntimeNames.isStructuralConstructorName (SymbolKeyOps.intrinsicName k) -> Some()
         | _ -> None
 
-    /// The one sanctioned route from a key onto the platform-repr string axis. Unlike
-    /// `simpleName` it refuses any key with a declaring namespace.
+    /// A key onto the platform-repr string axis: refuses any key with a declaring namespace.
     let (|PlatformName|_|) (k: SymbolKey) : string option =
         match k with
         | SymbolKey.Type t when t.TyparArity = 0 && t.Holder = TypeHolder.InNamespace NamespaceKey.Global -> Some t.Name
@@ -351,7 +324,6 @@ module IntrinsicTypePatterns =
         | FTConst(k, a) when a.IsEmpty && k = unitKey -> Some()
         | _ -> None
 
-    /// The CLR encodes `obj` as the primitive `ELEMENT_TYPE_OBJECT`, not a `TypeRef`.
     let (|FTObj|_|) (ft: FrozenType) =
         match ft with
         | FTConst(k, a) when a.IsEmpty && k = objKey -> Some()

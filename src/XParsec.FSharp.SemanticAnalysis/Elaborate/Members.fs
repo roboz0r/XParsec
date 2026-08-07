@@ -9,24 +9,19 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateExpr
 
 // Member surfacing for the Elaborate pass: declared accessibility, the name / key /
 // parameter projections a member binding contributes, and the union / record
-// augmentation + `interface … with` bodies an `IInterfaceImplHost` carries. The class
-// host's own members lower in ElaborateClassMembers, which needs the field rewrites.
+// augmentation + `interface … with` bodies an `IInterfaceImplHost` carries.
 
 module internal ElaborateMembers =
 
-    /// Classify a CST accessibility keyword token (`private` / `internal` /
-    /// `public`, or its absence) into the token-free `Accessibility`. An unmarked
-    /// declaration is `Public` — the F# default. The impl-side CST carries the bare
-    /// keyword token (`SyntaxToken voption`); its `.Token` discriminates.
+    /// An unmarked declaration is `Public` — the F# default.
     let accessibilityOfToken (tok: SyntaxToken voption) : Accessibility =
         match tok with
         | ValueSome t when t.Token = Token.KWPrivate -> Accessibility.Private
         | ValueSome t when t.Token = Token.KWInternal -> Accessibility.Internal
         | _ -> Accessibility.Public
 
-    /// An auto-property carries its OWN access token (`member val private X = …`) in
-    /// addition to the enclosing member-level one; the property's own modifier wins
-    /// when present, otherwise it inherits the member-level accessibility.
+    /// An auto-property carries its OWN access token (`member val private X = …`) as well
+    /// as the enclosing member-level one; the property's own modifier wins when present.
     let autoPropertyAccess (memberLevel: Accessibility) (propToken: SyntaxToken voption) : Accessibility =
         match accessibilityOfToken propToken with
         | Accessibility.Public -> memberLevel
@@ -38,9 +33,7 @@ module internal ElaborateMembers =
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
             | Pat.NamedSimple id -> ValueSome(ctx.NameOf id)
-            // Operator-named binding head: surface the operator's compiled name
-            // (`(=)` → `op_Equality`) so the member is addressable from a use
-            // site's desugared `External(op_Equality)` head.
+            // `member (=)` compiles to `op_Equality`, which is how a use site names it.
             | Pat.Op io -> Desugar.opPatCompiledName ctx.NameOf io
             | Pat.EnclosedBlock(pat = inner)
             | Pat.Typed(pat = inner)
@@ -49,14 +42,9 @@ module internal ElaborateMembers =
 
         walk b.headPat
 
-    /// The member's declaration `NodeKey` — `CstKeys.ofPat` of the same name-head
-    /// pattern `MemberRegistration.memberNameOf` keys the `TypeMemberInfo.DeclSite`
-    /// from. Unique per declared member (it carries the member's source offset), so
-    /// it disambiguates *same-name overloads* that share a name + kind + static-ness
-    /// — which a name-only `Array.tryFind` cannot. Used to recover the *right*
-    /// overload's `MethodTypeParams` (without it every `Fmt` overload took
-    /// the first one's typars, so the others' own `'T` was never generalised and
-    /// froze ungrounded).
+    /// The member's declaration `NodeKey`, minted off the same name-head pattern that
+    /// member registration keys `TypeMemberInfo.DeclSite` from. It carries the member's
+    /// source offset, so same-name overloads sharing name + kind + static-ness differ here.
     let memberKeyOfBinding (b: Binding<SyntaxToken>) : NodeKey voption =
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
@@ -69,18 +57,9 @@ module internal ElaborateMembers =
 
         walk b.headPat
 
-    /// Member parameter list as `(bindingKey, ty)` pairs in declaration order
-    /// (`this` is separate). The binding key is the same one `translatePat` mints,
-    /// so a `Var` reference in the body resolves to it.
-    ///
-    /// A tupled member (`M(a, b)`) is *one* `argumentPats` entry that translates to
-    /// a `TPat.Tuple`; F# compiles it to a .NET method with one parameter per tuple
-    /// component (not an actual `Tuple<_,_>`), so we flatten the tuple to one
-    /// `(key, ty)` per component. The sequential order lines up with both
-    /// `Emit.buildMember`'s `args.[k] <- baseIdx + i` slots and the emitted method
-    /// signature. Curried members (`M a b`) appear as multiple `argumentPats`
-    /// entries and compose with the flatten. Non-simple components (wildcards,
-    /// nested destructuring) bind nothing and are dropped.
+    /// Member parameter list as `(bindingKey, ty)` pairs in declaration order (`this` is
+    /// separate). A tupled member `M(a, b)` is ONE `argumentPats` entry, but F# compiles it
+    /// to one .NET parameter per tuple component, so the tuple flattens to one pair each.
     let memberParams (ctx: PassContext) (b: Binding<SyntaxToken>) : EqArray<BinderKey * SemType> =
         let rec flatten (tp: TPat) =
             seq {
@@ -88,10 +67,8 @@ module internal ElaborateMembers =
                 | TPat.Tuple(items, _, _) ->
                     for it in items do
                         yield! flatten it
-                // A parameter's slot is a definition site, so it is taken with the
-                // projection that answers for a pattern; a component that binds nothing
-                // (a wildcard, a nested destructuring) yields none and is dropped. Its
-                // spelling was recorded when `translatePat` built the pattern.
+                // A component that binds nothing — a wildcard, a nested destructuring —
+                // yields no pair and so occupies no parameter slot.
                 | _ ->
                     match BinderKey.ofPat tp with
                     | ValueSome binder -> yield (binder, TastWalk.patTy tp)
@@ -105,10 +82,9 @@ module internal ElaborateMembers =
             }
         )
 
-    /// `override`/`default` ⇒ the member overrides a base virtual slot (Object's
-    /// `Equals`/`GetHashCode`/`ToString` for an `inherit`-less class); `member`/
-    /// `abstract` do not. Drives virtual emission + the skip-generalise / Object-slot
-    /// conformance passes via `TTypeMember.IsOverride`.
+    /// `override`/`default` ⇒ the member overrides a base virtual slot (for an
+    /// `inherit`-less class, one of Object's `Equals`/`GetHashCode`/`ToString`);
+    /// `member`/`abstract` do not.
     let isOverrideKeyword (kw: MemberKeyword<SyntaxToken>) : bool =
         match kw with
         | MemberKeyword.Override _
@@ -116,14 +92,9 @@ module internal ElaborateMembers =
         | MemberKeyword.Member _
         | MemberKeyword.Abstract _ -> false
 
-    /// Translate one union/record augmentation member element into a `TTypeMember`.
-    /// Instance members reference `this` via `host.ThisKey`; `ThisTy` is the host's
-    /// own monomorphic Self (`TyUnion`/`TyRecord` via `MkSelfType`), remapped to
-    /// declaring typars later by the caller's `elaborateOne`. Neither unions nor
-    /// records carry primary-ctor params, so (unlike `translateClassMember`) no
-    /// ctor-param → `FieldGet` rewrite is needed — a field reference is already an
-    /// explicit `this.N`. Generic methods on such augmentations are out of scope
-    /// (class-only), so `MethodTypeParams` is always empty here.
+    /// Translate one union/record augmentation member element into a `TTypeMember`. Unions
+    /// and records carry no primary-ctor params, so no ctor-param → `FieldGet` body rewrite
+    /// is needed here: a field reference in such a member is already an explicit `this.N`.
     let private translateNominalMember
         (ctx: PassContext)
         (host: IInterfaceImplHost)
@@ -138,10 +109,8 @@ module internal ElaborateMembers =
             let isStatic = s.IsSome
             let isOverride = isOverrideKeyword kw
             let isInline = inlineTok.IsSome
-            // Member-level accessibility rides `MemberDefn.Member.access` (`member
-            // private this.M`), NOT the inner `Binding.access` (always `ValueNone` for a
-            // member). An auto-property's own `member val private X` access takes
-            // precedence over the member-level one via `autoPropertyAccess`.
+            // Member-level accessibility rides `MemberDefn.Member.access` (`member private
+            // this.M`), NOT the inner `Binding.access`, always `ValueNone` for a member.
             let memberAccessibility = accessibilityOfToken memberAccess
 
             let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
@@ -161,8 +130,7 @@ module internal ElaborateMembers =
                             Params = memberParams ctx b
                             Body = translateExpr ctx b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
-                            // Generic methods on union augmentations are out of
-                            // B-12 scope (class-only); always non-generic here.
+                            // A member's own generic parameters are class-only.
                             MethodTypeParams = EqArray.empty
                         }
                 | ValueNone -> ValueNone
@@ -190,11 +158,9 @@ module internal ElaborateMembers =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// Surface a union/record host's augmentation members and resolved `interface …
-    /// with` impl bodies as the `(members, interfaces)` pair carried by `TTypeKind`.
-    /// Each member/impl-body is translated through `translateNominalMember` then run
-    /// through `elaborateOne` (the caller's generic self-type remapper). Impls whose
-    /// interface failed to resolve are dropped (that diagnostic already fired).
+    /// Surface a union/record host's augmentation members and its resolved `interface …
+    /// with` impl bodies as the `(members, interfaces)` pair. Impls whose interface failed
+    /// to resolve are dropped — the "is not an interface" diagnostic already fired.
     let elaborateHostMembers
         (ctx: PassContext)
         (host: IInterfaceImplHost)

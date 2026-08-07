@@ -13,11 +13,9 @@ open UnificationInferResolve
 
 module internal UnificationInferPat =
 
-    /// The `'T list` type carrying `elemTy`, resolved exactly like a `[…]`
-    /// literal (`Unification.listLiteralTy`): a program that declares its own
-    /// `'T list` abbreviation (the self-host `list.fs`) expands eagerly to the
-    /// union RHS; a bare program leaves the container flexible (a fresh TyVar
-    /// registered in `ctx.ListLiterals`) for consumer-driven resolution.
+    /// The `'T list` type carrying `elemTy`. A program declaring its own `'T list`
+    /// abbreviation expands eagerly to the union RHS; a bare program leaves the container
+    /// flexible — a fresh TyVar in `ctx.ListLiterals` — for a consumer to pin.
     let private consListTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
         match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "list" 1 with
         | ValueSome info ->
@@ -30,12 +28,10 @@ module internal UnificationInferPat =
             TyVar tv
 
     let rec inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
-        // Each pattern node gets its own TypeVar keyed on its NodeKey; for
-        // compound patterns the outer TypeVar is linked to the underlying
-        // shape so a lookup against any pattern node returns the right type.
+        // Each pattern node gets its own TypeVar keyed on its NodeKey; a compound pattern's
+        // outer TypeVar is LINKED to the underlying shape, so a lookup against any node of
+        // the pattern returns the right type.
         let key = CstKeys.ofPat p
-        // `key` is projected from this token, so the side-table entry and a diagnostic
-        // about the same node cannot name different places.
         let tok = CstKeys.firstTokenOfPat p
 
         match p with
@@ -46,12 +42,9 @@ module internal UnificationInferPat =
             && System.Char.IsUpper n.[0]
             && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n
             ->
-            // Uppercase-leading bare ident matching a ctor IN SCOPE HERE —
-            // reinterpret as a nullary ctor pattern. Multi-candidate names
-            // require a qualifier; diagnose ambiguity, best-effort otherwise.
-            // A case whose union is declared BELOW names nothing here, so the ident
-            // stays an ordinary binder (the arm below) — as in F#, where an
-            // unrecognised ident in pattern position is a variable pattern.
+            // Uppercase-leading bare ident matching a ctor IN SCOPE HERE — reinterpret as a
+            // nullary ctor pattern. A case whose union is declared BELOW names nothing here,
+            // so that ident stays an ordinary binder, as in F#.
             let n = ctx.NameOf t
             let info, count = resolveCtorName ctx (ctx.UseSiteAt key) n
 
@@ -78,13 +71,9 @@ module internal UnificationInferPat =
                 TyVar(freshTv ctx key)
             | ValueNone -> TyVar(freshTv ctx key)
         | Pat.NamedSimple t & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc ->
-            // Nullary case of an *external* (referenced-package) union (`None`),
-            // recognised upstream by NameResolution and read here by node key — the
-            // cross-package analogue of the local nullary-ctor arm above. A bare RQA
-            // case is NOT stamped (only its qualified form resolves), so it never
-            // reaches this arm — it lands on the `Pat.NamedSimple _` binder arm below,
-            // matching F#, which treats a bare uppercase RQA name in a pattern as a
-            // fresh variable.
+            // Nullary case of an *external* (referenced-package) union (`None`), stamped
+            // upstream and read here by node key. A bare RQA case is NOT stamped, so it
+            // falls to the binder arm below — as in F#, where it is a fresh variable.
             let unionTy, fields = externalCasePattern ctx uc
 
             if fields.Length <> 0 then
@@ -94,22 +83,17 @@ module internal UnificationInferPat =
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome unionTy)
             unionTy
         | Pat.NamedSimple _ ->
-            // Use tvOf so a let-rec sibling whose TyVar was already lazy-minted
-            // by a forward reference (or pre-allocated by inferBindingGroup)
-            // is reused, not overwritten.
+            // `tvOf`, not `freshTv`: a let-rec sibling whose TyVar was already lazy-minted
+            // by a forward reference must be reused, not overwritten.
             TyVar(tvOf ctx key)
         | Pat.Op _ ->
-            // An operator-named binding head (`let (=) x y = …`) introduces a
-            // single name, exactly like a `Pat.NamedSimple`; its name is the
-            // operator's compiled name (`op_Equality`), surfaced by Elaborate.
+            // An operator-named binding head (`let (=) x y = …`) introduces a single name,
+            // exactly like a `Pat.NamedSimple`.
             TyVar(tvOf ctx key)
         | Pat.Named(argumentPats = args) & Stamped ctx.Resolution.ExternalEnumCaseStamp key enumKey ->
-            // `| E.C1` external enum-case pattern (a TS-manifest enum), recognised upstream
-            // by NameResolution and read here by node key. Types as the enum nominal
-            // `TyEnum key` — the external mirror of the project-local enum arm below; the key
-            // matches the `E.C1` expression access and an `(x: E)` annotation, so the
-            // scrutinee unifies. Nullary, but any (ill-formed) sub-patterns are still walked
-            // so their binders register.
+            // `| E.C1` external enum-case pattern, stamped upstream and read by node key.
+            // Types as `TyEnum key` — the same key an `E.C1` expression and an `(x: E)`
+            // annotation carry, so the scrutinee unifies. Nullary; sub-patterns are ill-formed.
             for sub in args do
                 inferPat ctx sub |> ignore
 
@@ -121,17 +105,9 @@ module internal UnificationInferPat =
             li.Idents.Length = 2
             && (TypeRegistry.tryEnum ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])).IsSome
             ->
-            // `| E.C1` — an enum-case constant pattern: the head names a
-            // project-local enum, so the tail must be one of its cases. The
-            // pattern's type is the enum nominal (`TyEnum Key`), NOT the underlying
-            // int/string — so `inferRules`' `unify` against the scrutinee makes
-            // `match (x: E)` check and `match (n: int) with | E.A` a type error
-            // (the enum is a distinct nominal). An unknown case is a resolution
-            // error, the pattern analogue of `InferIdentExpr`'s enum-expression arm.
-            // Enum names are a separate registry, so this can't collide with the
-            // class / union / ctor pattern heads handled below. Enum-case patterns
-            // are nullary; any (ill-formed) sub-patterns are still walked so their
-            // binders register.
+            // `| E.C1` — a project-local enum-case constant pattern. Its type is the enum
+            // nominal `TyEnum key`, NOT the underlying int/string, so unifying it against
+            // the scrutinee makes `match (n: int) with | E.A` a type error.
             let einfo =
                 (TypeRegistry.tryEnum ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])).Value
 
@@ -214,12 +190,9 @@ module internal UnificationInferPat =
                 ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
                 ty
         | Pat.Named(longIdent = li; argumentPats = args) & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc ->
-            // A case (with fields) of an *external* union (`Some x`, `Result.Ok x`),
-            // bare or qualified — the cross-package analogue of the local-ctor
-            // `Pat.Named` arm above. NameResolution recognised the head (applying the
-            // qualifier discipline) and stamped it; read by node key here. Sub-patterns
-            // unify against the case's declared field types in the union's fresh
-            // instantiation.
+            // A case WITH FIELDS of an *external* union (`Some x`, `Result.Ok x`), bare or
+            // qualified, stamped upstream and read by node key. Sub-patterns unify against
+            // the case's declared field types in the union's fresh instantiation.
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
             let unionTy, fields = externalCasePattern ctx uc
 
@@ -250,16 +223,13 @@ module internal UnificationInferPat =
             unionTy
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
         | Pat.Null _ ->
-            // A `null` pattern matches a reference value. Leave the node type a
-            // free TyVar so the scrutinee (a reference type — `TextWriter`,
-            // `char[]`) pins it via `inferRules`' unify; the real F# nullability
-            // constraint is deferred to type-checking.
+            // A `null` pattern matches a reference value. The node type is left a free TyVar
+            // for the scrutinee to pin; the F# nullability constraint is not checked here.
             TyVar(freshTv ctx key)
         | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
-            // `[a; b; c]` list-literal pattern ≡ `a :: b :: c :: []`: every
-            // element shares one element type and the whole pattern is that list
-            // type. A single-element `[a]` arrives as the bare element (no
-            // semicolons → no `Pat.Elems` wrapper); `[]` is `Pat.EmptyBlock`.
+            // `[a; b; c]` ≡ `a :: b :: c :: []`: every element shares one element type. A
+            // single-element `[a]` arrives as the bare element (no semicolons → no
+            // `Pat.Elems` wrapper); `[]` is `Pat.EmptyBlock`.
             let elems =
                 match inner with
                 | Pat.Elems(pats = pats) -> List.ofSeq pats
@@ -300,26 +270,20 @@ module internal UnificationInferPat =
         | Pat.Typed(pat = inner; typ = t) ->
             let innerTy = inferPat ctx inner
             let annTy = translateType ctx t
-            // Annotation reconciliation (`x: int | string`): admits value→union but
-            // stays symmetric `unify` for a nominal/`obj` annotation, so the binder
-            // still grounds to its written type.
+            // Annotation reconciliation (`x: int | string`) admits value→union, but stays a
+            // symmetric `unify` for a nominal/`obj` annotation.
             unifyAnnotation ctx tok innerTy annTy
-            // Type provenance: a typed pattern `(x : T)` — parameter, `let`-binder, or
-            // nested destructure — writes the binder's type explicitly. Attribute it to
-            // the INNER binder's key (the `Pat.Typed` wrapper is erased in the TAST; a
-            // consumer queries the `NamedSimple`), matching how a value binding marks its
-            // `headPat`.
+            // `(x : T)` writes the binder's type explicitly. Attribute it to the INNER
+            // binder's key: the `Pat.Typed` wrapper is erased in the TAST, so a consumer
+            // queries the `NamedSimple`.
             ctx.MarkTypeDeclared(CstKeys.ofPat inner, annTy)
             let nodeTv = freshTv ctx key
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome annTy)
             annTy
         | Pat.TypeTestAs(typ = t; pat = inner) ->
-            // `:? T as x` — the inner binder `x` sees the tested type `T`; the
-            // pattern itself matches values of the scrutinee's type (left free so
-            // the scrutinee, typically `obj`, pins it via `inferRules`' unify).
-            // Stash the test type keyed on this node so Elaborate can carry it into
-            // `TPat.TypeTestAs.testTy` for the `isinst` operand (mirrors the
-            // `:?` *expression* form's `inferDynamicTypeTest`).
+            // `:? T as x` — the inner binder `x` sees the tested type `T`; the pattern
+            // itself matches the scrutinee's type (left free, typically `obj`). Stash `T`
+            // keyed on this node so Elaborate can carry it into `TPat.TypeTestAs`.
             let tgtTy = translateType ctx t
             ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
             let innerTy = inferPat ctx inner
@@ -329,9 +293,7 @@ module internal UnificationInferPat =
             ctx.MarkTypeDeclared(CstKeys.ofPat inner, tgtTy)
             TyVar(freshTv ctx key)
         | Pat.TypeTest(typ = t) ->
-            // `:? T` — the bare type-test (no `as`-binder). Same as `TypeTestAs`
-            // minus the inner binder: stash the tested type for Elaborate's `isinst`
-            // operand; the pattern matches the scrutinee's type (left free).
+            // `:? T` — the bare type-test, `TypeTestAs` minus the inner binder.
             let tgtTy = translateType ctx t
             ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
             TyVar(freshTv ctx key)
@@ -357,10 +319,9 @@ module internal UnificationInferPat =
             ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ctx.Intrinsics.Unit)
             ctx.Intrinsics.Unit
         | Pat.Or(left = leftPat; right = rightPat) ->
-            // Here we only unify the alternatives' overall types for scrutinee
-            // consistency. Binding or-patterns are unsupported — `ElaboratePatterns`
-            // rejects any alternative that binds a name — so no name-set reconciliation
-            // is needed.
+            // Only the alternatives' overall types are unified, for scrutinee consistency.
+            // No name-set reconciliation: an alternative that binds a name is rejected in
+            // Elaborate, so a name can never differ between the two sides here.
             let leftTy = inferPat ctx leftPat
             let rightTy = inferPat ctx rightPat
             unify ctx tok leftTy rightTy
@@ -411,7 +372,4 @@ module internal UnificationInferPat =
                 let nodeTv = freshTv ctx key
                 ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome recTy)
                 recTy
-        | _ ->
-            // TODO: Named (DU ctor) / Cons patterns — they need
-            // provider lookups or recursive shape unification.
-            TyVar(freshTv ctx key)
+        | _ -> TyVar(freshTv ctx key)

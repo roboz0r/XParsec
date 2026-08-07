@@ -5,18 +5,9 @@ open System.IO
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-/// The codec's WRITE seam: the stream, and the file's type/key tables, as ONE value.
-///
-/// The tables belong here and not in a parameter because a type reaches the wire only as the
-/// id of its row, and interning it is what mints that row — so every writer that names a type
-/// needs both, and the pairing between them is an invariant rather than a convention each call
-/// site restates. `FrozenCodec.writePools` has two streams live at once (the body buffer and
-/// the blob) and one builder; bundling is what makes "emit into this stream while interning
-/// into that file's tables" unstateable rather than merely unwritten.
-///
-/// The `Write` overloads forward the stream verbatim. They exist so that the whole frozen
-/// codec is written against this seam and none of it against a bare `BinaryWriter`, which is
-/// what keeps the tables out of every signature that does not mention a type.
+/// The codec's WRITE seam: the stream and the file's type/key tables as ONE value. A type
+/// reaches the wire as the id of its row and interning it is what MINTS that row, so a writer
+/// naming a type needs both; pairing them makes a cross-file intern unstateable.
 [<Struct>]
 type FrozenWriter =
     {
@@ -57,19 +48,16 @@ type FrozenReader =
     member inline this.ReadChar() = this.In.ReadChar()
     member inline this.ReadString() = this.In.ReadString()
 
-/// The bottom of the FROZEN binary codec: the `FrozenWriter`/`FrozenReader` seam above, the
-/// generic length- and tag-prefixed container conventions every domain reuses, and the
-/// value structs that carry no children. It names no FROZEN domain beyond those leaves, so
-/// it reads none of its siblings: `FrozenCodecRows`, `FrozenCodecTypes`, `FrozenCodecDecls`
-/// and `FrozenCodec` all bottom out here, never the reverse.
+/// The bottom of the FROZEN binary codec: the seam above, the generic length- and
+/// tag-prefixed container conventions, and the value structs that carry no children. It
+/// names no frozen domain beyond those leaves.
 module FrozenCodecPrimitives =
 
     // ── stream primitives ──────────────────────────────────────────────────
 
-    /// Serialize `x` to a fresh byte array through `write`, against a sink interning into
-    /// `types`. The bytes and the tables come back separately on purpose: what `write` met
-    /// may have appended rows, and only the caller knows where those belong in the blob
-    /// (`FrozenCodec.writePools` emits them in FRONT of the body it interned them from).
+    /// Serialize `x` to a fresh byte array through `write`, interning into `types`. The bytes
+    /// and the tables come back separately: `write` may have appended rows, and only the
+    /// caller knows where in the blob those belong.
     let toBytes (types: FrozenTypeTableBuilder) (write: FrozenWriter -> 'a -> unit) (x: 'a) : byte[] =
         use ms = new MemoryStream()
         use bw = new BinaryWriter(ms)
@@ -83,9 +71,8 @@ module FrozenCodecPrimitives =
         use br = new BinaryReader(ms)
         read { In = br; Types = types }
 
-    /// Length-prefixed `EqArray` writer — the emit mirror of `readArrayWith`. Generic over
-    /// the element writer, so every array domain (FrozenType children, string paths) shares
-    /// the one length+loop convention.
+    /// Length prefix, then each element. `readArrayWith` is the inverse, returning a bare
+    /// array — every `EqArray` reader wraps that.
     let writeEqArrayWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: EqArray<'a>) =
         w.Write xs.Length
 
@@ -101,9 +88,8 @@ module FrozenCodecPrimitives =
 
         arr
 
-    /// The `EqSet` twin — same length prefix, members in the set's own stored order, which
-    /// for a union is the order it was declared in. The reader lands them back in an `EqSet`,
-    /// which is where set identity lives; nothing here re-derives it.
+    /// Members in the set's own stored order — for a union, the order it was declared in.
+    /// Nothing here re-derives set identity; the `EqSet` the reader lands them in holds it.
     let writeEqSetWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: EqSet<'a>) =
         w.Write xs.Length
 
@@ -113,10 +99,8 @@ module FrozenCodecPrimitives =
     let readEqSetWith (r: FrozenReader) (readElem: FrozenReader -> 'a) : EqSet<'a> =
         EqSet.ofSeq (readArrayWith r readElem)
 
-    /// The `ImmutableArray` twin — the shape the file's stored type/key tables take
-    /// (`FrozenTypeRows`), and so the only container the row codec frames with. Same length
-    /// prefix as its two siblings above; the reader builds AT the final length and freezes
-    /// in place, so the immutability costs no copy.
+    /// Same length prefix as its two siblings above; the reader builds AT the final length
+    /// and freezes in place, so the immutability costs no copy.
     let writeImmutableWith
         (w: FrozenWriter)
         (writeElem: FrozenWriter -> 'a -> unit)
@@ -141,11 +125,6 @@ module FrozenCodecPrimitives =
         b.MoveToImmutable()
 
     // ── container helpers (option / voption / list) ────────────────────────
-    //
-    // All length- or tag-prefixed, mirroring `writeEqArrayWith`/`readArrayWith`: the
-    // reader consumes exactly what the writer emitted, in order. The keyed container —
-    // the `SymbolKey`-keyed dictionary — sits with the key cluster it needs, in
-    // `FrozenCodecTypes`.
 
     let writeArrayWith (w: FrozenWriter) (writeElem: FrozenWriter -> 'a -> unit) (xs: 'a[]) =
         w.Write xs.Length
@@ -187,9 +166,6 @@ module FrozenCodecPrimitives =
 
     let readListWith (r: FrozenReader) (readElem: FrozenReader -> 'a) : 'a list =
         let n = r.ReadInt32()
-        // Read into a mutable buffer in emit order, then freeze to a list — a list
-        // comprehension over `1..n` would also read in order, but the explicit loop
-        // makes the writer/reader order correspondence unmistakable.
         let arr = Array.zeroCreate n
 
         for i in 0 .. n - 1 do
@@ -199,9 +175,8 @@ module FrozenCodecPrimitives =
 
     // ── value structs (leaves that carry no children) ──────────────────────
 
-    /// A diagnostic's position: a case tag plus that case's token indices. Like an
-    /// anchor, this resolves against the SAME `Lexed` the writer indexed, because the
-    /// blob is keyed by the source hash.
+    /// A case tag plus that case's token indices, NORMALISED on the way out and again on the
+    /// way in, so an inverted or degenerate range cannot round-trip in two spellings.
     let writeSite (w: FrozenWriter) (s: Site) =
         match Site.normalise s with
         | Site.Nowhere -> w.Write 0uy
@@ -232,17 +207,15 @@ module FrozenCodecPrimitives =
     let writeBinderId (w: FrozenWriter) (BinderId i) = w.Write i
     let readBinderId (r: FrozenReader) : BinderId = BinderId(r.ReadInt32())
 
-    /// A declaration shape's key SLOT: the same id on the wire, re-admitted as the binder
-    /// key the slot is typed by (`BinderKey.ofInterned` — the one seam that rebuilds one
-    /// from a bare identity, because a decoded column has no key to project from).
+    /// A declaration shape's key SLOT: the same id on the wire, re-admitted as the binder key
+    /// the slot is typed by — a decoded column carries no key to project one from.
     let writeBinderSlot (w: FrozenWriter) (k: BinderKeyG<BinderId>) = writeBinderId w (BinderKey.identity k)
 
     let readBinderSlot (r: FrozenReader) : BinderKeyG<BinderId> = BinderKey.ofInterned (readBinderId r)
 
-    /// A node's anchor: a bare token index (`Anchor`), absence and all. The blob is keyed
-    /// by the source hash, so the `Lexed` a reader resolves it against is the same one the
-    /// writer indexed — which is what lets the token's text, span and kind stay out of the
-    /// blob entirely rather than being written beside every node.
+    /// A bare token index, absence and all. The blob is keyed by the source hash, so a reader
+    /// resolves it against the same `Lexed` the writer indexed — which is what keeps the
+    /// token's text, span and kind out of the blob entirely.
     let writeAnchor (w: FrozenWriter) (a: Anchor) = w.Write(Anchor.toStored a)
     let readAnchor (r: FrozenReader) : Anchor = Anchor.ofStored (r.ReadInt32())
 

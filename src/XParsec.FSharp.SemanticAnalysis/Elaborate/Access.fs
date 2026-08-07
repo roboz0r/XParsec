@@ -7,12 +7,9 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
-// Element and member *access* lowering for the Elaborate pass: assignment
-// (`<-` in its FieldSet / indexer-set / dynamic-set forms), indexer reads
-// (`arr.[i]`), dynamic-member reads (`recv?name`), and single-segment
-// `r.X` property/field reads. The get/set pairs mirror each other
+// Element and member *access* lowering for the Elaborate pass. The get/set pairs
 // (`GetArray`/`SetArray`, `GetIndex`/`SetIndex`, `op_Dynamic`/
-// `op_DynamicAssignment`), which is why they live together.
+// `op_DynamicAssignment`) mirror each other, which is why they live together.
 
 module internal ElaborateAccess =
 
@@ -39,13 +36,9 @@ module internal ElaborateAccess =
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             let fieldName = ctx.NameOf li.Idents.[0]
             TExpr.FieldSet(translateExpr ctx r, fieldName, translateExpr ctx right, ty, tok)
-        // `arr.[i] <- v` desugars to the core `SetArray` inline function (the
-        // write mirror of the `IndexedLookup` → `GetArray` read path below):
-        // the `stelem` mnemonic lives in Vesper.Core's `ops-platform.clr.fs`,
-        // spliced at this use site by `InlineExpansion` — never invented in this
-        // target-agnostic pass. Emit a curried `External` call whose type is
-        // rebuilt from the resolved operand types (`ty` is the assignment's
-        // `unit` result).
+        // `arr.[i] <- v` desugars to the core `SetArray` inline function (`stelem`),
+        // the write mirror of the `IndexedLookup` read path. Emit a curried `External`
+        // whose type is rebuilt from the operands; `ty` is the `unit` result.
         | Expr.IndexedLookup(expr = arrE; indexExpr = idxE) ->
             let arrTy = typeOfKey ctx (CstKeys.ofExpr arrE)
             let idxTy = typeOfKey ctx (CstKeys.ofExpr idxE)
@@ -54,9 +47,8 @@ module internal ElaborateAccess =
             let idxPartial = TyFun(idxTy, valuePartial)
 
             // An index-signature receiver writes through `SetIndex` (the `$0[$1] = $2`
-            // bracket), the write mirror of the read path's `GetIndex`; every other
-            // receiver through `SetArray` (`stelem`). Same receiver classification as
-            // the read branch — whether the external type carries an index signature.
+            // bracket), every other receiver through `SetArray` (`stelem`) — the same
+            // receiver classification the read branch makes.
             let setName =
                 match Unification.zonk ctx.Store arrTy with
                 | TyClass(clsKey, _) when
@@ -83,11 +75,9 @@ module internal ElaborateAccess =
             let receiverIdents = li.Idents
             let lastIdx = receiverIdents.Length - 1
 
-            // The chain's NodeKey, for `fieldStep`'s `GetArrayLength` stamp lookup.
-            // A `.Length` never appears as an assignment-*receiver* segment (it is
-            // read-only, so it cannot be an intermediate step), so this is only ever
-            // passed through — but `fieldStep` requires it, and this is the identity
-            // Unification would have stamped a chain intrinsic under.
+            // The chain's NodeKey, required by `fieldStep` for its array-length lookup.
+            // A read-only `.Length` can never be an assignment-receiver segment, so
+            // here it is only ever passed through.
             let liKey =
                 NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
 
@@ -109,9 +99,8 @@ module internal ElaborateAccess =
                 let mutable curr = headExpr
                 let mutable currTy = headTy
 
-                // Field reads for the intermediate segments — the assigned slot
-                // is the final one, handled by the `FieldSet` below. Same chain
-                // walk as `translateLongIdentFieldChain`, stopping one short.
+                // Field reads for the intermediate segments; the assigned slot is the
+                // final one, handled by the `FieldSet` below.
                 for i = 1 to lastIdx - 1 do
                     let segName = ctx.NameOf receiverIdents.[i]
 
@@ -127,10 +116,9 @@ module internal ElaborateAccess =
 
             let lastName = ctx.NameOf receiverIdents.[lastIdx]
             TExpr.FieldSet(receiverChain, lastName, translateExpr ctx right, ty, tok)
-        // `recv?name <- v` → `(?<-) recv "name" v` → the `op_DynamicAssignment`
-        // inline body `$0[$1] = $2` splices to the computed-member write
-        // `recv["name"] = v`. The name is a compile-time string literal (the ident
-        // text), NOT a value reference. Mirrors the `SetArray` curried-External shape.
+        // `recv?name <- v` → `(?<-) recv "name" v` → the `op_DynamicAssignment` body
+        // `$0[$1] = $2` splices to `recv["name"] = v`. The name is a compile-time
+        // string literal (the ident text), NOT a value reference.
         | Expr.DynamicLookup(expr = r; ident = idTok) ->
             let recvTy = typeOfKey ctx (CstKeys.ofExpr r)
             let valTy = typeOfKey ctx (CstKeys.ofExpr right)
@@ -166,10 +154,8 @@ module internal ElaborateAccess =
         let receiver = translateExpr ctx r
 
         // A record exposes BOTH fields and instance-member properties by dot-access, so
-        // — unlike a class/union whose `.X` is always a member — the field-vs-member
-        // decision is made here through the shared member read: a member name lowers to
-        // `PropertyGet`, a field name to `FieldGet`. This kind-specific arm is ordered
-        // BEFORE the kind-blind `TyNominal` arm so the record's field access wins.
+        // — unlike a class/union, whose `.X` is always a member — the decision is made
+        // here: a member name to `PropertyGet`, a field name to `FieldGet`.
         match rTy with
         | TyRecord(recKey, _) ->
             match tryNominalMemberByKey ctx recKey memberName with
@@ -178,25 +164,21 @@ module internal ElaborateAccess =
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
             | ValueNone -> TExpr.FieldGet(receiver, memberName, ty, tok)
         // A class/union receiver's `.X` is always a member — a `PropertyGet` (a
-        // method-as-value keeps the same shape — codegen eta-expands). Records were
-        // handled above, so `TyNominal` here catches only class/union.
+        // method-as-value keeps the shape; codegen eta-expands).
         | TyNominal(nominalKey, _) ->
             let key = LocalSymbolKey.ofProperty nominalKey memberName
 
             TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
-        // `(expr).Length` on an intrinsic rank-1 array desugars to the core
-        // `GetArrayLength` inline function — the `ldlen` mnemonic lives in
-        // `ops-platform.clr.fs`, spliced by `InlineExpansion`. Mirrors the
-        // `fieldStep` array guard (the LongIdent-chain form).
+        // `(expr).Length` on a rank-1 array desugars to the core `GetArrayLength`
+        // inline function (`ldlen`); the LongIdent-chain form mirrors this.
         | TyArray _ when memberName = "Length" ->
             let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue key
             TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(rTy, ty), tok), receiver, ty, tok)
         | _ -> TExpr.FieldGet(receiver, memberName, ty, tok)
 
-    /// `recv?name` → `(?) recv "name"` → the `op_Dynamic` inline body `$0[$1]`
-    /// splices to the computed-member read `recv["name"]`. The name is a compile-time
-    /// string literal (the ident text), NOT a value reference. `ty` is the (possibly
-    /// target-typed) result. Mirrors the `GetArray` curried-External shape.
+    /// `recv?name` → `(?) recv "name"` → the `op_Dynamic` body `$0[$1]` splices to
+    /// `recv["name"]`. The name is a compile-time string literal (the ident text),
+    /// NOT a value reference.
     let translateDynamicLookup
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -220,12 +202,9 @@ module internal ElaborateAccess =
         let app1 = TExpr.App(opExpr, translateExpr ctx r, partialTy, tok)
         TExpr.App(app1, nameLit, ty, tok)
 
-    /// `arr.[i]` desugars to the core `GetArray` inline function (mirroring F#'s
-    /// `IntrinsicFunctions.GetArray`): the `ldelem` mnemonic lives in
-    /// Vesper.Core's `ops-platform.clr.fs`, spliced at this use site by
-    /// `InlineExpansion` — never invented in this target-agnostic pass. Mirrors
-    /// the operator path (`translateInfix`): emit a curried `External` call whose
-    /// type is rebuilt from the resolved operand types. `ty` is the element type.
+    /// `arr.[i]` desugars to the core `GetArray` inline function (`ldelem`). Like the
+    /// operator path, emit a curried `External` call whose type is rebuilt from the
+    /// resolved operand types; `ty` is the element type.
     let translateIndexedLookup
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -237,14 +216,9 @@ module internal ElaborateAccess =
         : TExpr =
         match ctx.Resolution.ExternalAccess.TryGetValue key with
         | ValueSome info ->
-            // `span.[i]` on an external indexer (`Span<char>.get_Item(i) : T&`):
-            // Unification recorded the resolved `get_Item` in `ExternalAccess`.
-            // The BCL accessor returns a managed pointer and has no by-value
-            // form, so call it through the external-instance-method machinery
-            // (PP2a address dispatch — the receiver is an unboxed struct) and
-            // dereference the result with `ldobj <elem>`. `ty` is the
-            // value-position element; the call's static type is `elem&`
-            // (`TyConst(byrefName, [elem])`), which `ldobj` loads.
+            // `span.[i]` on an external indexer (`Span<char>.get_Item(i) : T&`),
+            // recorded in `ExternalAccess`. The BCL accessor returns a managed pointer,
+            // so call it and deref with `ldobj <elem>`: the call's type is `elem&`.
             let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
             let memberName = SymbolKeyOps.intrinsicName info.Key
 
@@ -293,13 +267,9 @@ module internal ElaborateAccess =
             let partialTy = TyFun(idxTy, ty)
             let getTy = TyFun(arrTy, partialTy)
 
-            // A `string` receiver lowers through `GetString` (its inline body emits
-            // the native `s[i]` on JS); an index-signature receiver (an external type
-            // carrying `{ [k: K]: V }`) through `GetIndex` (the same `$0[$1]` bracket);
-            // every other receiver through `GetArray` (`ldelem`). The inference picked
-            // the matching intrinsic (`inferIndexedLookup`), so the names line up. The
-            // bracket lowering is identical for every index entry, so Elaborate checks only
-            // WHETHER the receiver has an index signature, never WHICH entry matched.
+            // A `string` receiver lowers through `GetString`, an index-signature
+            // receiver (an external type carrying `{ [k: K]: V }`) through `GetIndex`,
+            // every other through `GetArray`. Only WHETHER, never WHICH entry matched.
             let getName =
                 match Unification.zonk ctx.Store arrTy with
                 | TyString -> "GetString"

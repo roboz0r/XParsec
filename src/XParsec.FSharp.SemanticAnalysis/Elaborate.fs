@@ -10,10 +10,6 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateTypars
 open XParsec.FSharp.SemanticAnalysis.ElaborateMembers
 open XParsec.FSharp.SemanticAnalysis.ElaborateTypeDecls
 
-// The module-element walk + the `Elaborate.run` entry point: CST → `TastFileG<SemType>`,
-// inline-expanded, open typars quantified to `TyTypar`. NOT the `SemType → FrozenType`
-// freeze. Side tables can be discarded once this returns; the TAST alone is sharable.
-
 module Elaborate =
     /// `ValueNone` below `i+1` lambdas, or where the parameter is not a simple name — a
     /// destructured parameter can't carry `[<CallAtMostOnce>]`.
@@ -28,7 +24,6 @@ module Elaborate =
                 nthLambdaParam inner (i - 1)
         | _ -> ValueNone
 
-    /// In the REFERENCE domain the elaborated lambda nest names its parameter by.
     let private argPatBinderKey (p: Pat<SyntaxToken>) : NodeKey voption =
         BinderKey.ofCstPat p |> ValueOption.map BinderKey.identity
 
@@ -40,8 +35,6 @@ module Elaborate =
         | [ depth ] -> depth = 0
         | _ -> false
 
-    /// Errors a `[<CallAtMostOnce>]` on a non-`inline` binding, a non-simple parameter, or
-    /// one that violates the linearity contract.
     let private recordInlineParamAttrs
         (ctx: PassContext)
         (b: Binding<SyntaxToken>)
@@ -106,7 +99,6 @@ module Elaborate =
             match ctx.Bindings.Scheme.TryGetValue(CstKeys.ofBinding b) with
             | ValueNone -> ()
             | ValueSome scheme ->
-                // Index of `tv`'s zonked root in `quantEnv` (its `TyTypar(Method, i)`).
                 let methodIndexOf (tv: TyVarId) : int option =
                     match Unification.zonk ctx.Store (TyVar tv) with
                     | TyVar root ->
@@ -155,7 +147,6 @@ module Elaborate =
         | ValueSome compiledNm, ValueSome bk ->
             let info: ModuleBindingInfo = { Holder = holder; Name = compiledNm }
             ctx.Bindings.ModuleMembers.[bk] <- info
-            // Captured honestly; each consumer applies its own threshold.
             ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
             ValueSome info.Key
         | _ -> ValueNone
@@ -168,7 +159,6 @@ module Elaborate =
         (b: Binding<SyntaxToken>)
         (declTy: SemType)
         : (TyVarId * SemType) list =
-        // Source order; `canonical` orders these declared typars first, the F# rule.
         let declaredTypars =
             match ctx.Bindings.DeclaredTypars.TryGetValue(CstKeys.ofBinding b) with
             | ValueSome ds -> ds
@@ -187,8 +177,8 @@ module Elaborate =
             | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv ctx.Store declaredTypars declTy
             | _ -> []
 
-    /// `ValueNone` for a format-literal alias, whose `New PrintfFormat` value is dead. It
-    /// reaches the frozen tree as no declaration, so it introduces no binder either.
+    /// `ValueNone` for a format-literal alias, whose `New PrintfFormat` value is dead: it
+    /// reaches the frozen tree as neither a declaration nor a binder.
     let private translateModuleLet
         (ctx: PassContext)
         (holder: ModuleHolder)
@@ -207,18 +197,15 @@ module Elaborate =
         let valT = translateBinding ctx b
         let declTy = typeOfKey ctx (CstKeys.ofBinding b)
 
-        // `[<Global>]`-ness belongs to the VALUE the binder names, not to the decl node.
         Attributes.declareGlobalBinding ctx b emittedName exportedKey valT
 
-        // Parameter attributes are keyed by the function binder.
         match tpat with
         | TPat.NamedSimple(binderKey, _, _) -> recordInlineParamAttrs ctx b binderKey valT
         | _ -> ()
 
         let quantEnv = moduleLetQuantEnv ctx b declTy
 
-        // Both are filed under the binding's FROZEN identity: the typar-axis width belongs
-        // to the value the binder names, so a binder-less head has nowhere to put it.
+        // A binder-less head has nowhere to file the typar-axis width.
         match binder with
         | ValueSome bk ->
             recordGenericFnScheme ctx b bk quantEnv
@@ -230,8 +217,6 @@ module Elaborate =
         else
             ValueSome(TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv)
 
-    /// The exportable identity comes off `ctx.CurrentHolder` — the SAME chain builder the
-    /// type-key mint reads, so a binding and a type in one module are held by the same key.
     let private translateModuleElem
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
@@ -266,10 +251,10 @@ module Elaborate =
         | _ -> []
 
     /// CST → a `TExpr` tree whose `.ty` fields are zonk'd `SemType`, still `TyVar`-carrying.
-    /// Each decl is paired with the typar env it quantifies, minted at this single point.
+    /// Each decl is paired with the typar env it quantifies.
     let elaborate (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : (TDecl * (TyVarId * SemType) list) list =
-        // The SAME flattened walk NameResolution and Unification take: the by-name reads
-        // lowering makes must speak from the module and `open`s they are written under.
+        // The flattened walk NameResolution and Unification take: the by-name reads lowering
+        // makes must speak from the module and `open`s they are written under.
         CstWalk.walkModuleTreeWith ctx.NameOf ctx.Resolution.AmbientOpenScope (fun _ _ -> ()) file
         |> List.collect (fun w ->
             ctx.EnterElement w
@@ -277,8 +262,6 @@ module Elaborate =
         )
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
-        // `InlineExpansion` runs before the typar cut, where `zonk` / union-find are native.
-        // A cross-file body rides the provider entry frozen, thawed into this file's cells.
         let elaborateDecls () =
             let elaborated = elaborate ctx file
 
@@ -292,8 +275,7 @@ module Elaborate =
 
             let expanded = InlineExpansion.run ctx elaborated
 
-            // An env keys on the ROOT `TyVarId` a decl generalized and no two decls
-            // generalize one root, so this union is unambiguous rather than a compromise.
+            // No two decls generalize one root, so this union is unambiguous.
             let env = expanded.Decls |> List.collect snd
 
             let specializations =
@@ -324,21 +306,17 @@ module Elaborate =
 
         {
             Decls = EqArray.ofList decls
-            // Publishing is `Freeze`'s, and ADDITIVE — an inline binding stays a decl here.
+            // Published later, ADDITIVELY — an inline binding stays a decl here.
             InlineBodies = EqArray.empty
             // Slot order: the `SpecializationId`s the decls' edges carry index THIS array.
             Specializations = EqArray.ofArray specializations
             Diagnostics = List.ofSeq ctx.Diagnostics
-            // So the backend can key emitted IL off the repr without the `PassContext`.
             IntrinsicReprKeys = System.Collections.Generic.Dictionary(ctx.Types.IntrinsicReprKeys)
-            // The JS backend emits no definition for a value that IS a target global.
             GlobalValueKeys = System.Collections.Generic.HashSet(ctx.Bindings.GlobalValueKeys)
-            // The backend keys off a binding's identity to emit it on its holder type.
             ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
-            // Filled by the Pipeline after `Regions.run`; escape analysis hasn't run yet.
+            // Filled by the Pipeline once escape analysis has run.
             ClosureReprs = Map.empty
             FunVerdicts = Map.empty
-            // Snapshot here, not in the Pipeline: the indices are minted in this pass.
             GenericFnSchemes =
                 ctx.GenericFnSchemes.AsDictionary()
                 |> Seq.map (fun kv -> kv.Key, kv.Value)

@@ -254,7 +254,7 @@ let tests =
             }
         ]
 
-// ---- Manifest-driven conformance over every package (T8 Step 3) -------
+// ---- Manifest-driven conformance over every package -------------------
 //
 // The pairing is no longer a hand-maintained file list: `ConformancePass.checkManifest`
 // reads each `Vesper.*/manifest.toml` and derives the `.fsi`↔`.fs` pairs from it
@@ -263,7 +263,7 @@ let tests =
 // dropped from a curated list. The packages themselves are discovered from the
 // source tree for the same reason.
 //
-// Each package is driven through `ConformancePass.enforce` (T8 Step 5), which
+// Each package is driven through `ConformancePass.enforce`, which
 // promotes every discrepancy to a hard `Severity.Error` diagnostic — the FS0240
 // family for a contract binding with no implementation (`MissingInImpl` /
 // `ValueMissingInImpl`), extern/intrinsic drift, an un-exempted impl-free `SigOnly`
@@ -766,7 +766,7 @@ let enforcementTests =
             }
         ]
 
-// ---- Semantic typar-order conformance (T8 Step 4.2) -------------------
+// ---- Semantic typar-order conformance ---------------------------------
 //
 // `ConformanceTypars.checkFile` is the SEMANTIC half: it compares a `.fs`-inferred
 // generic module binding's frozen scheme (typars `FTTypar(Method, i)`, in
@@ -870,7 +870,7 @@ let typarConformanceTests =
             }
         ]
 
-// ---- Semantic typar-order conformance for type MEMBERS (T8 Step 6) ----------
+// ---- Semantic typar-order conformance for type MEMBERS ----------------------
 //
 // `ConformanceTypars.checkMembers` is the member-level twin of `checkFile`: a
 // generic `.fs` type member (`member M<'a,'b>(x,y) = …`) is compared against the

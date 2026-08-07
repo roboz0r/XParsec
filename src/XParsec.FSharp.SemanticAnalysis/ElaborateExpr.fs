@@ -14,8 +14,7 @@ open XParsec.FSharp.SemanticAnalysis.ElaboratePatterns
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
 /// Expression translation for the Elaborate pass: the recursive `CST -> TExpr`
-/// projection. The companion `Elaborate` module (type-declaration surfacing + `run`)
-/// opens this one for the entry points it projects from.
+/// projection.
 module internal ElaborateExpr =
 
     let rec translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
@@ -30,31 +29,19 @@ module internal ElaborateExpr =
             li.Idents.Length > 1
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
             ->
-            // `r.X` (or chained `r.X.Y`) parsed as a single multi-segment
-            // LongIdent: head resolved as a local binding, rest field accesses.
-            // If the final segment is an *external* instance member (e.g.
-            // `e.Current` on a BCL `IEnumerator<'T>`), Unification recorded it in
-            // `ExternalAccess` on this chain's key — pass it so the last step emits
-            // a keyed `TExpr.ExternalMember` rather than a project-local `FieldGet`.
+            // `r.X` / `r.X.Y` parsed as ONE multi-segment LongIdent: head is a local
+            // binding, the rest field accesses. A final *external* instance member
+            // (`e.Current` on `IEnumerator<'T>`) is in `ExternalAccess` under this key.
             ElaborateIdents.translateLongIdentFieldChain ctx li ty (ctx.Resolution.ExternalAccess.TryGetValue key) tok
         // Static member on an *external* type reached through a folded LongIdent
-        // (`System.Console.Out`, `Console.Out`) — Unification resolved the prefix
-        // as a type and recorded the member in `ExternalAccess`. Emit the same
-        // keyed `TExpr.ExternalMember` as the generic `DotLookup` form; always
-        // static, so the type-name receiver is dropped.
+        // (`System.Console.Out`, `Console.Out`), recorded in `ExternalAccess`.
+        // Always static, so the type-name receiver is dropped (`ValueNone`).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when li.Idents.Length >= 2 ->
             let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
             TExpr.ExternalMember(ValueNone, info.Key, memberName, info.Storage, ty, tok)
-        // `E.C1` — an enum-case access (project-local OR external TS-manifest enum).
-        // Enum cases ARE static fields on the enum type (the "cases as static
-        // members" decision, mirroring CLR enum field access), so this lowers to
-        // `StaticFieldGet(enumKey, caseName, …)`. The case's underlying literal is
-        // NOT carried on the node — it lives on the frozen `TTypeKind.Enum` case
-        // table (the single source of truth), which codegen reads off the decl by
-        // `enumKey`. `EnumCaseAccess` resolves the key from the node's `TyEnum` type
-        // (set by Unification for both local and external heads) or the local enum
-        // registry on the error path — exclusive with the local-binding / class /
-        // union heads handled elsewhere.
+        // `E.C1` — an enum-case access (project-local or external). Enum cases are
+        // static fields on the enum type, so this lowers to `StaticFieldGet`; the
+        // case's underlying literal stays on the frozen `TTypeKind.Enum` case table.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(li & EnumCaseAccess ctx ty enumKey)) ->
             TExpr.StaticFieldGet(SymbolKey.Type enumKey, ctx.NameOf li.Idents.[1], ty, tok)
         | Expr.New(typ = t; expr = argExpr) -> translateNew ctx key t argExpr ty tok
@@ -73,9 +60,8 @@ module internal ElaborateExpr =
             let receiver = translateExpr ctx r
             mkMethodCall ctx key receiver declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
-        // `Expr.LongIdentOrOp(LongIdent [p; M])` — the parser folds the dot into
-        // the long ident rather than emitting `DotLookup` when the head is a
-        // regular identifier. Fold to MethodCall.
+        // `LongIdent [p; M]` — the parser folds the dot into the long ident
+        // rather than emitting `DotLookup` when the head is a regular identifier.
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailMethod ctx (bindingSite,
                                                                                        receiverTy,
@@ -141,10 +127,9 @@ module internal ElaborateExpr =
                 (peelOneArg (translateExpr ctx) arg)
                 ty
                 tok
-        // `x.M(args)` where `x`'s type is a generic typar coerced to a project-local
-        // interface (`'T :> IFace`, rung-3 Wall B). Unification recorded the
-        // interface key in `TyparInterfaceCall`; dispatch via `CallVia.Interface` so
-        // codegen emits `constrained. <typar> callvirt`.
+        // `x.M(args)` where `x`'s type is a typar coerced to a project-local
+        // interface (`'T :> IFace`); the interface key is in `TyparInterfaceCall`.
+        // `CallVia.Interface` makes codegen emit `constrained. <typar> callvirt`.
         | Expr.App(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(TyparInterfaceMethod ctx (prefixLi,
                                                                                             receiverTy,
@@ -176,8 +161,7 @@ module internal ElaborateExpr =
 
             mkInterfaceMethodCall ctx receiver ifaceKey ifaceArgs memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.X` (property) parses as `Expr.LongIdentOrOp(LongIdent[p; X])` when
-        // the head is a regular identifier. Anything not a class property falls
-        // to the chained FieldGet path below.
+        // the head is a regular identifier.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, receiverTy, memberName))) ->
             let receiver = TExpr.Var(bindingSite, receiverTy, tok)
 
@@ -190,11 +174,9 @@ module internal ElaborateExpr =
         | Expr.HighPrecedenceApp(
             funcExpr = Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMethod ctx (declKey, memberName)))
             argExpr = arg) -> mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
-        // `ClassName<'args>.Method args` — static-method call on an explicitly
-        // instantiated generic class (e.g. `Set<'T>.Singleton value`). The
-        // `<'args>`-bearing receiver makes the funcExpr a `DotLookup` over a
-        // `TypeApp` rather than a folded `LongIdent`; same `StaticMethodCall`
-        // lowering as the folded `StaticMethod` arms above.
+        // `ClassName<'args>.Method args` — static call on an explicitly instantiated
+        // generic class (`Set<'T>.Singleton value`). The `<'args>` makes the funcExpr
+        // a `DotLookup` over a `TypeApp` rather than a folded `LongIdent`.
         | Expr.App(funcExpr = TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Method); argExprs = args) ->
             mkStaticMethodCall ctx declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
         | Expr.HighPrecedenceApp(
@@ -205,39 +187,28 @@ module internal ElaborateExpr =
             let key = LocalSymbolKey.ofProperty declKey memberName
             TExpr.StaticPropertyGet(key, ty, tok)
         | CtorRef ctx caseName ->
-            // Bare or qualified ctor reference outside an App. v1 distinguishes
-            // nullary ctor (→ `UnionCons`) from ctor-as-value (`let f = Circle`,
-            // typed `TyFun(_, TyUnion _)` → External) by the result type.
+            // Bare or qualified ctor reference outside an App. The result type
+            // distinguishes a nullary ctor (→ `UnionCons`) from a ctor-as-value
+            // (`let f = Circle`, typed `TyFun(_, TyUnion _)` → `External`).
             match Unification.zonk ctx.Store ty with
             | TyUnion(_, _) -> TExpr.UnionCons(caseName, EqArray.empty, ty, tok)
-            // Function-typed ctor-as-value; codegen can eta-expand to a
-            // UnionCons lambda.
             | _ -> TExpr.External(caseName, ValueNone, ty, tok)
         | Expr.Ident _
         | Expr.LongIdentOrOp _ -> ElaborateIdents.translateIdent ctx e key ty tok
         | Expr.App(CtorRef ctx caseName, args) ->
-            // Ctor application: `Circle 1.0` or `Rectangle(2.0, 3.0)`. F# treats
-            // DU arguments as a single tuple; the TAST flattens it back to a
-            // per-field list (the same peel the class-ctor arms use) so consumers
-            // see the ctor's declared arity directly.
+            // Ctor application: `Circle 1.0` / `Rectangle(2.0, 3.0)`. F# treats DU
+            // arguments as ONE tuple; the TAST flattens it back to a per-field list,
+            // so consumers see the ctor's declared arity directly.
             mkUnionCons ctx caseName ty (peelCtorArgs (translateExpr ctx) args) tok
         | Expr.HighPrecedenceApp(funcExpr = CtorRef ctx caseName; argExpr = arg) ->
             mkUnionCons ctx caseName ty (peelOneArg (translateExpr ctx) arg) tok
         // Printf *partial* — a fully-unapplied lowerable literal (`printfn "%d"`),
-        // marked by `Unification.tryInferPrintfApp`. Synthesise a Vesper closure
-        // `fun h1 … hn -> Format(sink, …)` (4a: emitted heap, dispatched via the
-        // ordinary `Fun`2`::Invoke` path) instead of the FSharp.Core cold path. Must
-        // precede the generic `App` projection below, like the happy-path arm.
+        // marked in `PrintfPartial`. Synthesise a closure `fun h1 … hn ->
+        // Format(sink, …)` instead of the FSharp.Core cold path.
         | Expr.App(_, args) when ctx.PrintfPartial.ContainsKey key ->
             ElaboratePrintf.translatePrintfPartial ctx key args ty tok
-        // Printf happy-path call, marked by `Unification.tryInferPrintfApp`. Must
-        // lower to a `TExpr.Format` *before* the generic `App` projection below runs.
+        // Printf happy-path call, marked in `PrintfApp` — lowers to a `TExpr.Format`.
         | Expr.App(fn, args) when ctx.PrintfApp.ContainsKey key ->
-            // The marker only declines when a `%A` hole's argument type is one the
-            // structural engine can't author (`TyUnknown` / type-level vocabulary) —
-            // shapes the front end has already rejected with a diagnostic, so the
-            // resulting `App` never reaches a (successful) codegen. There is no cold
-            // printf recipe to fall back to: every lowerable form is a `TExpr.Format`.
             match ElaboratePrintf.translatePrintfFormat translateExpr ctx key args ty tok with
             | ValueSome node -> node
             | ValueNone -> ElaborateApply.translateApp translateExpr ctx fn args tok
@@ -262,14 +233,13 @@ module internal ElaborateExpr =
         // The annotation has no runtime representation — it only constrained
         // types in Unification; the TAST carries the inferred type inline.
         | Expr.TypeAnnotation(expr = inner) -> translateExpr ctx inner
-        // Casts carry the resolved node type (`ty`): the target type for
-        // `:>` / `:?>`, and `bool` for `:?` — Unification validated the
-        // coercion via `subsumes`, codegen emits the box / castclass / isinst.
+        // Casts carry the resolved node type (`ty`): the target type for `:>` /
+        // `:?>`, `bool` for `:?`. Unification already validated the coercion.
         | Expr.StaticUpcast(expr = inner) -> TExpr.Upcast(translateExpr ctx inner, ty, tok)
         | Expr.DynamicDowncast(expr = inner) -> TExpr.Downcast(translateExpr ctx inner, ty, tok)
         | Expr.DynamicTypeTest(expr = inner) ->
             // `ty` is the `bool` result; the tested-against type was stashed by
-            // Unification (`inferDynamicTypeTest`) keyed by this node.
+            // Unification in `TypeTestTargets`, keyed by this node.
             let testTy =
                 match ctx.Resolution.TypeTestTargets.TryGetValue key with
                 | ValueSome t -> t
@@ -314,9 +284,8 @@ module internal ElaborateExpr =
         | Expr.Record(fieldInitializers = inits) -> translateRecord ctx inits ty tok
         | Expr.RecordClone(expr = src; fieldInitializers = inits) -> translateRecordClone ctx src inits ty tok
         // Member access on an *external* type (static `Type.Member` or instance
-        // `value.Member`) that Unification resolved through the provider — emit a
-        // keyed `TExpr.ExternalMember`. A static
-        // access drops the type-name receiver (`info.IsStatic`).
+        // `value.Member`) resolved through the provider — emit a keyed
+        // `TExpr.ExternalMember`; a static access drops the type-name receiver.
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) & ExternalAccess ctx info when
             li.Idents.Length = 1
             ->
@@ -329,12 +298,9 @@ module internal ElaborateExpr =
                     ValueSome(translateExpr ctx r)
 
             TExpr.ExternalMember(receiver, info.Key, memberName, info.Storage, ty, tok)
-        // `ClassName<'args>.Prop` — local static property read on an explicitly
-        // instantiated generic class (e.g. `Set<'T>.Empty`). Same lowering as the
-        // folded `ClassName.Member` form; the `<'args>` only pinned the generic
-        // instantiation in inference and is carried on `ty`. The method form
-        // (`Set<'T>.Singleton value`) is `App`-wrapped and handled with the other
-        // static-method arms.
+        // `ClassName<'args>.Prop` — static property read on an explicitly
+        // instantiated generic class (`Set<'T>.Empty`). The `<'args>` only pinned
+        // the instantiation in inference and is carried on `ty`.
         | TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Property) ->
             let key = LocalSymbolKey.ofProperty declKey memberName
             TExpr.StaticPropertyGet(key, ty, tok)
@@ -343,14 +309,9 @@ module internal ElaborateExpr =
         | Expr.DynamicLookup(expr = r; ident = idTok) ->
             ElaborateAccess.translateDynamicLookup translateExpr ctx key r idTok ty tok
         | Expr.Null _ -> TExpr.Null(ty, tok)
-        // A range reaches these arms ONLY when it was NOT consumed by `translateForIn`'s
-        // counted-`ForTo` lowering (the unit-step, simple-binder for-in source). That
-        // leaves value position, a stepped range, and a non-simple loop binder — all
-        // unsupported, because a range materialises no seq value in this compiler. This
-        // is the lowering choke point where the range's POSITION is known, so the
-        // unsupported use is diagnosed here rather than in inference (`inferRange` cannot
-        // tell a for-in source from a value). `range-operators-plan.md` tracks making
-        // `(..)` a real seq operator, which would delete these arms.
+        // A range reaches here only when the counted-`ForTo` for-in lowering did NOT
+        // consume it: value position, a stepped range, or a non-simple loop binder.
+        // All unsupported — a range materialises no seq value in this compiler.
         | Expr.Range(fromExpr = a; toExpr = b) ->
             ctx.Report(tok, Kind.RangeNotFirstClassValue)
             TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty, tok)
@@ -364,20 +325,12 @@ module internal ElaborateExpr =
             ElaborateApply.translateStaticMemberInvocation translateExpr ctx argExpr msig ty tok
         | Expr.LibraryOnlyStaticOptimization(defaultExpr = defaultE; clauses = clauses) ->
             translateStaticOptimization ctx key defaultE clauses ty tok
-        // `value<'T>` — an explicit type application on a VALUE reference (NOT the
-        // `TypeAppStaticMember` class-receiver forms, which are a `DotLookup` over the
-        // `TypeApp` and matched above). The `<'T>` only pinned the instantiation in
-        // inference (`inferTypeApp` returns the inner's type verbatim for a bare-typar
-        // result, so the node and its inner reference share one TyVar); forward to the
-        // frozen inner, leaving its leaf intact. For an `inline` binding
-        // (`Unchecked.defaultof<'T>` / `defaultof<'T>`) that leaf is the `External` head
-        // the bare form produces, so the reference reaches the same
-        // `InlineExpansion` splice arm — `refTy` (pinned by the reference's expected
-        // type) grounds the spliced `ilzero`.
+        // `value<'T>` — explicit type application on a VALUE reference (the
+        // `TypeAppStaticMember` class-receiver forms matched above). The `<'T>` only
+        // pinned the instantiation in inference; forward to the inner reference.
         | Expr.TypeApp(expr = inner) -> translateExpr ctx inner
         | _ ->
-            // TODO: extend as the subset grows; surface the unhandled case
-            // loudly rather than emitting a broken TExpr.
+            // TODO: extend as the subset grows.
             failwithf "Elaborate.translateExpr: TODO %A" e
 
     /// `new T(args)` — Unification stamps `ty` with the `TyClass`. The CST-side
@@ -393,9 +346,8 @@ module internal ElaborateExpr =
         : TExpr =
         let className =
             match Unification.zonk ctx.Store ty with
-            // Qualified so the backend's external-ctor recipe (`new
-            // System.Exception(...)`) resolves; the backend strips to the bare
-            // simple name for the project-local class lookup.
+            // The namespace-qualified name (`System.Exception`), which is what a
+            // codegen error message about an unresolvable `.ctor` prints.
             | TyClass(n, _) -> SymbolKeyOps.typeMetaName n
             | _ ->
                 let rec nameOf t =
@@ -410,15 +362,9 @@ module internal ElaborateExpr =
 
         mkNew ctx className key ty (peelOneArg (translateExpr ctx) argExpr) tok
 
-    /// An integer-range source (`for i in a..b do`) lowers to a counted
-    /// `ForTo` loop — F#'s own lowering. There is no enumerable object to
-    /// walk (the range materialises no `seq`), so the enumerator path can't
-    /// emit it; the counted form is also the efficient one. Only the
-    /// unit-step range bound to a *simple* binder is lowered here; a stepped
-    /// range (`a..s..b`) or a non-trivial pattern falls through to the
-    /// enumerator path (which diagnoses an unsupported source cleanly).
-    /// Inference already pinned the binder + bounds to `int`
-    /// (`InferControlFlow.inferForIn`'s range arm).
+    /// An integer-range source (`for i in a..b do`) lowers to a counted `ForTo`
+    /// loop — F#'s own lowering; a range materialises no `seq` to walk. Only a
+    /// unit-step range bound to a *simple* binder; the rest take the enumerator path.
     and private translateForIn
         (ctx: PassContext)
         (key: NodeKey)
@@ -440,8 +386,8 @@ module internal ElaborateExpr =
         | ValueSome(a, b), TPat.NamedSimple(varKey, _, identTok) ->
             TExpr.ForTo(varKey, identTok, translateExpr ctx a, translateExpr ctx b, translateExpr ctx body, ty, tok)
         | _ ->
-            // How the source yields its enumerator was resolved by Unification
-            // and stashed by this node's key; absent ⇒ the §4.2 interface path.
+            // How the source yields its enumerator was resolved by Unification and
+            // stashed under this node's key; absent ⇒ the `Interface` path.
             let enumerator =
                 match ctx.Resolution.ForInShape.TryGetValue key with
                 | ValueSome shape -> shape
@@ -525,14 +471,9 @@ module internal ElaborateExpr =
         let opCode = stitchIlInstruction ctx parts
         let tArgs = EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
 
-        // The tokenful array opcodes (`newarr`/`ldelem.any`) carry a single
-        // element-type operand. The source `!0` placeholder is unparsed tokens,
-        // so the element is recovered from the node's declared types — `newarr`'s
-        // result is the array (`elem` = its argument), `ldelem`'s result IS the
-        // element. The mnemonics ORIGINATE in per-target library source
-        // (`array.fs`'s `zeroCreate`, `ops-platform.clr.fs`'s `GetArray`), so this is
-        // interpreting source IL, not inventing it. The mnemonic is normalised
-        // (`ldelem.any` → `ldelem`) to the form codegen's emit arm reads.
+        // `newarr` / `ldelem.any` carry one element-type operand, but the source `!0`
+        // placeholder is unparsed tokens: recover the element from the node's declared
+        // types. Normalised (`ldelem.any` → `ldelem`) to the spelling codegen reads.
         if opCode.StartsWith "newarr" then
             let elem =
                 match Unification.zonk ctx.Store ty with
@@ -549,30 +490,22 @@ module internal ElaborateExpr =
             let elem = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr args.[2]))
             TExpr.ILIntrinsic("stelem", ValueSome elem, tArgs, ty, tok)
         elif opCode.StartsWith "box" then
-            // `box value` — the boxed element type is the *argument's* static
-            // type (the result is always `obj`), so recover it from the single
-            // value operand. A value type emits `box <T>`; a reference type's
-            // box is the JIT-erased identity (codegen leaves it as `box`, which
-            // the runtime treats as a no-op on a ref type).
+            // `box value` — the boxed type is the *argument's* static type (the
+            // result is always `obj`), so recover it from the single value operand.
+            // On a reference type `box` is a runtime no-op.
             let elem = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr args.[0]))
             TExpr.ILIntrinsic("box", ValueSome elem, tArgs, ty, tok)
         elif opCode.StartsWith "ilzero" then
-            // `Unchecked.defaultof<'T>` — a type's default value. `ilzero`'s result IS
-            // the defaulted 'T, so the operand type is the node's result type (recovered
-            // like `ldelem`'s). The source `type ('T)` clause is decorative here — the
-            // result type is authoritative — but kept in source to match the F# idiom.
+            // `Unchecked.defaultof<'T>` — `ilzero`'s result IS the defaulted `'T`, so
+            // the operand type is the node's result type. The source `type ('T)` clause
+            // is decorative; the result type is authoritative.
             TExpr.ILIntrinsic("ilzero", ValueSome(Unification.zonk ctx.Store ty), tArgs, ty, tok)
         else
             TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty, tok)
 
-    /// The CST clauses are already flat and source-ordered, which is the order
-    /// `TExpr.StaticOptimization` selects in (first clause whose constraints hold).
-    /// Unification filed the RESOLVED constraints of every clause under this one
-    /// construct's key, positionally aligned with `clauses`, so the two are paired
-    /// by index here. A missing/short side-table entry can only mean Unification
-    /// never reached this node (an error path), and yields an unconstrained clause —
-    /// which `Inline` reads as "always selected", so it degrades to the source's own
-    /// first clause rather than to the default.
+    /// Unification filed each clause's RESOLVED constraints under this construct's
+    /// key, positionally aligned with `clauses`. A missing/short entry yields an
+    /// unconstrained clause, which expansion always selects — so, the source's first.
     and private translateStaticOptimization
         (ctx: PassContext)
         (key: NodeKey)
@@ -620,12 +553,9 @@ module internal ElaborateExpr =
             }
         )
 
-    /// Project `[…]` / `[|…|]` literals into the shared `Cons` / `Nil` chain
-    /// Unification typed them with. Arrays additionally route through `Array.ofList`
-    /// so codegen sees a single lowering target — the list chain. Element type is
-    /// recovered from the literal's frozen type; a degenerate type falls back to a
-    /// free TyVar so downstream consumers see *some* element type, not a malformed
-    /// node.
+    /// Project `[…]` / `[|…|]` literals into a `Cons` / `Nil` chain; an array
+    /// additionally routes through `Array.ofList`, so codegen has one lowering
+    /// target. A degenerate element type falls back to a free `TyVar`.
     and private translateListLikeLiteral
         (ctx: PassContext)
         (literalTy: SemType)
@@ -637,20 +567,16 @@ module internal ElaborateExpr =
 
         let elemTy =
             match zonked with
-            // An array literal's zonked type is the generic intrinsic
-            // `TyConst("[]", [elem])`; a list
-            // literal's is `TyRecord`/`TyUnion`. Pull the element out of whichever.
+            // An array literal's zonked type is `TyConst("[]", [elem])`; a list
+            // literal's is `TyRecord` / `TyUnion`. Pull the element out of whichever.
             | TyConst(_, args) when args.Length = 1 -> args.[0]
             | TyRecord(_, args) when args.Length = 1 -> args.[0]
             | TyUnion(_, args) when args.Length = 1 -> args.[0]
             | _ -> TyVar(ctx.NewTypeVar())
 
-        // A program-declared list union (resolved via the `'T list = List<'T>`
-        // abbrev — see `Unification.listLiteralTy`) drives `[…]` construction
-        // through that union's own case factories: nullary case = empty
-        // terminator, single binary case = cons. Absent it (a normal program, or
-        // any array literal), the FSharp.Core `Cons`/`Nil` nominal is the default.
-        // Arrays never retarget — always the list chain + `Array.ofList` boundary.
+        // A program-declared list union (via the `'T list = List<'T>` abbrev) builds
+        // `[…]` from its own cases: nullary = empty terminator, binary = cons.
+        // Otherwise, and for every array literal, the FSharp.Core `Cons` / `Nil`.
         let listTy, consName, nilName =
             match zonked with
             | LocalUnion ctx info when not isArray ->
@@ -660,14 +586,9 @@ module internal ElaborateExpr =
                 match nilCase, consCase with
                 | Some n, Some c -> zonked, c.Name, n.Name
                 | _ -> TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy), "Cons", "Nil"
-            // The external Vesper list: a bare-program literal a consumer drove
-            // onto the Vesper cons-list (`Unification.listLiteralTy` /
-            // `resolveListLiterals`). Its `Cons` / `Nil` factories are minted by the
-            // backend's `TryEmitUnionCons` Vesper case — BCL-only, no FSharp.Core.
-            // It is an *external* union, so it is absent from `ctx.Types.Union` and
-            // is not caught by the user-union arm above. Recognition (bare /
-            // arity-suffixed union name, or the lowercase abbreviation) is shared
-            // with codegen via `RuntimeNames.isVesperListKey`, so the `` `N ``-strip isn't re-derived here.
+            // The external Vesper cons-list, whose cases are `Cons` / `Empty`. Being
+            // *external* it is absent from `ctx.Types.Union`, so the user-union arm
+            // above misses it; recognition of its key is shared with codegen.
             | TyUnion(listKey, _) when not isArray && RuntimeNames.isVesperListKey listKey -> zonked, "Cons", "Empty"
             | _ -> TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy), "Cons", "Nil"
 
@@ -682,9 +603,8 @@ module internal ElaborateExpr =
 
         if isArray then
             let arrayTy = TyConst(RuntimeNames.arrayKey 1, EqArray.singleton elemTy)
-            // Codegen resolves `Array.ofList` against its target; alternate
-            // targets are free to swap the wrapper. The BCL-only path recognises
-            // this exact head and emits the array directly (no FSharp.Core).
+            // Codegen resolves `Array.ofList` against its target; the BCL-only path
+            // recognises this head and emits the array directly (no FSharp.Core).
             let opName = RuntimeNames.arrayOfListName
             let opTy = TyFun(listTy, arrayTy)
             TExpr.App(TExpr.External(opName, ValueNone, opTy, tok), listExpr, arrayTy, tok)
@@ -700,10 +620,8 @@ module internal ElaborateExpr =
         (resultTy: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        // Fold elifs right-to-left, each nested as the else-branch of the previous.
         // A missing else is `else ()` (F# spec): inference has already constrained
-        // the then/elif branches and the whole expression to `unit`, so synthesize a
-        // `unit` constant as the innermost else.
+        // the branches and the whole expression to `unit`.
         let mutable nestedElse =
             match elseB with
             | ValueSome(ElseBranch(expr = e)) -> translateExpr ctx e
@@ -750,9 +668,8 @@ module internal ElaborateExpr =
         let mutable result = translateExpr ctx bodyExpr
         let mutable resultTy = typeOfKey ctx (CstKeys.ofExpr bodyExpr)
 
-        // `use` / `use!` bind a disposable: each binding folds to a `TExpr.Use`
-        // (codegen wraps the body in a `try … finally Dispose()` region, B-5)
-        // rather than a plain `TExpr.Let`.
+        // `use` / `use!` bind a disposable: the binding folds to a `TExpr.Use`
+        // (codegen wraps the body in `try … finally Dispose()`), not a `TExpr.Let`.
         let isUse =
             match keyword with
             | LetOrUseKeyword.Use _
@@ -763,12 +680,9 @@ module internal ElaborateExpr =
         for i = bindings.Length - 1 downto 0 do
             let b = bindings.[i]
 
-            // Drop an E1 format-literal alias binding (`let fmt : Format<…> = "%d" in
-            // …`): its value froze to a `New PrintfFormat` that is dead — every use
-            // const-propagates the literal (`PrintfFormatLiterals`), and the self-host
-            // contract has no cold runtime for a format value. Fold it out, keeping the
-            // body, so no `New PrintfFormat` reaches codegen. (`use` never binds a
-            // format, so it is never an alias.)
+            // Drop a format-literal alias binding (`let fmt : Format<…> = "%d" in …`):
+            // its value froze to a dead `New PrintfFormat`, since every use
+            // const-propagates the literal. Fold it out, keeping the body.
             if not isUse && ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat) then
                 ()
             else
@@ -780,10 +694,9 @@ module internal ElaborateExpr =
 
                 result <-
                     if isUse then
-                        // Unification records the binder's resolved disposal path under the
-                        // head-pattern's key. Absent ⇒ it could not resolve one and reported
-                        // a `use`-over-non-disposable error, so the node carries `Unresolved`
-                        // (an erroneous file still elaborates; no backend lowers it).
+                        // Unification records the binder's resolved disposal path under
+                        // the head-pattern's key. Absent ⇒ it reported a
+                        // `use`-over-non-disposable error; no backend lowers `Unresolved`.
                         let dispose =
                             match ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.headPat) with
                             | ValueSome d -> d

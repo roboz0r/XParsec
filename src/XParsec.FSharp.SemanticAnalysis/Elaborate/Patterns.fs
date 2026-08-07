@@ -10,18 +10,13 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateNominals
 
 // Pattern projection for the Elaborate pass: the recursive CST `Pat` -> `TPat`
 // translation and the list-case-name resolution it shares with the expression
-// projection (`ElaborateExpr`).
+// projection.
 
 module internal ElaboratePatterns =
 
-    /// The `(consName, nilName)` case names of the list union a `[…]` literal,
-    /// `[]`/`h :: t` pattern, or `::` construction targets. Mirrors the
-    /// case-by-arity resolution in `translateListLikeLiteral`: a program-declared
-    /// list union (its nullary case = the empty terminator, its single binary case
-    /// = cons) drives its own factories. For the self-host `list.fs` and the
-    /// external Vesper list (whose `[]`/`::` cases register / compile as
-    /// `Empty`/`Cons`) this returns `("Cons", "Empty")`; the FSharp.Core fallback
-    /// keeps `("Cons", "Nil")`.
+    /// The `(consName, nilName)` case names of the list union a `[…]` or `h :: t` pattern
+    /// targets. A program-declared list union names its own cases BY ARITY (nullary = empty,
+    /// binary = cons); Vesper's is `("Cons", "Empty")`, FSharp.Core's `("Cons", "Nil")`.
     let listCaseNames (ctx: PassContext) (ty: SemType) : string * string =
         match Unification.zonk ctx.Store ty with
         | LocalUnion ctx info ->
@@ -34,22 +29,19 @@ module internal ElaboratePatterns =
         | TyUnion(listKey, _) when RuntimeNames.isVesperListKey listKey -> "Cons", "Empty"
         | _ -> "Cons", "Nil"
 
-    /// A `NamedSimple` node, with HOW THE SOURCE WRITES its binder recorded as the node is
-    /// built — the last moment the key and the token that produced it are together
-    /// (`PassContext.BinderSpellings`). Both construction sites go through here, so neither
-    /// can mint a binder the freeze then has nothing to name.
+    /// A `NamedSimple` node, recording HOW THE SOURCE WRITES its binder as the node is built
+    /// — the last moment the key and the token that produced it are together. Without that
+    /// spelling the freeze has no name for the binder.
     let private namedSimple (ctx: PassContext) (key: NodeKey) (ty: SemType) (tok: SyntaxToken) : TPat =
         let node = TPat.NamedSimple(key, ty, tok)
         BinderKey.ofPat node |> ValueOption.iter (fun b -> ctx.SpellBinder(b, tok))
         node
 
-    /// Patterns Unification doesn't understand yet fall through loudly so the
-    /// gap surfaces at translation time.
     let rec translatePat (ctx: PassContext) (p: Pat<SyntaxToken>) : TPat =
         let key = CstKeys.ofPat p
         let ty = typeOfKey ctx key
-        // Source-map anchor for this binding site; synthetic sub-nodes (list
-        // desugaring's `Cons`/`Empty` chain) reuse the whole pattern's token.
+        // Source-map anchor for this binding site; the synthetic `Cons`/`Empty` chain a list
+        // pattern desugars to reuses the whole pattern's token.
         let tok = CstKeys.firstTokenOfPat p
 
         match p with
@@ -61,20 +53,15 @@ module internal ElaboratePatterns =
                 && System.Char.IsUpper n.[0]
                 && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n)
             ->
-            // Nullary ctor in pattern position — a local union or an external
-            // referenced-package one (`None`, recognised upstream and read by key).
-            // Must precede the plain NamedSimple
-            // arm. Both lower to the same `TPat.Union`; the node's type
-            // (`typeOfKey`) already carries the right `TyUnion`, so the backend
-            // routes local vs external off that.
+            // Nullary ctor in pattern position — a local union, or an external one (`None`)
+            // stamped upstream and read by key. Both lower to the same `TPat.Union`: the
+            // node's type carries the `TyUnion` a backend routes local vs external off.
             TPat.Union(ctx.NameOf t, EqArray.empty, ty, tok)
         | Pat.NamedSimple _ -> namedSimple ctx key ty tok
         | Pat.Wildcard _ -> TPat.Wildcard(ty, tok)
         | Pat.EnclosedBlock(lParen = ParenKind.List _; pat = inner) ->
-            // `[a; b; c]` list-literal pattern → nested cons:
-            // `Cons(a, Cons(b, Cons(c, Empty)))`. Each cons/nil node carries the
-            // whole list type (`ty`) — a tail of a `'T list` is the same `'T list`
-            // — so `listCaseNames` resolves the same factory at every level. A
+            // `[a; b; c]` → `Cons(a, Cons(b, Cons(c, Empty)))`. Every cons/nil node carries
+            // the WHOLE list type — a tail of a `'T list` is the same `'T list`. A
             // single-element `[a]` arrives unwrapped; `[]` is `Pat.EmptyBlock`.
             let consName, nilName = listCaseNames ctx ty
 
@@ -97,27 +84,24 @@ module internal ElaboratePatterns =
             let _, nilName = listCaseNames ctx ty
             TPat.Union(nilName, EqArray.empty, ty, tok)
         | Pat.Cons(head = headPat; tail = tailPat) ->
-            // `h :: t` → the list union's binary (cons) case. The node's type
-            // (`typeOfKey`) is the list `TyUnion` Unification resolved; the backend
-            // routes local vs external off it, exactly like a named-ctor pattern.
+            // `h :: t` → the list union's binary (cons) case.
             let consName, _ = listCaseNames ctx ty
             TPat.Union(consName, EqArray.ofList [ translatePat ctx headPat; translatePat ctx tailPat ], ty, tok)
         | Pat.Const c -> TPat.Const(parseConst ctx c, ty, tok)
         | Pat.As(pat = inner) ->
-            // The `as`-name isn't surfaced in TPat yet — downstream Var lookups
-            // find the alias via the CST + side tables.
+            // The `as`-name isn't surfaced in TPat yet — downstream Var lookups find the
+            // alias via the CST + side tables.
             translatePat ctx inner
         | Pat.Typed(pat = inner) ->
             // Annotation is consumed by Unification; runtime shape is the inner.
             translatePat ctx inner
         | Pat.Attributed(pat = inner) ->
-            // Parameter attributes (`[<CallAtMostOnce>]`) are decoded in
-            // `Elaborate`; the runtime shape is the wrapped pattern.
+            // Parameter attributes are decoded elsewhere; the runtime shape is the wrapped
+            // pattern.
             translatePat ctx inner
         | Pat.Or _ ->
-            // `p1 | p2 | … | pn` → `TPat.Or [p1; …; pn]`. The parser builds a
-            // left-nested `Or(Or(p1, p2), p3)`; flatten it to one level so the
-            // backend tests a flat alternative list (first match wins).
+            // The parser builds a left-nested `Or(Or(p1, p2), p3)`; flatten it to one level
+            // so a backend tests a flat alternative list, first match wins.
             let rec flatten (acc: Pat<SyntaxToken> list) (pat: Pat<SyntaxToken>) : Pat<SyntaxToken> list =
                 match pat with
                 | Pat.Or(left = l; right = r) -> flatten (flatten acc l) r
@@ -125,13 +109,9 @@ module internal ElaboratePatterns =
 
             let leaves = flatten [] p |> List.rev
 
-            // Or-patterns must bind nothing: every downstream consumer (the CLR/JS
-            // backends, `Regions`, `EmitClosures`) assumes an alternative is a pure
-            // refutability test. A binding alternative (`(1, x) | (2, x)`) would be
-            // miscompiled — `bindingsOfPat` silently drops the binder, and a binder
-            // lowers to an irrefutable test that corrupts the disjunction — so reject
-            // it here rather than emit wrong code. (Binding or-patterns are a deferred
-            // follow-up; this is the boundary the `InferPat` arm defers to.)
+            // Or-patterns must bind nothing: every downstream consumer assumes an
+            // alternative is a pure refutability test, so `(1, x) | (2, x)` would be
+            // miscompiled — a binder lowers to an irrefutable test that eats the disjunction.
             for leaf in leaves do
                 match NameResolutionScope.bindingsOfPat ctx leaf with
                 | [] -> ()
@@ -155,15 +135,9 @@ module internal ElaboratePatterns =
                 )
 
             TPat.Record(fields, ty, tok)
-        // `| E.C1` enum-case pattern (project-local OR external TS-manifest enum) →
-        // `TPat.EnumCase(enumKey, caseName, …)`, mirroring the `E.C1` expression
-        // lowering (`StaticFieldGet`, same carrier). v1 = equality only: codegen
-        // resolves the case's underlying literal off the frozen enum case table by
-        // key + name and compares, exactly like a `Const` pattern — the literal is
-        // NOT duplicated onto the node. `EnumCaseAccess` resolves the key from the
-        // pattern's `TyEnum` type (set by Unification for both local and external
-        // heads) or the local enum registry on the error path — exclusive with the
-        // union / ctor heads below.
+        // `| E.C1` enum-case pattern, project-local or external. The case's underlying
+        // literal is NOT copied onto the node: codegen looks it up by key + name in the
+        // frozen enum case table and compares, exactly like a `Const` pattern.
         | Pat.Named(longIdent = li & EnumCaseAccess ctx ty enumKey) ->
             TPat.EnumCase(SymbolKey.Type enumKey, ctx.NameOf li.Idents.[1], ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
@@ -197,10 +171,8 @@ module internal ElaboratePatterns =
 
             TPat.Union(caseName, subPats, ty, tok)
         | Pat.TypeTestAs(pat = inner) ->
-            // `:? T as x` — Unification stashed the tested type in
-            // `TypeTestTargets` (keyed on this node, like the `:?` expression
-            // form). The inner pattern (the `as`-name) is translated against it;
-            // codegen lowers the whole thing to an `isinst` + null check + bind.
+            // `:? T as x` — Unification stashed `T` in `TypeTestTargets`, keyed on this
+            // node. Codegen lowers the whole thing to an `isinst` + null check + bind.
             let testTy =
                 match ctx.Resolution.TypeTestTargets.TryGetValue key with
                 | ValueSome t -> t
@@ -208,9 +180,8 @@ module internal ElaboratePatterns =
 
             TPat.TypeTestAs(testTy, translatePat ctx inner, ty, tok)
         | Pat.TypeTest _ ->
-            // Bare `:? T` — same lowering as `:? T as x` but with a synthesised
-            // wildcard inner (binds nothing). Codegen's `isinst` + null-check arm
-            // discards the cast-down value.
+            // Bare `:? T` — same lowering as `:? T as x`, with a synthesised wildcard inner
+            // so the cast-down value is discarded.
             let testTy =
                 match ctx.Resolution.TypeTestTargets.TryGetValue key with
                 | ValueSome t -> t
@@ -218,16 +189,11 @@ module internal ElaboratePatterns =
 
             TPat.TypeTestAs(testTy, TPat.Wildcard(testTy, tok), ty, tok)
         | Pat.Null _ ->
-            // `null` literal pattern → `TPat.Null`; codegen lowers it to a
-            // non-null test (`ldloc; brtrue nextLabel`). The node's type is the
-            // scrutinee's reference type (pinned by Unification).
+            // `null` literal pattern; the node's type is the scrutinee's reference type.
             TPat.Null(ty, tok)
         | Pat.Op _ ->
-            // Operator-named binding head (`let (=) x y = …`): a single binder,
-            // shaped like a `Pat.NamedSimple`. Its source name is the operator's
-            // compiled name (`memberNameOfBinding` → `op_Equality`). Being a
-            // `NamedSimple` is what gives it a frozen identity at all
-            // (`BinderKey.ofPat`), and so a `ModuleMembers` entry for the
-            // cross-package inline-body loader to find.
+            // Operator-named binding head (`let (=) x y = …`): a single binder shaped like a
+            // `Pat.NamedSimple`, compiled under `op_Equality`. Being a `NamedSimple` is what
+            // gives it a frozen identity, and so an entry the inline-body loader can find.
             namedSimple ctx key ty tok
         | _ -> failwithf "Elaborate.translatePat: TODO %A" p

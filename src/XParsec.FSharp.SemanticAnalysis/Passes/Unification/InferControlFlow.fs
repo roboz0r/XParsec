@@ -19,12 +19,9 @@ open UnificationInferDispatch
 
 module internal UnificationInferControlFlow =
 
-    /// The resolved members of an *external* duck-typed enumerator `E` — the shared
-    /// result of probing `E`'s `ExternalClassShape` for `MoveNext(): bool` and a
-    /// `Current` property. Both `Pattern` forms with an external `E` (external source
-    /// and project-local source) wrap this identically as
-    /// `ForInEnumMembers.External`; only the `ForInGetEnum` axis differs. `Disposable`
-    /// is `true` iff `E : IDisposable`.
+    /// The members of an *external* duck-typed enumerator `E`, probed off its
+    /// `ExternalClassShape`: `MoveNext(): bool` and a `Current` property, with
+    /// `Disposable` set iff `E : IDisposable`.
     type private ExternalEnumProbe =
         {
             ElemTy: SemType
@@ -34,10 +31,9 @@ module internal UnificationInferControlFlow =
             Disposable: bool
         }
 
-    /// Probe an external enumerator shape `E` for the duck-typed `for … in` members:
-    /// a parameterless `MoveNext(): bool` and a `Current` property, with `enumArgs`
-    /// being `E`'s own instantiation. `ValueNone` unless both are present and
-    /// `MoveNext` returns `bool`.
+    /// Probe an external enumerator shape `E` for the duck-typed `for … in` members: a
+    /// parameterless `MoveNext(): bool` and a `Current` property, with `enumArgs` being
+    /// `E`'s own instantiation. `ValueNone` unless both are present and `MoveNext : bool`.
     let private probeExternalEnumerator
         (ctx: PassContext)
         (enumShape: ExternalClassShape)
@@ -55,14 +51,9 @@ module internal UnificationInferControlFlow =
         | Some mn, Some cur ->
             match ExternalSymbols.openSignature mn enumArgs with
             | TyFun(_, TyBool) ->
-                // F# parity: the `finally` exists only when `E : IDisposable`. Disposal
-                // is always the `System.IDisposable::Dispose` interface slot (codegen
-                // mints it), so only the bool matters here, not a member key. (For the
-                // future non-`IDisposable` ref-struct pattern-`Dispose()` case, see the
-                // TODO on the local-enumerator branch of `tryLocalDuckTypedEnumerator`.)
-                // Unnamed disposable ⇒ no finally fires (the structural path had its
-                // chance; an unresolvable disposable surfaces downstream honestly) —
-                // `matchesName` folds that `ValueNone` arm in.
+                // The `finally` exists only when `E : IDisposable`, and disposal always
+                // goes through the `System.IDisposable::Dispose` interface slot — so a
+                // bool is enough here, no member key.
                 let disposable =
                     ExternalSymbols.instantiateInterfaces enumShape enumArgs
                     |> Array.exists (fun (n, _) -> RuntimeNames.matchesName ctx.CapabilityIds.Disposable n)
@@ -78,10 +69,9 @@ module internal UnificationInferControlFlow =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// From a realised interface set (`(compiled-name, type-args)` pairs), pick the
-    /// element type of the enumerable capability (`seq<'T>`/`IEnumerable<'T>`): the
-    /// single type-arg of the first interface whose name matches the enumerable
-    /// capability identity. Shared by the class and union arms of `tryForInEnumerator`.
+    /// From a realised interface set (`(compiled-name, type-args)` pairs), the element
+    /// type of the enumerable capability: the single type-arg of the first interface
+    /// whose name matches `seq<'T>` / `IEnumerable<'T>`.
     let private pickEnumerableElem (ctx: PassContext) (interfaces: (string * SemType[])[]) : SemType option =
         interfaces
         |> Array.tryPick (fun (n, ta) ->
@@ -91,17 +81,9 @@ module internal UnificationInferControlFlow =
                 None
         )
 
-    /// Eagerly pin a flexible bare list-literal source to the Vesper cons-list.
-    ///
-    /// A bare `for x in [1;2;3]` leaves its source as a fresh `TypeVar` registered in
-    /// `ctx.ListLiterals` (R3 defers the FSharpList-vs-Vesper choice to
-    /// `resolveListLiterals`). But the for-in needs the source pinned NOW to read its
-    /// enumerable surface, and the only list the compiler emits is the Vesper cons-list
-    /// — which implements `seq<'T>` (§14.6). So flip the literal to
-    /// `TyUnion(vesperListKey, [elem])` here, exactly the flip a `List.fold` consumer
-    /// triggers; the union arm of `tryForInEnumerator` then admits it. (`1 :: 2 :: 3 ::
-    /// []` already types as the Vesper union, so it bypasses this and is admitted
-    /// directly.) A non-literal source is left untouched.
+    /// Eagerly pin a flexible bare list-literal source (`for x in [1;2;3]`) to the Vesper
+    /// cons-list: a for-in needs its source pinned NOW to read the enumerable surface, and
+    /// that is the only list emitted. A non-literal source is left untouched.
     let private pinListLiteralToVesper (ctx: PassContext) (tok: SyntaxToken) (srcTy: SemType) : unit =
         match zonk ctx.Store srcTy with
         | TyVar tv ->
@@ -110,13 +92,9 @@ module internal UnificationInferControlFlow =
             | ValueNone -> ()
         | _ -> ()
 
-    /// The project-local analogue of `probeExternalEnumerator`: probe a *user* class
-    /// `E` for the duck-typed `for … in` members — a parameterless `MoveNext(): bool`
-    /// and a `Current` property — with `enumArgs` being `E`'s own instantiation.
-    /// Returns `(elemTy, isValueType, disposable)`; unlike the external probe it
-    /// carries no member keys (the local axis is `ForInEnumMembers.Local`, so codegen
-    /// resolves the members itself via `resolveInstanceMember`). `ValueNone` unless
-    /// both members are present and `MoveNext` returns `bool`.
+    /// Probe a *user* class `E` for the duck-typed `for … in` members — a parameterless
+    /// `MoveNext(): bool` and a `Current` property — `enumArgs` being `E`'s own
+    /// instantiation. Returns `(elemTy, isValueType, disposable)`.
     let private probeLocalEnumerator
         (ctx: PassContext)
         (enumInfo: ClassTypeInfo)
@@ -137,20 +115,8 @@ module internal UnificationInferControlFlow =
         | Some mn, Some cur ->
             match inst mn.Type with
             | TyFun(_, TyBool) ->
-                // F# parity: a `finally` exists only when `E : IDisposable`. Scan the
-                // user enumerator's interface impls for `System.IDisposable`; codegen
-                // disposes through the interface slot regardless of where the member is
-                // stored.
-                //
-                // TODO (ref-struct pattern-Dispose): once a byref-like predicate exists
-                // (`SemType` has no ref-struct case today — see `InlineReduction.fs` /
-                // `Regions.fs`), also dispose a *non-`IDisposable`* `[<IsByRefLike>]` `E`
-                // that exposes a public `Dispose()`, calling its own method (a ref struct
-                // can't be boxed to `IDisposable`). That mirrors the `use`-binder
-                // precedent `Infer.tryExternalDispose` (prefer the type's own `Dispose`,
-                // fall back to the interface slot) and would need the `Pattern`
-                // descriptor's `dispose` to carry *which* `Dispose` to call, not just a
-                // bool.
+                // A ref-struct `E` with a pattern `Dispose()` but no `IDisposable` is not
+                // disposed at all: the descriptor carries a bool, not which member to call.
                 let disposable =
                     enumInfo.InterfaceImpls
                     |> Array.exists (fun impl ->
@@ -172,9 +138,8 @@ module internal UnificationInferControlFlow =
         | _ -> ValueNone
 
     /// A short display name for an anonymous-union member in an incomplete-match
-    /// diagnostic. v1 members are ground annotation types (`int`, `string`,
-    /// `null`), so the bare `TyConst` name reads well; anything compound falls
-    /// back to `%A`.
+    /// diagnostic. Members are ground annotation types (`int`, `string`, `null`), so the
+    /// bare `TyConst` name reads well; anything compound falls back to `%A`.
     let rec private describeUnionMember (store: TypeStore) (m: SemType) : string =
         match resolveStep store m with
         | TyConst(key, args) when args.IsEmpty ->
@@ -187,18 +152,9 @@ module internal UnificationInferControlFlow =
             |> String.concat " | "
         | other -> sprintf "%A" other
 
-    /// Per-arm scrutinee narrowing for a closed anonymous-union match
-    /// (`match (x: A | B) with …`). Pure over the arm
-    /// *patterns* — it reads nothing from body typing — so it runs as a pre-pass
-    /// ahead of `inferRules`'s typing loop. Returns the narrowed scrutinee each
-    /// arm's binder should see (the residual union of members not yet caught by an
-    /// earlier *unguarded* arm) paired 1:1 with `rules`, plus the final uncovered
-    /// `residual`. A non-empty residual is a non-exhaustiveness warning — provable
-    /// here because a *closed* union enumerates its members, unlike the open
-    /// `obj`/inheritance case.
-    ///
-    /// For a non-union scrutinee every arm just sees `scrutineeTy` and the residual
-    /// is empty (nothing to prove).
+    /// Per-arm scrutinee narrowing for a closed anonymous-union match (`match (x: A | B)
+    /// with …`): the members not yet caught by an earlier *unguarded* arm, paired 1:1 with
+    /// `rules`, plus the final uncovered residual — a non-exhaustiveness warning if any.
     let private computeArmNarrowing
         (ctx: PassContext)
         (scrutineeTy: SemType)
@@ -231,9 +187,9 @@ module internal UnificationInferControlFlow =
             let armScruts = ResizeArray(rules.Length)
 
             for r in rules do
-                // The binder narrows against the members still live *before* this
-                // arm. Once the residual is exhausted, fall back to the full
-                // scrutinee rather than pin a redundant trailing binder to `never`.
+                // The binder narrows against the members still live *before* this arm. Once
+                // the residual is exhausted, fall back to the full scrutinee rather than
+                // pin a redundant trailing binder to an empty union.
                 armScruts.Add(
                     if List.isEmpty residual then
                         scrutineeTy
@@ -292,10 +248,9 @@ module internal UnificationInferControlFlow =
             unify ctx tok thenTy elseTy
             thenTy
         | ValueNone ->
-            // `if c then e` (no else): the then-branch must be `unit` and the whole
-            // expression is `unit` (F# spec — a missing else is `else ()`). The elif
-            // branches above were already unified with `thenTy`, so this one `unify`
-            // forces all branches to `unit`.
+            // `if c then e` with no else: F# reads the missing branch as `else ()`, so the
+            // then-branch must be `unit`. The elifs were already unified with `thenTy`, so
+            // this one `unify` forces them all.
             unify ctx tok thenTy ctx.Intrinsics.Unit
             ctx.Intrinsics.Unit
 
@@ -360,14 +315,9 @@ module internal UnificationInferControlFlow =
         unify ctx tok bodyTy ctx.Intrinsics.Unit
         ctx.Intrinsics.Unit
 
-    /// The §4.4 duck-typed enumerator probe: C#'s pattern-based `foreach` accepts
-    /// any source exposing a public parameterless `GetEnumerator()` whose return
-    /// type `E` exposes `MoveNext(): bool` and a `Current` property — no
-    /// `IEnumerable<'T>` required (`List<'T>` hands back its non-boxing
-    /// `struct Enumerator` this way). Returns the element type (`Current`'s type)
-    /// and the resolved `Pattern` descriptor (both axes `External`) so codegen can
-    /// pick value-receiver emission. `srcArgs` are the source class's type arguments
-    /// — the substitution for `GetEnumerator`'s (and thereby `E`'s) typars.
+    /// The duck-typed enumerator probe: C#'s pattern-based `foreach` accepts a source with a
+    /// public parameterless `GetEnumerator()` whose return `E` exposes `MoveNext(): bool` and
+    /// `Current` — no `IEnumerable<'T>`. `srcArgs` substitutes the source class's typars.
     and tryDuckTypedEnumerator
         (ctx: PassContext)
         (shape: ExternalClassShape)
@@ -379,8 +329,8 @@ module internal UnificationInferControlFlow =
         with
         | None -> ValueNone
         | Some ge ->
-            // `GetEnumerator` reads as `unit → E`; `E` carries the enumerator type's
-            // own instantiation (`List`1+Enumerator` over the source's `'T`).
+            // `GetEnumerator` reads as `unit → E`; `E` carries the enumerator type's own
+            // instantiation (`List<'T>.Enumerator` over the source's `'T`).
             match ExternalSymbols.openSignature ge srcArgs with
             | TyFun(_, (TyClass(enumKey, enumArgsEq) as enumTy)) ->
                 match ctx.Provider.TryLookupType(SymbolKey.Type enumKey) with
@@ -402,19 +352,9 @@ module internal UnificationInferControlFlow =
                 | _ -> ValueNone
             | _ -> ValueNone
 
-    /// The pure-pattern variant: the project-local analogue of
-    /// `tryDuckTypedEnumerator`. A user class exposing a parameterless
-    /// `GetEnumerator()` whose return type `E` is *itself* a user class with
-    /// `MoveNext(): bool` and a `Current` property is a valid `for … in` source
-    /// even without implementing `IEnumerable<'T>` (C#'s non-boxing `foreach`,
-    /// project-local). Handles a reference or value-type (`[<Struct>]`) user
-    /// enumerator — the latter walks by address (`ldloca` + a by-address `call`),
-    /// no boxing. When
-    /// the enumerator type `E` is instead *external* (a BCL `List<'T>.Enumerator`),
-    /// the hybrid form kicks in: the local `GetEnumerator` is kept, but `E`'s
-    /// `MoveNext` / `Current` / `Dispose` are probed off its `ExternalClassShape`
-    /// and emitted via `ExternalMemberRefOn` — i.e. `Pattern` with a `Local`
-    /// `ForInGetEnum` and an `External` `ForInEnumMembers`.
+    /// A *user* class exposing a parameterless `GetEnumerator()` is a valid `for … in`
+    /// source without implementing `IEnumerable<'T>`. Its enumerator `E` may be another
+    /// user class, or external (a BCL `List<'T>.Enumerator`) — a hybrid of both axes.
     and tryLocalDuckTypedEnumerator
         (ctx: PassContext)
         (nameKey: TypeKey)
@@ -434,11 +374,8 @@ module internal UnificationInferControlFlow =
                 match zonk ctx.Store (instantiateMember ctx.Store (info.TypeParams, args) ge.Type) with
                 | TyFun(_, (TyClass(enumKey, enumArgs) as enumTy)) ->
                     match TypeRegistry.tryClassByKey ctx.Types enumKey with
-                    // A user enumerator, reference or value-type: a `[<Struct>]`
-                    // enumerator walks by address (`ldloca` + a by-address `call`), the
-                    // non-boxing path the value-receiver member-call IL already emits for
-                    // local struct members. Local source, local `E`: both axes
-                    // project-local.
+                    // A user enumerator, reference or value type: a `[<Struct>]` one walks
+                    // by address (`ldloca` + a by-address `call`), no boxing.
                     | ValueSome enumInfo ->
                         probeLocalEnumerator ctx enumInfo enumArgs
                         |> ValueOption.map (fun (elemTy, isValueType, dispose) ->
@@ -451,12 +388,8 @@ module internal UnificationInferControlFlow =
                                 dispose
                             )
                         )
-                    // `E` is not project-local — try the *external* enumerator
-                    // shape. `GetEnumerator` stays a local member; `MoveNext` /
-                    // `Current` / `Dispose` are read off `E`'s `ExternalClassShape`
-                    // (the §4.4 external-enumerator probe), and codegen mints them via
-                    // `ExternalMemberRefOn`. Local source, external `E`: a local
-                    // `GetEnumerator`, external enumerator members.
+                    // `E` is not project-local: keep the local `GetEnumerator`, but read
+                    // `MoveNext` / `Current` / `Dispose` off `E`'s external shape.
                     | ValueNone ->
                         match ctx.Provider.TryLookupType(SymbolKey.Type enumKey) with
                         | ValueSome(ExternalTypeShape.Class enumShape) ->
@@ -477,16 +410,8 @@ module internal UnificationInferControlFlow =
         | ValueNone -> ValueNone
 
     /// The enumerable surface a *project-local* nominal source publishes through its
-    /// `interface` impls, resolved kind-agnostically over `IInterfaceImplHost` so a
-    /// class, a union or a record source all share one resolver. A record's iteration
-    /// capability (`interface seq<'T>`) lowers exactly as a class's: the backend
-    /// synthesises the same `IEnumerable<'T>` co-slots, and the walk `callvirt`s them.
-    ///
-    /// Only the `Interface` surface is reachable this way, never `Pattern`: the
-    /// duck-typed axes resolve a `Local` member through
-    /// `EmitResolve.resolveInstanceMember`, whose member tables cover unions, classes
-    /// and interfaces but *not* records — so a record source exposing only a pattern
-    /// `GetEnumerator()` stays rejected in the front end rather than failing at emit.
+    /// `interface` impls, over `IInterfaceImplHost` so that a class, a union and a record
+    /// source share one resolver.
     and tryLocalInterfaceEnumeratorOn
         (ctx: PassContext)
         (host: IInterfaceImplHost)
@@ -520,12 +445,9 @@ module internal UnificationInferControlFlow =
         | ValueSome info -> tryLocalInterfaceEnumeratorOn ctx info args
         | ValueNone -> ValueNone
 
-    /// Rung-3: resolve the enumerator `E` returned by a constrained `GetEnumerator`
-    /// into the loop element type + the `ForInEnumMembers` axis + value-type-ness +
-    /// disposability. `E` is either a *concrete* project-local enumerator (struct or
-    /// class) exposing public pattern `MoveNext`/`Current` — the existing local walk —
-    /// or *itself a typar* constrained to an enumerator interface, in which case its
-    /// members dispatch via `constrained. <E> callvirt` too.
+    /// Resolve the enumerator `E` returned by a constrained `GetEnumerator` into
+    /// `(elemTy, members, isValueType, disposable)`. `E` is either a concrete project-local
+    /// enumerator with public `MoveNext`/`Current`, or itself a constrained typar.
     and tryConstrainedEnumeratorMembers
         (ctx: PassContext)
         (enumTy: SemType)
@@ -538,17 +460,13 @@ module internal UnificationInferControlFlow =
                 |> ValueOption.map (fun (elemTy, isValueType, dispose) ->
                     elemTy, ForInEnumMembersG.Local, isValueType, dispose
                 )
-            // An *external* enumerator returned by a constrained source is not yet
-            // reachable in practice (a project-local seq interface hands back a
-            // project-local `E`); defer rather than guess.
             | ValueNone -> ValueNone
         | TyVar etv -> tryConstrainedTyparEnumerator ctx etv
         | _ -> ValueNone
 
     /// `E` is itself a generic typar constrained to an enumerator interface
-    /// (`'E :> IStructEnumerator`). Scan its `Coercion` constraints for an interface
-    /// declaring `MoveNext(): bool` and a `Current` property; on a hit the members
-    /// dispatch via `constrained. <E> callvirt`. The element type is `Current`'s type.
+    /// (`'E :> IStructEnumerator<'T>`). Scan its `Coercion` constraints for an interface with
+    /// `MoveNext(): bool` and `Current`; those members dispatch via `constrained. callvirt`.
     and tryConstrainedTyparEnumerator
         (ctx: PassContext)
         (tv: TyVarId)
@@ -561,8 +479,8 @@ module internal UnificationInferControlFlow =
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep ctx.Store target with
                     | TyClass(ifaceKey, ifaceArgs) ->
-                        // Resolve by the interface's key, not a bare name: an
-                        // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name.
+                        // Resolve by key, not bare name: `Fun` at arity 2 and at arity 3 are
+                        // different interfaces sharing one name.
                         match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
                             match
@@ -587,12 +505,9 @@ module internal UnificationInferControlFlow =
 
         scan (ctx.Store.Constraints.Items(UnionFind.find ctx.Store tv))
 
-    /// Rung-3: resolve `for x in s` where the source `s` is a *generic typar*
-    /// constrained to a project-local seq interface (`'S :> ISeq` / `'S :> IStructSeq<'E>`)
-    /// declaring a `GetEnumerator(): E`. Scans the typar's `Coercion` constraints
-    /// (Wall B's machinery) for such an interface, resolves the enumerator `E`'s walk
-    /// members, and produces a `Pattern` descriptor whose `GetEnumerator` (and, when
-    /// `E` is itself a typar, `MoveNext`/`Current`) dispatch via `constrained. callvirt`.
+    /// `for x in s` where the source `s` is a *generic typar* constrained to a project-local
+    /// seq interface (`'S :> IStructSeq<'T, 'E>`) declaring `GetEnumerator(): E`. Resolves
+    /// `E`'s walk members; the calls then dispatch via `constrained. callvirt`.
     and tryTyparSeqSource (ctx: PassContext) (tv: TyVarId) : (SemType * ForInEnumerator) voption =
         let rec scan (cs: SemanticConstraint list) =
             match cs with
@@ -602,8 +517,8 @@ module internal UnificationInferControlFlow =
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep ctx.Store target with
                     | TyClass(ifaceKey, ifaceArgs) ->
-                        // Resolve by the interface's key, not a bare name: an
-                        // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name.
+                        // Resolve by key, not bare name: `Fun` at arity 2 and at arity 3 are
+                        // different interfaces sharing one name.
                         match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
                             match tryClassChainMember ctx ifaceKey ifaceArgs "GetEnumerator" with
@@ -631,12 +546,9 @@ module internal UnificationInferControlFlow =
 
         scan (ctx.Store.Constraints.Items(UnionFind.find ctx.Store tv))
 
-    /// `srcTy` is either `IEnumerable<'T>` itself, an external class that
-    /// implements it (the directly-implemented interface set the metadata layer
-    /// surfaces through `ExternalClassShape.Interfaces`), or
-    /// a source exposing a pattern-based `GetEnumerator()`. Returns the
-    /// `'T` so `inferForIn` can pin the loop pattern's type, plus the
-    /// `ForInEnumerator` codegen reads off the frozen node.
+    /// `srcTy` is `IEnumerable<'T>` itself, a type implementing it, or a source exposing a
+    /// pattern-based `GetEnumerator()`. Returns the `'T` the loop pattern is pinned to,
+    /// plus the `ForInEnumerator` codegen reads off the frozen node.
     and tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
         match zonk ctx.Store srcTy with
         | TyClass(nameKey, args) when RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey && args.Length = 1 ->
@@ -647,31 +559,23 @@ module internal UnificationInferControlFlow =
                 let argArr = args.AsSpan().ToArray()
 
                 // C# precedence: a pattern-based `GetEnumerator()` wins over the
-                // `IEnumerable<'T>` interface, so `List<'T>` walks its non-boxing
-                // struct `Enumerator` (§4.4) rather than the boxing interface
-                // enumerator (now that value-type member-call emission has landed).
-                // Fall back to the interface shape (§4.2) for a source that only
-                // implements `IEnumerable<'T>` and exposes no usable pattern
-                // `GetEnumerator()`.
+                // `IEnumerable<'T>` interface, so `List<'T>` walks its non-boxing struct
+                // `Enumerator` rather than the boxing interface enumerator.
                 match tryDuckTypedEnumerator ctx shape argArr with
                 | ValueSome r -> ValueSome r
                 | ValueNone ->
                     match pickEnumerableElem ctx (ExternalSymbols.instantiateInterfaces shape argArr) with
                     | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                     | None -> ValueNone
-            // A project-local source is invisible to the external provider; fall
-            // back to the user probes. C# precedence: a pattern `GetEnumerator()`
-            // wins over the `IEnumerable<'T>` interface.
+            // A project-local source is invisible to the external provider; fall back to
+            // the user probes, with the same pattern-over-interface precedence.
             | _ ->
                 match tryLocalDuckTypedEnumerator ctx nameKey args with
                 | ValueSome r -> ValueSome r
                 | ValueNone -> tryLocalInterfaceEnumerator ctx nameKey args
         // A nominal UNION source (a bare cons-list `[1;2;3]` is `TyUnion(List, [elem])`).
-        // The external union carries its directly-declared `interface <ty>` impls in
-        // `ExternalTypeShape.Union.interfaces` (the `.fsi` union's `interface seq<'T>`);
-        // match that against the enumerable capability exactly as the class arm does,
-        // returning the boxing `Interface` enumerator (the union's `GetEnumerator` impl
-        // is dispatched through `IEnumerable<'T>` — `List` implements it on both targets).
+        // Its declared `interface seq<'T>` impl is matched against the enumerable
+        // capability as in the class arm, giving the boxing `Interface` enumerator.
         | TyUnion(nameKey, args) ->
             match ctx.Provider.TryLookupType(SymbolKey.Type nameKey) with
             | ValueSome(ExternalTypeShape.Union(_, _, interfaces, _)) ->
@@ -682,16 +586,13 @@ module internal UnificationInferControlFlow =
                 | None -> ValueNone
             | _ -> ValueNone
         // A project-local RECORD source implementing the iteration capability
-        // (`interface seq<'T>`). The backend already synthesises a record's
-        // `IEnumerable<'T>` co-slots exactly as it does a class's, so the boxing
-        // `Interface` walk lowers unchanged — this arm is the whole of the support.
+        // (`interface seq<'T>`) — the boxing `Interface` walk, exactly as for a class.
         | TyRecord(nameKey, args) ->
             match TypeRegistry.tryRecordByKey ctx.Types nameKey with
             | ValueSome info -> tryLocalInterfaceEnumeratorOn ctx info args
             | ValueNone -> ValueNone
-        // Rung-3: a *generic typar* source (`'S :> ISeq`/`IStructSeq<'E>`) — resolve
-        // its enumerable surface through the `Coercion` constraint, dispatching
-        // `GetEnumerator` via `constrained. callvirt` (the zero-alloc struct path).
+        // A *generic typar* source — resolve its enumerable surface through the `Coercion`
+        // constraint, dispatching `GetEnumerator` via `constrained. callvirt`.
         | TyVar tv -> tryTyparSeqSource ctx tv
         | _ -> ValueNone
 
@@ -703,11 +604,9 @@ module internal UnificationInferControlFlow =
         (src: Expr<SyntaxToken>)
         (body: Expr<SyntaxToken>)
         : SemType =
-        // Int-range source: element type is int (`inferRange` already pinned the
-        // endpoints to int; the range materialises no seq, so its own type is unused
-        // here — only the loop pattern is pinned). Any other source must be an
-        // `IEnumerable<'T>` (a BCL collection in v1, B-6) — the element type is
-        // recovered from its interface set and the loop pattern unified with it.
+        // An int-range source materialises no seq, so its own type goes unused and only
+        // the loop pattern is pinned, to `int`. Any other source must publish an
+        // enumerable surface, and the pattern is unified with its element type.
         let srcTy = infer ctx src
         let patTy = inferPat ctx pat
 
@@ -747,12 +646,6 @@ module internal UnificationInferControlFlow =
         (resultTy: SemType)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : unit =
-        // Closed anonymous-union scrutinee (`match (x: A | B) with …`): each arm's
-        // binder narrows against the residual union — the members not yet caught by
-        // an earlier unguarded arm — and an unguarded shortfall is a
-        // non-exhaustiveness warning. The residual reads
-        // nothing from body typing, so it is a pure pre-pass and the loop below
-        // stays a flat fold over arms (see `computeArmNarrowing`).
         let armScruts, residual = computeArmNarrowing ctx scrutineeTy rules
 
         for r, armScrut in Seq.zip rules armScruts do
@@ -793,9 +686,8 @@ module internal UnificationInferControlFlow =
         (tok: SyntaxToken)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType =
-        // `function … ` ~ `fun x -> match x with …`. The synthesised
-        // parameter's TypeVar IS the scrutinee's — every arm's pattern
-        // unifies with it.
+        // `function …` ~ `fun x -> match x with …`: the synthesised parameter's TypeVar
+        // IS the scrutinee's, so every arm's pattern unifies with it.
         let paramTy = TyVar(freshTyVar ctx)
         let resultTy = TyVar(freshTyVar ctx)
         inferRules infer ctx tok paramTy resultTy rules
@@ -808,10 +700,8 @@ module internal UnificationInferControlFlow =
         (body: Expr<SyntaxToken>)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType =
-        // Until a real `exn` type lands, pin the scrutinee to placeholder
-        // `TyConst "exn"`. A fresh TyVar would let wildcard / variable arm
-        // patterns carry an unresolved TyVar into the TAST, which
-        // `ResolvedTypes` correctly flags.
+        // Pin the scrutinee to the primitive `exn` placeholder: a fresh TyVar would let a
+        // wildcard or variable arm pattern carry an unresolved TyVar into the TAST.
         let resultTy = infer ctx body
         let exnTy = TyConst(RuntimeNames.exnKey, EqArray.empty)
         inferRules infer ctx tok exnTy resultTy rules
@@ -841,15 +731,9 @@ module internal UnificationInferControlFlow =
         let rightTy = infer ctx right
         unify ctx node.Tok leftTy rightTy
 
-        // `arr.[i] <- v` mints a `SetArray`/`SetIndex` `External` head in Elaborate's
-        // `translateAssignment` (the write mirror of the `GetArray`/`GetIndex` read
-        // resolved by `inferIndexedLookup` above). Unlike the read intrinsics, the
-        // WRITE intrinsic is never resolved by the plain type-check, so resolve it
-        // here and stamp its identity under this `Assignment` node key — the same key
-        // Elaborate reads — so `InlineExpansion` splices the `stelem` / `$0[$1] = $2`
-        // body by KEY. Receiver classification mirrors `translateAssignment` exactly
-        // (an index-signature class → `SetIndex`, else `SetArray`): the receiver is
-        // already grounded by the read resolution, so both passes agree.
+        // Unlike the `GetArray`/`GetIndex` read intrinsics, the write intrinsic of
+        // `arr.[i] <- v` is never resolved by the plain type-check, so resolve it here and
+        // stamp it under this node's key — the key the `stelem` body is spliced by.
         let rec unwrapLhs e =
             match e with
             | Expr.EnclosedBlock(expr = inner)

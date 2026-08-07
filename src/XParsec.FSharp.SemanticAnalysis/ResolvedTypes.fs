@@ -3,22 +3,14 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 open XParsec.FSharp.Parser
 
-// Pre:  Elaborate has produced a TastFile.
-// Post: ctx.Diagnostics carries an Error per TDecl whose TAST still
-//       references an unresolved TyVar.
-//
-// Invariant checked: after generalisation + freeze, every reachable TyVar
-// should either bottom out in a concrete shape via union-find Link chains, or
-// be a quantified typar of the enclosing generalised `let`. Anything else is
-// an inference bug — codegen would later fail in much less informative ways.
-//
-// Stays on indefinitely. Turning it off
-// lets latent generalisation bugs surface as broken IL much later.
+// Post: ctx.Diagnostics carries an Error per TDecl whose TAST still references an unresolved
+//       TyVar — after generalisation every reachable TyVar should bottom out in a concrete
+//       shape via Link chains, or be a quantified typar of the enclosing generalised `let`.
 
 module ResolvedTypes =
 
-    /// Walk `t` adding any free TyVar root (`Link.IsNone`) not in `allowed`
-    /// to `acc`. Same chase-through-Link semantics as `Unification.zonk`.
+    /// Walk `t` adding any free TyVar root — one whose `Link` is `ValueNone` — that is not
+    /// in `allowed` to `acc`.
     let private addFreeRoots
         (store: TypeStore)
         (allowed: HashSet<TyVarId>)
@@ -35,16 +27,13 @@ module ResolvedTypes =
                 | ValueNone ->
                     if not (allowed.Contains root.Id) then
                         acc.Add(root.Id) |> ignore
-            // A still-free var can hide in any child (the type-level computations
-            // included); leaves hold none.
             | t -> SemType.iterChildren go t
 
         go t
 
-    /// Add this binding's scheme's quantified roots to `allowed`. Returns
-    /// the list of newly-added roots so the caller can pop them after the
-    /// binding's body walk. Skip-if-already-present so outer-scope
-    /// quantifieds aren't accidentally popped by an inner let.
+    /// Add this binding's scheme's quantified roots to `allowed`, returning the newly-added
+    /// ones for the caller to pop. Skip-if-already-present, so an inner `let` cannot pop an
+    /// outer scope's quantifieds.
     let private pushScheme (ctx: PassContext) (binding: TPat) (allowed: HashSet<TyVarId>) : ResizeArray<TyVarId> =
         let added = ResizeArray<TyVarId>()
 
@@ -66,11 +55,8 @@ module ResolvedTypes =
         for tv in added do
             allowed.Remove tv |> ignore
 
-    /// Build the visit-only iter for one decl walk. Every node's `ty` is fed
-    /// into `addFreeRoots`; `Let` push/pops the binding's scheme so the
-    /// quantified roots are allowed only inside the binding's value (not its
-    /// body); `Format` visits each hole's `Ty` (a per-hole side type the
-    /// default walker doesn't surface).
+    /// Build the visit-only iter for one decl walk: every node's `ty` feeds `addFreeRoots`,
+    /// and so does each `Format` hole's `Ty`, which the default walker doesn't surface.
     let private buildIter (ctx: PassContext) (allowed: HashSet<TyVarId>) (acc: HashSet<TyVarId>) : TastWalk.Iter =
         { TastWalk.identityIter with
             VisitExpr =
@@ -79,9 +65,8 @@ module ResolvedTypes =
 
                     match e with
                     | TExpr.Let(binding, value, body, _, _) ->
-                        // Inner let's quantified set is scoped to the value RHS and
-                        // the binding pattern's type; restore on exit so it doesn't
-                        // leak into the body's check.
+                        // The inner let's quantified roots are allowed in its value RHS and
+                        // binding pattern only; popped before the body's check.
                         let added = pushScheme ctx binding allowed
                         TastWalk.iterPat it binding
                         TastWalk.iterExpr it value
@@ -120,9 +105,7 @@ module ResolvedTypes =
         }
 
     /// Best-effort attribution for a decl-level diagnostic: the binding's own token where
-    /// the head pattern is a `NamedSimple`, and no place in the file otherwise. Public
-    /// because `PlatformTypes` makes the same decl-level verdict and must place it
-    /// identically.
+    /// the head pattern is a `NamedSimple`, and no place in the file otherwise.
     let declSite (d: TDecl) : Site =
         match d with
         | TDecl.Let(TPat.NamedSimple(tok = tok), _, _, _) -> Site.ofToken tok

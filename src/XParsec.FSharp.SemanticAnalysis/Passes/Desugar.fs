@@ -6,59 +6,37 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 // Pre:  none.
-// Post: ctx.Desugared populated for every CST node whose semantics differ
-//       from its surface form.
-//
-// Annotation-only: NEVER rewrites the CST.
+// Post: ctx.Desugared populated for every CST node whose semantics differ from its
+//       surface form. Annotation-only: NEVER rewrites the CST.
 
 module Desugar =
 
-    /// Compiled name for a symbolic operator used as a *value* (`(+)` →
-    /// "op_Addition"). A parenthesised operator denotes the same FSharp.Core
-    /// member the infix form desugars to, so the mapping is shared. Consumed
-    /// by NameResolution / Unification / Elaborate to resolve `(op)` references.
-    /// NOTE: a *bare* operator at a use site lexes to its distinct `Token`
-    /// (`+` → `OpAddition`), so this enum match is reliable there; an operator
-    /// inside parens (a binding head / value) lexes to a *generic* operator token
-    /// and must be resolved by source text — see `opPatCompiledName`.
+    /// Compiled name for a symbolic operator (`+` → `"op_Addition"`). Reliable for a
+    /// BARE operator, which lexes to its own `Token`; one inside parens can lex to a
+    /// generic operator token and needs `opPatCompiledName`'s source-text fallback.
     let symbolicOpCompiledName (t: Token) : string voption = OperatorNames.ofToken t
 
-    /// Compiled name for an operator-named binding *head* (`let (=) x y = …` →
-    /// "op_Equality", `let (~-) n = …` → "op_UnaryNegation"), so an operator
-    /// definition freezes under the same compiled member name its use sites
-    /// reference (and is then collectable as a cross-package inline body).
-    ///
-    /// Well-known / keyword-encoded operators (`=` `+` `&&` …) lex to their
-    /// distinct `Token` even inside parens, so the enum match
-    /// (`symbolicOpCompiledName`) resolves them; the *generic*-token operators
-    /// (`~-` `~+`, and the bitwise ops in non-bare position, which share
-    /// `OpFamily.OpGeneric`) fall back to the parser's canonical operator-name
-    /// function (`OperatorInfo.GetName`, fed the head token's lexed text via
-    /// `nameOf`/`ctx.NameOf`). `( * )` parses to a dedicated `IdentOrOp.StarOp`
-    /// (its star is a *virtual* token, so it has no usable lexed text) and is
-    /// mapped directly. Range / active-pattern heads return `ValueNone`.
+    /// Compiled name for an operator-named binding HEAD (`let (=) x y = …` →
+    /// `"op_Equality"`, `let (~-) n = …` → `"op_UnaryNegation"`), so a definition
+    /// freezes under the same member name its use sites reference.
     let opPatCompiledName (nameOf: SyntaxToken -> string) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
         | IdentOrOp.ParenOp(opName = OpName.NilOp _) -> ValueSome OperatorData.OpNil
         | IdentOrOp.ParenOp(opName = OpName.SymbolicOp tok) -> OperatorNames.ofParenSymbolic (nameOf tok) tok
         | _ -> ValueNone
 
-    /// Token.OpSubtraction / OpAddition are used by both the binary form (`a - b`,
-    /// InfixApp) and the unary one (`-x`, PrefixApp); the PrefixApp forms map to
-    /// op_UnaryNegation / op_UnaryPlus. The spellings `~-` / `~+` never reach here — they
-    /// lex to a generic operator token and appear only as binding heads / values.
+    /// `Token.OpSubtraction` / `OpAddition` serve both `a - b` and `-x`; only the prefix
+    /// form reaches here, mapping to `op_UnaryNegation` / `op_UnaryPlus`. The spellings
+    /// `~-` / `~+` never do — they appear only as binding heads / values.
     let private prefixOpName (t: Token) : string voption =
         match t with
         | Token.OpSubtraction -> ValueSome OperatorData.OpUnaryNegation
         | Token.OpAddition -> ValueSome OperatorData.OpUnaryPlus
-        // `~~~x` (bitwise complement) lexes to the distinct `OpLogicalNot` (wellKnownOps).
+        // `~~~x` (bitwise complement) lexes to the distinct `OpLogicalNot`.
         | Token.OpLogicalNot -> ValueSome OperatorData.OpLogicalNot
-        // `&local` is the managed address-of (byref): its prefix compiled name is
-        // `op_AddressOf`. Unlike the other prefix ops it has no provider symbol —
-        // `inferPrefix` / `translatePrefix` special-case the name (the byref
-        // intrinsic + an `ldloca` of the local), so it never reaches operator
-        // resolution. `&&` (`OpAmpAmp`, native int address-of) is left unmapped
-        // (no consumer) and the boolean `&&` is an `InfixApp`, not a prefix.
+        // `&local`, the managed address-of. Unlike the other prefix ops it has no
+        // provider symbol: the name is special-cased downstream into the byref
+        // intrinsic, so it never reaches operator resolution.
         | Token.OpAmp -> ValueSome OperatorData.OpAddressOf
         | _ -> ValueNone
 
@@ -74,9 +52,8 @@ module Desugar =
     let private visit (ctx: PassContext) (_env: unit) (e: Expr<SyntaxToken>) : unit =
         match e with
         | Expr.InfixApp(_, op, _) ->
-            // `::` is not a provider-resolved operator: it constructs the list
-            // union directly, so it carries its own desugared form (consumed by
-            // Unification/Elaborate) rather than an `op_*` member name.
+            // `::` is not a provider-resolved operator: it constructs the list union
+            // directly, so it gets its own form rather than an `op_*` member name.
             match op.Token with
             | Token.KWColonColon -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.ConsExpr)
             | _ ->
@@ -112,15 +89,9 @@ module Desugar =
                 CstWalk.iterExpr walker () b.expr
         | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
         | ModuleElem.Type defs ->
-            // Recurse into member bodies (incl. union augmentation, P3d.3) so the
-            // ops they contain get compiled-name entries. Without this,
-            // Unification's `inferInfix` falls through to a free TyVar and the
-            // member's body type doesn't pin to a concrete type.
-            // A secondary ctor's body (`new(args) = …`, B-11) is an
-            // `AdditionalConstrExpr`, not a plain `Expr` — walk each embedded
-            // expression so a `let`-preamble RHS, a chain-call arg, or an explicit
-            // field-init `{ f = e }` gets its operator
-            // compiled-name entries. Mirrors `NameResolution.walkCtorBody`.
+            // A secondary ctor's body (`new(args) = …`) is an `AdditionalConstrExpr`,
+            // not a plain `Expr`, so each embedded expression — `let`-preamble RHS,
+            // chain-call arg, field init `{ f = e }` — has to be walked by hand.
             let rec walkCtorBody (ace: AdditionalConstrExpr<SyntaxToken>) : unit =
                 match ace with
                 | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
@@ -158,12 +129,9 @@ module Desugar =
                         | MethodOrPropDefn.AutoProperty(expr = e) -> CstWalk.iterExpr walker () e
                         | _ -> ()
                     | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(body = body)) -> walkCtorBody body
-                    // An `interface Foo with member …` body holds member bodies too —
-                    // their operators need compiled-name entries exactly as the type's
-                    // own members do, or Unification's `inferInfix` falls through to a
-                    // free TyVar and Elaborate throws `InfixApp … missing DesugaredForm`.
-                    // The members nest under `ObjectMembers`; reproject each onto a
-                    // `TypeDefnElement.Member` and recurse (mirrors `extractInterfaceImpls`).
+                    // An `interface Foo with member …` body holds member bodies too, nested
+                    // under `ObjectMembers`; reproject each onto a `TypeDefnElement.Member`
+                    // and recurse.
                     | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(objectMembers = objMembersOpt)) ->
                         match objMembersOpt with
                         | ValueSome(ObjectMembers(memberDefns = mds)) ->
@@ -171,12 +139,9 @@ module Desugar =
                         | ValueNone -> ()
                     | _ -> ()
 
-            // The class PREAMBLE (`[static] let` initialisers, `[static] do` bodies) and the
-            // primary `inherit Base(args)` argument expression are ordinary expressions that
-            // NameResolution scopes and Unification infers, so their operators need
-            // compiled-name entries exactly as a member body's do — without them `inferInfix`
-            // falls through to a free TyVar and Elaborate throws `InfixApp … missing
-            // DesugaredForm`.
+            // The class preamble (`[static] let` / `[static] do`) and the primary
+            // `inherit Base(args)` argument are ordinary expressions, so their operators
+            // need compiled-name entries exactly as a member body's do.
             let walkClassBody (b: ObjectModelBody<SyntaxToken>) =
                 for d in b.classPreamble do
                     match d with
@@ -201,8 +166,7 @@ module Desugar =
                     | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
                         walkMemberElems elems
                     // An inline intrinsic-abbrev host (`type X = (# … #) with member …`)
-                    // carries member bodies too — their operators need the same
-                    // compiled-name entries the union/record augmentation members get.
+                    // carries member bodies too.
                     | TypeDefn.Abbrev(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
                         walkMemberElems elems
                     | _ -> ()

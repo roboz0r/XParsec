@@ -2,70 +2,44 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Parser
 
-// WHAT a diagnostic says, next to `Site.fs`'s WHERE it points. The verdict is a `Kind`
-// carrying the facts it is about; the code, the English and the severity are read back OFF
-// it. Nothing here is stored on the record, so a producer cannot pair a message with the
-// wrong severity, and a consumer can filter on the verdict itself instead of matching
-// substrings of a rendered sentence.
-
-// `RequireQualifiedAccess` because this compiles ahead of the VesperLib /
-// ReferencedProject extractors, whose `Result` plumbing uses a bare `Error`
-// constructor — an unqualified `Severity.Error` case would shadow it. Every use
-// site already writes `Severity.Error` / `.Warning` (or is qualified here).
-//
-// Two cases, because two is what `Kind.severity` can return. An `Info` case was declared
-// and never constructed; a severity nothing can mint is not a severity.
+// `RequireQualifiedAccess` because an unqualified `Error` case would shadow the `Result`
+// constructor.
 [<RequireQualifiedAccess; Struct>]
 type Severity =
     | Error
     | Warning
 
-/// The PUBLISHED number a diagnostic is filed under — the identity a consumer suppresses,
-/// filters or asserts on across compiler versions, as distinct from the `Kind`, which is the
-/// classification itself and always exists.
-///
-/// A closed set with an explicit `Unpublished`, and NOT a `string`: "this verdict has no
-/// published number" is a fact worth stating, where the `""` that used to stand for it was a
-/// sentinel a consumer could compare equal to a real code by accident.
+/// The PUBLISHED number a diagnostic is filed under — what a consumer suppresses, filters
+/// or asserts on across compiler versions.
 [<RequireQualifiedAccess>]
 type DiagCode =
     /// An fsc diagnostic number this compiler deliberately reproduces, so a program moved
-    /// between the two compilers is refused under the same number. Sourced from the F#
-    /// compiler itself (`FSComp.txt`'s numbered entries and
-    /// `CompilerDiagnostics.DiagnosticNumber` for the sub-200 exceptions), never invented.
+    /// between the two compilers is refused under the same number.
     | FSharp of number: int
     /// This compiler's OWN published families: the `V24x` package-conformance codes, and the
     /// front-end/driver refusals that are about a file rather than about a program.
     | Vesper of code: string
-    /// No published number. Not a failure to assign one — most verdicts genuinely have none,
-    /// and the `Kind` is the classification a consumer should be selecting on.
+    /// No published number — most verdicts have none.
     | Unpublished
 
 [<RequireQualifiedAccess>]
 module DiagCode =
 
-    /// How a code prints. `Unpublished` renders empty, which is what a diagnostic with no
-    /// number has always shown — a DISPLAY choice, made here, rather than a value producers
-    /// and consumers pass around.
+    /// How a code prints; `Unpublished` renders empty.
     let render (c: DiagCode) : string =
         match c with
         | DiagCode.FSharp n -> sprintf "FS%04d" n
         | DiagCode.Vesper code -> code
         | DiagCode.Unpublished -> ""
 
-/// Which NOMINAL shape a type is — the axis a "this names no such type" verdict differs on,
-/// and the axis `tryResolveNominal` reports. Declared here rather than in the unification
-/// core because a diagnostic names it and the diagnostic types compile first.
+/// Which NOMINAL shape a type is — the axis a "this names no such type" verdict differs on.
 [<RequireQualifiedAccess>]
 type NominalKind =
     | Record
     | Class
     | Union
 
-/// What a member-lookup verdict was LOOKING for. A discriminator, not a noun a producer
-/// spells: the same verdict reached from the field path and from the instance-member path
-/// differs only here, and a `string` in this position is a discriminator that has stopped
-/// being checked.
+/// What a member-lookup verdict was LOOKING for.
 [<RequireQualifiedAccess>]
 type MemberNoun =
     | Field
@@ -82,8 +56,6 @@ type MemberNoun =
 [<RequireQualifiedAccess>]
 module MemberNoun =
 
-    /// The noun as a sentence spells it. THE one spelling, so the field path and the
-    /// member path cannot drift into two phrasings of one verdict.
     let word (n: MemberNoun) : string =
         match n with
         | MemberNoun.Field -> "field"
@@ -106,21 +78,17 @@ module IntrinsicHost =
         /// The grammar gives `override`/`default` no `inline` slot, and an intrinsic
         /// publishes no method table to hold the overridden one.
         | Override
-        /// A secondary constructor carries a body that must be emitted as a real `.ctor`.
-        /// Distinct from a `.fsi` `new: … -> T` on a heritable primitive, which merely
-        /// NAMES a target-provided constructor.
+        /// A secondary constructor carries a body that must be emitted as a real `.ctor`. A
+        /// `.fsi` `new: … -> T` on a heritable primitive merely NAMES a target-provided one,
+        /// and does not hit this case.
         | Constructor
 
-    /// The `member inline` constraint, as a sentence. ONE rule declared in two syntaxes —
-    /// the `.fsi` contract and the `.fs` body — so it is worded once here rather than
-    /// twice, where the two spellings could drift into looking like two rules.
     let memberNeedsInline (hostName: string) : string =
         sprintf
             "A member of intrinsic type '%s' must be declared 'inline': the type carries no method in the output, so a member body is spliced at the use site, never called"
             hostName
 
-    /// The same rule where `inline` is not even a remedy — the construct is unspellable
-    /// on a host with no output representation.
+    /// The same rule where `inline` is not even a remedy.
     let cannotDeclare (hostName: string) (construct: Construct) : string =
         let what =
             match construct with
@@ -132,26 +100,20 @@ module IntrinsicHost =
             hostName
             what
 
-/// Which sort of type declares the cases a `NoCase` verdict is about — the only axis its
-/// producers differ on.
+/// Which sort of type declares the cases a `NoCase` verdict is about.
 [<RequireQualifiedAccess>]
 type CaseOwner =
     | Enum
     | Union
 
-/// How a type's definition reaches itself. `Immediate` is fsc's FS0954 — a struct field or
-/// inheritance relation that makes the type contain itself with no indirection; the
-/// inheritance walk's own finding has no published code, which is exactly why the code is a
-/// function of the verdict and not a field on it.
+/// How a type's definition reaches itself. `Immediate` is fsc's FS0954: a struct field or
+/// inheritance relation that makes the type contain itself with no indirection.
 [<RequireQualifiedAccess>]
 type TypeCycle =
     | Inheritance
     | Immediate
 
 /// One package-conformance verdict about one contract `.fsi` (and its companion `.fs`).
-/// Its own DU because every such verdict names the package it is about and the seven
-/// findings differ only after that: the package rides ONCE on `Kind.Conformance` rather
-/// than being repeated as a field on seven near-identical cases.
 [<RequireQualifiedAccess>]
 type ConformanceVerdict =
     /// A binding the contract declares that the implementation does not satisfy.
@@ -175,9 +137,8 @@ type ConformanceVerdict =
 [<RequireQualifiedAccess>]
 module ConformanceVerdict =
 
-    /// The `V24x` family code. Two findings can share one — `V240` is "the implementation
-    /// does not answer the contract", however that came about — which is exactly why the
-    /// code is a function of the verdict rather than a field on it.
+    /// The `V24x` family code. Findings share one where the verdict is the same: `V240` is
+    /// "the implementation does not answer the contract", however that came about.
     let code (v: ConformanceVerdict) : DiagCode =
         match v with
         | ConformanceVerdict.Unimplemented _
@@ -218,36 +179,24 @@ module ConformanceVerdict =
         | ConformanceVerdict.PairParseFailure(sigFile, detail) ->
             sprintf "the contract '%s' or its implementation failed to parse: %s" sigFile detail
 
-/// A broken invariant INSIDE this compiler. Never a verdict about the program: the source
-/// that provoked one may be perfectly correct, and telling its author to fix it is the wrong
-/// answer said confidently.
-///
-/// Its own vocabulary because "your code is wrong", "this compiler does not do that yet"
-/// (`Kind.NotYetSupported`) and "this is a compiler bug" are three different answers, and a
-/// consumer that cannot tell the third from the first reports a bug as a user error.
-///
-/// A DIAGNOSTIC rather than a crash, deliberately: a broken invariant reached in one
-/// declaration should surface ALONGSIDE the rest of the file's findings instead of replacing
-/// them with a stack trace. The invariants that cannot be carried on — where continuing
-/// would produce nonsense rather than a partial answer — still `failwith` at their site.
+/// A broken invariant INSIDE this compiler, never a verdict about the program: the source
+/// that provoked one may be perfectly correct. A diagnostic rather than a crash, so a break
+/// in one declaration surfaces alongside the rest of the file's findings.
 [<RequireQualifiedAccess>]
 type InternalBreak =
-    /// The TAST reaching the freeze still holds inference metavariables, surfaced per
-    /// declaration rather than as a hard failure inside `toFrozen`.
+    /// The TAST reaching the freeze still holds inference metavariables.
     | UnresolvedTyVars of count: int
     /// Inference committed to a member that resolves in neither the local registry nor the
-    /// provider — an `Elaborate` break, named by the resolver that hit it.
+    /// provider.
     | MemberNotResolvable of resolver: string * declaringType: string * memberName: string
-    /// A nested `module` reached a pass that runs on the FLATTENED element list, so
-    /// `CstWalk.implFileElems` no longer reaches every module-level construct — typically a
-    /// newly added one that slipped past the flattening.
+    /// A nested `module` reached a pass that runs on the FLATTENED element list.
     | UnflattenedModule of pass: string
 
 [<RequireQualifiedAccess>]
 module InternalBreak =
 
-    /// The rendered English, prefixed by its reader at `Kind.message` so that every internal
-    /// break announces itself as one without each case having to remember to.
+    /// The rendered English. The "internal compiler error:" prefix is added by the caller,
+    /// so no case here writes it.
     let describe (b: InternalBreak) : string =
         match b with
         | InternalBreak.UnresolvedTyVars count -> sprintf "the frozen TAST holds %d unresolved TyVar(s)" count
@@ -261,8 +210,7 @@ module InternalBreak =
             sprintf "a nested `module` reached %s; the `implFileElems` flattening invariant has drifted" pass
 
 /// WHAT a diagnostic says. A case carries the facts its sentence is built from, never the
-/// sentence — so a consumer can ask "is this an undefined type, and which name?" without
-/// parsing English, and a renderer can be replaced without touching a producer.
+/// sentence, so a consumer selects on the verdict instead of parsing English.
 [<RequireQualifiedAccess>]
 type Kind =
     // ── Types and members that do not resolve ──────────────────────────────────
@@ -284,8 +232,7 @@ type Kind =
     /// An inline body's trait call the receiver cannot answer.
     | TraitNotSupported of receiver: string * noun: MemberNoun * name: string
 
-    // ── Casts and type tests. Four verdicts about one pair of types, so they are four
-    // cases of one shape rather than four sentences. ───────────────────────────────
+    // ── Casts and type tests ───────────────────────────────────────────────────
     | UpcastUnrelated of source: string * target: string
     | DowncastUnrelated of source: string * target: string
 
@@ -310,8 +257,7 @@ type Kind =
     /// `attribute` is the posture attribute (`[<CustomEquality>]`); `capability` the
     /// resolved interface it demands, as this compilation's provider names it.
     | CapabilityNotImplemented of attribute: string * capability: string
-    /// The same demand, where the provider names no such capability at all — reported
-    /// honestly rather than skipped or mis-blamed.
+    /// The same demand, where the provider names no such capability at all.
     | CapabilityNotNamed of attribute: string * capabilityWord: string
     | MissingGetHashCodeOverride
     | CustomComparisonNeedsEquality
@@ -320,28 +266,18 @@ type Kind =
     | MemberAndLocalBindingClash of name: string
     | DuplicateMember of name: string
     | CyclicType of name: string * via: TypeCycle
-    /// An `inline` binding whose expansion reaches itself. `binding` is the binding the cycle
-    /// closes on; `via` the bindings between it and itself in call order, EMPTY for a direct
-    /// self-reference — so the pair is non-empty by construction and a renderer never has to
-    /// decide what an empty chain would mean.
-    ///
-    /// The bindings as DATA rather than a `→`-joined sentence, like every other case: a
-    /// consumer asking "which binding is recursive?" must not have to parse English.
+    /// An `inline` binding whose expansion reaches itself. `via` is the bindings between
+    /// `binding` and itself in call order, EMPTY for a direct self-reference.
     | CyclicInline of binding: string * via: string list
 
     // ── Written, understood, not implemented ───────────────────────────────────
-    /// The program is not WRONG — this compiler does not do that yet. Its own verdict
-    /// because "fix your code" and "wait for the compiler" are different answers, and a
-    /// consumer that cannot tell them apart reports the second as the first.
+    /// The program is not WRONG — this compiler does not do that yet.
     | NotYetSupported of feature: string
     /// A lowering needs an intrinsic the compilation cannot see (`Vesper.Core` absent from
     /// the reference set), so the fault is the reference set's, not the source's.
     | IntrinsicNotInScope of intrinsic: string
 
     // ── Not the program's fault at all ─────────────────────────────────────────
-    /// A broken invariant inside this compiler. Beside `NotYetSupported` because they are
-    /// the two verdicts that are not about the source; see `InternalBreak` for why it is a
-    /// diagnostic rather than a crash.
     | Internal of InternalBreak
 
     // ── Warnings ───────────────────────────────────────────────────────────────
@@ -358,38 +294,21 @@ type Kind =
     | LexFailure of detail: string
     | ParseFailure of detail: string
     /// A refusal by the DRIVER rather than a verdict about the code: a missing target
-    /// framework, an unreadable project. Its own case because the driver is its own
-    /// producer layer, with its own code, and says things no pass can say.
+    /// framework, an unreadable project.
     | Driver of message: string
 
-    /// A diagnostic the PARSER raised, forwarded whole. The parser owns its own error
-    /// vocabulary; this case is the seam, not a copy of it. Forwardable BECAUSE a
-    /// `DiagnosticCode` holds no CST node — only tokens, `Site`s and strings — so it crosses
-    /// into the frozen format like any other verdict.
+    /// A diagnostic the PARSER raised, forwarded whole in the parser's own vocabulary.
     | Parse of DiagnosticCode
 
-    /// The un-migrated tail: a message built at the call site. Its call COUNT is the
-    /// migration's progress bar — it shrinks as verdicts are named.
+    /// The un-migrated tail: a message built at the call site rather than named as a verdict.
     | Message of text: string
 
 [<RequireQualifiedAccess>]
 module Kind =
 
-    /// The published code a consumer filters on. A SEPARATE function from `message`, so
-    /// minting a case does not force a code and renaming a case does not change one.
-    ///
-    /// Every `DiagCode.FSharp` number here is one fsc ITSELF files the same verdict under,
-    /// read out of the F# compiler sources rather than guessed: `FSComp.txt`'s numbered
-    /// entries, and `CompilerDiagnostics.fs`'s `DiagnosticNumber` for the sub-200 exceptions
-    /// (whose numbers live on the exception, not the message). The named exception or
-    /// resource each one comes from is in the comment beside it, so the claim is checkable
-    /// against that repo instead of taken on trust.
-    ///
-    /// EXHAUSTIVE rather than defaulted: `Unpublished` is a decision each case states, not
-    /// one a new case falls into — and it is the RIGHT answer for most of them. A code is an
-    /// extra, published commitment on top of the `Kind`; the `Kind` is the classification,
-    /// and a consumer that wants to select on a verdict this compiler owns should select on
-    /// that rather than wait for a number to be minted for it.
+    /// Every `DiagCode.FSharp` number is one fsc ITSELF files the same verdict under, read
+    /// out of the F# compiler sources; the exception or resource it came from is named
+    /// beside it.
     let code (k: Kind) : DiagCode =
         match k with
         // ── Names and members that do not resolve. fsc files the whole family under one
@@ -425,29 +344,22 @@ module Kind =
         | Kind.InvalidEqualityAttributeMix -> DiagCode.FSharp 377
         | Kind.MemberAndLocalBindingClash _ -> DiagCode.FSharp 905
         | Kind.DuplicateMember _ -> DiagCode.FSharp 438
-        // fsc's message for 954 literally names "a struct field or inheritance relation",
-        // which is this case and not the inheritance WALK's own finding below.
         | Kind.CyclicType(via = TypeCycle.Immediate) -> DiagCode.FSharp 954 // tcTypeDefinitionIsCyclicThroughInheritance
         // ── This compiler's own published families.
         | Kind.Conformance(verdict = v) -> ConformanceVerdict.code v
         | Kind.LexFailure _ -> DiagCode.Vesper "LEX"
         | Kind.ParseFailure _ -> DiagCode.Vesper "PARSE"
         | Kind.Driver _ -> DiagCode.Vesper "DRV"
-        // The parser publishes its own vocabulary; forward it rather than renumber it.
         | Kind.Parse c -> DiagCode.Vesper(DiagnosticCode.code c)
-        // ── No published number. Several of these are verdicts fsc has no analogue for at
-        // all (they are about THIS back end, about a feature it has not grown yet, or about
-        // a bug in it); the rest are ones whose fsc counterpart is a catch-all rather than a
-        // classification, which is not worth reproducing.
+        // ── No published number: fsc has no analogue at all, or its counterpart is a
+        // catch-all rather than a classification.
         | Kind.CyclicType(via = TypeCycle.Inheritance)
         // fsc has no analogue: it declines to inline a recursive binding and emits the
         // ordinary function instead, where a cross-file `val inline` here has no such
-        // function to fall back to. A refusal fsc never makes cannot borrow its number.
+        // function to fall back to.
         | Kind.CyclicInline _
         | Kind.UnsupportedOnTarget _
         | Kind.OperatorFormQualifiedName _
-        // An internal break is not a verdict about the program, so there is nothing for a
-        // user to look up and nothing for fsc to have numbered.
         | Kind.Internal _
         | Kind.ConstraintNotSupported _
         | Kind.TraitNotSupported _
@@ -461,8 +373,6 @@ module Kind =
         | Kind.HeterogeneousEnum _
         | Kind.Message _ -> DiagCode.Unpublished
 
-    /// The rendered English. Separate from `code` for the same reason, and so a future
-    /// localisation or structured renderer replaces ONE function.
     let message (k: Kind) : string =
         match k with
         | Kind.UndefinedType name -> sprintf "The type '%s' is not defined" name
@@ -547,8 +457,6 @@ module Kind =
                 (String.concat " → " (binding :: via @ [ binding ]))
         | Kind.NotYetSupported feature -> sprintf "not yet supported: %s" feature
         | Kind.IntrinsicNotInScope intrinsic -> sprintf "%s is not in scope (Vesper.Core missing?)" intrinsic
-        // The prefix is applied HERE rather than written into each `InternalBreak` case, so
-        // no internal break can be phrased as if it were the programmer's mistake.
         | Kind.Internal b -> sprintf "internal compiler error: %s" (InternalBreak.describe b)
         | Kind.DynamicEscape pinnedType ->
             sprintf
@@ -571,12 +479,6 @@ module Kind =
         | Kind.Parse c -> DiagnosticCode.message c
         | Kind.Message text -> text
 
-    /// Severity is a FUNCTION of the kind, never a field: the verdict decides, so no
-    /// producer is left able to report a warning as an error or the reverse.
-    ///
-    /// EXHAUSTIVE, with no default. A wildcard here would silently promote a new warning to
-    /// an error — and unlike a message, which every case is forced to write, severity is an
-    /// independent axis that nothing else would make anyone think about.
     let severity (k: Kind) : Severity =
         match k with
         | Kind.DynamicEscape _
@@ -627,29 +529,15 @@ module Kind =
         | Kind.Parse _
         | Kind.Message _ -> Severity.Error
 
-/// A SECONDARY place a diagnostic points at, and what it means there. Labelled, because
-/// an unlabelled list of extra positions leaves a consumer guessing from list order what
-/// each one meant. The unclosed-delimiter diagnostic is the shape: primary at the hole
-/// where the delimiter belonged, one label back on the delimiter left open.
+/// A SECONDARY place a diagnostic points at, and what it means there. The unclosed-delimiter
+/// diagnostic is the shape: primary at the hole where the delimiter belonged, one label back
+/// on the delimiter left open.
 type Label = { Site: Site; Message: string }
 
-/// A REFERENCE type carrying a DU, a list and three derived members, and that is the right
-/// shape: a diagnostic is allocated only on an error path, so a compilation that SUCCEEDS
-/// allocates none at all and a failing one allocates a handful next to millions of nodes.
-/// Nothing here is worth packing — not this record, and not the `Site` it carries — and a
-/// packed layout would cost the property that makes both readable: that every case says
-/// what it is.
-///
-/// `Code`, `Message` and `Severity` are members, not fields: each is a function of `Kind`,
-/// so a producer answers ONE question and the three derived facts cannot disagree with it.
-///
-/// NAME COLLISION: `XParsec.FSharp.Parser` declares its own `Diagnostic` (the parser's
-/// recovery record), so in any file that `open`s the parser the bare name binds to THAT
-/// one. Such files alias or fully qualify this type; the alias is what the `type
-/// Diagnostic = …` lines elsewhere in this assembly are for.
+/// NAME COLLISION: `XParsec.FSharp.Parser` declares its own `Diagnostic`, so a file that
+/// `open`s the parser must alias or fully qualify this one.
 type Diagnostic =
     {
-        /// The verdict, and the facts it is about.
         Kind: Kind
         /// The primary position — what a one-line renderer points at.
         Site: Site
@@ -664,8 +552,6 @@ type Diagnostic =
 [<RequireQualifiedAccess>]
 module Diagnostic =
 
-    /// THE one `Diagnostic` literal. Every producer reaches the record through here (or
-    /// through a `PassContext` member that does), so a field added to it is answered once.
     let create (kind: Kind) (site: Site) (related: Label list) : Diagnostic =
         {
             Kind = kind
@@ -677,9 +563,6 @@ module Diagnostic =
     /// parse failure, a driver refusal, a conformance finding about a signature.
     let nowhere (kind: Kind) : Diagnostic = create kind Site.Nowhere []
 
-    /// Does this diagnostic BLOCK? THE one spelling of the question every emission gate
-    /// asks, so no two gates can admit different severities.
     let isError (d: Diagnostic) : bool = d.Severity = Severity.Error
 
-    /// The blocking subset, in order.
     let errors (ds: Diagnostic seq) : Diagnostic list = ds |> Seq.filter isError |> List.ofSeq

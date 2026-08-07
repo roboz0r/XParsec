@@ -5,33 +5,8 @@ open System.IO
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// Manifest-driven `.fsi`↔`.fs` conformance (T8 Step 3).
-//
-// `Conformance.fs` is the pure CST-comparison KERNEL — given a parsed `.fsi`/`.fs`
-// pair it reports presence + extern↔intrinsic drift. It knows nothing about where
-// the files come from. This module is the PASS around it: it derives the pairs
-// from a package `manifest.toml` (the single source of truth for which files a
-// package ships), so a new `.fsi`/`.fs` is picked up automatically and can no
-// longer be silently omitted from a hand-maintained list.
-//
-// Pairing follows the F#-faithful rules (see the T8 plan "Name resolution"):
-//  - KEY: the manifest's own pairing key (`ReferencedProject.pairingKey`), so
-//    `prim-types-int.js.fs` pairs with `prim-types-int.fsi`.
-//  - The impl candidate set for target T is `resolveImpl T` — a `.fsi` pairs only with a
-//    `.fs` the manifest names for that target. A `.fsi` with no such `.fs` is impl-free
-//    (an exemption candidate; Step 5 turns an un-exempted one into an FS0240-style hard
-//    error).
-//  - A `.fs` the manifest declares `impl-only` is withheld from the candidate set: F#
-//    requires no `.fsi`, and such a body publishes its own surface, so pairing it with a
-//    contract of the same key it does not implement would compare two unrelated files.
-//  - GUARD: a paired `.fsi`/`.fs` must agree on their leading `module`/`namespace`
-//    declaration — what FS0240's message is really about (F# correlates files by
-//    `QualifiedNameOfFile`). A disagreement means the pairing rule paired two unrelated
-//    files.
-//
-// This stays a source-level check (CST presence + pairing), so it runs the moment
-// the files parse; value-level (member-signature / typar-order) conformance is
-// T8 Step 4.
+// Manifest-driven `.fsi`↔`.fs` conformance: the pairs come from a package `manifest.toml`
+// on its own pairing key, so `prim-types-int.js.fs` pairs with `prim-types-int.fsi`.
 
 module ConformancePass =
 
@@ -40,8 +15,7 @@ module ConformancePass =
     [<Struct; NoEquality; NoComparison>]
     type ModuleDeclMismatch = { SigDecl: string; ImplDecl: string }
 
-    /// A `.fsi` contract paired with its `.fs` implementation (the pairing rule found a
-    /// companion in the manifest's impl set), plus the conformance verdict.
+    /// A `.fsi` contract paired with its `.fs` implementation, plus the conformance verdict.
     [<NoEquality; NoComparison>]
     type PairResult =
         {
@@ -49,9 +23,8 @@ module ConformancePass =
             SigFile: string
             /// The companion `.fs` relative path (resolved from the impl set).
             ImplFile: string
-            /// `Some` when the leading module/namespace declarations disagree.
             ModuleMismatch: ModuleDeclMismatch option
-            /// Kernel conformance errors (empty = the pair conforms).
+            /// Empty = the pair conforms.
             Errors: Conformance.ConformanceError list
         }
 
@@ -63,38 +36,22 @@ module ConformancePass =
         /// `.fsi` with NO companion `.fs` in the impl set — impl-free.
         | SigOnly of sigFile: string
         /// `.fsi` with no companion `.fs` for this target, and NOTHING in it that a `.fs`
-        /// could supply: every declaration is an `extern` (whose whole body would be a repr
-        /// binding) or a transparent abbreviation. The target represents these types
-        /// nowhere, so the absent `.fs` is the STATEMENT of that — accepted here, and paid
-        /// for at each use site instead (`nativeint is not supported on the js target`).
-        ///
-        /// Distinct from `SigOnly`, which is a manifest DECLARATION that a contract is
-        /// impl-free on every target; this is derived from the file's own content, and it
-        /// is what lets a target be conformance-checked with no hand-maintained exemption
-        /// list. A contract carrying anything that needs a real body — a record, a union, a
-        /// module-level `val` — is never this: a forgotten `.fs` must not read as "not
-        /// supported".
+        /// could supply — every declaration is an `extern` or a transparent abbreviation.
+        /// Derived from the file's CONTENT: the absent `.fs` states the target has no repr.
         | Unrepresentable of sigFile: string * types: string list
         /// `.fsi` with no companion `.fs` for this target, whose every `val` the target's
-        /// committed RUNTIME ASSET exports. The bodies live in the asset (`Vesper.Core.mjs`'s
-        /// `structuralEquals` / `structuralHash` / `checkedDivisor`), so no `.fs` is owed.
-        ///
-        /// CHECKED, not asserted: the asset must export every declared name, so renaming an
-        /// export puts the contract straight back to the FS0240 hard error — which is the
-        /// only thing standing between a hand-authored asset and silent rot, since its
-        /// consumers are Node tests that skip when node is absent.
+        /// committed RUNTIME ASSET exports (`Vesper.Core.mjs`'s `structuralEquals`), so no
+        /// `.fs` is owed. Renaming an export drops the contract back to `SigOnly`.
         | RuntimeServed of sigFile: string * asset: string * values: string list
         /// The `.fsi` or its companion `.fs` failed to parse, so the pair could not be
-        /// conformed. Carried as a per-contract verdict (not an abort of the whole
-        /// package) so one malformed file does not mask drift in the others; `enforce`
-        /// turns it into a hard error.
+        /// conformed. Per-contract, so one malformed file does not abort the package.
         | ParseFailed of sigFile: string * detail: string
 
     /// The conformance outcome for a whole package, derived from its manifest.
     [<NoEquality; NoComparison>]
     type PackageOutcome =
         {
-            /// Package / assembly simple name (`Manifest.Name`).
+            /// Package / assembly simple name.
             Package: string
             /// One outcome per `.fsi` contract, in manifest `files` order.
             Pairs: PairOutcome list
@@ -102,12 +59,11 @@ module ConformancePass =
             ImplOnly: string list
             /// The `.fs` bodies the manifest declares contract-less for this target
             /// (`impl-only`). One reported in `ImplOnly` is accepted; one that is not is a
-            /// stale/typo'd declaration, the mirror of a stale `sig-only`.
+            /// stale/typo'd declaration.
             ImplOnlyDeclarations: Set<string>
-            /// The `.fsi` files the manifest declares DELIBERATELY impl-free for this
-            /// target (`[core] sig-only`). `enforce` treats a `SigOnly` contract in
-            /// this set as an accepted exemption; one outside it is the FS0240 hard
-            /// error (T8 Step 5).
+            /// The `.fsi` files the manifest declares DELIBERATELY impl-free for this target
+            /// (`[core] sig-only`). A `SigOnly` contract in this set is an accepted
+            /// exemption; one outside it is the FS0240-style hard error.
             SigOnlyExemptions: Set<string>
         }
 
@@ -145,9 +101,8 @@ module ConformancePass =
             | ImplementationFile.AnonymousModule _ -> ""
         | _ -> ""
 
-    // A `[targets.<t>] runtime` asset is a committed ESM module (the JS `.mjs`), never a
-    // parsed `.fsi`/`.fs`, so its published surface is read as JS text. Only the presence of
-    // a NAME is read — the pass makes no claim about the body behind it.
+    // A `[targets.<t>] runtime` asset is a committed ESM module read as JS TEXT, never
+    // parsed as F#. Only the presence of an exported NAME is read, never the body behind it.
     let private esmDeclaredExport =
         System.Text.RegularExpressions.Regex(
             @"\bexport\s+(?:default\s+)?(?:async\s+)?(?:const|let|var|function|class)\b[\s*]*([A-Za-z_$][A-Za-z0-9_$]*)",
@@ -181,11 +136,9 @@ module ConformancePass =
                 Absolute = Path.Combine(dir, rel)
             }
 
-    /// Conform every `.fsi` in a package manifest against its `.fs` companion for
-    /// `target`. Returns `Error` ONLY when the package
-    /// is wholly un-checkable — a malformed/absent manifest. A per-file parse failure is
-    /// collected as a `PairOutcome.ParseFailed` verdict (so one bad file does not mask
-    /// the others' drift); `enforce` promotes it to a hard error alongside the rest.
+    /// Conform every `.fsi` in a package manifest against its `.fs` companion for `target`.
+    /// `Error` ONLY when the package is wholly un-checkable — a malformed/absent manifest;
+    /// a per-file parse failure becomes a `ParseFailed` verdict instead.
     let checkManifest (target: string) (manifestPath: string) : Result<PackageOutcome, string> =
         match ReferencedProject.loadManifest manifestPath with
         | Error e -> Error e
@@ -203,12 +156,10 @@ module ConformancePass =
             let declaredImplOnly = ReferencedProject.resolveImplOnly target m |> Set.ofList
 
             // A body declared contract-less publishes its own surface, so it is no pairing
-            // candidate: the pairing rule must not marry it to a `.fsi` of the same key it does
-            // not implement (a JS `%A` engine and the CLR printer's contract alike).
+            // candidate: it must not be married to a `.fsi` of the same key it does not implement.
             let pairCandidates = implFiles |> List.filter (declaredImplOnly.Contains >> not)
 
-            // The manifest's own pairing rule, so this pass checks the very pairs the
-            // provider build extracts from. A later impl wins a key clash.
+            // A later impl wins a key clash.
             let implByKey = pairCandidates |> List.map (fun f -> pairingKey f, f) |> Map.ofList
 
             let companionOf (fsiRel: string) : string option =
@@ -216,9 +167,8 @@ module ConformancePass =
 
             let declaredSigOnly = ReferencedProject.resolveSigOnly target m |> Set.ofList
 
-            // The target's committed runtime asset and the names it publishes. A contract may
-            // ship no `.fs` because its bodies live here instead; only the FIRST asset counts,
-            // matching the one-module-per-package import specifier the backend resolves.
+            // The target's committed runtime asset and the names it publishes — a contract may
+            // ship no `.fs` because its bodies live here. Only the FIRST asset counts.
             let runtimeAsset =
                 match ReferencedProject.resolveRuntime target m with
                 | rel :: _ ->
@@ -230,18 +180,12 @@ module ConformancePass =
                         None
                 | [] -> None
 
-            // A companion-less `.fsi`, split on its own CONTENT: a contract owes a `.fs`
-            // unless EVERY declaration in it is satisfied without one. An `extern` is (its
-            // whole body would be a repr binding this target does not make) and so is a
-            // transparent abbreviation (it resolves through); a `val` is exactly when the
-            // committed runtime asset exports it. Anything else — a record, a union, a class
-            // — needs a real `.fs`, so its absence stays the FS0240 hard error rather than
-            // being read as "not supported here".
+            // A companion-less `.fsi`, split on its own CONTENT: it owes a `.fs` unless EVERY
+            // declaration is satisfied without one — an `extern` or transparent abbreviation
+            // is, and a `val` is exactly when the committed runtime asset exports it.
             let unpaired (fsiRel: string) : PairOutcome =
                 if declaredSigOnly.Contains fsiRel then
-                    // A manifest declaration of impl-free-on-every-target outranks the
-                    // content split, so a declared exemption never silently re-labels
-                    // itself and stops being checked as one.
+                    // A manifest `sig-only` declaration outranks the content split.
                     PairOutcome.SigOnly fsiRel
                 else
                     match parseRel m.Name dir fsiRel with
@@ -308,8 +252,7 @@ module ConformancePass =
                             | FSharpAst.ImplementationFile f -> Conformance.summariseImpl implParsed.Lexed f
                             | _ -> []
 
-                        // Value-binding presence (Step 4.1): the `.fsi` `val`s and the
-                        // `.fs` `let`s, each empty for the wrong file kind.
+                        // Each empty for the wrong file kind.
                         let sigVals =
                             match sigParsed.Ast with
                             | FSharpAst.SignatureFile sf -> Conformance.summariseSigVals sigParsed.Lexed sf
@@ -338,7 +281,6 @@ module ConformancePass =
                                 SigFile = fsiRel
                                 ImplFile = implRel
                                 ModuleMismatch = mismatch
-                                // Type-presence/extern findings first, then value-presence.
                                 Errors =
                                     Conformance.check sigDecls implDecls
                                     @ Conformance.checkValuePresence sigVals implVals
@@ -354,10 +296,6 @@ module ConformancePass =
             let implOnly =
                 implFiles |> List.filter (fun f -> not (contractKeys.Contains(pairingKey f)))
 
-            // A per-file parse failure is a `PairOutcome.ParseFailed` verdict (surfaced
-            // by `enforce`), NOT an `Error`: the pass still reports every other contract's
-            // drift. `Error` is reserved for a failure that makes the whole package
-            // un-checkable — a malformed/absent manifest (handled above).
             Ok
                 {
                     Package = m.Name
@@ -367,33 +305,17 @@ module ConformancePass =
                     SigOnlyExemptions = declaredSigOnly
                 }
 
-    // ---- Enforcement: conformance findings become hard errors (T8 Step 5) -------
-    //
-    // The pass used to be diagnostic-only: a test compared `pairErrors` against an
-    // `acceptedFindings` golden. `enforce` flips that — every discrepancy is now a
-    // hard `Severity.Error` diagnostic (F#'s FS0240 family), so a package build that
-    // runs it FAILS rather than silently shipping a degraded DLL with a codegen
-    // substitution standing in for a missing `.fs`. The exemption list is no longer
-    // a test-side constant: it is the manifest's `[core] sig-only`, so a `.fsi` whose
-    // `.fs` was deleted (and which is not declared impl-free) is an FS0240 hard error
-    // by construction.
+    // ---- Enforcement: conformance findings become hard errors ------------------
 
-    /// One `ConformanceVerdict` per finding; which `V24x` code each carries is
-    /// `ConformanceVerdict.code`'s answer, not prose here.
-    ///
-    /// Empty = the package conforms; a non-empty result must fail the build.
-    // `Diagnostic` is qualified throughout this pass rather than aliased; see the type's
-    // declaration for why the bare name would otherwise be the parser's.
+    /// One `ConformanceVerdict` per finding, every one a `Severity.Error`. Empty = the
+    /// package conforms.
     let enforce (outcome: PackageOutcome) : XParsec.FSharp.SemanticAnalysis.Diagnostic list =
-        // A package-level conformance verdict is about a signature, not a place in any one
-        // file. The package rides on every one of them, so it is named here rather than at
-        // each site below.
+        // A package-level verdict is about a signature, not a place in any one file.
         let err (verdict: ConformanceVerdict) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
             Diagnostic.nowhere (Kind.Conformance(outcome.Package, verdict))
 
-        // The contract `.fsi` files actually present, split by pairing verdict — the
-        // basis for catching a `sig-only` exemption that names a non-contract or a
-        // file that in fact has a companion `.fs`.
+        // The contract `.fsi` files that DID pair — the basis for catching a `sig-only`
+        // exemption naming a file that in fact has a companion `.fs`.
         let pairedSigs =
             set
                 [
@@ -406,9 +328,8 @@ module ConformancePass =
                         | PairOutcome.ParseFailed _ -> ()
                 ]
 
-        // An `Unrepresentable` / `RuntimeServed` verdict is only ever reached for a contract
-        // the manifest does NOT declare `sig-only`, so neither can be a declared exemption's
-        // file and both are excluded here rather than folded in.
+        // `Unrepresentable` / `RuntimeServed` are only reached for a contract the manifest
+        // does NOT declare `sig-only`, so neither can be a declared exemption's file.
         let sigOnlySigs =
             set
                 [
@@ -438,12 +359,10 @@ module ConformancePass =
                 | PairOutcome.SigOnly s ->
                     if not (outcome.SigOnlyExemptions.Contains s) then
                         yield err (ConformanceVerdict.SigWithoutImpl s)
-                // Declared, unrepresentable, ACCEPTED: the absent `.fs` is the statement
-                // that this target represents none of these types, and the reject is owed
-                // at the use site, not here.
+                // ACCEPTED: the absent `.fs` states that this target represents none of
+                // these types.
                 | PairOutcome.Unrepresentable _
-                // Every declared value is an export of the committed runtime asset, checked
-                // against the asset itself — so the absent `.fs` is correct.
+                // ACCEPTED: the committed runtime asset exports every declared value.
                 | PairOutcome.RuntimeServed _ -> ()
                 | PairOutcome.ParseFailed(sigFile, detail) ->
                     yield err (ConformanceVerdict.PairParseFailure(sigFile, detail))
@@ -452,16 +371,12 @@ module ConformancePass =
                 if not (outcome.ImplOnlyDeclarations.Contains f) then
                     yield err (ConformanceVerdict.ImplWithoutContract f)
 
-            // The mirror hygiene check: a declared contract-less body the impl set does not
-            // report as one — a name this target does not compile, or one whose `.fsi` has
-            // since appeared (which also surfaces as that contract's own FS0240).
+            // A declared contract-less body the impl set does not report as one: a name this
+            // target does not compile, or one whose `.fsi` has since appeared.
             for d in outcome.ImplOnlyDeclarations do
                 if not (List.contains d outcome.ImplOnly) then
                     yield err (ConformanceVerdict.UnknownImplOnly d)
 
-            // A declared exemption is stale if its `.fsi` actually pairs with a `.fs`,
-            // and unknown if it names no contract in the package at all — both keep the
-            // single exemption source honest.
             for ex in outcome.SigOnlyExemptions do
                 if pairedSigs.Contains ex then
                     yield err (ConformanceVerdict.StaleSigOnly ex)

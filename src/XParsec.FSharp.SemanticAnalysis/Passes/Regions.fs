@@ -3,59 +3,29 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-// Pre:  Elaborate has produced a `TastFile` (so the inline-expansion pass has run);
-//       ctx.Bindings.Binding, ctx.Bindings.TypeVar populated.
-// Post: ctx.Bindings.Escape populated for every binding-site TypeVar that
-//       participated in the region graph; TypeVar.Region set on those TypeVars.
-//
-// Regions runs on the post-inline `TExpr` tree (after
-// `Elaborate.run`, before `RefCellPromotion`) rather than the Desugared CST.
-// Inlining both removes closures (escape shrinks) and exposes new ones, so the
-// escape map must be computed on the tree codegen actually emits. The walk reads
-// each node's inline `.ty` and resolves a `TExpr.Var` to its binding region off
-// the carried binding-site `NodeKey`. Running post-freeze is escape-equivalent:
-// the only type-directed decision is `isAllocation`, and a typar is
-// non-allocating whether it shows as `TyVar` (pre-freeze) or `TyTypar` (post).
-//
-// Two structural facts the CST pass relied on are rebuilt here:
-//   - `let … and …` / `let rec` flatten into nested `TExpr.Let`s (and separate
-//     top-level `TDecl`s). Every function-form binder in a group is pre-minted
-//     before any body walk so mutual references resolve. Over-grouping sequential
-//     lets is conservative (a non-`rec` forward reference can't exist, so the
-//     extra pre-mint is unreachable).
-//   - `let f x = e` is `let f = fun x -> e`, so the binding's closure region is
-//     the `TExpr.Lambda` value's region; the pre-minted region is reused as the
-//     lambda's own.
-//
-// Regions are inequality-only (NOT used to drive type-class dispatch); feeding
-// them back into Unification would make the pipeline a fixpoint. See
-// docs/architecture.md "Pass order is strictly forward".
+// Pre:  ctx.Bindings.Binding / .TypeVar populated; `decls` is post-inline.
+// Post: ctx.Bindings.Escape and .Repr populated per binding site; TypeVar.Region set.
+// Inlining both removes and creates closures, so escape is computed on what codegen emits.
 
 module Regions =
 
     /// `Level` is the let-depth the region lives at (its lifetime upper bound).
-    /// `MintFunctionLevel` is the let-depth of the innermost enclosing
-    /// function-body at mint time; the seed rule `Level < MintFunctionLevel`
-    /// catches values that escape that function's frame.
+    /// `MintFunctionLevel` is the let-depth of the innermost enclosing function body
+    /// at mint time; `solve` compares the two to seed escape out of that frame.
     type private RegionNode =
         {
             Id: RegionId
             Level: int
             MintFunctionLevel: int
             IsLambda: bool
-            /// True for the cell region of a `let mutable` binding. Lowers the
-            /// lambda-reach threshold from 2 to 1: any closure capture forces
-            /// HeapShared (.NET hoists captured mutables into a ref cell, Rust
-            /// requires Rc<RefCell<…>>).
+            /// True for the cell region of a `let mutable` binding: lowers the
+            /// lambda-reach threshold from 2 to 1, so any closure capture forces
+            /// `HeapShared`.
             IsMutableCell: bool
-            /// Force-seed: the conservative fallback uses it to mark unhandled
-            /// constructs HeapShared without the level / lambda-count heuristics.
             InitialState: EscapeState voption
-            /// Axis-2 seed: this region is itself a
-            /// heap-repr *sink* — a non-`ref struct` aggregate container (tuple /
-            /// record / union / `new`) or the source of a box / interface upcast.
-            /// The representation fixpoint flows `RequiresHeapRepr` DOWN this
-            /// node's `Outlives` edges, pinning everything it transitively holds.
+            /// This region is itself a heap-repr sink — an aggregate container (tuple /
+            /// record / union / `new`), or the source of a box / interface upcast.
+            /// `solveRepr` flows `RequiresHeapRepr` DOWN this node's `Outlives` edges.
             mutable HeapReprSink: bool
             mutable Outlives: ResizeArray<RegionId>
         }
@@ -88,7 +58,7 @@ module Regions =
             elif longer.Raw = shorter.Raw then ()
             else nodes.[longer.Raw].Outlives.Add(shorter)
 
-        /// Seed `id` as an Axis-2 heap-repr sink (no-op for `RegionId.Unknown`).
+        /// No-op for `RegionId.Unknown`.
         member _.MarkHeapSink(id: RegionId) : unit =
             if id.Raw >= 0 then
                 nodes.[id.Raw].HeapReprSink <- true
@@ -99,18 +69,15 @@ module Regions =
     type private State =
         {
             Graph: RegionGraph
-            /// binder NodeKey -> the binding's region. Lets the `Var` rule
-            /// look up "the region of the binding I refer to" straight off the
-            /// node's carried binding-site key.
+            /// Binder `NodeKey` -> the binding's region; the `TExpr.Var` arm reads it
+            /// off the node's carried binding-site key.
             BindingRegions: Dictionary<NodeKey, RegionId>
             mutable LetLevel: int
-            /// Let-level of the binding whose RHS we are currently evaluating.
-            /// Allocations inside the RHS use this as their `Level` so they
-            /// share the binding's lifetime upper bound.
+            /// Let-level of the binding whose RHS is being evaluated. Allocations inside
+            /// the RHS take it as their `Level`, sharing the binding's lifetime bound.
             mutable EnclosingLet: int
-            /// Stack of let-levels at function-body entry. The top is the frame
-            /// depth of the innermost enclosing function — used by the seed rule
-            /// and as `MintFunctionLevel` on new regions.
+            /// Stack of let-levels at function-body entry; the top becomes
+            /// `MintFunctionLevel` on new regions.
             FunctionStack: ResizeArray<int>
         }
 
@@ -125,10 +92,6 @@ module Regions =
     let private exitFun (s: State) : unit =
         s.FunctionStack.RemoveAt(s.FunctionStack.Count - 1)
 
-    // Region minting helpers. `level`/`mintFn` always come from State, so they
-    // are folded in here; each variant names the kind of region being minted
-    // instead of forcing the reader to diff a wall of named arguments.
-
     let private freshValue (s: State) : RegionId =
         s.Graph.Fresh(s.EnclosingLet, functionStackTop s, false, false, ValueNone)
 
@@ -139,14 +102,12 @@ module Regions =
         s.Graph.Fresh(s.EnclosingLet, functionStackTop s, false, true, ValueNone)
 
     /// Parameter regions live in the callee frame, one level below the binding's
-    /// RHS — hence `LetLevel`, not `EnclosingLet`. The ONLY mint that uses
-    /// `LetLevel`; do not fold it into `freshValue`.
+    /// RHS — hence `LetLevel`, not `EnclosingLet`.
     let private freshParam (s: State) : RegionId =
         s.Graph.Fresh(s.LetLevel, functionStackTop s, false, false, ValueNone)
 
     /// Resolve a `SemType` through its UnionFind root's Link chain (no walk
-    /// into compound shapes). Same as `Unification.resolveStep` but inlined so
-    /// Regions doesn't depend on Unification's private surface.
+    /// into compound shapes).
     let rec private resolveLink (store: TypeStore) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
@@ -157,17 +118,15 @@ module Regions =
             | ValueNone -> TyVar root.Id
         | _ -> t
 
-    /// Does this type represent an allocation we should track? Primitive
-    /// scalars and `unit` don't allocate; closures, tuples, and named
-    /// composites do. Free TyVars resolve as non-allocating — conservative on
-    /// the "don't stamp" side; the caller can override for known-allocating
-    /// constructors (Fun, Tuple).
+    /// Does this type represent an allocation we should track? Primitive scalars
+    /// and `unit` don't allocate; closures, tuples and named composites do.
+    /// Unresolved shapes resolve as non-allocating — conservative on "don't stamp".
     let rec private isAllocation (store: TypeStore) (t: SemType) : bool =
         match resolveLink store t with
         | TyConst(key, _) ->
             let name = SymbolKeyOps.intrinsicName key
 
-            // Names arrive dealiased (`single`→`float32`, `double`→`float`), so only the
+            // `single` / `double` are abbreviations of `float32` / `float`, so only the
             // canonical spellings are listed.
             match name with
             | "int"
@@ -185,51 +144,38 @@ module Regions =
         | TyRecord _ -> true
         | TyUnion _ -> true
         | TyClass _ -> true
-        // An anonymous union erases to a boxed reference (`obj`+`isinst`), so a
-        // value flowing into one allocates — track it like the other composites.
+        // An anonymous union erases to a boxed reference (`obj` + `isinst`), so a
+        // value flowing into one allocates.
         | TyOr _ -> true
-        // A carried type-level computation erases like a union / `obj` (a boxed
-        // reference) once evaluated, so track a value flowing into one as allocating —
-        // external-vocabulary only, so this is defensive (it should be evaluated first).
+        // An unevaluated type-level computation erases like `TyOr` once evaluated.
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> true
         | TyVar _ -> false
-        // Unresolved contract head: errors before it can reach a region
-        // walk; treat as non-allocating so this pass stays conservative.
         | TyUnknown _ -> false
-        // A post-freeze open typar (`!i` / `!!i`): like a free `TyVar`, whether
-        // it allocates is unknown — treat as non-allocating, matching the
-        // pre-freeze `TyVar` view this pass used to see.
+        // An open typar: like a free `TyVar`, whether it allocates is unknown.
         | TyTypar _ -> false
         // An enum is a value type (numeric → `System.Enum`; string / mixed →
         // a `[<Struct>]` wrapper) — it does not heap-allocate.
         | TyEnum _ -> false
-        // A literal erases to its base primitive (`string`/`int`), whose allocation
-        // status is the primitive's — both non-allocating here (interned string /
-        // scalar). It is external-vocabulary only, so this is defensive.
+        // A literal erases to its base primitive — an interned `string` or a
+        // scalar, both non-allocating here.
         | TyLiteral _ -> false
 
     let private exprIsAllocation (store: TypeStore) (e: TExpr) : bool = isAllocation store (TastWalk.exprTy e)
 
-    /// Is an `Upcast` to `t` a heap-repr sink (Axis-2)?
-    /// `obj` boxes (`TyConst("obj", _)` — what `translateType` produces, see
-    /// `RuntimeNames`), and the `Vesper.Fun<_,_>` interface upcast (`TyFun`)
-    /// materialises a reference-typed function value. Either pins the upcast
-    /// source to a heap representation. (`Downcast` narrows the static type of
-    /// an existing value and is not a sink.)
+    /// Is an `Upcast` to `t` a heap-repr sink? A box to `obj`, or an upcast to the
+    /// `Vesper.Fun<_,_>` interface, materialises a reference-typed value and pins the
+    /// upcast source to a heap representation.
     let private isHeapReprTarget (store: TypeStore) (t: SemType) : bool =
         match resolveLink store t with
         | TyObj -> true
         | TyFun _ -> true
         | _ -> false
 
-    /// Mint a value region that outlives every child region. Tuples, records,
-    /// `new`, and clones all allocate a composite that holds its elements.
-    /// Every such composite is a non-`ref struct` aggregate (a `ValueTuple`
-    /// cannot carry a ref-struct field either), so the region is an Axis-2
-    /// heap-repr sink: a held closure is pinned to a heap representation even
-    /// when it is frame-local by lifetime.
+    /// Mint a value region that outlives every child region. Tuples, records, `new`
+    /// and clones allocate a composite holding its elements; no such composite can
+    /// carry a `ref struct` field, so the region is also a heap-repr sink.
     let private holds (s: State) (children: RegionId seq) : RegionId =
         let r = freshValue s
         s.Graph.MarkHeapSink r
@@ -239,11 +185,9 @@ module Regions =
 
         r
 
-    /// Shared tail of the branch-joining nodes (if / match / try-with / app):
-    /// if `e` allocates, mint a value region that outlives every arm region;
-    /// otherwise return `fallback`. The `arms.Count > 0` guard is load-bearing
-    /// only for `match` (a match with no rules allocates nothing) and harmless
-    /// elsewhere.
+    /// If `e` allocates, mint a value region that outlives every arm region;
+    /// otherwise return `fallback`. The `arms.Count > 0` guard is for a `match`
+    /// with no rules, which allocates nothing.
     let private joinArms (store: TypeStore) (s: State) (e: TExpr) (arms: RegionId seq) (fallback: RegionId) : RegionId =
         let arms = ResizeArray(arms)
 
@@ -263,16 +207,9 @@ module Regions =
         else
             RegionId.Unknown
 
-    /// Add an outlives edge from each captured binding's region to the closure
-    /// region `r`. (AddEdge drops self-edges, so no `captured <> r` guard needed.)
-    //
-    // TODO(byref-capture half): this is where a surviving
-    // closure's captures are known. Once a byref-like predicate exists, a capture
-    // whose binding type is byref-like (`Span`/`ref struct`) combined with this
-    // closure's solved escape (`HeapShared`) is the reject site — match F# and
-    // error. A non-escaping such capture could instead be made to compile via a
-    // ref-struct closure ABI, so a program F# rejects
-    // outright could compile here. Both need the predicate we do not have yet.
+    /// An outlives edge from each captured binding's region to the closure region `r`.
+    // TODO(byref-capture): a byref-like capture (`Span` / `ref struct`) of a closure
+    // solved `HeapShared` is the reject site — blocked on a byref-like predicate.
     let private addCaptureEdges (s: State) (freeVars: HashSet<NodeKey>) (r: RegionId) : unit =
         for bs in freeVars do
             match s.BindingRegions.TryGetValue bs with
@@ -303,9 +240,8 @@ module Regions =
             holds s [ yield inferRegion s ctx src; for (_, v) in ov -> inferRegion s ctx v ]
         | TExpr.New(_, _, args, _, _)
         | TExpr.UnionCons(_, args, _, _) -> holds s [ for a in args -> inferRegion s ctx a ]
-        // Field / property reads produce no new allocation — the access rides
-        // the receiver's region (the field's own storage is tracked via the
-        // receiver). Walk the receiver so its capture edges still register.
+        // A field / property read allocates nothing — it rides the receiver's region.
+        // Walk the receiver so its capture edges still register.
         | TExpr.FieldGet(r, _, _, _) -> inferRegion s ctx r
         | TExpr.PropertyGet(r, _, _, _, _) -> inferRegion s ctx r
         | TExpr.ExternalMember(rOpt, _, _, _, _, _) ->
@@ -313,10 +249,9 @@ module Regions =
             | ValueSome r -> inferRegion s ctx r
             | ValueNone -> RegionId.Unknown
         | TExpr.Assignment(l, r, _, _) ->
-            // `lhs <- rhs`: the stored value must escape at least as wide as the
-            // cell. Edge runs rhs → cell so propagation pushes the cell's state
-            // BACK onto every value stored into it. AddEdge short-circuits on
-            // RegionId.Unknown, so non-Ident LHSes need no special case.
+            // `lhs <- rhs`: the stored value escapes at least as wide as the cell, so
+            // the edge runs rhs → cell and propagation pushes the cell's state BACK
+            // onto every value stored into it.
             let lhsR = inferRegion s ctx l
             let rhsR = inferRegion s ctx r
             s.Graph.AddEdge(rhsR, lhsR)
@@ -329,18 +264,14 @@ module Regions =
             s.Graph.AddEdge(vR, recvR)
             RegionId.Unknown
         | TExpr.StaticFieldSet(_, _, v, _, _) ->
-            // The slot is a static field — an `Unknown`-region global, exactly like
-            // `StaticFieldGet`. Walk the stored value so its capture edges register;
-            // the edge into an `Unknown` sink short-circuits, so no cell to bound.
+            // A static field is an `Unknown`-region global, so there is no cell to
+            // bound; walk the stored value only for its capture edges.
             inferRegion s ctx v |> ignore
             RegionId.Unknown
-        // `:>` / `:?>` are static-type adjustments over the same runtime value —
-        // non-allocating, so the result rides the source's region. `:?` produces
-        // a bool (Unknown), but walking the source registers any inner captures.
+        // `:>` / `:?>` adjust the static type of the same runtime value, so the result
+        // rides the source's region. `:?` yields a bool, but walking the source
+        // registers any inner captures.
         | TExpr.Upcast(src, ty, _) ->
-            // The upcast rides the source's region, but boxing to `obj` / upcasting
-            // to the `Vesper.Fun<_,_>` interface materialises a heap value — seed
-            // the source region as an Axis-2 heap-repr sink.
             let r = inferRegion s ctx src
 
             if isHeapReprTarget ctx.Store ty then
@@ -429,12 +360,9 @@ module Regions =
             inferRegion s ctx c |> ignore
             bodyR
         | TExpr.App _ ->
-            // The result region (if any) outlives the callee and every argument:
-            // absent an effect signature we must assume any callee returns its
-            // arguments, or values reachable through them. Deliberately coarse —
-            // per-function effect signatures would refine it (`'a -> 'a` captures
-            // nothing; `'a -> ('a -> 'b)` captures the argument), but that needs a
-            // way to carry effects on external symbols and inferred schemes.
+            // Absent an effect signature, assume any callee returns its arguments or
+            // values reachable through them: the result region outlives the callee and
+            // every argument.
             let head, args = TastWalk.collectAppChain [] e
 
             joinArms
@@ -456,22 +384,18 @@ module Regions =
         // in case a residual one survives so captures inside it still register.
         | TExpr.TraitCall(_, _, args, _, _) ->
             joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
-        // The ENTRY's body is not walked from here: it is a separate root, shared by every
-        // call site, so walking it per site would mint one region per site for one body's
-        // allocations. The edge is treated as the opaque call it is — coarse in the same
-        // direction `App` is, and safe.
+        // The entry's body is a separate root shared by every call site, so walking it
+        // here would mint one region per site for one body's allocations. Treated as
+        // the opaque call it is — coarse in the same direction `App` is.
         | TExpr.InlineCall(args = args) ->
             joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
         // Purely an anchor-domain marker: it allocates nothing and evaluates to its body,
         // so it rides the body's region exactly as a `Downcast` rides its source's.
         | TExpr.CallerExpr(body = body) -> inferRegion s ctx body
 
-    /// Process a `TExpr.Lambda` whose closure region is `r` (a fresh region for an
-    /// anonymous lambda, or the pre-minted region of a function-form binding).
-    /// Capture edges first (before any body recursion), then params register
-    /// AFTER `enterFun` so they pick up the lambda's own frame depth as their
-    /// `MintFunctionLevel` (the non-strict level rule then seeds an escaping
-    /// parameter correctly). Finally the closure outlives its body's value.
+    /// Process a `TExpr.Lambda` whose closure region is `r` (fresh for an anonymous
+    /// lambda, pre-minted for a function-form binding). Params must register AFTER
+    /// `enterFun` to pick up the lambda's own frame depth as `MintFunctionLevel`.
     and private lambdaRegionWith (s: State) (ctx: PassContext) (r: RegionId) (param: TPat) (body: TExpr) : RegionId =
         addCaptureEdges s (TastWalk.freeVars (TastWalk.bindersOfTPat param) body) r
         enterFun s
@@ -482,10 +406,8 @@ module Regions =
         r
 
     and private registerParam (s: State) (ctx: PassContext) (p: TPat) : unit =
-        // Mint ONE region per parameter pattern, threaded through every binder
-        // via recordBindingRegion — same rule let-bindings use. Sharing a region
-        // for `(a, b)` over-approximates safely ("if any escapes, treat siblings
-        // as escaping"). Empty-binder patterns (Const / Wildcard) skip the mint.
+        // ONE region per parameter pattern, shared by every binder in it: for
+        // `(a, b)` that over-approximates safely — if any escapes, so do its siblings.
         match TastWalk.bindersOfTPat p with
         | [] -> ()
         | _ -> recordBindingRegion s ctx p (freshParam s)
@@ -497,12 +419,9 @@ module Regions =
         arm.Guard |> ValueOption.iter (fun g -> inferRegion s ctx g |> ignore)
         inferRegion s ctx arm.Body
 
-    /// Run a binding group: bump the let-level, pre-mint a closure region for
-    /// every function-form binder so mutual references (let-rec / `and`) resolve
-    /// before any body walk, process each binding, then evaluate `body` at the
-    /// raised level before restoring. Plain bindings can't be pre-minted — their
-    /// region IS the RHS's region. Shared by `letChainRegion` (nested `Let`/`Use`
-    /// chains) and `run` (module-level decls as one group).
+    /// Run a binding group: bump the let-level, pre-mint a closure region for every
+    /// function-form binder so mutual references (let-rec / `and`) resolve before any
+    /// body walk. A plain binding's region IS its RHS's, so it cannot be pre-minted.
     and private withBindingGroup
         (s: State)
         (ctx: PassContext)
@@ -527,9 +446,9 @@ module Regions =
         s.EnclosingLet <- savedEnclosing
         r
 
-    /// Walk a maximal chain of nested `Let`/`Use` as one binding group — the
-    /// flattening of `let rec … and …` into nested lets means siblings only
-    /// resolve once the whole chain is collected and pre-minted together.
+    /// Walk a maximal chain of nested `Let`/`Use` as one binding group: `let rec … and …`
+    /// arrives flattened into nested lets, so siblings only resolve once the whole
+    /// chain is collected and pre-minted together.
     and private letChainRegion (s: State) (ctx: PassContext) (e: TExpr) : RegionId =
         let bindings = ResizeArray<TPat * TExpr>()
 
@@ -574,12 +493,9 @@ module Regions =
                 | _ -> false
 
             if isMutable then
-                // `let mutable x = rhs`: the cell is distinct from the rhs value.
-                // One cell holds many values over its lifetime (`r <- (3, 4)`), so
-                // sharing a region with the initial rhs would claim "this region IS
-                // that tuple" and a later store would have to retroactively fold in.
-                // The cell outlives every value stored into it; each rhs lubs up to
-                // match if the cell is later classified wider.
+                // `let mutable x = rhs`: one cell holds many values over its lifetime
+                // (`r <- (3, 4)`), so it gets its own region that outlives every value
+                // stored into it, rather than sharing the initial rhs's.
                 let cell = freshCell s
                 s.Graph.AddEdge(rhsR, cell)
                 recordBindingRegion s ctx p cell
@@ -587,10 +503,9 @@ module Regions =
                 recordBindingRegion s ctx p rhsR
 
     and private recordBindingRegion (s: State) (ctx: PassContext) (p: TPat) (r: RegionId) : unit =
-        // Map every binder this pattern introduces to `r`. Tuple / record /
-        // union sub-patterns recurse so each name shares the same region — a
-        // rough approximation (destructuring projects each element), but
-        // value-shape destructuring is rare in the v1 subset.
+        // Map every binder this pattern introduces to `r`; tuple / record / union
+        // sub-patterns recurse so each name shares it. An approximation —
+        // destructuring really projects each element separately.
         match p with
         | TPat.NamedSimple(k, _, _) ->
             s.BindingRegions.[k] <- r
@@ -612,12 +527,9 @@ module Regions =
         | TPat.EnumCase _
         | TPat.Const _ -> ()
 
-    /// Distinct lambda regions reachable from `start` via outlives edges (the
-    /// HeapShared seed rule's input). `visited`/`stack` are caller-owned scratch, cleared
-    /// on entry and reused across `solve`'s per-node calls — one allocation for the whole
-    /// pass instead of a fresh (un-presized, self-resizing) pair per region node, which the
-    /// alloc profile flagged as the top analysis-path churn (`HashSet<int>.Resize` +
-    /// `Stack<RegionId>.PushWithResize`).
+    /// Distinct lambda regions reachable from `start` via outlives edges — the input to
+    /// the `HeapShared` seed rule. `visited` / `stack` are caller-owned scratch, cleared
+    /// on entry and reused across the per-node calls.
     let private countReachableLambdas
         (g: RegionGraph)
         (visited: HashSet<int>)
@@ -643,10 +555,6 @@ module Regions =
 
         count
 
-    // Linear order `HeapShared > CallerStack > ReturnOnly > LocalStack`; lub
-    // picks the wider (more-escaping) state. `ReturnOnly` slots between
-    // `CallerStack` and `LocalStack` — additive, so every existing verdict is
-    // unchanged.
     let private lub (a: EscapeState) (b: EscapeState) : EscapeState =
         match a, b with
         | HeapShared, _
@@ -661,9 +569,7 @@ module Regions =
         let n = g.Count
         let state = Array.create n LocalStack
 
-        // Reusable scratch for the per-node `countReachableLambdas` calls below — one
-        // allocation for the pass, presized to the node count (the reachable set and its
-        // worklist are both bounded by it), `Clear`ed and reused each call.
+        // Presized to the node count, which bounds both the reachable set and its worklist.
         let reachVisited = HashSet<int>(n)
         let reachStack = Stack<RegionId>(n)
 
@@ -673,13 +579,9 @@ module Regions =
             match node.InitialState with
             | ValueSome s -> state.[i] <- s
             | ValueNone ->
-                // Level rule fires only inside a function (MintFunctionLevel is
-                // 0 for module-top mints — no escape frame to cross). Lambdas
-                // need a STRICT inequality: the closure lives at its bind level,
-                // so a same-level closure (`let f x = ... in f 3` inside another
-                // function) doesn't escape. Non-lambda allocations (tuples, app
-                // results, if-results) use `<=` because anything constructed at
-                // the function's frame level can flow out as the return value.
+                // A lambda needs the STRICT inequality: it lives at its bind level, so
+                // `let f x = … in f 3` inside another function doesn't escape. Other
+                // allocations use `<=` — anything at frame level can be returned.
                 if node.MintFunctionLevel > 0 then
                     let escapes =
                         if node.IsLambda then
@@ -690,12 +592,9 @@ module Regions =
                     if escapes then
                         state.[i] <- lub state.[i] CallerStack
 
-                // Lambda-count rule: reachable through ≥ N distinct lambdas →
-                // HeapShared. Skips lambda regions themselves so a closure that
-                // captures itself indirectly isn't promoted spuriously.
-                // Threshold is 2 for ordinary regions and 1 for mutable cells —
-                // any closure capture of a mutable forces heap allocation (.NET
-                // ref-cell hoisting / Rust Rc<RefCell<_>>).
+                // Reachable through ≥ N distinct lambdas → `HeapShared`, N = 1 for a
+                // mutable cell (any closure capture of a mutable forces heap allocation)
+                // and 2 otherwise. Skips lambdas so indirect self-capture doesn't promote.
                 if not node.IsLambda then
                     let reach = countReachableLambdas g reachVisited reachStack (RegionId(i))
                     let threshold = if node.IsMutableCell then 1 else 2
@@ -721,15 +620,9 @@ module Regions =
 
         state
 
-    /// Axis-2 representation fixpoint: a second
-    /// forward pass over the SAME `Outlives` edges as `solve`, with a different
-    /// seed/sink set. A region requires a heap representation if it escapes to
-    /// the heap (Axis-1 `HeapShared`) or is itself a `HeapReprSink` — a
-    /// non-`ref struct` aggregate container, or a box / interface-upcast source.
-    /// The mark then flows DOWN every `Outlives` edge: a heap container pins
-    /// everything it transitively holds into a heap representation too. `escape`
-    /// is `solve`'s output, indexed by `RegionId.Raw`. Same loop shape as
-    /// `solve`; defaults to `StackOnlyEligible` and only marks on reaching a sink.
+    /// A second fixpoint over the SAME `Outlives` edges as `solve`, with a different
+    /// seed set: a region requires a heap representation if `escape` (indexed by
+    /// `RegionId.Raw`) says `HeapShared`, or it is a `HeapReprSink`, or one holds it.
     let private solveRepr (g: RegionGraph) (escape: EscapeState[]) : RegionRepr[] =
         let n = g.Count
         let heap = Array.zeroCreate<bool> n
@@ -763,11 +656,9 @@ module Regions =
                     RegionRepr.StackOnlyEligible
             )
 
-    /// `specializations` is the file's resolved-inline table, walked because an entry's body is
-    /// code this file emits and holds the call site's OWN fused material: a caller local
-    /// captured by a lambda fused into an inline body is a capture of THIS file's binding, and
-    /// an unwalked table is that capture unseen — a `let mutable` left unpromoted. An
-    /// `InlineCall` edge is the opaque call it looks like, so nothing else reaches an entry.
+    /// `specializations` is the file's resolved-inline table. It must be walked: a caller
+    /// local captured by a lambda fused into an inline body is a capture of THIS file's
+    /// binding, and leaving it unseen is a `let mutable` left unpromoted.
     let run (ctx: PassContext) (decls: EqArray<TDecl>) (specializations: EqArray<TSpecialization>) : unit =
         let s: State =
             {
@@ -778,10 +669,9 @@ module Regions =
                 FunctionStack = ResizeArray()
             }
 
-        // Module-level decls form ONE binding group: `let rec a … and b …` are
-        // now distinct `TDecl`s, so grouping them (conservatively) is what keeps
-        // mutual references resolvable. `withBindingGroup` bumps the level to 1,
-        // so module function bodies start at frame depth 1 as the CST pass did.
+        // Module-level decls form ONE binding group: `let rec a … and b …` arrive as
+        // distinct `TDecl`s, so grouping them (conservatively) is what keeps mutual
+        // references resolvable. The group bumps module function bodies to frame depth 1.
         let bindings =
             [
                 for d in decls do
@@ -799,8 +689,7 @@ module Regions =
                 for d in decls do
                     match d with
                     | TDecl.Expression(e, _) -> inferRegion s ctx e |> ignore
-                    // Type-member bodies aren't region-analysed (`RefCellPromotion`
-                    // never rewrites a `TDecl.Type`), and lets are handled above.
+                    // Type-member bodies aren't region-analysed; lets are handled above.
                     | TDecl.Let _
                     | TDecl.Type _ -> ()
 
@@ -808,9 +697,9 @@ module Regions =
             )
         |> ignore
 
-        // Each entry as its OWN group, and after the module's: folding entries into `decls`
-        // would give an entry's bindings the module's group and its depth. `BindingRegions`
-        // outlives that group, so an entry capturing a module binding still resolves it.
+        // Each entry as its OWN group: folding entries into `decls` would give their
+        // bindings the module's group and depth. `BindingRegions` outlives that group,
+        // so an entry capturing a module binding still resolves it.
         for i = 0 to specializations.Length - 1 do
             let binding = TSpecializationG.binding (SpecializationId i) specializations.[i]
             withBindingGroup s ctx [ binding ] (fun () -> RegionId.Unknown) |> ignore
@@ -825,27 +714,9 @@ module Regions =
                 ctx.Bindings.Escape.Set(kv.Key, state.[(ctx.Store.Region tv.Id).Raw])
                 ctx.Bindings.Repr.Set(kv.Key, repr.[(ctx.Store.Region tv.Id).Raw])
 
-    /// Fold the codegen stack/heap verdict for every binder: `ClosureRepr.Stack` iff the
-    /// binder is both frame-confined by lifetime (`Axis 1` `EscapeState.LocalStack`)
-    /// and free of any heap-repr channel (`Axis 2` `RegionRepr.StackOnlyEligible`);
-    /// everything else is `Heap`. The map covers all
-    /// binders, not only closures — codegen's `discoverClosures` only ever looks up
-    /// closure `Closure.SelfKey`s, so non-closure entries are inert. Must run after
-    /// `run` has populated both side tables; the Pipeline snapshots the result onto
-    /// `TastFile.ClosureReprs`.
-    ///
-    /// `ctx.Bindings.Escape` is keyed by every BINDING SITE that landed in a region, which
-    /// is wider than the binder set — a `let _ = e` binds no name yet has a typed pattern
-    /// node whose tyvar unifies with the rhs's, so it inherits a region. So the walk is
-    /// driven by `decls`' BINDERS (`TastWalk.declBinders`) and reads the wider table, not
-    /// the other way round: what is filed is then a `BinderKey` by construction, and a
-    /// non-binder region entry is simply never asked for (it was unreadable anyway — a
-    /// wildcard can never be a closure's `SelfKey`).
-    ///
-    /// `decls` and NOT the specialization table `run` also walks: the emit-time expansion mints
-    /// a fresh binder for every node it copies, and this table crosses that expansion unremapped
-    /// (`FunVerdicts` is the one that does not, and pays for it with a derivation walk). A
-    /// verdict filed against an entry's own binder is therefore a verdict nothing can look up.
+    /// One verdict per binder in `decls`, after `run` has filled both side tables: `Stack`
+    /// iff frame-confined (`LocalStack`) AND free of any heap-repr channel. `decls` only —
+    /// emit-time expansion re-mints binders, so an entry's own binder is unlookupable.
     let closureReprSnapshot (ctx: PassContext) (decls: EqArray<TDecl>) : Map<BinderKey, ClosureRepr> =
         Map.ofSeq (
             seq {

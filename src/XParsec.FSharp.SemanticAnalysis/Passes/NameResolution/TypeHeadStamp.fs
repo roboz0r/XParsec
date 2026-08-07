@@ -4,14 +4,11 @@ open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-// The type-annotation half of NameResolution's resolve-once boundary: `tryPickExternalType`
-// is the ONE opens-aware spelling→identity engine, and the `stamp*` helpers record its
-// verdict on the same `CstKeys.ofTypeHead` derivation the read side keys on.
+// The `stamp*` helpers record a type head's verdict on the same `CstKeys.ofTypeHead`
+// derivation the read side keys on.
 
 module NameResolutionTypeHeadStamp =
 
-    /// The FIRST `TryLookupType` hit, whatever its shape. Every verdict about a name derives
-    /// from this one hit, not from several filtered scans that could disagree.
     [<Struct>]
     type ExternalTypeHit =
         {
@@ -25,8 +22,8 @@ module NameResolutionTypeHeadStamp =
             Shape: ExternalTypeShape
         }
 
-    /// Per qualified candidate — bare first, then each `open` prefix — probe every pair
-    /// `probes` yields and take the first hit `pick` admits, falling through on `ValueNone`.
+    /// Per qualified candidate, probe every pair `probes` yields and take the first hit
+    /// `pick` admits.
     let tryPickExternalType
         (ctx: PassContext)
         (probes: string -> struct (string * int) list)
@@ -82,7 +79,7 @@ module NameResolutionTypeHeadStamp =
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKeyOf hit.Compiled hit.ProbedTyparArity
 
-    /// At exactly `arity` — the receiver's type-arg count, from the enclosing `Expr.TypeApp`.
+    /// At exactly `arity`: a shape whose own typar count differs is not a hit.
     let tryResolveExternalTypeKey (ctx: PassContext) (name: string) (arity: int) : TypeKey voption =
         tryPickExternalType
             ctx
@@ -115,8 +112,7 @@ module NameResolutionTypeHeadStamp =
         : ExternalTypeHit voption =
         tryPickExternalType ctx probes ValueSome name
 
-    /// An enum-case access `E.C1` resolved to the enum's nominal key, at arity 0. Recognised
-    /// HERE, so the Unification enum arms read the stamp rather than the spelling.
+    /// An enum-case access `E.C1` resolved to the enum's nominal key, at arity 0.
     let tryExternalEnumCaseKey (ctx: PassContext) (headName: string) (caseName: string) : TypeKey voption =
         tryPickExternalType
             ctx
@@ -131,8 +127,7 @@ module NameResolutionTypeHeadStamp =
             )
             headName
 
-    /// What a written type head NAMES. The three outcomes are exhaustive and mutually
-    /// exclusive, which is what makes this the ONE local/external precedence rule.
+    /// What a written type head NAMES.
     [<Struct>]
     type TypeHeadVerdict =
         /// Deliberately left UNSTAMPED: `translateType` reads it off the registry.
@@ -193,7 +188,7 @@ module NameResolutionTypeHeadStamp =
             | ValueNone -> tryName written.Name
 
     /// Each declared marker name and, per F#'s optional-suffix rule, the same name without
-    /// `Attribute`. Derived from the KEYS, so spellings cannot drift from the identities.
+    /// `Attribute`.
     let private compilerMarkerLeaves: System.Collections.Generic.HashSet<string> =
         System.Collections.Generic.HashSet<string>(
             seq {
@@ -221,7 +216,6 @@ module NameResolutionTypeHeadStamp =
                     )
                 )
 
-    /// Resolve every attribute in a declaration's `[<…>]` sets to the type it names.
     let resolveAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) : ResolvedAttributes =
         match attrs with
         | ValueNone -> ResolvedAttributes.None
@@ -241,8 +235,7 @@ module NameResolutionTypeHeadStamp =
 
             { Keys = keys }
 
-    /// `iterType`'s recursion mirrors `translateType`'s, so the two walks agree node-for-node.
-    /// A local / bare-typar / unknown head stays unstamped; an abbrev stamps its OWN key.
+    /// A local / bare-typar / unknown head stays unstamped.
     let stampTypeIter (ctx: PassContext) : CstWalk.TypeIter =
         { CstWalk.identityTypeIter with
             VisitType =
@@ -256,7 +249,6 @@ module NameResolutionTypeHeadStamp =
 
     let stampTypeHeads (ctx: PassContext) (ty: Type<SyntaxToken>) : unit = CstWalk.iterType (stampTypeIter ctx) ty
 
-    /// Every arg and return type in a member signature's curried shape.
     let stampMemberSig (ctx: PassContext) (ms: MemberSig<SyntaxToken>) : unit =
         CstWalk.iterTypeMemberSig (stampTypeIter ctx) ms
 
@@ -265,7 +257,6 @@ module NameResolutionTypeHeadStamp =
     let stampTyparConstraints (ctx: PassContext) (cs: TyparConstraints<SyntaxToken>) : unit =
         CstWalk.iterTypeConstraints (stampTypeIter ctx) cs
 
-    /// Every arg type and the return type of an uncurried signature.
     let stampUncurriedSig (ctx: PassContext) (sign: UncurriedSig<SyntaxToken>) : unit =
         let (UncurriedSig(args = ArgsSpec.ArgsSpec(args = args); returnType = ret)) = sign
 
@@ -274,14 +265,13 @@ module NameResolutionTypeHeadStamp =
 
         stampTypeHeads ctx ret
 
-    /// A binding's return-type annotation. Its pattern annotations are stamped by
-    /// `stampPatCases`, which already runs at every pattern-scope site.
+    /// A binding's return-type annotation only; its pattern annotations are stamped at
+    /// every pattern-scope site instead.
     let stampBindingSigTypes (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         match b.returnType with
         | ValueSome(ReturnType(typ = t)) -> stampTypeHeads ctx t
         | ValueNone -> ()
 
-    /// Only what hangs off `e` itself; recursing into children is the walker's job. The
-    /// position enumeration sits beside `iterExpr`'s, so a new parser case fails there.
+    /// Only what hangs off `e` itself; recursing into children is the walker's job.
     let stampExprEmbeddedTypes (ctx: PassContext) (e: Expr<SyntaxToken>) : unit =
         CstWalk.iterExprEmbeddedTypes (stampTypeHeads ctx) (stampMemberSig ctx) e

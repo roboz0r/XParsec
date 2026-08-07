@@ -2,233 +2,94 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Parser
 
-// The UNIT-level TAST: what a whole compiled file carries — its declarations, its inline
-// vocabulary, its intrinsic representations and the side tables keyed by the binders its
-// tree introduces (`BinderKey`, whose projections are the one answer to "does this node
-// bind?") — over the term shapes of `TastExpr.fs` and the declaration shapes of
-// `TastDecl.fs`.
-//
-// TAST does NOT preserve trivia, parens, or token layout — tooling consumers
-// query the CST for that. TAST exists for consumers that only care about
-// semantics (codegen, target plugins).
-//
-// The TAST term/declaration cluster is parameterized over three axes —
-// `TExprG<'ty, 'tok, 'id>`: the type a node carries, the token it anchors on, and the
-// space it NAMES BINDERS IN. Each axis has its own instantiations, and no consumer spells
-// them out: the central aliases at the bottom of this file do, one alias family per
-// domain (`TExpr` pre-freeze, `Frozen.TExpr` after the freeze, `Pooled.TExpr` for a tree
-// rebuilt from the columns), so a new axis costs the annotations nothing.
-//
-// The identity axis is what lets a tree rebuilt from `FrozenPools` name binders by the
-// DENSE id the columns already carry (`BinderId`) instead of the `NodeKey` a source-shaped
-// tree names them by — the two are the same tree at different instantiations rather than
-// one tree and a lossy view of it.
+// The UNIT-level TAST: what a whole compiled file carries. No trivia, parens or token
+// layout survives elaboration — a consumer wanting those reads the CST.
 
-/// A splice TEMPLATE: an inline binding's retained declaration plus the compiler
-/// attributes on its parameters, positionally aligned to its curried parameters
-/// (`[<CallAtMostOnce>]` &c.; empty for a body whose parameters carry none). The
-/// inliner reads both — the attrs gate call-by-name-at-single-use splicing.
+/// A splice TEMPLATE: an inline binding's retained declaration, plus `ParamAttrs` aligned
+/// positionally to its curried parameters and empty when no parameter carries one.
 type TInlineBodyG<'ty, 'tok, 'id> =
     {
         Decl: TDeclG<'ty, 'tok, 'id>
         ParamAttrs: ParamAttrs[]
     }
 
-/// One entry of a file's INLINE VOCABULARY (`TastFileG.InlineBodies`): a body,
-/// under the identity its home file interns it by.
-///
-/// The `Key` is MINTED (from `ModuleBindingInfo`, at freeze), not recovered: an inline
-/// binding is the one kind of symbol that is exported but NEVER emitted, so nothing
-/// downstream would ever mint its identity as a side effect of emitting it. A consumer
-/// splices by this key — the same key its use-site `TExpr.External` carries.
 type TInlineValueG<'ty, 'tok, 'id> =
     {
         Key: SymbolKey
         Body: TInlineBodyG<'ty, 'tok, 'id>
     }
 
-/// WHICH resolved specialization: the template's own identity (the `TInlineValueG.Key` its
-/// home file interns it under) plus the type arguments a call site ground it at, in the
+/// The template's identity plus the type arguments a call site grounds it at, in the
 /// template's typar order.
-///
-/// The key is what makes the table a SET: two call sites that ground one template the same
-/// way name one entry, so a body is stored once however many times it is called.
 type SpecializationKeyG<'ty> =
     {
         Template: SymbolKey
         TypeArgs: EqArray<'ty>
     }
 
-/// One entry of a file's RESOLVED-SPECIALIZATION table (`TastFileG.Specializations`),
-/// addressed by the `SpecializationId` a `TExprG.InlineCall` carries.
-///
-/// `Decl` is always a `TDecl.Let` of lambdas — the template's body with its type arguments
-/// substituted, its static-opt clauses selected and its trait calls dispatched. That is
-/// everything RESOLUTION decides; where the body is finally placed is not decided here,
-/// which is why the entry's nodes stay anchored where the body was written.
-///
-/// Entries reference entries — a body may itself contain an `InlineCall` — so the table is
-/// a DAG and a consumer that flattens it walks rather than substituting once.
-///
-/// No `ParamAttrs`, unlike `TInlineBodyG`: those gate a call-by-name splicing decision
-/// (`[<CallAtMostOnce>]`) that has already been made by the time an entry exists.
+/// One entry of a file's specialization table, addressed by the `SpecializationId` an
+/// `InlineCall` carries. `Decl` is always a `TDecl.Let` of lambdas, and may itself contain
+/// an `InlineCall` — the table is a DAG.
 type TSpecializationG<'ty, 'tok, 'id> =
     {
         Key: SpecializationKeyG<'ty>
-        /// The file every anchor inside `Decl` is an index into, except under a node that names
-        /// another — the anchor DOMAIN, held once per entry rather than once per node. That is
-        /// what lets the node column stay a bare `int` (`Anchor`) while a body keeps the
-        /// positions it was WRITTEN at: a physically spliced body has no enclosing entry to
-        /// hang an origin on, which is the whole reason it had to be relocated onto its call
-        /// site.
-        ///
-        /// It carries a content hash, and the hash is checked wherever the anchors are read
-        /// (`OriginSources.tokenAt`) — see `OriginFile`.
+        /// The file every anchor inside `Decl` is an index into, except under a nested
+        /// `CallerExpr` / `InlineCall`, which names its own.
         Origin: OriginFile
         Decl: TDeclG<'ty, 'tok, 'id>
     }
 
-/// What a file's `(# … #)` binding records about one intrinsic: the target
-/// representation string, and whether the binding was `class`-tagged
-/// (`(# class "System.Attribute" #)`) and so may be inherited.
-///
-/// ONE entry per intrinsic, carrying both facts: heritability is a property OF a
-/// repr, so a heritable intrinsic with no repr is unrepresentable rather than
-/// merely unexpected.
 type IntrinsicReprInfo =
     {
         /// The target representation (`Vesper.int` → `"System.Int32"`).
         Platform: string
-        /// `(# class "…" #)`-tagged: a derived file may `inherit` this primitive
-        /// (`obj` / `exn` / `Attribute`). A scalar primitive (`int`) is `false`.
+        /// `(# class "System.Attribute" #)`-tagged: a derived file may `inherit` this
+        /// primitive (`obj` / `exn` / `Attribute`). A scalar primitive (`int`) is `false`.
         Heritable: bool
     }
 
 type TastFileG<'ty, 'tok, 'id when 'id: comparison> =
     {
-        /// Source order, every module-level declaration — `inline` bindings INCLUDED, in
-        /// both domains. An inline binding is code as well as vocabulary (it is emitted
-        /// as an ordinary module function and its `InlineBodies` entry is additive), so
-        /// nothing is partitioned out here. `Passes.InlineExpansion` splices a same-file
-        /// inline call off these.
+        /// Source order, every module-level declaration — `inline` bindings INCLUDED, since
+        /// one is emitted as an ordinary module function as well as spliced.
         Decls: EqArray<TDeclG<'ty, 'tok, 'id>>
-        /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
-        // Qualified: see `Diagnostic`'s declaration for why the bare name would otherwise
-        // be the parser's, mistyping this field.
+        /// A diagnostic of error severity means the TAST is best-effort, not safe to emit from.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
-        /// This file's OWN intrinsics: the canon `SymbolKey` of a `type x = (# "..." #)`
-        /// abbrev → its target representation string (`Vesper.int` → `"System.Int32"`).
-        /// The backend keys the emitted IL type off the *representation string* (so a
-        /// platform author retargets a primitive by editing one `.fs` line), and asks for
-        /// it with the KEY the `FTConst` node carries — the frozen form of
-        /// `TypeRegistry.IntrinsicReprKeys`, and the local half of the same forward
-        /// `{ canon -> platform repr }` axis the provider's `IntrinsicForwardRepr` serves
-        /// for the dependency closure. Keyed by identity, never by declared name: a name
-        /// cannot say WHICH `int` it means, so a user type sharing an intrinsic's short
-        /// name would otherwise pick up its repr.
-        ///
-        /// A HASH map, not an F# `Map`: a `SymbolKey` is an identity, so it is equatable
-        /// but deliberately not ordered. Same form the provider's `IntrinsicForwardRepr`
-        /// presents, so the backend's two halves of the axis read alike.
+        /// This file's OWN intrinsics: the `SymbolKey` of a `type x = (# "…" #)` abbrev →
+        /// its target representation. Keyed by identity: a name cannot say WHICH `int` it means.
         IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>
-        /// The `[<Global>]` module-level bindings: values that ARE a target global
-        /// (JS `undefined`), so the declaring file emits no definition for one — a
-        /// definition would restate the global and, being self-referential, could not
-        /// initialise. A reference emits the bare name the front end splices, which is why
-        /// only the DECLARING file consults this and no consumer needs it.
-        ///
-        /// Keyed by the binding's `SymbolKey`, on the same identity axis as
-        /// `IntrinsicReprKeys` — `[<Global>]`-ness belongs to the value a binder names, not
-        /// to the shape of the `let` node that names it.
+        /// The `[<Global>]` module-level bindings: values that ARE a target global (JS
+        /// `undefined`), so the declaring file emits no definition for one.
         GlobalValueKeys: System.Collections.Generic.IReadOnlySet<SymbolKey>
-        /// A module-level binding's binder → its named-holder placement
-        /// (`module Foo`'s functions emit on a real `Foo`/`FooModule` static class,
-        /// not the anonymous "Program" holder). Empty for a program with no named
-        /// modules — every static method then lands on "Program" as before.
+        /// A module-level binding's binder → its named-holder placement (`module Foo`'s
+        /// functions emit on a real `Foo`/`FooModule` static class, not the anonymous
+        /// "Program" holder).
         ModuleMembers: Map<BinderKeyG<'id>, ModuleBindingInfo>
-        /// A closure binder → its stack-vs-heap verdict
-        /// (the `EscapeState.LocalStack ∧ RegionRepr.StackOnlyEligible`
-        /// conjunction), snapshotted from `ctx.Bindings.Escape` /
-        /// `ctx.Bindings.ClosureRepr` after `Regions.run`. Read by codegen's
-        /// `discoverClosures` to set `Emit.Closure.Repr`; a binder absent here
-        /// (or any anonymous lambda) defaults to `Heap`. Inert today — emission
-        /// still forces heap.
+        /// A closure binder → its stack-vs-heap verdict. A binder absent here, and any
+        /// anonymous lambda, is `Heap`.
         ClosureReprs: Map<BinderKeyG<'id>, ClosureRepr>
-        /// A SOURCE-lambda argument's `LambdaKey` → its
-        /// value-struct closure verdict (`FunVerdict`: the flat `FunN` arity, plus
-        /// the result-typar position for a transformer combinator). Snapshotted from
-        /// `ctx.FunVerdicts`; `discoverClosures` reads `Arity` to size the closure's
-        /// flat `Invoke`, and `ClosureVerdictRewrite` reads `ResultTyparPos` to lay a
-        /// stored binding's `'TFunc` slot out as the `<closure>$` value-struct rather
-        /// than the `Fun`2`/`Fun`3` interface. A lambda absent here is an ordinary
-        /// curried closure.
-        ///
-        /// The one table that does NOT ride `'id`: a lambda EXPRESSION is not a
-        /// definition site, so its key lives in the lambda space and not in the binder
-        /// space the axis names. The pooled form re-keys it onto the lambda's own dense
-        /// space (`DenseTable<ExprPoolId, _>`), which is a third space again.
+        /// A SOURCE-lambda argument's `LambdaKey` → its value-struct closure verdict; a
+        /// lambda absent here is an ordinary curried closure. Keyed by lambda and not by
+        /// binder because a lambda EXPRESSION is not a definition site.
         FunVerdicts: Map<LambdaKey, FunVerdict>
-        /// A project-local generalised binding's
-        /// binder → its frozen typar bounds (method-axis-indexed
-        /// `FrozenConstraint` templates). Snapshotted at `Elaborate.run` (where the
-        /// method-typar indices are minted, so the bounds' typar leaves line up with
-        /// the body's), threaded `TastFile → HolderPlan → StaticFn/StaticMethodRef`
-        /// exactly like `FunVerdicts`. Read by the call-site phantom-typar solve
-        /// (`EmitCall`); the emitted arity is re-derived independently by
-        /// `staticFnTypars`' body sweep.
+        /// A project-local generalised binding's binder → its frozen typar bounds.
         GenericFnSchemes: Map<BinderKeyG<'id>, FrozenConstraint list>
-        /// The file's INLINE VOCABULARY: every `let inline` binding (and every
-        /// nullary-intrinsic value alias — `let undefined = (# "undefined" #)`, which
-        /// the backends also splice rather than call), keyed by the identity its home
-        /// file interns it under.
-        ///
-        /// Published by `Freeze`, ADDITIVELY: the binding also stays in `Decls` and is
-        /// emitted as an ordinary module function, because F# gives an `inline` binding
-        /// both forms and a use that cannot be spliced must have something to call.
-        ///
-        /// The entry is a DIFFERENT TREE from the decl of the same name, not a copy of
-        /// it. `Passes.InlineExpansion` walks the emitted form, resolving its
-        /// `StaticOptimization` clauses and trait calls against its own definition site —
-        /// where an `^T` body has nothing ground. A consumer must resolve them against ITS
-        /// operand types, so what is published is the UNEXPANDED body
-        /// (`PassContext.InlineTemplates`).
-        ///
-        /// This is also the ONLY channel for a body with no compiled form at all: an SRTP
-        /// member constraint is not encodable on a CLR generic parameter, so such a
-        /// binding is published here and emitted nowhere (`TastLower.lower`).
-        ///
-        /// EMPTY pre-freeze: the SemType tree carries the templates in `Decls` and the
-        /// unexpanded snapshots on the `PassContext`.
+        /// The file's INLINE VOCABULARY: every `let inline` binding and every
+        /// nullary-intrinsic value alias (`let undefined = (# "undefined" #)`), as the
+        /// UNEXPANDED body — a different tree from the decl of the same name. Empty pre-freeze.
         InlineBodies: EqArray<TInlineValueG<'ty, 'tok, 'id>>
-        /// The file's RESOLVED-SPECIALIZATION table: one entry per distinct
-        /// (template, type-arguments) grounding this file's call sites reached, addressed by
-        /// the `SpecializationId` an `InlineCall` carries.
-        ///
-        /// A SECOND root array beside `InlineBodies`, on a different axis: `InlineBodies`
-        /// PUBLISHES unresolved templates for other files to resolve against their own
-        /// operand types, while this holds bodies already resolved against THIS file's, and
-        /// is consumed by the backends rather than exported.
+        /// One entry per distinct (template, type-arguments) grounding this file's call
+        /// sites reached. Resolved against THIS file's operand types, so it is consumed by
+        /// the backends rather than exported.
         Specializations: EqArray<TSpecializationG<'ty, 'tok, 'id>>
-        /// Declared accessibility of each top-level EXPORTED entity (type / module
-        /// value / inline value), keyed by its `SymbolKey`. Stored HONESTLY (not
-        /// pre-thresholded): the file→file projection applies internal-or-better, the
-        /// `.fsi` extractor public-only, over the SAME fact. Captured by `Elaborate`
-        /// from the CST `access` tokens. A key ABSENT here is `Public` (the F# default
-        /// for an unmarked declaration). `SymbolKey`-keyed and `'ty`-free — carried
-        /// verbatim across the freeze, modeled on `IntrinsicReprKeys`. Type MEMBER
-        /// accessibility rides `TTypeMemberG.Accessibility` (physically on the member,
-        /// not here), read on the same threshold by the projection's member filter.
+        /// Declared accessibility of each top-level entity (type / module value / inline
+        /// value); a key ABSENT here is `Public`. A type MEMBER's rides on the member itself.
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
-        /// A module binding's single value/function typar-axis width, minted where the
-        /// method-axis indices are minted (`Elaborate.mkMethodQuantEnv`). Keyed by the
-        /// binder its head pattern introduces; the projection reads it for
-        /// `ExternalSymbol.TyparArity` and to size each binding's frozen `ValRepr`.
+        /// A module binding's typar count, keyed by the binder its head pattern introduces.
         BindingTyparArities: Map<BinderKeyG<'id>, int>
     }
 
-// Central monomorphic SemType aliases. Every consumer today speaks `SemType`, over the
-// `NodeKey` identity axis every source-shaped tree is addressed in; these aliases keep the
-// bare TAST names stable as the generic shapes gain axes.
+// Monomorphic `SemType` aliases, over the `NodeKey` identity axis.
 
 type TPat = TPatG<SemType, SyntaxToken, NodeKey>
 type HoleSpec = HoleSpecG<SemType, SyntaxToken>
@@ -261,10 +122,6 @@ type TastFile = TastFileG<SemType, SyntaxToken, NodeKey>
 
 [<RequireQualifiedAccess>]
 module TPreambleEntryG =
-    /// The `let` binders of a class preamble, in declaration order — the entries that take a
-    /// backing field (a `do` has storage nowhere, only an effect). Generic in `'ty`/`'tok`/`'body`,
-    /// so this ONE projection serves every consumer — inference-time TAST, frozen TAST, and both
-    /// backends — rather than one copy per stage.
     let lets (entries: seq<TPreambleEntryG<'ty, 'body>>) : TClassLetG<'ty, 'body> list =
         [
             for e in entries do
@@ -275,10 +132,7 @@ module TPreambleEntryG =
 
 [<RequireQualifiedAccess>]
 module TSpecializationG =
-    /// An entry's binding: the binder its resolved body is stored under, and the abstraction a
-    /// call site applies. An entry is ALWAYS a `TDecl.Let` of lambdas (`TSpecializationG.Decl`),
-    /// so every consumer that takes a body apart asserts that through here rather than each in
-    /// its own words. The id is carried only to name the offender.
+    /// The head pattern and lambda value of an entry's `TDecl.Let`.
     let binding
         (spec: SpecializationId)
         (entry: TSpecializationG<'ty, 'tok, 'id>)
@@ -291,13 +145,6 @@ module TSpecializationG =
 
 [<RequireQualifiedAccess>]
 module TastFileG =
-    /// Key→value set equality for the `IReadOnlyDictionary<SymbolKey,_>` fields.
-    /// A `SymbolKey` is an identity (equatable, deliberately unordered), so the file
-    /// stores these as HASH maps — and `IReadOnlyDictionary` carries only REFERENCE
-    /// equality, so two dictionaries with identical contents never `=`-match. Compare
-    /// them as sets instead: same count, and every key maps to an equal value. Order
-    /// independent by construction, which is what a hash map's enumeration order
-    /// demands.
     let private dictEqual
         (a: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>)
         (b: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, 'v>)
@@ -310,15 +157,9 @@ module TastFileG =
                | _ -> false
            )
 
-    /// Whole-file structural equality — the equality a `TastFileG` round-trip (freeze
-    /// → serialize → rebuild, or `TastUnpool.ofPools ∘ toPools`) is judged by. This is
-    /// LIBRARY knowledge, not test knowledge: three of the record's fields
-    /// (`IntrinsicReprKeys`, `GlobalValueKeys`, `Accessibility`) are read-only collection
-    /// interfaces, which break the derived structural `=` on the whole record, so `a = b` is
-    /// unsound on a rebuilt file and every consumer that wants "same contents" must route
-    /// through here rather than rediscover the carve-out. Every other field — the decl
-    /// trees, the `Map` side tables, the diagnostics list, the inline vocabulary — has sound
-    /// structural equality.
+    /// Whole-file structural equality. `a = b` is UNSOUND on a rebuilt file:
+    /// `IntrinsicReprKeys`, `GlobalValueKeys` and `Accessibility` are read-only collection
+    /// interfaces, whose contents the derived `=` compares by reference.
     let structurallyEqual (a: TastFileG<'ty, 'tok, 'id>) (b: TastFileG<'ty, 'tok, 'id>) : bool =
         a.Decls = b.Decls
         && a.Diagnostics = b.Diagnostics
@@ -333,8 +174,7 @@ module TastFileG =
         && dictEqual a.Accessibility b.Accessibility
         && a.BindingTyparArities = b.BindingTyparArities
 
-// Parallel frozen aliases. Codegen and the freeze step speak these; the bare names
-// above STAY `SemType` (inference, Regions, tests, any non-codegen API).
+// Parallel `FrozenType` aliases, spoken by the freeze step and the backends.
 
 module Frozen =
     type TPat = TPatG<FrozenType, SyntaxToken, NodeKey>
@@ -368,11 +208,8 @@ module Frozen =
     type TSpecialization = TSpecializationG<FrozenType, SyntaxToken, NodeKey>
     type TastFile = TastFileG<FrozenType, SyntaxToken, NodeKey>
     type ForInEnumerator = ForInEnumeratorG<FrozenType>
-    // The TREE instantiation of the compiled-form cluster: `'pat` is the frozen pattern
-    // node itself. This is the form an EXTERNAL symbol carries (`ExternalSymbol.ValRepr`),
-    // whose pats are minted from an `.fsi` contract and belong to no file — see
-    // `ArgGroupG`. A file's OWN `ValRepr`s are `PooledValRepr`, derived from its columns
-    // and naming their pats by pool id (`FrozenPools.BindingValReprs`).
+    // The TREE instantiation of the compiled-form cluster: `'pat` is the pattern node
+    // itself, the form an EXTERNAL symbol carries. A file's own names a pooled pat by id.
     type StaticParam = StaticParamG<FrozenType, TPat, NodeKey>
     type ArgGroup = ArgGroupG<FrozenType, TPat, NodeKey>
     type ValRepr = ValReprG<FrozenType, TPat, NodeKey>

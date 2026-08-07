@@ -3,33 +3,9 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Generic
 open XParsec.FSharp.Parser
 
-// Single point where the TAST's recursion shape is enumerated. Six passes used
-// to each hand-roll a match over every `TExpr` case (`Inline.substMapper`,
-// `Inline.freshen.fE`, `Elaborate.mapExprTypes`, `RefCellPromotion`'s collector +
-// rewriter, `ResolvedTypes.walkExpr`); a new TExpr case would silently slip
-// past several of them via catch-alls. The walker centralises the enumeration
-// — F#'s incomplete-match check now fires here in one place when the TAST
-// grows a new case, instead of silently no-oping in five passes.
-//
-// Two flavours:
-//   - `Mapper` (rewrite): the four passes that build a new TExpr per node.
-//     `MapType` is applied to the embedded `ty` field of every node the
-//     default arm rebuilds; `OverrideX` hooks let a pass short-circuit a case
-//     (typically to inject custom binder logic or replace a node entirely).
-//   - `Iter` (visit-only): the two passes that collect into mutable state via
-//     closures. `VisitX` returns `false` to skip default child recursion
-//     (when the handler walked children manually).
-//
-// Exhaustiveness: every `TExpr` / `TPat` / `FormatSink` / `FormatSeg` /
-// `TStaticOptConstraint` case is enumerated explicitly with no `_ -> ()`
-// catch-all. ResolvedTypes (and the rest) used to enumerate every case
-// individually to keep this guarantee — the walker preserves it by being the
-// one place that match happens.
-//
-// The TERM shapes are enumerated here; the DECLARATION shape is not, and must not be.
-// `mapTypeDecl` is this domain's declaration rebuild and delegates to
-// `TastConvert.typeDecl`, so a pass that rewrites a declaration's expressions or types
-// enumerates the declaration's slots through the same match the pools and the freeze do.
+// The enumeration of the TAST's recursion shape, in two flavours: a `Mapper` rebuilds each
+// node, an `Iter` only visits it. The TERM shapes are enumerated here; the DECLARATION
+// shape is not and must not be — `mapTypeDecl` delegates it to the shared decl rebuild.
 
 [<RequireQualifiedAccess>]
 module TastWalk =
@@ -123,19 +99,14 @@ module TastWalk =
         | TExprG.TypeTest(tok = tok) -> tok
 
     /// Mark `body` as CALLER material: an expression written in `origin` that a reduction
-    /// FUSED into a specialization entry anchored in some other file.
-    ///
-    /// THE constructor of the node — its `ty`/`tok` ARE its body's by definition, so routing
-    /// every mint through here is what keeps them from being filled in twice and disagreeing.
+    /// FUSED into a specialization entry anchored in some other file. Its `ty`/`tok` ARE
+    /// its body's by definition, so a mint never supplies them separately.
     let callerExpr (origin: OriginFile) (body: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
         TExprG.CallerExpr(body, origin, exprTy body, exprTok body)
 
-    /// The node under any caller marks — `CallerExpr` is semantically transparent, so a SHAPE
-    /// test (is this an `External`? an application head?) must read through it or a rewrite
-    /// would stop recognising the very material an earlier fusion marked.
-    ///
-    /// Recursive because marks NEST: an argument two frames out from the entry it now sits in
-    /// pops twice, and both layers are equally transparent to a shape test.
+    /// The node under any caller marks. `CallerExpr` is semantically transparent, so a SHAPE
+    /// test (is this an `External`? an application head?) must read through it — and marks
+    /// NEST, so it pops as many layers as fusion added.
     let rec unmarked (e: TExprG<'ty, 'tok, 'id>) : TExprG<'ty, 'tok, 'id> =
         match e with
         | TExprG.CallerExpr(body = body) -> unmarked body
@@ -167,10 +138,8 @@ module TastWalk =
         | TPatG.EnumCase(tok = tok)
         | TPatG.Or(tok = tok) -> tok
 
-    /// Peel a curried `App` chain into its head and the arguments paired with
-    /// each `App` node's *result* type. The inverse of `rebuildApp`. Shared by
-    /// every client that walks an application (`EmitLower`'s eta/lowering, the
-    /// pre-freeze `InlineExpansion` pass).
+    /// Peel a curried `App` chain into its head and the arguments paired with each `App`
+    /// node's *result* type. The inverse of `rebuildApp`.
     let rec collectAppChain
         (acc: (TExprG<'ty, 'tok, 'id> * 'ty * 'tok) list)
         (e: TExprG<'ty, 'tok, 'id>)
@@ -187,26 +156,20 @@ module TastWalk =
         : TExprG<'ty, 'tok, 'id> =
         List.fold (fun acc (arg, resTy, tok) -> TExprG.App(acc, arg, resTy, tok)) head args
 
-    /// Rewrite hooks. Every `OverrideX` receives the active `Mapper` so an
-    /// override can recurse manually with the same mapper (e.g. for binders
-    /// where the override needs to bind a key before walking the body).
-    /// Returning `ValueSome` replaces the node; `ValueNone` falls through to
-    /// the default recursive rebuild (which applies `MapType` to the `ty`
-    /// field and recurses on children via this mapper).
+    /// Rewrite hooks. Every `OverrideX` receives the active `Mapper`, so an override can
+    /// recurse manually (e.g. to bind a key before walking the body). `ValueSome` replaces
+    /// the node; `ValueNone` falls through to the default recursive rebuild.
     [<NoEquality; NoComparison>]
     type Mapper =
         {
-            /// Applied to the `ty` field of every node the default arm
-            /// rebuilds. An override that constructs its own replacement is
-            /// responsible for substituting types in the node it returns.
+            /// Applied to the `ty` field of every node the default arm rebuilds. An
+            /// override that builds its own replacement must substitute types itself.
             MapType: SemType -> SemType
             OverrideExpr: Mapper -> TExpr -> TExpr voption
             OverridePat: Mapper -> TPat -> TPat voption
             OverrideArm: Mapper -> TMatchArm -> TMatchArm voption
         }
 
-    /// Identity mapper: leaves every `ty` and node unchanged. Compose with
-    /// `with` to override only the fields a pass needs.
     let identityMapper: Mapper =
         {
             MapType = id
@@ -215,11 +178,7 @@ module TastWalk =
             OverrideArm = fun _ _ -> ValueNone
         }
 
-    /// Apply a type map to a `CallVia`'s payload. Only `CallVia.Interface` carries
-    /// types (its constraining-interface instantiation args); `Self`/`Base` pass
-    /// through unchanged. Sharing-preserving (like `SemType.mapChildren`): returns
-    /// the SAME `v` when `f` leaves every payload type reference-unchanged, so an
-    /// unaffected `MethodCall`/`PropertyGet` node can itself preserve.
+    /// Only `Interface` carries types — its constraining-interface instantiation args.
     let mapVia (f: SemType -> SemType) (v: CallVia<SemType>) : CallVia<SemType> =
         match v with
         | CallVia.Interface ifaceArgs ->
@@ -235,9 +194,6 @@ module TastWalk =
         | ValueNone ->
             let f = m.MapType
 
-            // Sharing-preserving, exactly as `SemType.mapChildren`: return the input
-            // `p` when `f` and the child walk leave every field reference-unchanged,
-            // so preservation propagates up through a `Let`/`Match` that carries it.
             match p with
             | TPat.NamedSimple(k, ty, tok) ->
                 let ty' = f ty
@@ -302,21 +258,14 @@ module TastWalk =
             let pp = mapPat m
             let pa = mapArm m
 
-            // Preserve the `(name, value)` field pair when its value is unchanged, so
-            // `mapPreserve` sees a reference-equal element and a record whose fields
-            // are all untouched preserves the whole array.
             let mapNamedExpr pair =
                 let (n, v) = pair
                 let v' = pe v
                 if refEq v' v then pair else (n, v')
 
-            // Sharing-preserving, exactly as `SemType.mapChildren`: each arm returns
-            // the input `e` when `f` and the child walk leave every field
-            // reference-unchanged, so a subtree the pass does not touch walks
-            // allocation-free and the sharing propagates up. The rare/gnarly arms
-            // (`ForIn`, `Format`, `StaticOptimization`) stay always-rebuilding — their
-            // nested record-update shape rebuilds regardless, so preservation there
-            // would rarely fire and never carries an unaffected common subtree.
+            // Sharing-preserving: each arm returns the input `e` when `f` and the child
+            // walk leave every field reference-unchanged. `ForIn`/`Format`/
+            // `StaticOptimization` always rebuild — their nested records rebuild anyway.
             match e with
             | TExpr.Const(v, ty, tok) ->
                 let ty' = f ty
@@ -330,10 +279,8 @@ module TastWalk =
             | TExpr.Null(ty, tok) ->
                 let ty' = f ty
                 if refEq ty' ty then e else TExpr.Null(ty', tok)
-            // Tuple-constructor arguments evaluate left-to-right, so `pp p`
-            // (binder) always runs before `pe b` / `pe v` / `pe body` — the
-            // ordering `Inline.freshen` relies on for `Lambda` / `Let` /
-            // `Match`-arm binders.
+            // `pp p` before the body walk: a binder is rewritten before any reference
+            // to it.
             | TExpr.Lambda(p, b, ty, tok) ->
                 let p' = pp p
                 let b' = pe b
@@ -407,9 +354,8 @@ module TastWalk =
                     e
                 else
                     TExpr.While(c', b', ty', tok)
-            // `var` is a `NodeKey`, not a `TPat`, so `OverridePat` cannot see
-            // it — passes that rename binders (`Inline.freshen`) must override
-            // `ForTo` at the expr level.
+            // The loop variable is a `NodeKey`, not a `TPat`, so `OverridePat` cannot see
+            // it — a pass that renames binders must override `ForTo` at the expr level.
             | TExpr.ForTo(k, it, s, e2, b, ty, tok) ->
                 let s' = pe s
                 let e2' = pe e2
@@ -420,15 +366,9 @@ module TastWalk =
                     e
                 else
                     TExpr.ForTo(k, it, s', e2', b', ty', tok)
-            // The enumerator descriptor carries `'ty` payloads — the enumerator type
-            // and, for a rung-3 constrained-typar source, the seq/enumerator interface
-            // instantiation args. They reference the enclosing function's typars, so a
-            // declaring-typar remap (`freezeTypars`) must reach them too (the same
-            // `mapVia` precedent for `CallVia.Interface`), else they leak as un-ground
-            // `TyVar`s → `?free-typar` at the freeze cut. Mapped by `TastConvert`'s own
-            // descriptor rebuild, at this domain's diagonal: the descriptor's payloads are
-            // types and keys, so there is nothing here a same-domain rewrite would do
-            // differently, and one enumeration of its cases is enough.
+            // The enumerator descriptor carries types (the enumerator type, and the
+            // seq/enumerator interface args) that reference the enclosing function's
+            // typars, so a declaring-typar remap must reach them or they never ground.
             | TExpr.ForIn(p, src, b, en, ty, tok) ->
                 TExpr.ForIn(pp p, pe src, pe b, TastConvert.forInEnumerator f en, f ty, tok)
             | TExpr.Match(sc, arms, ty, tok) ->
@@ -542,10 +482,9 @@ module TastWalk =
                 match EqArray.mapPreserve pe args with
                 | ValueNone -> if refEq ty' ty then e else TExpr.New(c, k, args, ty', tok)
                 | ValueSome args' -> TExpr.New(c, k, args', ty', tok)
-            // `CallVia.Interface` carries the constraining interface's instantiation
-            // type args (rung-3) — they reference the enclosing type's typars, so a
-            // declaring-typar remap (`freezeTypars`) must reach them too, else they
-            // leak as un-ground `TyVar`s at the freeze cut.
+            // `CallVia.Interface` carries the constraining interface's instantiation type
+            // args — they reference the enclosing type's typars, so a declaring-typar remap
+            // must reach them too, else they leak as un-ground `TyVar`s at the freeze cut.
             | TExpr.MethodCall(r, k, via, args, ty, tok) ->
                 let r' = pe r
                 let via' = mapVia f via
@@ -665,11 +604,7 @@ module TastWalk =
                     else
                         TExpr.ILIntrinsic(op, operand', args, ty', tok)
                 | ValueSome args' -> TExpr.ILIntrinsic(op, operand', args', ty', tok)
-            // The default rebuild substitutes typars inside constraints too —
-            // `Elaborate.mapExprTypes` (used to push a remap through generic
-            // member bodies) needs this. Passes that resolve clauses to a
-            // single body (`Inline.substMapper`) override the node explicitly
-            // and never reach this arm.
+            // The default rebuild substitutes typars inside constraints too.
             | TExpr.StaticOptimization(clauses, def, ty, tok) ->
                 let mapConstraint c =
                     match c with
@@ -723,8 +658,7 @@ module TastWalk =
                 else
                     TExpr.TypeTest(src', testTy', ty', tok)
             // The type map does NOT reach the entry's body: the table is a separate root
-            // and is mapped as one (`TastConvert.file`). Mapping it from here would rewrite
-            // a shared entry once per call site.
+            // and is mapped as one. From here it would rewrite a shared entry per call site.
             | TExpr.InlineCall(spec, args, origin, ty, tok) ->
                 let ty' = f ty
 
@@ -735,8 +669,6 @@ module TastWalk =
                     else
                         TExpr.InlineCall(spec, args, origin, ty', tok)
                 | ValueSome args' -> TExpr.InlineCall(spec, args', origin, ty', tok)
-            // `ty`/`tok` ARE the body's, so the mapped body supplies both rather than being
-            // mapped alongside a second copy of them that could disagree.
             | TExpr.CallerExpr(body, origin, _, _) ->
                 let body' = pe body
 
@@ -768,22 +700,8 @@ module TastWalk =
                     Body = body'
                 }
 
-    /// Rebuild a type declaration in place, mapping its two axes: every embedded `SemType`
-    /// through `fTy`, and every expression BODY through `fExpr`.
-    ///
-    /// The declaration SHAPE is enumerated in exactly one place — `TastConvert.typeDecl` —
-    /// and this is that rebuild at the pre-freeze diagonal (`Tok = id`, and
-    /// `Id = BinderKey.identity`, which re-admits each key slot to the identity space it is
-    /// already in). So "which expressions does a declaration carry?" has ONE answer for the
-    /// tree-shaped domain, the same one the pools and the freeze answer with: member bodies
-    /// including the per-interface member lists, both class preambles (`let` initialisers and
-    /// `do` bodies), each secondary ctor's `let` initialisers / chain args / field inits, and
-    /// the base-ctor call's args. A slot added to `TTypeKindG` is then an incomplete record or
-    /// match in that one place, rather than a slot silently missed by however many
-    /// hand-written walks of this shape a pass happened to grow.
-    ///
-    /// `fTy` at `id` is a pure body rewrite and `fExpr` at `id` a pure type rewrite; neither
-    /// gets to decide for itself which slots exist.
+    /// The slot enumeration is delegated, so neither map decides for itself which body
+    /// slots a declaration has.
     let mapTypeDecl (fTy: SemType -> SemType) (fExpr: TExpr -> TExpr) (td: TTypeDecl) : TTypeDecl =
         TastConvert.typeDecl
             {
@@ -794,11 +712,9 @@ module TastWalk =
             }
             td
 
-    /// Visit-only hooks. Returning `false` from a `VisitX` skips default child
-    /// recursion (the override walked the children it wanted, or wants to skip
-    /// them entirely); `true` continues with the default recursive walk.
-    /// Every `VisitX` receives the active `Iter` so an override can recurse
-    /// manually with the same iter.
+    /// Visit-only hooks. `false` from a `VisitX` skips the default child recursion, `true`
+    /// continues with it. Every `VisitX` receives the active `Iter`, so an override that
+    /// returns `false` can recurse manually first.
     [<NoEquality; NoComparison>]
     type Iter =
         {
@@ -807,8 +723,6 @@ module TastWalk =
             VisitArm: Iter -> TMatchArm -> bool
         }
 
-    /// Identity iter: visits every node and recurses with no extra work.
-    /// Compose with `with` to override the cases a pass cares about.
     let identityIter: Iter =
         {
             VisitExpr = fun _ _ -> true
@@ -946,11 +860,7 @@ module TastWalk =
                         ValueOption.iter walk d.Precision
                         walk d.Value
                     | FormatSeg.CallbackHole(_, residue) -> walk residue
-            // Default walk skips constraints (no expr children) — the
-            // constraint typars are the binding's own quantified typars,
-            // already known to passes that care (ResolvedTypes adds them to
-            // `allowed`). A pass that needs to visit constraint types
-            // overrides this case.
+            // Constraints hold no expr children, so the default walk skips them.
             | TExpr.StaticOptimization(clauses, def, _, _) ->
                 walk def
 
@@ -967,14 +877,9 @@ module TastWalk =
             arm.Guard |> ValueOption.iter (iterExpr it)
             iterExpr it arm.Body
 
-    /// Every value `f` yields over `e`'s nodes, in walk order and with repeats — the
-    /// collecting reading of `iterExpr`, for a caller that wants a list rather than a side
-    /// effect. `f` is asked at EVERY node, so a `ValueNone` selects nothing and hides
-    /// nothing: the descent below it is the default one either way.
-    ///
-    /// That is exactly what a caller which must PRUNE cannot say. Stopping the walk AT a
-    /// node rather than merely declining to select it is a fact about where the walk ends,
-    /// not about what it yields, so such a caller still writes its own `Iter`.
+    /// Every value `f` yields over `e`'s nodes, in walk order and with repeats. `f` is
+    /// asked at EVERY node and a `ValueNone` prunes nothing — a caller that must stop the
+    /// descent at a node writes its own `Iter` instead.
     let chooseExpr (f: TExpr -> 'a voption) (e: TExpr) : 'a list =
         let acc = ResizeArray<'a>()
 
@@ -992,15 +897,9 @@ module TastWalk =
 
         List.ofSeq acc
 
-    /// Every binder a set of declarations introduces, anywhere in their trees: the
-    /// pattern binders (`BinderKey.ofPat`) plus the `ForTo` loop variables
-    /// (`BinderKey.ofExpr`), which have no pattern node. A `Type` decl contributes none —
-    /// its member bodies are walked by no pass here (see `Regions.run`) — so this is NOT
-    /// the whole-file binder set (`BinderKey.ofTypeDecl` is the other half).
-    ///
-    /// This is the pre-freeze twin of the frozen binder pool's enumeration
-    /// (`TastPools.toPools`), which is why a table restricted against it is honest: both
-    /// sides enumerate through the same projections.
+    /// Every binder a set of declarations introduces, anywhere in their trees: the pattern
+    /// binders plus the `ForTo` loop variables, which have no pattern node. A `Type` decl
+    /// contributes none, so this is NOT the whole-file binder set.
     let declBinders (decls: TDeclG<SemType, SyntaxToken, NodeKey> seq) : HashSet<BinderKey> =
         let acc = HashSet<BinderKey>(HashIdentity.Structural)
 
@@ -1032,9 +931,8 @@ module TastWalk =
 
         acc
 
-    /// Every binder-site NodeKey introduced by a `TPat`. A `TExpr.Var` carries
-    /// the binding-site key directly, so a free variable is simply a `Var` whose
-    /// key is not in scope — no `ctx.Bindings.Binding` resolution needed.
+    /// Every binder-site `NodeKey` introduced by a `TPat`. A `TExpr.Var` carries its
+    /// binding-site key directly, so a free variable is a `Var` whose key is not in scope.
     let rec bindersOfTPat (p: TPat) : NodeKey list =
         match p with
         | TPat.NamedSimple(k, _, _) -> [ k ]
@@ -1062,17 +960,9 @@ module TastWalk =
             ]
         | TPat.TypeTestAs(_, inner, _, _) -> bindersOfTPat inner
 
-    /// Free variables of `body` RELATIVE to `bound`: every `TExpr.Var` whose binding
-    /// site is neither in the caller-supplied seed nor introduced by a scope the walk
-    /// enters (nested lambda, let/use, for, match arm). `bound` grows/shrinks as the
-    /// walk enters/leaves each scope.
-    ///
-    /// The seed is what makes the primitive serve two questions with one walk: a
-    /// closure's captures are "free given the lambda's own parameter binders"
-    /// (`Regions`), and a published inline template's dangling references are "free
-    /// given the template's own binders, after the module-sibling rewrite"
-    /// (`Freeze`). Both are the same scope-tracking walk over the same tree, so
-    /// neither owns it.
+    /// Free variables of `body` RELATIVE to the `bound0` seed: every `TExpr.Var` whose
+    /// binding site is neither in the seed nor introduced by a scope the walk enters
+    /// (nested lambda, let/use, for, match arm).
     let freeVars (bound0: NodeKey seq) (body: TExpr) : HashSet<NodeKey> =
         let result = HashSet<NodeKey>(HashIdentity.Structural)
         let bound = HashSet<NodeKey>(HashIdentity.Structural)
@@ -1147,16 +1037,9 @@ module TastWalk =
         iterExpr iter body
         result
 
-    /// Every `Var k` occurrence in `body`, each tagged with the count of enclosing
-    /// *evaluation-deferring-or-repeating* constructs (lambdas and loop bodies)
-    /// above it — `0` for a straight-line or conditional-branch occurrence. A
-    /// `While` *condition* re-evaluates each iteration so it counts as repeating;
-    /// the bounds of `ForTo` and the source of `ForIn` are evaluated once, so they
-    /// stay at the ambient depth; the loop *body* and a lambda body increment. The
-    /// canonical primitive for linearity / capture checks
-    /// (e.g. `[<CallAtMostOnce>]` validation): a parameter is safe to substitute at
-    /// its single use iff `usesOf k scope` is `[]` or `[0]`. Replaces the ad-hoc
-    /// depth-tracking iters passes would otherwise hand-roll.
+    /// Every `Var k` occurrence in `body`, tagged with the count of enclosing lambda and
+    /// loop bodies (a `While` CONDITION re-runs per iteration and counts; `ForTo` bounds
+    /// and a `ForIn` source do not). `[]` or `[0]` means `k` is safe to substitute.
     let usesOf (k: NodeKey) (body: TExpr) : int list =
         let acc = ResizeArray<int>()
         let mutable depth = 0

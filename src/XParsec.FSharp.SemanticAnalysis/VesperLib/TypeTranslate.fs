@@ -6,15 +6,9 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open VesperLibTyparCapture
 
-/// CST → `FrozenType` translation, with the small token/identifier/attribute
-/// helpers that the rest of the extractor reuses. `translateType` (and its
-/// `translateArgsSpec` / `translateCurriedSig` wrappers) is the single
-/// `CST → FrozenType` translation the contract-extraction finalize pass runs once
-/// the registry is complete; the `FrozenTypeBridge` realisers turn the resulting
-/// templates back into `SemType`s at use time (val instantiation, codegen). Calls
-/// thread an `ExtractCtx` (for type-name resolution against `ctx.TypeKeys` /
-/// `ctx.Types`) plus a `TyparCollector` (for typar interning) and a
-/// `ConstraintCollector` (for inline `when …` clauses).
+/// CST → `FrozenType` translation, with the small token/identifier/attribute helpers the
+/// rest of the extractor reuses. Calls thread an `ExtractCtx` (type-name resolution), a
+/// `TyparCollector` (typar interning) and a `ConstraintCollector` (inline `when …`).
 module VesperLibTypeTranslate =
 
     let nameOfTok (lexed: Lexed) (tok: SyntaxToken) : string =
@@ -36,9 +30,8 @@ module VesperLibTypeTranslate =
     let identOrOpName (lexed: Lexed) (io: IdentOrOp<SyntaxToken>) : string voption =
         match io with
         | IdentOrOp.Ident tok -> ValueSome(nameOfTok lexed tok)
-        // `(::)` is a binding head only the contract surface needs to name (cons
-        // has no `op_` member in expression position — see `OperatorNames.ofToken`),
-        // so it is mapped here before delegating to the shared resolver.
+        // `(::)` is a binding head only the contract surface needs to name (cons has no `op_`
+        // member in expression position), so it is mapped before the shared resolver.
         | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) when opTok.Token = Token.KWColonColon ->
             ValueSome OperatorData.OpColonColon
         | IdentOrOp.ParenOp(_, OpName.SymbolicOp opTok, _) ->
@@ -102,9 +95,8 @@ module VesperLibTypeTranslate =
         | ObjectConstruction(_, e) -> ValueSome e
         | InterfaceConstruction _ -> ValueNone
 
-    /// Text of a parsed string-literal expression. Ignores expression holes
-    /// and other interpolation artefacts (compiled-name args are non-
-    /// interpolated strings in practice).
+    /// Text of a parsed string-literal expression. Ignores expression holes and other
+    /// interpolation artefacts: a compiled-name argument is never interpolated.
     let stringExprText
         (lexed: Lexed)
         (parts: System.Collections.Immutable.ImmutableArray<StringPart<SyntaxToken>>)
@@ -130,8 +122,7 @@ module VesperLibTypeTranslate =
             match constructionExpr oc with
             | ValueNone -> ValueNone
             | ValueSome argExpr ->
-                // Argument is `("Foo")`; accept either `Expr.String` (typical)
-                // or an older `Expr.Const(Constant.Literal _)` fallback.
+                // The argument is `("Foo")`.
                 let rec stripParens (e: Expr<SyntaxToken>) =
                     match e with
                     | Expr.EnclosedBlock(_, inner, _) -> stripParens inner
@@ -155,8 +146,7 @@ module VesperLibTypeTranslate =
             match constructionExpr oc with
             | ValueNone -> false
             | ValueSome argExpr ->
-                // Heuristic: look for the token text "ModuleSuffix" anywhere
-                // in the expression. Good enough for the v1 walker.
+                // Heuristic: the token text "ModuleSuffix" anywhere in the expression.
                 let rec containsModuleSuffix (e: Expr<SyntaxToken>) =
                     match e with
                     | Expr.EnclosedBlock(_, inner, _) -> containsModuleSuffix inner
@@ -170,45 +160,19 @@ module VesperLibTypeTranslate =
 
                 containsModuleSuffix argExpr
 
-    /// True iff the module-level attributes carry `[<AutoOpen>]` — the module's
-    /// members are in scope unqualified for a consumer of the package. Recorded
-    /// as an ambient open prefix.
+    /// True iff the module-level attributes carry `[<AutoOpen>]` — its members are in
+    /// scope unqualified for a consumer of the package.
     let isAutoOpen (lexed: Lexed) (attrs: Attributes<SyntaxToken> voption) : bool =
         findAttribute lexed attrs [ "AutoOpen" ] |> ValueOption.isSome
 
-    /// True iff the type-level attributes carry `[<RequireQualifiedAccess>]` — the
-    /// union's cases (and a module's members) are NOT in scope unqualified, so a
-    /// bare `Red` for `[<RequireQualifiedAccess>] type Color = Red | …` must NOT
-    /// resolve (F# forbids the short form). Drives the resolution-side suppression
-    /// of bare RQA case names.
+    /// True iff the type-level attributes carry `[<RequireQualifiedAccess>]` — a bare `Red`
+    /// for `[<RequireQualifiedAccess>] type Color = Red | …` must NOT resolve.
     let isRequireQualifiedAccess (lexed: Lexed) (attrs: Attributes<SyntaxToken> voption) : bool =
         findAttribute lexed attrs [ "RequireQualifiedAccess" ] |> ValueOption.isSome
 
-    /// Resolve a long-identifier type name against `ctx.Types`, using the
-    /// per-file open prefixes (newest first) as candidate qualifiers when
-    /// the short-name lookup misses. Returns the canonical compiled name
-    /// on success; `Error` with a brief reason on failure so the caller
-    /// can attach a per-file diagnostic and skip the val.
-    ///
-    /// Resolution order:
-    ///   1. Direct hit on the qualified name as written, resolved to the type's key
-    ///      (own package, `ExtractCtx.tryTypeKey`), then a dependency's
-    ///      fully-qualified name via `ctx.AmbientShapes`.
-    ///   2. Short-name lookup in `ctx.Types`. Arity mismatch still resolves
-    ///      (cross-file disagreements shouldn't block extraction) but uses
-    ///      the recorded compiled name.
-    ///   3. For each open prefix in newest-first order, try
-    ///      `prefix + "." + name` against the own-package resolution, then the
-    ///      dependency shapes (`ctx.AmbientShapes`).
-    ///
-    /// Dependency packages contribute their type shapes through `ctx.AmbientShapes`,
-    /// keyed by qualified compiled name —
-    /// not the per-package `ctx.Types` / `ctx.TypeKeys` index, which holds
-    /// only this package's own declarations. A cross-package reference is written
-    /// either fully-qualified or as a short name resolved through an open prefix
-    /// (the package's own namespace is one such prefix), so each candidate is tried
-    /// against the local qualified set first, then the ambient shapes. Own-package
-    /// names always win: a same-short-name local type shadows a dependency's.
+    /// Resolve a long-identifier type name to its canonical compiled name, using the
+    /// per-file open prefixes (newest first) as candidate qualifiers when the short-name
+    /// lookup misses. Own-package names win: a local type shadows a dependency's.
     let resolveTypeName
         (ctx: ExtractCtx)
         (openPrefixes: string list)
@@ -221,23 +185,16 @@ module VesperLibTypeTranslate =
 
         let isQualified = name.IndexOf '.' >= 0
 
-        // The own-package qualified set and the metadata / dependency provider both
-        // key a *generic* type by its arity-suffixed compiled name (`List`1`,
-        // `Vesper.Choice`2`); source writes the bare head (`List`). Probe the
-        // suffixed form first (so an arity-overloaded type is unambiguous), then the
-        // bare name (arity-0 types). The matched form is the canonical compiled name
-        // `mkNominal`'s `shapeOf` re-resolves through.
+        // A *generic* type is keyed by its arity-suffixed compiled name (`List`1`) while
+        // source writes the bare head (`List`), so probe the suffixed form first.
         let forms (n: string) : string list =
             if arity > 0 then
                 [ SymbolKeyOps.arityName n arity; n ]
             else
                 [ n ]
 
-        // A written name resolves to the type's IDENTITY (`ExtractCtx.tryTypeKey`: the
-        // canonical rendering, or — for the dotted spelling a `.fsi` writes a module-held
-        // type with, `ByRefKinds.In` — the declared containment). What comes back out is
-        // that key's own canonical name, never the spelling that matched: the shape tables
-        // `mkNominal` re-resolves through are addressed by the canonical rendering.
+        // What comes back out is the matched key's own canonical name, never the spelling
+        // that matched: the shape tables downstream are addressed by that rendering.
         let inQualified (n: string) : string option =
             forms n
             |> List.tryPick (fun f ->
@@ -253,32 +210,23 @@ module VesperLibTypeTranslate =
         | Some k -> Ok k
         | None ->
             // A fully-qualified reference to a dependency's or the BCL's type
-            // (`Vesper.Option.Option`, `System.Collections.Generic.List`) — resolved
-            // through the ambient shapes (dependency providers + the layer-2
-            // metadata provider). Restricted to dotted names: a bare name is a
-            // *short* name that the own-package index (below) must get first, so a
-            // local type isn't hijacked by a same-named dependency type at the root.
+            // (`System.Collections.Generic.List`). Restricted to dotted names: a bare name
+            // is a *short* name that the own-package index below must get first.
             match (if isQualified then inAmbient name else None) with
             | Some k -> Ok k
             | None ->
-                // Short-name index hit — only for a *bare* name. A *qualified* name
-                // (`System.Collections.Generic.List`) must NOT collapse onto a local
-                // type sharing the last segment (`List`, the cons-list union): the
-                // written qualifier names a different type the index can't speak for.
-                // It falls through to the open-prefix / ambient resolution below, and
-                // failing that to `Error` (a `TyUnknown` leaf) — never the local short.
+                // Short-name index hit — only for a *bare* name. A *qualified*
+                // `System.Collections.Generic.List` must NOT collapse onto a local `List`
+                // (the cons-list union): the written qualifier names a different type.
                 let shortHit =
                     match ctx.Types.TryGetValue short with
                     | true, v when not isQualified -> ValueSome v
                     | _ -> ValueNone
 
                 match shortHit with
-                // An EXACT (short-name, arity) hit wins immediately. The recorded arity
-                // matters once a short name is arity-overloaded (`Fun`2`/`Fun`3`): a
-                // disagreeing hit must NOT be taken blindly — fall through to the
-                // arity-aware open-prefix resolution (`forms` probes ``name`arity`` first),
-                // and accept the disagreeing short hit only as a last resort (still
-                // beating a placeholder for a genuine cross-file arity mismatch).
+                // An EXACT (short-name, arity) hit wins immediately. A disagreeing arity
+                // (`Fun`2` vs `Fun`3`) falls through to the arity-aware open-prefix
+                // resolution, and is accepted only as a last resort below.
                 | ValueSome(recArity, compiled) when recArity = arity -> Ok compiled
                 | _ ->
                     let mutable hit = ValueNone
@@ -302,25 +250,18 @@ module VesperLibTypeTranslate =
                         | ValueNone -> Error(sprintf "Unresolved type name '%s'" name)
 
     let isPrimitiveName (s: string) =
-        // Both primitive-name cores are shared via `RuntimeNames` so this recogniser
-        // cannot drift from the others (numeric + the non-numeric scalar/reference set).
         RuntimeNames.numericTypeNames.Contains s
         || RuntimeNames.referencePrimitiveNames.Contains s
 
-    /// Source-text name of a typar (the part after `'` or `^`), or
-    /// `ValueNone` for anonymous typars (whose constraint participation
-    /// can't be addressed by name later).
+    /// Source-text name of a typar (the part after `'` or `^`), or `ValueNone` for an
+    /// anonymous one, whose constraint participation cannot be addressed by name later.
     let typarName (lexed: Lexed) (t: Typar<SyntaxToken>) : string voption =
         match t with
         | Typar.Named(_, identTok)
         | Typar.Static(_, identTok) -> ValueSome(nameOfTok lexed identTok)
         | Typar.Anon _ -> ValueNone
 
-    /// Walk a `when …` clause and emit `RawConstraint` entries into the
-    /// collector. Trait-style constraints (Equality/Comparison/etc.) flow
-    /// through directly; SRTP member traits and defaults are captured as
-    /// opaque markers for Phase 5b. Unsupported constraint shapes
-    /// (`Coercion`, `Enum`, …) silently drop in v1.
+    /// Walk a `when …` clause and emit `RawConstraint` entries into the collector.
     let captureConstraints (lexed: Lexed) (acc: ConstraintCollector) (clauses: TyparConstraints<SyntaxToken>) : unit =
         for c in clauses.Constraints do
             match c with
@@ -378,9 +319,8 @@ module VesperLibTypeTranslate =
                         match identOrOpName lexed ident with
                         | ValueNone -> ()
                         | ValueSome mName ->
-                            // F# trait sigs are tupled by convention
-                            // (`^T * ^T -> ^T`), parsing as one ArgsSpec with
-                            // N args; flatten it into the trait's arg list.
+                            // F# trait sigs are tupled by convention (`^T * ^T -> ^T`), parsing
+                            // as one `ArgsSpec` with N args; flatten it into the arg list.
                             let argTys =
                                 [
                                     for k in 0 .. args.Length - 1 do
@@ -404,44 +344,16 @@ module VesperLibTypeTranslate =
             | Constraint.Enum _
             | Constraint.Unmanaged _
             | Constraint.Delegate _ ->
-                // v1 silently drops; Phase 5b extends as needed.
+                // No `RawConstraint` shape for these; dropped.
                 ()
 
-    /// Bake a nominal reference (`compiled` head + already-translated `args`) to
-    /// its kind-correct `FrozenType` template, consulting the in-scope type shapes
-    /// (`ExtractCtx.shapeOf`: this package's own shapes, then its dependencies' via
-    /// `ctx.AmbientShapes`), minting no `SemType`. A transparent abbreviation
-    /// expands to its body (`substituteDeclaring` — a total `FrozenType →
-    /// FrozenType` walk); a referenced-package intrinsic collapses to its short
-    /// `FTConst` (so an external `int` / `exn` matches the literal-typed form).
-    ///
-    /// Called by the contract-extraction finalize pass, so `ctx.TypeShapes` is
-    /// fully populated and an intra-package forward reference — legal only inside a
-    /// `type … and …` group or a `rec` scope, whose shapes register together
-    /// before any body is kinded — resolves.
-    ///
-    /// Two arms are loud invariant assertions, not fall-throughs:
-    /// - `Opaque` is a body-less residue (`enum` / `delegate` / type-extension, or
-    ///   a body the extractor couldn't model). Referencing one in a signature has
-    ///   no kind to bake; rather than mint a placeholder that flows to codegen,
-    ///   raise `BodylessExternalShape` — the finalize pass catches it and degrades
-    ///   the naming template to `FTUnknown`.
-    /// - `ValueNone` means *name resolved but no shape registered* — impossible,
-    ///   since every `registerTypeDecl` registers a shape (incl. the `Opaque`
-    ///   deferrals) and a dependency name resolves *through* its ambient shape. A
-    ///   genuine *unresolved name* never reaches here — `resolveTypeName` fails
-    ///   first and that arm bakes the `FTUnknown` leaf.
+    /// Bake a nominal reference (`compiled` head + already-translated `args`) to its
+    /// kind-correct `FrozenType` template, minting no `SemType`. A body-less (`Opaque`) head
+    /// has no kind to bake and raises `BodylessExternalShape` instead of a placeholder.
     let mkNominal (ctx: ExtractCtx) (compiled: string) (args: EqArray<FrozenType>) : FrozenType =
-        // The IDENTITY behind a resolved name. This package's own declarations are looked
-        // up in the identity index `registerTypeDecl` built (`ExtractCtx.tryTypeKey`) —
-        // the ONE route a name has back to a key — because a module-held type's
-        // `InModule` chain is NOT recoverable by re-cutting its rendering: `N.MModule+T`
-        // re-parses as a CLR-nested `InType`, a different identity from the one the
-        // declaration minted and the one a use site resolves by.
-        //
-        // A name that resolves through the ambient shapes instead (a dependency's type,
-        // a raw BCL nominal) has no key here. Those are the bare-IL population — no
-        // modules, so the name IS the identity — and `qualifiedTypeKey` is exact for them.
+        // This package's own declarations are looked up in the identity index, because a
+        // module-held type's `InModule` chain is NOT recoverable by re-cutting its
+        // rendering: `N.MModule+T` re-parses as a CLR-nested `InType`, a different identity.
         let key (arity: int) : TypeKey =
             match ExtractCtx.tryTypeKey ctx compiled with
             | ValueSome k -> k
@@ -450,27 +362,20 @@ module VesperLibTypeTranslate =
         match ExtractCtx.shapeOf ctx compiled with
         | ValueSome(ExternalTypeShape.Union _) -> FTUnion(key args.Length, args)
         | ValueSome(ExternalTypeShape.Class _) -> FTClass(key args.Length, args)
-        // A capability interface resolves to a `TyClass` constraint, so its frozen mirror is
-        // an `FTClass` — identical to the `Class` arm above.
+        // A capability interface resolves to a `TyClass` constraint, so its frozen mirror
+        // is an `FTClass`.
         | ValueSome(ExternalTypeShape.IntrinsicInterface _) -> FTClass(key args.Length, args)
         | ValueSome(ExternalTypeShape.Record _) -> FTRecord(key args.Length, args)
         | ValueSome(ExternalTypeShape.Enum _) ->
-            // The enum nominal — no args (enums are never generic). The `.fsi`
-            // contract extractor never produces an `Enum` shape (it is a TS-manifest
-            // arm), so this is unreached today, but the mirror keeps the match total
-            // and faithful should a contract enum ever flow through here.
+            // Enums are never generic, so no args.
             FTEnum(key 0)
         | ValueSome(ExternalTypeShape.Abbrev(_, frozen)) ->
-            // Expand the abbreviation by substituting `args` for its declaring
-            // placeholders. A still-`deferredTemplate` abbrev (one not yet
-            // finalized in this pass) degrades to `FTUnknown "<deferred>"`.
+            // Expand the abbreviation by substituting `args` for its declaring placeholders.
+            // One not yet finalized in this pass degrades to `FTUnknown "<deferred>"`.
             FrozenTypeBridge.substituteDeclaring (args.AsSpan().ToArray()) frozen
-        // An intrinsic's nominal identity is the canon `TyConst` (`FTConst`)
-        // regardless of the optional base/ctor surface. Read the authoritative canon
-        // stored on the matched shape (minted at registration via `intrinsicCanonKey`)
-        // rather than re-deriving it by name — re-minting would hardcode the `Vesper`
-        // namespace and silently diverge from the stored key for any non-Vesper-homed
-        // intrinsic.
+        // An intrinsic's nominal identity is the canon `FTConst`. Read the canon stored on
+        // the matched shape rather than re-deriving it by name — re-minting would hardcode
+        // the `Vesper` namespace and diverge for any non-Vesper-homed intrinsic.
         | ValueSome(ExternalTypeShape.Intrinsic ishape) -> FTConst(SymbolKey.Type ishape.Id.Canon, EqArray.empty)
         | ValueSome(ExternalTypeShape.Opaque _) -> raise (BodylessExternalShape compiled)
         | ValueNone ->
@@ -478,29 +383,17 @@ module VesperLibTypeTranslate =
                 "mkNominal: '%s' resolved as a type name but carries no in-scope shape — every registered type declaration must register a shape"
                 compiled
 
-    /// A primitive *alias* (`type int32 = int`, `type uint = uint32`, `type int8 =
-    /// sbyte`) dealiases to the underlying primitive its own `.fsi` declares — the
-    /// canonical intrinsic the front end (`Translate.fs`'s abbreviation expansion)
-    /// and the codegen IL encoder key on. Resolved from the abbreviation
-    /// *definition* registered in `ctx.TypeShapes` (via `mkNominal`'s existing
-    /// `Abbrev` arm), never a hardcoded direction: `int32`'s `Abbrev` RHS is the
-    /// frozen `int`, so this returns `FTConst "int"`. A true intrinsic (`int`,
-    /// `sbyte` — an `Intrinsic` shape) or a primitive whose package registers no
-    /// shape returns `ValueNone`, leaving the bare `FTConst name` the caller bakes.
-    /// Without this an alias param (`shift: int32` on `(<<<)`) froze as a nominal
-    /// `FTConst "int32"` that never unified with an `int` literal at the use site.
+    /// A primitive *alias* dealiases to the underlying primitive its own `.fsi` declares:
+    /// `int32`'s `Abbrev` RHS is the frozen `int`, so a parameter written `int32` accepts an
+    /// `int` literal.
     let private dealiasPrimitiveAbbrev (ctx: ExtractCtx) (opens: string list) (name: string) : FrozenType voption =
         match resolveTypeName ctx opens name 0 with
         | Ok compiled ->
             match ExtractCtx.shapeOf ctx compiled with
             | ValueSome(ExternalTypeShape.Abbrev _) ->
-                // Collapse to the dealiased primitive ONLY when the abbreviation
-                // bottoms out at *another* primitive (`int32 = int`, `uint =
-                // uint32`). A primitive that is itself declared as an abbreviation
-                // of a *non-primitive* (`bool = Boolean`, the BCL `System.Boolean`,
-                // which resolves to no in-scope shape during extraction) keeps its
-                // canonical `FTConst name` — the form the front end and codegen key
-                // on — rather than dealiasing to an unresolved `Boolean`.
+                // Collapse ONLY when the abbreviation bottoms out at *another* primitive
+                // (`int32 = int`). One abbreviating a NON-primitive (`bool = Boolean`, no
+                // in-scope shape) keeps the key its own name mints.
                 match mkNominal ctx compiled EqArray.empty with
                 | FTConst(key, args) when args.IsEmpty && isPrimitiveName (SymbolKeyOps.intrinsicName key) ->
                     ValueSome(FTConst(key, EqArray.empty))
@@ -508,14 +401,9 @@ module VesperLibTypeTranslate =
             | _ -> ValueNone
         | Error _ -> ValueNone
 
-    /// `CST → FrozenType` translation: every val
-    /// signature, type-shape body (record field, union-case field, abbreviation
-    /// RHS), constraint target, and augmentation-member signature is translated
-    /// through this in the `ExtractCtx.toProvider` finalize pass, once the registry
-    /// is complete. A typar leaf bakes a self-describing `FTTypar(Declaring,i)`
-    /// placeholder; a nominal head kinds through `mkNominal`. An `Opaque` head
-    /// raises `BodylessExternalShape`; the finalize pass catches it and degrades to
-    /// `FTUnknown`.
+    /// `CST → FrozenType`: every val signature, type-shape body (record field, union-case
+    /// field, abbreviation RHS), constraint target and augmentation-member signature runs
+    /// through this in the finalize pass. An `Opaque` head propagates out of `mkNominal`.
     let rec translateType
         (ctx: ExtractCtx)
         (lexed: Lexed)
@@ -575,8 +463,7 @@ module VesperLibTypeTranslate =
                 | ValueNone -> Ok(FTConst(RuntimeNames.primitiveKey name, EqArray.empty))
             else
                 match resolveTypeName ctx opens name 0 with
-                // A name that resolves to nothing in scope bakes a `FTUnknown`
-                // leaf — the frozen counterpart of `translateType`'s `TyUnknown`.
+                // A name that resolves to nothing in scope bakes an `FTUnknown` leaf.
                 | Error _ -> Ok(FTUnknown name)
                 | Ok compiled -> Ok(mkNominal ctx compiled EqArray.empty)
 
@@ -608,10 +495,9 @@ module VesperLibTypeTranslate =
             match translateType ctx lexed opens typars constraints baseTy with
             | Error e -> Error e
             | Ok fb ->
-                // `'T array` is the rank-1 array intrinsic — the postfix-keyword
-                // spelling of `'T[]` (`Type.ArrayType`). It resolves to no
-                // registered type shape, so route it to the same `arrayName`
-                // intrinsic the bracket form bakes rather than `FTUnknown "array"`.
+                // `'T array` is the rank-1 array intrinsic — the postfix-keyword spelling
+                // of `'T[]`. It resolves to no registered type shape, so route it to the
+                // same intrinsic the bracket form bakes rather than `FTUnknown "array"`.
                 if name = "array" then
                     Ok(FTConst(RuntimeNames.arrayKey 1, EqArray.singleton fb))
                 else
@@ -637,13 +523,9 @@ module VesperLibTypeTranslate =
         | Type.DottedType(baseTy, _, _) -> translateType ctx lexed opens typars constraints baseTy
 
         | Type.UnionType(left, _, right) ->
-            // A nullable reference type `T | null` (F# nullable refs, e.g.
-            // `type objnull = obj | null`). It freezes to the anonymous union
-            // `FTOr [T; null]` — the `null` member is the cross-backend `nullKey`
-            // intrinsic, matching the front end's `Type.Null` mint so an extracted
-            // `objnull` unifies with a written `T | null`. `FrozenType.MkUnion`
-            // canonicalises (flatten/dedup/singleton-collapse). Any other union shape
-            // (not `… | null`) is genuinely unrepresentable.
+            // A nullable reference type (`type objnull = obj | null`) freezes to the
+            // anonymous union `FTOr [T; null]`, `null` being the cross-backend `nullKey`
+            // intrinsic. Any other union shape is unrepresentable.
             match right with
             | Type.Null _ ->
                 match translateType ctx lexed opens typars constraints left with
@@ -690,10 +572,9 @@ module VesperLibTypeTranslate =
             | Some e -> Error e
             | None -> Ok(FTTuple(EqArray.ofResizeArray items))
 
-    /// The curried signature folds right-associatively into nested `FTFun` nodes.
-    /// The finalize pass splits the head `FTFun(params, ret)` into the member's
-    /// two-axis `ExternalSignature` (or treats the whole result as the value for a
-    /// property), and uses the whole `FTFun` chain as a val's template.
+    /// The curried signature folds right-associatively into nested `FTFun` nodes. The
+    /// finalize pass splits the head `FTFun(params, ret)` into a member's two-axis
+    /// `ExternalSignature`, or takes the whole chain as a val's template.
     let translateCurriedSig
         (ctx: ExtractCtx)
         (lexed: Lexed)
@@ -704,15 +585,9 @@ module VesperLibTypeTranslate =
         : Result<FrozenType, string> =
         let (CurriedSig(args, retTy)) = sigCurried
 
-        // Intern typars ARGS-first (left-to-right) and the RETURN type LAST, so the
-        // collector assigns Declaring indices in the SAME first-left-to-right-
-        // appearance order the producer's `Elaborate.mkMethodQuantEnv` ▸
-        // `GeneralizedTypars.canonical` uses (`TyFun` domain before range). A
-        // free-function's `Scheme` index is then the canonical ABI typar order, which the
-        // consumer maps positionally onto the method axis. Interning the return type first
-        // would put a return-only typar (`Set.map`'s `'U` in `-> Set<'U>`) ahead of an
-        // argument typar, permuting the order and breaking that match. Explicit `<'T>`
-        // typars are seeded ahead of this walk regardless.
+        // Intern typars ARGS-first (left-to-right) with the RETURN type LAST, so Declaring
+        // indices land in the canonical ABI order: a return-only typar (`Set.map`'s `'U` in
+        // `-> Set<'U>`) must fall behind every argument typar.
         let mutable err = None
         let argFs = ResizeArray<FrozenType>(args.Length)
 

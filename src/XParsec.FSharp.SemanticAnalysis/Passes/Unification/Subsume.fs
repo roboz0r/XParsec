@@ -7,33 +7,23 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open UnificationEngineCore
 
-/// The DIRECTIONAL layer: the read-only subtyping query `subsumes` and the
-/// ground-evaluation of the carried TS type-level computations
-/// (`keyof`/`T[K]`/conditional) — mutually recursive, since a conditional's
-/// `extends` test IS `subsumes` and a union member folds before it is compared.
-/// The dependency rule is one-way — `UnificationEngineCore` <- `UnificationSubsume`
-/// <- `UnificationEngine`; nothing here calls back into `unify`.
+/// The DIRECTIONAL layer: the read-only subtyping query `subsumes` and the ground
+/// evaluation of the carried type-level computations (`keyof`/`T[K]`/conditional) —
+/// mutually recursive, since a conditional's `extends` test IS `subsumes`.
 module UnificationSubsume =
 
-    /// The result of the subtyping query `subsumes`: `Equal` when the two
-    /// types are the same nominal type (with invariant args in v1), `Subtype`
-    /// when `src` is a strict descendant of `tgt` — either along the `inherit`
-    /// chain or because `src` (or a base) declares `tgt` as an interface —
-    /// `Unrelated` otherwise.
+    /// The result of the subtyping query `subsumes`: `Equal` for the same nominal type
+    /// (args invariant in v1), `Subtype` when `src` reaches `tgt` along the `inherit`
+    /// chain or by declaring it as an interface, `Unrelated` otherwise.
     [<RequireQualifiedAccess>]
     type SubsumeOutcome =
         | Equal
         | Subtype
         | Unrelated
 
-    /// Does the string ENUM `enumKey`'s case-VALUE set sit ⊆ the string-literal
-    /// members of a union? Reads the enum's resolved string case values off
-    /// `EnumTypeInfo.CaseStringValues` (populated at NameResolution — the values are
-    /// available before Elaborate for the simple string-literal case this admission
-    /// needs). Declines (`false`) for a numeric/mixed enum, an unresolved enum, or a
-    /// union with no literal members covering every value — driving the `subsumes`
-    /// arm to fall through to `Unrelated` (the honest rejection for a non-matching
-    /// enum). Non-literal union members are simply ignored (they can't cover a value).
+    /// Does the string ENUM `enumKey`'s case-VALUE set sit ⊆ the string-literal members
+    /// of a union? `false` for a numeric/mixed enum, an unresolved enum, or a union whose
+    /// literals miss a value; a non-literal union member covers nothing, so it is ignored.
     let private enumAdmitsIntoLiteralUnion (ctx: PassContext) (enumKey: TypeKey) (members: EqSet<SemType>) : bool =
         let litValues = HashSet<string>()
 
@@ -42,9 +32,8 @@ module UnificationSubsume =
             | TyLiteral(LiteralConst.String s) -> litValues.Add s |> ignore
             | _ -> ()
 
-        // Key-addressed: the enum's full identity (home assembly + namespace + arity), so a
-        // same-named enum from another namespace/package never admits against this one's
-        // value set.
+        // Key-addressed (home assembly + namespace + arity), so a same-named enum from
+        // another namespace never admits against this one's value set.
         match TypeRegistry.tryEnumByKey ctx.Types enumKey with
         | ValueSome info ->
             match info.CaseStringValues with
@@ -52,22 +41,9 @@ module UnificationSubsume =
             | _ -> false
         | _ -> false
 
-    // ─── R4a step 3: ground-evaluation of the carried TS type-level computations ───
-    //
-    // `keyof T`, `T[K]`, and `check extends extends_ ? whenTrue : whenFalse` ride the
-    // manifest FAITHFULLY as inert `TyKeyOf`/`TyIndexedAccess`/`TyConditional` carrier
-    // nodes (step 2). The front end GROUND-EVALUATES them here (design §"keyof … ride on
-    // top") once their inputs are concrete; an unground node stays carried (a deferred
-    // node — it must NOT poison unification, so `unify` only re-enters on a node that
-    // actually folded to a non-carrier type). External-vocabulary only: Vesper inference
-    // never mints one, so a fold can only ARISE from an instantiated external signature.
-
-    /// Ground member NAMES of a record / interface / class `t` (for `keyof`), or
-    /// `ValueNone` when `t` is not a nominal whose members are known here (a free var, a
-    /// primitive, a still-carried node) so `keyof` stays inert. Project-local records read
-    /// `RecordTypeInfo.Fields`; an external manifest interface/class reads its provider
-    /// shape's INSTANCE members (declared `.d.ts` order preserved, deduped across method
-    /// overloads).
+    /// Ground member NAMES of a record / interface / class `t` (for `keyof`), or `ValueNone`
+    /// when `t`'s members are not known here (a free var, a primitive, a still-carried node),
+    /// so `keyof` stays inert. External shapes contribute INSTANCE members, overloads deduped.
     let private groundMemberNames (ctx: PassContext) (t: SemType) : string list voption =
         match resolveStep ctx.Store t with
         | TyRecord(key, _) ->
@@ -76,8 +52,8 @@ module UnificationSubsume =
             | ValueNone -> ValueNone
         | TyClass(key, _) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
             match ctx.Provider.TryLookupType(SymbolKey.Type key) with
-            // `keyof` reads any external nominal's members — a plain `.d.ts` class as well as
-            // an interface / capability `IntrinsicInterface` — so it takes the un-guarded surface.
+            // `keyof` reads any external nominal's members — a plain class as well as an
+            // interface — so it takes the un-guarded member surface.
             | ValueSome(ExternalSymbols.ExternalMembers members) ->
                 ValueSome(
                     members
@@ -89,16 +65,9 @@ module UnificationSubsume =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// The ground type of member `name` on record / interface / class `t` (for `T[K]`),
-    /// or `ValueNone` when `t` is not a known nominal or has no such member. A
-    /// project-local field's declared type is substituted against the receiver's args; an
-    /// external value member is realised through the NON-freshening `openSignature` — this
-    /// is a read-only fold query (it must not mint call-site vars into the graph), so the
-    /// member's own method typars stay inert `TyTypar(Method,j)` markers rather than fresh
-    /// TyVars. The arm pre-filters `IsValueMember`, whose signature is a bare value type
-    /// (no method-typar-bearing parameter list to solve), so `openSignature` is exactly
-    /// `instantiateSignature` here — but stating the non-freshening realiser makes the
-    /// read-only-ness structural rather than a load-bearing coincidence.
+    /// The ground type of member `name` on record / interface / class `t` (for `T[K]`), or
+    /// `ValueNone` when `t` is not a known nominal or has no such member. A read-only fold
+    /// query: `openSignature` leaves method typars as `TyTypar(Method,j)`, minting no vars.
     let private groundMemberType (ctx: PassContext) (t: SemType) (name: string) : SemType voption =
         match resolveStep ctx.Store t with
         | TyRecord(key, args) ->
@@ -115,13 +84,9 @@ module UnificationSubsume =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// The literal members of `t` when it is a PURE literal shape: a single
-    /// `TyLiteral` yields a singleton, a `TyOr` yields its members iff EVERY member
-    /// is a literal, anything else is `ValueNone`. THE one pure-literal-union
-    /// collector — the admission seams (`T[K]` index keys, keyof-bound literal
-    /// sets, literal parameter slots) all specialise this rather than re-rolling
-    /// the collect-and-check loop. Callers pre-fold (`evalTypeLevel`) per their
-    /// own seam; this only `resolveStep`s.
+    /// The literal members of `t` when it is a PURE literal shape: a single `TyLiteral`
+    /// yields a singleton, a `TyOr` yields its members iff EVERY member is a literal,
+    /// anything else is `ValueNone`. Only `resolveStep`s — a caller needing a fold pre-folds.
     let tryLiteralMembers (store: TypeStore) (t: SemType) : LiteralConst list voption =
         match resolveStep store t with
         | TyLiteral v -> ValueSome [ v ]
@@ -160,8 +125,8 @@ module UnificationSubsume =
         | ValueNone -> ValueNone
 
     /// The STRING literal keys an indexed-access index selects: a single `TyLiteral`, or a
-    /// union of them (`T[keyof T]`). `ValueNone` for a non-literal / mixed index, so the
-    /// access stays carried (the documented precision fallback, not a hard error).
+    /// union of them (`T[keyof T]`). `ValueNone` for a non-literal / mixed index, which
+    /// leaves the access carried.
     let private indexLiteralKeys (store: TypeStore) (index: SemType) : string list voption =
         tryLiteralStrings store index
 
@@ -175,8 +140,7 @@ module UnificationSubsume =
         | TyConditional _ -> false
         | t -> SemType.forallChildren (isGroundEval store) t
 
-    /// A carried type-level node (`keyof`/`T[K]`/conditional) occurs anywhere in
-    /// `t` — the gate behind which `foldMemberCarried` pays for `evalTypeLevel`.
+    /// A carried type-level node (`keyof`/`T[K]`/conditional) occurs anywhere in `t`.
     let rec private hasCarriedNode (store: TypeStore) (t: SemType) : bool =
         match resolveStep store t with
         | TyKeyOf _
@@ -184,38 +148,14 @@ module UnificationSubsume =
         | TyConditional _ -> true
         | t -> SemType.existsChild (hasCarriedNode store) t
 
-    /// Subtyping query distinct from `unify`: does a value of type `src`
-    /// coerce to the statically-known type `tgt`? A **pure read** of
-    /// `ctx.Types.Class` — never mutates `Link` / `Constraints`, so it's safe
-    /// to call from the read-only coercion site (`:?`) without an undo trace
-    ///
-    /// Reflexivity is `Equal` (callers distinguish a redundant cast from a real
-    /// one); the parent-chain / interface walk yields `Subtype`. Args are
-    /// invariant in v1 — `List<Circle>` does not subsume `List<Shape>`. The
-    /// argument / `:>` coercion sites use `tryCoerceUpcast` instead, which
-    /// *unifies* the witness's type args (so a free var in the target, e.g. the
-    /// `_` in `this :> seq<_>`, is pinned).
-    ///
-    /// Layered on `tryUpcastWitness` — the witness is reflexive and stops at the
-    /// first name match, exactly `subsumes`' semantics — so the subtype traversal
-    /// lives in one place. `src` subsumes `tgt` iff `src` reaches `tgt`'s nominal
-    /// with invariant-equal args; reflexive (same root nominal) is `Equal`, a
-    /// base/interface hop is `Subtype`. Non-nominal operands fall back to identity.
-    ///
-    /// This is the union-aware dispatcher: a `TyOr` on either side resolves
-    /// structurally (member set ⊆ member set, value ∈ member set) and the
-    /// non-union case delegates to `subsumesNominal`, which carries the original
-    /// inherit/interface walk. Splitting the two keeps the nominal traversal flat
-    /// rather than nested under a union fallthrough. Union members fold their
-    /// nested carried type-level nodes before comparison (`foldMemberCarried`),
-    /// so callers never pre-fold a union operand.
+    /// Subtyping query distinct from `unify`: does a value of type `src` coerce to `tgt`? A
+    /// pure read — never mutates `Link` / `Constraints`, so a read-only `:?` site needs no
+    /// undo trace. A `TyOr` operand resolves structurally, with its members folded first.
     let rec subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
         match resolveStep ctx.Store src, resolveStep ctx.Store tgt with
-        // union → union (`A | B ≤ A | B | C`, order-insensitive): every member of
-        // the source must land in some member of the target. Identical member sets
-        // are `Equal` (reflexivity, sound because `ssm = tsm` is EqSet set-equality —
-        // order-independent, deduped — so it holds regardless of declared member
-        // order); a member-wise subset is `Subtype`. `A | B ⋠ A | C` ⇒ `Unrelated`.
+        // union → union (`A | B ≤ A | B | C`): identical member sets are `Equal` (`EqSet`
+        // equality is order-independent and deduped, so declared order does not matter);
+        // every source member landing in some target member is `Subtype`.
         | TyOr ss, TyOr ts ->
             let ssm = ss.Members
             let tsm = ts.Members
@@ -232,18 +172,13 @@ module UnificationSubsume =
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
-        // A Vesper string ENUM admits into a literal union when its case-VALUE set
-        // ⊆ the union's literal set (design §"a Vesper string ENUM … admits when its
-        // case-VALUE set ⊆ the union"). The nominal companion for code that wants to
-        // name the literal type. ADDITIVE — an enum previously fell to the generic
-        // `src', TyOr ts` arm and was `Unrelated`; this only widens the match, never
-        // narrows non-literal behaviour. Non-string enums / unions with a non-literal
-        // member decline (the guard fails) and fall through to `Unrelated`.
+        // A Vesper string ENUM admits into a literal union when its case-VALUE set ⊆ the
+        // union's literal set — the nominal companion for code that wants to name the
+        // literal type. A non-string enum declines the guard and takes the arm below.
         | TyEnum ek, TyOr ts when enumAdmitsIntoLiteralUnion ctx ek ts.Members -> SubsumeOutcome.Subtype
-        // member → union (`A ≤ A | B`): `Equal` when `src` *is* a member by
-        // structural `=`, `Subtype` when it subsumes into some member (e.g. a
-        // subclass of a member, or a literal widening into a base-primitive member).
-        // `src` is necessarily non-union here (the union → union arm above caught it).
+        // member → union (`A ≤ A | B`): `Equal` when `src` *is* a member by structural `=`,
+        // `Subtype` when it subsumes into some member (a subclass of a member, or a literal
+        // widening into a base-primitive member).
         | src', TyOr ts ->
             let tsm = ts.Members
 
@@ -256,11 +191,9 @@ module UnificationSubsume =
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
-        // union → member/other (`A | B ⋠ A`): coerces only when *every* member
-        // subsumes the target (target = `obj` or a wider type) — otherwise the
-        // consumer must narrow first. `never` (`TyOr []`) subsumes into everything
-        // (`forall` over the empty set). A literal-union widening to its base
-        // primitive (`("a"|"b") ≤ string`) falls out here via the `TyLiteral` arm.
+        // union → member/other (`A | B ⋠ A`): coerces only when *every* member subsumes the
+        // target (`obj` or a wider type) — otherwise the consumer must narrow first.
+        // `never` (`TyOr []`) subsumes into everything (`forall` over the empty set).
         | TyOr ss, _ ->
             if
                 ss.Members
@@ -269,28 +202,13 @@ module UnificationSubsume =
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
-        // OUTWARD widening: a structural literal widens to its BASE primitive
-        // (design §"outward, a literal (union) WIDENS to its base primitive"), so
-        // reading a literal-typed value back into Vesper needs nothing new. This is
-        // DIRECTIONAL — the converse (plain `string` into a literal) is NOT admitted
-        // here (a `string` source hits `subsumesNominal` → `Unrelated`); the only
-        // inward path is the syntactic-constant consultation at the external-arg seam.
+        // OUTWARD widening: a structural literal widens to its BASE primitive (`"a" ≤
+        // string`). DIRECTIONAL — the converse, plain `string` into a literal, is not
+        // admitted here: a `string` source reaches `subsumesNominal` and is `Unrelated`.
         | TyLiteral v, TyConst(key, _) when SymbolKeyOps.intrinsicName key = v.BaseName -> SubsumeOutcome.Subtype
-        // The `TyFun`↔`Fun` correspondence: a structural function type
-        // `TyFun(a, …)` IS a subtype of the canonical `Vesper.Fun`(k+1)<a1..ak, r>`
-        // interface. This is the ONE place the two layers meet — the unifier keeps
-        // seeing `TyFun` as the structural function type everywhere else (function-
-        // representation §"Two layers"); only a `'TF :> Fun<…>` constrained-typar slot
-        // discharges through here. Arity-parametric (1..4): peel exactly `k =
-        // targs.Length - 1` domains off the `TyFun` chain, each invariant-`Equal` (same
-        // rule as `subsumesNominal`) to the matching `Fun` type arg; the residual
-        // codomain must be `Equal` to `targs.[k]` matched WHOLE (it may itself be a
-        // further curried function — the printf `n > K` tail — which is NOT peeled).
-        // Read-only, not a `unify` — grounding a still-free `Fun`-arg FROM the `TyFun` is
-        // the Engine constraint-discharge's job (`peelFunDomains` is shared with it so the
-        // check and the grounding peel the SAME shape). A chain too short to peel `k`
-        // domains does not match ⇒ `Unrelated`. The caller records the arity-`k` verdict
-        // for the lambda node (`inferApp`), keyed for the value-struct flat-`Invoke`.
+        // A structural `TyFun(a, …)` IS a subtype of `Vesper.Fun`(k+1)<a1..ak, r>`: peel
+        // `k = targs.Length - 1` domains, each invariant-`Equal` to its `Fun` arg, and the
+        // residual codomain matched WHOLE (it may be a further curried function).
         | TyFun(a, b), (TyClass(tk, targs)) when
             funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.typeMetaName tk)) targs.Length
             |> Option.isSome
@@ -301,28 +219,22 @@ module UnificationSubsume =
             | Some tys when List.forall2 (fun s t -> subsumes ctx s t = SubsumeOutcome.Equal) tys (EqArray.toList targs) ->
                 SubsumeOutcome.Subtype
             | _ -> SubsumeOutcome.Unrelated
-        // Neither operand is a union: the nominal subtype walk.
         | _ -> subsumesNominal ctx src tgt
 
-    /// The nominal core of `subsumes` (no union operands): `src` subsumes `tgt`
-    /// iff `src` reaches `tgt`'s nominal via the inherit/interface witness with
-    /// invariant-equal args — reflexive (same root nominal) is `Equal`, a
-    /// base/interface hop is `Subtype`. Non-nominal operands (vars, funcs, tuples)
-    /// fall back to identity. Mutually recursive with `subsumes` only through the
-    /// invariant-arg check, which may itself face union args.
+    /// The nominal core of `subsumes` (no union operands): `src` subsumes `tgt` iff it
+    /// reaches `tgt`'s nominal via the inherit/interface witness with invariant-equal args.
+    /// Non-nominal operands (vars, funcs, tuples) fall back to identity.
     and subsumesNominal (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
         match subtypeNominalOf ctx src, subtypeNominalOf ctx tgt with
         | ValueSome(struct (s, _)), ValueSome(struct (t, ta)) ->
             match tryUpcastWitness ctx src t with
             // v1 args are invariant: every witnessed arg must itself be `Equal`.
-            // The length guard is belt-and-suspenders — a name match implies equal
-            // arity in a well-formed program.
             | ValueSome wargs when
                 wargs.Length = ta.Length
                 && EqArray.forall2 (fun a b -> subsumes ctx a b = SubsumeOutcome.Equal) wargs ta
                 ->
-                // `sameNominalKey` so a capability's two names (a `seq` source vs an
-                // `IEnumerable\`1` target) read as `Equal`, not a spurious `Subtype`.
+                // A capability's two names (a `seq` source vs an `IEnumerable\`1` target)
+                // must read as `Equal`, not a spurious `Subtype`.
                 if sameNominalKey ctx s t then
                     SubsumeOutcome.Equal
                 else
@@ -335,26 +247,18 @@ module UnificationSubsume =
             else
                 SubsumeOutcome.Unrelated
 
-    /// Deep-fold carried type-level nodes NESTED inside a union member before the
-    /// union arms compare against it. A member that WRAPS a function type (mitt off's
-    /// optional `Handler<Events[Key]> | undefined` → `TyOr`) is compared WHOLE, so
-    /// its nested access must fold here (`Handler<Events[Key]>` → `(int) -> unit`)
-    /// for the member to match; a bare function-typed parameter already folds at its leaf
-    /// via `unify`'s structural descent. Gated on an actual carrier occurrence so
-    /// the common (carrier-free) member pays nothing. `evalTypeLevel` is a pure read —
-    /// `groundMemberType` realises external members through the NON-freshening
-    /// `openSignature`, so no call-site vars enter the graph — so `subsumes` stays
-    /// side-effect-free.
+    /// Deep-fold carried type-level nodes NESTED inside a union member, since the union
+    /// arms compare a member WHOLE: `Handler<Events[Key]> | undefined` only matches once
+    /// `Handler<Events[Key]>` has folded to `(int) -> unit`.
     and private foldMemberCarried (ctx: PassContext) (m: SemType) : SemType =
         if hasCarriedNode ctx.Store m then
             evalTypeLevel ctx m
         else
             m
 
-    /// Ground-evaluate a carried type-level computation as far as its inputs allow.
-    /// Returns the FOLDED type when a rule fires; otherwise returns the (child-eval'd)
-    /// carrier unchanged so it stays inert. Never mints a literal for a Vesper expression
-    /// — the folds only rewrite nodes that already exist in an external signature.
+    /// Ground-evaluate a carried type-level computation as far as its inputs allow: the
+    /// FOLDED type when a rule fires, otherwise the (child-eval'd) carrier unchanged so it
+    /// stays inert. Only rewrites nodes that an external signature already carries.
     and evalTypeLevel (ctx: PassContext) (t: SemType) : SemType =
         match resolveStep ctx.Store t with
         // `keyof T` → the union of `T`'s member NAMES as string literals.
@@ -387,8 +291,7 @@ module UnificationSubsume =
             | ValueNone -> TyIndexedAccess(objTy, index)
         // `check extends extends_ ? whenTrue : whenFalse` → pick a branch once `check` and
         // `extends_` are ground; the `extends` test is the directional `subsumes`
-        // membership/subtype query (a ground union's membership included). mitt's
-        // `undefined extends Events[Key] ? Key : never` is the pinned stress case.
+        // membership/subtype query, e.g. `undefined extends Events[Key] ? Key : never`.
         | TyConditional c ->
             let check = evalTypeLevel ctx c.Check
             let extends = evalTypeLevel ctx c.Extends
@@ -405,23 +308,15 @@ module UnificationSubsume =
                         WhenTrue = evalTypeLevel ctx c.WhenTrue
                         WhenFalse = evalTypeLevel ctx c.WhenFalse
                     }
-        // COMPOUND types recurse so a carried node NESTED inside them folds too — a
-        // `keyof`/`T[K]` under a `TyFun`, `TyOr`, tuple, or nominal argument. A bare
-        // `TyFun` parameter (mitt's `on` handler `(Events[Key]) -> unit`) already folds at
-        // its leaf via `unify`'s structural descent, but a param that WRAPS the `TyFun` (off's
-        // optional `Handler<Events[Key]> | undefined` → `TyOr`) is admitted by `subsumes`,
-        // which compares members whole — so its nested access must be folded HERE for the
-        // member to match. `mapChildren` routes `TyOr` through its smart constructor
-        // (a folded member can collapse/reorder the set). A carrier-free type has
-        // nothing to fold, so return it BY REFERENCE — a casual `evalTypeLevel` on an
-        // already-ground / non-foldable operand allocates nothing.
+        // COMPOUND types recurse so a carrier NESTED inside them folds too — a `keyof`/`T[K]`
+        // under a `TyFun`, `TyOr`, tuple, or nominal argument. `mapChildren` routes `TyOr`
+        // through its smart constructor, since a folded member can collapse or reorder the set.
         | t when hasCarriedNode ctx.Store t -> SemType.mapChildren (evalTypeLevel ctx) t
         | t -> t
 
     /// A carried type-level node folded to a CONCRETE (non-carrier) type, or `ValueNone`
-    /// when it is not a carrier or is still inert — the guard `unify`/`subsumes` re-enter
-    /// on. The `ValueSome` result is guaranteed non-carrier, so re-entry makes progress
-    /// (no loop on a still-deferred node).
+    /// when it is not a carrier or is still inert. A `ValueSome` is never itself a carrier,
+    /// so a caller re-entering on it makes progress rather than looping.
     let tryFoldCarried (ctx: PassContext) (t: SemType) : SemType voption =
         match t with
         | TyKeyOf _

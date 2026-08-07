@@ -4,25 +4,13 @@ open XParsec.FSharp.Lexer
 
 // What ONE node PROJECTS TO on its way into the columns: the child edges it owns, in the
 // order the columns record them, and the residual payload left once `ty`/`tok`/the child
-// ids/the binder id are lifted out of it. Pure, total, and free of any pool — where those
-// projections LAND is `TastPools.fs`, and what they land in is `TastPoolNodes.fs`.
-//
-// This is the LAST place a `Frozen.*` DU is walked — every consumer reads the columns —
-// so the tree shape is written down exactly once, here, and the child ORDER these produce
-// IS the order of the `ExprChildren`/`ExprPatChildren`/`PatChildren` columns. Each match
-// is exhaustive with no catch-all: a new `TExprG`/`TPatG`/`TDeclG` case fails to compile
-// rather than silently escaping the pool. A node's SHAPE tag is not among them — it is
-// `ExprPayload.shape` of the payload these produce, never a second match over the DU.
-//
-// Generic in the tree's token and identity axes, because the fill runs in both directions
-// of the round trip and the shape of a node is the same either way.
+// ids/the binder id are lifted out of it. Pure and free of any pool.
 
 module TastPoolShapes =
 
     /// The immediate child *expressions*, in evaluation order. Sub-patterns are NOT
-    /// children (see `exprPatChildren`); composite carriers with no node identity of
-    /// their own (match arms, format segments, static-opt clauses) are descended into
-    /// so every reachable sub-expression appears exactly once.
+    /// children; composite carriers with no node identity of their own — match arms, format
+    /// segments, static-opt clauses — are descended into, each sub-expression once.
     let exprChildren (e: TExprG<FrozenType, 'tok, 'id>) : TExprG<FrozenType, 'tok, 'id>[] =
         let acc = ResizeArray<TExprG<FrozenType, 'tok, 'id>>()
 
@@ -171,12 +159,9 @@ module TastPoolShapes =
 
         acc.ToArray()
 
-    /// The immediate child *patterns* an expression owns directly, in source order —
-    /// the binders (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
-    /// (`Match`/`TryWith`) that are part of THIS node. They are NOT reachable through
-    /// `exprChildren` (which yields only sub-expressions). Only the six binder/arm
-    /// shapes own patterns. `ForTo`'s loop variable is a bare binder, not a pattern, so
-    /// it is not a pat child — it rides the node's own payload.
+    /// The immediate child *patterns* an expression owns directly, in source order — the
+    /// binders (`Lambda`/`Let`/`Use`/`ForIn`) and the per-arm scrutinee patterns
+    /// (`Match`/`TryWith`). `ForTo`'s loop variable is a bare binder, so it rides the payload.
     let exprPatChildren (e: TExprG<FrozenType, 'tok, 'id>) : TPatG<FrozenType, 'tok, 'id>[] =
         let acc = ResizeArray<TPatG<FrozenType, 'tok, 'id>>()
 
@@ -253,38 +238,24 @@ module TastPoolShapes =
 
         acc.ToArray()
 
-    /// The dense id of the binder the node being pooled INTRODUCES. `BinderKey.ofPat` /
-    /// `BinderKey.ofExpr` answer `ValueSome` for exactly the two payload cases that name
-    /// their own binder (`NamedSimple`, `ForTo`), and `poolPat`/`poolExpr` intern that
-    /// answer before building the payload — so a miss is those two statements of "which
-    /// node binds" having drifted apart, not a defect of the tree.
+    /// The dense id of the binder the node being pooled INTRODUCES — `NamedSimple` and
+    /// `ForTo` and no other case. A miss is the pooling walk and the payload projection
+    /// disagreeing about which node binds, not a defect of the tree.
     let private introducedBinder (site: string) (binder: BinderId voption) : BinderId =
         match binder with
         | ValueSome id -> id
         | ValueNone -> failwithf "TastPoolShapes.%s: the node's payload names a binder the walk interned none for" site
 
     /// The residual payload of a frozen expression node — its fields MINUS `ty`/`tok`, the
-    /// child expr ids (`exprChildren`), the owned pat ids (`exprPatChildren`), and the `Var`
-    /// binder id. The exact inverse of `substituteExpr`, mirroring `FrozenCodec.writeExprPayload`
-    /// for what each case emits beyond those. Exhaustive on the DU with no catch-all, so a
-    /// new `TExprG` case fails to compile here.
-    ///
-    /// `binder` is the dense id of the binder this node introduces (`introducedBinder`) —
-    /// `ForTo`'s loop variable and nothing else. `anchor` narrows the walked tree's tokens
-    /// to the stored index (the sink's, see `PoolSink.Anchor`); a `ForTo`'s `identTok` is
-    /// the one anchor a payload carries.
-    ///
-    /// Public as the DU-domain counterpart of the `ExprPayloads` column: the pool-build
-    /// gate checks a pooled node against the payload the DU node projects to, which is
-    /// the whole residual rather than just its tag.
+    /// child expr and owned pat ids, and the `Var` binder id. `anchor` narrows a walked
+    /// token to its stored index; `ForTo`'s `identTok` is the one anchor a payload carries.
     let exprPayload
         (anchor: 'tok -> Anchor)
         (binder: BinderId voption)
         (e: TExprG<FrozenType, 'tok, 'id>)
         : ExprPayload =
         // Per-arm guard-presence flags — the only residual structure a `Match`/`TryWith`
-        // records (the arm pats/guards/bodies themselves ride the child columns); this is
-        // what `substituteExpr.buildArms` re-nests them by.
+        // records; the arm pats, guards and bodies themselves ride the child columns.
         let armGuards (arms: EqArray<TMatchArmG<_, _>>) =
             arms |> EqArray.toArray |> Array.map (fun arm -> arm.Guard.IsSome)
 
@@ -358,8 +329,7 @@ module TastPoolShapes =
                 | FormatSinkG.ToBuilder _ -> FormatSinkShape.ToBuilder
                 | FormatSinkG.ToString -> FormatSinkShape.ToString
 
-            // A hole carries an anchor of its own, so it is narrowed here exactly as a
-            // node's is — `ExprPayload.format` widens it back.
+            // A hole carries an anchor of its own, narrowed here exactly as a node's is.
             let spec = TastConvert.hole id anchor
 
             let segments' =
@@ -396,10 +366,7 @@ module TastPoolShapes =
         | TExprG.CallerExpr(origin = origin) -> ExprPayload.CallerExpr origin
 
     /// The residual payload of a frozen pattern node — its fields MINUS `ty`/`tok` and the
-    /// child sub-pat ids (`patChildren`). The exact inverse of `substitutePat`, mirroring
-    /// `FrozenCodec.writePatPayload`. Exhaustive with no catch-all, so a new `TPat` case fails to
-    /// compile here. `binder` is as `exprPayload`'s — here it is `NamedSimple`'s own binder.
-    /// Public for the same reason as `exprPayload`.
+    /// child sub-pat ids. `binder` is `NamedSimple`'s own binder, and no other case's.
     let patPayload (binder: BinderId voption) (p: TPatG<FrozenType, 'tok, 'id>) : PatPayload =
         match p with
         | TPatG.NamedSimple _ -> PatPayload.NamedSimple(introducedBinder "patPayload" binder)

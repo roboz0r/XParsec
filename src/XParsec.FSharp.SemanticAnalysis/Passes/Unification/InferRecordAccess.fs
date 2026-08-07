@@ -18,13 +18,9 @@ open UnificationInferDispatch
 
 module internal UnificationInferRecordAccess =
 
-    /// A member named `memberName` on an *intrinsic* receiver (`TyConst`) — declared
-    /// on the intrinsic's own contract, or on the BCL type its `(# "…" #)` binding
-    /// canonicalises to (`externalReceiverKeys` yields both, contract first). Yields
-    /// the declaring type's key, the receiver's type args, and the single-pick member
-    /// — so the consuming arm resolves the member without re-running the
-    /// canonicalisation or the provider lookup. Declines (the arm falls through to the
-    /// array / other `TyConst` cases) when no surface of the receiver has such a member.
+    /// `memberName` on an intrinsic receiver (`TyConst`), declared either on the
+    /// intrinsic's own contract or on the BCL type its `(# "…" #)` binding canonicalises
+    /// to (both surfaces, contract first). Declines when neither declares it.
     [<return: Struct>]
     let private (|IntrinsicBclMember|_|)
         (ctx: PassContext)
@@ -63,10 +59,6 @@ module internal UnificationInferRecordAccess =
 
         let names = pairs |> List.map (fun (_, n, _) -> n)
 
-        // The SAME shared resolver + construction shape the record arm of `inferPat` uses,
-        // so the local|external and qualified|bare branching lives in one place. Construction
-        // resolves ONLY on an exact field-set match (`resolveRecordFor`); a superset-only /
-        // ambiguous set is a diagnosed miss, byte-identical to the old exact-set-equality.
         match resolveRecordFor ctx node.Tok (ctx.UseSiteAt node.Key) qualifier names with
         | ValueNone ->
             for _, _, e in pairs do
@@ -74,13 +66,9 @@ module internal UnificationInferRecordAccess =
 
             TyVar(freshTyVar ctx)
         | ValueSome r ->
-            // Fresh typars per literal so independent literals get independent vars; each
-            // initialiser COERCES into the field type resolved under this literal's
-            // instantiation via the argument-position rule (`unifyArg`), not symmetric
-            // `unify`: a field is an assignment target, so a value flows into an `obj` field
-            // by an implicit box exactly as into an `obj` ctor / union-case slot
-            // (`InferCtor`). A `'a` field still pins to the initialiser's type — a free-var
-            // target isn't coercible, so `unifyArg` falls through to `unify` and links it.
+            // A field is an assignment target, so each initialiser COERCES into the field
+            // type (`unifyArg`, argument position) rather than unifying symmetrically: a
+            // value boxes into an `obj` field, while a free `'a` field pins to the value.
             let struct (recKey, args, fieldTypeOf) = recordConstructionOf ctx r
 
             for _, fieldName, e in pairs do
@@ -140,16 +128,9 @@ module internal UnificationInferRecordAccess =
 
             TyVar(freshTyVar ctx)
 
-    /// One step of dot-access resolution; deferred when the receiver is a free
-    /// TyVar. For a generic receiver `(b : Box<int>).Value`, the declared field /
-    /// member type `'a` is substituted against the receiver's arg list so `Value`
-    /// types as `int`, not a free typar.
-    /// Resolve an instance member on a project-local class/union/record, or emit a
-    /// static-hint-aware diagnostic. Shared by the `TyClass` / `TyUnion` / `TyRecord`
-    /// arms of `resolveFieldStep` — the only thing that differs between them is the
-    /// registry consulted and the "Unknown … type" wording on a registry miss. A
-    /// record reaches it on a field-name miss, so a record's instance members are
-    /// resolved on the same path as a class's or union's, not a parallel arm.
+    /// An instance member on a project-local class/union/record, instantiated at the
+    /// receiver's `args`. A name that exists but is STATIC gets an "access it via
+    /// 'Type.Member'" hint rather than a bare no-such-member diagnostic.
     and resolveLocalInstanceMember
         (ctx: PassContext)
         (diagTok: SyntaxToken)
@@ -177,16 +158,9 @@ module internal UnificationInferRecordAccess =
             else
                 errorTy ctx diagTok (Kind.NoMember(typeName, MemberNoun.InstanceMember, memberName))
 
-    /// Resolve `memberName` on a typar receiver through an
-    /// interface the typar is coerced to (`'T :> IFace`). Scans the root's
-    /// `Coercion` constraints; for each whose target zonks to a project-local
-    /// *interface* `TyClass`, walks its members (and inherited interface members)
-    /// for `memberName`. On a hit, records the interface key in
-    /// `TyparInterfaceCall` (keyed by the access node) so Elaborate emits a
-    /// `CallVia.Interface` dispatch, and returns the member's instantiated type.
-    /// `ValueNone` (the caller parks the access) when no coercion names a local
-    /// interface declaring the member — an external interface coercion or a
-    /// genuinely-unresolved typar both fall through to the existing path.
+    /// `memberName` on a typar receiver, through an interface the typar is coerced to
+    /// (`'T :> IFace`). On a hit, stamps the interface key in `TyparInterfaceCall` under
+    /// `diagKey` so Elaborate dispatches `CallVia.Interface`; `ValueNone` leaves it parked.
     and tryTyparInterfaceMember
         (ctx: PassContext)
         (diagKey: NodeKey)
@@ -201,9 +175,6 @@ module internal UnificationInferRecordAccess =
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep ctx.Store target with
                     | TyClass(ifaceKey, ifaceArgs) ->
-                        // Resolve by the interface's key, not a bare name: an
-                        // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name, so a
-                        // bare read would miss a `'T :> Fun<…>` bound's local interface.
                         match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
                             match tryClassChainMember ctx ifaceKey ifaceArgs memberName with
@@ -212,13 +183,9 @@ module internal UnificationInferRecordAccess =
                                 ValueSome mty
                             | ValueNone -> scan rest
                         | _ ->
-                            // External-interface coercion (`'T :> Vesper.Fun<int,int>`):
-                            // the interface is not in the local registry, so resolve the
-                            // member through the provider on the qualified key. The
-                            // receiver stays a typar (never grounds to the interface), so
-                            // we record `TyparInterfaceCall` — *not* `ExternalAccess` —
-                            // exactly as the local path does, and Elaborate emits the same
-                            // `CallVia.Interface` dispatch (now on an external `TypeSpec`).
+                            // The interface is external, so the member resolves through the
+                            // provider. The receiver stays a typar (it never grounds to the
+                            // interface), so this stamps `TyparInterfaceCall`, not `ExternalAccess`.
                             match ctx.Provider.TryLookupMember(SymbolKey.Type ifaceKey, memberName) with
                             | ValueSome m when not m.IsStatic ->
                                 ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
@@ -230,24 +197,13 @@ module internal UnificationInferRecordAccess =
         scan (ctx.Store.Constraints.Items root)
 
     /// `access` is the whole access EXPRESSION — its key files the resolved member for
-    /// Elaborate. `memberTok` is the SEGMENT being resolved, which is not the same place: a
-    /// folded chain `r.X.Y` is one expression with one key whose intermediate segments have
-    /// no node of their own, so a diagnostic points inside the node rather than at it.
+    /// Elaborate. `memberTok` is the SEGMENT: a folded `r.X.Y` is one expression with one
+    /// key whose intermediate segments have no node of their own, so diagnostics use the token.
     and resolveFieldStep (ctx: PassContext) (access: NodeSite) (memberTok: SyntaxToken) (rTy: SemType) : SemType =
         let memberName = ctx.NameOf memberTok
-        // Commit a resolved external instance member `m` whose signature is written
-        // over ITS declaring type's typars, instantiated with `memberArgs`: the
-        // receiver's own args for an own member; the supertype's args-as-reached for
-        // an INHERITED one (`Base<int>`'s `[int]` for a `Child : Base<int>`).
-        // This is the COMMIT of a single-candidate member (no overload set to pick
-        // from), so freshen the method typars per use site exactly as the
-        // multi-candidate `commitExternalOverload` does — NOT the open,
-        // marker-preserving `openSignature`. A generic instance method called at two
-        // instantiations would otherwise share one inert `TyTypar(Method,_)` that no
-        // per-call solution can touch (rigid-vs-concrete mismatch); a non-generic
-        // member is byte-identical either way.
-        // Hoisted to `resolveFieldStep` scope so the external `TyClass`, `TyUnion`,
-        // and record-member-fallback arms all commit through ONE helper (no copy).
+        // Commit a single-candidate external instance member; `memberArgs` instantiate ITS
+        // declaring type's typars (the receiver's own, or a supertype's as-reached for an
+        // INHERITED one). Freshens method typars per site — `openSignature` shares one.
         let commitExternalMember (m: ExternalMember) (memberArgs: EqArray<SemType>) : SemType =
             let memberSig =
                 ExternalSymbols.instantiateSignature ctx.Store m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
@@ -271,37 +227,25 @@ module internal UnificationInferRecordAccess =
             | ValueSome info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
                 | Some field -> instantiateMember ctx.Store (info.TypeParams, args) field.Type
-                // Not a field — a record also carries instance members. Resolve it on
-                // the same shared path a class/union takes, so `r.Bar` reaches the
-                // record's augmentation member rather than falling to a field-miss.
+                // Not a field — a record also carries augmentation members, so `r.Bar`
+                // takes the class/union path rather than reporting a field miss.
                 | None ->
                     resolveLocalInstanceMember ctx memberTok info.Name info.TypeParams args info.Members memberName
             | ValueNone ->
-                // Not a project-local record — an *external* one (a record declared in a
-                // prior file / referenced package). Records are the last nominal kind to
-                // gain a provider fallback; mirror the external `TyUnion`/`TyClass` arms.
+                // Not project-local — an external record (prior file / referenced package).
                 let recQual = SymbolKeyOps.typeMetaName recKey
 
                 match ctx.Provider.TryLookupType(SymbolKey.Type recKey) with
                 | ValueSome(ExternalTypeShape.Record(_, fieldShapes, _)) ->
                     match fieldShapes |> Array.tryFind (fun f -> f.Name = memberName) with
                     | Some fieldShape ->
-                        // CRITICAL: a field read must NOT stamp `ExternalAccess`. The
-                        // Elaborate dispatcher fires its `& ExternalAccess ctx info` arm
-                        // (`ElaborateExpr.fs:289`) BEFORE the local `translateDotLookup` arm
-                        // (`:310`), lowering a stamped node to `TExpr.ExternalMember` (a
-                        // property / method call). A record FIELD must stay UNSTAMPED so it
-                        // falls through to `translateDotLookup`'s `TyRecord` arm, which emits
-                        // `TExpr.FieldGet(receiver, name, ty)` by name (`Access.fs:178`);
-                        // cross-file `recKey` re-homes to a local `TypeDef` and codegen emits
-                        // `ldfld`. Stamping here would misroute the field to the member path.
-                        // Only the field-MISS→member fallback below stamps (that IS a member).
+                        // A field read must NOT stamp `ExternalAccess`: Elaborate tries the
+                        // stamped-member arm BEFORE the dot-lookup arm, so a stamped field
+                        // lowers to a property call instead of `TExpr.FieldGet` / `ldfld`.
                         FrozenTypeBridge.instantiateDeclaring fieldShape.Frozen (args.AsSpan().ToArray())
                     | None ->
                         // Not a field — an external record also carries augmentation members.
-                        // Resolve it as a MEMBER and stamp `ExternalAccess` (correct here: this
-                        // IS a member, lowered by the `:289` dispatcher arm), exactly as the
-                        // external `TyUnion` arm does.
+                        // This IS a member, so stamping `ExternalAccess` is correct here.
                         match ctx.Provider.TryLookupMember(SymbolKey.Type recKey, memberName) with
                         | ValueSome m when not m.IsStatic -> commitExternalMember m args
                         | _ -> errorTy ctx memberTok (Kind.NoMember(recQual, MemberNoun.FieldOrMember, memberName))
@@ -309,53 +253,42 @@ module internal UnificationInferRecordAccess =
                     let (DisplayName name) = SymbolKeyOps.typeSimpleName recKey
                     errorTy ctx memberTok (Kind.UnknownNominalType(NominalKind.Record, name))
         | TyClass(clsKey, args) ->
-            // Resolve by the (arity-qualified) key, not the bare name: an
-            // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a
-            // bare read would miss. `clsSimple` survives only for the diagnostic path.
+            // Lookups below go by the arity-qualified key: an arity-overloaded receiver
+            // (`Fun\`2`/`Fun\`3`) does not resolve by bare name. `clsSimple` is diagnostics-only.
             let (DisplayName clsSimple) = SymbolKeyOps.typeSimpleName clsKey
 
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info ->
-                // Walk the inheritance chain (derived members shadow inherited).
-                // On a total miss, fall back to the single-class diagnostic so
-                // the static-access hint still references the receiver's own
-                // class rather than some ancestor.
+                // Derived members shadow inherited ones. On a total miss the diagnostic
+                // names the receiver's own class rather than some ancestor.
                 match tryClassChainMember ctx clsKey args memberName with
                 | ValueSome ty -> ty
                 | ValueNone ->
-                    // An explicit `val x: T` instance field read (struct enumerator
-                    // state). Instantiate the field's declared type
-                    // with the receiver's type args, mirroring the member path.
+                    // An explicit `val x: T` instance field (struct enumerator state),
+                    // instantiated at the receiver's type args as a member would be.
                     match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
                     | Some fld -> instantiateMember ctx.Store (info.TypeParams, args) fld.Type
                     | None ->
                         resolveLocalInstanceMember ctx memberTok clsSimple info.TypeParams args info.Members memberName
             | ValueNone ->
-                // Not a project-local class — an *external* type (e.g. a BCL
-                // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
-                // access). Resolve the instance member through the provider and
-                // record it for Elaborate.
+                // Not project-local — an external type (a BCL
+                // `TyClass("…EqualityComparer\`1", [int])` from a prior static access).
                 let clsQual = SymbolKeyOps.typeMetaName clsKey
 
                 match ctx.Provider.TryLookupMember(SymbolKey.Type clsKey, memberName) with
                 | ValueSome m when not m.IsStatic -> commitExternalMember m args
                 | _ ->
 
-                    // An own-member miss may still resolve as a member INHERITED from an external
-                    // base interface/class: the TS-manifest provider stores heritage un-flattened,
-                    // so walk the receiver's supertypes (the metadata layer's `TryLookupMember`
-                    // already sees inherited members via `GetInterfaces()`/`inherit`). Commit with
-                    // the supertype's args so a generic base member (`Base<int>.value`) resolves at
-                    // the receiver's instantiation.
+                    // The TS-manifest provider stores heritage un-flattened (the CLR metadata
+                    // layer already flattens), so an own-member miss may still resolve on a
+                    // supertype — committed at ITS args, so `Base<int>.value` types as `int`.
                     match tryExternalInheritedMember ctx rTy memberName with
                     | ValueSome(struct (m, memberArgs)) -> commitExternalMember m memberArgs
                     | ValueNone ->
 
-                        // A receiver typed as a CAPABILITY (`enumerator<'T>`, `seq<'T>`, …)
-                        // resolves to an `IntrinsicInterface`, which names its platform type but
-                        // carries no member table — so both lookups above miss on a contract that
-                        // does declare the member. Retry under the platform key, where the members
-                        // live. A non-capability key is returned unchanged, so this costs a `=`.
+                        // A receiver typed as a CAPABILITY (`enumerator<'T>`, `seq<'T>`) is an
+                        // `IntrinsicInterface`: it names a platform type but carries no member
+                        // table, so retry there. A non-capability key comes back unchanged.
                         let platformKey = capabilityPlatformKey ctx (SymbolKey.Type clsKey)
 
                         match
@@ -366,16 +299,9 @@ module internal UnificationInferRecordAccess =
                         with
                         | ValueSome m when not m.IsStatic -> commitExternalMember m args
                         | _ ->
-                            // A namespace-qualified external `TyClass` for which the provider
-                            // stack has NO shape at all (`TryLookupType` also misses): the
-                            // fingerprint of an identity minted by one package's provider whose
-                            // HOME manifest was never stacked. Name the missing type's NAMESPACE
-                            // rather than emit a generic no-such-member (the plain "Unknown class
-                            // type" is for an in-stack type genuinely lacking the member).
-                            //
-                            // The owning PACKAGE cannot be named here: a key is a nominal identity
-                            // and the assembly is a physical fact carried on the resolved shape —
-                            // and this is precisely the branch where no shape resolved.
+                            // The provider stack has NO shape for this key at all — an identity
+                            // minted by one package whose HOME manifest was never stacked. Name
+                            // the NAMESPACE; the owning package is a fact of a shape, and none resolved.
                             let clsNs = clsKey.Namespace.Dotted
 
                             match ctx.Provider.TryLookupType(SymbolKey.Type clsKey), clsNs with
@@ -391,25 +317,17 @@ module internal UnificationInferRecordAccess =
                                     ))
                             | _ -> errorTy ctx memberTok (Kind.UnknownNominalType(NominalKind.Class, clsQual))
         | TyUnion(unionKey, args) ->
-            // Union instance member access — mirrors the `TyClass` arm
-            // against the union's augmentation members.
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info ->
                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName unionKey
 
                 resolveLocalInstanceMember ctx memberTok shown info.TypeParams args info.Members memberName
             | ValueNone ->
-                // Not a project-local union — an *external* one (e.g. a referenced
-                // `Vesper.Option` whose `IsSome`/`Value`/`IsNone` augmentation
-                // members the contract provider publishes). Resolve through the
-                // provider and record it for Elaborate, exactly as the external
-                // `TyClass` arm does.
+                // Not project-local — an external union (a referenced `Vesper.Option`, whose
+                // `IsSome`/`IsNone`/`Value` augmentation members the contract provider publishes).
                 let unionQual = SymbolKeyOps.typeMetaName unionKey
 
                 match ctx.Provider.TryLookupMember(SymbolKey.Type unionKey, memberName) with
-                // Single-candidate commit through the shared `commitExternalMember` helper —
-                // freshen method typars per use site (shared defect: `openSignature` leaves an
-                // inert method-typar marker that cross-contaminates across call sites).
                 | ValueSome m when not m.IsStatic -> commitExternalMember m args
                 | _ ->
                     // The provider knows the union but not this member → a real
@@ -421,14 +339,9 @@ module internal UnificationInferRecordAccess =
         | TyVar tv ->
             let root = UnionFind.find ctx.Store tv
 
-            // The receiver is a generic typar (`'T`) constrained to
-            // an interface (`'T :> IFace`). The typar never grounds to a nominal, so
-            // the `PendingDotAccess` discharge would never fire (and the binding wouldn't
-            // generalise); instead resolve the member *now* through the interface the
-            // typar is coerced to. The constraint's target zonks to the interface's
-            // `TyClass` (a project-local interface is registered in `Types.Class`
-            // with `IsInterface` set). Record the interface key so Elaborate mints a
-            // `CallVia.Interface` dispatch (codegen → `constrained. callvirt`).
+            // A typar receiver never grounds to a nominal, so the `Pda` park below would
+            // never discharge (and the binding would not generalise) — resolve the member
+            // now, through an interface the typar is coerced to (`'T :> IFace`).
             match tryTyparInterfaceMember ctx access.Key root memberName with
             | ValueSome ty -> ty
             | ValueNone ->
@@ -443,19 +356,9 @@ module internal UnificationInferRecordAccess =
 
                 ctx.Store.Pda.Prepend(root, access)
                 TyVar resultTv
-        // `arr.Length` on a rank-1 intrinsic array resolves to the core
-        // `GetArrayLength` inline function (scheme `'T[] -> int`), grounding the
-        // call so `InlineExpansion` can splice the source `ldlen` — the same path as
-        // `arr.[i]`/`GetArray`. No member metadata on the intrinsic `'T[]`.
-        // An instance member on an *intrinsic* receiver whose `(# "…" #)` binding
-        // maps it to a BCL type (`"hello".TryCopyTo(span)` / `s.Length`): resolve
-        // through the provider by the canonical BCL name (`IntrinsicBclMember`,
-        // routed via `prim-types-string.clr.fs`), recording it for Elaborate exactly as
-        // the external `TyClass` arm does. The single-pick member suffices for a
-        // name with one overload; an arg-overloaded name (`string.CopyTo`) is
-        // picked arg-aware earlier by `tryInferExternalInstanceMethodCall`. A
-        // member-name miss declines the pattern, so arrays (`"[]"`) / byref
-        // (`"byref"`) — and any unknown member — fall through to the arms below.
+        // An instance member on an intrinsic receiver whose `(# "…" #)` binding maps it to
+        // a BCL type (`"hello".TryCopyTo(span)`), resolved through the provider under the
+        // canonical BCL name. Single-pick: an arg-overloaded name needs the arg-aware path.
         | IntrinsicBclMember ctx memberName (declKey, args, m) ->
             if not m.IsStatic then
                 let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
@@ -477,12 +380,13 @@ module internal UnificationInferRecordAccess =
                     ctx
                     memberTok
                     (Kind.NoMember(SymbolKeyOps.qualifiedName declKey, MemberNoun.InstanceMember, memberName))
+        // The intrinsic `'T[]` carries no member metadata, so `arr.Length` resolves to the
+        // core `GetArrayLength` inline function (scheme `'T[] -> int`).
         | TyArray _ when memberName = "Length" ->
             match ctx.CoreAccess.Value.GetArrayLength with
             | ValueSome sym ->
-                // Thread the resolved `GetArrayLength` identity to Elaborate's
-                // `External` mint (the `.Length` `DotLookup` / `LongIdent`-chain
-                // forms) so `InlineExpansion` splices the `ldlen` body by KEY.
+                // Thread the resolved identity through so `InlineExpansion` can splice
+                // the `ldlen` body by KEY.
                 ctx.Resolution.IntrinsicKey.Set(access.Key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
@@ -510,10 +414,9 @@ module internal UnificationInferRecordAccess =
         let rTy = infer ctx receiver
         resolveFieldStep ctx node fieldTok rTy
 
-    /// `arr.[i]` — the receiver is a rank-1 array `'T[]` and the index an `int`;
-    /// the result is the element type. The element stays a fresh var unified
-    /// against the receiver so an as-yet-unresolved receiver (a bare `[]`) is
-    /// pinned from context the same way an array literal is.
+    /// `arr.[i]` — a rank-1 array `'T[]` receiver, an `int` index, the element type as
+    /// result. The element stays a fresh var unified against the receiver, so a bare `[]`
+    /// receiver is pinned from context exactly as an array literal is.
     and inferIndexedLookup
         (infer: Infer)
         (ctx: PassContext)
@@ -524,18 +427,14 @@ module internal UnificationInferRecordAccess =
         let recvTy = infer ctx receiver
         let idxTy = infer ctx index
 
-        // `arr.[i]` resolves to the core `GetArray` inline function, exactly as an
-        // operator resolves through `inferInfix`: instantiate its scheme
-        // (`'T[] -> int -> 'T`) and unify against `arr -> idx -> result`. That pins
-        // the array element type, the `int` index, and the result — and (like every
-        // resolved call) grounds the types so `InlineExpansion` can splice the
-        // source `ldelem` at the use site. The mnemonic never originates here.
+        // `arr.[i]` resolves to the core `GetArray` inline function: instantiate its scheme
+        // (`'T[] -> int -> 'T`) and unify against `arr -> idx -> result`. That pins element,
+        // index and result, and grounds them so `InlineExpansion` splices the `ldelem`.
         let getArrayIndex () =
             match ctx.CoreAccess.Value.GetArray with
             | ValueSome sym ->
-                // Thread the resolved `GetArray` identity to Elaborate's `External` mint
-                // (`translateIndexedLookup`, same `IndexedLookup` key) so the `ldelem`
-                // body splices by KEY.
+                // Thread the resolved `GetArray` identity through so the `ldelem` body
+                // splices by KEY, under this same `IndexedLookup` node key.
                 ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
@@ -548,12 +447,9 @@ module internal UnificationInferRecordAccess =
                 resultTy
             | ValueNone -> errorTy ctx node.Tok (Kind.IntrinsicNotInScope "Array indexing intrinsic 'GetArray'")
 
-        // String indexing (`s.[i]`) on a target with no BCL `string` metadata (JS):
-        // `get_Chars` does not resolve, so route to the `GetString` inline intrinsic —
-        // the string analogue of `GetArray`, with scheme `string -> int -> char`. It
-        // unifies the receiver against `string` (NOT `'T[]`), so the spurious
-        // string-vs-array mismatch the `GetArray` fallback would raise never happens.
-        // On CLR `get_Chars` resolves first, so a string never reaches here.
+        // String indexing (`s.[i]`) where the target has no BCL `string` metadata (JS) and
+        // `get_Chars` does not resolve: `GetString` (scheme `string -> int -> char`) unifies
+        // the receiver against `string`, not `'T[]` as the `GetArray` fallback would.
         let getStringIndex () =
             match ctx.CoreAccess.Value.GetString with
             | ValueSome sym ->
@@ -570,22 +466,14 @@ module internal UnificationInferRecordAccess =
                 resultTy
             | ValueNone -> getArrayIndex ()
 
-        // A non-class, non-`get_Chars` receiver: a `string` routes to `GetString`,
-        // everything else (arrays, still-free metavars) to `GetArray`.
         let stringOrArrayIndex () =
             match resolveStep ctx.Store recvTy with
             | TyString -> getStringIndex ()
             | _ -> getArrayIndex ()
 
-        // An indexer on an *external* receiver is its BCL `get_Item` (or, for a
-        // `string` intrinsic, `get_Chars`) accessor — it can't go through
-        // `GetArray`/`ldelem`. Resolve it through the provider, record it in
-        // `ExternalAccess`, and return the *element* type. The accessor's return is
-        // either by-ref (`Span<char>.get_Item : T&`, needs an `ldobj` deref at
-        // Elaborate) or by-value (`string.get_Chars : char`, `List<T>.get_Item : T`,
-        // `ITuple.get_Item : obj`) — detect it from the resolved signature so the
-        // unify RHS (and Elaborate's lowering) match. A project-local class, an
-        // intrinsic array, or a still-free receiver keeps the `GetArray` path.
+        // An indexer on an external receiver is its BCL `get_Item` accessor (`get_Chars`
+        // for a `string` intrinsic), never `GetArray`/`ldelem`: resolve it through the
+        // provider, record `ExternalAccess`, and return the ELEMENT type.
         let resolveExternalIndexer (declKey: SymbolKey) (clsArgs: SemType[]) (accessorName: string) : SemType voption =
             match ctx.Provider.TryLookupMember(declKey, accessorName) with
             | ValueSome m when not m.IsStatic ->
@@ -603,7 +491,8 @@ module internal UnificationInferRecordAccess =
                     }
                 )
 
-                // The accessor is `idx -> ret`; `ret` is `T&` (byref) or `T` (value).
+                // The accessor is `idx -> ret`, and `ret` is by-ref (`Span<char>.get_Item :
+                // T&`) or by-value (`string.get_Chars : char`) — the unify RHS must match.
                 let retIsByref =
                     match memberSig with
                     | TyFun(_, TyByref _) -> true
@@ -621,13 +510,9 @@ module internal UnificationInferRecordAccess =
                 ValueSome resultTy
             | _ -> ValueNone
 
-        // An index-signature receiver (`{ [k: K]: V }` on an external interface / class /
-        // anonymous object) reads through the `GetIndex` intrinsic — the `$0[$1]` bracket
-        // form, the JS analogue of `GetArray`'s `ldelem`. There is no `get_Item` method on
-        // such an object (bracket IS the accessor), so this fires BEFORE the `get_Item` /
-        // `getArrayIndex` attempts. `GetIndex`'s scheme is `'T -> 'K -> 'V` with three
-        // INDEPENDENT typars, so unifying it against `recv -> idx -> result` alone leaves
-        // `'V` free — the declared key/value are pinned separately from the provider entry.
+        // An index-signature receiver (`{ [k: K]: V }`) reads through the `GetIndex`
+        // intrinsic — the `$0[$1]` bracket form; bracket IS the accessor, so no `get_Item`
+        // exists. `GetIndex`'s scheme `'T -> 'K -> 'V` has three INDEPENDENT typars.
         let tryIndexSignature (declKey: SymbolKey) (clsArgs: SemType[]) : SemType voption =
             match ctx.Provider.TryLookupIndexSignature declKey with
             | [] -> ValueNone
@@ -641,10 +526,8 @@ module internal UnificationInferRecordAccess =
                         FrozenTypeBridge.instantiateDeclaring vF clsArgs
                     )
 
-                // Select the entry whose key type matches the index expression's type — a
-                // string index picks the string-keyed sig, a numeric one the number-keyed
-                // sig. A single entry is used as-is; an unresolved / non-matching index
-                // defaults to the first (Node's `process.env` is a single string entry).
+                // Select the entry whose key type matches the index expression's type. A
+                // single entry is used as-is; an unresolved / non-matching index takes the first.
                 let keyTy, valTy =
                     match realised with
                     | [ single ] -> single
@@ -666,8 +549,8 @@ module internal UnificationInferRecordAccess =
 
                 match ctx.CoreAccess.Value.GetIndex with
                 | ValueSome sym ->
-                    // Thread the resolved `GetIndex` identity to Elaborate's `External`
-                    // mint (same `IndexedLookup` key) so the `$0[$1]` body splices by KEY.
+                    // Thread the resolved `GetIndex` identity through so the `$0[$1]` body
+                    // splices by KEY, under this same `IndexedLookup` node key.
                     ctx.Resolution.IntrinsicKey.Set(node.Key, SymbolKey.Binding sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
 
@@ -696,17 +579,9 @@ module internal UnificationInferRecordAccess =
                 match resolveExternalIndexer (SymbolKey.Type clsKey) clsArgsArr "get_Item" with
                 | ValueSome resultTy -> resultTy
                 | ValueNone -> getArrayIndex ()
-        // A rank-1 array `'T[]` (a bare `TyConst("[]", [elem])`, NOT a `TyClass`) reads
-        // through the intrinsic array's `get_Item` member accessor — the member-inline
-        // twin of the free `GetArray`. The receiver-side lookup key is the array's bare
-        // member-contract identity, `RuntimeNames.arrayContractName` (see there for why
-        // it's the backtick-escaped `` ``[]`` `` and how the consumer/producer/receiver
-        // keys agree). `TryLookupMember` lands the identical member the contract and the
-        // inline-body store share, and Elaborate lowers it through
-        // `TExpr.ExternalMember(get_Item)` (whose lifted `ldelem` body splices to the
-        // same `arr[i]`). A MISS — the contract half absent (a non-JS target, or a key
-        // disagreement) — falls back to the free `GetArray` path UNCHANGED, so nothing
-        // regresses if resolution doesn't hit.
+        // A rank-1 array reads through the intrinsic array's `get_Item` member accessor —
+        // the member-inline twin of the free `GetArray` — keyed by the array's bare
+        // member-contract identity. A MISS falls back to `GetArray` unchanged.
         | TyArray elem ->
             match
                 resolveExternalIndexer
@@ -717,11 +592,9 @@ module internal UnificationInferRecordAccess =
             | ValueSome resultTy -> resultTy
             | ValueNone -> getArrayIndex ()
         | _ ->
-            // An intrinsic receiver mapped to a BCL type — `string` (`s.[i]`), whose
-            // indexer accessor is `System.String.get_Chars(int) : char`. When no surface
-            // of the receiver publishes it (the JS target — `string`'s platform repr is
-            // the bare `"string"`, which names no class), a `string` falls to the
-            // `GetString` intrinsic, anything else to `GetArray`.
+            // An intrinsic receiver mapped to a BCL type — `string` (`s.[i]`), whose indexer
+            // is `System.String.get_Chars(int) : char`. On JS no surface publishes it, since
+            // `string`'s platform repr is the bare `"string"`, which names no class.
             let charsIndexer (struct (declKey, clsArgs: EqArray<SemType>)) =
                 match resolveExternalIndexer declKey (clsArgs.AsSpan().ToArray()) "get_Chars" with
                 | ValueSome resultTy -> Some resultTy
@@ -750,13 +623,9 @@ module internal UnificationInferRecordAccess =
 
         currTy
 
-    /// The type of a folded field chain MINUS its *last* segment — the receiver
-    /// of a folded-LongIdent instance method call (`w.Write(arg)` parses with
-    /// `fn = LongIdent [w; Write]`, the member being the last segment). Mirrors
-    /// `inferLongIdentFieldChain` but stops one short, so the last segment can be
-    /// resolved arg-aware as an overloaded instance method instead of falling to
-    /// the single-pick field step. The head is assumed a local binding (the
-    /// caller guards on it).
+    /// The type of a folded field chain MINUS its last segment — the receiver of a
+    /// folded-LongIdent instance method call (`w.Write(arg)` parses with
+    /// `fn = LongIdent [w; Write]`), so the last segment can be resolved arg-aware.
     and inferLongIdentReceiverPrefix (ctx: PassContext) (node: NodeSite) (li: LongIdent<SyntaxToken>) : SemType =
         let head = li.Idents.[0]
         let headKey = NodeKey.ofToken head NodeKind.ExprIdent

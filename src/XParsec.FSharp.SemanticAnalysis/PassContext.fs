@@ -5,11 +5,6 @@ open XParsec
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// The per-file side tables (all in-flight semantic information — the CST is
-// never mutated) and the PassContext that carries them through the passes.
-
-/// The one side-table container, parameterized by the KEY SPACE its entries are addressed
-/// in. Three spaces exist and they are not interchangeable — see the abbreviations below.
 [<Sealed>]
 type KeyedTable<'K, 'V when 'K: equality>() =
     let dict = Dictionary<'K, 'V>(HashIdentity.Structural)
@@ -27,91 +22,44 @@ type KeyedTable<'K, 'V when 'K: equality>() =
 
     member _.ContainsKey(key: 'K) = dict.ContainsKey key
 
-    /// Callers must treat the returned dictionary as read-only once Elaborate starts.
+    /// A live view of the backing dictionary, not a copy: later `Set`s show through it.
     member _.AsDictionary() : IReadOnlyDictionary<'K, 'V> = dict :> _
 
-/// A fact about ANY node, addressed by its `NodeKey` — the in-flight form most passes
-/// speak, since a stamp is filed against the node the pass was looking at.
 type SideTable<'V> = KeyedTable<NodeKey, 'V>
 
-/// A fact about a BINDER, addressed by the definition site itself (`BinderKey`). For a
-/// table that is snapshotted onto the frozen file and re-keyed onto the frozen binder pool:
-/// the pool's remap (`TastPools.toPools`) faults on a key naming no interned binder, and
-/// `BinderKey` is what makes such a key unwritable in the first place.
 type BinderTable<'V> = KeyedTable<BinderKey, 'V>
 
-/// A fact about a source LAMBDA EXPRESSION, addressed by its anchor token (`LambdaKey`).
-/// Neither of the other two spaces can state it: a lambda is not a definition site, so it
-/// has no `BinderKey`, and its identity is a token index rather than the source offset a
-/// `NodeKey` is. Re-keyed at the freeze onto the lambda's own dense space
-/// (`DenseTable<ExprPoolId, _>`), which is a fourth space again.
 type LambdaTable<'V> = KeyedTable<LambdaKey, 'V>
 
 [<AutoOpen>]
 module SideTablePatterns =
 
-    /// Bind a stamp for `key` in ONE table read while the enclosing match selects
-    /// on the node's syntactic shape — conjoin with `&`:
+    /// Conjoin with `&` to bind a stamp while the match still selects on shape:
     /// `Pat.Named _ & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc -> …`.
-    /// The scrutinee itself is ignored (the syntactic half of the conjunction
-    /// already matched it); this exists to replace the guard-then-re-lookup idiom
-    /// (`when table.ContainsKey key` + a body `.Value` / re-read), whose recovery
-    /// arms were unreachable by construction yet read as live paths.
     [<return: Struct>]
     let (|Stamped|_|) (table: SideTable<'V>) (key: NodeKey) (_scrutinee: 'a) : 'V voption = table.TryGetValue key
-
-/// Type-definition side tables: the project-wide registry of records, unions,
-/// classes, and abbreviations plus their reverse / member indexes. Populated by
-/// `NameResolution.registerXxx`, filled in by `Unification`, read everywhere
-/// downstream.
 
 type PassContextBindings =
     {
         Binding: SideTable<ResolvedBinding>
-        /// Keyed by the binding's headPat NodeKey (which is also the `BindingSite`
-        /// NameResolution records). Present only for `let`-bound names that pass
-        /// `shouldGeneralise` — module-level, nested, and `let rec` single-name
-        /// bindings. Compound destructuring heads and lambda parameters do NOT get
-        /// schemes.
+        /// Keyed by the binding's headPat `NodeKey`. Present only for a single-name or
+        /// operator head that generalises; destructuring heads and lambda parameters get none.
         Scheme: SideTable<TypeScheme>
         TypeVar: SideTable<TyVarId>
         Escape: SideTable<EscapeState>
-        /// Axis-2 representation verdict per region (a `RegionRepr`), keyed by the
-        /// same binder / anon `NodeKey` as `Escape`. Populated by `Regions.run`
-        /// from the second (representation) fixpoint; folded with `Escape` into the
-        /// per-closure `ClosureRepr` verdict. Orthogonal to `Escape` (lifetime): a
-        /// frame-local closure held in an aggregate is `LocalStack` here yet
-        /// `RequiresHeapRepr` there.
+        /// Keyed as `Escape` but orthogonal to it: a frame-local closure held in an aggregate
+        /// is `RequiresHeapRepr` here, `LocalStack` in `Escape`.
         Repr: SideTable<RegionRepr>
-        /// Module-level bindings inside a named `module Foo = …`: each
-        /// binding's binder → where its emitted static method belongs (a real
-        /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
-        /// Populated by `Elaborate` and snapshotted into `TastFile.ModuleMembers`; the
-        /// backend keys off it to name + place a module function (`ListModule::fold`).
+        /// Bindings inside a named `module Foo = …`: which holder type (`Foo`/`FooModule`,
+        /// not the anonymous "Program" one) the emitted static method belongs to.
         ModuleMembers: Dictionary<BinderKey, ModuleBindingInfo>
-        /// A `let` binding's explicitly-declared `<'b,'a>` typars, in SOURCE order,
-        /// each paired with the `TypeVar` inference seeded for it. Captured by
-        /// `Infer.inferBinding` while the binding's transient `TyparScope` is live
-        /// (it's restored per binding, so it's gone by Elaborate). Keyed by the
-        /// binding's headPat NodeKey. Elaborate's free-function method-typar minter
-        /// reads this to order method typars declared-first (the F# rule); absent
-        /// when the binding declared no typars.
+        /// Keyed by the binding's headPat `NodeKey`, in SOURCE order — the method-typar order.
         DeclaredTypars: SideTable<(string * TyVarId) list>
-        /// Declared accessibility of each top-level EXPORTED entity (type / module
-        /// value / inline value), keyed by its `SymbolKey`. Captured by `Elaborate`
-        /// from the CST `access` tokens (classified token-free); snapshotted into
-        /// `TastFile.Accessibility`. Stored honestly (not thresholded) — the two
-        /// export filters each apply their own threshold over the one fact. Type MEMBER
-        /// accessibility rides `TTypeMemberG.Accessibility` on the member, not here.
+        /// Top-level EXPORTED entities only — a type MEMBER's accessibility rides on the
+        /// member. Un-thresholded: each export filter applies its own.
         Accessibility: Dictionary<SymbolKey, Accessibility>
-        /// The `[<Global>]` module-level bindings, by `SymbolKey`. Recorded by `Elaborate`
-        /// where the binding's exportable identity is minted and snapshotted into
-        /// `TastFile.GlobalValueKeys`; the JS backend reads it to emit no definition for a
-        /// value that IS a target global.
+        /// The `[<Global>]` bindings: the value IS a target global, so no definition is emitted.
         GlobalValueKeys: HashSet<SymbolKey>
-        /// A module binding's typar-axis width, keyed by the binder its head pattern
-        /// introduces. Recorded by `Elaborate` at the single method-axis index-minting
-        /// point (`mkMethodQuantEnv`); snapshotted into `TastFile.BindingTyparArities`.
         BindingTyparArities: Dictionary<BinderKey, int>
     }
 
@@ -130,342 +78,89 @@ module PassContextBindings =
             BindingTyparArities = Dictionary<_, _>()
         }
 
-/// The name-resolution stamp tables and the scope state the passes thread through
-/// them.
-///
-/// **The resolve-once contract.** NameResolution is the single layer that turns a
-/// written spelling into an identity: it resolves each one exactly once, opens-aware
-/// (the `OpenScope.tryResolve` / `tryQualify` reach onto the resolver view), and
-/// stamps the resulting identity into whichever table below names that node class.
-/// Consumer passes (Unification, Elaborate) READ those stamps by node key and never
-/// re-resolve a spelling — holding only the key-addressed `ctx.Provider` store view,
-/// they cannot. A few tables instead carry a *type-directed* verdict reachable only
-/// once the node is typed, and so are written by Unification
-/// (`ExternalOptionalFill`, `TyparInterfaceCall`, `IntrinsicKey`,
-/// `TypeTestTargets`, `UseDispose`, `ForInShape`); each
-/// field names its writer. Every table is append-only and keyed by a CST `NodeKey`,
-/// and because a `NodeKey` carries its `NodeKind`, expression / pattern / type
-/// stamps at one source offset never collide.
-///
-/// **The other lifecycle.** `OpenScope`, `AmbientOpenScope`, `TyparScope`,
-/// `BindingTyparSeed`, `EnclosingTypars` and `TyparScopeStrict` are NOT stamps but
-/// mutable scope state: set, pushed and restored as the walk enters and leaves an
-/// element, a binding, or a signature. `LocalModules` / `TypeEnclosingModule` are a
-/// third kind again — short-name-keyed registries built by a NameResolution pre-pass
-/// over the un-flattened module tree.
-/// One `let`-bound value / function of a local module, as a use site outside its own
-/// element sees it. `VisibleFrom` is the value analogue of `TypeIdentity.VisibleFrom`, and
-/// the same rule: F# declaration scoping is file-ordered, so a binding answers for its name
-/// only at offsets at or after it. It is
-///   * the binding's own source offset; or
-///   * the offset of the innermost enclosing `rec` scope's `module` / `namespace` keyword,
-///     when there is one — `rec` moves the offset earlier and nothing else. That is the ONE
-///     place a module's rec-ness enters value visibility, so the lookup never branches on it.
+/// One `let`-bound value / function of a local module. `VisibleFrom` is the offset from which
+/// it answers for its name: its own, or the enclosing `rec` scope's keyword when there is one.
 [<Struct>]
 type LocalModuleMember =
     {
-        /// The `NodeKey` a use resolves TO — the head-pattern key `bindingsOfPat` minted.
         BindingSite: NodeKey
         VisibleFrom: int
     }
 
 type PassContextResolution =
     {
-        /// The `open` / auto-open namespace prefixes active at the module element
-        /// currently being analysed: set per top-level element by the pass walk
-        /// (`CstWalk.walkModuleTree`), read by the probe sites (`tryQualify`) so a
-        /// short name resolves against the opens in scope. Constant inside any one
-        /// expression (`open` is a declaration-level node). Seeded to
-        /// `AmbientOpenScope`, so a pass that reads it before the walk sets a
-        /// per-element scope still sees the auto-opens.
+        /// The prefixes active at the module element being analysed — constant inside any one
+        /// expression, `open` being declaration-level. Seeded to `AmbientOpenScope`.
         mutable OpenScope: OpenScope
-        /// The *stable* ambient prelude each pass seeds its `walkModuleTree` from:
-        /// the provider's `AmbientOpenPrefixes` (the referenced-contract
-        /// `[<AutoOpen>]` modules / prelude), empty when the provider surfaces none.
-        /// Held apart from `OpenScope` because NameResolution and Unification must
-        /// seed from the *same* prelude, which the per-element field overwrites.
+        /// The stable prelude — the referenced contracts' `[<AutoOpen>]` modules. Held apart
+        /// from `OpenScope`, which each walk overwrites per element.
         mutable AmbientOpenScope: OpenScope
-        /// The module / namespace chain enclosing the module element currently being
-        /// analysed — the holder half of a use site, set per top-level element by the pass
-        /// walk from the element's own `DeclContainment` (`PassContext.EnterElement`), in
-        /// lockstep with `OpenScope`. A bare name resolves innermost-outward, so a read
-        /// from inside `module A` is not the same read as one at namespace level; this is
-        /// the fact that tells them apart. `ValueNone` before the walk sets a per-element
-        /// holder — the pass speaks from nowhere yet.
+        /// The chain enclosing the element being analysed, set in lockstep with `OpenScope`.
         mutable EnclosingHolder: ModuleHolder voption
-        /// Per-signature type-parameter scope: each signature opens its own scope
-        /// and restores the prior one on exit. Anonymous typars (`_`) never enter
-        /// the scope — they're fresh per occurrence.
+        /// Per-signature type-parameter scope, restored on exit. Anonymous typars (`_`) never
+        /// enter it — they are fresh per occurrence.
         mutable TyparScope: Dictionary<string, TyVarId>
-        /// Prototype TyVars (keyed by source name) for the *next* binding's own
-        /// `<'C, …>` typars: `inferBinding` mints a fresh scope for a binding's
-        /// declared typars, but when this seed is set it reuses the prototype TyVar
-        /// for a matching name instead of allocating a fresh one. `fillTypeMembers`
-        /// sets it from a generic member's `TypeMemberInfo.SeedTypars`, so the
-        /// typars flowing into the inferred signature are the same roots `Elaborate`
-        /// surfaces and codegen installs as the ambient `!!i` set. `ValueNone` ⇒ the
-        /// binding gets fresh typars.
+        /// Prototype TyVars for the NEXT binding's own `<'C, …>` typars: on a name match the
+        /// binding reuses one, so a generic member's signature and body share typar roots.
         mutable BindingTyparSeed: Dictionary<string, TyVarId> voption
-        /// The enclosing type's type-parameter scope (class / union typars), kept in
-        /// scope across a member-body walk and its nested `let`s. `inferBinding` mints
-        /// a *fresh* scope per binding (so sibling bindings' `'a`s stay distinct),
-        /// which would otherwise drop the class typars `fillTypeMembers` put in scope:
-        /// a generic member's *signature* annotation (`(x: 'T)`, `: Set<'T>`) would
-        /// find an empty scope and — under `TyparScopeStrict` — diagnose "Free type
-        /// parameter 'T". When set, `inferBinding` seeds its fresh scope with these
-        /// typars first (the binding's own `<'a>` typars seed after, shadowing on a
-        /// name clash). Set by `fillTypeMembers` / `fillSecondaryCtors`; `ValueNone`
-        /// for a non-member binding.
+        /// The enclosing type's typars, live across a member body and its nested `let`s. A
+        /// binding's fresh scope seeds these first, its own `<'a>` after, shadowing on clash.
         mutable EnclosingTypars: Dictionary<string, TyVarId> voption
-        /// When true, `translateType` rejects any `'a` not already present in
-        /// `TyparScope` rather than introducing it implicitly. Used by the type-defn
-        /// fill-in walk: implicit free typars in a record / DU declaration aren't
-        /// legal F# (only `<'a>`-declared typars are). Binding-level scopes keep
-        /// this `false`.
+        /// A `'a` not already in `TyparScope` is rejected rather than introduced implicitly.
+        /// Set for the type-defn fill-in walk: a record / DU may use only its declared typars.
         mutable TyparScopeStrict: bool
-        /// Keyed by a member-access node (`Expr.DotLookup`): the resolved external
-        /// member (`TryLookupMember` hit) for an `<externalType>.Member` or static
-        /// `Type.Member` access. Elaborate mints a `TExpr.ExternalMember` stamping the
-        /// resolved `SymbolKey`. Absent ⇒ project-local member access (resolved via
-        /// `Types.Class` / `Types.Union`).
+        /// Keyed by a member-access node (`Expr.DotLookup`), for an `<externalType>.Member` or
+        /// static `Type.Member` access. Absent ⇒ a project-local member access.
         ExternalAccess: SideTable<ResolvedExternalMember>
-        /// Keyed by an external construction node (`new T(args)` or the ctor-as-function
-        /// `T args` / `T<'a>(args)`): the chosen `.ctor`'s `SymbolKey.MemberKey` when the
-        /// argument types resolved a same-arity overload set. Written by `InferCtor`'s
-        /// `inferExternalCtorOn` / `inferIntrinsicClassCtorCall` at the `pickBestOverload`
-        /// seam; Elaborate reads it back onto `TExpr.New.key` so codegen selects that exact
-        /// `.ctor` by identity instead of re-running overload resolution. Absent ⇒ a
-        /// project-local construction (resolved by result-type key + arity).
+        /// Keyed by an external construction node (`new T(args)`, `T args`, `T<'a>(args)`):
+        /// the chosen `.ctor`'s key, so a backend selects that exact overload by identity.
         ExternalCtor: SideTable<SymbolKey>
-        /// Keyed by an *overloaded* project-local method-call node (the same App/HPA
-        /// `NodeKey` the call-seam probe resolves under): the TOTAL frozen `MemberKey`
-        /// (`SymbolKey.Member`) the picker chose — its argSig frozen in the declaring
-        /// type's open typars, so it distinguishes `Show(int)` from `Show(string)`. Written
-        /// by `InferExternalCall`'s local-overload probe when a name has >1 candidate;
-        /// `Elaborate.mkMethodCall` reads it back verbatim onto `TExpr.MethodCall.key`
-        /// instead of re-picking. Absent ⇒ a non-overloaded name, whose total key
-        /// `Elaborate` mints from the resolved member itself (`LocalMemberKeys.totalMemberKey`)
-        /// is already a unique identity (nothing else shares the name), so no handshake is needed.
+        /// Keyed by an OVERLOADED project-local method-call node: the member key the picker
+        /// chose — its argSig distinguishes `Show(int)` from `Show(string)`.
         LocalMemberCall: SideTable<SymbolKey>
-        /// Keyed by an external *method-call head* (the same key `ExternalAccess`
-        /// stores the resolved member under): the compile-time constant defaults of
-        /// the trailing optional parameters this call *omitted*, in declaration order.
-        /// Written by `Unification`'s optional-argument fill
-        /// (`InferExternalCall.tryFillOptionalCall`) when a call supplies fewer
-        /// arguments than the member's parameter count, from the member's
-        /// `ExternalMember.OptionalDefaults`; `Elaborate.translateApp` synthesises them
-        /// as literal arguments so codegen sees the full tupled call
-        /// (`ArrayPool<'T>.Return(arr)` ⇒ `Return(arr, false)`). Absent ⇒ a fully
-        /// applied call (the common case), emitted unchanged.
+        /// Keyed by an external method-call head: the constant defaults of the trailing
+        /// optional parameters the call OMITTED, in declaration order.
         ExternalOptionalFill: SideTable<TConstValue list>
-        /// Keyed by the folded `LongIdent` / `DotLookup` head of `x.M(...)`: the
-        /// constraining *interface*'s `SymbolKey.TypeKey` when the receiver's type is
-        /// a generic typar coerced to a project-local interface (`'T :> IFace`).
-        /// Written by `Unification.resolveFieldStep`'s typar arm when it resolves the
-        /// member through the typar's `Coercion` constraint; `Elaborate` mints a
-        /// `TExpr.MethodCall` with `CallVia.Interface` (the declaring type is the
-        /// interface; codegen emits `constrained. <typar> callvirt`). The paired
-        /// `SemType list` is the interface's instantiation type arguments (`'E` in
-        /// `'T :> IStructSeq<'E>`), taken from the `Coercion` constraint's target so
-        /// Elaborate can thread them onto `CallVia.Interface` and codegen mint the slot
-        /// on the *instantiated* interface `TypeSpec`; empty for a non-generic
-        /// interface. Absent ⇒ an ordinary nominal-receiver member access.
+        /// Keyed by the folded head of `x.M(…)` whose receiver is a typar coerced to a
+        /// project-local interface (`'T :> IFace`): that interface's key and type arguments.
         TyparInterfaceCall: SideTable<TypeKey * EqArray<SemType>>
-        /// Keyed by an external-value use-site (the `Expr.Ident` / `Expr.LongIdentOrOp`
-        /// that resolved through `IExternalSymbolProvider.TryLookup`): the resolved
-        /// value's `SymbolKey.ValueKey`. Elaborate stamps it onto `TExpr.External` so
-        /// codegen can do robust identity checks (e.g. "is this exactly
-        /// `Vesper.Printf.printfn`?") instead of suffix-matching the source-written
-        /// name.
+        /// Keyed by an external-value use-site — an `Expr.Ident` / `Expr.LongIdentOrOp`.
         ExternalValue: SideTable<SymbolKey>
-        /// Keyed by an external value/operator use-site: the full `ExternalSymbol` the
-        /// spelling resolves to. Minting sites (all in NameResolution's walk): a value
-        /// ref (`Expr.Ident` / multi-segment `Expr.LongIdentOrOp`), a `(+)`-as-value /
-        /// `A.B.(+)` operator value, and the desugared/dynamic operators (`InfixApp` /
-        /// `PrefixApp` reading `ctx.Desugared`, `op_Dynamic` on a `DynamicLookup`,
-        /// `op_DynamicAssignment` on the enclosing dynamic `Assignment`). Read by
-        /// `InferIdentExpr`'s value / `(+)`-value arms and `InferApp`'s operator sites,
-        /// which call `ExternalSymbols.instantiateSymbol` on it. The whole symbol is
-        /// stamped, not just its `SymbolKey` (`ExternalValue` / `IntrinsicKey` carry
-        /// that for Elaborate): instantiation needs the polymorphic `Scheme` /
-        /// `TyparArity` / `Constraints`, and this table is written where the SPELLING is
-        /// resolved — the one place that owns `string × OpenScope → symbol`. Caching the
-        /// resolved symbol there is what keeps every later pass off the resolver view; it
-        /// is not a claim that no key-addressed form exists (`TryLookupByKey` is one).
-        /// The value/operator companion to `ExternalUnionCaseStamp` (cases).
-        /// Absent ⇒ the spelling is not an external symbol; the consumer falls to its
-        /// ctor / static / operator-value / error path.
+        /// Keyed by an external value/operator use-site. The whole symbol, not just its key,
+        /// because instantiating it needs the polymorphic `Scheme` / `TyparArity` / `Constraints`.
         ExternalSymbolStamp: SideTable<ExternalSymbol>
-        /// Keyed by an external union-case ctor head — a *pattern* head
-        /// (`CstKeys.ofPat`: the `Some x` / `Result.Ok x` of a `match` / binder) or an
-        /// *expression* head (`CstKeys.ofExpr`: a bare `None` / qualified `Option.Some`
-        /// used as a value / ctor function): the `ExternalUnionCase` it resolves to.
-        /// NameResolution owns case recognition — it applies the opens / RQA / qualifier
-        /// discipline (`ExternalUnionCase.ResolvesWith`) here; Unification's `InferPat` /
-        /// `InferIdentExpr` and Elaborate's `translatePat` / `tryCtorRef` read the stamp.
-        /// Absent ⇒ the head is not an external union case (a binder, a local ctor, or a
-        /// bare reference to an `[<RequireQualifiedAccess>]` case, which resolves only
-        /// qualified). A missed stamp where a consumer reads is a phantom binder /
-        /// mis-lowering, so the pattern-stamping walk must reach every pattern position.
-        ///
-        /// The payload is stamped, not a `(union key, case name)` pair: a consumer needs
-        /// the declaring union's key AND the matched case's per-field type builders to
-        /// instantiate `TyUnion(union, freshArgs)` and unify sub-patterns. Recovering
-        /// the field types from the union key alone would take a key-addressed
-        /// `TryLookupType(union key)` → select-case-by-name — but a provider publishing
-        /// only the reverse case index (several test fakes, any minimal contract)
-        /// answers `TryLookupUnionCase` yet returns `ValueNone` for that forward lookup,
-        /// so the round-trip would change behaviour.
+        /// Keyed by an external union-case ctor head, in pattern (`Some x`) or expression
+        /// (`None`, `Option.Some`) position. Absent ⇒ a binder, a local ctor, an RQA case.
         ExternalUnionCaseStamp: SideTable<ExternalUnionCase>
-        /// Keyed by an external enum-case access `E.C1`'s head — an *expression* head
-        /// (`CstKeys.ofExpr`: `E.C1` used as a value) or a *pattern* head
-        /// (`CstKeys.ofPat`: `| E.C1` in a `match`): the enum's nominal `SymbolKey`. `E`
-        /// qualifies opens-aware to an external `ExternalTypeShape.Enum` declaring `C1`
-        /// (arity-0 — enums are never generic); the key matches the type-annotation mint
-        /// for an `(x: E)` annotation, so the access/pattern and the annotation unify.
-        /// Unification's `InferIdentExpr` / `InferPat` enum arms read the stamp and type
-        /// the node `TyEnum key`. Elaborate needs no stamp: it reads the enum key back off
-        /// the node's `TyEnum` type (`Elaborate/Resolve.enumKeyOfTy`). Absent ⇒ the head is
-        /// not an external enum case (a project-local enum, handled by the sibling
-        /// `ctx.Types.Enum` arm, or an unrelated qualified name). The enum-case sibling
-        /// of `ExternalUnionCaseStamp`, but a bare `SymbolKey` suffices rather than a
-        /// payload: an enum case is a named constant on a closed set, not a ctor function.
+        /// Keyed by an external enum-case access `E.C1`'s head: the enum's nominal key, minted
+        /// at arity 0 and so equal to the key an `(x: E)` annotation mints, letting them unify.
         ExternalEnumCaseStamp: SideTable<TypeKey>
-        /// Keyed by an expression Elaborate lowers to a desugared
-        /// `TExpr.External(<intrinsicName>, …)` head that splices a cross-package
-        /// `let inline` body — an arithmetic/comparison/custom operator
-        /// (`InfixApp`/`PrefixApp`), a dynamic-access operator (`op_Dynamic` on a
-        /// `DynamicLookup`, `op_DynamicAssignment` on the enclosing `Assignment`), or a
-        /// synthesised element/index/length intrinsic (`GetArray`/`GetString`/`GetIndex`
-        /// on an `IndexedLookup`, `SetArray`/`SetIndex` on the enclosing `Assignment`,
-        /// `GetArrayLength` on the `.Length` `DotLookup` / `LongIdent` chain): the
-        /// intrinsic's `SymbolKey`. Unification resolves the intrinsic's
-        /// `ExternalSymbol` while typing the node (the same `OpenScope.tryResolve` that
-        /// grounds the call) and records its key; Elaborate stamps it onto the minted
-        /// `TExpr.External` so `InlineExpansion` splices the body by KEY. Absent ⇒ the
-        /// head keeps `key = ValueNone` (`op_AddressOf` / other non-provider intrinsics,
-        /// or a splice target whose symbol did not resolve — a diagnostic already fired).
-        /// The operator/intrinsic twin of `ExternalValue` (resolved *value* refs),
-        /// separate because these heads are minted fresh by Elaborate rather than routed
-        /// through `translateIdent`'s `ExternalValue` path.
+        /// Keyed by an expression splicing a cross-package `let inline` body — an operator,
+        /// `x?f`, `arr.[i]`, `arr.Length`: the intrinsic's key, so the splice is by KEY.
         IntrinsicKey: SideTable<SymbolKey>
-        /// Keyed by a `:?` type-test expression's `NodeKey`: the resolved
-        /// tested-against type (`Expr.DynamicTypeTest`'s target). The node's own
-        /// inferred type is `bool` (the result), so the target type — which
-        /// codegen needs for the `isinst` operand — is stashed here by
-        /// Unification and read by Elaborate to populate `TExpr.TypeTest.testTy`.
         TypeTestTargets: SideTable<SemType>
         /// Keyed by a `use` binding's head-pattern `NodeKey`: how the binder is disposed.
-        /// Recorded by `Unification`'s `use`-Dispose resolution and read by `Elaborate` to
-        /// stamp `TExpr.Use.dispose`. Absent ⇒ `Disposal.Unresolved` — Unification reported
-        /// a `use`-over-non-disposable error (or the binder's type never resolved), so no
-        /// backend may lower the node.
         UseDispose: SideTable<Disposal>
-        /// Keyed by a `for x in src do …` node's `NodeKey`: how the source yields
-        /// its enumerator. Recorded by `Unification.inferForIn` and read by `Elaborate`
-        /// to stamp `TExpr.ForIn.enumerator`. Absent ⇒ `ForInEnumerator.Interface`
-        /// (range sources and the interface path); present with
-        /// `ForInEnumerator.Pattern` for a source exposing only a pattern-based
-        /// `GetEnumerator()`.
+        /// Keyed by a `for x in src do …` node. Absent ⇒ the interface path (which range
+        /// sources also take); present for a source with only a pattern-based `GetEnumerator()`.
         ForInShape: SideTable<ForInEnumerator>
-        /// Keyed by a type-reference OR an expression-position type-name node: the
-        /// `SymbolKey` that reference resolves to. Minting sites:
-        /// `NameResolution.registerUnionTypeDefn` stamps the *decl* site (`DeclType`
-        /// key) from the union's minted `Key`; `translateType` / `resolveNamedGeneric`
-        /// stamp type-annotation *use* sites (`TypeNamed` / `TypeGeneric` keys); and
-        /// NameResolution's ident/long-ident walk stamps *expression* sites — a
-        /// generic external-type receiver (`EqualityComparer<int>.Default`, the
-        /// `Expr.TypeApp` head), a folded static-member receiver prefix
-        /// (`System.Console` in `System.Console.Out`, the whole `Expr.LongIdent`
-        /// node's key), and an external ctor-sugar head (`InvalidOperationException`
-        /// as an `App` head).
-        /// Read by the type-decl emitter (`Elaborate.tryUnionType`) and the enum use-site
-        /// elaborator by type key, and by Unification's `tryExternalTypeReceiver` /
-        /// `splitExternalStaticPrefix` / `tryInferExternalCtorApp`, which take the
-        /// stamped declaring-type key into a key-addressed `TryLookupMember` /
-        /// `TryLookupMembers(_, ".ctor")`. That split IS F#'s name-resolution /
-        /// type-inference seam: the static type prefix is resolved here, opens-aware,
-        /// while the post-dot member name stays a string — a non-opens-sensitive
-        /// post-selector.
+        /// Keyed by a type-naming node: a type-declaration site, a union / enum type
+        /// annotation, or an expression-position type name (a static prefix, a ctor head).
         ResolvedType: SideTable<TypeKey>
-        /// Keyed by a written **type-annotation head** (`CstKeys.ofTypeHead` — a
-        /// `NamedType`/`GenericType`/`SuffixedType` anchored on `li.Idents.[0]`): the
-        /// external `SymbolKey` that head resolves to, minted by NameResolution's
-        /// `tryResolveExternalTypeKey` at the syntactic type-arg arity.
-        /// `Translate.tryResolveExternalTypeStamped` reads the stamp and fetches the
-        /// shape through `ctx.Provider.TryLookupType key`. Distinct from
-        /// `ResolvedType`: that records *expression*-position type names (ctor-sugar
-        /// heads, generic static receivers) keyed by their `Expr*` `NodeKind`; this
-        /// records *type*-position heads keyed by their `Type*` `NodeKind`. An abbrev
-        /// head stamps its OWN key (`useSiteTypeKey` returns it); Translate dealiases
-        /// on read. Absent ⇒ the head is project-local, a bare typar, or an unreachable
-        /// name — Translate takes its local-registry / opaque / `TyVar` paths. (The
-        /// `float<m>` measure carrier is synthesized during inference with no `Type`
-        /// node to stamp, and keeps the one sanctioned resolver-view reach.)
+        /// Keyed by a written type-annotation HEAD (anchored on `li.Idents.[0]`): the EXTERNAL
+        /// key it resolves to at the syntactic type-arg arity.
         ResolvedTypeHead: SideTable<TypeKey>
-        /// A static-access receiver's resolved external type key — a CLASS, or an
-        /// INTRINSIC whose contract declares static members on it (a member-bearing
-        /// `extern` type: the `Intrinsic` shape carries no member slots, so its
-        /// members ride the by-key lookup under the canon). The writer guarantees a
-        /// static-member-bearing shape, so readers dispatch with no shape re-query.
-        /// Two minting forms, each keyed by its own node: a folded static-member
-        /// `Expr.LongIdent` (`System.Console.Out`, `N.pickName`) stamps the receiver
-        /// PREFIX (every segment but the last; read by `splitExternalStaticPrefix`,
-        /// then `TryLookupMember(prefixKey, lastSegment)` selects the post-dot
-        /// member by key), and a generic `Expr.TypeApp` receiver *head*
-        /// (`EqualityComparer<int>` in `EqualityComparer<int>.Default`, resolved at
-        /// exact arity; read by `tryExternalTypeReceiver`). This is DISTINCT from
-        /// `ResolvedType`, which records the type a node names *wholly* at ANY
-        /// shape (a ctor-sugar head, a bare type ref, arity-based diagnostic
-        /// suppression, the generic-ctor abbrev path). The two carry incompatible
-        /// meanings for the SAME folded-LongIdent node —
-        /// `System.InvalidOperationException` is a whole-name class (a ctor head,
-        /// `ResolvedType`) while `N.pickName` is a prefix class + trailing member
-        /// (here) — so they cannot share one table: a ctor-app consumer reading
-        /// `ResolvedType` must NOT see the receiver prefix of a static member and
-        /// mistake it for a constructible head. Absent when the receiver bears no
-        /// external static surface (a namespace, a local field chain, an unknown
-        /// qualifier, a union/record/abbrev receiver — each keeps its own path).
+        /// A static-access receiver's external type key: the PREFIX of a folded `Expr.LongIdent`
+        /// (`System.Console` in `System.Console.Out`), or a generic `Expr.TypeApp` head.
         ExternalStaticReceiver: SideTable<SymbolKey>
-        /// Keyed by a ≥2-segment qualified `Expr.LongIdent` whose qualifier (every
-        /// segment but the last) resolves to an external UNION or RECORD: the
-        /// qualifier's resolved nominal `SymbolKey`. Unlike a class, a union/record
-        /// exposes no static fields, so a `Q.member` whose `member` resolves to
-        /// neither a value nor a case nor a static member is a genuine missing-member
-        /// reference, not the unmodelled-static-field silence a class qualifier
-        /// warrants: Unification's `tryQualifiedExternalMemberMiss` reads the stamped
-        /// key to raise "Type 'Q' has no value or member 'm'" (Q = the resolved
-        /// identity, not the written spelling) for such an unresolved tail. The
-        /// member-miss error itself stays in Unification, where `errorTy` also types
-        /// the node. Absent ⇒ the qualifier is a class (unmodelled-static silence), a
-        /// namespace, or unknown; present-but-unread when the tail DID resolve (a
-        /// valid case / value / static never reaches the miss path).
+        /// Keyed by a ≥2-segment `Expr.LongIdent` whose qualifier is an external UNION or
+        /// RECORD: such a type bears no static fields, so an unresolved tail is a real miss.
         ExternalUnionRecordQualifier: SideTable<SymbolKey>
-        /// Project-local *module* member registry: a local module's short name
-        /// (`SetTree`) → its directly-declared `let` value/function bindings (member
-        /// name → the member, carrying the binding-site `NodeKey` `bindingsOfPat` mints for
-        /// the head pattern and the offset it is visible from). Populated by
-        /// `NameResolution.registerLocalModules`, a pre-pass
-        /// over the *un-flattened* module tree — the flattened element walk
-        /// (`CstWalk.walkModuleTreeWith`) erases module boundaries, so a sibling
-        /// module's function would otherwise be unresolvable. Read by the
-        /// qualified-name path (`SetTree.add` resolves to the member's binding site,
-        /// recorded as a use-site `Binding` entry so Unification/Elaborate treat it as an
-        /// ordinary local reference) and by the nested-type body walk (an enclosing
-        /// module's bindings enter the type-body scope, unqualified). The `SetTree`
-        /// *module* and a same-named `SetTree<'T>` *type* coexist: this table is keyed
-        /// independently of `Types.Class`.
-        ///
-        /// The table is whole-file — the pre-pass runs before anything is walked — so BOTH
-        /// readers must honour `LocalModuleMember.VisibleFrom` against their use site.
-        /// Without that this registry is a whole-file forward grant for values, i.e. an
-        /// unconditional `module rec`.
+        /// A local module's short name (`SetTree`) → its directly-declared `let` bindings.
+        /// Whole-file, so a reader MUST honour `VisibleFrom`.
         LocalModules: Dictionary<string, Dictionary<string, LocalModuleMember>>
-        /// Maps a local *type*'s short name (`SetIterator`) → the short name
-        /// of the module it is declared inside (`SetTree`). Populated alongside
-        /// `LocalModules`; consulted by the nested-type body walk to merge the
-        /// enclosing module's bindings into the member-body scope. Absent for a
-        /// type declared at namespace / file top level.
+        /// A local TYPE's short name (`SetIterator`) → the short name of the module it is
+        /// declared inside (`SetTree`). Absent for a type at namespace / file top level.
         TypeEnclosingModule: Dictionary<string, string>
     }
 
@@ -500,20 +195,12 @@ module PassContextResolution =
             TypeEnclosingModule = Dictionary<_, _>()
         }
 
-/// A `recv?name` dynamic-access site whose `^TResult` var (`Root`) may escape
-/// `dynamic` to a concrete type through context (`d?foo + 1` pins it to `int`).
-/// Recorded by `inferDynamicLookup`; swept post-settle by `DynamicEscape.run`,
-/// which warns when `Root` zonks to a non-`dynamic` shape (the `default : dynamic`
-/// did NOT fire — an unchecked assertion). `Node` is the `?` expression: its key matches a
-/// suppressing `(d?foo : T)` ascription, its token is where the warning points.
+/// A `recv?name` site whose result var (`Root`) may escape `dynamic` through context —
+/// `d?foo + 1` pins it to `int`, which warns. `Node` is the `?` expression itself.
 type DynamicEscapeSite = { Root: TyVarId; Node: NodeSite }
 
-/// A bare-program list literal left FLEXIBLE by `listLiteralTy` / `consListTy`: the
-/// container `TypeVar` a consumer may drive, its element type, and the literal's own token.
-///
-/// The token is carried because the resolve (`Unification.resolveListLiterals`) runs after
-/// the whole file is walked — it holds no node of its own, so without this a reconciliation
-/// failure would have nowhere to point.
+/// A bare-program list literal left FLEXIBLE: the container `TypeVar` a consumer may drive,
+/// its element type, and its own token — the settling runs after the walk, so a node is gone.
 type ListLiteral =
     {
         Var: TyVarId
@@ -521,18 +208,8 @@ type ListLiteral =
         Tok: SyntaxToken
     }
 
-/// The fixed set of Vesper.Core inline *access* intrinsics — the array/string/index
-/// read+write lowering (`arr.[i]`, `arr.[i] <- v`, `arr.Length`, `s.[i]`, an
-/// index-signature `x.[k]`). Each field is the resolved `ExternalSymbol` the
-/// inference site instantiates (`ExternalSymbols.instantiateSymbol`) and whose `Key`
-/// it threads into `IntrinsicKey` for the Elaborate/InlineExpansion splice. These names
-/// live in `[<AutoOpen>]` prelude modules (`Vesper.Operators` /
-/// `Vesper.StringIntrinsics` / `Vesper.IndexIntrinsics`), so they resolve through the
-/// AMBIENT open scope alone — opens-insensitive — and are resolved ONCE per file
-/// (`PassContext.CoreAccess`) rather than re-run per node. `ValueNone` = the name is
-/// not in scope (no Vesper.Core referenced), which each reader turns into an
-/// "intrinsic not in scope" diagnostic. Resolving here — not at each use site —
-/// keeps `PassContext.Provider` a pure key-addressed `IExternalSymbolStore` view.
+/// The Vesper.Core inline ACCESS intrinsics — the array / string / index read+write lowering
+/// (`arr.[i]`, `arr.[i] <- v`, `arr.Length`). `ValueNone` = the name is not in scope.
 type CoreAccessIntrinsics =
     {
         GetArrayLength: ExternalSymbol voption
@@ -543,95 +220,40 @@ type CoreAccessIntrinsics =
         SetIndex: ExternalSymbol voption
     }
 
-/// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
-/// `Diagnostics` channel, and the `TypeVar` graph it owns all mutate in
-/// place and are not safe to access from multiple threads. Parallelism
-/// happens at file granularity by allocating one `PassContext` per file
-/// and analysing them concurrently; the shared `IExternalSymbolProvider`
-/// is the only object that crosses thread boundaries (and its contract
-/// requires thread-safe `TryLookup`).
-///
-/// The bulk of the per-file state lives in three sub-records grouped by
-/// concern: `Types` (project type registry), `Bindings` (per-binder side
-/// tables), `Resolution` (name-resolution scopes).
+/// Single-threaded: the side tables, `Diagnostics` and `TypeVar` graph all mutate in place.
+/// Parallelism is per FILE — one context each; only the provider crosses threads.
 [<Sealed>]
 type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
-    // Memoise the external-symbol lookups for this file's analysis. The provider handed in
-    // is the accumulated stack (prior-file views ahead of the referenced-contract leaf);
-    // one file re-asks the same `TryLookupType`/member queries many times, and each
-    // otherwise walks every composite layer (a dictionary miss + `voption` alloc per layer)
-    // before reaching the cached leaf. One `memoize` per `PassContext` amortises that
-    // layer-walk for the file's lifetime — sound because the external surface is immutable
-    // during a file's analysis (a file's own symbols resolve through the scope tables, not
-    // `ctx.Provider`). Cheap: a handful of small dictionaries per file. Shadows the ctor
-    // arg, so every member below (and the ambient seed) sees the memoised view.
+    // One file re-asks the same queries many times, each walking every composite layer.
+    // Shadows the ctor arg, so every member below sees the memoised view.
     let provider = ExternalSymbolProviders.memoize provider
 
-    // Seed the ambient (implicit-open) prelude from the provider's
-    // `AmbientOpenPrefixes` (the referenced-contract `[<AutoOpen>]` modules /
-    // FSharp.Core prelude). This is the single seam: every path that builds a
-    // `PassContext` (the pipeline and the direct-construction tests alike) picks
-    // it up here. Providers without an implicit prelude return `[]`, so
-    // resolution is unchanged for them. The ambient sits at the tail of the
-    // prefix list, so explicit `open`s the pass walk prepends are tried first.
+    // The ambient prefixes sit at the TAIL, so explicit `open`s the walk prepends win.
     let ambientOpenScope =
         { OpenScope.empty with
             Prefixes = provider.AmbientOpenPrefixes
         }
 
-    // `IntrinsicReprTypes` holds ONLY this file's own intrinsic
-    // bindings (`type int = (# "System.Int32" #)`), registered by NameResolution.
-    // A *referenced* package's intrinsics are no longer seeded here: they ride
-    // the provider as `ExternalTypeShape.Intrinsic` shapes, read local-first /
-    // provider-fallback by `subsumes.canonKey`, `translateType`, and codegen.
+    // `IntrinsicReprTypes` holds ONLY this file's own intrinsic bindings
+    // (`type int = (# "System.Int32" #)`); a referenced package's ride the provider.
     let types = PassContextTypes.empty ()
 
-    // Uniqueness counter behind `NewSynthBinder`; per file, like the metavar arena.
     let mutable synthBinders = 0
 
-    /// The **store view** (`SymbolKey → payload`) of the external-symbol contract —
-    /// the default view every downstream pass (Unification, Elaborate, InlineExpansion,
-    /// codegen) speaks once identity is already resolved. Narrowed from the full
-    /// `IExternalSymbolProvider` on purpose: a consumer pass CANNOT reach a spelling
-    /// lookup through `ctx.Provider` because the resolver view isn't on it. A genuine
-    /// `string → identity` reach lives on `ctx.Resolver` and is sanctioned only for the
-    /// named readers documented there. A free upcast of the same backing object.
+    /// The STORE view (`SymbolKey → payload`) — what a pass speaks once identity is resolved.
+    /// Narrowed on purpose: a pass holding only this cannot reach a spelling lookup.
     member _.Provider: IExternalSymbolStore = provider
 
-    /// The **resolver view** (`string → identity`) of the external-symbol contract.
-    /// Deliberately the ONLY string-lookup handle reachable from a `PassContext`, kept
-    /// narrow and greppable so the resolve-once boundary stays enforced by exposure:
-    /// a pass holding only the store-view `Provider` CANNOT resolve a spelling. Its
-    /// sanctioned readers — pinned by `ResolverAllowlistTests` in the SA test suite —
-    /// are each a genuine `string → identity` reach that survives by construction
-    /// (not a `SymbolKey` round-trip):
-    ///   - `NameResolution` — the resolve-once layer that owns `string × OpenScope →
-    ///     SymbolKey` (and its intrinsic-key / runtime-type helpers);
-    ///   - `Translate.tryResolveExternalType` — the by-name reach for the one head with
-    ///     no `Type` node to carry a stamp (the synthesized `float<m>` measure carrier)
-    ///     — plus its DEBUG-only stamping-gap witness;
-    ///   - codegen's cross-package inline-body key interning (`SymbolProviders`) — a
-    ///     by-name value lookup pending its own by-key conversion.
-    /// Any NEW consumer-pass string resolution is a boundary violation: speak the
-    /// key-addressed `Provider` store view instead. A free upcast of the same object.
+    /// The RESOLVER view (`string → identity`), the only string-lookup handle a `PassContext`
+    /// exposes. `ResolverAllowlistTests` greps each file for `ctx.Resolver`.
     member _.Resolver: IExternalSymbolResolver = provider
 
-    /// The four language-capability identities, resolved once here THROUGH THE
-    /// PROVIDER (`ExternalSymbols.resolveCapabilities`) from their canonical Vesper
-    /// contract names — the single carrier the `for-in`/`use` lowering and the FS0378
-    /// custom-eq/comp check read. A capability the provider does not name is
-    /// `ValueNone` (resolve-on-use, §5.4); the passes carry zero hardcoded BCL
-    /// identities.
+    /// The language-capability identities (enumerable, enumerator, disposable, equatable,
+    /// comparable), resolved once from contract names — no BCL identity is hardcoded.
     member val CapabilityIds = ExternalSymbols.resolveCapabilities provider with get
 
-    /// The Vesper.Core inline access intrinsics (`CoreAccessIntrinsics`), resolved
-    /// ONCE against the ambient prelude scope. `lazy` so files that touch no array /
-    /// string / index access pay nothing; the access/assignment inference sites
-    /// (`inferIndexedLookup`, `resolveFieldStep`'s `.Length`, `inferAssignment`) read
-    /// the stored `ExternalSymbol` by field instead of resolving the spelling through
-    /// the provider per node. These names are ambient (`[<AutoOpen>]` prelude modules)
-    /// and opens-insensitive, so resolving against `ambientOpenScope` yields the same
-    /// hit a per-node opens-aware resolve would.
+    /// Resolved ONCE against the ambient prelude scope: the names are opens-insensitive, so it
+    /// hits what a per-node resolve would. `lazy` — a file with no such access pays nothing.
     member val CoreAccess: Lazy<CoreAccessIntrinsics> =
         lazy
             (let one (name: string) =
@@ -650,60 +272,32 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val Lexed = source.Lexed
     member val Origin = source.File
 
-    /// The simple name of the assembly this file emits into. NOT part of any
-    /// `SymbolKey` — nominal identity is the containment chain, so a locally-minted key
-    /// and a consumer's cross-package reference to the same type are equal without either
-    /// side naming an assembly. `""` for the front-end-only / contract-scrape paths that
-    /// never emit; set by `Pipeline.analyse*For`.
+    /// The simple name of the assembly this file emits into; `""` where nothing is emitted.
+    /// NOT part of any `SymbolKey`: nominal identity is the containment chain alone.
     member val AssemblyName = "" with get, set
-    // Fully qualified: see `Diagnostic`'s declaration for why the bare name would
-    // otherwise be the parser's. The one record literal below (`Add`) resolves by field
-    // labels, so only this annotation needs the qualifier.
+    // Fully qualified: a bare `Diagnostic` here would resolve to the parser's.
     member val Diagnostics = ResizeArray<XParsec.FSharp.SemanticAnalysis.Diagnostic>() with get
     member val Types = types with get
 
-    /// The primitive-intrinsic identities (`int`/`string`/…) resolved from the
-    /// `prim-types-*` contract — the `SemType` analogue of `CapabilityIds`, so the passes
-    /// carry no static intrinsic `SemType`s. Each field resolves lazily/cached (see
-    /// `IntrinsicSet`), reading this file's own `IntrinsicKeys` (populated by the
-    /// NameResolution pre-pass) first, then the provider via ambient `open`.
+    /// The primitive-intrinsic identities (`int`/`string`/…), each resolved lazily and cached:
+    /// this file's own intrinsic keys first, then the provider via ambient `open`.
     member val Intrinsics =
         IntrinsicSet(fun name -> IntrinsicResolve.tryResolveIntrinsicType provider types.IntrinsicKeys name) with get
 
-    /// PassContext-lifetime memo of nominal `SymbolKey` → canonical intrinsic
-    /// `SymbolKey`, populated lazily by `subsumes.canonKey`. `subsumes`' recursive walk
-    /// would otherwise round-trip the composite provider / MetadataLoadContext per node
-    /// to read an `ExternalTypeShape.Intrinsic` canon; the set is tiny and bounded, so a
-    /// per-context cache keyed by the incoming key suffices. A key that is neither a local
-    /// nor a provider intrinsic caches its own identity.
+    /// Per-file memo of nominal `SymbolKey` → canonical intrinsic key; without it the composite
+    /// provider is round-tripped per node. A non-intrinsic key caches its own identity.
     member val IntrinsicCanonCache = Dictionary<SymbolKey, SymbolKey>() with get
 
-    /// The reverse intrinsic axis `{ platform-repr -> canon }`: a platform runtime
-    /// name (`"number"`) -> the `.fsi` canon identities sharing that repr. Its
-    /// unify-time readers ask a FAMILY question and so key on the MULTI-canon
-    /// entries (the JS `number` family) — the single-canon BCL
-    /// reconciliation (`"System.Exception"` -> `exn`) that `canonKey` used to read
-    /// from here now happens eagerly at resolution (`MetadataSymbols.tryBuildType`),
-    /// so no BCL name reaches the unifier. Merges the provider's
-    /// `IntrinsicReverseCanon` (referenced contracts) with this file's own
-    /// self-compiled intrinsics (`IntrinsicReprTypes`, inverted). `lazy` so it is
-    /// built once, on the first Unification read — AFTER NameResolution has
-    /// populated `IntrinsicReprTypes`.
+    /// A platform runtime name (`"number"`) → the `.fsi` canon identities sharing that repr.
+    /// `lazy`: the first read must come AFTER name resolution filled `IntrinsicReprTypes`.
     member val IntrinsicReverseCanon: Lazy<Dictionary<string, SymbolKey list>> =
         lazy
             (let d = Dictionary<string, SymbolKey list>()
 
              for KeyValue(platform, canons) in provider.IntrinsicReverseCanon do
                  d.[platform] <- canons
-             // Local self-compiled intrinsics (short `.fsi` name -> platform repr):
-             // invert so a raw platform name reconciles with the short identity within
-             // a `--compiling-fslib` file. Skips a degenerate `platform = short`. A local
-             // repr wins over the provider's canons for the same platform (self-compiled
-             // identity is authoritative within the file), so it replaces the entry. The
-             // canon value is the contract-stamped qualified identity (`IntrinsicKeys`, keyed
-             // from the declaring `namespace`), so it compares EQUAL to the forward/provider
-             // canons; `intrinsicKeyOf` falls back to the by-name mint only for a repr with
-             // no stamped key.
+             // Local intrinsics are stored short name -> platform repr; invert so a raw platform
+             // name reconciles inside a `--compiling-fslib` file, REPLACING the provider's canons.
              for KeyValue(short, platform) in types.IntrinsicReprTypes do
                  if platform <> short then
                      d.[platform] <- [ TypeRegistry.intrinsicKeyOf types short ]
@@ -713,48 +307,21 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
     member val Bindings = PassContextBindings.empty () with get
     member val Resolution = PassContextResolution.create ambientOpenScope with get
     member val Desugared = SideTable<DesugaredForm>() with get
-    /// Keyed by an `Expr.App` NodeKey; present only for printf calls lowered
-    /// inline (literal format, fully applied, a `StdOut`/`StdErr`/`StringResult`
-    /// sink, every specifier `PrintfHoleForm.tryClassify` accepts). Absence keeps
-    /// the existing FSharp.Core path.
+    /// Keyed by an `Expr.App`; present only for printf calls lowered inline — literal format,
+    /// fully applied, a `StdOut`/`StdErr`/`StringResult` sink, every specifier classifiable.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
-    /// Keyed by the same `Expr.App` NodeKey as `PrintfApp`; present only for a
-    /// fully-applied `%a`/`%t` call on a *writer/builder* family (a `Writer` /
-    /// `Builder` sink whose scratch type the provider resolves). Carries the
-    /// resolved scratch class + `ToString` key Elaborate splices into the capture-first
-    /// residue block. `sprintf` `%a`/`%t` has no entry — its residue is the
-    /// callback's returned string; absence means "no scratch needed".
+    /// Keyed as `PrintfApp`; only for a fully-applied `%a`/`%t` call on a writer/builder sink.
+    /// `sprintf` has no entry — its residue is the returned string.
     member val PrintfCallbackScratch = SideTable<PrintfSpec.CallbackScratch>() with get
-    /// Keyed by an `Expr.App` NodeKey; present only for a *fully-unapplied*
-    /// lowerable printf partial (`printfn "%d"`, `printf "%d %s"`, …) — a literal
-    /// format, `idx = 0`, a `StdOut`/`StdErr`/`StringResult` sink, `1..K` holes,
-    /// every specifier lowerable and none `%A`/`%O` (an unapplied `%A` hole is an
-    /// unpinned typar). Elaborate synthesises a Vesper closure
-    /// `fun h1 … hn -> Format(sink, …)` for it (heap, 4a) instead of the
-    /// FSharp.Core `PrintfFormat` cold path. Mutually exclusive with `PrintfApp`
-    /// (that fires only when the call is fully applied). Absence keeps the existing
-    /// FSharp.Core path.
+    /// Keyed by an `Expr.App`; only for a FULLY-UNAPPLIED lowerable printf partial
+    /// (`printfn "%d"`), so never `%A`/`%O` — an unapplied hole there is an unpinned typar.
     member val PrintfPartial = SideTable<PrintfSpec.PrintfSink>() with get
-    /// E1: a `let`-bound (or ascribed) format-string literal, keyed by its
-    /// BINDING-SITE NodeKey (the head pattern's key — the same key a use-site
-    /// `Ident` resolves to via `Bindings.Binding`). Recorded by `Infer.inferBinding`
-    /// when `tryTypeFormatLiteral` types the literal against a `PrintfFormat`
-    /// annotation. The printf gate (`tryInferPrintfApp`) and Elaborate
-    /// (`translatePrintfFormat`) both const-propagate through it: a format position
-    /// holding such an `Ident` recovers the literal and lowers natively, exactly like
-    /// a syntactic literal — there is no cold runtime for a format value in the
-    /// self-host contract (the printf functions are inline-lowered intrinsics), so
-    /// native lowering is the ONLY runnable path.
+    /// A `let`-bound (or ascribed) format-string literal, keyed by its BINDING-SITE `NodeKey` —
+    /// the key a use-site `Ident` resolves to, so such an `Ident` lowers like a literal.
     member val PrintfFormatLiterals = SideTable<Expr<SyntaxToken>>() with get
 
-    /// E1 const-propagation: if `argExpr` at a printf format position is an `Ident` /
-    /// `LongIdent` bound to a format-string literal (recorded in
-    /// `PrintfFormatLiterals` by `inferBinding` when `tryTypeFormatLiteral` typed it
-    /// against a `PrintfFormat` annotation), return that underlying `Expr.String` so
-    /// the gate / Elaborate can treat it exactly like a syntactic literal. `ValueNone`
-    /// for any other shape — a direct literal (handled by the ordinary path), or a
-    /// non-format binding. Consulted by BOTH the gate (`tryInferPrintfApp`) and Elaborate
-    /// (`translatePrintfFormat`), so the two stay in lockstep.
+    /// The underlying `Expr.String` when `argExpr` is an `Ident` / `LongIdent` bound to a
+    /// format-string literal. `ValueNone` for a direct literal or a non-format binding.
     member this.TryRecoverFormatLiteral(argExpr: Expr<SyntaxToken>) : Expr<SyntaxToken> voption =
         match argExpr with
         | Expr.Ident _
@@ -764,37 +331,16 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Type provenance: the set of nodes whose type was **written by the programmer**
-    /// (a source type annotation fixed it), keyed by the annotated value / pattern /
-    /// binding node. A node's type is DECLARED iff `IsTypeDeclared` — every other
-    /// type-bearing node (list / array / record / DU / object-expression element,
-    /// unannotated `let` / lambda parameter, …) is INFERRED *by absence*, so the two
-    /// classes partition the type-bearing nodes without recording the (far larger)
-    /// inferred set. Recorded by `Infer`/`InferPat`/`InferTypeOps`/… at each
-    /// `translateType`-of-a-source-annotation site (ascription `(e : T)`, annotated
-    /// `let`/return, typed pattern & parameter `(x : T)`, `new T(…)`, `:> T` / `:? T`
-    /// / `:?> T`, `match … :? T as x`). Type *declarations* (`type …`) are always
-    /// explicit and carry no per-node provenance, so they are out of scope.
-    ///
-    /// A DECLARED node's type can still contain INFERRED positions — a `_` wildcard
-    /// (`Box<_>`: `Box` declared, the arg inferred). Those are tracked per-TyVar by
-    /// `inferenceHoles`: read provenance off the node's *un-zonked* annotation type and
-    /// treat a `TyVar` position as inferred iff `IsInferenceHole`, every nominal /
-    /// function / tuple / applied-with-concrete-arg position as declared. (A *named* typar
-    /// `'a` in `Box<'a>` is written, so it is NOT a hole — only the anonymous `_` is.)
+    /// The nodes whose type a source annotation FIXED — `(e : T)`, an annotated `let` / return
+    /// / parameter, `new T(…)`, `:> T` / `:? T` / `:?> T`.
     member val private declaredTypeSites = SideTable<unit>() with get
 
-    /// The `_`-wildcard TyVars minted by `translateType` for a source `Type.VarType
-    /// Typar.Anon`. Reference identity: the exact node stored at the wildcard position
-    /// of a declared annotation's type. Query it as it appears in the *un-zonked* type
-    /// (zonking a resolved hole to its inferred fill would erase the marker).
+    /// The TyVars minted for a source ANONYMOUS typar (`_`). Query one as it appears in the
+    /// UN-ZONKED type: zonking a resolved hole to its inferred fill erases the marker.
     member val private inferenceHoles = HashSet<TyVarId>() with get
 
-    /// Mark `key`'s type as source-declared (see `declaredTypeSites`), given the
-    /// annotation's translated type `annTy`. A BARE `_` (`let x : _ = …`, `(x : _)`) is
-    /// a request to *infer*, not a declaration, so it is skipped — the node stays
-    /// inferred. Any written structure (`Box<_>`, `int`, `'a`) marks declared, even when
-    /// it contains nested `_` holes (queryable via `HasInferenceHoleIn`). Idempotent.
+    /// Mark `key`'s type as source-declared. A BARE `_` (`let x : _ = …`) asks to INFER and is
+    /// skipped; any written structure (`Box<_>`, `int`, `'a`) marks declared. Idempotent.
     member this.MarkTypeDeclared(key: NodeKey, annTy: SemType) =
         let isBareHole =
             match annTy with
@@ -804,25 +350,16 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
         if not isBareHole then
             this.declaredTypeSites.Set(key, ())
 
-    /// Whether `key`'s type was written in source (`true`) rather than inferred
-    /// (`false` — the default for every type-bearing node with no annotation). Note a
-    /// `true` node may still carry inferred `_`-wildcard positions (`IsInferenceHole`).
+    /// Whether `key`'s type was written in source. A `true` node may still carry `_` holes.
     member this.IsTypeDeclared(key: NodeKey) : bool = this.declaredTypeSites.ContainsKey key
 
-    /// Mark `tv` as a `_`-wildcard inference hole (see `inferenceHoles`). Idempotent.
     member this.MarkInferenceHole(tv: TyVarId) = this.inferenceHoles.Add tv |> ignore
 
-    /// Whether `tv` is a `_`-wildcard hole — an INFERRED position inside an otherwise
-    /// declared annotation type. Check the TyVar as stored in the un-zonked type.
+    /// Whether `tv` is a `_`-wildcard hole. Ask about the TyVar as stored in the UN-ZONKED type.
     member this.IsInferenceHole(tv: TyVarId) : bool = this.inferenceHoles.Contains tv
 
-    /// Whether `ty` — read from the LIVE (pre-freeze) TyVar graph, e.g.
-    /// `TyVar ctx.Bindings.TypeVar.[key]` — carries any `_`-wildcard hole. Distinguishes
-    /// a fully-written `Box<int>` (`false`) from a partly-inferred `Box<_>` (`true`) at a
-    /// node that `IsTypeDeclared`. Follows a non-hole var's `Link` to reach structure but
-    /// STOPS at a hole (its `Link` is the *inferred fill*, not part of the written type),
-    /// so a resolved `Box<_>` (`_` pinned to `int`) still reports its hole. Elaborate zonks
-    /// holes away, so this must run against the pre-zonk graph, not the frozen TAST.
+    /// Whether `ty` carries any `_` hole: `Box<int>` false, `Box<_>` true even with `_` pinned
+    /// to `int` — the walk follows a var's `Link` for structure but STOPS at a hole.
     member this.HasInferenceHoleIn(ty: SemType) : bool =
         let seen = HashSet<TyVarId>()
 
@@ -846,158 +383,74 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
 
         walk ty
 
-    /// The value-struct closure verdict of a SOURCE-lambda argument, keyed by the
-    /// lambda's anchor token; the `FunVerdict` carries the flat `FunN`
-    /// arity (always) and, for a transformer combinator, the result-typar position.
-    /// Recorded in `inferApp` when an argument lambda lands on a typar parameter
-    /// whose `:> Fun<a,b>`/`:> Fun<a,b,c>` coercion bound fires (the `subsumes` arm). The
-    /// decision lives here (inference) as the single source of truth; the Pipeline
-    /// snapshots it onto `TastFile.FunVerdicts`, codegen's `discoverClosures` reads
-    /// `Arity` to size the value-struct closure's flat `Invoke`, and
-    /// `ClosureVerdictRewrite` reads `ResultTyparPos` for the slot/result rewrite. A
-    /// lambda with no entry is the ordinary curried closure.
+    /// A SOURCE-lambda argument's value-struct closure verdict, recorded when the lambda lands
+    /// on a typar parameter whose `:> Fun<'T,'U>` bound fires. No entry ⇒ an ordinary closure.
     member val FunVerdicts = LambdaTable<FunVerdict>() with get
-    /// A project-local generalised binding's
-    /// binder → its frozen typar bounds (`FrozenConstraint` list). Written by
-    /// `Elaborate.translateModuleElem` at the single index-minting point (so the
-    /// bounds' typar leaves carry the SAME method-axis indices the body freezes
-    /// with), snapshotted by `Elaborate.run` onto `TastFile.GenericFnSchemes`. Read
-    /// by the call-site phantom-typar solve (`EmitCall`).
+    /// A generalised binding's frozen typar bounds, minted with the body's method-axis indices
+    /// so the bounds' typar leaves carry them.
     member val GenericFnSchemes = BinderTable<FrozenConstraint list>() with get
-    /// How the SOURCE writes each binder this file introduces — the identifier and where —
-    /// written by `SpellBinder` at the moment the binder's key is minted and the token that
-    /// produced it is still in hand, and read once by the freeze to fill the binder pool's
-    /// two columns.
-    ///
-    /// Recorded rather than derived later, because by the freeze there is nothing left that
-    /// knows. The key's number is a character offset that merely happens to be a token
-    /// start; and the introducing NODE's token is only the name's until a body is copied onto
-    /// a call site, after which it spells the call — which the emit-time expansion does to
-    /// every entry it places. A binder with no entry is one no source writes —
-    /// `Inline.freshen` mints those, and they are named after their slot
-    /// (`BinderNaming.Minted`).
+    /// How the SOURCE writes each binder this file introduces — the identifier and where.
+    /// Recorded at the mint: once a body is copied elsewhere its tokens spell the CALL site.
     member val BinderSpellings = BinderTable<BinderSpelling>() with get
-    /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
-    /// `when ^T : …` constraints of each of that construct's clauses (outer array in
-    /// source order, positionally aligned with the node's `clauses`; inner array is one
-    /// clause's `and`-joined list), with the typar / required type translated to
-    /// `SemType` while the binding's typar scope is live. Elaborate reads it to build
-    /// each `TExpr.StaticOptimization` clause; the typar carries the inline binding's
-    /// quantified root so `Inline.inlineExpand` can substitute it at the call site.
+    /// Keyed by an `Expr.LibraryOnlyStaticOptimization`: the resolved `when ^T : …` constraints
+    /// — outer array aligned with the node's `clauses`, inner one clause's `and`-joined list.
     member val StaticOpt = SideTable<EqArray<EqArray<TStaticOptConstraint>>>() with get
-    /// The metavar arena for this file: the single authority that mints `TypeVar`
-    /// handles (`ctx.NewTypeVar()`) with dense per-file ids and owns the id-indexed
-    /// side-tables payload families migrate into. One per `PassContext`, like the
-    /// `TypeVar` graph it governs.
+    /// The metavar arena: mints `TypeVar` handles with dense per-file ids, owns their tables.
     member val Store: TypeStore = TypeStore() with get
 
-    /// Mint a fresh metavar through this file's arena — the `ctx`-level construction
-    /// seam every inference / name-resolution site routes through.
     member this.NewTypeVar() : TyVarId = this.Store.NewTypeVar()
 
-    /// Mint a binder key for a node Elaborate synthesises — the binder axis' `NewTypeVar`.
-    /// The key names no source position, which is what lets one construct mint several
-    /// (a destructured tupled argument mints one binder per element). The binder stays
-    /// unspelled, so a backend names it after its slot.
+    /// Mint a binder key for a synthesised node. It names no source position, so one construct
+    /// may mint several, and stays unspelled — a backend names it after its slot.
     member _.NewSynthBinder() : NodeKey =
         let k = NodeKey.ofSyntheticCounter synthBinders NodeKind.SynthElaborateBinder
         synthBinders <- synthBinders + 1
         k
 
-    /// Current let-depth (Rémy's levels). Push on entering a binding group's
-    /// RHSes, pop after typing them; generalisation uses the pre-push value as
-    /// the threshold for "which TyVars do I quantify?".
+    /// Current let-depth (Rémy's levels): push on entering a binding group's RHSes, pop after
+    /// typing them. Generalisation quantifies the TyVars above the pre-push value.
     member val CurrentLevel = 0 with get, set
 
-    /// Bare-program list literals: each `[…]` whose container type was left
-    /// *flexible* (a fresh `TypeVar`, paired with its element type) so a consumer
-    /// can drive it — `List.fold`'s `Vesper.Collections.List` parameter flips it to
-    /// the Vesper list, otherwise it defaults to FSharp.Core's `list`. Resolved by
-    /// `Unification.resolveListLiterals` after the walk: a still-free literal links
-    /// to the default list, a flipped one has its element reconciled. Programs that
-    /// declare their own `list` abbrev never register here (they resolve eagerly).
+    /// Each `[…]` whose container type was left FLEXIBLE: a `Vesper.Collections.List` parameter
+    /// drives it, otherwise it defaults to FSharp.Core's `list`.
     member val ListLiterals = ResizeArray<ListLiteral>() with get
 
-    /// `recv?name` dynamic-access sites, enqueued by `inferDynamicLookup` and swept
-    /// post-settle by `DynamicEscape.run`. A site whose `Root` zonks to a concrete
-    /// non-`dynamic` type is an implicit escape (the `default : dynamic` did not fire)
-    /// and warns — unless its `Key` is in `DynamicEscapeSuppressed`.
+    /// `recv?name` sites, swept once inference has settled: a `Root` that zonks to a concrete
+    /// non-`dynamic` type is an implicit escape and warns unless `DynamicEscapeSuppressed`.
     member val DynamicEscapes = ResizeArray<DynamicEscapeSite>() with get
 
-    /// `?` node keys whose escape warning is suppressed by an explicit ascription
-    /// directly on the `?` expression (`(d?foo : int)`), recorded by
-    /// `inferTypeAnnotation`. "Name the type at the escape point."
+    /// `?` node keys whose escape warning an ascription on the `?` itself (`(d?foo : int)`) suppresses.
     member val DynamicEscapeSuppressed = HashSet<NodeKey>() with get
 
-    /// Type names this file's SOURCE wrote and nothing defined (`UndefinedType`). The
-    /// unifier's `TyUnknown` arm reads this to stay silent for such a name: its own message
-    /// speaks for the OTHER producer of `TyUnknown` — a name a package's BAKED CONTRACT could
-    /// not resolve, which no site in this file's source could blame — and would misattribute a
-    /// plain spelling mistake to a missing package dependency.
+    /// Type names this file's SOURCE wrote and nothing defined. The unifier's `TyUnknown` arm
+    /// stays silent for these — its message blames a missing package, not a spelling mistake.
     member val UndefinedTypeNames = HashSet<string>() with get
 
-    /// Written type heads already blamed as undefined, so a head two passes both reach is
-    /// blamed once (`UndefinedType`).
+    /// Written type heads already blamed, so a head two passes both reach is blamed once.
     member val private undefinedTypeSites = HashSet<Site>() with get
 
-    /// Which cons-list a *bare-program* list literal/pattern (one no consumer
-    /// pinned) defaults to when resolved by `Unification.resolveListLiterals`.
-    /// `false` (the default) keeps FSharp.Core's `list` — the form a normal
-    /// FSharp.Core-referencing program prints/interops with. `true` is set by the
-    /// self-host package build (`Pipeline.analyse*ForSelfHost`): a BCL-only package
-    /// has no FSharp.Core, so an unpinned `[]`/`::` must land on the Vesper
-    /// cons-list to emit `Vesper.List`-only — the `withCore`-vs-not distinction the
-    /// front end cannot otherwise see (it lives in codegen's `ProjectInfo`).
+    /// Which cons-list an unpinned `[]`/`::` defaults to: `false` keeps FSharp.Core's `list`,
+    /// `true` the Vesper one, for a BCL-only self-host package that has no FSharp.Core.
     member val DefaultListIsVesper = false with get, set
 
-    /// Compiler-recognised parameter attributes (`ParamAttrs`) for each
-    /// module-level `let inline` binding, keyed by the binding's function-binder
-    /// `NodeKey` and positionally aligned to its curried parameters. Populated by
-    /// `Elaborate` (which also validates each `[<CallAtMostOnce>]` parameter's
-    /// linearity) and read by `Passes.InlineExpansion` for *local* inline call
-    /// sites; the cross-package twin travels in `ExternalSymbols.InlineBody`.
-    /// Only bindings with at least one non-default parameter register here.
+    /// Per module-level `let inline` binding, keyed by its function-binder `NodeKey` and
+    /// positionally aligned to its curried parameters. Only non-default parameters register.
     member val InlineParamAttrs = Dictionary<NodeKey, ParamAttrs[]>() with get
 
-    /// The UNEXPANDED body of each module-level `let inline`, keyed by its
-    /// function-binder `NodeKey` — the form `Freeze` publishes as this file's inline
-    /// VOCABULARY.
-    ///
-    /// It is a second copy on purpose. The decl of the same name in `TastFile.Decls` is
-    /// the EMITTED ordinary function, and `Passes.InlineExpansion` walks it like any
-    /// other decl so it satisfies codegen's input invariant (no inline call heads, no
-    /// `External` used as a value). That walk is exactly what a TEMPLATE must not
-    /// undergo: an `^T`-constrained body resolves its `StaticOptimization` clauses and
-    /// its trait calls against the CALL SITE's operand types, and expanding it at the
-    /// definition site — where nothing is ground — would bake the generic fallback into
-    /// every future splice. So the emitted form and the published form are genuinely
-    /// different trees, and this holds the one the walk must not touch.
-    ///
-    /// Populated by `Elaborate.run` from the pre-expansion decls, with the SAME typar cut
-    /// applied, so the two forms differ only by the expansion.
+    /// The UNEXPANDED body of each module-level `let inline`. An `^T`-constrained body resolves
+    /// its trait calls against the CALL SITE, so expanding here bakes in the generic fallback.
     member val InlineTemplates = Dictionary<NodeKey, TDecl>() with get
 
-    /// The facts `ModuleRules` reads, as this file answers them. The nominal
-    /// type names come from the registry the pre-scan filled and the attributes from the
-    /// source text, so a module's compiled holder name is the same here as at every other
-    /// reader of the rule. The predicate is read at CALL time, so it sees a type declared
-    /// textually below the module it collides with.
+    /// The facts the module-naming rules read. `IsNominalTypeName` is a closure read at CALL
+    /// time, so it sees a type declared textually BELOW the module it collides with.
     member _.ModuleNaming: ModuleNaming =
         {
             Lexed = source.Lexed
             IsNominalTypeName = TypeRegistry.isNominalTypeName types
         }
 
-    /// Enter a module containment: the chain a by-name read from inside it speaks from.
-    /// THE single site that derives the holder, and the single site that sets it — a pass
-    /// that walks the module tree its own way (rather than the flattened element list) still
-    /// arrives here, so no walk can resolve names against the module the PREVIOUS walk
-    /// finished in. Returns the chain, because a caller that needs it for an identity mint
-    /// must not build a second one.
-    ///
-    /// Every scope on the way in is also recorded under the SOURCE path an `open` names it
-    /// by (`TypeRegistry.noteLocalHolder`), so the module tree an `open` resolves against is
-    /// learned from the same walk — and from the same chain — that a declaration's holder is.
+    /// Enter a module containment: the chain a by-name read from inside speaks from, set and
+    /// returned. Every scope on the way in is noted under the SOURCE path an `open` names it by.
     member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleHolder =
         let scopes = ModuleRules.holderScopes this.ModuleNaming c
 
@@ -1008,19 +461,14 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
         this.Resolution.EnclosingHolder <- ValueSome chain
         chain
 
-    /// Enter a walked module element: bring the ambient facts a by-name read speaks
-    /// against — the `open`s in scope, and the module chain the element sits in — to the
-    /// element's own. THE single place both are set, so a pass cannot advance one and
-    /// leave the other pointing at the previous element.
+    /// Enter a walked module element: advance BOTH ambient facts a by-name read speaks against
+    /// — the `open`s in scope and the module chain.
     member this.EnterElement(w: WalkedElem<SyntaxToken>) : unit =
         this.Resolution.OpenScope <- w.Scope
         this.EnterContainment w.Containment |> ignore
 
-    /// The use site a by-NAME registry read from `key` speaks from: the node's place in the
-    /// file, plus the module chain and the `open`s the walk is currently inside. The only
-    /// way to name a use site AT a node, so the parts cannot be supplied separately or one
-    /// of them forgotten. A caller with nowhere to speak from passes `UseSite.unbounded`
-    /// instead and gets the whole-file view.
+    /// Where a by-NAME registry read from `key` speaks from: the node's place in the file, the
+    /// module chain, the `open`s. `UseSite.unbounded` is the whole-file view instead.
     member this.UseSiteAt(key: NodeKey) : UseSite =
         {
             Pos = SourcePos.ofNodeKey key
@@ -1028,24 +476,15 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             Opens = this.Resolution.OpenScope.Locals
         }
 
-    /// The module chain the walk currently stands in — what HOLDS a declaration written
-    /// here. The global namespace before a walk has entered anything, which is exactly the
-    /// containment of a declaration at the top of an anonymous module: the only thing
-    /// "nowhere" can mean for a DECLARATION. (A by-name READ from nowhere is a different
-    /// question, and `UseSite.Holder` keeps its `ValueNone` to ask it.)
+    /// The module chain the walk stands in — what HOLDS a declaration written here. Before the
+    /// walk enters anything, the global namespace: a declaration in an anonymous module.
     member this.CurrentHolder: ModuleHolder =
         match this.Resolution.EnclosingHolder with
         | ValueSome h -> h
         | ValueNone -> ModuleHolder.InNamespace NamespaceKey.Global
 
-    /// The `TypeKey` a type DECLARED where the walk currently stands would be minted with
-    /// — `CurrentHolder` plus the declared name and arity.
-    ///
-    /// THE way a pass recovers the registered detail of a declaration it is WALKING, as
-    /// against a reference to one: a declaration knows exactly which type it is, so it must
-    /// not go looking for itself by name — two sibling modules may each declare `T`, and a
-    /// by-name read would answer with whichever one it found. Mints the identical key
-    /// `NameResolutionTypeRegistration.claimTypeIdentity` stamped, from the identical chain.
+    /// The `TypeKey` a type DECLARED where the walk stands would be minted with. A pass must
+    /// not find the declaration it is walking by NAME: two sibling modules may each declare `T`.
     member this.DeclaredTypeKey(name: string, arity: int) : TypeKey =
         LocalSymbolKey.ofType (ModuleRules.typeHolderOf this.CurrentHolder) name arity
 
@@ -1055,18 +494,8 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
         | TokenIndex.Regular iT -> this.Lexed.GetTokenString(iT)
         | TokenIndex.Virtual -> ""
 
-    /// Record how the source writes `binder` (see `BinderSpellings`). Takes the binder and
-    /// the token TOGETHER, at the mint: a caller holding a freshly minted key holds the
-    /// token it came from, and this is the last moment that is true.
-    ///
-    /// Idempotent, and it must be: a ctor parameter's key is minted by name resolution and
-    /// re-projected by `Elaborate` off the pattern it elaborated to, and both land on the
-    /// same spelling because both project from the same identifier.
-    /// What counts as a name is the LEXER's answer (`GetIdentifierSpan`), not the token's
-    /// raw text: an operator binding's head is `(`, which writes no identifier — its emitted
-    /// name is the operator's compiled one and rides `ModuleMembers`. A token that spells
-    /// none records nothing, so the two columns stay consistent by construction: a binder
-    /// has a name exactly when it has an anchor.
+    /// Record how the source writes `binder`. Idempotent, and must be: a ctor parameter's key
+    /// is minted twice from the same identifier. An operator head `(` is no name and records none.
     member this.SpellBinder(binder: BinderKey, at: SyntaxToken) : unit =
         match at.Index with
         | TokenIndex.Virtual -> ()
@@ -1075,11 +504,8 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             | "" -> ()
             | name -> this.BinderSpellings.Set(binder, { Name = name; At = Anchor.ofToken at })
 
-    /// A written type name read off the syntax that spells it: the LAST segment is the type's
-    /// short name, everything before it the dotted SOURCE path of the scope qualifying it
-    /// (empty for a single-segment head). THE one place a long ident is split that way, so
-    /// every path that resolves a written type name — the head classifier, the type
-    /// translator, the ctor heads — splits it identically.
+    /// The LAST segment is the type's short name, everything before it the dotted SOURCE path
+    /// of the qualifying scope — empty for a single-segment head.
     member this.WrittenTypeNameOf(li: LongIdent<SyntaxToken>) : WrittenTypeName =
         let idents = li.Idents
         let last = idents.Length - 1
@@ -1089,50 +515,28 @@ type PassContext(provider: IExternalSymbolProvider, source: OriginSource) =
             Name = this.NameOf idents.[last]
         }
 
-    /// Allocation-free sibling of `NameOf`: a `ReadableString` view of `token`'s
-    /// source text, without copying out a substring. Empty for virtual tokens.
+    /// Allocation-free `NameOf`: a view of `token`'s source text, no substring copied out.
     member this.ReadableOf(token: SyntaxToken) : ReadableString =
         match token.Index with
         | TokenIndex.Regular iT -> this.Lexed.GetTokenReadable(iT)
         | TokenIndex.Virtual -> ReadableString.Empty
 
-    /// Report `kind` at `tok`. THE reporting member: one, not one per severity, because
-    /// the kind decides the severity — so a producer names what it found and cannot also
-    /// choose how loudly it is said.
-    ///
-    /// A TOKEN and not a `NodeKey`: a diagnostic wants a position and nothing else, where
-    /// a key is an analysis identity carrying a grammar-versioned node kind. Every
-    /// producer walks a tree whose nodes are token-parameterised, so the token is already
-    /// in hand; a producer with no node at all says `Site.Nowhere` through the `Site`
-    /// overload.
+    /// Report `kind` at `tok`. There is no per-severity member: the kind decides the severity.
     member this.Report(tok: SyntaxToken, kind: Kind) = this.Report(Site.ofToken tok, kind)
 
-    /// Report `kind` at a `Site` the producer resolved itself — one with no node in the
-    /// file (`Site.Nowhere`), or a span rather than a single token.
+    /// Report `kind` at a `Site` the producer resolved itself — `Site.Nowhere`, or a span.
     member this.Report(site: Site, kind: Kind) =
         this.Diagnostics.Add(Diagnostic.create kind site [])
 
-    /// Blame the written type head at `site`: `name` names no type — no scope of this file
-    /// claims it and the target's external universe does not hold it. THE one home for that
-    /// verdict, so the passes that reach a head — the head classifier, which knows a bare name
-    /// nothing answers for, and type translation, which is where every written head is finally
-    /// resolved — say it identically and, reaching the same head, say it ONCE. The name is
-    /// recorded (`UndefinedTypeNames`) so the `TyUnknown` the head recovers with cannot be
-    /// blamed a second time downstream: one mistake, one diagnostic, at its cause.
-    ///
-    /// `site` is what the ONCE is counted over, which is why the caller supplies it rather
-    /// than a bare token: a head the parser inserted spells no place of its own, and a
-    /// caller that can reach the enclosing declaration widens to ITS span instead of
-    /// dropping the verdict (`Site.ofTokenOr`).
+    /// Blame the written type head at `site`: `name` names no type, here or outside. `site` is
+    /// what once-per-head counts over, so a parser-inserted head widens it to the decl's span.
     member this.UndefinedType(site: Site, name: string) =
         this.UndefinedTypeNames.Add name |> ignore
 
         if this.undefinedTypeSites.Add site then
             this.Report(site, Kind.UndefinedType name)
 
-    /// Register a flexible list literal for `resolveListLiterals` to settle. THE one
-    /// spelling of the entry, so the two producers (`listLiteralTy` for a `[…]` expression,
-    /// `consListTy` for a `h :: t` pattern) cannot record different shapes.
+    /// Register a `[…]` expression or `h :: t` pattern to be settled after the walk.
     member this.RegisterListLiteral(container: TyVarId, elem: SemType, tok: SyntaxToken) =
         this.ListLiterals.Add
             {

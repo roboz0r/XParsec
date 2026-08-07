@@ -18,10 +18,9 @@ open UnificationInferDispatch
 
 module internal UnificationInferLiteralExpr =
 
-    /// `pEnclosed` virtual-inserts a missing/mismatched close token with a
-    /// parser-side diagnostic that isn't visible to semantic-analysis consumers,
-    /// so surface the breakage on `ctx.Diagnostics` too — otherwise the malformed
-    /// literal types successfully and Elaborate emits a well-shaped TAST.
+    /// A `TokenIndex.Virtual` close token is one the parser inserted to recover from a
+    /// missing or mismatched delimiter; without a report here the malformed literal
+    /// types cleanly and the breakage never reaches a semantic-analysis consumer.
     let rec checkLiteralClose
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -33,22 +32,12 @@ module internal UnificationInferLiteralExpr =
         | TokenIndex.Virtual ->
             ctx.Report(tok, Kind.Message(sprintf "Mismatched or missing closing delimiter: expected '%s'" display))
         | TokenIndex.Regular _ when rTok.Token <> expected ->
-            // Defensive: pEnclosed only emits a real rParen when the peeked
-            // token matched, so this can't trigger today — guards against a
-            // future parser change letting a mismatched close-token through.
             ctx.Report(tok, Kind.Message(sprintf "Mismatched closing delimiter: expected '%s'" display))
         | TokenIndex.Regular _ -> ()
 
-    /// The list type a `[…]` literal carries. Two cases:
-    ///   1. A program that declares its own `'T list` abbreviation (the self-host
-    ///      shape — `list.fs`'s `and 'T list = List<'T>`) resolves eagerly to its
-    ///      RHS union.
-    ///   2. A bare program (R3): the container is left *flexible* — a fresh
-    ///      `TypeVar` registered in `ctx.ListLiterals`. This is the consumer-driven
-    ///      typing handoff R3 calls for: `List.fold`'s `Vesper.Collections.List`
-    ///      parameter flips it to the Vesper list (so the literal emits BCL-only),
-    ///      while a literal nothing else pins (`printfn "%A" [1;2;3]`) defaults
-    ///      back to FSharp.Core's `list` in `resolveListLiterals`.
+    /// The list type a `[…]` literal carries. A program declaring its own `'T list`
+    /// abbreviation resolves eagerly to that RHS; a bare program leaves the container
+    /// flexible for a later consumer to pin (`RegisterListLiteral`).
     and listLiteralTy (ctx: PassContext) (tok: SyntaxToken) (elemTy: SemType) : SemType =
         match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "list" 1 with
         | ValueSome info ->
@@ -93,9 +82,8 @@ module internal UnificationInferLiteralExpr =
             listLiteralTy ctx tok elemTy
 
     and inferString (infer: Infer) (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : SemType =
-        // Elaborate lowers interpolated strings to a `TExpr.Format` (D9) and reads
-        // each hole's computed type back to emit `AppendFormatted<T>`; a `%d{x}`
-        // specifier additionally constrains the hole.
+        // Each hole's computed type is read back when the interpolation is lowered, so
+        // type every hole here; a `%d{x}` specifier additionally constrains it.
         for part in parts do
             match part with
             | StringPart.Expr(formatSpecifier = fs; expr = e) ->
@@ -105,10 +93,6 @@ module internal UnificationInferLiteralExpr =
                 | ValueSome ft ->
                     match Lexing.parseFormatSpecifierView (ctx.ReadableOf ft) with
                     | ValueSome p ->
-                        // A star dimension draws its value from a printf argument;
-                        // an interpolation hole has none. F# rejects this too, with a
-                        // misleading FS3371 — ours is accurate. Still unify the value
-                        // type (the last of `argTypes`) as best-effort recovery.
                         if p.Width = FormatDim.Star || p.Precision = FormatDim.Star then
                             ctx.Report(
                                 (CstKeys.firstTokenOfExpr e),
@@ -116,12 +100,8 @@ module internal UnificationInferLiteralExpr =
                                     "star width/precision takes its value from a printf argument; interpolated strings have none"
                             )
 
-                        // `%a`/`%t` consume a printf callback curried from the
-                        // format, not a plain value — an interpolation hole has
-                        // none (same reason star dims are rejected above), so skip
-                        // the value-type recovery for them. State/residue are
-                        // irrelevant here: only the final value type is read, and
-                        // it's a plain-value letter by this point.
+                        // `%a`/`%t` consume a printf callback curried from the format,
+                        // not a plain value, so there is no hole value type to recover.
                         if PrintfSpec.isCallbackHole p.Type then
                             ()
                         else

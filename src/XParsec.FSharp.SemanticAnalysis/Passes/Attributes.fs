@@ -21,7 +21,6 @@ module Attributes =
         | RefClass
         | Interface
 
-    /// One recognised attribute. Honouring one more is one more row.
     type private EqCompAttr<'Verdict> =
         {
             Key: TypeKey
@@ -122,7 +121,6 @@ module Attributes =
         |> List.map (fun r -> r.OnWrongKind)
 
     /// FS0382 kind-legality + FS0377 invalid-mix at `declTok`, returning the verdict per axis.
-    /// The single attribute-validation entry point for every type-registration site.
     let validateEqCompAttributes
         (ctx: PassContext)
         (kind: EqCompTargetKind)
@@ -148,7 +146,6 @@ module Attributes =
         if eq.Length > 1 || cmp.Length > 1 || (structuralCmp && nonStructuralEq) then
             ctx.Report(declTok, Kind.InvalidEqualityAttributeMix)
 
-        // More than one row is already FS0377, so priority exists only to make this total.
         let firstVerdict (rows: EqCompAttr<'Verdict> list) =
             match rows with
             | r :: _ -> ValueSome r.Verdict
@@ -156,7 +153,6 @@ module Attributes =
 
         firstVerdict eq, firstVerdict cmp
 
-    /// Extend as more parameter attributes are honoured: one type, one key, one flag.
     let private mergeParamAttrSets (ctx: PassContext) (acc: ParamAttrs) (sets: Attributes<SyntaxToken>) : ParamAttrs =
         let a = NameResolutionTypeHeadStamp.resolveAttributes ctx (ValueSome sets)
 
@@ -184,8 +180,6 @@ module Attributes =
         let (TypeName(attributes = a)) = tn
         a
 
-    /// The `.fsi` contract extractor drives the same decoder with its own resolver, so the
-    /// canonical short names live in one place.
     let decodeClassAttributes (ctx: PassContext) (attrs: Attributes<SyntaxToken> voption) =
         AttributeDecode.decodeClassAttributes ctx.NameOf attrs
 

@@ -3,62 +3,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// What ONE frozen node is, once the tree dissolves: its dense id, its residual payload,
-// and the row that is its slice across the columns. The FILE those columns belong to —
-// `FrozenPools` and the side-table containers — is `TastPoolTypes.fs`, which reads this
-// file and not the reverse; the logic that fills the columns is `TastPools.fs` and the
-// logic that unpools them `TastUnpool.fs`.
-//
-// Each frozen node is assigned a dense `int` pool id during a traversal of the DU; a
-// node's child *expressions*/*patterns* are then addressable as their pool ids, so "node
-// id k and its children by id" is an O(1) fetch — the random-access shape the projecting
-// consumers want, which a forward-only decode stream could not serve.
-//
-// A `*Payload` is a node's fields MINUS everything the columnar split took: the `ty`/`tok`,
-// the child expr/pat ids, and (for exprs) the `Var` binder id. So NO pool holds a DU node:
-// the whole `TExprG`/`TPat`/`TDecl` subtree dissolves into columns, which is the point — a
-// retained node drags its entire nested body along with it, so freeze could never stop
-// materializing the DU.
-//
-// There is no separate SHAPE column. A node's `ExprShape`/`PatShape`/`DeclShape` — the tag
-// a consumer's total dispatch matches on — is a total function of its payload
-// (`ExprPayload.shape` and friends, the only constructors of one), so storing it beside the
-// payload would be the same fact twice, in two places that could contradict each other.
-//
-// A payload case that is a COMPOSITE carrier (`Match`/`TryWith` arms, `Format`
-// segments, `StaticOptimization` clauses, `Range` step, `RecordCons`/`RecordClone`
-// fields, `ExternalMember` receiver) records just enough STRUCTURE — per-arm guard
-// flags, per-segment kind, per-clause constraints, presence flags — to redistribute the
-// FLAT child columns back into their nested shape, since the node that once held that
-// shape is gone. Both directions reuse the pooling walk's child enumeration
-// (`TastPoolShapes.exprChildren`/`exprPatChildren`) and consume it in that same order —
-// the coupling the round-trip test guards — rather than re-deriving the tree's child edges. The
-// `ExprPayloads` build (`exprPayload`) and consume (`substituteExpr`) are inverse
-// per-case matches, each exhaustive so a new `TExprG`/`ExprShape` case fails to compile.
-//
-// Two carriers that used to hold trees opaquely are pooled like any other node, and their
-// pooled shapes live here: a `Type` decl's member bodies (`PooledTypeDecl` — ids in the
-// declaration shape) and a binding's `ValRepr` tuple-group patterns (`PooledValRepr`,
-// which holds no tree of its own at all — it names the LAMBDA CHAIN's own pattern nodes,
-// being derived from that chain rather than carried alongside it).
-//
-// Identity goes positional too: a binder's identity after freeze IS its slot in the file's
-// binder pool, addressed by `BinderId`. Every distinct definition site the walk reaches
-// is interned to one — the pattern/loop binders (`BinderKey.ofPat`,
-// `BinderKey.ofExpr`) and the bare key slots a type declaration binds with no pattern node
-// behind them (`BinderKey.ofTypeDecl`: a member's `this`/`base` and parameters, a ctor's
-// parameters and locals), which its member BODIES name by `Var` exactly as a function body
-// names a `let`. (Kind is not stored — its only role was to make a content key unique,
-// which positional ids now do.)
-
-/// The post-freeze shape tag of an expression node — one case per `TExprG` case, and
-/// the vocabulary a consumer's TOTAL dispatch matches on (`TastAccessor.exprKind`).
-/// This is NOT `NodeKind`: `NodeKind` is the pre-freeze CST content-address role, which
-/// freeze dissolves. The case names mirror `TExprG` (documented there).
-///
-/// NOT a stored column. A node's shape is a total function of its `ExprPayload`
-/// (`ExprPayload.shape`, the sole way to obtain one from a node), which is why there is
-/// no way for the two to disagree and nothing puts the tag on the wire twice.
+/// The post-freeze shape tag of an expression node. Not a stored column: a node's shape is
+/// derived from its `ExprPayload` on read.
 [<RequireQualifiedAccess>]
 type ExprShape =
     | Const
@@ -103,8 +49,7 @@ type ExprShape =
     | InlineCall
     | CallerExpr
 
-/// The post-freeze shape tag of a pattern node — one case per `TPatG` case (mirrors
-/// `ExprShape`'s relationship to `TExprG`, `PatPayload.shape` included).
+/// The post-freeze shape tag of a pattern node.
 [<RequireQualifiedAccess>]
 type PatShape =
     | NamedSimple
@@ -118,7 +63,7 @@ type PatShape =
     | EnumCase
     | Or
 
-/// The post-freeze shape tag of a declaration node — one case per `TDeclG` case.
+/// The post-freeze shape tag of a declaration node.
 [<RequireQualifiedAccess>]
 type DeclShape =
     | Let
@@ -137,15 +82,8 @@ type PatPoolId = | PatPoolId of int
 [<Struct>]
 type DeclPoolId = | DeclPoolId of int
 
-/// The TAST at the POOLED identity: a tree whose binders are named by the dense
-/// `BinderId` the columns already address them by, rather than by the `NodeKey` a
-/// source-shaped tree names them by. `TastUnpool` rebuilds at these aliases, which is what
-/// lets the unpool be a genuine interconversion with the columns instead of a view that has
-/// to consult a retained key to speak at all.
-///
-/// The `'ty` axis is the frozen one and `'tok` is the stored `Anchor`, which is what the
-/// columns hold — so an unpooled tree names its positions exactly as the columns do and needs
-/// no `Lexed` to be rebuilt.
+/// The TAST at the POOLED identity: binders named by the dense `BinderId` the columns address
+/// them by, positions by the stored `Anchor`. Rebuilding one from the columns needs no `Lexed`.
 module Pooled =
     type TPat = TPatG<FrozenType, Anchor, BinderId>
     type TExpr = TExprG<FrozenType, Anchor, BinderId>
@@ -157,20 +95,8 @@ module Pooled =
     type TInlineValue = TInlineValueG<FrozenType, Anchor, BinderId>
     type TastFile = TastFileG<FrozenType, Anchor, BinderId>
 
-/// The TAST as it CROSSES A UNIT BOUNDARY — a package's inline template, unpooled from the
-/// producer's pools (`TastPoolBuilder.declTree`) for a consumer that shares neither of the
-/// producer's identity spaces.
-///
-/// Not the producer's `BinderId`s: a slot means nothing outside the pool that issued it, so
-/// the unpool re-mints a `NodeKey` per binder.
-///
-/// The positions ARE the producer's, and arrive intact: the unpool cannot rebase them — it takes
-/// no position mapping — and nothing else blanks them either. So this is `Pooled`'s own position
-/// axis, the same integers against the same file, and what changes at the boundary is only that
-/// the consumer no longer holds the `Lexed` they index. Which file that is travels with the body
-/// (`ExternalSymbols.InlineBody.Origin`) and is required to read one at all
-/// (`OriginSources.tokenAt`), so a consumer names the producer file the body came from — there
-/// is no second reading, and a body that could not name one could not be left behind an edge.
+/// The TAST as it CROSSES A UNIT BOUNDARY — a package's inline template. Binders are
+/// re-minted `NodeKey`s, a `BinderId` slot meaning nothing outside the pool that issued it.
 module Wire =
     type TPat = TPatG<FrozenType, Anchor, NodeKey>
     type TExpr = TExprG<FrozenType, Anchor, NodeKey>
@@ -178,40 +104,23 @@ module Wire =
     type TInlineBody = TInlineBodyG<FrozenType, Anchor, NodeKey>
     type TInlineValue = TInlineValueG<FrozenType, Anchor, NodeKey>
 
-/// A `type` declaration whose seven member/preamble/ctor BODY slots name their expression
-/// by pool id instead of carrying the tree, and whose seven pattern-less BINDER slots name
-/// their definition site by `BinderId` — the same dense identity every other pooled
-/// reference uses, so a declaration's `this` / parameters / ctor locals are addressed
-/// exactly as a `NamedSimple` pattern's binder is. The declaration SHAPE is unchanged —
-/// which body fills which slot is structure a flat child column could not express without
-/// a re-nesting record, so the ids ride the shape rather than `DeclExprChildren`. Both
-/// directions are `TastConvert.typeDecl` at the matching body/identity mappings, so nothing
-/// re-derives the shape.
+/// A `type` declaration whose member/preamble/ctor BODY slots name their expression by
+/// pool id instead of carrying the tree, and whose pattern-less BINDER slots (a member's
+/// `this`, parameters, ctor locals) name their definition site by `BinderId`.
 type PooledTypeDecl = TTypeDeclG<FrozenType, Anchor, BinderId, ExprPoolId>
 
-/// A binding's SOURCE arity with its tuple-group patterns named by pool id — the file's own
-/// `ValRepr`s, whose pats ARE nodes of the pooled tree (the peel reads the pooled lambda
-/// chain, so a group's pattern is the very node that chain bears, not a copy of it).
-/// Distinct from `Frozen.ValRepr`, which stays at the pattern TREE because an EXTERNAL
-/// symbol's pats are minted from an `.fsi` contract and index into no file's pool.
+/// A binding's SOURCE arity with its tuple-group patterns named by pool id: a group's
+/// pattern is the very node the pooled lambda chain bears, not a copy.
 type PooledValRepr = ValReprG<FrozenType, PatPoolId, BinderId>
 
-/// The SOURCE-arity grouping rule and the curried peel that applies it — written ONCE,
-/// here rather than with the rest of the compiled-form machinery (`TastLower`), because
-/// `PatShape` is the pool vocabulary and the pool build is the earliest caller.
-///
-/// Both the rule and the LOOP are domain-agnostic: a caller supplies a reader for its own
-/// representation (the raw columns at `TastPools.toPools`, node handles at
-/// `TastLower.peelValRepr`) and the arity itself is not restated. Two peels that agreed
-/// only by review is exactly how a binding's recorded arity came to be able to disagree
-/// with the lambda chain it was read from.
+/// The SOURCE-arity grouping rule and the curried peel that applies it, generic over the
+/// representation peeled: a caller supplies a reader for its own (raw pool columns, node
+/// handles) rather than restating the rule.
 [<RequireQualifiedAccess>]
 module ArgGroups =
 
-    /// What the grouping rule reads off ONE curried parameter pattern: its shape, its
-    /// type, the binder it introduces (`NamedSimple` only), and its constant value
-    /// (`Const` only). Named rather than a positional tuple because each domain's reader
-    /// fills it and none should have to remember an argument order.
+    /// What the grouping rule reads off ONE curried parameter pattern. `Binder` is filled
+    /// at `NamedSimple` only, `ConstValue` at `Const` only.
     [<Struct>]
     type ParamPatFacts<'id> =
         {
@@ -221,11 +130,9 @@ module ArgGroups =
             ConstValue: TConstValue voption
         }
 
-    /// The SOURCE grouping of one curried parameter: a simple binder is a `GSimple`; a
-    /// `()` parameter is a `GUnit` (the lone-erasable `let f () = …` shape); a tuple
-    /// parameter is a `GTuple` carrying the WHOLE pattern, since flattening is
-    /// `TastLower.compiledOf`'s job and the source grouping must survive; anything else is
-    /// not a parameter group at all and stops the peel.
+    /// The SOURCE grouping of one curried parameter. `GTuple` carries the WHOLE pattern:
+    /// flattening it belongs to the compiled form and the source grouping must survive.
+    /// Anything else is not a parameter group and stops the peel.
     let ofParam (facts: ParamPatFacts<'id>) (pat: 'p) : ArgGroupG<FrozenType, 'p, 'id> voption =
         match facts.Shape, facts.Binder, facts.ConstValue with
         | PatShape.NamedSimple, ValueSome k, _ -> ValueSome(ArgGroupG.GSimple(k, facts.Ty))
@@ -233,11 +140,8 @@ module ArgGroups =
         | PatShape.Tuple, _, _ -> ValueSome(ArgGroupG.GTuple pat)
         | _ -> ValueNone
 
-    /// Peel a curried lambda chain into its source groups and the residual body. The
-    /// caller supplies only how to READ its representation — `unLambda` opens one lambda
-    /// into its `(param, body)` and declines on anything else, `facts` reads a parameter
-    /// pattern — so the walk, the grouping and the stopping condition exist once for every
-    /// domain that has a lambda chain.
+    /// Peel a curried lambda chain into its source groups and the residual body.
+    /// `unLambda` opens one lambda into its `(param, body)` and declines on anything else.
     let rec peel
         (unLambda: 'e -> struct ('p * 'e) voption)
         (facts: 'p -> ParamPatFacts<'id>)
@@ -252,10 +156,9 @@ module ArgGroups =
             | ValueNone -> [], e
         | ValueNone -> [], e
 
-/// The residual, EXPRESSION-FREE shape of a `Format` node's sink — its kind plus the
-/// non-expr data (`ToWriter`/`ToStdOut`/`ToStdErr`'s trailing-newline flag). The sink's
-/// own sub-expression (`ToWriter`'s writer, `ToBuilder`'s builder) rides `ExprChildren`
-/// ahead of the segment children, so it is NOT re-listed here.
+/// The residual, EXPRESSION-FREE shape of a `Format` node's sink. Its own sub-expression
+/// (`ToWriter`'s writer, `ToBuilder`'s builder) rides the child column ahead of the segment
+/// children.
 [<RequireQualifiedAccess>]
 type FormatSinkShape =
     | ToStdOut of newline: bool
@@ -264,11 +167,8 @@ type FormatSinkShape =
     | ToBuilder
     | ToString
 
-/// The residual, EXPRESSION-FREE shape of one `Format` segment — its kind plus non-expr
-/// data (a `Lit`'s text; a hole's `HoleSpec`, itself a leaf carrying no sub-expression;
-/// a `DynHole`'s width/precision presence flags). Every sub-expression a segment holds
-/// (a hole's value, a dyn-hole's width/precision/value, a callback's residue) rides
-/// `ExprChildren` in `exprChildren` order; the presence flags re-nest it.
+/// The residual, EXPRESSION-FREE shape of one `Format` segment. Every sub-expression a
+/// segment holds rides the child column in walk order; the presence flags re-nest it.
 [<RequireQualifiedAccess>]
 type FormatSegShape =
     | Lit of string
@@ -277,13 +177,8 @@ type FormatSegShape =
     | CallbackHole of Pooled.HoleSpec
 
 /// The residual payload of a frozen expression node — one case per `ExprShape`, carrying
-/// ONLY the fields left after the columnar split drops `ty`/`tok` (the `ExprTys`/`ExprToks`
-/// columns), the child expr ids (`ExprChildren`), the owned pat ids (`ExprPatChildren`),
-/// and the `Var` binder id (`ExprVarBinder`). Mirrors `FrozenCodec.writeExprPayload` for what each
-/// case carries beyond those. A composite carrier (`Match`/`TryWith`/`Range`/`RecordCons`/
-/// `RecordClone`/`Format`/`StaticOptimization`/`ExternalMember`) additionally records the
-/// STRUCTURE needed to redistribute the flat child columns back into their nested shape.
-/// Exhaustive: a new `TExprG` case fails to compile at `exprPayload`/`substituteExpr`.
+/// only what the columnar split left: not `ty`/`tok`, the child expr/pat ids, or a `Var`'s
+/// binder id. A composite carrier also records the STRUCTURE that re-nests those columns.
 [<RequireQualifiedAccess>]
 type ExprPayload =
     | Const of TConstValue
@@ -301,14 +196,13 @@ type ExprPayload =
     | Tuple
     | Sequential
     | While
-    /// The loop binder + its `identTok`. `Var` is the binder this node INTRODUCES (not a
-    /// reference, so it is not on the `ExprVarBinder` column), named by the same dense id
-    /// the loop body's `Var` references resolve to — one identity, interned once.
+    /// `Var` is the binder this node INTRODUCES — not a reference, so it is not on the
+    /// binder-reference column — named by the dense id the body's `Var`s resolve to.
     | ForTo of {| Var: BinderId; IdentTok: Anchor |}
     | ForIn of Frozen.ForInEnumerator
     /// One flag per arm: whether the arm carries a guard. The scrutinee is the first
-    /// child; each arm's guard (when present) and body follow in `exprChildren` order,
-    /// its pat in `exprPatChildren` order. Arm count is the array length.
+    /// child; each arm's guard (when present) and body follow in the expr child column,
+    /// its pat in the pat child column. Arm count is the array length.
     | Match of guardPresent: bool[]
     /// As `Match`, but the guarded body is the first child (no scrutinee).
     | TryWith of guardPresent: bool[]
@@ -382,28 +276,20 @@ type ExprPayload =
             Receiver: FrozenType
             MemberName: string
         |}
-    /// The specialization-table slot this call names, and the file the node's own anchor
-    /// (and its args') indexes; the args are the child expressions. The ENTRY is a root of
-    /// its own (`FrozenPools.Specializations`) and is deliberately not a child edge —
-    /// several call sites share one entry, so making it a child would turn the DAG into a
-    /// tree by duplication.
+    /// The specialization-table slot this call names, and the file the node's own anchor (and
+    /// its args') indexes. The entry is a root of its own, not a child edge: several call
+    /// sites share one.
     | InlineCall of
         {|
             Spec: SpecializationId
             Origin: OriginFile
         |}
-    /// The file everything under this node is anchored in — the whole of its content, the
-    /// rest being its position in the tree plus its single child expression.
+    /// The file everything under this node is anchored in.
     | CallerExpr of origin: OriginFile
 
 [<RequireQualifiedAccess>]
 module ExprPayload =
 
-    /// The shape tag of a node carrying this payload — the SOLE way to obtain an
-    /// `ExprShape` for a node, so a node's tag and its payload cannot disagree. There is
-    /// one payload case per shape, which is why this is total and injective; the tag is
-    /// therefore neither a column nor a wire field, only a projection taken on read.
-    /// Exhaustive with no catch-all, so a new case fails to compile here.
     let shape (p: ExprPayload) : ExprShape =
         match p with
         | ExprPayload.Const _ -> ExprShape.Const
@@ -448,13 +334,8 @@ module ExprPayload =
         | ExprPayload.InlineCall _ -> ExprShape.InlineCall
         | ExprPayload.CallerExpr _ -> ExprShape.CallerExpr
 
-    /// Map every `Anchor` an expression payload EMBEDS — the loop variable's own identifier
-    /// token, and each format hole's. A node's own anchor is the `ExprToks` column and is
-    /// mapped there, so this is the residue a column-level MOVE of a subtree (copying an
-    /// inline entry's body onto its call site) would otherwise leave pointing into the file
-    /// the subtree came from. Exhaustive with no catch-all, so a case that grows a position
-    /// field fails to compile here — which is the point, since a stale anchor resolves in
-    /// range against the wrong file rather than faulting.
+    /// Map every `Anchor` an expression payload EMBEDS: the loop variable's identifier token
+    /// and each format hole's. A node's own anchor lives in a column and is mapped there.
     let mapToks (f: Anchor -> Anchor) (p: ExprPayload) : ExprPayload =
         let seg (s: FormatSegShape) : FormatSegShape =
             let spec (h: Pooled.HoleSpec) : Pooled.HoleSpec = { h with Tok = f h.Tok }
@@ -516,22 +397,11 @@ module ExprPayload =
         | ExprPayload.CallerExpr _ -> p
 
     // ── re-nesting the flat child columns ───────────────────────────────────
-    //
-    // A composite carrier — an arm, a format sink, a format segment — has no node
-    // identity of its own, so the pool flattens its pieces into the child columns and the
-    // payload keeps only the STRUCTURE needed to put them back. That structure and the
-    // cursor order it implies are the same whichever domain is being rebuilt, so the walk
-    // lives here, ONCE, generic over what a child is: `TastUnpool` drives it with DU
-    // subtrees, `TastAccessor` with node handles, and the two cannot re-nest the same
-    // columns differently.
+    // A composite carrier — an arm, a format segment — has no node identity of its own: its
+    // pieces go in the child columns and the payload keeps the STRUCTURE that puts them back.
 
-    /// A reader that draws a node's children in column order, one per call — what the
-    /// re-nesting walks below consume. `start` skips the node's own LEADING children, which
-    /// belong to it rather than to a carrier (`Match`'s scrutinee, `TryWith`'s body).
-    ///
-    /// Here rather than at each caller: the walks take a cursor because the ORDER is the
-    /// coupling they exist to hold, and three domains hand-rolling the same mutable index
-    /// is three places for that order to be started from the wrong offset.
+    /// A reader that draws a node's children in column order, one per call. `start` skips the
+    /// node's own LEADING children (`Match`'s scrutinee, `TryWith`'s body).
     let cursor (xs: 'a[]) (start: int) : unit -> 'a =
         let mutable i = start
 
@@ -541,9 +411,8 @@ module ExprPayload =
             x
 
     /// Re-nest the arm children of a `Match`/`TryWith`: each arm draws its pat, then its
-    /// guard when `guardPresent` says it has one, then its body — the order
-    /// `TastPoolShapes.exprChildren`/`exprPatChildren` enumerated them in. Arm count is the
-    /// flag array's length.
+    /// guard when `guardPresent` says it has one, then its body — the order the pooling
+    /// walk enumerated them in. Arm count is the flag array's length.
     let arms (guardPresent: bool[]) (nextPat: unit -> 'pat) (nextExpr: unit -> 'e) : TMatchArmG<'pat, 'e>[] =
         guardPresent
         |> Array.map (fun hasGuard ->
@@ -557,12 +426,8 @@ module ExprPayload =
             }
         )
 
-    /// Re-nest the children of a `Format`: the sink's own sub-expression first (the order
-    /// `TastPoolShapes.exprChildren` yields), then each segment's, with the dyn-hole presence
-    /// flags saying which dimensions are there.
-    ///
-    /// A hole is the one leaf that carries an anchor of its own, and it keeps it: a rebuild
-    /// cannot re-axis a position, because it takes no mapping that could.
+    /// Re-nest the children of a `Format`: the sink's own sub-expression first, then each
+    /// segment's, with the dyn-hole presence flags saying which dimensions are there.
     let format
         (sink: FormatSinkShape)
         (segments: FormatSegShape[])
@@ -600,17 +465,13 @@ module ExprPayload =
 
         sink', segments'
 
-/// The residual payload of a frozen pattern node — one case per `PatShape`, carrying ONLY
-/// the fields left after the columnar split drops `ty`/`tok` (the `PatTys`/`PatToks`
-/// columns) and the child sub-pat ids (`PatChildren`, in `TastPoolShapes.patChildren` order;
-/// patterns own no child expressions). Mirrors `FrozenCodec.writePatPayload` for what each case
-/// carries beyond those. Exhaustive: a new `TPat`/`PatShape` case fails to compile at
-/// `patPayload`/`substitutePat`.
+/// The residual payload of a frozen pattern node — one case per `PatShape`, carrying only
+/// what the columnar split left: not `ty`/`tok`, not the child sub-pat ids. A pattern owns
+/// no child expressions.
 [<RequireQualifiedAccess>]
 type PatPayload =
-    /// The single binder this simple name pattern INTRODUCES, named by the dense id its
-    /// `Var` references resolve to — the pat analogue of `ExprPayload.ForTo`'s `Var`. It
-    /// names no sub-pattern, so it is not a child.
+    /// The single binder this pattern INTRODUCES, named by the dense id its `Var` references
+    /// resolve to.
     | NamedSimple of binding: BinderId
     | Wildcard
     | Null
@@ -633,7 +494,6 @@ type PatPayload =
 [<RequireQualifiedAccess>]
 module PatPayload =
 
-    /// The shape tag of a pattern carrying this payload — see `ExprPayload.shape`.
     let shape (p: PatPayload) : PatShape =
         match p with
         | PatPayload.NamedSimple _ -> PatShape.NamedSimple
@@ -648,10 +508,7 @@ module PatPayload =
         | PatPayload.EnumCase _ -> PatShape.EnumCase
 
     /// Map every `FrozenType` a pattern payload EMBEDS. Only `TypeTestAs` carries one (the
-    /// `isinst` operand); a node's own type is the `PatTys` column and is mapped there, so
-    /// this is the residue a column-level retype (`TastPoolBuilder.copyPatTreeInto`) would
-    /// otherwise miss. Exhaustive with no catch-all, so a case that grows a type field
-    /// fails to compile here.
+    /// `isinst` operand); a node's own type lives in a column and is mapped there.
     let mapTys (f: FrozenType -> FrozenType) (p: PatPayload) : PatPayload =
         match p with
         | PatPayload.TypeTestAs testTy -> PatPayload.TypeTestAs(f testTy)
@@ -665,40 +522,30 @@ module PatPayload =
         | PatPayload.Union _
         | PatPayload.EnumCase _ -> p
 
-/// How a backend SPELLS a binder — the naming column read at one slot, and the only thing
-/// a backend needs to name what a `BinderId` names (`TastAccessor.exprVarNaming`).
-///
-/// Two cases because there are two kinds of definition site, and the difference is not a
-/// fallback: a binder the SOURCE spells carries that identifier verbatim (dialect mangling
-/// — JS reserved words, apostrophes — belongs to the backend that emits it, not here),
-/// while a binder no identifier spells (a class's `this`/`base`, a freshened inline
-/// binder) has nothing to carry and is named after its SLOT, which is unique by
-/// construction because the slot is the identity.
+/// How a backend SPELLS a binder. A source identifier is carried verbatim — dialect
+/// mangling (JS reserved words, apostrophes) belongs to the backend that emits it.
 [<RequireQualifiedAccess>]
 [<Struct>]
 type BinderNaming =
     /// The identifier the source spells this binder with.
     | Source of name: string
-    /// No identifier spells this binder; a backend invents one from the slot.
+    /// No identifier spells this binder (a class's `this`/`base`, a freshened inline
+    /// binder); a backend invents one from the slot, which is unique by construction.
     | Minted of slot: BinderId
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module BinderNaming =
 
-    /// The naming column read at `slot`. The EMPTY name is what "no identifier spells this
-    /// binder" is stored as — it is no legal identifier, so the two cases cannot be
-    /// confused — and this is the sole place that convention is decoded, so no consumer
-    /// can invent a second reading of an empty slot.
+    /// The naming column read at `slot`. An EMPTY name stores "no identifier spells this
+    /// binder"; no legal identifier is empty, so the two cases cannot be confused.
     let ofColumn (name: string) (slot: BinderId) : BinderNaming =
         match name.Length with
         | 0 -> BinderNaming.Minted slot
         | _ -> BinderNaming.Source name
 
 /// The residual payload of a frozen declaration node — one case per `DeclShape`. A decl
-/// carries no uniform node-level `ty`/`tok` (there are no `DeclTys`/`DeclToks` columns), so
-/// each case rides whatever type/scalars it needs. Its child expr/pat roots live in the
-/// `DeclExprChildren`/`DeclPatChildren` columns. Mirrors `FrozenCodec.writeDeclPayload`. Exhaustive:
-/// a new `TDecl`/`DeclShape` case fails to compile at `declPayload`/`substituteDecl`.
+/// has no node-level `ty`/`tok` column, so each case rides whatever type/scalars it needs;
+/// its child expr/pat roots live in the decl child columns.
 [<RequireQualifiedAccess>]
 type DeclPayload =
     /// The binding is the sole pat child, its value the sole expr child;
@@ -706,16 +553,13 @@ type DeclPayload =
     | Let of {| IsInline: bool; Ty: FrozenType |}
     /// The decl's declared type; the body is the sole expr child.
     | Expression of FrozenType
-    /// The `type` declaration's shape, its seven body slots holding pool ids rather than
-    /// expression trees (`PooledTypeDecl`). A `Type` decl still surfaces no
-    /// `DeclExprChildren` — its bodies are named by id INSIDE the declaration shape, which
-    /// is what keeps "which body fills which slot" expressed by the shape itself.
+    /// The `type` declaration's shape, its body slots holding pool ids rather than trees.
+    /// It surfaces no decl expr children: the bodies are named by id INSIDE the shape.
     | Type of PooledTypeDecl
 
 [<RequireQualifiedAccess>]
 module DeclPayload =
 
-    /// The shape tag of a declaration carrying this payload — see `ExprPayload.shape`.
     let shape (p: DeclPayload) : DeclShape =
         match p with
         | DeclPayload.Let _ -> DeclShape.Let
@@ -723,31 +567,18 @@ module DeclPayload =
         | DeclPayload.Type _ -> DeclShape.Type
 
 // ── the ROW view: one node's slice across the parallel columns ──────────────
-//
-// A `*Row` is the TRANSPOSE of the columns at one id — every column value of a single
-// node, gathered. It is what a node-at-a-time producer or rewriter speaks: the pooling
-// walk hands the sink a whole row rather than a widening argument list, and a REWRITE is
-// `{ row with Children = … }` / `{ row with Ty = … }` — a row copy with no per-case match
-// on the node's shape, which is what makes a columnar rewrite cheaper than rebuilding a
-// DU node. The columns stay the storage form; rows never accumulate anywhere the layout
-// matters.
+// A `*Row` is the TRANSPOSE of the columns at one id, so a rewrite is
+// `{ row with Children = … }`, with no per-case match on the node's shape.
 
-/// One expression node's slice across the `Expr*` columns, in column order. No `Shape`:
-/// the tag is `ExprPayload.shape Payload`, so a row cannot be minted with a tag that
-/// contradicts what it carries.
+/// One expression node's slice across the `Expr*` columns, in column order.
 type ExprRow =
     {
         Ty: FrozenType
-        /// The node's anchor as the column stores it — an index, negative where no source
-        /// spells the node (`Anchor`). A row is the column transpose, so it holds the
-        /// column's own value; the surface that hands one out decodes it.
         Tok: Anchor
         Children: ExprPoolId[]
         PatChildren: PatPoolId[]
-        /// The `Var` reference edge (`ValueNone` at every other shape). A tree WALK cannot
-        /// fill this — assigning binder ids is the pooling sink's business, and a `Var` may
-        /// name a binder the walk has not reached yet — so a walk-produced row carries
-        /// `ValueNone` here and the sink supplies the id once it can resolve one.
+        /// The `Var` reference edge (`ValueNone` at every other shape). A walk-produced row
+        /// leaves it `ValueNone`: a `Var` may name a binder the walk has not reached yet.
         VarBinder: BinderId voption
         Payload: ExprPayload
     }
@@ -755,20 +586,9 @@ type ExprRow =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ExprRow =
 
-    /// Would appending `b` in place of `a` change anything? The unchanged test a row copy
-    /// turns on (`TastPoolBuilder.copyExprWith`), and the same answer `a = b` gives.
-    ///
-    /// Written out per field rather than left to structural equality because of what the
-    /// fields are. An edit REPLACES one field and carries the rest across, so the carried
-    /// fields are the very same objects on both sides — but F#'s generated record equality
-    /// calls each field's own `Equals` with no physical-identity check, so `a = b` walks the
-    /// node's whole `FrozenType` and payload to re-discover that they never moved. On the
-    /// per-node path of both backends' rewrite walks that is the dominant cost of a rewrite
-    /// that changes nothing.
-    ///
-    /// The child columns are the one pair compared by VALUE: a child substitution mints a
-    /// fresh array even when every id in it is unchanged, and that is exactly the case that
-    /// must still answer "same".
+    /// Same answer as `a = b`, but reference-checks `Ty`/`Payload` first: F# record
+    /// equality has no physical-identity shortcut, so it walks a whole `FrozenType` an edit
+    /// carried across unmoved. Children stay by value — a substitution mints a fresh array.
     let same (a: ExprRow) (b: ExprRow) : bool =
         (obj.ReferenceEquals(a.Ty, b.Ty) || a.Ty = b.Ty)
         && a.Tok = b.Tok
@@ -777,12 +597,10 @@ module ExprRow =
         && a.VarBinder = b.VarBinder
         && (obj.ReferenceEquals(a.Payload, b.Payload) || a.Payload = b.Payload)
 
-/// One pattern node's slice across the `Pat*` columns, in column order — see `ExprRow`
-/// for why there is no `Shape`.
+/// One pattern node's slice across the `Pat*` columns, in column order.
 type PatRow =
     {
         Ty: FrozenType
-        /// See `ExprRow.Tok`.
         Tok: Anchor
         Children: PatPoolId[]
         Payload: PatPayload
@@ -800,9 +618,8 @@ type DeclRow =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module DeclRow =
 
-    /// The unchanged test for a decl row copy — see `ExprRow.same` for why the fields are
-    /// compared one at a time. A `Type` decl's payload is the whole declaration shape, so
-    /// the physical-identity shortcut on `Payload` matters most here.
+    /// The unchanged test for a decl row copy. A `Type` decl's payload is the whole
+    /// declaration shape, so the physical-identity shortcut on `Payload` matters most here.
     let same (a: DeclRow) (b: DeclRow) : bool =
         a.ExprChildren = b.ExprChildren
         && a.PatChildren = b.PatChildren

@@ -11,30 +11,20 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
 // Application lowering for the Elaborate pass: the general `App` chain walk, the
-// residual single `HighPrecedenceApp`, the external optional-argument fill both
-// consult first, SRTP member-trait invocations, and the desugared infix /
-// prefix operator forms.
+// residual single `HighPrecedenceApp`, the external optional-argument fill, SRTP
+// member-trait invocations, and the desugared infix / prefix operator forms.
 
 module internal ElaborateApply =
 
     /// A trailing optional argument the call omitted, synthesised from the constant
-    /// default recorded in `ExternalOptionalFill`. A real constant default
-    /// (`Int`/`String`/…) becomes its literal `Const`. The omitted-optional marker
-    /// (`TConstValue.Unit`, minted only by the TS provider for a `T?` slot the call
-    /// dropped) instead becomes an HONEST `undefined` value — a zero-operand
-    /// `(# "undefined" #)` intrinsic the JS backend emits as bare `undefined` — NOT a
-    /// `unit` `Const` exploiting the coincidental shared `unit`→`undefined` repr. The
-    /// fill is post-inference (never re-unified against the parameter type), so typing
-    /// the node `undefined` rather than `unit` is sound. (The CLR optional-fill path
-    /// never mints `TConstValue.Unit`, so this case is JS-only.)
+    /// default in `ExternalOptionalFill`. The fill is post-inference and never
+    /// re-unified, so an omitted slot may type as `undefined` rather than `unit`.
     let optionalDefaultNode (ctx: PassContext) (cv: TConstValue) (tok: SyntaxToken) : TExpr =
         match cv with
-        // `undefined` is a JS-only intrinsic (no CLR contract). This fill is JS-only
-        // (`TConstValue.Unit` is minted only by the TS provider), so the JS `undefined`
-        // contract is always in scope and `ctx.Intrinsics.Undefined` resolves it.
+        // `TConstValue.Unit` in this table is the OMITTED-slot marker, not a `unit`
+        // value: emit an honest `undefined`, not a `unit` `Const` riding its JS repr.
+        // JS-only — `undefined` has no CLR contract, and only the TS provider mints it.
         | TConstValue.Unit -> TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, ctx.Intrinsics.Undefined, tok)
-        // Every integral width types at `IntWidth.name` — the same projection the elaborator
-        // gives an enum its underlying type by, so the two cannot disagree about a width.
         | TConstValue.Integral(w, _) -> TExpr.Const(cv, ctx.Intrinsics.OfIntWidth w, tok)
         | TConstValue.Float _ -> TExpr.Const(cv, ctx.Intrinsics.Float, tok)
         | TConstValue.Float32 _ -> TExpr.Const(cv, ctx.Intrinsics.Float32, tok)
@@ -44,13 +34,8 @@ module internal ElaborateApply =
         | TConstValue.String _ -> TExpr.Const(cv, ctx.Intrinsics.String, tok)
 
     /// Lower an external method call that omitted a suffix of the member's trailing
-    /// optional parameters (`Unification.tryFillOptionalCall` recorded the omitted
-    /// constant defaults in `ExternalOptionalFill`). The supplied arguments are
-    /// flattened, the recorded defaults appended as literal nodes, and the result
-    /// re-tupled to the member's *full* arity — so codegen sees a fully applied
-    /// tupled call and needs no optional-argument awareness. `head` is the already
-    /// lowered `TExpr.ExternalMember`; its own type stays the full signature, so the
-    /// backend recovers the complete member-ref.
+    /// optional parameters. The supplied arguments are flattened, the recorded defaults
+    /// appended, and the result re-tupled to the member's *full* arity.
     let private translateExternalOptionalCall
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -69,9 +54,8 @@ module internal ElaborateApply =
         let defaults = [ for cv in omitted -> optionalDefaultNode ctx cv tok ]
         let filled = (EqArray.toList supplied) @ defaults
 
-        // The full tupled parameter domain (for the synthesised tuple's type and the
-        // element-wise `obj` box) and the member's return type, off the recorded
-        // signature.
+        // The full tupled parameter domain (the synthesised tuple's type, and the
+        // element-wise `obj` box) and the member's return type, off the signature.
         let fullDom, ret =
             match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
             | ValueSome info ->
@@ -89,11 +73,8 @@ module internal ElaborateApply =
 
         TExpr.App(head, argNode, ret, tok)
 
-    /// Dispatch an application head through the optional-argument fill iff
-    /// `Unification.tryFillOptionalCall` recorded omitted trailing optionals for it.
-    /// Both application arms (`Expr.App`'s tupled list and the residual single
-    /// `Expr.HighPrecedenceApp`) consult this first so the "did this call omit
-    /// optionals?" decision lives in one place; `ValueNone` ⇒ the arm's ordinary
+    /// Dispatch an application head through the optional-argument fill iff Unification
+    /// recorded omitted trailing optionals for it; `ValueNone` ⇒ the arm's ordinary
     /// lowering runs unchanged. `head` is the already lowered application head.
     let private tryTranslateExternalOptionalFill
         (translateExpr: TranslateExpr)
@@ -124,11 +105,9 @@ module internal ElaborateApply =
 
             let mutable currTy = typeOfKey ctx (CstKeys.ofExpr fn)
 
-            // An external .NET method head reads its obj slots off the declared
-            // signature Unification recorded (`externalHeadDom`); its node SemType is
-            // the un-grounded applied shape, not the function type. The method consumes
-            // the first argument (its tupled argument list); a project-local function
-            // reads each obj parameter off the head's function type (`currTy`) instead.
+            // An external .NET method head reads its `obj` slots off the declared
+            // signature, since its node SemType is the un-grounded applied shape, not a
+            // function type. It consumes the FIRST argument; a local one reads `currTy`.
             let externalDom = externalHeadDom ctx (CstKeys.ofExpr fn) result
             let mutable isFirst = true
             // The member's own argument is the FIRST one; residual application applies to
@@ -159,8 +138,7 @@ module internal ElaborateApply =
                     else
                         argT
 
-                // Box a value / open-typar argument flowing into an `obj` parameter —
-                // the implicit upcast made explicit.
+                // Box a value / open-typar argument flowing into an `obj` parameter.
                 let argT =
                     match externalDom with
                     | ValueSome dom when isFirst -> wrapObjArg ctx.Store dom argT
@@ -172,14 +150,9 @@ module internal ElaborateApply =
 
             wrapOpenedBinds opened result
 
-    /// A residual single application (an external .NET method reached as a
-    /// folded LongIdent, a local function value, a top-level `let f (x: obj)`
-    /// emitted as a static method, …). Box a value arg flowing into an `obj`
-    /// parameter — the implicit upcast, made explicit.
-    /// An external method reads its `obj` slot off the declared signature
-    /// Unification recorded (`externalMethodParamTy`, its node SemType is the
-    /// un-grounded applied shape); everything else reads the parameter off
-    /// the head's function type.
+    /// A residual single application (an external .NET method reached as a folded
+    /// LongIdent, a local function value, …). An external method reads its `obj` slot
+    /// off the recorded signature; everything else off the head's function type.
     let translateHighPrecedenceApp
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -207,8 +180,8 @@ module internal ElaborateApply =
                     | TyFun(p, _) -> ValueSome p
                     | _ -> ValueNone
 
-            // See `translateApp`: a tuple-VALUED argument opens to one expression per
-            // declared parameter, and the receiver binds ahead of it.
+            // A tuple-VALUED argument opens to one expression per declared parameter,
+            // and the receiver binds ahead of it.
             let opened, fnT, argT =
                 match openTupledMemberArg ctx fnT argT with
                 | ValueSome o -> o.Binds, o.Head, o.Arg
@@ -222,17 +195,8 @@ module internal ElaborateApply =
             wrapOpenedBinds opened (TExpr.App(fnT, argT, ty, tok))
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
-    /// member-trait call (the static-opt BASE of a `let inline` arithmetic operator,
-    /// `ops-platform.clr.fs`). Lower to a `TExpr.TraitCall` carrying the
-    /// RECEIVER type, the resolved compiled member name, the peeled arguments, and the
-    /// node's own `^T3` result type (which for a heterogeneous operator is neither
-    /// operand's). `Inline.substMapper` resolves it to a `StaticMethodCall` once the
-    /// typars are substituted to concrete types at expansion.
-    ///
-    /// The receiver is the LEFT operand: `TExpr.TraitCall` carries ONE receiver, so the
-    /// `(^T1 or ^T2)` support set is searched left-only. A right-operand-only member
-    /// (`int * Vector -> Vector`) therefore does not resolve — carrying a candidate SET
-    /// is what would buy that.
+    /// member-trait call. `TExpr.TraitCall` carries ONE receiver, the LEFT operand, so
+    /// a right-operand-only member (`int * Vector -> Vector`) does NOT resolve.
     let translateStaticMemberInvocation
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -252,9 +216,8 @@ module internal ElaborateApply =
             | ValueNone -> failwithf "Elaborate: unsupported static-member-trait operator %A" ident
 
         let args = peelOneArg (translateExpr ctx) argExpr
-        // The trait receiver is the LEFT operand's type — the operator's `^T1` typar.
-        // Substitution at expansion rewrites it to the concrete nominal and this node to
-        // a `StaticMethodCall`.
+        // Substitution at expansion rewrites `^T1` to the concrete nominal, and this
+        // node to a `StaticMethodCall`.
         let receiverTy = if args.Length > 0 then TastWalk.exprTy args.[0] else ty
 
         TExpr.TraitCall(receiverTy, memberName, args, ty, tok)
@@ -270,20 +233,16 @@ module internal ElaborateApply =
         : TExpr =
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName name) ->
-            // Reconstruct the operator's type from the resolved arms, not by
-            // re-instantiating the scheme: re-instantiation would mint fresh
-            // TypeVars the existing TyVar table doesn't link, so the External's
-            // carried type wouldn't match the App chain's resolved arms.
+            // Reconstruct the operator's type from the resolved arms: re-instantiating
+            // the scheme would mint fresh TypeVars the TyVar table does not link, so
+            // the `External`'s carried type would not match the App chain's arms.
             let leftTy = typeOfKey ctx (CstKeys.ofExpr left)
             let rightTy = typeOfKey ctx (CstKeys.ofExpr right)
             let partialTy = TyFun(rightTy, resultTy)
             let opTy = TyFun(leftTy, partialTy)
-            // Unification (`inferInfix`) stamped the resolved operator identity under
-            // this InfixApp key; carry it so `InlineExpansion` splices the contract's
-            // `let inline` body by KEY. Present for EVERY resolved operator, primitives
-            // included — an operator that resolved at all carries its key. `ValueNone`
-            // here means the operator did not resolve, which Unification already
-            // diagnosed ("No definition for '<' found …").
+            // Unification stamped the resolved operator identity under this InfixApp
+            // key; carry it so the contract's `let inline` body splices by KEY.
+            // `ValueNone` ⇒ it did not resolve, which Unification already diagnosed.
             let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
             let opExpr = TExpr.External(name, opKey, opTy, tok)
             let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy, tok)
@@ -295,8 +254,7 @@ module internal ElaborateApply =
             TExpr.UnionCons(consName, EqArray.ofList [ translateExpr ctx left; translateExpr ctx right ], resultTy, tok)
         | ValueSome _
         | ValueNone ->
-            // Desugar always attaches an OpName for an InfixApp key; reaching
-            // here is a bug. Surface loudly.
+            // Desugar always attaches an `OpName` for an InfixApp key.
             failwithf "Elaborate: InfixApp at %O missing DesugaredForm entry" key
 
     let translatePrefix
@@ -309,19 +267,15 @@ module internal ElaborateApply =
         : TExpr =
         match ctx.Desugared.TryGetValue key with
         | ValueSome(DesugaredForm.OpName OperatorData.OpAddressOf) ->
-            // `&local` → push the local's *address*. The operand is an addressable
-            // mutable local (a `Var` bound to a slot); lower to an `ldloca`
-            // intrinsic (mirroring PP2b's `ldobj` lowering), which codegen emits by
-            // inspecting the inner `Var`'s slot instead of recurring (a recur would
-            // `ldloc` the value). `resultTy` is the byref `TyConst("byref", [elem])`.
+            // `&local` → push the local's *address*. Codegen emits `ldloca` by
+            // inspecting the inner `Var`'s slot rather than recurring, since a recur
+            // would `ldloc` the value. `resultTy` is `TyConst("byref", [elem])`.
             TExpr.ILIntrinsic("ldloca", ValueNone, EqArray.singleton (translateExpr ctx operand), resultTy, tok)
         | ValueSome(DesugaredForm.OpName name) ->
-            // See translateInfix: reconstruct from the resolved operand + result
-            // rather than re-instantiating the scheme.
+            // Reconstruct from the resolved operand + result, not from the scheme.
             let operandTy = typeOfKey ctx (CstKeys.ofExpr operand)
             let opTy = TyFun(operandTy, resultTy)
-            // See translateInfix: carry the resolved prefix-operator identity stamped
-            // by `inferPrefix` so the body splices by KEY.
+            // Carry the resolved prefix-operator identity so the body splices by KEY.
             let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
             let opExpr = TExpr.External(name, opKey, opTy, tok)
             TExpr.App(opExpr, translateExpr ctx operand, resultTy, tok)

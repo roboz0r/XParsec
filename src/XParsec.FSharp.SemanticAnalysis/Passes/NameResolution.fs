@@ -9,82 +9,59 @@ open NameResolutionTypeRegistration
 open NameResolutionMemberRegistration
 
 // Pre:  ctx.Desugared populated.
-// Post: ctx.Bindings.Binding populated for every ident-use site resolving to a
-//       local binding. Unresolved names the provider also doesn't know become
-//       Error diagnostics.
-//
-// Recursion is delegated to CstWalk.iterExpr; the walker thread-restores scope
-// at each recursive boundary, so a lambda/let body's locals never pollute the
-// caller's scope. Scope-tracking and ident resolution live in NameResolutionScope;
-// type/member registry stamping in NameResolution{Type,Member}Registration. This
-// module walks type-member bodies and orchestrates the per-element passes.
+// Post: ctx.Bindings.Binding populated for every ident-use site resolving to a local
+//       binding; a name no provider knows becomes an Error diagnostic.
 
 module NameResolution =
 
-    // Used by docs / external callers; the implementation lives in registration.
     let typarNamesOfTypeName = NameResolutionTypeRegistration.typarNamesOfTypeName
 
-    /// Parameters for `walkTypeBodies`: a registry-driven walk over a class or
-    /// union's member bodies that seeds ctx.Bindings.Binding with `this` (and any
-    /// ctor params) and recurses each body through `walker`. `CtorParams` is `[||]`
-    /// for unions (no primary ctor).
+    /// A class or union/record host's member bodies plus everything that enters their
+    /// scope. The ctor-param, `val`-field, preamble and `inherit` fields are empty for a
+    /// union/record host, which declares none of those.
     [<NoEquality; NoComparison>]
     type private TypeBodiesWalk =
         {
             ThisName: string
             ThisKey: NodeKey
-            /// `base` binder key, present only for a class with a resolved
-            /// `inherit` clause (B-4). Enters the *instance* scope alongside
-            /// `this`; statics never see `base`. `ValueNone` for unions and for
-            /// classes without inheritance.
+            /// `base`'s own synthetic binder key, present only for a class with a
+            /// resolved `inherit` clause. Enters the *instance* scope alongside `this`;
+            /// statics never see `base`.
             BaseKey: NodeKey voption
             CtorParams: ClassCtorParamInfo[]
-            /// Declared `val [mutable] x: T` fields. Carried here — though nothing about them
-            /// enters lexical scope — because they are one of the four families that mint a
-            /// named field on the type, and so participate in the duplicate-field check below.
-            /// `[||]` for unions.
+            /// Declared `val [mutable] x: T` fields. Nothing about them enters lexical
+            /// scope; they are carried because they mint a named field on the type and so
+            /// take part in the duplicate-field check below.
             InstanceFields: ClassFieldInfo[]
             /// The type's members. Not in lexical scope (a member reaches a sibling through
-            /// `this`), but their NAMES are needed here: F# forbids a class `let` binder sharing
-            /// a name with a member (FS0905).
+            /// `this`); only their NAMES are read here, since F# forbids a class `let` binder
+            /// sharing a name with a member (FS0905).
             Members: TypeMemberInfo[]
             /// `static let` / `static do`, in declaration order. A `static let` name enters
             /// both the instance and the static member scope; the sequence's own expressions
-            /// are walked under the static binders above them alone (no `this` / ctor params
-            /// / instance binders). `[||]` for unions.
+            /// see only the static binders above them (no `this` / ctor params / instance lets).
             StaticPreamble: ClassPreambleEntry[]
             /// Instance `let` / `do`, in declaration order. Every binder enters the instance
-            /// member scope (members are a mutually-recursive group); the sequence's own
-            /// expressions see the ctor params and the instance binders ABOVE them only.
-            /// `[||]` for unions.
+            /// member scope; the sequence's own expressions see the ctor params and the
+            /// instance binders ABOVE them only.
             InstancePreamble: ClassPreambleEntry[]
-            /// Secondary constructors (B-11). Each body is walked in a scope of
-            /// the `static let`s plus its own params (no `this` / primary-ctor
-            /// params). `[||]` for unions.
+            /// Secondary constructors. Each body is walked in a scope of the `static let`s
+            /// plus its own params (no `this` / primary-ctor params).
             SecondaryCtors: ClassSecondaryCtorInfo[]
-            /// Primary-constructor `inherit Base(args)` argument expression (B-4),
-            /// when the class has one. Name-resolved under the *instance* scope
-            /// (primary-ctor params + static lets in scope, but not `this`) so
-            /// Unification's `fillBaseCtorCall` sees its idents bound. `ValueNone`
-            /// for unions and classes without an `inherit` clause.
+            /// Primary-constructor `inherit Base(args)` argument expression, when the class
+            /// has one. Name-resolved with the primary-ctor params and static lets in scope,
+            /// but not `this`.
             InheritsExpr: Expr<SyntaxToken> voption
-            /// The enclosing module's `let` value/function bindings that are VISIBLE
-            /// from this type's declaration, present when the type is declared inside a
-            /// `module Foo = …`. Entered as the lowest-priority layer of
-            /// every member-body scope so a nested type's method can reference a
-            /// module sibling unqualified (`collapseLHS`, `notStarted` in
-            /// `SetIterator`). Empty for a top-level type, and for a module whose `let`s all
-            /// sit below the type. Built from the same `LocalModules` registry that
-            /// *qualified* resolution reads, and scoped by the same offsets.
+            /// The enclosing module's `let` bindings that are VISIBLE from this type's
+            /// declaration. Entered as the lowest-priority layer of every member-body scope,
+            /// so a member can name a module sibling unqualified. Empty for a top-level type.
             EnclosingModuleScope: Scope
             Elements: TypeDefnElements<SyntaxToken>
         }
 
-    /// The self-identifier token an *instance* member declares for its own
-    /// body (`s` in `member s.Add …`, `x` in `member x.Choose …`). F# scopes
-    /// this name to that single member, independently of the type-level `as`
-    /// alias. `AutoProperty` / `AbstractSignature` carry none; a `_` self-id is
-    /// returned here and filtered by the caller (it binds nothing).
+    /// The self-identifier token an *instance* member declares for its own body (`s` in
+    /// `member s.Add …`). F# scopes it to that one member, independently of the type-level
+    /// `as` alias. A `_` self-id is returned here and filtered by the caller.
     let private selfIdentOf (d: MethodOrPropDefn<SyntaxToken>) : SyntaxToken voption =
         match d with
         | MethodOrPropDefn.Method(ident = ValueSome(struct (selfId, _)))
@@ -92,39 +69,17 @@ module NameResolution =
         | MethodOrPropDefn.PropertyWithGetSet(identPrefix = ValueSome(struct (selfId, _))) -> ValueSome selfId
         | _ -> ValueNone
 
-    /// Walk every method / property / auto-property body of a class or union with
-    /// an instance scope binding `this` (or the `as` alias) and every
-    /// primary-constructor argument. Member names are NOT in lexical scope:
-    /// sibling members reference one another only via `this.OtherMember`. Static
-    /// scope is empty: statics don't see `this` or ctor args (F# spec §8.7).
-    ///
-    /// A type body has the module's two-tier shape, and this walk is what enforces it:
-    /// the `let` preamble is one strictly TOP-DOWN sequence — each initialiser is walked
-    /// under a scope holding only the lets ABOVE it, so `let a = b` naming a later `b` is
-    /// unresolved, as F# reports it (FS0039) — while the MEMBERS are a mutually-recursive
-    /// group. The group falls out of members never entering lexical scope at all: a member
-    /// reaches a sibling through `this`, whose type carries a placeholder TyVar for EVERY
-    /// member from registration onwards, so a call to a member declared below resolves with
-    /// no ordering constraint to satisfy.
+    /// Walk every method / property / auto-property body of a class or union under an
+    /// instance scope binding `this` (or the `as` alias) and the primary-ctor params; a
+    /// static member's scope has neither (F# spec §8.7). Members are mutually recursive.
     let private walkTypeBodies (ctx: PassContext) (walker: CstWalk.ExprWalker<Scope list>) (w: TypeBodiesWalk) : unit =
-        // Four families mint a field on the type carrying its SOURCE name: primary-ctor params,
-        // declared `val` fields, `static let` binders and instance `let` binders. The invariant a
-        // backend needs is therefore one rule over their union — no two fields of one type may
-        // share a name — and NOT a per-family rule. On the CLR a Field row is identified by
-        // (Parent, Name, Signature) (ECMA-335 II.22.15) with static-ness in the flags, not the
-        // signature, so even `static let v` beside an instance `let v` is a duplicate ROW, not two
-        // fields. Accumulated in declaration order rather than re-scanned per family: this is
-        // where "already declared above" is a live fact, and it names the second declaration as
-        // the report site.
+        // Primary-ctor params, `val` fields, `static let` and instance `let` binders each mint
+        // a field carrying its source name, and no two fields of one type may share a name — a
+        // CLR Field row is (Parent, Name, Signature), static-ness being a flag (ECMA-335 II.22.15).
         let mutable fieldNames: Set<string> = Set.empty
 
-        // F# ACCEPTS every collision this rejects — it uniquifies the BACKING field name by source
-        // position (`v@4`) and keeps the plain source name where nothing collides. That
-        // uniquification is deferred, not refused: local `let`s need it just as much (on JS
-        // `let x = 1` / `let x = x + 1` in statement position emits two `const x` into one block,
-        // a hard SyntaxError), so it is built once, upstream, rather than per backend. Until then
-        // rejecting is the only alternative to minting two fields of one name and silently
-        // miscompiling whichever one a backend picked. A LIMITATION, not invalid F#.
+        // A LIMITATION, not invalid F#: fsc accepts every collision this rejects, uniquifying the
+        // backing field name by source position (`v@4`). No such uniquification pass exists here.
         let declareField (name: string) (declTok: SyntaxToken) =
             if fieldNames.Contains name then
                 ctx.Report(
@@ -138,9 +93,8 @@ module NameResolution =
             else
                 fieldNames <- Set.add name fieldNames
 
-        // FS0905 — a REAL F# rule, unlike the duplicate-field limitation above, and one that
-        // binder uniquification would NOT lift: a member's name is its public surface, so a class
-        // `let` binder may not share it. Holds for either side being static (probed against fsc).
+        // FS0905: a member's name is its public surface, so a class `let` binder may not share
+        // it. Holds whichever side is static (probed against fsc).
         let memberNames = w.Members |> Array.map (fun m -> m.Name) |> Set.ofArray
 
         let mutable scopeMap: Scope = Map.empty
@@ -155,10 +109,9 @@ module NameResolution =
             }
         )
 
-        // `base` is visible to instance member bodies of a derived class only.
-        // It resolves to its own synthetic binder key (mirrors `this`); a class
-        // without an `inherit` clause leaves `base` unbound, so a member that
-        // mentions it diagnoses "Unresolved identifier: base".
+        // `base` is visible to instance member bodies of a derived class only, and resolves
+        // to its own synthetic binder key. Left unbound without an `inherit` clause, so a
+        // member mentioning it reports "Unresolved identifier: base".
         match w.BaseKey with
         | ValueSome bk ->
             scopeMap <- Map.add "base" (bk, false) scopeMap
@@ -174,8 +127,6 @@ module NameResolution =
         | ValueNone -> ()
 
         for p in w.CtorParams do
-            // A name resolves to the RAW identity a reference carries, so the parameter's
-            // binder is widened once here and scoped under that.
             let paramKey = BinderKey.identity p.DeclSite.Binder
             scopeMap <- Map.add p.Name (paramKey, false) scopeMap
             declareField p.Name p.DeclSite.Tok
@@ -189,22 +140,16 @@ module NameResolution =
                 }
             )
 
-        // `val` fields bind no name lexically, so they take part in nothing here but the
-        // duplicate-field rule — which is exactly why the rule cannot live in the preamble scopes.
+        // `val` fields bind no name lexically; the duplicate-field rule is all they take part in.
         for f in w.InstanceFields do
             declareField f.Name f.DeclSite.Tok
 
-        // The enclosing module's value bindings are visible — unqualified — to
-        // every member body of a type nested in that module (F# spec §8.7). They
-        // enter as the *lowest-priority* tail layer so `this` / ctor params /
-        // preamble binders shadow on a name clash. Already scoped to the type's position by
-        // `enclosingModuleScope`; empty (no enclosing module, or nothing of it visible here)
-        // leaves resolution unchanged.
+        // The enclosing module's value bindings are visible — unqualified — to every member
+        // body of a type nested in that module (F# spec §8.7). Lowest-priority tail layer, so
+        // `this` / ctor params / preamble binders shadow on a name clash.
         let moduleMemberScope: Scope = w.EnclosingModuleScope
 
         /// Declare one preamble `let` binder: its binding site, its field, and the FS0905 check.
-        /// One entry point for all three so a preamble binder cannot be added to a scope without
-        /// its field being declared — which is what makes the ordered accumulation exhaustive.
         let declarePreambleBinder (l: ClassLetInfo) =
             ctx.Bindings.Binding.Set(
                 l.DeclKey,
@@ -212,7 +157,7 @@ module NameResolution =
                     BindingSite = l.DeclKey
                     IsInline = false
                     // An instance `let mutable` is a mutable FIELD, so `c <- …` in a
-                    // member body (or in a closure the preamble builds) must type-check.
+                    // member body must type-check.
                     IsMutable = l.IsMutable
                 }
             )
@@ -223,9 +168,8 @@ module NameResolution =
             if memberNames.Contains l.Name then
                 ctx.Report(bindTok, Kind.MemberAndLocalBindingClash l.Name)
 
-        // A preamble binding is an ordinary `let`: `let f x = …` binds a FUNCTION, so its
-        // `argumentPats` scope over the initialiser exactly as a member's do. Only `let rec` puts
-        // the binder in scope of its OWN initialiser — which is not shadowing, and stays legal.
+        // A preamble `let f x = …` binds a FUNCTION, so its `argumentPats` scope over the
+        // initialiser. Only `let rec` puts the binder in scope of its own initialiser.
         let walkLetInit (outer: Scope list) (l: ClassLetInfo) =
             let b = l.Binding
 
@@ -237,12 +181,9 @@ module NameResolution =
 
             CstWalk.iterExpr walker inner b.expr
 
-        // `static let` names enter scope for every member body (instance and
-        // static alike — F# spec §8.7) and resolve to the static field's binder
-        // key. The static sequence is walked under the static binders declared *before*
-        // each entry (no `this` / ctor params / instance binders), so the binder map is
-        // built incrementally — and a `static let` therefore cannot see an instance
-        // binder, matching F# (FS0039).
+        // `static let` names enter scope for every member body, instance and static alike
+        // (F# spec §8.7). Built incrementally, so a `static let` sees neither an instance
+        // binder nor a later static one — matching F# (FS0039).
         let mutable staticLetScope: Scope = Map.empty
 
         for entry in w.StaticPreamble do
@@ -257,17 +198,9 @@ module NameResolution =
                 staticLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) staticLetScope
             | ClassPreambleEntry.Do e -> CstWalk.iterExpr walker [ staticLetScope ] e
 
-        // The instance sequence runs inside the primary ctor, so it sees the ctor params
-        // and the static binders (the `.cctor` has already run), and — being strictly
-        // top-down — the instance binders above it. NOT `this` / `base` / the `as` alias:
-        // F# only makes the object nameable here through an explicit `as self`, and even
-        // then calling a member from a preamble `let` throws at run time (initialisation
-        // soundness). With no init-soundness analysis, leaving the alias unbound rejects
-        // that program rather than silently reading a not-yet-initialised field.
-        // A preamble binder's lambda still CAPTURES `this` — that is Elaborate's
-        // field rewrite, one layer below scoping, and must not widen this scope.
-        // The ctor params are their own layer, but nothing rides on its priority: `declareField`
-        // has already rejected any name a ctor param shares with a static binder.
+        // The instance sequence runs inside the primary ctor: it sees the ctor params, the
+        // static binders, and the instance binders above it — but never `this` / `base` / the
+        // `as` alias, so a preamble `let` naming the object is rejected rather than typed.
         let ctorParamScope =
             (Map.empty, w.CtorParams)
             ||> Array.fold (fun acc p -> Map.add p.Name (BinderKey.identity p.DeclSite.Binder, false) acc)
@@ -288,9 +221,8 @@ module NameResolution =
                 instanceLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) instanceLetScope
             | ClassPreambleEntry.Do e -> CstWalk.iterExpr walker (instanceLetScope :: instanceOuterScope) e
 
-        // Member bodies see EVERY preamble binder (they are a mutually-recursive group, so
-        // there is no ordering rule left to enforce here). The merge cannot lose a binder to a
-        // same-named one: `declareField` has already rejected any class whose fields collide.
+        // Member bodies see EVERY preamble binder, static and instance alike: members are a
+        // mutually-recursive group, so no ordering rule is left to enforce here.
         let mergePreamble (m: Scope) =
             let m = (m, staticLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
             (m, instanceLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
@@ -299,19 +231,16 @@ module NameResolution =
         // Statics see neither `this` / ctor params nor any instance binder.
         let staticScope: Scope list = [ staticLetScope; moduleMemberScope ]
 
-        // Primary `inherit Base(args)` expression (B-4): name-resolve under a
-        // scope of `static let`s plus the primary-ctor params, but without
-        // `this` / `base` — and without the instance binders, which are only
-        // assigned *after* the base ctor returns.
+        // Primary `inherit Base(args)`: the `static let`s and primary-ctor params, without
+        // `this` / `base` and without the instance binders, which are assigned only after
+        // the base ctor returns.
         match w.InheritsExpr with
         | ValueSome e -> CstWalk.iterExpr walker instanceOuterScope e
         | ValueNone -> ()
 
-        // Secondary constructors (B-11). The body is an `AdditionalConstrExpr`,
-        // not a plain `Expr`, so it's walked manually: each embedded expression
-        // goes through `walker`, and a `let`-preamble binder enters scope for the
-        // remainder. No `this` / primary-ctor params — only the static lets and
-        // the overload's own parameters are in scope.
+        // A secondary ctor body is an `AdditionalConstrExpr`, not a plain `Expr`, so it is
+        // walked here: each embedded expression goes through `walker`, and a `let` binder
+        // enters scope for the remainder. Only the static lets and its own params are in scope.
         let rec walkCtorBody (scope: Scope list) (ace: AdditionalConstrExpr<SyntaxToken>) : unit =
             match ace with
             | AdditionalConstrExpr.LetIn(binding = b; body = body) ->
@@ -360,20 +289,14 @@ module NameResolution =
 
             walkCtorBody [ scScope; moduleMemberScope ] sc.Body
 
-        // Body walk shared by a class/union's own members and by each
-        // `interface IFace with member …` block's members (B-2): an interface
-        // member is an ordinary instance member whose body sees `this`.
+        // Shared by a class/union's own members and by each `interface IFace with member …`
+        // block's: an interface member is an ordinary instance member whose body sees `this`.
         let walkMemberDefn (md: MemberDefn<SyntaxToken>) =
             match md with
             | MemberDefn.Member(staticToken = s; defn = d) ->
-                // F# scopes each *instance* member's own self-identifier to that
-                // member's body (`member s.Add …`, `member x.Choose …`), distinct
-                // from the type-level `as` alias / default `this` that already
-                // seeds `instanceScope`. Bind the member's self-id to the same
-                // `ThisKey` (so Unification still types it as `this`) when it
-                // differs from the bound self-name and isn't `_`. Without this a
-                // member written with any other self-id leaves both `s` and
-                // `s.Member` unresolved. Static members have no self-id.
+                // A member's own self-id (`member s.Add …`) is scoped to that member's body,
+                // distinct from the type-level `as` alias already in `instanceScope`. It binds
+                // to the same `ThisKey`, so it types as `this`. Statics have no self-id.
                 let scope =
                     if s.IsSome then
                         staticScope
@@ -385,16 +308,14 @@ module NameResolution =
                             if name = "_" || name = w.ThisName then
                                 instanceScope
                             else
-                                // Highest-priority layer: a fresh self-id, so it can
-                                // only shadow (never collide with) the instance scope.
                                 Map.add name (w.ThisKey, false) Map.empty :: instanceScope
                         | ValueNone -> instanceScope
 
                 match d with
                 | MethodOrPropDefn.Method(defn = b)
                 | MethodOrPropDefn.Property(defn = b) ->
-                    // Extend with argument-pattern binders so method parameters
-                    // resolve. The headPat (member name) does NOT enter scope.
+                    // The argument pats bind the method's parameters; the headPat (the member
+                    // name) does NOT enter scope.
                     let mutable inner = scope
 
                     if not b.argumentPats.IsEmpty then
@@ -414,19 +335,9 @@ module NameResolution =
                     walkMemberDefn md
             | _ -> ()
 
-    /// The member bindings of the module a local type is declared inside that are
-    /// VISIBLE from the type — looked up via the `TypeEnclosingModule` → `LocalModules`
-    /// registries the pre-pass populated. Empty for a top-level type.
-    ///
-    /// The use site is the type's own declaration key, and that is exact rather than an
-    /// approximation: a type declaration is one contiguous element, so a module `let` sits
-    /// either wholly above it (visible to the type and to every one of its member bodies) or
-    /// wholly below every member body (visible to none of them). Any offset inside the
-    /// declaration renders the same verdict, so there is nothing finer to ask.
-    ///
-    /// This is why a member body cannot call a module function declared under its type
-    /// (F# FS0039) while one declared above it resolves — and why `module rec` restores both:
-    /// the binding's `VisibleFrom` moves to the `rec` keyword, above every type in the scope.
+    /// The enclosing module's bindings VISIBLE from a local type's own declaration key. A type
+    /// declaration is one contiguous element, so a module `let` is above it (visible to every
+    /// member body) or below it (visible to none) — hence FS0039, and `module rec` lifting it.
     let private enclosingModuleScope (ctx: PassContext) (typeName: string) (declKey: NodeKey) : Scope =
         match ctx.Resolution.TypeEnclosingModule.TryGetValue typeName with
         | true, moduleName ->
@@ -448,12 +359,9 @@ module NameResolution =
         (walker: CstWalk.ExprWalker<Scope list>)
         (m: ModuleElem<SyntaxToken>)
         : unit =
-        // Resolve the class-like decl to its registered `ClassTypeInfo` (paired with the decl
-        // body) by the key the DECLARATION mints, not by its name: this is the class itself,
-        // so a sibling module's same-named class must not answer, and an overloaded
-        // `Box\`1`/`Box\`2` does not resolve by bare name at all (a miss would skip BOTH
-        // classes' member bodies — their `this`/ctor params would never enter scope).
-        // Mirrors `fillClassMembers`.
+        // Resolve the decl to its registered info by the key the DECLARATION mints, not by
+        // name: a sibling module's same-named class must not answer, and an arity-overloaded
+        // `Box\`1`/`Box\`2` does not resolve by bare name at all.
         let bodyOf (td: TypeDefn<SyntaxToken>) =
             match TypeDefnPatterns.tryClassLikeDecl td with
             | ValueSome d ->
@@ -484,9 +392,7 @@ module NameResolution =
                             InstancePreamble = info.InstancePreamble
                             SecondaryCtors = info.SecondaryCtors
                             InheritsExpr =
-                                // Walk the primary base-ctor args only when
-                                // `registerInheritedSlot` resolved the parent
-                                // (otherwise it already diagnosed the clause).
+                                // Walk the base-ctor args only when the parent resolved.
                                 match info.BaseType, body.inherits with
                                 | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
                                 | _ -> ValueNone
@@ -496,13 +402,9 @@ module NameResolution =
                 | ValueNone -> ()
         | _ -> ()
 
-    /// Name-resolve a union/record host's augmentation-member and `interface … with`
-    /// impl bodies so `this` (and any `this.Field` access or `match this with | Case
-    /// payload` binders) get a `Binding` entry. Walk when the type has augmentation
-    /// members OR interface impls — a type with ONLY an interface impl still needs its
-    /// impl bodies resolved (mirrors `Unification.fillHostMembers`, which fills the
-    /// impls outside the same `Members`-non-empty guard). Unions/records have no ctor
-    /// params / static lets / secondary ctors / inherit, so those stay empty.
+    /// Name-resolve a union/record host's augmentation-member and `interface … with` impl
+    /// bodies so `this` and its pattern binders get a `Binding` entry. A type with ONLY an
+    /// interface impl and no augmentation members still needs its impl bodies resolved.
     let private walkNominalHostBodies
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -557,13 +459,12 @@ module NameResolution =
             let isRecursive = isRec.IsSome
 
             for b in bindings do
-                // Stamp the binding's return-type annotation head (its pattern
-                // annotations are stamped by `stampPatCases` via the RHS scope hook).
+                // The return-type annotation head only; the pattern annotations are stamped
+                // through the RHS scope hook.
                 stampBindingSigTypes ctx b
                 let rhsScope = walker.EnterBindingRhs scope isRecursive bindings b
                 CstWalk.iterExpr walker rhsScope b.expr
-            // `bindingsToScope` writes binding-site self-entries to ctx.Bindings.Binding
-            // as a side effect — same path used by EnterLetBody.
+            // Writes binding-site self-entries to `ctx.Bindings.Binding` as a side effect.
             let newEntries = bindingsToScope ctx bindings
 
             match scope with
@@ -582,29 +483,15 @@ module NameResolution =
         (walker: CstWalk.ExprWalker<Scope list>)
         (elems: WalkedElem<SyntaxToken> list)
         =
-        // The whole-file type-name pre-scan, and the ONE scan that must see a type before
-        // the registration scan reaches it: `moduleHolderName` (the `…Module` suffix rule)
-        // reads `NominalTypeNames` at the very first key mint, and a `module Foo` may
-        // textually precede the `type Foo` it collides with.
+        // Whole-file pre-scan: the `…Module` suffix rule reads `NominalTypeNames` at the very
+        // first key mint, and a `module Foo` may textually precede the `type Foo` it collides
+        // with — so every type name must be known before registration starts.
         for w in elems do
             noteNominalTypeNames ctx w.Elem
 
-        // Type registration, top-down. F# type scoping is file-ordered — a type sees what
-        // is declared above it plus its own `type … and …` group — and `ModuleElem.Type`
-        // IS that group, so registering one group at a time in source order makes the rule
-        // structural rather than checked: when a group registers, the name table holds
-        // every type above it and nothing below, and each group RESOLVES its declared
-        // structure (field / case / `val` / ctor-param / member-signature annotations, the
-        // abbreviation RHS) against exactly that. The element's `Containment` (namespace +
-        // enclosing modules) rides into each minted key; its `Scope` is the `open` set the
-        // group's written heads resolve against.
-        //
-        // Types and module-level TERMS (`let` / `do` / a bare expression) are ONE ordered
-        // sequence, not two passes — `let f (a: A) = …` above `type A` is FS0039 in F# — so
-        // a term's type ANNOTATIONS are classified here, at the term's position in the same
-        // scan, against exactly the types claimed above it. Only the annotations: the term's
-        // value resolution and its body typing stay with the declaration-order body walk
-        // below, which is ordered against `fillClassMembers` for the module↔class dependency.
+        // Type registration, top-down, one `type … and …` group at a time: when a group
+        // registers, the name table holds every type above it and nothing below. Terms share
+        // the scan, so a term's ANNOTATIONS classify here (`let f (a: A)` above `type A` is FS0039).
         for w in elems do
             ctx.EnterElement w
 
@@ -612,11 +499,9 @@ module NameResolution =
             | ModuleElem.Type defs -> registerGroup ctx w.Containment w.RecScopeOffset defs
             | m -> classifyTermTypes ctx m
 
-        // walkModuleElem skips ModuleElem.Type, so class/union member bodies are
-        // walked here with each type's own scope (`this` + ctor params), giving
-        // member-body idents Binding entries before Unification types them.
-        // ctx.Resolution.OpenScope is set per element so a member body resolves
-        // short external names against the `open`s in scope at that element.
+        // `walkModuleElem` skips `ModuleElem.Type`, so member bodies are walked here instead,
+        // each under its own type's scope. `ctx.EnterElement` sets the element's `open` set,
+        // so a member body resolves short external names against the `open`s visible there.
         for w in elems do
             ctx.EnterElement w
             walkClassBodies ctx walker w.Elem
@@ -625,16 +510,9 @@ module NameResolution =
             ctx.EnterElement w
             walkNominalBodies ctx walker w.Elem
 
-        // Module-level VALUES, in declaration order: `walkModuleElem` adds a `let`'s binders
-        // to the running scope only AFTER its RHS is walked, so a use above a `let` does not
-        // see it. That IS F#'s rule, and the only exception is `rec`.
-        //
-        // A `rec` scope makes its bindings visible from its own keyword, so every `let` it
-        // contains is in scope for every element of it. The flattened element list is a DFS,
-        // so one `rec` scope is a contiguous RUN of elements sharing a `RecScopeOffset` — and
-        // seeding that run's binders before walking any of it is the whole of the grant.
-        // Outside a run the accumulator below is untouched, which is why a non-`rec` module
-        // gets no forward visibility at all.
+        // Module-level VALUES, in declaration order: a `let`'s binders join the running scope
+        // only AFTER its RHS is walked, so a use above it does not see it. A `rec` scope is a
+        // contiguous RUN of elements sharing a `RecScopeOffset`, seeded before the run is walked.
         let elems = List.toArray elems
         let mutable scope = [ Map.empty ]
         let mutable i = 0
@@ -691,31 +569,14 @@ module NameResolution =
         | TypeDefn.Missing
         | TypeDefn.SkipsTokens _ -> ValueNone
 
-    /// The implicit top-level module's stand-in name in `LocalModules` /
-    /// `TypeEnclosingModule`. `$` is not a legal F# identifier character, so this
-    /// never collides with a real `module Foo = …` short name. It lets a top-level
-    /// type's member body resolve a top-level `let` sibling unqualified — the same
-    /// mechanism a *named*-module-nested type gets, extended to the anonymous
-    /// /file module (a top-level `RuntimeFormatState`-style sink calling top-level
-    /// `flatWidth` / `render`). Only the *unqualified* path uses it; no qualified
-    /// reference ever names this segment, so qualified resolution is unaffected.
+    /// The implicit file module's stand-in name in `LocalModules` / `TypeEnclosingModule`,
+    /// so a top-level type's member body can name a top-level `let` sibling unqualified. `$`
+    /// is not a legal F# identifier character, so it never collides with a `module Foo = …`.
     let private topLevelModuleSentinel = "$top"
 
-    /// Local-module pre-pass. Walk the *un-flattened* module tree and, for every
-    /// `module Foo = …` (and the implicit top-level module, keyed by
-    /// `topLevelModuleSentinel`), record (a) its directly-`let`-bound
-    /// values/functions into `LocalModules` (member name → binding-site `NodeKey`)
-    /// and (b) each type it nests into `TypeEnclosingModule` (type name → `Foo`).
-    /// Both registries are keyed by the innermost module short name. The subsequent
-    /// flattened walk erases these boundaries, so this is the only place the module
-    /// structure is captured for name resolution. Mirrors
-    /// `Elaborate.translateModuleElem`'s holder walk (which records the same
-    /// boundaries for *emission*).
-    ///
-    /// Each member records the offset it is VISIBLE FROM: its own, or — inside a
-    /// `module rec` / `namespace rec` — the enclosing `rec` keyword's, which is the whole of
-    /// what `rec` grants. The tree is walked in full before anything resolves, so this table
-    /// knows the whole file; the offset is what keeps a reader from seeing below itself.
+    /// Walk the *un-flattened* module tree and record, per innermost module short name, its
+    /// direct `let` bindings into `LocalModules` and the types it nests into
+    /// `TypeEnclosingModule`. The flattened walk erases these boundaries, so it runs first.
     let private registerLocalModules (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         let registerLet (moduleName: string) (recScope: int voption) (bindings: ImmutableArray<Binding<SyntaxToken>>) =
             let members =
@@ -739,8 +600,7 @@ module NameResolution =
 
         // The innermost enclosing `rec` scope's keyword offset — its own when this scope is
         // itself `rec`, else whatever it inherited (a non-rec submodule of a `rec` namespace
-        // is still inside that rec scope). Mirrors `CstWalk.walkModuleTreeWith`'s
-        // `innerRecScope`, which computes the same fact for the flattened walk.
+        // is still inside that rec scope). A member is VISIBLE FROM that offset.
         let innerRecScope (keyword: SyntaxToken) (isRec: SyntaxToken voption) (inherited: int voption) : int voption =
             if isRec.IsSome then
                 ValueSome keyword.StartIndex
@@ -770,10 +630,8 @@ module NameResolution =
                     | ValueNone -> ()
                 | _ -> ()
 
-        // The implicit top-level module is entered under the sentinel name (not
-        // `ValueNone`), so its direct `let`s register as resolvable siblings for a
-        // top-level type's member bodies (the same unqualified-sibling mechanism,
-        // extended to the file module).
+        // Under the sentinel name rather than `ValueNone`, so the file module's direct `let`s
+        // register as siblings a top-level type's member bodies can name.
         let top = ValueSome topLevelModuleSentinel
 
         match file with
@@ -791,11 +649,8 @@ module NameResolution =
         // Capture local-module structure before the flattened walk erases it.
         registerLocalModules ctx file
         let walker = mkWalker ctx
-        // Seed the walk from the stable ambient prelude. walkElems overwrites
-        // ctx.Resolution.OpenScope per element, so the seed is read from
-        // AmbientOpenScope, not the scope it mutates.
-        // walkModuleTreeWith keeps the declaring containment walkElems threads into each
-        // minted local `SymbolKey`; the no-op onScope hook is the plain walk.
+        // Seeded from the ambient prelude, not `ctx.Resolution.OpenScope`, which `walkElems`
+        // overwrites per element.
         walkElems
             ctx
             walker

@@ -2,21 +2,14 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// Whole-`SemType` questions asked THROUGH union-find — the substrate this side of the freeze,
-// and not any pass's private state. Each step zonks, because pre-freeze a structural head is
-// often reachable only through a Link and a raw match would see a `TyVar`.
+// Whole-`SemType` questions asked THROUGH union-find. Each step zonks: pre-freeze a
+// structural head is often reachable only through a Link, and a raw match would see a `TyVar`.
 
 module SemTypeQuery =
 
-    /// `TyFun`-chain views of a `SemType`: which domains a curried function type has, and what it
-    /// returns after `n` of them are applied.
-    ///
-    /// A chain shorter than `n` is not an error: callers cap `n` at a count they measured, and
-    /// `Inline.deriveInlineTypeArgs` is deliberately tolerant of a declared type it cannot fully
-    /// peel.
-    ///
-    /// The `FrozenType` twin is `TastLower.peelFuns` — deliberately separate: that side has no
-    /// union-find to chase.
+    /// `TyFun`-chain views: which domains a curried function type has, and what it returns
+    /// after `n` of them are applied. A chain shorter than `n` is not an error — callers cap
+    /// `n` at a count they measured — so a short chain yields what it has instead of failing.
     [<RequireQualifiedAccess>]
     module internal Funs =
 
@@ -46,9 +39,7 @@ module SemTypeQuery =
                 | TyFun(_, b) -> resultAfter store (n - 1) b
                 | _ -> t
 
-    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic. The `SemType`
-    /// sibling of `FrozenTypeBridge.ftIsGround` (this one zonks; the frozen one has no vars to
-    /// zonk).
+    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic.
     let rec internal isGround (store: TypeStore) (t: SemType) : bool =
         match UnificationEngineCore.zonk store t with
         | TyVar _

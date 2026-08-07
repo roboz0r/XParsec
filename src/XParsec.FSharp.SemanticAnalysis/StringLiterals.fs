@@ -4,21 +4,15 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
-// String-literal folding primitives shared across passes so what counts as a
-// string constant — and how its escapes decode — cannot drift between the
-// NameResolution enum-case reader (`TypeRegistration.registerEnumTypeDefn`),
-// the Elaborate constant parsers, and `Elaborate.resolveEnumCaseValue`. Depends only
-// on `PassContext.NameOf` + the parser string-part shape, so it sits ahead of the
-// passes (earlier than Elaborate, where these primitives used to live).
+// String-literal folding primitives shared by the NameResolution enum-case reader and the
+// Elaborate constant parsers. Depends only on `PassContext.NameOf` and the parser's
+// string-part shape, so it sits ahead of the passes.
 
 module internal StringLiterals =
 
-    /// Decode one backslash escape body (`inner` starts with `\`) to its char.
-    /// The escape set mirrors the lexer's `pCharChar` (Lexing.fs) exactly — a
-    /// literal that reaches here already lexed clean, so any unexpected shape is a
-    /// broken invariant. Shared by `ElaborateLiterals.parseCharLiteral` (a `'\n'` char
-    /// literal) and `foldStringParts` (a `\n` *string*-part escape) so the two never
-    /// diverge.
+    /// Decode one backslash escape body (`inner` starts with `\`) to its char. The set is the
+    /// CHAR-literal one; the string lexer also admits `\UXXXXXXXX`, a truncated `\uXX` and any
+    /// unknown escape, and each of those reaches the `failwithf` below.
     let decodeEscape (inner: string) : char =
         match inner.[1] with
         | '"' -> '"'
@@ -52,10 +46,8 @@ module internal StringLiterals =
             char (System.Int32.Parse(inner.Substring(1, 3), System.Globalization.CultureInfo.InvariantCulture))
         | other -> failwithf "StringLiterals.decodeEscape: unsupported escape '\\%c' in %s" other inner
 
-    /// Concatenate the literal text of every string part via `ctx.NameOf`,
-    /// rendering an interpolation hole (`StringPart.Expr`) through `onHole`.
-    /// Shared by the IL-intrinsic and literal-string stitchers, which differ
-    /// only in how a hole renders.
+    /// Concatenate the literal text of every string part via `ctx.NameOf`, rendering an
+    /// interpolation hole (`StringPart.Expr`) through `onHole`.
     let foldStringParts
         (ctx: PassContext)
         (onHole: unit -> string)
@@ -65,12 +57,9 @@ module internal StringLiterals =
 
         for part in parts do
             match part with
-            // The parser folds every string fragment — including escape-sequence
-            // tokens (`\n`, `\t`, `\"`, `\uXXXX`) — into a `StringPart.Text`
-            // carrying the raw 2+-char source span (`ctx.NameOf` = `\n`, two
-            // chars). Decode an escape *token* to the single char it denotes; a
-            // plain text fragment appends verbatim. Without this a literal `"\n"`
-            // value would emit a backslash-n, not a newline.
+            // A `Text` part can carry an escape-sequence TOKEN, whose `ctx.NameOf` is the
+            // raw source span — backslash then `n`, two chars. Decoding it here is what
+            // makes a literal `"\n"` a newline instead of two characters.
             | StringPart.Text t ->
                 match t.Token with
                 | Token.EscapeSequence -> sb.Append(decodeEscape (ctx.NameOf t)) |> ignore
@@ -85,14 +74,9 @@ module internal StringLiterals =
 
         sb.ToString()
 
-    /// Project an enum case VALUE expression onto its decoded string-literal form.
-    /// Peels a value-grouping paren (`| A = ("auto")`) and admits every plain string
-    /// kind (plain / verbatim / triple-quoted), folding escapes through
-    /// `foldStringParts` — `ValueNone` for an interpolated string (`$"…"`, no
-    /// constant value) or any non-string expression. The single reader for BOTH the
-    /// early literal-union admission (`registerEnumTypeDefn`) and the authoritative
-    /// case-table resolution (`Elaborate.resolveEnumCaseValue`), so the two cannot
-    /// disagree on which cases carry a string constant.
+    /// An enum case VALUE expression as its decoded string constant: peels a value-grouping
+    /// paren (`| A = ("auto")`) and admits plain / verbatim / triple-quoted strings.
+    /// `ValueNone` for an interpolated string (`$"…"`, no constant value) or a non-string.
     let rec tryEnumCaseStringLiteral (ctx: PassContext) (v: Expr<SyntaxToken>) : string voption =
         match v with
         | Expr.EnclosedBlock(expr = inner) -> tryEnumCaseStringLiteral ctx inner

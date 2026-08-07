@@ -19,16 +19,8 @@ open UnificationInferDispatch
 module internal UnificationInferCtor =
 
     /// Overload-pick + unify a heritable primitive's CONTRACT `.ctor` set (the
-    /// `IntrinsicClassSurface.Members` riding the provider shape) against `argExpr` —
-    /// the SINGLE constructible surface `new exn "…"` (`inferNew`) and
-    /// `inherit exn(…)` (`Unification.fillBaseCtorCall`) both check, target-agnostic
-    /// by construction. The chosen signature grounds the call's arguments while the
-    /// result side stays a free var (`inferExternalCtorOn`'s authority rule: the
-    /// receiver/declared parent already IS the constructed type). `noOverload` keeps the
-    /// two syntaxes' diagnostics distinct, and is the VERDICT rather than a rendered
-    /// sentence so a caller reaching this reporter counts as the producer it is.
-    /// Returns the chosen `.ctor` so a `new exn "…"` caller can record its identity for
-    /// codegen; the `inherit exn(…)` caller (no `TExpr.New` node) ignores it.
+    /// `IntrinsicClassSurface.Members` riding the provider shape) against `argExpr`. The chosen
+    /// signature grounds the arguments; the result side stays a free var. Returns that `.ctor`.
     let inferIntrinsicClassCtorCall
         (infer: Infer)
         (ctx: PassContext)
@@ -50,8 +42,7 @@ module internal UnificationInferCtor =
             ctx.Report(CstKeys.firstTokenOfExpr argExpr, noOverload)
             ValueNone
 
-    /// `new T(args)`. Mirrors a single application against the ctor, kept inline
-    /// so a bare `Expr.New` doesn't need to fabricate an `Expr.App` first.
+    /// `new T(args)` — unified as a single application against the ctor's signature.
     let rec inferNew
         (infer: Infer)
         (ctx: PassContext)
@@ -61,7 +52,7 @@ module internal UnificationInferCtor =
         : SemType =
         let receiverTy = translateType ctx t
 
-        // Type provenance: `new T(…)` writes the constructed node's type explicitly.
+        // Provenance: `new T(…)` writes the constructed node's type explicitly.
         ctx.MarkTypeDeclared(node.Key, receiverTy)
 
         match resolveStep ctx.Store receiverTy with
@@ -72,13 +63,9 @@ module internal UnificationInferCtor =
                 let argTy = infer ctx argExpr
                 let argArity = argArityOf ctx.Store argTy
 
-                // Prefer the primary constructor when its arity matches; otherwise
-                // fall back to a secondary `new(...)` constructor of the right arity.
-                // A type whose *only* constructor is an explicit `new(...)` (e.g. the
-                // `[<Struct>]` `SetIterator<'T>` with `val` fields + `new(s)`) has an
-                // empty `CtorParams`, so `new SetIterator<'T>(s)` must resolve through
-                // `SecondaryCtors` — the `new`-keyword twin of `tryInferLocalCtorApp`'s
-                // secondary-ctor path for the application form.
+                // Prefer the primary constructor when its arity matches; else a secondary
+                // `new(...)` of the right arity. A type whose ONLY constructor is an explicit
+                // `new(...)` has an empty `CtorParams` and resolves through `SecondaryCtors`.
                 let secondary =
                     if argArity = info.CtorParams.Length then
                         None
@@ -100,13 +87,9 @@ module internal UnificationInferCtor =
                 unifyArg ctx (CstKeys.firstTokenOfExpr argExpr) argTy expected
                 receiverTy
             | ValueNone ->
-                // Fall through to the external-class path: `new System.Exception(msg)`
-                // inside an inline body (the `failwith` body, `raise (System.Exception
-                // message)`) — the type was named through `tryResolveExternalType` so
-                // `name` is the metadata full name, and the symbol provider already
-                // owns the ctor catalogue (`MetadataSymbols.extractMembers` /
-                // `computeMembers` surfaces them under `.ctor`). `clsKey` came from the
-                // already-resolved receiver `TyClass`, so construct by key directly.
+                // Fall through to the external-class path: `new System.Exception(msg)`. The
+                // symbol provider owns the ctor catalogue under `.ctor`, and `clsKey` came from
+                // the already-resolved receiver `TyClass`, so construct by key directly.
                 match ctx.Provider.TryLookupType(SymbolKey.Type clsKey) with
                 | ValueSome(ExternalTypeShape.Class _) ->
                     inferExternalCtorOn infer ctx node (SymbolKey.Type clsKey) args receiverTy argExpr
@@ -115,29 +98,11 @@ module internal UnificationInferCtor =
 
                     infer ctx argExpr |> ignore
                     TyVar(freshTyVar ctx)
-        // A heritable primitive typed by its canon (`new exn "boom"`). The
-        // constructible surface is the CONTRACT `.ctor` set riding the shape's
-        // class surface — the SAME set `inherit exn(…)` checks
-        // (`fillBaseCtorCall`), so the two syntaxes cannot diverge; resolved by
-        // DIRECT qualified lookup off the already-resolved canon key, never a
-        // short-name re-scan. A written PLATFORM spelling
-        // (`new System.Exception(msg, inner)`) canonicalizes to the same `TyConst`
-        // at resolution, but the WRITTEN head still names the metadata class —
-        // that spelling is the deliberate opt-in to the platform's wider ctor
-        // catalogue (the app-form sugar `System.Exception msg` already routes
-        // there), at the cost of platform generality; probe it first. A `TyConst`
-        // that is neither (`new int(...)`) falls to the "'new' requires a class
-        // type" error; a self-host compile of the contract itself has no provider
-        // shape and errors the same way.
+        // A heritable primitive typed by its canon (`new exn "boom"`).
         | TyConst(canonKey, tyArgs) ->
-            // The written head canonicalized to an intrinsic `TyConst`, but a written
-            // PLATFORM spelling (`new System.Exception(msg, inner)`) still names the
-            // metadata class — the deliberate opt-in to the platform's wider ctor
-            // catalogue. NameResolution stamped every written head's identity into
-            // `ResolvedTypeHead`, so read the head's stamp and confirm the CLASS shape
-            // by key (the stamp is any-shape: a canon spelling like `new exn "boom"`
-            // stamps its intrinsic identity, which must fall to the contract
-            // constructible-surface path below, not the metadata catalogue).
+            // A written PLATFORM spelling (`new System.Exception(msg, inner)`) canonicalizes to
+            // the same `TyConst`, but its head still names the metadata class — the opt-in to
+            // the wider ctor catalogue. Read the head's `ResolvedTypeHead` stamp, confirm CLASS.
             let stampedClassKey =
                 match CstKeys.ofTypeHead t with
                 | ValueSome head ->
@@ -179,15 +144,9 @@ module internal UnificationInferCtor =
             infer ctx argExpr |> ignore
             TyVar(freshTyVar ctx)
 
-    /// Resolve a constructor application on an external (BCL / referenced) class —
-    /// shared by `new T(args)` (`inferNew`) and the *sugar* form `T args` (a ctor
-    /// treated as a first-class function, routed here from `inferApp` via
-    /// `tryInferExternalCtorApp`). `name` is the resolved metadata full name and
-    /// `receiverTy` the `TyClass(name, args)` the call yields; the provider owns the
-    /// `.ctor` catalogue. Overload-resolves on the argument types, then unifies the
-    /// chosen ctor signature `(p1 * … * pN) → declTy` against `TyFun(argTy, result)`
-    /// so each parameter constrains the call's arguments — the same shape as
-    /// `tryInferExternalStaticMethodCall`.
+    /// Resolve a constructor application on an external (BCL / referenced) class — shared by
+    /// `new T(args)` and the *sugar* form `T args`. Overload-resolves on the argument types,
+    /// then unifies the chosen ctor signature so each parameter constrains the arguments.
     and inferExternalCtorOn
         (infer: Infer)
         (ctx: PassContext)
@@ -197,10 +156,6 @@ module internal UnificationInferCtor =
         (receiverTy: SemType)
         (argExpr: Expr<SyntaxToken>)
         : SemType =
-        // `declTypeKey` is the constructed type's identity, resolved upstream (a
-        // NameResolution `ResolvedType` stamp for a ctor-sugar head, or the already-
-        // resolved receiver `TyClass`/`TyConst` key for `new T(…)`). The `.ctor`
-        // catalogue is a key-addressed store-view lookup, not a spelling re-scan.
         let ctors = ctx.Provider.TryLookupMembers(declTypeKey, ".ctor")
         let name = SymbolKeyOps.qualifiedName declTypeKey
 
@@ -208,13 +163,9 @@ module internal UnificationInferCtor =
         let typeArgs = EqArray.toArray args
         let argElems = argElemsOf ctx.Store argTy
 
-        // A 0-argument construction of an external *value type* is `default(T)`,
-        // not a real ctor call — `Span<char>()`, `default(SomeStruct)`. A .NET
-        // struct's implicit parameterless ctor is not in `GetConstructors`, so the
-        // overload pick below finds no candidate; admit it directly here (codegen's
-        // `EmitConstruct.buildNew` lowers it to `initobj`, the Gap D path). This
-        // also covers a value type whose only ctors are explicit (`ctors` non-empty
-        // but none 0-arg) and one with no surfaced ctors at all.
+        // A 0-argument construction of an external *value type* is `default(T)`, not a real
+        // ctor call (`Span<char>()`). A .NET struct's implicit parameterless ctor is not in
+        // `GetConstructors`, so the overload pick finds no candidate; admit it directly here.
         let isExternalValueType () =
             match ctx.Provider.TryLookupType declTypeKey with
             | ValueSome(ExternalTypeShape.Class shape) -> shape.Flags.IsValueType
@@ -233,18 +184,9 @@ module internal UnificationInferCtor =
                 ctx.Resolution.ExternalCtor.Set(node.Key, SymbolKey.Member chosen.Key)
                 let ctorSig = ExternalSymbols.openSignature chosen typeArgs
                 let resultTy = TyVar(freshTyVar ctx)
-                // Unify the ctor SIGNATURE (grounding each parameter against the call's
-                // arguments) but leave `resultTy` free: a constructor's declared return is
-                // definitionally the class it constructs, so the receiver `TyClass` built
-                // from the `new T<args>` annotation is the AUTHORITY on the result's type
-                // args — unifying the declared return back onto it adds nothing when they
-                // agree and actively CLASHES when a no-arg overload hardcodes `any` type
-                // args (TS's `new (): Map<any, any>`, which `dynamic → FTUnknown "any"`
-                // makes an absorbing/error head). `resultTy` absorbs that noise harmlessly;
-                // it never meets `receiverTy`, so the explicit `new Map<string,int>()`
-                // grounds cleanly. (Ctor return args are the SAME declaring typars,
-                // substituted by the SAME `typeArgs` that built the receiver, so nothing
-                // the receiver leaves open could have been solved only by the return.)
+                // Unify the ctor SIGNATURE (grounding each parameter) but leave `resultTy`
+                // free: the receiver `TyClass` from the `new T<args>` annotation is the
+                // AUTHORITY, and a no-arg overload may hardcode `any` type args that clash.
                 unify ctx node.Tok ctorSig (TyFun(argTy, resultTy))
                 receiverTy
             | ValueNone ->
@@ -256,13 +198,8 @@ module internal UnificationInferCtor =
                 receiverTy
 
     /// The `new`-less constructor-as-function sugar: `InvalidOperationException "x"`,
-    /// `ArgumentException(message, name)`. `inferApp` reaches here only after the
-    /// head fails to resolve as a value / static method / union case / *user* class
-    /// ctor — exactly the slot that previously fell to a fresh, unconstrained TyVar
-    /// (the head's type leaked when buried in an argument, e.g. `raise (Exn "x")`,
-    /// surfacing as a stray unresolved TyVar). The head must name an external class
-    /// (resolved through the active `open`s) and not be a local binding (a real
-    /// call). Multi-argument ctors arrive as one tupled arg, matching `inferNew`.
+    /// `ArgumentException(message, name)`. The head must name an external class (resolved
+    /// through the active `open`s) and not be a local binding. Ctor args arrive as one tuple.
     and tryInferExternalCtorApp
         (infer: Infer)
         (ctx: PassContext)
@@ -273,21 +210,15 @@ module internal UnificationInferCtor =
         if args.Length <> 1 then
             ValueNone
         else
-            // NameResolution resolved the head's type identity (opens-aware) and
-            // stamped it in `ResolvedType`, keyed by the head expr's `NodeKey`. A local
-            // binding shadowing a type name is never stamped (NameResolution stamps
-            // only when the head does not resolve as a local), so reading the stamp
-            // inherently excludes locals — the old head-binding guard. Confirm the
-            // resolved type is a Class (ctor-sugar constructs a class only) via the
-            // key-addressed store view; a non-class head declines to the caller's
-            // fallback rather than erroring.
+            // NameResolution stamps `ResolvedType` only when the head does NOT resolve as a
+            // local, so reading the stamp inherently excludes a local binding shadowing a type
+            // name. A non-class head declines to the caller's fallback rather than erroring.
             match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr fn) with
             | ValueSome declTypeKey ->
                 match ctx.Provider.TryLookupType(SymbolKey.Type declTypeKey) with
                 | ValueSome(ExternalTypeShape.Class _) ->
-                    // Mint the ctor's result with the resolved type's identity via
-                    // `externalClassTy` (canon `TyConst` for a platform repr, else the
-                    // external `TyClass`); the `.ctor` lookup is key-addressed.
+                    // `externalClassTy` mints a canon `TyConst` for a platform repr, else the
+                    // external `TyClass`.
                     let receiverTy = externalClassTy ctx declTypeKey EqArray.empty
 
                     ValueSome(
@@ -303,20 +234,9 @@ module internal UnificationInferCtor =
                 | _ -> ValueNone
             | ValueNone -> ValueNone
 
-    /// Construction of an external *generic* class through an explicit type
-    /// application: `ResizeArray<int>()`, `List<string>(cap)` — the no-`new`
-    /// sugar whose CST is `App`/`HighPrecedenceApp(TypeApp(head, tyArgs), valueArgs)`.
-    /// The generic sibling of `tryInferExternalCtorApp`: the head's explicit type
-    /// arguments pin the element type up front (`ResizeArray<int>` →
-    /// `TyClass(System.Collections.Generic.List`1, [int])`, an abbreviation expanded
-    /// to its underlying class) so the constructed node carries `TyClass(List, [int])`
-    /// rather than a free TyVar the value-args alone can't resolve for a
-    /// parameterless ctor. The pinned class then drives `inferExternalCtorOn`'s
-    /// overload pick (so `List()` vs `List(IEnumerable<int>)` resolves) and gives
-    /// Elaborate/codegen the `tyArgs` to emit `newobj List`1<!!T>::.ctor()`. A *local*
-    /// generic class (`Box<int>(x)`) isn't an in-scope external type, so its head
-    /// carries no `ResolvedType` stamp and this declines — the local path
-    /// (`inferTypeApp`'s nominal-unify arm) handles it.
+    /// Construction of an external *generic* class through an explicit type application:
+    /// `ResizeArray<int>()`, `List<string>(cap)`. The head's type args pin the element type up
+    /// front, which a parameterless ctor's value args cannot. A *local* generic head declines.
     and tryInferExternalGenericCtorApp
         (infer: Infer)
         (ctx: PassContext)
@@ -326,9 +246,8 @@ module internal UnificationInferCtor =
         : SemType voption =
         match fn with
         | Expr.TypeApp(expr = headExpr; types = tyArgs) ->
-            // A head shadowed by a local binding is never external construction —
-            // the stamp is minted opens-aware from the spelling alone, so the
-            // local-binder guard must stay on the read side.
+            // The stamp is minted opens-aware from the spelling alone, so the local-binder
+            // guard must stay on the read side.
             let headUnbound =
                 match headExpr with
                 | Expr.Ident headTok ->
@@ -341,12 +260,9 @@ module internal UnificationInferCtor =
             if not headUnbound then
                 ValueNone
             else
-                // NameResolution's TypeApp visit resolved receiver+arity together and
-                // stamped the head's `ResolvedType` (any shape, exact arity — an
-                // abbreviation stamps its OWN key). `tryExternalTypeOfKey` fetches the
-                // shape on the store view and expands an abbreviation to its underlying
-                // class (`ResizeArray<int>` → `TyClass(System.Collections.Generic.List`1,
-                // [int])`), so construction proceeds by the resolved class key.
+                // NameResolution's TypeApp visit stamped the head's `ResolvedType` at exact
+                // arity — an abbreviation stamps its OWN key, which `tryExternalTypeOfKey`
+                // then expands: `ResizeArray<int>` → `TyClass(List`1, [int])`.
                 match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr headExpr) with
                 | ValueSome symKey ->
                     let explicit = EqArray.ofSeq (seq { for t in tyArgs -> translateType ctx t })
@@ -358,18 +274,9 @@ module internal UnificationInferCtor =
                 | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Construction of a *local* generic class/struct through a **secondary**
-    /// constructor (B-11): `SetIterator<'T>(s)` / `OnceEnum(x)`. The existing
-    /// ctor-as-function path (`tryClassCtorAsFunction`) builds its function type
-    /// from the *primary* ctor's params only — for a type whose primary is
-    /// parameterless and whose construction goes through a `new(args)` overload,
-    /// that leaves the type arguments ungrounded (the primary's `unit` arg never
-    /// unifies them against the call's value arg). This selects the secondary ctor
-    /// by its parameter arity and unifies *its* params — carrying the type args —
-    /// against the call, so `OnceEnum(x:'T)` grounds to `OnceEnum<'T>`. Declines
-    /// (`ValueNone`) when the arity matches the primary (the existing path handles
-    /// it), when the head isn't a local class, or when no secondary matches —
-    /// keeping the blast radius to the previously-unsupported secondary case.
+    /// Construction of a *local* generic class/struct through a **secondary** constructor. The
+    /// ctor-as-function path builds from the PRIMARY ctor's params only, leaving the type args
+    /// ungrounded; this unifies the arity-matched secondary's params, which carry them.
     and tryInferLocalCtorApp
         (infer: Infer)
         (ctx: PassContext)
@@ -414,8 +321,7 @@ module internal UnificationInferCtor =
                         let args, subst = freshNamedInstance ctx info.TypeParams
                         let receiverTy = TyClass(info.TypeKey, args)
 
-                        // Explicit type args (`SetIterator<'T>(s)`) pin the
-                        // instantiation up front, mirroring `inferTypeApp`.
+                        // Explicit type args (`Box<int>(x)`) pin the instantiation up front.
                         match explicitTyArgs with
                         | ValueSome ex when ex.Length = args.Length ->
                             List.iter2 (fun a e -> unify ctx node.Tok a e) (EqArray.toList args) ex

@@ -6,17 +6,11 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 module Pipeline =
 
-    // The alias binds `Diagnostic` to the SemanticAnalysis one throughout this module; see
-    // that type's declaration for why the bare name would otherwise be the parser's.
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
     /// A parsed file: the token stream and tree every pass runs on, and the diagnostics
-    /// RECOVERY raised producing them. A file can parse to a COMPLETE tree and still have
-    /// had every delimiter in it inserted and every missing expression stubbed, so a
-    /// successful parse carries diagnostics as routinely as a failed one.
-    ///
-    /// The text is not a field: `Lexed` carries the string its offsets index, so a consumer
-    /// retaining this file cannot retain a different one.
+    /// RECOVERY raised producing them. A COMPLETE tree can still have had every delimiter
+    /// inserted and every missing expression stubbed, so `Ok` routinely carries diagnostics.
     type ParsedFile =
         {
             Lexed: Lexed
@@ -24,23 +18,20 @@ module Pipeline =
             Diagnostics: Diagnostic list
         }
 
-    /// A file no tree came out of. `Lexed` is present whenever LEXING succeeded, so the
-    /// recovery diagnostics raised before the parser gave up still have the token stream —
-    /// and the text — their positions resolve against; only a lex failure has none, and a
-    /// whole-file lex failure names no place in the file anyway.
+    /// A file no tree came out of. `Lexed` is present iff LEXING succeeded, so the recovery
+    /// diagnostics raised before the parser gave up still have the token stream their
+    /// positions resolve against.
     type ParseFailure =
         {
             Lexed: Lexed voption
             Diagnostics: Diagnostic list
         }
 
-    /// The parser's diagnostics as the semantic layer sees them, in SOURCE order —
-    /// `ParseState.Diagnostics` accumulates reversed. The parser-side `Error`
-    /// (the underlying `ParseError`) does NOT cross: it is parser-internal, and only
-    /// `Debug.printDiagnostics` renders it.
+    /// The parser's diagnostics as the semantic layer sees them, in SOURCE order — the
+    /// parser accumulates them reversed. The underlying `ParseError` does not cross: it is
+    /// parser-internal.
     let private ofParseDiagnostics (diagnostics: XParsec.FSharp.Parser.Diagnostic list) : Diagnostic list =
-        // Both delimiter diagnostics point back at the delimiter left open; only their
-        // PRIMARY differs, because only one of them describes a hole.
+        // Both delimiter diagnostics point back at the delimiter left open.
         let openedHere (openedAt: Site) : Label list =
             [
                 {
@@ -54,12 +45,11 @@ module Pipeline =
                 let site, related =
                     match d.Code with
                     // The close was never written: the parser SYNTHESISED one, so the
-                    // mistake is the hole it went into, and the token that exposed the
-                    // absence is innocent.
+                    // mistake is the hole it went into, not the token that exposed it.
                     | DiagnosticCode.UnclosedDelimiter(openedAt = openedAt) ->
                         Site.gapBefore (Site.ofToken d.Token), openedHere openedAt
-                    // The close IS written, just the wrong one, and the parser consumed it
-                    // as the close. Nothing was inserted, so that token is the mistake.
+                    // The close IS written, just the wrong one, and nothing was inserted —
+                    // so that token is the mistake.
                     | DiagnosticCode.MismatchedDelimiter(openedAt = openedAt) ->
                         Site.ofToken d.Token, openedHere openedAt
                     | _ ->
@@ -70,12 +60,9 @@ module Pipeline =
                 Diagnostic.create (Kind.Parse d.Code) site related
         ]
 
-    /// The SHARED front-end parse chain (lex → `Reader.ofLexed` → `FSharpAst.parse`),
-    /// the one home for every driver's parse: a bare-expression `ScriptFragment` wraps as
-    /// an `AnonymousModule`, and lex/parse failures surface as `Diagnostic`s (never
-    /// exceptions). WHICH driver ran is not a property of the failure, so nothing here is
-    /// stamped with a caller-supplied code: the kind says what went wrong. The parser's own
-    /// recovery diagnostics ride out on BOTH arms.
+    /// The front-end parse chain, lex → reader → AST: a bare-expression `ScriptFragment`
+    /// wraps as an `AnonymousModule`, and lex/parse failures surface as `Diagnostic`s
+    /// (never exceptions). The parser's recovery diagnostics ride out on BOTH arms.
     let parse (source: string) : Result<ParsedFile, ParseFailure> =
         match Lexing.lexString source with
         | Result.Error e ->
@@ -110,10 +97,9 @@ module Pipeline =
                 parsed (ImplementationFile.AnonymousModule elems)
             | Result.Ok other -> failed (Kind.ParseFailure(sprintf "unexpected AST: %A" other))
 
-    /// `parse`, refusing a tree the parser had to PATCH. A recovered parse is not a
-    /// compilable one — every inserted delimiter and every `Expr.Missing` is a hole the
-    /// source did not fill — so the rule is a property of the product, stated once here
-    /// rather than re-derived by each driver and each test harness.
+    /// `parse`, refusing a tree the parser had to PATCH: every inserted delimiter and every
+    /// `Expr.Missing` is a hole the source did not fill, so a recovered parse is not a
+    /// compilable one.
     let parseUnrecovered (source: string) : Result<ParsedFile, Diagnostic list> =
         match parse source with
         | Error f -> Error f.Diagnostics
@@ -122,11 +108,9 @@ module Pipeline =
             | [] -> Ok parsed
             | recovered -> Error recovered
 
-    /// Runs every pass through the `SemType` domain and returns the populated
-    /// `PassContext` plus the **`SemType`** `TastFile` — the pre-freeze tree. This is
-    /// the accessor for front-end consumers that assert on `SemType` shapes (tests,
-    /// side-table inspection). `assemblyName` is the assembly this file emits into
-    /// (`PassContext.AssemblyName`); `""` for the front-end-only paths that never emit.
+    /// Runs every pass through the `SemType` domain, returning the populated `PassContext`
+    /// and the pre-freeze `TastFile`. `assemblyName` is the assembly this file emits into;
+    /// `""` for the front-end-only paths that never emit.
     let analyseSemWithContextForCore
         (selfHostList: bool)
         (assemblyName: string)
@@ -136,62 +120,36 @@ module Pipeline =
         : PassContext * TastFile =
         let ctx = PassContext(provider, source)
         ctx.AssemblyName <- assemblyName
-        // A self-host (BCL-only) package build has no FSharp.Core, so an unpinned
-        // `[]`/`::` must default to the Vesper cons-list (`resolveListLiterals`).
+        // A self-host (BCL-only) package build has no FSharp.Core, so an unpinned `[]`/`::`
+        // must default to the Vesper cons-list.
         ctx.DefaultListIsVesper <- selfHostList
         Desugar.run ctx file
         NameResolution.run ctx file
         Unification.run ctx file
         Validation.run ctx file
-        // `Elaborate.run` (renamed from `Freeze`): CST →
-        // typar-quantified `TastFileG<SemType>`, inline call sites already expanded.
+        // Elaboration lowers the CST to a typar-quantified TAST with every inline call site
+        // already expanded, so escape analysis below sees the closures codegen emits.
         let tast0 = Elaborate.run ctx file
-        // Escape analysis on the post-inline `TExpr` tree: elaboration has already
-        // resolved every inline call site, so the region graph is built over the closures
-        // codegen actually emits — the specialization table included, an outlined body being
-        // emitted code the decls alone do not reach. Populates `ctx.Bindings.Escape` (keyed
-        // by binder `NodeKey`) for the next pass.
         Regions.run ctx tast0.Decls tast0.Specializations
-        // Snapshot the closure stack/heap verdict (Axis 1 ∧ Axis 2) onto the
-        // TastFile now that both escape side tables are populated — codegen has no
-        // PassContext, so this is how the verdict reaches `discoverClosures`.
+        // Codegen has no `PassContext`, so the closure verdicts decided in side tables are
+        // snapshotted onto the TastFile here, now that both are populated.
         let tast0 =
             { tast0 with
-                // `tast0.Decls` is every module-level binding, `inline` ones included
-                // (`TastFileG.Decls`), so their binders are in the snapshot's key space too.
                 ClosureReprs = Regions.closureReprSnapshot ctx tast0.Decls
-                // Snapshot the node-keyed value-struct closure
-                // verdicts (decided in `inferApp`) onto the TastFile alongside
-                // `ClosureReprs` — codegen has no PassContext, so this is how
-                // `discoverClosures` / `ClosureVerdictRewrite` reach them.
                 FunVerdicts =
                     ctx.FunVerdicts.AsDictionary()
                     |> Seq.map (fun kv -> kv.Key, kv.Value)
                     |> Map.ofSeq
             }
-        // TAST→TAST promotion of `let mutable` cells captured by escaping closures.
-        // Reads `ctx.Bindings.Escape` / `ctx.Bindings.Binding`;
-        // running before ResolvedTypes keeps the validation sweep observing
-        // post-promotion types.
+        // Promotes `let mutable` cells captured by escaping closures. Running before the
+        // guards below keeps their sweeps observing post-promotion types.
         let tast1 = RefCellPromotion.run ctx tast0
-        // The `TyVar`-leak guard runs LAST in the `SemType` domain, immediately
-        // before the freeze, so a stray metavar surfaces as a graceful per-decl
-        // diagnostic here rather than as a `toFrozen` hard error in `Freeze.run`.
+        // Three whole-tree guards over the settled `SemType` domain, each reporting a
+        // per-decl diagnostic rather than letting a backend emitter `failwith` later.
         ResolvedTypes.run ctx tast1
-        // Sibling type-invariant guard, same SemType domain / same diagnostic channel:
-        // a primitive with no representation on the compiling target (the provider's
-        // `Intrinsic(_, platform = None)`) is a type the back end cannot lower, so it
-        // is surfaced here as a graceful per-decl diagnostic rather than a `failwith`
-        // in a single backend's emitter. No-op on a target where every primitive has a
-        // representation (CLR).
         PlatformTypes.run ctx tast1
-        // Implicit `dynamic`-escape warnings: a `d?foo` whose `^TResult` was pinned to
-        // a concrete type by context (the `default : dynamic` never fired) is an
-        // unchecked assertion. Runs post-settle (the TypeVar graph is stable) over the
-        // sites `inferDynamicLookup` recorded; needs no tree.
         DynamicEscape.run ctx
-        // Snapshot ctx.Diagnostics again so ResolvedTypes findings are visible on
-        // TastFile.Diagnostics.
+        // Re-snapshot `ctx.Diagnostics` so the three guards' findings reach the TastFile.
         let tast =
             { tast1 with
                 Diagnostics = List.ofSeq ctx.Diagnostics
@@ -209,10 +167,8 @@ module Pipeline =
         : PassContext * TastFile =
         analyseSemWithContextForCore false assemblyName provider source file
 
-    /// The production entry: every pass **plus the final `SemType → FrozenType`
-    /// freeze**. The SemanticAnalysis assembly's output is
-    /// the frozen tree AS POOLS; codegen consumes them. `SemType` consumers use the
-    /// `…Sem…` variants above.
+    /// Every pass plus the final `SemType → FrozenType` freeze: the frozen tree AS POOLS,
+    /// which is what codegen consumes. `SemType` consumers use the `…Sem…` variants above.
     let analyseWithContextFor
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
@@ -222,9 +178,8 @@ module Pipeline =
         let ctx, tast = analyseSemWithContextFor assemblyName provider source file
         ctx, Freeze.run ctx tast
 
-    /// `analyseSemWithContextFor` with no home assembly — the front-end-only entry
-    /// (side-table inspection tests, contract scrapes). Local nominal keys mint
-    /// with `asm = Some ""`, self-consistent within the one compilation.
+    /// `analyseSemWithContextFor` with no home assembly, for the front-end-only entries
+    /// (side-table inspection tests, contract scrapes).
     let analyseSemWithContext
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
@@ -250,8 +205,7 @@ module Pipeline =
         let _, tast = analyseSemWithContextFor assemblyName provider source file
         tast
 
-    /// The production entry: like `analyseWithContextFor` but discards the
-    /// `PassContext`. `assemblyName` is the home assembly for local keys.
+    /// The production entry. `assemblyName` is the home assembly for local keys.
     let analyseFor
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
@@ -275,12 +229,9 @@ module Pipeline =
         : FrozenPools =
         analyseFor "" provider source file
 
-    /// The self-host **`SemType`** (pre-freeze) entry — like `analyseSem` but a
-    /// bare-program list literal/pattern defaults to the Vesper cons-list, not
-    /// FSharp.Core's `list`. The JS backend's front end always runs through this:
-    /// the JS target has no FSharp.Core (and imports no Fable.Core), so the
-    /// cons-list is the only list representation. Callers inspect `Diagnostics`
-    /// before freezing.
+    /// The self-host pre-freeze entry — like `analyseSem` but a bare-program list
+    /// literal/pattern defaults to the Vesper cons-list, not FSharp.Core's `list`. The JS
+    /// target has no FSharp.Core, so the cons-list is its only list representation.
     let analyseSemForSelfHost
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
@@ -289,10 +240,9 @@ module Pipeline =
         let _, tast = analyseSemWithContextForCore true "" provider source file
         tast
 
-    /// `analyseSemForSelfHost`, keeping the `PassContext`. A caller that inspects the
-    /// `SemType` tree's diagnostics before freezing it needs both halves:
-    /// `Freeze.run` reads the binder of each residual typar root out of
-    /// `ctx.Bindings.Scheme`.
+    /// `analyseSemForSelfHost`, keeping the `PassContext`. A caller that inspects the tree's
+    /// diagnostics before freezing it needs both halves: the freeze reads each residual
+    /// typar root's binder out of the context.
     let analyseSemForSelfHostWithContext
         (provider: IExternalSymbolProvider)
         (source: OriginSource)
@@ -301,10 +251,8 @@ module Pipeline =
         analyseSemWithContextForCore true "" provider source file
 
     /// The self-host production entry: like `analyseFor` but a bare-program list
-    /// literal/pattern defaults to the Vesper cons-list, not FSharp.Core's `list`,
-    /// so a BCL-only package (no FSharp.Core reference) emits `Vesper.List`-only.
-    /// Used by the package build harness; the contract/codegen stack is otherwise
-    /// identical.
+    /// literal/pattern defaults to the Vesper cons-list, so a BCL-only package with no
+    /// FSharp.Core reference emits cons-list only.
     let analyseForSelfHost
         (assemblyName: string)
         (provider: IExternalSymbolProvider)
