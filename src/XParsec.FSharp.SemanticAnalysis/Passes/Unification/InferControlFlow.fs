@@ -19,14 +19,12 @@ open UnificationInferDispatch
 
 module internal UnificationInferControlFlow =
 
-    /// The members of an *external* duck-typed enumerator `E`, probed off its
-    /// `ExternalClassShape`: `MoveNext(): bool` and a `Current` property, with
-    /// `Disposable` set iff `E : IDisposable`.
-    type private ExternalEnumProbe =
+    /// The walk a duck-typed enumerator `E` supports: its element type, how codegen reaches
+    /// `MoveNext` / `Current`, and whether `E` is a struct and disposable.
+    type EnumProbe =
         {
             ElemTy: SemType
-            MoveNext: SymbolKey
-            Current: SymbolKey
+            Members: ForInEnumMembers
             IsValueType: bool
             Disposable: bool
         }
@@ -38,7 +36,7 @@ module internal UnificationInferControlFlow =
         (ctx: PassContext)
         (enumShape: ExternalClassShape)
         (enumArgs: SemType[])
-        : ExternalEnumProbe voption =
+        : EnumProbe voption =
         let moveNext =
             enumShape.Members
             |> Array.tryFind (fun m -> m.Name = "MoveNext" && not m.IsStatic && not m.IsValueMember)
@@ -61,8 +59,7 @@ module internal UnificationInferControlFlow =
                 ValueSome
                     {
                         ElemTy = ExternalSymbols.openSignature cur enumArgs
-                        MoveNext = SymbolKey.Member mn.Key
-                        Current = SymbolKey.Member cur.Key
+                        Members = ForInEnumMembers.External(SymbolKey.Member mn.Key, SymbolKey.Member cur.Key)
                         IsValueType = enumShape.Flags.IsValueType
                         Disposable = disposable
                     }
@@ -94,12 +91,12 @@ module internal UnificationInferControlFlow =
 
     /// Probe a *user* class `E` for the duck-typed `for … in` members — a parameterless
     /// `MoveNext(): bool` and a `Current` property — `enumArgs` being `E`'s own
-    /// instantiation. Returns `(elemTy, isValueType, disposable)`.
+    /// instantiation.
     let private probeLocalEnumerator
         (ctx: PassContext)
         (enumInfo: ClassTypeInfo)
         (enumArgs: EqArray<SemType>)
-        : (SemType * bool * bool) voption =
+        : EnumProbe voption =
         let inst (t: SemType) =
             zonk ctx.Store (instantiateMember ctx.Store (enumInfo.TypeParams, enumArgs) t)
 
@@ -129,11 +126,13 @@ module internal UnificationInferControlFlow =
                     )
 
                 // `Current`'s instantiated type is the loop element type.
-                ValueSome(
-                    instantiateMember ctx.Store (enumInfo.TypeParams, enumArgs) cur.Type,
-                    enumInfo.IsValueType,
-                    disposable
-                )
+                ValueSome
+                    {
+                        ElemTy = instantiateMember ctx.Store (enumInfo.TypeParams, enumArgs) cur.Type
+                        Members = ForInEnumMembers.Local
+                        IsValueType = enumInfo.IsValueType
+                        Disposable = disposable
+                    }
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -343,7 +342,7 @@ module internal UnificationInferControlFlow =
                             ForInEnumeratorG.Pattern(
                                 enumTy,
                                 ForInGetEnum.External(SymbolKey.Member ge.Key),
-                                ForInEnumMembers.External(probe.MoveNext, probe.Current),
+                                probe.Members,
                                 probe.IsValueType,
                                 probe.Disposable
                             )
@@ -378,14 +377,14 @@ module internal UnificationInferControlFlow =
                     // by address (`ldloca` + a by-address `call`), no boxing.
                     | ValueSome enumInfo ->
                         probeLocalEnumerator ctx enumInfo enumArgs
-                        |> ValueOption.map (fun (elemTy, isValueType, dispose) ->
-                            elemTy,
+                        |> ValueOption.map (fun probe ->
+                            probe.ElemTy,
                             ForInEnumeratorG.Pattern(
                                 enumTy,
                                 ForInGetEnum.Local,
-                                ForInEnumMembers.Local,
-                                isValueType,
-                                dispose
+                                probe.Members,
+                                probe.IsValueType,
+                                probe.Disposable
                             )
                         )
                     // `E` is not project-local: keep the local `GetEnumerator`, but read
@@ -399,7 +398,7 @@ module internal UnificationInferControlFlow =
                                 ForInEnumeratorG.Pattern(
                                     enumTy,
                                     ForInGetEnum.Local,
-                                    ForInEnumMembers.External(probe.MoveNext, probe.Current),
+                                    probe.Members,
                                     probe.IsValueType,
                                     probe.Disposable
                                 )
@@ -445,21 +444,14 @@ module internal UnificationInferControlFlow =
         | ValueSome info -> tryLocalInterfaceEnumeratorOn ctx info args
         | ValueNone -> ValueNone
 
-    /// Resolve the enumerator `E` returned by a constrained `GetEnumerator` into
-    /// `(elemTy, members, isValueType, disposable)`. `E` is either a concrete project-local
-    /// enumerator with public `MoveNext`/`Current`, or itself a constrained typar.
-    and tryConstrainedEnumeratorMembers
-        (ctx: PassContext)
-        (enumTy: SemType)
-        : (SemType * ForInEnumMembers * bool * bool) voption =
+    /// Resolve the enumerator `E` returned by a constrained `GetEnumerator`. `E` is either a
+    /// concrete project-local enumerator with public `MoveNext`/`Current`, or itself a
+    /// constrained typar.
+    and tryConstrainedEnumeratorMembers (ctx: PassContext) (enumTy: SemType) : EnumProbe voption =
         match zonk ctx.Store enumTy with
         | TyClass(enumKey, enumArgs) ->
             match TypeRegistry.tryClassByKey ctx.Types enumKey with
-            | ValueSome enumInfo ->
-                probeLocalEnumerator ctx enumInfo enumArgs
-                |> ValueOption.map (fun (elemTy, isValueType, dispose) ->
-                    elemTy, ForInEnumMembersG.Local, isValueType, dispose
-                )
+            | ValueSome enumInfo -> probeLocalEnumerator ctx enumInfo enumArgs
             | ValueNone -> ValueNone
         | TyVar etv -> tryConstrainedTyparEnumerator ctx etv
         | _ -> ValueNone
@@ -467,10 +459,7 @@ module internal UnificationInferControlFlow =
     /// `E` is itself a generic typar constrained to an enumerator interface
     /// (`'E :> IStructEnumerator<'T>`). Scan its `Coercion` constraints for an interface with
     /// `MoveNext(): bool` and `Current`; those members dispatch via `constrained. callvirt`.
-    and tryConstrainedTyparEnumerator
-        (ctx: PassContext)
-        (tv: TyVarId)
-        : (SemType * ForInEnumMembers * bool * bool) voption =
+    and tryConstrainedTyparEnumerator (ctx: PassContext) (tv: TyVarId) : EnumProbe voption =
         let rec scan (cs: SemanticConstraint list) =
             match cs with
             | [] -> ValueNone
@@ -490,13 +479,16 @@ module internal UnificationInferControlFlow =
                             | ValueSome mnTy, ValueSome curTy ->
                                 match zonk ctx.Store mnTy with
                                 | TyFun(_, TyBool) ->
-                                    // `Current` is a property — its type IS the element type.
-                                    ValueSome(
-                                        zonk ctx.Store curTy,
-                                        ForInEnumMembersG.ConstrainedInterface(ifaceKey, ifaceArgs),
-                                        false,
-                                        false
-                                    )
+                                    ValueSome
+                                        {
+                                            // `Current` is a property — its type IS the element type.
+                                            ElemTy = zonk ctx.Store curTy
+                                            Members = ForInEnumMembers.ConstrainedInterface(ifaceKey, ifaceArgs)
+                                            // `constrained.` already addresses a struct `E`, and no
+                                            // constraint here is probed for `IDisposable`.
+                                            IsValueType = false
+                                            Disposable = false
+                                        }
                                 | _ -> scan rest
                             | _ -> scan rest
                         | _ -> scan rest
@@ -526,15 +518,15 @@ module internal UnificationInferControlFlow =
                                 match zonk ctx.Store mty with
                                 | TyFun(_, enumTy) ->
                                     match tryConstrainedEnumeratorMembers ctx enumTy with
-                                    | ValueSome(elemTy, members, isValueType, dispose) ->
+                                    | ValueSome probe ->
                                         ValueSome(
-                                            elemTy,
+                                            probe.ElemTy,
                                             ForInEnumeratorG.Pattern(
                                                 enumTy,
                                                 ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs),
-                                                members,
-                                                isValueType,
-                                                dispose
+                                                probe.Members,
+                                                probe.IsValueType,
+                                                probe.Disposable
                                             )
                                         )
                                     | ValueNone -> scan rest

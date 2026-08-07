@@ -1507,18 +1507,6 @@ difference is `for i = 1 to li.Idents.Length - 1` versus `- 2`. One function tak
 of trailing segments to leave unresolved (0 or 1) collapses them, and makes the "stops one
 short so the last segment can be resolved arg-aware" fact a parameter rather than a doc line.
 
-### `InferControlFlow.fs:98` — the enumerator probes return bare 2-, 3- and 4-tuples of unnamed bools
-
-`probeLocalEnumerator` (`:98`) returns `(SemType * bool * bool)` and
-`tryConstrainedEnumeratorMembers` (`:452`) / `tryConstrainedTyparEnumerator` (`:471`) return
-`(SemType * ForInEnumMembers * bool * bool)` — two adjacent unnamed bools, `isValueType` and
-`disposable`, that only the doc lines distinguish. `probeExternalEnumerator`'s private
-`ExternalEnumProbe` record is exactly the missing type: widening it (or a sibling with the
-member axis) and returning it from all three would delete the surviving
-`Returns (elemTy, isValueType, disposable)` doc lines the sweep kept solely because the tuple
-is unnamed, and would make the `false, false` literal at the constrained-typar hit
-self-describing.
-
 ### `InferControlFlow.fs:118` — a ref-struct enumerator with a pattern `Dispose()` is silently never disposed
 
 Both enumerator probes decide disposability by scanning for `System.IDisposable`, and the

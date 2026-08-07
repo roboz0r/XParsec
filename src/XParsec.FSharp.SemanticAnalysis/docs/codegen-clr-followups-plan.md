@@ -171,9 +171,10 @@ disposal would take that branch and `brfalse` on a local that may be a value typ
 invalid IL, and the every-other-instruction path around it already addresses the same local.
 
 It is unreachable today only because the producer hard-codes it away:
-`InferControlFlow.tryConstrainedEnumeratorMembers` returns `dispose = false` for every
-`ForInEnumMembersG.ConstrainedInterface`. Nothing in either type records that coupling, and the
-first constrained-typar enumerator that is `IDisposable` breaks it. The disposal branch should
+`InferControlFlow.tryConstrainedTyparEnumerator` yields `Disposable = false` for every
+`ForInEnumMembersG.ConstrainedInterface`. Nothing in either type enforces that coupling — the
+named field states it, no more — and the first constrained-typar enumerator that is
+`IDisposable` breaks it. The disposal branch should
 key on "is the receiver addressed", which is `IsValueType || MembersViaConstrained` — the same
 predicate `loadEnumReceiver` already uses — not on `IsValueType` alone. Pairs with B14.
 
